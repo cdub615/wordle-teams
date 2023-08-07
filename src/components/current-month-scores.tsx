@@ -1,9 +1,15 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { players } from '@/lib/data'
+import { Team } from '@/lib/types'
 
-const CurrentMonthScores = () => {
+const CurrentMonthScores = ({ team }: { team: Team }) => {
   const today = new Date()
-  const sorted = players.sort((a, b) => a.aggregateScoreByMonth(today) + b.aggregateScoreByMonth(today))
+  const sorted = !!team.players
+    ? team.players.sort(
+        (a, b) =>
+          a.aggregateScoreByMonth(today, team.playWeekends, team.scoringSystem) +
+          b.aggregateScoreByMonth(today, team.playWeekends, team.scoringSystem)
+      )
+    : []
 
   return (
     <Card className='h-fit'>
@@ -16,7 +22,7 @@ const CurrentMonthScores = () => {
           {sorted.map((player) => (
             <li key={player.name} className='flex justify-between'>
               <div>{player.name}</div>
-              <div>{player.aggregateScoreByMonth(today)}</div>
+              <div>{player.aggregateScoreByMonth(today, team.playWeekends, team.scoringSystem)}</div>
             </li>
           ))}
         </ul>
