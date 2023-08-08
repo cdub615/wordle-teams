@@ -1,7 +1,15 @@
 import { Team } from '@/lib/types'
-import { ColumnDef } from '@tanstack/react-table'
-import { format, isSameMonth, isWeekend } from 'date-fns'
-import { MonthScoresRow } from './scores-table'
+import { ColumnDef, VisibilityState } from '@tanstack/react-table'
+import {
+  addMonths,
+  differenceInMonths,
+  format,
+  getDaysInMonth,
+  isSameMonth,
+  isWeekend,
+  startOfMonth,
+} from 'date-fns'
+import { MonthScoresRow } from './scores-table-types'
 
 const getData = (team: Team, month: Date): MonthScoresRow[] => {
   const data: MonthScoresRow[] = []
@@ -83,4 +91,44 @@ const getColumns = (month: Date, playWeekends: boolean) => {
   return columns
 }
 
-export { getColumns, getData }
+const getDayVisibility = (month: Date): VisibilityState => {
+  const numDays = getDaysInMonth(month)
+  const dayVisibility: VisibilityState = {}
+  for (let i = 29; i <= 31; i++) {
+    if (i > numDays) dayVisibility[`day${i}`] = false
+  }
+  return dayVisibility
+}
+
+const getMonths = (team: Team): Date[] => {
+  const earliest = team.players
+    .map((player) => player.scores[0]?.date ?? new Date())
+    .sort((a: Date, b: Date) => (a < b ? -1 : a == b ? 0 : 1))[0]
+
+  const monthsToCurrent = differenceInMonths(new Date(), earliest)
+  let monthOption = startOfMonth(earliest)
+  let options: Date[] = []
+  for (let i = 0; i <= monthsToCurrent; i++) {
+    options.push(monthOption)
+    monthOption = startOfMonth(addMonths(monthOption, 1))
+  }
+  return options
+}
+
+const playerNameHeaderClass = 'sticky left-0 rounded-tl-lg bg-[rgb(255,255,255)] dark:bg-[rgb(13,10,10)]'
+const playerNameRowClass = 'sticky left-0 rounded-bl-lg bg-[rgb(255,255,255)] dark:bg-[rgb(13,10,10)]'
+const monthTotalHeaderClass = 'sticky right-0 rounded-tr-lg bg-[rgb(255,255,255)] dark:bg-[rgb(13,10,10)]'
+const monthTotalRowClass = 'sticky right-0 rounded-br-lg bg-[rgb(255,255,255)] dark:bg-[rgb(13,10,10)]'
+
+const getHeaderClass = (id: string) => {
+  if (id === 'playerName') return playerNameHeaderClass
+  if (id === 'monthTotal') return monthTotalHeaderClass
+  return ''
+}
+const getRowClass = (id: string) => {
+  if (id.includes('playerName')) return playerNameRowClass
+  if (id.includes('monthTotal')) return monthTotalRowClass
+  return ''
+}
+
+export { getColumns, getData, getDayVisibility, getHeaderClass, getMonths, getRowClass }

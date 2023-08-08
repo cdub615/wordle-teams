@@ -1,4 +1,5 @@
 import { isDate, isSameMonth, isWeekend, parseISO } from 'date-fns'
+import { Dispatch, SetStateAction } from 'react'
 import { v4 as uuid, validate } from 'uuid'
 
 export class DailyScore {
@@ -76,7 +77,7 @@ export class Player {
 }
 
 export class Team {
-  id: string | null
+  id: string
   name: string
   playWeekends: boolean
   private _scoringSystem: number[][] = defaultSystem

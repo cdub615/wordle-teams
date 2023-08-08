@@ -1,7 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Team } from '@/lib/types'
+import AppContext from '@/lib/app-context'
+import { useContext } from 'react'
 
-const MyTeams = ({ teams }: { teams: Team[] }) => {
+const MyTeams = () => {
+  const appContext = useContext(AppContext)
+  const teams = appContext?.teams ?? []
   return (
     <Card className='h-fit'>
       <CardHeader>

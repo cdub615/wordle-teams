@@ -4,6 +4,7 @@ import CurrentMonthScores from '@/components/current-month-scores'
 import MyTeams from '@/components/my-teams'
 import ScoresTable from '@/components/scores-table/scores-table'
 import ScoringSystem from '@/components/scoring-system'
+import { AppContextProvider } from '@/lib/app-context'
 import { Team } from '@/lib/types'
 import { startOfMonth } from 'date-fns'
 import { useState } from 'react'
@@ -25,21 +26,18 @@ const AppGrid = ({ teamsData }: { teamsData: any[] }) => {
   const [selectedMonth, setSelectedMonth] = useState(startOfMonth(new Date()))
 
   return (
-    <div className='p-4 grid gap-2 @md/root:grid-cols-3 @md/root:p-12 @md/root:gap-6'>
-      <ScoresTable
-        teams={teams}
-        team={selectedTeam}
-        setTeam={setSelectedTeam}
-        month={new Date(selectedMonth)}
-        setMonth={setSelectedMonth}
-        classes={'@md/root:col-span-3'}
-      />
-      <MyTeams teams={teams} />
-      <CurrentMonthScores team={selectedTeam} />
-      <ScoringSystem teamSystem={selectedTeam.scoringSystem} classes={'@md/root:row-span-3'} />
-      <CurrentMonthScores team={selectedTeam} />
-      <CurrentMonthScores team={selectedTeam} />
-    </div>
+    <AppContextProvider value={{ teams, selectedTeam, setSelectedTeam, selectedMonth, setSelectedMonth }}>
+      <div className='p-4 grid gap-2 @md/root:grid-cols-3 @md/root:p-12 @md/root:gap-6'>
+        <ScoresTable
+          classes={'@md/root:col-span-3'}
+        />
+        <MyTeams />
+        <CurrentMonthScores />
+        <ScoringSystem classes={'@md/root:row-span-3'} />
+        <CurrentMonthScores />
+        <CurrentMonthScores />
+      </div>
+    </AppContextProvider>
   )
 }
 
