@@ -9,6 +9,18 @@ interface GlobalContext {
   setSelectedMonth: Dispatch<SetStateAction<Date>>
 }
 
-const AppContext = createContext<GlobalContext | null>(null)
+const teams: Team[] = []
+const setSelectedTeam: Dispatch<SetStateAction<Team>> = () => {}
+const setSelectedMonth: Dispatch<SetStateAction<Date>> = () => {}
+
+const defaultContext: GlobalContext = {
+  teams,
+  selectedTeam: teams[0],
+  setSelectedTeam,
+  selectedMonth: new Date(),
+  setSelectedMonth,
+}
+
+const AppContext = createContext<GlobalContext>(defaultContext)
 export const AppContextProvider = AppContext.Provider
 export default AppContext

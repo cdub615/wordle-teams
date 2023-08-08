@@ -4,7 +4,7 @@ import { useContext } from 'react'
 
 const MyTeams = () => {
   const appContext = useContext(AppContext)
-  const teams = appContext?.teams ?? []
+  const {teams} = appContext
   return (
     <Card className='h-fit'>
       <CardHeader>
