@@ -1,7 +1,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import AppContext from '@/lib/app-context'
+import { Settings2 } from 'lucide-react'
 import { useContext } from 'react'
+import { Button } from './ui/button'
 
 type Score = {
   attempts: number
@@ -19,7 +21,14 @@ const ScoringSystem = ({ classes }: { classes?: string }) => {
   return (
     <Card className={classes}>
       <CardHeader>
-        <CardTitle>Scoring System</CardTitle>
+        <CardTitle>
+          <div className='flex justify-between'>
+            <div>ScoringSystem</div>
+            <Button size={'icon'} variant={'outline'}>
+              <Settings2 size={24} />
+            </Button>
+          </div>
+        </CardTitle>
         <CardDescription>Points awarded by number of attempts</CardDescription>
       </CardHeader>
       <CardContent>

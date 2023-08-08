@@ -1,8 +1,9 @@
 'use client'
 
 import CurrentMonthScores from '@/components/current-month-scores'
+import CurrentTeam from '@/components/current-team'
 import MyTeams from '@/components/my-teams'
-import ScoresTable from '@/components/scores-table/scores-table'
+import { ScoresTable } from '@/components/scores-table'
 import ScoringSystem from '@/components/scoring-system'
 import { AppContextProvider } from '@/lib/app-context'
 import { Team } from '@/lib/types'
@@ -25,11 +26,9 @@ const AppGrid = ({ teamsData }: { teamsData: any[] }) => {
   return (
     <AppContextProvider value={{ teams, selectedTeam, setSelectedTeam, selectedMonth, setSelectedMonth }}>
       <div className='p-4 grid gap-2 @md/root:grid-cols-3 @md/root:p-12 @md/root:gap-6'>
-        <ScoresTable
-          classes={'@md/root:col-span-3'}
-        />
+        <ScoresTable classes={'@md/root:col-span-3'} />
+        <CurrentTeam />
         <MyTeams />
-        <CurrentMonthScores />
         <ScoringSystem classes={'@md/root:row-span-3'} />
         <CurrentMonthScores />
         <CurrentMonthScores />

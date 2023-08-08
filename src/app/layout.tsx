@@ -1,7 +1,8 @@
 import BottomBar from '@/components/bottom-bar'
-import { ThemeProvider } from '@/components/theme-provider'
+import ThemeProvider from '@/components/theme-provider'
 import TopBar from '@/components/top-bar'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Toaster } from '@/components/ui/toaster'
 import { cn } from '@/lib/utils'
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </ScrollArea>
             <BottomBar />
           </div>
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

@@ -15,9 +15,8 @@ import {
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import AppContext from '@/lib/app-context'
-import { cn } from '@/lib/utils'
 import { useContext, useMemo, useState } from 'react'
-import ScoresTableHeader from './scores-table-header'
+import { ScoresTableHeader } from './scores-table-header'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
 
 const ScoresTable = ({ classes }: { classes?: string }) => {
@@ -65,7 +64,7 @@ const ScoresTable = ({ classes }: { classes?: string }) => {
   })
 
   return (
-    <div className={cn('w-full', classes)}>
+    <div className={classes}>
       <ScoresTableHeader />
       <div className='rounded-md border text-xs @md/root:text-base'>
         <Table>
