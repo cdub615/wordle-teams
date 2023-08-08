@@ -21,7 +21,7 @@ const ScoresTableHeader = ({ classes }: { classes?: string }) => {
   const [month, setMonth] = useState(selectedMonth)
   const [team, setTeam] = useState(selectedTeam)
   useEffect(() => setSelectedMonth(month), [setSelectedMonth, month])
-  useEffect(() => setSelectedTeam(team), [team])
+  useEffect(() => setSelectedTeam(team), [setSelectedTeam, team])
   const monthOptions: Date[] = getMonths(selectedTeam)
 
   const handleMonthChange = (m: string) => {
@@ -73,7 +73,7 @@ const ScoresTableHeader = ({ classes }: { classes?: string }) => {
       </DropdownMenu>
       <Button>Create Team</Button>
       <Button>Add Player</Button>
-      <Button>Add Today's Board</Button>
+      <Button>Add Today&apos;s Board</Button>
     </div>
   )
 }
