@@ -1,9 +1,17 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { players } from '@/lib/data'
+import AppContext from '@/lib/app-context'
+import { useContext } from 'react'
 
 const CurrentMonthScores = () => {
-  const today = new Date()
-  const sorted = players.sort((a, b) => a.aggregateScoreByMonth(today) + b.aggregateScoreByMonth(today))
+  const appContext = useContext(AppContext)
+  const { selectedTeam, selectedMonth } = appContext
+  const sorted = !!selectedTeam.players
+    ? selectedTeam.players.sort(
+        (a, b) =>
+          a.aggregateScoreByMonth(selectedMonth, selectedTeam.playWeekends, selectedTeam.scoringSystem) +
+          b.aggregateScoreByMonth(selectedMonth, selectedTeam.playWeekends, selectedTeam.scoringSystem)
+      )
+    : []
 
   return (
     <Card className='h-fit'>
@@ -16,7 +24,13 @@ const CurrentMonthScores = () => {
           {sorted.map((player) => (
             <li key={player.name} className='flex justify-between'>
               <div>{player.name}</div>
-              <div>{player.aggregateScoreByMonth(today)}</div>
+              <div>
+                {player.aggregateScoreByMonth(
+                  selectedMonth,
+                  selectedTeam?.playWeekends,
+                  selectedTeam.scoringSystem
+                )}
+              </div>
             </li>
           ))}
         </ul>
