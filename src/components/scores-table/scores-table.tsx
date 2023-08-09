@@ -66,8 +66,8 @@ const ScoresTable = ({ classes }: { classes?: string }) => {
   return (
     <div className={classes}>
       <ScoresTableHeader />
-      <div className='rounded-md border text-xs @md/root:text-base'>
-        <Table>
+      <div className='rounded-md border text-xs max-w-[96vw] @md:text-base'>
+        <Table className='relative'>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>

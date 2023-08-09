@@ -25,11 +25,11 @@ const AppGrid = ({ teamsData }: { teamsData: any[] }) => {
 
   return (
     <AppContextProvider value={{ teams, selectedTeam, setSelectedTeam, selectedMonth, setSelectedMonth }}>
-      <div className='p-4 grid gap-2 @md/root:grid-cols-3 @md/root:p-12 @md/root:gap-6'>
-        <ScoresTable classes={'@md/root:col-span-3'} />
+      <div className='p-2 grid gap-2 @md:grid-cols-3 @md:p-12 @md:gap-6'>
+        <ScoresTable classes={'@md:col-span-3'} />
         <CurrentTeam />
         <MyTeams />
-        <ScoringSystem classes={'@md/root:row-span-3'} />
+        <ScoringSystem classes={'@md:row-span-3'} />
         <CurrentMonthScores />
         <CurrentMonthScores />
       </div>

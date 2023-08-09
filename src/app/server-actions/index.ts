@@ -1,3 +1,4 @@
+import addBoard from './add-board'
 import createTeam from './create-team-action'
 
-export { createTeam }
+export { addBoard, createTeam }

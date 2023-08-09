@@ -5,16 +5,16 @@ import { Dialog, DialogTrigger } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { ListPlus, Plus } from 'lucide-react'
 import { useState } from 'react'
-import AddScore from './add-score'
+import AddBoard from './add-board'
 import CreateTeam from './create-team'
 import MonthDropdown from './month-dropdown'
 import TeamsDropdown from './teams-dropdown'
 
 const ScoresTableHeader = ({ classes }: { classes?: string }) => {
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
-  const [addScoreOpen, setAddScoreOpen] = useState(false)
+  const [addBoardOpen, setAddBoardOpen] = useState(false)
   return (
-    <div className={cn('flex items-center py-4 space-x-4', classes)}>
+    <div className={cn('flex items-center py-2 space-x-2 @md:py-4 @md:space-x-4', classes)}>
       <MonthDropdown />
       <TeamsDropdown />
       <div className='flex-grow'>
@@ -27,13 +27,13 @@ const ScoresTableHeader = ({ classes }: { classes?: string }) => {
           <CreateTeam setCreateTeamOpen={setCreateTeamOpen} />
         </Dialog>
       </div>
-      <Dialog open={addScoreOpen} onOpenChange={setAddScoreOpen}>
+      <Dialog open={addBoardOpen} onOpenChange={setAddBoardOpen}>
         <DialogTrigger>
           <Button size={'icon'}>
             <Plus size={24} />
           </Button>
         </DialogTrigger>
-        <AddScore setAddScoreOpen={setAddScoreOpen} />
+        <AddBoard setAddBoardOpen={setAddBoardOpen} />
       </Dialog>
     </div>
   )

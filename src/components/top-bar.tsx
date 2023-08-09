@@ -6,7 +6,7 @@ import { ModeToggle } from './mode-toggle'
 
 const TopBar = () => {
   return (
-    <header className='h-0 invisible @md/root:h-fit @md/root:visible'>
+    <header className='h-0 invisible @md:h-fit @md:visible'>
       <div className='flex justify-end items-center p-6 space-x-4'>
         <div className='flex-grow flex justify-center'>
           <h1 className='text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'>
