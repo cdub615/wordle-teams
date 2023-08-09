@@ -13,6 +13,7 @@ import TeamsDropdown from './teams-dropdown'
 const ScoresTableHeader = ({ classes }: { classes?: string }) => {
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
   const [addBoardOpen, setAddBoardOpen] = useState(false)
+
   return (
     <div className={cn('flex items-center py-2 space-x-2 @md:py-4 @md:space-x-4', classes)}>
       <MonthDropdown />
