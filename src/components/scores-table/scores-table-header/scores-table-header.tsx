@@ -19,7 +19,7 @@ const ScoresTableHeader = ({ classes }: { classes?: string }) => {
       <TeamsDropdown />
       <div className='flex-grow'>
         <Dialog open={createTeamOpen} onOpenChange={setCreateTeamOpen}>
-          <DialogTrigger>
+          <DialogTrigger asChild>
             <Button variant={'outline'} size={'icon'}>
               <ListPlus size={24} />
             </Button>
@@ -28,7 +28,7 @@ const ScoresTableHeader = ({ classes }: { classes?: string }) => {
         </Dialog>
       </div>
       <Dialog open={addBoardOpen} onOpenChange={setAddBoardOpen}>
-        <DialogTrigger>
+        <DialogTrigger asChild>
           <Button size={'icon'}>
             <Plus size={24} />
           </Button>

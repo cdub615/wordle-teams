@@ -23,7 +23,7 @@ const ScoringSystem = ({ classes }: { classes?: string }) => {
       <CardHeader>
         <CardTitle>
           <div className='flex justify-between'>
-            <div>ScoringSystem</div>
+            <div>Scoring System</div>
             <Button size={'icon'} variant={'outline'}>
               <Settings2 size={24} />
             </Button>

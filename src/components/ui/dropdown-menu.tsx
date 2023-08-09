@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 
 const DropdownMenu = DropdownMenuPrimitive.Root
 
-const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
+const DropdownMenuTrigger = ({...props}) => <DropdownMenuPrimitive.Trigger {...props}  suppressHydrationWarning />
 
 const DropdownMenuGroup = DropdownMenuPrimitive.Group
 
