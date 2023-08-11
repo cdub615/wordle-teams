@@ -5,10 +5,13 @@ import CurrentTeam from '@/components/current-team'
 import MyTeams from '@/components/my-teams'
 import { ScoresTable } from '@/components/scores-table'
 import ScoringSystem from '@/components/scoring-system'
+import { AlertDialog, AlertDialogContent } from '@/components/ui/alert-dialog'
 import { AppContextProvider } from '@/lib/app-context'
-import { Team } from '@/lib/types'
+import { Team, User } from '@/lib/types'
+import { Session } from '@supabase/auth-helpers-nextjs'
 import { startOfMonth } from 'date-fns'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import Login from './login'
 
 /*
   create team with name, search for player by email or name, and invite if not found
@@ -18,13 +21,23 @@ import { useState } from 'react'
   wall of shame
 */
 
-const AppGrid = ({ teamsData }: { teamsData: any[] }) => {
+const AppGrid = ({ teamsData, session }: { teamsData: any[]; session: Session | null }) => {
   const teams = teamsData.map((t: any) => new Team(t))
   const [selectedTeam, setSelectedTeam] = useState(teams[0])
   const [selectedMonth, setSelectedMonth] = useState(startOfMonth(new Date()))
+  const [loginOpen, setLoginOpen] = useState(false)
+
+  useEffect(() => {
+    if (session) setLoginOpen(false)
+    else setLoginOpen(true)
+  }, [session, loginOpen])
+
+  if (!teamsData) return <div>Loading...</div>
 
   return (
-    <AppContextProvider value={{ teams, selectedTeam, setSelectedTeam, selectedMonth, setSelectedMonth }}>
+    <AppContextProvider
+      value={{ teams, selectedTeam, setSelectedTeam, selectedMonth, setSelectedMonth }}
+    >
       <div className='p-2 grid gap-2 @md:grid-cols-3 @md:p-12 @md:gap-6'>
         <ScoresTable classes={'@md:col-span-3'} />
         <CurrentTeam />
@@ -33,6 +46,11 @@ const AppGrid = ({ teamsData }: { teamsData: any[] }) => {
         <CurrentMonthScores />
         <CurrentMonthScores />
       </div>
+      <AlertDialog open={loginOpen} onOpenChange={setLoginOpen}>
+        <AlertDialogContent>
+          <Login />
+        </AlertDialogContent>
+      </AlertDialog>
     </AppContextProvider>
   )
 }

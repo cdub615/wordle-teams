@@ -1,6 +1,7 @@
 import AppGrid from '@/components/app-grid'
 import { baseUrl } from '@/lib/utils'
-import { headers } from 'next/headers'
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { cookies, headers } from 'next/headers'
 
 const getTeams = async () => {
   const res = await fetch(`${baseUrl(headers().get('host'))}/api/my-teams`)
@@ -11,9 +12,14 @@ const getTeams = async () => {
 }
 
 const Home = async () => {
+  const supabase = createServerComponentClient({ cookies })
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
   const teamsData = await getTeams()
 
-  return teamsData ? <AppGrid teamsData={teamsData} /> : <div>Loading...</div>
+  return teamsData ? <AppGrid teamsData={teamsData} session={session} /> : <div>Loading...</div>
 }
 
 export default Home

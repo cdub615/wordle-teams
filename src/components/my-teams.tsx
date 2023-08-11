@@ -5,8 +5,7 @@ import { useContext } from 'react'
 import { Button } from './ui/button'
 
 const MyTeams = () => {
-  const appContext = useContext(AppContext)
-  const { teams } = appContext
+  const { teams } = useContext(AppContext)
   return (
     <Card className='h-fit'>
       <CardHeader>

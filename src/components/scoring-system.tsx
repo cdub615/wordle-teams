@@ -11,10 +11,11 @@ type Score = {
 }
 
 const ScoringSystem = ({ classes }: { classes?: string }) => {
-  const appContext = useContext(AppContext)
-  const teamSystem = appContext.selectedTeam.scoringSystem
+  const {
+    selectedTeam: { scoringSystem },
+  } = useContext(AppContext)
   const scores: Score[] = []
-  teamSystem.forEach((entry) => {
+  scoringSystem.forEach((entry) => {
     scores.push({ attempts: entry[0], points: entry[1] })
   })
 

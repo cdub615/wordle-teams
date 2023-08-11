@@ -3,8 +3,7 @@ import AppContext from '@/lib/app-context'
 import { useContext } from 'react'
 
 const CurrentMonthScores = () => {
-  const appContext = useContext(AppContext)
-  const { selectedTeam, selectedMonth } = appContext
+  const { selectedTeam, selectedMonth } = useContext(AppContext)
   const sorted = !!selectedTeam.players
     ? selectedTeam.players.sort(
         (a, b) =>

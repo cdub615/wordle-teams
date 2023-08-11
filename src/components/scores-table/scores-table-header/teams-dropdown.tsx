@@ -15,8 +15,7 @@ import { ChevronDown } from 'lucide-react'
 import { useContext, useEffect, useState } from 'react'
 
 const TeamsDropdown = () => {
-  const appContext = useContext(AppContext)
-  const { selectedTeam, setSelectedTeam, teams } = appContext
+  const { selectedTeam, setSelectedTeam, teams } = useContext(AppContext)
   const [team, setTeam] = useState(selectedTeam)
   useEffect(() => setSelectedTeam(team), [setSelectedTeam, team])
 

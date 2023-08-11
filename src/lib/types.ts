@@ -1,6 +1,11 @@
 import { isDate, isSameMonth, isWeekend, parseISO } from 'date-fns'
-import { Dispatch, SetStateAction } from 'react'
 import { v4 as uuid, validate } from 'uuid'
+
+export type User = {
+  firstName: string
+  lastName: string
+  email: string | undefined
+}
 
 export class DailyScore {
   date: Date

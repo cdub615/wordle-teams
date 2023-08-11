@@ -1,6 +1,6 @@
 'use client'
 
-import {Button} from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,8 +17,7 @@ import { useContext, useEffect, useState } from 'react'
 import { getMonths } from '../table-config'
 
 const MonthDropdown = () => {
-  const appContext = useContext(AppContext)
-  const { selectedMonth, setSelectedMonth, selectedTeam } = appContext
+  const { selectedMonth, setSelectedMonth, selectedTeam } = useContext(AppContext)
   const [month, setMonth] = useState(selectedMonth)
   const monthOptions: Date[] = getMonths(selectedTeam)
   useEffect(() => setSelectedMonth(month), [setSelectedMonth, month])

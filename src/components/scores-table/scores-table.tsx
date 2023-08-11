@@ -20,8 +20,7 @@ import { ScoresTableHeader } from './scores-table-header'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
 
 const ScoresTable = ({ classes }: { classes?: string }) => {
-  const appContext = useContext(AppContext)
-  const { selectedTeam, selectedMonth } = appContext
+  const { selectedTeam, selectedMonth } = useContext(AppContext)
 
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
