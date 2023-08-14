@@ -1,5 +1,3 @@
-'use server'
-
 import InviteEmail from '@/components/invite-email'
 import { Database } from '@/lib/database.types'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
