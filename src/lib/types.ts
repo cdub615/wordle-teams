@@ -1,5 +1,9 @@
-import { isDate, isSameMonth, isWeekend, parseISO } from 'date-fns'
-import { v4 as uuid, validate } from 'uuid'
+import { isSameMonth, isWeekend } from 'date-fns'
+import { Database } from './database.types'
+export type players = Database['public']['Tables']['players']['Row']
+export type daily_scores = Database['public']['Tables']['daily_scores']['Row']
+export type teams = Database['public']['Tables']['teams']['Row']
+export type profiles = Database['public']['Tables']['profiles']['Row']
 
 export type User = {
   firstName: string
@@ -8,15 +12,30 @@ export type User = {
 }
 
 export class DailyScore {
-  date: Date
-  attempts: number = 0
+  id: string
+  date: string
+  answer: string
+  guesses: string[]
 
-  constructor(score: any) {
-    if (score.date && isDate(score.date)) this.date = score.date
-    else if (score.date && typeof score.date === 'string') this.date = parseISO(score.date)
-    else throw new Error('Valid date is required for DailyScore')
+  constructor(id: string, date: string, answer: string, guesses: string[]) {
+    this.id = id
+    this.date = date
+    this.answer = answer
+    this.guesses = guesses
+  }
 
-    this.attempts = score.attempts ?? 0
+  public fromDbDailyScore(daily_scores: daily_scores) {
+    const { id, date, answer, guesses } = daily_scores
+    return new DailyScore(id, date, answer ?? '', guesses)
+  }
+
+  public hydrate(score: DailyScore): DailyScore {
+    const { id, date, answer, guesses } = score
+    return new DailyScore(id, date, answer, guesses)
+  }
+
+  public get attempts(): number {
+    return this.guesses?.length ?? 0
   }
 
   public getScore = (system: number[][]): number => {
@@ -27,6 +46,7 @@ export class DailyScore {
 }
 
 export const defaultSystem: number[][] = [
+  [0, 0],
   [1, 5],
   [2, 3],
   [3, 2],
@@ -34,22 +54,46 @@ export const defaultSystem: number[][] = [
   [5, 0],
   [6, -1],
   [7, -3],
-  [8, 0],
 ]
 
 export class Player {
   id: string
-  name: string
+  firstName: string
+  lastName: string
+  email: string
   private _scores: DailyScore[] = []
 
-  constructor(player: any) {
-    this.id = player.id && validate(player.id) ? player.id : uuid()
-    this.name = player.name
-    if (player._scores) this._scores = player._scores.map((score: any) => new DailyScore(score))
+  constructor(id: string, firstName: string, lastName: string, email: string, scores?: DailyScore[]) {
+    this.id = id
+    this.firstName = firstName
+    this.lastName = lastName
+    this.email = email
+    if (scores) this._scores = scores
+  }
+
+  public fromDbPlayer(player: players, daily_scores?: daily_scores[]) {
+    const { id, first_name: firstName, last_name: lastName, email } = player
+    const scores = daily_scores?.map((s) => DailyScore.prototype.fromDbDailyScore(s))
+    return new Player(id, firstName, lastName, email, scores)
+  }
+
+  public hydrate(player: Player): Player {
+    const { id, firstName, lastName, email, _scores } = player
+    return new Player(
+      id,
+      firstName,
+      lastName,
+      email,
+      _scores.map((s) => DailyScore.prototype.hydrate(s))
+    )
   }
 
   public get scores() {
     return this._scores
+  }
+
+  public get fullName() {
+    return `${this.firstName} ${this.lastName}`
   }
 
   public addScore(score: DailyScore): DailyScore[] {
@@ -57,43 +101,102 @@ export class Player {
     return this._scores
   }
 
-  public deleteScore(date: Date): DailyScore[] {
+  public deleteScore(date: string): DailyScore[] {
     const indexToDelete = this._scores.findIndex((s) => s.date === date)
     this._scores.splice(indexToDelete, 1)
     return this._scores
   }
 
-  public updateScoreAttempts(date: Date, attempts: number): DailyScore[] {
+  public updateGuesses(date: string, guesses: string[]): DailyScore[] {
     const score = this._scores.find((s) => s.date === date)
     if (score) {
       this._scores.splice(this._scores.indexOf(score), 1)
-      this._scores.push(new DailyScore({ date, attempts }))
+      this._scores.push(new DailyScore(score.id, date, score.answer, guesses))
       return this._scores
     }
-    throw new Error(`No score found for date: ${date.toDateString()}`)
+    throw new Error(`No score found for date: ${date}`)
   }
 
-  public aggregateScoreByMonth(date: Date, playWeekends: boolean, scoringSystem: number[][]) {
+  public aggregateScoreByMonth(date: string, playWeekends: boolean, scoringSystem: number[][]) {
     const scoresForMonth = this._scores.filter(
-      (s) => isSameMonth(s.date, date) && (playWeekends || !isWeekend(s.date))
+      (s) => isSameMonth(new Date(s.date), new Date(date)) && (playWeekends || !isWeekend(new Date(s.date)))
     )
-    return scoresForMonth.map((s) => s.getScore(scoringSystem)).reduce((prev, curr) => prev + curr)
+    const scores = scoresForMonth.map((s) => s.getScore(scoringSystem))
+    return scores.length > 0 ? scores.reduce((prev, curr) => prev + curr) : 0
   }
 }
 
 export class Team {
   id: string
   name: string
+  creator: string
   playWeekends: boolean
+  invited: string[]
   private _scoringSystem: number[][] = defaultSystem
   private _players: Player[] = []
 
-  constructor(team: any) {
-    this.id = team.id && validate(team.id) ? team.id : uuid()
-    this.name = team.name
-    this.playWeekends = team.playWeekends ?? false
+  constructor(
+    id: string,
+    name: string,
+    creator: string,
+    playWeekends: boolean,
+    invited: string[],
+    scoringSystem?: number[][],
+    players?: Player[]
+  ) {
+    this.id = id
+    this.name = name
+    this.creator = creator
+    this.playWeekends = playWeekends
+    this.invited = invited
 
-    if (team._players) this._players = team._players.map((player: any) => new Player(player))
+    if (scoringSystem) this._scoringSystem = scoringSystem
+    if (players) this._players = players
+  }
+
+  public fromDbTeam(team: teams, dbPlayers?: players[]) {
+    const {
+      id,
+      name,
+      creator,
+      play_weekends: playWeekends,
+      n_a,
+      one_guess,
+      two_guesses,
+      three_guesses,
+      four_guesses,
+      five_guesses,
+      six_guesses,
+      failed,
+      invited
+    } = team
+    const scoringSystem: number[][] = [
+      [0, n_a],
+      [1, one_guess],
+      [2, two_guesses],
+      [3, three_guesses],
+      [4, four_guesses],
+      [5, five_guesses],
+      [6, six_guesses],
+      [7, failed],
+    ]
+
+    const players = dbPlayers?.map((p) => Player.prototype.fromDbPlayer(p))
+
+    return new Team(id, name, creator, playWeekends, invited, scoringSystem, players)
+  }
+
+  public hydrate(team: Team): Team {
+    const { id, name, creator, playWeekends, invited, scoringSystem, _players } = team
+    return new Team(
+      id,
+      name,
+      creator,
+      playWeekends,
+      invited,
+      scoringSystem,
+      _players.map((p) => Player.prototype.hydrate(p))
+    )
   }
 
   public get players() {

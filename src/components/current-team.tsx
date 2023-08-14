@@ -1,28 +1,35 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import AppContext from '@/lib/app-context'
-import { Settings2 } from 'lucide-react'
-import { useContext } from 'react'
-import { Button } from './ui/button'
+import { useContext, useState } from 'react'
 
-const CurrentTeam = () => {
+// TODO get invite email working
+const CurrentTeam = ({ userId }: { userId: string }) => {
   const { selectedTeam } = useContext(AppContext)
+  const [inviteOpen, setInviteOpen] = useState(false)
   return (
     <Card className='h-fit'>
       <CardHeader>
         <CardTitle>
           <div className='flex justify-between'>
             <div>{selectedTeam.name}</div>
-            <Button size={'icon'} variant={'outline'}>
-              <Settings2 size={24} />
-            </Button>
+            {/* {userId === selectedTeam.creator && (
+              <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+                <DialogTrigger asChild>
+                  <Button size={'icon'} variant={'outline'}>
+                    <UserPlus2 size={22} />
+                  </Button>
+                </DialogTrigger>
+                <InvitePlayer setInviteOpen={setInviteOpen} />
+              </Dialog>
+            )} */}
           </div>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <ul className='flex flex-col space-y-2'>
           {selectedTeam.players.map((player) => (
-            <li key={player.name}>
-              <div>{player.name}</div>
+            <li key={player.fullName}>
+              <div>{player.fullName}</div>
             </li>
           ))}
         </ul>

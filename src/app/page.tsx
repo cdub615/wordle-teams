@@ -1,9 +1,10 @@
 import AppGrid from '@/components/app-grid'
+import { Team } from '@/lib/types'
 import { baseUrl } from '@/lib/utils'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies, headers } from 'next/headers'
 
-const getTeams = async () => {
+const getTeams = async (): Promise<Team[]> => {
   const res = await fetch(`${baseUrl(headers().get('host'))}/api/my-teams`)
 
   if (!res.ok) throw new Error('Failed to fetch teams')

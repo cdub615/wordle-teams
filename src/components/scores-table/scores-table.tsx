@@ -16,11 +16,10 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import AppContext from '@/lib/app-context'
 import { useContext, useMemo, useState } from 'react'
-import { ScoresTableHeader } from './scores-table-header'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
 
 const ScoresTable = ({ classes }: { classes?: string }) => {
-  const { selectedTeam, selectedMonth } = useContext(AppContext)
+  const { selectedTeam, selectedMonth, teams } = useContext(AppContext)
 
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -64,7 +63,6 @@ const ScoresTable = ({ classes }: { classes?: string }) => {
 
   return (
     <div className={classes}>
-      <ScoresTableHeader />
       <div className='rounded-md border text-xs max-w-[96vw] @md:text-base'>
         <Table className='relative'>
           <TableHeader>

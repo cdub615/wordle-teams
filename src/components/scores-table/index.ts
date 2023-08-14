@@ -1,1 +1,3 @@
-export { default as ScoresTable } from './scores-table'
+import ScoresTable from './scores-table'
+
+export default ScoresTable

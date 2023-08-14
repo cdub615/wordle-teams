@@ -7,7 +7,6 @@ export type ScoresTableHeaderProps = {
   setTeam: Dispatch<any>
   month: Date
   setMonth: Dispatch<any>
-  // monthOptions: Date[]
   classes?: string
 }
 
@@ -23,35 +22,35 @@ export type ScoresTableProps = {
 export type MonthScoresRow = {
   playerName: string
   monthTotal: number
-  day1: number
-  day2: number
-  day3: number
-  day4: number
-  day5: number
-  day6: number
-  day7: number
-  day8: number
-  day9: number
-  day10: number
-  day11: number
-  day12: number
-  day13: number
-  day14: number
-  day15: number
-  day16: number
-  day17: number
-  day18: number
-  day19: number
-  day20: number
-  day21: number
-  day22: number
-  day23: number
-  day24: number
-  day25: number
-  day26: number
-  day27: number
-  day28: number
-  day29?: number
-  day30?: number
-  day31?: number
+  day1: number | string
+  day2: number | string
+  day3: number | string
+  day4: number | string
+  day5: number | string
+  day6: number | string
+  day7: number | string
+  day8: number | string
+  day9: number | string
+  day10: number | string
+  day11: number | string
+  day12: number | string
+  day13: number | string
+  day14: number | string
+  day15: number | string
+  day16: number | string
+  day17: number | string
+  day18: number | string
+  day19: number | string
+  day20: number | string
+  day21: number | string
+  day22: number | string
+  day23: number | string
+  day24: number | string
+  day25: number | string
+  day26: number | string
+  day27: number | string
+  day28: number | string
+  day29: number | string
+  day30: number | string
+  day31: number | string
 }

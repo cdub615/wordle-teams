@@ -58,7 +58,7 @@ export default function Login() {
   }
 
   const handleSignUp = async (signupData: z.infer<typeof SignupSchema>) => {
-    const { email, password, firstName, lastName } = signupData
+    const {email, password, firstName, lastName} = signupData
     const { data, error } = await supabase.auth.signUp({
       email,
       password,

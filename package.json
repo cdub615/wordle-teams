@@ -34,6 +34,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "date-fns": "^2.30.0",
+    "date-fns-tz": "^2.0.0",
     "eslint": "8.46.0",
     "eslint-config-next": "13.4.12",
     "lucide-react": "^0.264.0",
@@ -43,6 +44,7 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-hook-form": "^7.45.4",
+    "resend": "^0.17.2",
     "server-only": "^0.0.1",
     "tailwind-merge": "^1.14.0",
     "tailwindcss": "3.3.3",
@@ -52,6 +54,7 @@
     "zod": "^3.21.4"
   },
   "devDependencies": {
-    "@types/uuid": "^9.0.2"
+    "@types/uuid": "^9.0.2",
+    "encoding": "^0.1.13"
   }
 }

@@ -3,6 +3,7 @@ import { Team } from './types'
 
 interface GlobalContext {
   teams: Team[]
+  setTeams: Dispatch<SetStateAction<Team[]>>
   selectedTeam: Team
   setSelectedTeam: Dispatch<SetStateAction<Team>>
   selectedMonth: Date
@@ -10,11 +11,13 @@ interface GlobalContext {
 }
 
 const teams: Team[] = []
+const setTeams: Dispatch<SetStateAction<Team[]>> = () => {}
 const setSelectedTeam: Dispatch<SetStateAction<Team>> = () => {}
 const setSelectedMonth: Dispatch<SetStateAction<Date>> = () => {}
 
 const defaultContext: GlobalContext = {
   teams,
+  setTeams,
   selectedTeam: teams[0],
   setSelectedTeam,
   selectedMonth: new Date(),
