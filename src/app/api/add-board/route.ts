@@ -6,6 +6,8 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 const POST = async (req: NextRequest) => {
   const supabase = createRouteHandlerClient<Database>({ cookies })
   const {
