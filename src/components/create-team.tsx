@@ -1,11 +1,15 @@
-import { createTeam } from '@/app/server-actions'
+'use client'
+
 import { Button } from '@/components/ui/button'
 import { DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/use-toast'
+import { Team } from '@/lib/types'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useRouter } from 'next/navigation'
+import { Dispatch, SetStateAction } from 'react'
 import { useForm } from 'react-hook-form'
 import * as z from 'zod'
 
@@ -14,27 +18,52 @@ const FormSchema = z.object({
   playWeekends: z.boolean().default(false).optional(),
 })
 
-const CreateTeam = ({ setCreateTeamOpen }: { setCreateTeamOpen: (open: boolean) => void }) => {
+type CreateTeamProps = {
+  setCreateTeamOpen: (open: boolean) => void
+  teams: Team[]
+  setTeams: Dispatch<SetStateAction<Team[]>>
+}
+
+const CreateTeam = ({ setCreateTeamOpen, teams, setTeams }: CreateTeamProps) => {
+  const router = useRouter()
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
   })
 
-  const onSubmit = (data: z.infer<typeof FormSchema>) => {
-    createTeam(data)
-    toast({
-      title: 'You submitted the following values:',
-      description: (
-        <pre className='mt-2 w-[340px] rounded-md bg-slate-950 p-4'>
-          <code className='text-white'>{JSON.stringify(data, null, 2)}</code>
-        </pre>
-      ),
+  const onSubmit = async (data: z.infer<typeof FormSchema>) => {
+    const refresh = teams.length === 0
+    const { name, playWeekends } = data
+    const response = await fetch(`/api/create-team`, {
+      method: 'POST',
+      body: JSON.stringify({ name, playWeekends }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
     })
-    setCreateTeamOpen(false)
+    form.reset()
+    if (response.ok) {
+      const { id, name, creator, playWeekends } = await response.json()
+
+      const newTeam = new Team(id, name, creator, playWeekends, [])
+      setTeams([...teams, newTeam])
+      toast({
+        title: `Successfully created ${name}`,
+      })
+      if (refresh) router.refresh()
+      setCreateTeamOpen(false)
+    } else {
+      console.log(`An unexpected error occurred while creating team: ${response.statusText}`)
+      toast({
+        title: 'Failed to create team. Please try again.',
+      })
+    }
   }
   return (
     <DialogContent className='sm:max-w-[425px]'>
       <DialogHeader>
-        <DialogTitle>Create Team</DialogTitle>
+        <DialogTitle>
+          {teams.length > 0 ? 'Create Team' : 'Receive Team Invite or Create a Team to get started'}
+        </DialogTitle>
         <DialogDescription>
           Enter your team&apos;s name and specify whether you want to include weekend scores
         </DialogDescription>

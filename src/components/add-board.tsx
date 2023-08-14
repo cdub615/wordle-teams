@@ -1,18 +1,16 @@
-import { addBoard } from '@/app/server-actions'
+'use client'
+
 import { Button } from '@/components/ui/button'
 import { DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
+import { DailyScore } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { FormEventHandler, KeyboardEvent, KeyboardEventHandler, useEffect, useState } from 'react'
 
 type AddBoardProps = {
   setAddBoardOpen: (open: boolean) => void
-}
-type AddBoardData = {
-  answer: string
-  guesses: string[]
 }
 
 const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
@@ -44,7 +42,9 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
         newGuesses[guesses.indexOf(currentGuess)] += e.key
         setGuesses(newGuesses)
       } else if (isBackspace) {
-        // const currentGuess = guesses.filter(guess => guess.length > 0).pop() ?? ''
+        // TODO refactor this backspace bit
+
+        // const currentGuess = gu1esses.filter(guess => guess.length > 0).pop() ?? ''
         // newGuesses[guesses.indexOf(currentGuess)] = newGuesses[guesses.indexOf(currentGuess)].slice(0, newGuesses[guesses.indexOf(currentGuess)].length - 1)
         // setGuesses(newGuesses)
         if (guesses[5].length > 0) {
@@ -94,24 +94,39 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
     setGuessesTouched(false)
     setSubmitDisabled(true)
   }
-  const handleSubmit: FormEventHandler<HTMLFormElement> = (e) => {
+  const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault()
-    const data: AddBoardData = {
-      answer,
-      guesses,
-    }
+    const dailyScore: DailyScore = new DailyScore('', new Date().toISOString(), answer, guesses)
     if (validateForSubmit()) {
-      addBoard(data)
-      toast({
-        title: 'You submitted the following values:',
-        description: (
-          <pre className='mt-2 w-[340px] rounded-md bg-slate-950 p-4'>
-            <code className='text-white'>{JSON.stringify(data, null, 2)}</code>
-          </pre>
-        ),
+      const response = await fetch(`/api/add-board`, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: '',
+          date: new Date().toISOString(),
+          answer,
+          guesses: guesses.filter((g) => g.length > 0),
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
       })
-      clearState()
-      setAddBoardOpen(false)
+      if (response.ok) {
+        toast({
+          title: 'You submitted the following values:',
+          description: (
+            <pre className='mt-2 w-[340px] rounded-md bg-slate-950 p-4'>
+              <code className='text-white'>{JSON.stringify(dailyScore, null, 2)}</code>
+            </pre>
+          ),
+        })
+        clearState()
+        setAddBoardOpen(false)
+      } else {
+        console.log(`An unexpected error occurred while adding board: ${response.statusText}`)
+        toast({
+          title: 'Failed to add board. Please try again.',
+        })
+      }
     } else
       toast({
         title: 'Form invalid',

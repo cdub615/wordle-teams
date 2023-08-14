@@ -1,21 +1,18 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import AppContext from '@/lib/app-context'
-import { Settings2 } from 'lucide-react'
 import { useContext } from 'react'
-import { Button } from './ui/button'
 
 const MyTeams = () => {
-  const appContext = useContext(AppContext)
-  const { teams } = appContext
+  const { teams } = useContext(AppContext)
   return (
     <Card className='h-fit'>
       <CardHeader>
         <CardTitle>
           <div className='flex justify-between'>
             <div>My Teams</div>
-            <Button size={'icon'} variant={'outline'}>
+            {/* <Button size={'icon'} variant={'outline'}>
               <Settings2 size={24} />
-            </Button>
+            </Button> */}
           </div>
         </CardTitle>
       </CardHeader>
@@ -26,8 +23,8 @@ const MyTeams = () => {
               <div>{team.name}</div>
               <ul>
                 {team.players.map((player) => (
-                  <li key={player.name}>
-                    <div>{player.name}</div>
+                  <li key={player.fullName}>
+                    <div className='text-right'>{player.fullName}</div>
                   </li>
                 ))}
               </ul>

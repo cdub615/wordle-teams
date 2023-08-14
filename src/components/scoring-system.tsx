@@ -1,9 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import AppContext from '@/lib/app-context'
-import { Settings2 } from 'lucide-react'
 import { useContext } from 'react'
-import { Button } from './ui/button'
 
 type Score = {
   attempts: number
@@ -11,10 +9,11 @@ type Score = {
 }
 
 const ScoringSystem = ({ classes }: { classes?: string }) => {
-  const appContext = useContext(AppContext)
-  const teamSystem = appContext.selectedTeam.scoringSystem
+  const {
+    selectedTeam: { scoringSystem },
+  } = useContext(AppContext)
   const scores: Score[] = []
-  teamSystem.forEach((entry) => {
+  scoringSystem.forEach((entry) => {
     scores.push({ attempts: entry[0], points: entry[1] })
   })
 
@@ -24,9 +23,9 @@ const ScoringSystem = ({ classes }: { classes?: string }) => {
         <CardTitle>
           <div className='flex justify-between'>
             <div>Scoring System</div>
-            <Button size={'icon'} variant={'outline'}>
+            {/* <Button size={'icon'} variant={'outline'}>
               <Settings2 size={24} />
-            </Button>
+            </Button> */}
           </div>
         </CardTitle>
         <CardDescription>Points awarded by number of attempts</CardDescription>
@@ -42,7 +41,7 @@ const ScoringSystem = ({ classes }: { classes?: string }) => {
           <TableBody>
             {scores.map((score: Score) => (
               <TableRow key={score.attempts}>
-                <TableCell>{score.attempts === 7 ? 'X' : score.attempts === 8 ? 'N/A' : score.attempts}</TableCell>
+                <TableCell>{score.attempts === 7 ? 'X' : score.attempts === 0 ? 'N/A' : score.attempts}</TableCell>
                 <TableCell>{score.points}</TableCell>
               </TableRow>
             ))}

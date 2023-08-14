@@ -1,1 +1,0 @@
-export { default as ScoresTableHeader } from './scores-table-header'

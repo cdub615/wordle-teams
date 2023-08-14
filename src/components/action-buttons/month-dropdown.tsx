@@ -1,6 +1,6 @@
 'use client'
 
-import {Button} from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,16 +11,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import AppContext from '@/lib/app-context'
+import { getMonthsFromEarliestScore } from '@/lib/utils'
 import { format, formatISO, parseISO } from 'date-fns'
 import { ChevronDown } from 'lucide-react'
 import { useContext, useEffect, useState } from 'react'
-import { getMonths } from '../table-config'
 
 const MonthDropdown = () => {
-  const appContext = useContext(AppContext)
-  const { selectedMonth, setSelectedMonth, selectedTeam } = appContext
+  const { selectedMonth, setSelectedMonth, selectedTeam } = useContext(AppContext)
   const [month, setMonth] = useState(selectedMonth)
-  const monthOptions: Date[] = getMonths(selectedTeam)
+  const monthOptions: Date[] = getMonthsFromEarliestScore(selectedTeam)
   useEffect(() => setSelectedMonth(month), [setSelectedMonth, month])
 
   const handleMonthChange = (m: string) => {

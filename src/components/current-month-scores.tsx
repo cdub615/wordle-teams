@@ -3,13 +3,20 @@ import AppContext from '@/lib/app-context'
 import { useContext } from 'react'
 
 const CurrentMonthScores = () => {
-  const appContext = useContext(AppContext)
-  const { selectedTeam, selectedMonth } = appContext
+  const { selectedTeam, selectedMonth } = useContext(AppContext)
   const sorted = !!selectedTeam.players
     ? selectedTeam.players.sort(
         (a, b) =>
-          a.aggregateScoreByMonth(selectedMonth, selectedTeam.playWeekends, selectedTeam.scoringSystem) +
-          b.aggregateScoreByMonth(selectedMonth, selectedTeam.playWeekends, selectedTeam.scoringSystem)
+          a.aggregateScoreByMonth(
+            selectedMonth.toISOString(),
+            selectedTeam.playWeekends,
+            selectedTeam.scoringSystem
+          ) +
+          b.aggregateScoreByMonth(
+            selectedMonth.toISOString(),
+            selectedTeam.playWeekends,
+            selectedTeam.scoringSystem
+          )
       )
     : []
 
@@ -22,11 +29,11 @@ const CurrentMonthScores = () => {
       <CardContent>
         <ul className='flex flex-col space-y-2'>
           {sorted.map((player) => (
-            <li key={player.name} className='flex justify-between'>
-              <div>{player.name}</div>
+            <li key={player.fullName} className='flex justify-between'>
+              <div>{player.fullName}</div>
               <div>
                 {player.aggregateScoreByMonth(
-                  selectedMonth,
+                  selectedMonth.toISOString(),
                   selectedTeam?.playWeekends,
                   selectedTeam.scoringSystem
                 )}
