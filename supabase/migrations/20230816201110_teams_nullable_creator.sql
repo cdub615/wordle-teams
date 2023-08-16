@@ -1,0 +1,1 @@
+alter table "public"."teams" alter column "creator" drop not null;
