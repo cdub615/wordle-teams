@@ -120,7 +120,7 @@ const InviteEmail: React.FC<Readonly<EmailTemplateProps>> = ({
                 </>
               )}{' '}
               If you were not expecting this invitation, you can ignore this email. If you are concerned about your
-              account's safety, please reply to this email to get in touch with us.
+              account&apos;s safety, please reply to this email to get in touch with us.
             </Text>
           </Container>
         </Body>
