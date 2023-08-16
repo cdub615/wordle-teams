@@ -5,11 +5,11 @@ import { DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTit
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/components/ui/use-toast'
+import AppContext from '@/lib/app-context'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Dispatch, SetStateAction, useContext } from 'react'
 import { useForm } from 'react-hook-form'
 import * as z from 'zod'
-import AppContext from '../lib/app-context'
 
 const FormSchema = z.object({
   email: z.string().email('Please enter a valid email that includes @ and .'),
@@ -29,7 +29,7 @@ const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateActio
 
     const response = await fetch(`/api/invite-player`, {
       method: 'POST',
-      body: JSON.stringify({ teamId, playerIds, invited, email }),
+      body: JSON.stringify({ teamId, teamName: selectedTeam.name, playerIds, invited, email }),
       headers: {
         'Content-Type': 'application/json',
       },

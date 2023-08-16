@@ -1,6 +1,6 @@
 import InviteEmail from '@/components/invite-email'
 import { Database } from '@/lib/database.types'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { SupabaseClient, createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
@@ -10,16 +10,35 @@ export const dynamic = 'force-dynamic'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const sendInviteEmail = async (email: string) =>
-  await resend.emails.send({
-    from: 'Wordle Teams <onboarding@resend.dev>',
-    to: [email],
-    subject: 'Wordle Teams Invite',
-    react: InviteEmail({ firstName: 'John' }),
-    text: '',
-  })
+const getLogo = (supabase: SupabaseClient<Database>) => {
+  const {
+    data: { publicUrl: logo },
+  } = supabase.storage.from('images').getPublicUrl('wordle-teams-title.png')
+  if ((process.env.LOCAL! = 'true')) return logo.replace('http://localhost:54321', process.env.DEV_SUPABASE_URL!)
+  return logo
+}
+
+const getUserImage = (supabase: SupabaseClient<Database>) => {
+  const {
+    data: { publicUrl: userImage },
+  } = supabase.storage.from('images').getPublicUrl('new-user.png')
+  if ((process.env.LOCAL! = 'true'))
+    return userImage.replace('http://localhost:54321', process.env.DEV_SUPABASE_URL!)
+  return userImage
+}
+
+const getTeamImage = (supabase: SupabaseClient<Database>) => {
+  const {
+    data: { publicUrl: teamImage },
+  } = supabase.storage.from('images').getPublicUrl('wt-icon.png')
+  if ((process.env.LOCAL! = 'true'))
+    return teamImage.replace('http://localhost:54321', process.env.DEV_SUPABASE_URL!)
+  return teamImage
+}
 
 const POST = async (req: NextRequest) => {
+  console.log('ip', req.ip)
+  console.log('geo', req.geo)
   const supabase = createRouteHandlerClient<Database>({ cookies })
   const {
     data: { session },
@@ -27,7 +46,7 @@ const POST = async (req: NextRequest) => {
 
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { teamId, playerIds, invited, email } = await req.json()
+  const { teamId, teamName, playerIds, invited, email } = await req.json()
 
   const { data: players, error } = await supabase.from('players').select('*').eq('email', email)
   console.log('player by email', players)
@@ -43,7 +62,31 @@ const POST = async (req: NextRequest) => {
     } else console.log(`Player with email ${email} already on team ${teamId}`)
   } else {
     try {
-      const { id } = await sendInviteEmail(email)
+      const logo = getLogo(supabase)
+      const userImage = getUserImage(supabase)
+      const teamImage = getTeamImage(supabase)
+      const invitedByUsername = `${session.user.user_metadata.firstName} ${session.user.user_metadata.lastName}`
+      const invitedByEmail = session.user.email!
+
+      const { id } = await resend.emails.send({
+        from: 'Wordle Teams <onboarding@resend.dev>',
+        to: ['christianbwhite@gmail.com'], // TODO replace this with email
+        subject: `${invitedByUsername} has invited you`,
+        react: InviteEmail({
+          email,
+          invitedByUsername,
+          invitedByEmail,
+          teamName,
+          logo,
+          userImage,
+          teamImage,
+          inviteFromIp: req.ip,
+          inviteFromCity: req.geo?.city,
+          inviteFromCountry: req.geo?.country,
+          inviteFromRegion: req.geo?.region,
+        }),
+        text: '',
+      })
       console.log('invite email id: ', id)
     } catch (error) {
       return NextResponse.json({ error }, { status: 500 })

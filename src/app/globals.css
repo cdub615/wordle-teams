@@ -65,6 +65,10 @@
     --destructive-foreground: 0 85.7% 97.3%;
 
     --ring: 0 0% 14.9%;
+
+    --color-stop-1: 142 76% 37%;
+    --color-stop-2: 119 65% 75%;
+    --color-stop-3: 49 91% 52%;
   }
 }
 
@@ -75,4 +79,8 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+.icon-gradient {
+  fill: url(#svg-gradient) #4f46e5;
 }

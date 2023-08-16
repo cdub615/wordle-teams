@@ -81,7 +81,6 @@ export default function Login() {
         toast({
           title: 'Sign up failed',
           description: 'An unexpected error occurred during sign in, please try again.',
-          variant: 'destructive',
         })
         signupForm.reset()
       } else router.refresh()
@@ -90,7 +89,6 @@ export default function Login() {
       toast({
         title: 'Sign up failed',
         description: 'An unexpected error occurred during sign in, please try again.',
-        variant: 'destructive',
       })
       signupForm.reset()
     }
@@ -106,12 +104,19 @@ export default function Login() {
       email,
       password,
     })
-    if (error) {
+    if (error && error.message.includes('Email not confirmed')) {
+      console.log(`Login error. Status: ${error.status}; Message: ${error.message}`)
+      toast({
+        title: 'Log in failed',
+        description: 'Email not confirmed. Please confirm your email before logging in.',
+      })
+      loginForm.reset()
+    }
+    else if (error) {
       console.log(`Login error. Status: ${error.status}; Message: ${error.message}`)
       toast({
         title: 'Log in failed',
         description: 'Either Email or Password was incorrect. Please try again.',
-        variant: 'destructive',
       })
       loginForm.reset()
     } else router.refresh()
@@ -129,7 +134,6 @@ export default function Login() {
       toast({
         title: 'Password reset failed',
         description: 'Invalid or no email provided. Please provide a valid email for resetting your password.',
-        variant: 'destructive',
       })
       loginForm.reset()
     }
@@ -142,7 +146,6 @@ export default function Login() {
       toast({
         title: 'Password reset failed',
         description: 'An unexpected error occurred while resetting password. Please try again.',
-        variant: 'destructive',
       })
       loginForm.reset()
     }
