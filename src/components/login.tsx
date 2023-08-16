@@ -13,6 +13,7 @@ import { toast } from '@/components/ui/use-toast'
 import type { Database } from '@/lib/database.types'
 import { passwordRegex } from '@/lib/utils'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { revalidatePath } from 'next/cache'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -58,7 +59,7 @@ export default function Login() {
   }
 
   const handleSignUp = async (signupData: z.infer<typeof SignupSchema>) => {
-    const {email, password, firstName, lastName} = signupData
+    const { email, password, firstName, lastName } = signupData
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -92,6 +93,7 @@ export default function Login() {
       })
       signupForm.reset()
     }
+    revalidatePath('/')
     if (data.user && !data.session) {
       setVerificationEmailSent(true)
       signupForm.reset()
@@ -111,8 +113,7 @@ export default function Login() {
         description: 'Email not confirmed. Please confirm your email before logging in.',
       })
       loginForm.reset()
-    }
-    else if (error) {
+    } else if (error) {
       console.log(`Login error. Status: ${error.status}; Message: ${error.message}`)
       toast({
         title: 'Log in failed',
