@@ -34,6 +34,8 @@ const POST = async (req: NextRequest) => {
 
   if (getPlayerError) return NextResponse.json({ getPlayerError }, { status: 500 })
 
+  revalidatePath('/')
+
   return NextResponse.json({
     newTeam,
     currentPlayer,
