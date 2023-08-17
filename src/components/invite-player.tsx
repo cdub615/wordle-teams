@@ -22,6 +22,9 @@ const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateActio
   const invited = selectedTeam.invited
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
+    defaultValues: {
+      email: '',
+    },
   })
 
   const onSubmit = async (data: z.infer<typeof FormSchema>) => {

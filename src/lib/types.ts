@@ -96,25 +96,23 @@ export class Player {
     return `${this.firstName} ${this.lastName}`
   }
 
-  public addScore(score: DailyScore): DailyScore[] {
-    this._scores.push(score)
-    return this._scores
+  public addOrUpdateScore(score: DailyScore): DailyScore[] {
+    const existingScore = this._scores.find((s) => s.id === score.id)
+    if (existingScore) {
+      const { id, date, answer, guesses } = score
+      this._scores.splice(this._scores.indexOf(existingScore), 1)
+      this._scores.push(new DailyScore(id, date, answer, guesses))
+      return this._scores
+    } else {
+      this._scores.push(score)
+      return this._scores
+    }
   }
 
   public deleteScore(date: string): DailyScore[] {
     const indexToDelete = this._scores.findIndex((s) => s.date === date)
     this._scores.splice(indexToDelete, 1)
     return this._scores
-  }
-
-  public updateGuesses(date: string, guesses: string[]): DailyScore[] {
-    const score = this._scores.find((s) => s.date === date)
-    if (score) {
-      this._scores.splice(this._scores.indexOf(score), 1)
-      this._scores.push(new DailyScore(score.id, date, score.answer, guesses))
-      return this._scores
-    }
-    throw new Error(`No score found for date: ${date}`)
   }
 
   public aggregateScoreByMonth(date: string, playWeekends: boolean, scoringSystem: number[][]) {
@@ -154,7 +152,7 @@ export class Team {
     if (players) this._players = players
   }
 
-  public fromDbTeam(team: teams, dbPlayers?: players[]) {
+  public fromDbTeam(team: teams, dbPlayers?: any[]) {
     const {
       id,
       name,
@@ -168,7 +166,7 @@ export class Team {
       five_guesses,
       six_guesses,
       failed,
-      invited
+      invited,
     } = team
     const scoringSystem: number[][] = [
       [0, n_a],
@@ -181,7 +179,7 @@ export class Team {
       [7, failed],
     ]
 
-    const players = dbPlayers?.map((p) => Player.prototype.fromDbPlayer(p))
+    const players = dbPlayers?.map((p) => Player.prototype.fromDbPlayer(p, p.daily_scores))
 
     return new Team(id, name, creator, playWeekends, invited, scoringSystem, players)
   }
@@ -221,5 +219,17 @@ export class Team {
   public setScoringSystem(system: number[][]) {
     this._scoringSystem = system
     return this._scoringSystem
+  }
+
+  public updatePlayerScore(teams: Team[], selectedTeamId: string, userId: string, score: DailyScore) {
+    return teams.map((t) => {
+      if (t.id === selectedTeamId) {
+        t.players.map((p) => {
+          if (p.id === userId) p.addOrUpdateScore(score)
+          return p
+        })
+      }
+      return t
+    })
   }
 }

@@ -13,7 +13,6 @@ import { toast } from '@/components/ui/use-toast'
 import type { Database } from '@/lib/database.types'
 import { passwordRegex } from '@/lib/utils'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { revalidatePath } from 'next/cache'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -43,9 +42,19 @@ export default function Login() {
 
   const loginForm = useForm<z.infer<typeof LoginSchema>>({
     resolver: zodResolver(LoginSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+    },
   })
   const signupForm = useForm<z.infer<typeof SignupSchema>>({
     resolver: zodResolver(SignupSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+      firstName: '',
+      lastName: '',
+    },
   })
 
   const [verificationEmailSent, setVerificationEmailSent] = useState(false)
@@ -93,11 +102,13 @@ export default function Login() {
       })
       signupForm.reset()
     }
-    revalidatePath('/')
+
     if (data.user && !data.session) {
       setVerificationEmailSent(true)
       signupForm.reset()
-    } else router.refresh()
+    }
+    await fetch('/api/revalidate')
+    router.refresh()
   }
 
   const handleLogIn = async (loginData: z.infer<typeof LoginSchema>) => {

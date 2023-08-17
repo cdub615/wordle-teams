@@ -1,15 +1,6 @@
 import { Team } from '@/lib/types'
 import { Dispatch } from 'react'
 
-export type ScoresTableHeaderProps = {
-  teams: Team[]
-  team: Team
-  setTeam: Dispatch<any>
-  month: Date
-  setMonth: Dispatch<any>
-  classes?: string
-}
-
 export type ScoresTableProps = {
   teams: Team[]
   team: Team

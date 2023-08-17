@@ -19,7 +19,7 @@ import { useContext, useMemo, useState } from 'react'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
 
 const ScoresTable = ({ classes }: { classes?: string }) => {
-  const { selectedTeam, selectedMonth, teams } = useContext(AppContext)
+  const { selectedTeam, selectedMonth } = useContext(AppContext)
 
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])

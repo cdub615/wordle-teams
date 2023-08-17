@@ -19,8 +19,10 @@ import { useContext, useEffect, useState } from 'react'
 const MonthDropdown = () => {
   const { selectedMonth, setSelectedMonth, selectedTeam } = useContext(AppContext)
   const [month, setMonth] = useState(selectedMonth)
-  const monthOptions: Date[] = getMonthsFromEarliestScore(selectedTeam)
+  const [monthOptions, setMonthOptions] = useState(getMonthsFromEarliestScore(selectedTeam))
+
   useEffect(() => setSelectedMonth(month), [setSelectedMonth, month])
+  useEffect(() => setMonthOptions(getMonthsFromEarliestScore(selectedTeam)), [selectedTeam])
 
   const handleMonthChange = (m: string) => {
     const newMonth = parseISO(m)

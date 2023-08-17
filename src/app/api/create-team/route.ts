@@ -1,5 +1,4 @@
 import { Database } from '@/lib/database.types'
-import { Team } from '@/lib/types'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { randomUUID } from 'crypto'
 import { revalidatePath } from 'next/cache'
@@ -23,12 +22,24 @@ const POST = async (req: NextRequest) => {
     .from('teams')
     .insert({ id: randomUUID(), name, playWeekends, creator, player_ids: [creator] })
     .select('*')
+    .single()
 
   if (error) return NextResponse.json({ error }, { status: 500 })
 
+  const { data: currentPlayer, error: getPlayerError } = await supabase
+    .from('players')
+    .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
+    .eq('id', creator)
+    .single()
+
+  if (getPlayerError) return NextResponse.json({ getPlayerError }, { status: 500 })
+
   revalidatePath('/')
 
-  return NextResponse.json(Team.prototype.fromDbTeam(newTeam[0]))
+  return NextResponse.json({
+    newTeam,
+    currentPlayer,
+  })
 }
 
 export { POST }

@@ -12,7 +12,7 @@ import MonthDropdown from './month-dropdown'
 import TeamsDropdown from './teams-dropdown'
 
 const ActionButtons = ({ classes }: { classes?: string }) => {
-  const { teams, setTeams } = useContext(AppContext)
+  const { teams, setTeams, setSelectedTeam } = useContext(AppContext)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
   const [addBoardOpen, setAddBoardOpen] = useState(false)
   // TODO allow user to change the date so they can update an existing board as well
@@ -27,7 +27,12 @@ const ActionButtons = ({ classes }: { classes?: string }) => {
               <ListPlus size={24} />
             </Button>
           </DialogTrigger>
-          <CreateTeam setCreateTeamOpen={setCreateTeamOpen} teams={teams} setTeams={setTeams} />
+          <CreateTeam
+            setCreateTeamOpen={setCreateTeamOpen}
+            teams={teams}
+            setTeams={setTeams}
+            setSelectedTeam={setSelectedTeam}
+          />
         </Dialog>
       </div>
       <Dialog open={addBoardOpen} onOpenChange={setAddBoardOpen}>

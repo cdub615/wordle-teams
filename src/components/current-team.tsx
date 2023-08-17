@@ -16,7 +16,7 @@ const CurrentTeam = ({ userId }: { userId: string }) => {
         <CardTitle>
           <div className='flex justify-between'>
             <div>{selectedTeam.name}</div>
-            {userId === selectedTeam.creator && (
+            {/* {userId === selectedTeam.creator && (
               <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
                 <DialogTrigger asChild>
                   <Button size={'icon'} variant={'outline'}>
@@ -25,7 +25,7 @@ const CurrentTeam = ({ userId }: { userId: string }) => {
                 </DialogTrigger>
                 <InvitePlayer setInviteOpen={setInviteOpen} />
               </Dialog>
-            )}
+            )} */}
           </div>
         </CardTitle>
       </CardHeader>

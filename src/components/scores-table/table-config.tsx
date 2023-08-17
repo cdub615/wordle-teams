@@ -1,47 +1,56 @@
 import { Player, Team } from '@/lib/types'
 import { ColumnDef, VisibilityState } from '@tanstack/react-table'
-import { format, getDaysInMonth, isSameMonth, isWeekend } from 'date-fns'
+import { format, getDaysInMonth, getMonth, getYear, isSameDay, isSameMonth, isWeekend } from 'date-fns'
 import { MonthScoresRow } from './scores-table-types'
 
 const getData = (team: Team, month: Date): MonthScoresRow[] => {
   const data: MonthScoresRow[] = []
 
   team.players.map((player: Player) => {
+    const days = getDaysInMonth(month)
     const scores = player.scores?.filter((s) => isSameMonth(month, new Date(s.date)))
+    const dailyAttempts = []
+    for (let i = 1; i <= 31; i++) {
+      const attempts =
+        scores.find((s) => isSameDay(new Date(s.date), new Date(getYear(month), getMonth(month), i)))?.attempts ??
+        ''
+      dailyAttempts.push(attempts)
+    }
+
     const row = {
       playerName: `${player.firstName}____${player.lastName}`,
       monthTotal: player.aggregateScoreByMonth(month.toISOString(), team.playWeekends, team.scoringSystem),
-      day1: scores[0]?.attempts ?? '',
-      day2: scores[1]?.attempts ?? '',
-      day3: scores[2]?.attempts ?? '',
-      day4: scores[3]?.attempts ?? '',
-      day5: scores[4]?.attempts ?? '',
-      day6: scores[5]?.attempts ?? '',
-      day7: scores[6]?.attempts ?? '',
-      day8: scores[7]?.attempts ?? '',
-      day9: scores[8]?.attempts ?? '',
-      day10: scores[9]?.attempts ?? '',
-      day11: scores[10]?.attempts ?? '',
-      day12: scores[11]?.attempts ?? '',
-      day13: scores[12]?.attempts ?? '',
-      day14: scores[13]?.attempts ?? '',
-      day15: scores[14]?.attempts ?? '',
-      day16: scores[15]?.attempts ?? '',
-      day17: scores[16]?.attempts ?? '',
-      day18: scores[17]?.attempts ?? '',
-      day19: scores[18]?.attempts ?? '',
-      day20: scores[19]?.attempts ?? '',
-      day21: scores[20]?.attempts ?? '',
-      day22: scores[21]?.attempts ?? '',
-      day23: scores[22]?.attempts ?? '',
-      day24: scores[23]?.attempts ?? '',
-      day25: scores[24]?.attempts ?? '',
-      day26: scores[25]?.attempts ?? '',
-      day27: scores[26]?.attempts ?? '',
-      day28: scores[27]?.attempts ?? '',
-      day29: scores[28]?.attempts ?? '',
-      day30: scores[29]?.attempts ?? '',
-      day31: scores[30]?.attempts ?? '',
+      day1: dailyAttempts[0],
+      day2: dailyAttempts[1],
+      day3: dailyAttempts[2],
+      day4: dailyAttempts[3],
+      day5: dailyAttempts[4],
+      day6: dailyAttempts[5],
+      day7: dailyAttempts[6],
+      day8: dailyAttempts[7],
+      day9: dailyAttempts[8],
+      day10: dailyAttempts[9],
+      day11: dailyAttempts[10],
+      day12: dailyAttempts[11],
+      day13: dailyAttempts[12],
+      day14: dailyAttempts[13],
+      day15: dailyAttempts[14],
+      day16: dailyAttempts[15],
+      day17: dailyAttempts[16],
+      day18: dailyAttempts[17],
+      day19: dailyAttempts[18],
+      day20: dailyAttempts[19],
+      day21: dailyAttempts[20],
+      day22: dailyAttempts[21],
+      day23: dailyAttempts[22],
+      day24: dailyAttempts[23],
+      day25: dailyAttempts[24],
+      day26: dailyAttempts[25],
+      day27: dailyAttempts[26],
+      day28: dailyAttempts[27],
+      day29: dailyAttempts[28],
+      day30: dailyAttempts[29],
+      day31: dailyAttempts[30],
     } satisfies MonthScoresRow
     data.push(row)
   })

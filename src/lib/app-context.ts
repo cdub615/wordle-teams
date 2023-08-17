@@ -8,12 +8,15 @@ interface GlobalContext {
   setSelectedTeam: Dispatch<SetStateAction<Team>>
   selectedMonth: Date
   setSelectedMonth: Dispatch<SetStateAction<Date>>
+  userId: string
+  setUserId: Dispatch<SetStateAction<string>>
 }
 
 const teams: Team[] = []
 const setTeams: Dispatch<SetStateAction<Team[]>> = () => {}
 const setSelectedTeam: Dispatch<SetStateAction<Team>> = () => {}
 const setSelectedMonth: Dispatch<SetStateAction<Date>> = () => {}
+const setUserId: Dispatch<SetStateAction<string>> = () => {}
 
 const defaultContext: GlobalContext = {
   teams,
@@ -22,6 +25,8 @@ const defaultContext: GlobalContext = {
   setSelectedTeam,
   selectedMonth: new Date(),
   setSelectedMonth,
+  userId: '',
+  setUserId,
 }
 
 const AppContext = createContext<GlobalContext>(defaultContext)

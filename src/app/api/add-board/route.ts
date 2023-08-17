@@ -16,8 +16,7 @@ const POST = async (req: NextRequest) => {
 
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { id: _id, date, answer, guesses } = await req.json()
-  const id = _id.length > 0 ? _id : randomUUID()
+  const { id, date, answer, guesses } = await req.json()
 
   const { data: newScore, error } = await supabase
     .from('daily_scores')
