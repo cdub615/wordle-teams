@@ -47,7 +47,8 @@ const CreateTeam = ({ setCreateTeamOpen, teams, setTeams, setSelectedTeam }: Cre
     })
     form.reset()
     if (response.ok) {
-      const team = fromNewTeamResult(await response.json())
+      const result = await response.json()
+      const team = fromNewTeamResult(result)
       setTeams([...teams, team])
       setSelectedTeam(team)
       toast({
