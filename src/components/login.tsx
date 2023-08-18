@@ -15,6 +15,7 @@ import { passwordRegex } from '@/lib/utils'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
+import {log} from 'next-axiom'
 
 const LoginSchema = z.object({
   email: z.string().email('Please enter a valid email that includes @ and .'),
@@ -87,7 +88,7 @@ export default function Login() {
         password,
       })
       if (error) {
-        console.log(`Error logging in already registered user. Status: ${error.status}; Message: ${error.message}`)
+        log.error(`Error logging in already registered user.`, {error})
         toast({
           title: 'Sign up failed',
           description: 'An unexpected error occurred during sign in, please try again.',
@@ -95,7 +96,7 @@ export default function Login() {
         signupForm.reset()
       } else router.refresh()
     } else if (error) {
-      console.log(`Signup error. Status: ${error.status}; Message: ${error.message}`)
+      log.error(`Signup error.`, { error })
       toast({
         title: 'Sign up failed',
         description: 'An unexpected error occurred during sign in, please try again.',
@@ -118,14 +119,14 @@ export default function Login() {
       password,
     })
     if (error && error.message.includes('Email not confirmed')) {
-      console.log(`Login error. Status: ${error.status}; Message: ${error.message}`)
+      log.error(`Login error.`, { error })
       toast({
         title: 'Log in failed',
         description: 'Email not confirmed. Please confirm your email before logging in.',
       })
       loginForm.reset()
     } else if (error) {
-      console.log(`Login error. Status: ${error.status}; Message: ${error.message}`)
+      log.error(`Login error.`, { error })
       toast({
         title: 'Log in failed',
         description: 'Either Email or Password was incorrect. Please try again.',
@@ -154,7 +155,7 @@ export default function Login() {
       redirectTo: `${location.origin}/update-password`,
     })
     if (error) {
-      console.log(`Password reset. Status: ${error.status}; Message: ${error.message}`)
+      log.error(`Password reset failed.`, { error })
       toast({
         title: 'Password reset failed',
         description: 'An unexpected error occurred while resetting password. Please try again.',

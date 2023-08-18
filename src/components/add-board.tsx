@@ -8,15 +8,16 @@ import { toast } from '@/components/ui/use-toast'
 import AppContext from '@/lib/app-context'
 import { DailyScore, Team } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { randomUUID } from 'crypto'
+import { log } from 'next-axiom'
 import { FormEventHandler, KeyboardEvent, KeyboardEventHandler, useContext, useEffect, useState } from 'react'
+import { v4 as uuid } from 'uuid'
 
 type AddBoardProps = {
   setAddBoardOpen: (open: boolean) => void
 }
 
 const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
-  const { selectedTeam, teams, setTeams, userId } = useContext(AppContext)
+  const { selectedTeam, setSelectedTeam, teams, setTeams, userId } = useContext(AppContext)
   const [answer, setAnswer] = useState('')
   const [answerError, setAnswerError] = useState<string | undefined>(undefined)
   const [answerTouched, setAnswerTouched] = useState(false)
@@ -101,7 +102,7 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
     e.preventDefault()
     // TODO allow update of existing board, fetching the existing DailyScore from context
     const dailyScore: DailyScore = new DailyScore(
-      randomUUID(),
+      uuid(),
       new Date().toISOString(),
       answer,
       guesses.filter((g) => g.length > 0)
@@ -123,13 +124,16 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
       if (response.ok) {
         const updatedTeams = Team.prototype.updatePlayerScore(teams, selectedTeam.id, userId, dailyScore)
         setTeams(updatedTeams)
+        setSelectedTeam(updatedTeams.find(t => t.id === selectedTeam.id)!)
         toast({
           title: 'Successfully added or updated board',
         })
         clearState()
         setAddBoardOpen(false)
       } else {
-        console.log(`An unexpected error occurred while adding board: ${response.statusText}`)
+        log.error(`An unexpected error occurred while adding board: ${response.statusText}`, {
+          response: await response.json(),
+        })
         toast({
           title: 'Failed to add board. Please try again.',
         })

@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/use-toast'
 import { Team } from '@/lib/types'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { log } from 'next-axiom'
 import { useRouter } from 'next/navigation'
 import { Dispatch, SetStateAction } from 'react'
 import { useForm } from 'react-hook-form'
@@ -55,7 +56,7 @@ const CreateTeam = ({ setCreateTeamOpen, teams, setTeams, setSelectedTeam }: Cre
         title: `Successfully created ${name}`,
       })
     } else {
-      console.log(`An unexpected error occurred while creating team: ${response.statusText}`)
+      log.error(`An unexpected error occurred while creating team.`, { response: await response.json() })
       toast({
         title: 'Failed to create team. Please try again.',
       })

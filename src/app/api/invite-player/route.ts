@@ -1,6 +1,7 @@
 import InviteEmail from '@/components/invite-email'
 import { Database } from '@/lib/database.types'
 import { SupabaseClient, createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import {log} from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
@@ -37,8 +38,8 @@ const getTeamImage = (supabase: SupabaseClient<Database>) => {
 }
 
 const POST = async (req: NextRequest) => {
-  console.log('ip', req.ip)
-  console.log('geo', req.geo)
+  log.debug(`req.ip: ${req.ip}`)
+  log.debug(`req.geo: ${req.geo}`)
   const supabase = createRouteHandlerClient<Database>({ cookies })
   const {
     data: { session },
@@ -49,7 +50,7 @@ const POST = async (req: NextRequest) => {
   const { teamId, teamName, playerIds, invited, email } = await req.json()
 
   const { data: players, error } = await supabase.from('players').select('*').eq('email', email)
-  console.log('player by email', players)
+  log.debug(`player by email: ${JSON.stringify(players)}`)
   if (players && players[0]) {
     if (!playerIds.includes(players[0].id)) {
       const newPlayerIds = [...playerIds, players[0].id]
@@ -59,7 +60,7 @@ const POST = async (req: NextRequest) => {
         .eq('id', teamId)
         .select('*')
       if (error) return NextResponse.json({ error }, { status: 500 })
-    } else console.log(`Player with email ${email} already on team ${teamId}`)
+    } else log.info(`Player with email ${email} already on team ${teamId}`)
   } else {
     try {
       const logo = getLogo(supabase)
@@ -87,13 +88,13 @@ const POST = async (req: NextRequest) => {
         }),
         text: '',
       })
-      console.log('invite email id: ', id)
+      log.debug(`invite email id: ${id}`)
     } catch (error) {
       return NextResponse.json({ error }, { status: 500 })
     }
     const newInvited = [...invited, email]
     const { error } = await supabase.from('teams').update({ invited: newInvited }).eq('id', teamId).select('*')
-    console.log('team update error', error)
+    log.error('team update error', { error })
     if (error) return NextResponse.json({ error }, { status: 500 })
   }
 
