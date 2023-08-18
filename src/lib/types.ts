@@ -226,10 +226,12 @@ export class Team {
       if (t.id === selectedTeamId) {
         t.players.map((p) => {
           if (p.id === userId) p.addOrUpdateScore(score)
-          return p
+          const { id, firstName, lastName, email, scores } = p
+          return new Player(id, firstName, lastName, email, scores)
         })
       }
-      return t
+      const { id, name, creator, playWeekends, invited, scoringSystem, players } = t
+      return new Team(id, name, creator, playWeekends, invited, scoringSystem, players)
     })
   }
 }
