@@ -124,7 +124,10 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
       if (response.ok) {
         const updatedTeams = Team.prototype.updatePlayerScore(teams, selectedTeam.id, userId, dailyScore)
         setTeams(updatedTeams)
-        setSelectedTeam(updatedTeams.find(t => t.id === selectedTeam.id)!)
+        const { id, name, creator, playWeekends, invited, scoringSystem, players } = updatedTeams.find(
+          (t) => t.id === selectedTeam.id
+        )!
+        setSelectedTeam(new Team(id, name, creator, playWeekends, invited, scoringSystem, players))
         toast({
           title: 'Successfully added or updated board',
         })

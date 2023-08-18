@@ -31,7 +31,7 @@
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    --ring: 0 0% 63.9%;
+    --ring: 142 76% 37%;
 
     --radius: 0.5rem;
   }
@@ -64,7 +64,7 @@
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 85.7% 97.3%;
 
-    --ring: 0 0% 14.9%;
+    --ring: 142 69% 36%;
 
     --color-stop-1: 142 76% 37%;
     --color-stop-2: 119 65% 75%;
@@ -82,5 +82,5 @@
 }
 
 .icon-gradient {
-  fill: url(#svg-gradient) #4f46e5;
+  fill: url(#svg-gradient) #16a34a;
 }
