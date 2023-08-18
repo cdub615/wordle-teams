@@ -15,6 +15,7 @@ import { passwordRegex } from '@/lib/utils'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
+import {log} from 'next-axiom'
 
 const LoginSchema = z.object({
   email: z.string().email('Please enter a valid email that includes @ and .'),
@@ -42,9 +43,19 @@ export default function Login() {
 
   const loginForm = useForm<z.infer<typeof LoginSchema>>({
     resolver: zodResolver(LoginSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+    },
   })
   const signupForm = useForm<z.infer<typeof SignupSchema>>({
     resolver: zodResolver(SignupSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+      firstName: '',
+      lastName: '',
+    },
   })
 
   const [verificationEmailSent, setVerificationEmailSent] = useState(false)
@@ -58,7 +69,7 @@ export default function Login() {
   }
 
   const handleSignUp = async (signupData: z.infer<typeof SignupSchema>) => {
-    const {email, password, firstName, lastName} = signupData
+    const { email, password, firstName, lastName } = signupData
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -77,27 +88,28 @@ export default function Login() {
         password,
       })
       if (error) {
-        console.log(`Error logging in already registered user. Status: ${error.status}; Message: ${error.message}`)
+        log.error(`Error logging in already registered user.`, {error})
         toast({
           title: 'Sign up failed',
           description: 'An unexpected error occurred during sign in, please try again.',
-          variant: 'destructive',
         })
         signupForm.reset()
       } else router.refresh()
     } else if (error) {
-      console.log(`Signup error. Status: ${error.status}; Message: ${error.message}`)
+      log.error(`Signup error.`, { error })
       toast({
         title: 'Sign up failed',
         description: 'An unexpected error occurred during sign in, please try again.',
-        variant: 'destructive',
       })
       signupForm.reset()
     }
+
     if (data.user && !data.session) {
       setVerificationEmailSent(true)
       signupForm.reset()
-    } else router.refresh()
+    }
+    await fetch('/api/revalidate')
+    router.refresh()
   }
 
   const handleLogIn = async (loginData: z.infer<typeof LoginSchema>) => {
@@ -106,12 +118,18 @@ export default function Login() {
       email,
       password,
     })
-    if (error) {
-      console.log(`Login error. Status: ${error.status}; Message: ${error.message}`)
+    if (error && error.message.includes('Email not confirmed')) {
+      log.error(`Login error.`, { error })
+      toast({
+        title: 'Log in failed',
+        description: 'Email not confirmed. Please confirm your email before logging in.',
+      })
+      loginForm.reset()
+    } else if (error) {
+      log.error(`Login error.`, { error })
       toast({
         title: 'Log in failed',
         description: 'Either Email or Password was incorrect. Please try again.',
-        variant: 'destructive',
       })
       loginForm.reset()
     } else router.refresh()
@@ -129,7 +147,6 @@ export default function Login() {
       toast({
         title: 'Password reset failed',
         description: 'Invalid or no email provided. Please provide a valid email for resetting your password.',
-        variant: 'destructive',
       })
       loginForm.reset()
     }
@@ -138,11 +155,10 @@ export default function Login() {
       redirectTo: `${location.origin}/update-password`,
     })
     if (error) {
-      console.log(`Password reset. Status: ${error.status}; Message: ${error.message}`)
+      log.error(`Password reset failed.`, { error })
       toast({
         title: 'Password reset failed',
         description: 'An unexpected error occurred while resetting password. Please try again.',
-        variant: 'destructive',
       })
       loginForm.reset()
     }

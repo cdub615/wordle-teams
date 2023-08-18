@@ -1,7 +1,6 @@
-import { Team } from '@/lib/types'
+import { Player, Team } from '@/lib/types'
 import { clsx, type ClassValue } from 'clsx'
-import {addMinutes, addMonths, differenceInMonths, parseISO, startOfMonth} from 'date-fns'
-import {utcToZonedTime} from 'date-fns-tz'
+import { addMinutes, addMonths, differenceInMonths, startOfMonth } from 'date-fns'
 import { twMerge } from 'tailwind-merge'
 
 const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
@@ -26,4 +25,13 @@ const getMonthsFromEarliestScore = (team: Team): Date[] => {
   return options
 }
 
-export { baseUrl, cn, getMonthsFromEarliestScore, passwordRegex }
+const fromNewTeamResult = (result: any): Team => {
+  const { newTeam, currentPlayer } = result
+
+  const team = Team.prototype.fromDbTeam(newTeam)
+  const player = Player.prototype.fromDbPlayer(currentPlayer, currentPlayer.daily_scores)
+  team.addPlayer(player)
+  return team
+}
+
+export { baseUrl, cn, fromNewTeamResult, getMonthsFromEarliestScore, passwordRegex }

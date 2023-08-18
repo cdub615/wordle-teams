@@ -18,26 +18,26 @@ import { useContext, useEffect, useState } from 'react'
 
 const MonthDropdown = () => {
   const { selectedMonth, setSelectedMonth, selectedTeam } = useContext(AppContext)
-  const [month, setMonth] = useState(selectedMonth)
-  const monthOptions: Date[] = getMonthsFromEarliestScore(selectedTeam)
-  useEffect(() => setSelectedMonth(month), [setSelectedMonth, month])
+  const [monthOptions, setMonthOptions] = useState(getMonthsFromEarliestScore(selectedTeam))
+
+  useEffect(() => setMonthOptions(getMonthsFromEarliestScore(selectedTeam)), [selectedTeam])
 
   const handleMonthChange = (m: string) => {
     const newMonth = parseISO(m)
-    setMonth(newMonth)
+    setSelectedMonth(newMonth)
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant='outline'>
-          {format(month, 'MMMM')} <ChevronDown className='ml-2 h-4 w-4' />
+          {format(selectedMonth, 'MMMM')} <ChevronDown className='ml-2 h-4 w-4' />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end'>
         <DropdownMenuLabel>Change Month</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup value={formatISO(month)} onValueChange={handleMonthChange}>
+        <DropdownMenuRadioGroup value={formatISO(selectedMonth)} onValueChange={handleMonthChange}>
           {monthOptions.map((option) => (
             <DropdownMenuRadioItem key={formatISO(option)} value={formatISO(option)}>
               {format(option, 'MMMM')}

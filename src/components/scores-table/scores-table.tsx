@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  ColumnDef,
   ColumnFiltersState,
   ColumnPinningState,
   SortingState,
@@ -15,23 +16,29 @@ import {
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import AppContext from '@/lib/app-context'
-import { useContext, useMemo, useState } from 'react'
+import { cn } from '@/lib/utils'
+import { useContext, useEffect, useState } from 'react'
+import { MonthScoresRow } from './scores-table-types'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
 
 const ScoresTable = ({ classes }: { classes?: string }) => {
-  const { selectedTeam, selectedMonth, teams } = useContext(AppContext)
+  const { selectedTeam, selectedMonth } = useContext(AppContext)
 
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({})
   const [rowSelection, setRowSelection] = useState({})
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(getDayVisibility(selectedMonth))
+  const [columns, setColumns] = useState<ColumnDef<MonthScoresRow>[]>(getColumns(selectedMonth, selectedTeam.playWeekends))
+  const [data, setData] = useState<MonthScoresRow[]>(getData(selectedTeam, selectedMonth))
+  const [loading, setLoading] = useState(true)
 
-  const columns = useMemo(
-    () => getColumns(selectedMonth, selectedTeam.playWeekends),
-    [selectedMonth, selectedTeam]
-  )
-  const data = useMemo(() => getData(selectedTeam, selectedMonth), [selectedTeam, selectedMonth])
+  useEffect(() => {
+    setLoading(true)
+    setColumns(getColumns(selectedMonth, selectedTeam.playWeekends))
+    setData(getData(selectedTeam, selectedMonth))
+    setLoading(false)
+  }, [selectedMonth, selectedTeam])
 
   const table = useReactTable({
     data,
@@ -64,7 +71,7 @@ const ScoresTable = ({ classes }: { classes?: string }) => {
   return (
     <div className={classes}>
       <div className='rounded-md border text-xs max-w-[96vw] @md:text-base'>
-        <Table className='relative'>
+        <Table className={cn('relative', loading ? 'animate-pulse' : '')}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>

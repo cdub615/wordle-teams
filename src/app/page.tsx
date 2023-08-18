@@ -1,15 +1,27 @@
 import AppGrid from '@/components/app-grid'
-import { Team } from '@/lib/types'
-import { baseUrl } from '@/lib/utils'
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
-import { cookies, headers } from 'next/headers'
+import { Database } from '@/lib/database.types'
+import { createServerActionClient, createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 
-const getTeams = async (): Promise<Team[]> => {
-  const res = await fetch(`${baseUrl(headers().get('host'))}/api/my-teams`)
+const getTeams = async (): Promise<any> => {
+  'use server'
+  const supabase = createServerActionClient<Database>({ cookies })
+  const { data: teams } = await supabase.from('teams').select('*')
+  let playerIds = []
+  const player_ids = teams?.map((t) => t.player_ids)
 
-  if (!res.ok) throw new Error('Failed to fetch teams')
+  playerIds =
+    !!player_ids && player_ids.length > 0
+      ? player_ids.reduce((prev, current) => {
+          return [...prev, ...current]
+        })
+      : []
+  const { data: players } = await supabase
+    .from('players')
+    .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
+    .in('id', playerIds)
 
-  return await res.json()
+  return { teams, players }
 }
 
 const Home = async () => {

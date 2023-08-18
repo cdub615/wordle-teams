@@ -10,6 +10,7 @@ import { cookies } from 'next/headers'
 
 import type { Database } from '@/lib/database.types'
 import { passwordRegex } from '@/lib/utils'
+import { log } from 'next-axiom'
 import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
@@ -23,7 +24,7 @@ const UpdatePassword = async () => {
     const { error } = await supabase.auth.updateUser({ password: newPassword })
 
     if (error) {
-      console.log(`Login error. Status: ${error.status}; Message: ${error.message}`)
+      log.error('Login error.', { error })
     }
     revalidatePath('/')
     redirect('/')

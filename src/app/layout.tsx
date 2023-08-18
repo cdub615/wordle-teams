@@ -8,6 +8,7 @@ import { Analytics } from '@vercel/analytics/react'
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import {AxiomWebVitals} from 'next-axiom'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,9 +20,10 @@ export const metadata: Metadata = {
   description: 'Keep score among friends to establish Wordle bragging rights',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
     <html lang='en' suppressHydrationWarning>
+      <AxiomWebVitals />
       <body className={rootClasses}>
         <ThemeProvider attribute='class' defaultTheme='system' enableSystem>
           <div className='h-screen flex flex-col'>

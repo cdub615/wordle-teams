@@ -8,10 +8,12 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/use-toast'
 import { Team } from '@/lib/types'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { log } from 'next-axiom'
 import { useRouter } from 'next/navigation'
 import { Dispatch, SetStateAction } from 'react'
 import { useForm } from 'react-hook-form'
 import * as z from 'zod'
+import { fromNewTeamResult } from '../lib/utils'
 
 const FormSchema = z.object({
   name: z.string().min(2),
@@ -22,16 +24,20 @@ type CreateTeamProps = {
   setCreateTeamOpen: (open: boolean) => void
   teams: Team[]
   setTeams: Dispatch<SetStateAction<Team[]>>
+  setSelectedTeam: Dispatch<SetStateAction<Team>>
 }
 
-const CreateTeam = ({ setCreateTeamOpen, teams, setTeams }: CreateTeamProps) => {
+const CreateTeam = ({ setCreateTeamOpen, teams, setTeams, setSelectedTeam }: CreateTeamProps) => {
   const router = useRouter()
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
+    defaultValues: {
+      name: '',
+      playWeekends: false,
+    },
   })
 
   const onSubmit = async (data: z.infer<typeof FormSchema>) => {
-    const refresh = teams.length === 0
     const { name, playWeekends } = data
     const response = await fetch(`/api/create-team`, {
       method: 'POST',
@@ -42,21 +48,21 @@ const CreateTeam = ({ setCreateTeamOpen, teams, setTeams }: CreateTeamProps) => 
     })
     form.reset()
     if (response.ok) {
-      const { id, name, creator, playWeekends } = await response.json()
-
-      const newTeam = new Team(id, name, creator, playWeekends, [])
-      setTeams([...teams, newTeam])
+      const result = await response.json()
+      const team = fromNewTeamResult(result)
+      setTeams([...teams, team])
+      setSelectedTeam(team)
       toast({
         title: `Successfully created ${name}`,
       })
-      if (refresh) router.refresh()
-      setCreateTeamOpen(false)
     } else {
-      console.log(`An unexpected error occurred while creating team: ${response.statusText}`)
+      log.error(`An unexpected error occurred while creating team.`, { response: await response.json() })
       toast({
         title: 'Failed to create team. Please try again.',
       })
     }
+    setCreateTeamOpen(false)
+    router.refresh()
   }
   return (
     <DialogContent className='sm:max-w-[425px]'>

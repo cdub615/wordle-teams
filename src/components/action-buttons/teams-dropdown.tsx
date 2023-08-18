@@ -16,25 +16,23 @@ import { useContext, useEffect, useState } from 'react'
 
 const TeamsDropdown = () => {
   const { selectedTeam, setSelectedTeam, teams } = useContext(AppContext)
-  const [team, setTeam] = useState(selectedTeam)
-  useEffect(() => setSelectedTeam(team), [setSelectedTeam, team])
 
   const handleTeamChange = (teamId: string) => {
     const newTeam = teams.find((t) => t.id === teamId)
-    if (newTeam) setTeam(newTeam)
+    if (newTeam) setSelectedTeam(newTeam)
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant='outline'>
-          {team.name} <ChevronDown className='ml-2 h-4 w-4' />
+          {selectedTeam.name} <ChevronDown className='ml-2 h-4 w-4' />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end'>
         <DropdownMenuLabel>Change Team</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup value={team.id} onValueChange={handleTeamChange}>
+        <DropdownMenuRadioGroup value={selectedTeam.id} onValueChange={handleTeamChange}>
           {teams.map((option) => (
             <DropdownMenuRadioItem key={option.id} value={option.id}>
               {option.name}

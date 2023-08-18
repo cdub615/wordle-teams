@@ -5,15 +5,19 @@ import { DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/c
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
-import { DailyScore } from '@/lib/types'
+import AppContext from '@/lib/app-context'
+import { DailyScore, Team } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { FormEventHandler, KeyboardEvent, KeyboardEventHandler, useEffect, useState } from 'react'
+import { log } from 'next-axiom'
+import { FormEventHandler, KeyboardEvent, KeyboardEventHandler, useContext, useEffect, useState } from 'react'
+import { v4 as uuid } from 'uuid'
 
 type AddBoardProps = {
   setAddBoardOpen: (open: boolean) => void
 }
 
 const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
+  const { selectedTeam, setSelectedTeam, teams, setTeams, userId } = useContext(AppContext)
   const [answer, setAnswer] = useState('')
   const [answerError, setAnswerError] = useState<string | undefined>(undefined)
   const [answerTouched, setAnswerTouched] = useState(false)
@@ -96,33 +100,43 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
   }
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault()
-    const dailyScore: DailyScore = new DailyScore('', new Date().toISOString(), answer, guesses)
+    // TODO allow update of existing board, fetching the existing DailyScore from context
+    const dailyScore: DailyScore = new DailyScore(
+      uuid(),
+      new Date().toISOString(),
+      answer,
+      guesses.filter((g) => g.length > 0)
+    )
     if (validateForSubmit()) {
+      const { id, date, answer, guesses } = dailyScore
       const response = await fetch(`/api/add-board`, {
         method: 'POST',
         body: JSON.stringify({
-          id: '',
-          date: new Date().toISOString(),
+          id,
+          date,
           answer,
-          guesses: guesses.filter((g) => g.length > 0),
+          guesses,
         }),
         headers: {
           'Content-Type': 'application/json',
         },
       })
       if (response.ok) {
+        const updatedTeams = Team.prototype.updatePlayerScore(teams, selectedTeam.id, userId, dailyScore)
+        setTeams(updatedTeams)
+        const { id, name, creator, playWeekends, invited, scoringSystem, players } = updatedTeams.find(
+          (t) => t.id === selectedTeam.id
+        )!
+        setSelectedTeam(new Team(id, name, creator, playWeekends, invited, scoringSystem, players))
         toast({
-          title: 'You submitted the following values:',
-          description: (
-            <pre className='mt-2 w-[340px] rounded-md bg-slate-950 p-4'>
-              <code className='text-white'>{JSON.stringify(dailyScore, null, 2)}</code>
-            </pre>
-          ),
+          title: 'Successfully added or updated board',
         })
         clearState()
         setAddBoardOpen(false)
       } else {
-        console.log(`An unexpected error occurred while adding board: ${response.statusText}`)
+        log.error(`An unexpected error occurred while adding board: ${response.statusText}`, {
+          response: await response.json(),
+        })
         toast({
           title: 'Failed to add board. Please try again.',
         })

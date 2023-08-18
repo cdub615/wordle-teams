@@ -5,11 +5,12 @@ import { DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTit
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/components/ui/use-toast'
+import AppContext from '@/lib/app-context'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { log } from 'next-axiom'
 import { Dispatch, SetStateAction, useContext } from 'react'
 import { useForm } from 'react-hook-form'
 import * as z from 'zod'
-import AppContext from '../lib/app-context'
 
 const FormSchema = z.object({
   email: z.string().email('Please enter a valid email that includes @ and .'),
@@ -22,6 +23,9 @@ const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateActio
   const invited = selectedTeam.invited
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
+    defaultValues: {
+      email: '',
+    },
   })
 
   const onSubmit = async (data: z.infer<typeof FormSchema>) => {
@@ -29,7 +33,7 @@ const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateActio
 
     const response = await fetch(`/api/invite-player`, {
       method: 'POST',
-      body: JSON.stringify({ teamId, playerIds, invited, email }),
+      body: JSON.stringify({ teamId, teamName: selectedTeam.name, playerIds, invited, email }),
       headers: {
         'Content-Type': 'application/json',
       },
@@ -40,7 +44,9 @@ const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateActio
         title: `Invite sent. If player hasn't yet signed up they'll be added upon signup.`,
       })
     } else {
-      console.log(`An unexpected error occurred while inviting player: ${response.statusText}`)
+      log.error(`An unexpected error occurred while inviting player: ${response.statusText}`, {
+        response: await response.json(),
+      })
       toast({
         title: 'Failed to invite player. Please try again.',
       })
