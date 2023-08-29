@@ -11,35 +11,17 @@ import { useState } from 'react'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { toast } from '@/components/ui/use-toast'
 import type { Database } from '@/lib/database.types'
-import { passwordRegex } from '@/lib/utils'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { log } from 'next-axiom'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
-import {log} from 'next-axiom'
-
-const LoginSchema = z.object({
-  email: z.string().email('Please enter a valid email that includes @ and .'),
-  password: z
-    .string()
-    .regex(
-      new RegExp(passwordRegex),
-      'Must contain between 6 and 20 characters, at least one uppercase letter, one lowercase letter, one number, and one special character'
-    ),
-})
-const SignupSchema = z.object({
-  email: z.string().email('Please enter a valid email that includes @ and .'),
-  password: z
-    .string()
-    .regex(
-      new RegExp(passwordRegex),
-      'Must contain between 6 and 20 characters, at least one uppercase letter, one lowercase letter, one number, and one special character'
-    ),
-  firstName: z.string().min(1, 'Must be at least 1 character'),
-  lastName: z.string().min(1, 'Must be at least 1 character'),
-})
+import { LoginSchema, SignupSchema, validEmail } from './login-utils'
 
 export default function Login() {
+  const router = useRouter()
+  const supabase = createClientComponentClient<Database>()
   const [tabValue, setTabValue] = useState('login')
+  const [verificationEmailSent, setVerificationEmailSent] = useState(false)
 
   const loginForm = useForm<z.infer<typeof LoginSchema>>({
     resolver: zodResolver(LoginSchema),
@@ -57,10 +39,6 @@ export default function Login() {
       lastName: '',
     },
   })
-
-  const [verificationEmailSent, setVerificationEmailSent] = useState(false)
-  const router = useRouter()
-  const supabase = createClientComponentClient<Database>()
 
   const handleTabChange = (newTab: string) => {
     signupForm.reset()
@@ -88,13 +66,13 @@ export default function Login() {
         password,
       })
       if (error) {
-        log.error(`Error logging in already registered user.`, {error})
+        log.error(`Error logging in already registered user.`, { error })
         toast({
           title: 'Sign up failed',
           description: 'An unexpected error occurred during sign in, please try again.',
         })
         signupForm.reset()
-      } else router.refresh()
+      } else router.replace('/')
     } else if (error) {
       log.error(`Signup error.`, { error })
       toast({
@@ -109,7 +87,7 @@ export default function Login() {
       signupForm.reset()
     }
     await fetch('/api/revalidate')
-    router.refresh()
+    router.replace('/')
   }
 
   const handleLogIn = async (loginData: z.infer<typeof LoginSchema>) => {
@@ -132,13 +110,8 @@ export default function Login() {
         description: 'Either Email or Password was incorrect. Please try again.',
       })
       loginForm.reset()
-    } else router.refresh()
+    } else router.replace('/')
   }
-
-  const validEmail = (emailAddress: string) =>
-    emailAddress.length > 1 &&
-    emailAddress.includes('@') &&
-    emailAddress.substring(emailAddress.lastIndexOf('@')).includes('.')
 
   const resetPassword = async () => {
     let emailAddress = prompt('Please provide your email for password reset') ?? ''

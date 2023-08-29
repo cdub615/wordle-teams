@@ -1,4 +1,4 @@
-import InviteEmail from '@/components/invite-email'
+import InviteEmail from '@/components/emails/invite-email'
 import { Database } from '@/lib/database.types'
 import { SupabaseClient, createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import {log} from 'next-axiom'

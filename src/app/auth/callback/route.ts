@@ -7,6 +7,13 @@ import type { NextRequest } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
+// TODO apparently code and something else are needed for this to work
+/*
+  error AuthApiError: invalid request: both auth code and code verifier should be non-empty
+
+  happens at SupabaseAuthClient.exchangeCodeForSession
+*/
+
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')

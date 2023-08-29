@@ -40,7 +40,7 @@ export interface Database {
           created_at: string | null
           date: string
           guesses: string[]
-          id: string
+          id: number
           player_id: string
         }
         Insert: {
@@ -48,7 +48,7 @@ export interface Database {
           created_at?: string | null
           date: string
           guesses?: string[]
-          id: string
+          id?: number
           player_id: string
         }
         Update: {
@@ -56,7 +56,7 @@ export interface Database {
           created_at?: string | null
           date?: string
           guesses?: string[]
-          id?: string
+          id?: number
           player_id?: string
         }
         Relationships: [
@@ -72,25 +72,32 @@ export interface Database {
         Row: {
           created_at: string | null
           email: string
-          first_name: string
+          first_name: string | null
           id: string
-          last_name: string
+          last_name: string | null
         }
         Insert: {
           created_at?: string | null
           email: string
-          first_name: string
+          first_name?: string | null
           id: string
-          last_name: string
+          last_name?: string | null
         }
         Update: {
           created_at?: string | null
           email?: string
-          first_name?: string
+          first_name?: string | null
           id?: string
-          last_name?: string
+          last_name?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "players_id_fkey"
+            columns: ["id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       profiles: {
         Row: {
@@ -120,11 +127,11 @@ export interface Database {
       teams: {
         Row: {
           created_at: string | null
-          creator: string
+          creator: string | null
           failed: number
           five_guesses: number
           four_guesses: number
-          id: string
+          id: number
           invited: string[]
           n_a: number
           name: string
@@ -137,11 +144,11 @@ export interface Database {
         }
         Insert: {
           created_at?: string | null
-          creator: string
+          creator?: string | null
           failed?: number
           five_guesses?: number
           four_guesses?: number
-          id: string
+          id?: number
           invited?: string[]
           n_a?: number
           name: string
@@ -154,11 +161,11 @@ export interface Database {
         }
         Update: {
           created_at?: string | null
-          creator?: string
+          creator?: string | null
           failed?: number
           five_guesses?: number
           four_guesses?: number
-          id?: string
+          id?: number
           invited?: string[]
           n_a?: number
           name?: string
@@ -183,7 +190,12 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      earliest_score_for_team: {
+        Args: {
+          teamid: number
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

@@ -22,7 +22,7 @@ const POST = async (req: NextRequest) => {
 
     const { data: newTeam, error } = await supabase
       .from('teams')
-      .insert({ id: randomUUID(), name, play_weekends: playWeekends, creator, player_ids: [creator] })
+      .insert({ name, play_weekends: playWeekends, creator, player_ids: [creator] })
       .select('*')
       .single()
 

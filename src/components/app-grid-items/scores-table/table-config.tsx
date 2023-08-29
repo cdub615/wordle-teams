@@ -7,7 +7,6 @@ const getData = (team: Team, month: Date): MonthScoresRow[] => {
   const data: MonthScoresRow[] = []
 
   team.players.map((player: Player) => {
-    const days = getDaysInMonth(month)
     const scores = player.scores?.filter((s) => isSameMonth(month, new Date(s.date)))
     const dailyAttempts = []
     for (let i = 1; i <= 31; i++) {

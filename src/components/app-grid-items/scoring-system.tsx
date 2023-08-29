@@ -1,17 +1,23 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import AppContext from '@/lib/app-context'
-import { useContext } from 'react'
+import { Database } from '@/lib/database.types'
+import { Team, defaultSystem } from '@/lib/types'
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 
+const getScoringSystem = async (teamId: number): Promise<number[][]> => {
+  const supabase = createServerComponentClient<Database>({ cookies })
+  const { data: team } = await supabase.from('teams').select('*').eq('id', teamId).single()
+  if (team) return Team.prototype.fromDbTeam(team).scoringSystem
+  else throw new Error(`Couldn't find team ${teamId}`)
+}
 type Score = {
   attempts: number
   points: number
 }
 
-const ScoringSystem = ({ classes }: { classes?: string }) => {
-  const {
-    selectedTeam: { scoringSystem },
-  } = useContext(AppContext)
+const ScoringSystem = async ({ teamId, classes }: { teamId: number; classes?: string }) => {
+  const scoringSystem = teamId === 0 ? defaultSystem : await getScoringSystem(teamId)
   const scores: Score[] = []
   scoringSystem.forEach((entry) => {
     scores.push({ attempts: entry[0], points: entry[1] })

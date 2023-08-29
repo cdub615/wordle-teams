@@ -1,7 +1,10 @@
-import { Player, Team } from '@/lib/types'
+import { Player, Team, teams } from '@/lib/types'
+import { SupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { clsx, type ClassValue } from 'clsx'
 import { addMinutes, addMonths, differenceInMonths, startOfMonth } from 'date-fns'
+import { log } from 'next-axiom'
 import { twMerge } from 'tailwind-merge'
+import { Database } from './database.types'
 
 const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 
@@ -9,11 +12,7 @@ const baseUrl = (host: string | null) => `${process?.env.NODE_ENV === 'developme
 
 const passwordRegex = `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*.?#^)(-_=+|}{':;~\`&])[A-Za-z\d@$!.%*?#^)(-_=+|}{':;~\`&]{6,20}$`
 
-const getMonthsFromEarliestScore = (team: Team): Date[] => {
-  const earliest = team.players
-    .map((player) => player.scores[0]?.date ?? new Date().toISOString())
-    .sort((a: string, b: string) => (new Date(a) < new Date(b) ? -1 : a == b ? 0 : 1))[0]
-
+const getMonthsFromEarliestScore = (earliest: string): Date[] => {
   const adjustedStartMonth = addMinutes(new Date(earliest), new Date(earliest).getTimezoneOffset())
   const monthsToCurrent = differenceInMonths(new Date(), adjustedStartMonth)
   let monthOption = startOfMonth(adjustedStartMonth)
@@ -34,4 +33,49 @@ const fromNewTeamResult = (result: any): Team => {
   return team
 }
 
-export { baseUrl, cn, fromNewTeamResult, getMonthsFromEarliestScore, passwordRegex }
+const monthAsDate = (month: string) =>
+  new Date(Number.parseInt(month.substring(0, 4)), Number.parseInt(month.substring(4, 6)) - 1)
+
+const playerIdsFromTeams = (teams: teams[]): string[] => {
+  const player_ids = teams?.map((t) => t.player_ids)
+  return !!player_ids && player_ids.length > 0
+    ? player_ids.reduce((prev, current) => {
+        return [...prev, ...current]
+      })
+    : []
+}
+
+const getImage = (supabase: SupabaseClient<Database>, imageName: string) => {
+  const {
+    data: { publicUrl: userImage },
+  } = supabase.storage.from('images').getPublicUrl(imageName)
+  if ((process.env.LOCAL! = 'true'))
+    return userImage.replace('http://localhost:54321', process.env.DEV_SUPABASE_URL!)
+  return userImage
+}
+
+const setTeam = async (teamId: number) => {
+  try {
+    await fetch(`${process.env.HOST ?? 'http:localhost:3000'}/api/set-team`, {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch (error) {
+    log.error('Failed to set team id cookie', { error })
+  }
+}
+
+export {
+  baseUrl,
+  cn,
+  fromNewTeamResult,
+  getImage,
+  getMonthsFromEarliestScore,
+  monthAsDate,
+  passwordRegex,
+  playerIdsFromTeams,
+  setTeam,
+}

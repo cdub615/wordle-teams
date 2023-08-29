@@ -1,23 +1,18 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
-import AppContext from '@/lib/app-context'
-import { DailyScore, Team } from '@/lib/types'
+import { DailyScore } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { log } from 'next-axiom'
-import { FormEventHandler, KeyboardEvent, KeyboardEventHandler, useContext, useEffect, useState } from 'react'
-import { v4 as uuid } from 'uuid'
+import { useRouter } from 'next/navigation'
+import { FormEventHandler, KeyboardEvent, KeyboardEventHandler, useEffect, useState } from 'react'
 
-type AddBoardProps = {
-  setAddBoardOpen: (open: boolean) => void
-}
-
-const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
-  const { selectedTeam, setSelectedTeam, teams, setTeams, userId } = useContext(AppContext)
+const AddBoardForm = () => {
+  const router = useRouter()
   const [answer, setAnswer] = useState('')
   const [answerError, setAnswerError] = useState<string | undefined>(undefined)
   const [answerTouched, setAnswerTouched] = useState(false)
@@ -102,7 +97,7 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
     e.preventDefault()
     // TODO allow update of existing board, fetching the existing DailyScore from context
     const dailyScore: DailyScore = new DailyScore(
-      uuid(),
+      -1,
       new Date().toISOString(),
       answer,
       guesses.filter((g) => g.length > 0)
@@ -112,7 +107,7 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
       const response = await fetch(`/api/add-board`, {
         method: 'POST',
         body: JSON.stringify({
-          id,
+          id: id === -1 ? undefined : id,
           date,
           answer,
           guesses,
@@ -122,17 +117,11 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
         },
       })
       if (response.ok) {
-        const updatedTeams = Team.prototype.updatePlayerScore(teams, selectedTeam.id, userId, dailyScore)
-        setTeams(updatedTeams)
-        const { id, name, creator, playWeekends, invited, scoringSystem, players } = updatedTeams.find(
-          (t) => t.id === selectedTeam.id
-        )!
-        setSelectedTeam(new Team(id, name, creator, playWeekends, invited, scoringSystem, players))
         toast({
           title: 'Successfully added or updated board',
         })
         clearState()
-        setAddBoardOpen(false)
+        router.refresh()
       } else {
         log.error(`An unexpected error occurred while adding board: ${response.statusText}`, {
           response: await response.json(),
@@ -161,51 +150,53 @@ const AddBoard = ({ setAddBoardOpen }: AddBoardProps) => {
   }
 
   return (
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>Add Board</DialogTitle>
-        <DialogDescription>Enter the day&apos;s answer and your guesses</DialogDescription>
-      </DialogHeader>
-      <form onSubmit={handleSubmit}>
-        <div className='flex items-center space-x-4'>
-          <Label htmlFor='answer'>Today&apos;s Answer</Label>
-          <Input
-            name='answer'
-            className='uppercase w-48'
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            onBlur={(e) => setAnswerTouched(true)}
-            maxLength={5}
-            tabIndex={1}
-          />
-        </div>
-        {answerError && <div className='text-sm text-destructive py-1'>{answerError}</div>}
-        <div
-          onKeyDown={handleBoardKeyDown}
-          tabIndex={2}
-          className={cn(boardCn, answer.length >= 5 ? boardVisible : boardHidden)}
-        >
-          <div className='grid grid-cols-5 gap-1 w-80'>
-            {guesses.map((guess) => (
-              <>
-                <div className={letterClasses(guess[0], 0)}>{guess[0]}</div>
-                <div className={letterClasses(guess[1], 1)}>{guess[1]}</div>
-                <div className={letterClasses(guess[2], 2)}>{guess[2]}</div>
-                <div className={letterClasses(guess[3], 3)}>{guess[3]}</div>
-                <div className={letterClasses(guess[4], 4)}>{guess[4]}</div>
-              </>
-            ))}
+    <Dialog>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add Board</DialogTitle>
+          <DialogDescription>Enter the day&apos;s answer and your guesses</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <div className='flex items-center space-x-4'>
+            <Label htmlFor='answer'>Today&apos;s Answer</Label>
+            <Input
+              name='answer'
+              className='uppercase w-48'
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              onBlur={(e) => setAnswerTouched(true)}
+              maxLength={5}
+              tabIndex={1}
+            />
           </div>
-        </div>
-        {guessesError && <div className='text-sm text-destructive py-1'>{guessesError}</div>}
-        <div className='flex justify-end space-x-4'>
-          <Button tabIndex={3} disabled={submitDisabled}>
-            Submit
-          </Button>
-        </div>
-      </form>
-    </DialogContent>
+          {answerError && <div className='text-sm text-destructive py-1'>{answerError}</div>}
+          <div
+            onKeyDown={handleBoardKeyDown}
+            tabIndex={2}
+            className={cn(boardCn, answer.length >= 5 ? boardVisible : boardHidden)}
+          >
+            <div className='grid grid-cols-5 gap-1 w-80'>
+              {guesses.map((guess) => (
+                <>
+                  <div className={letterClasses(guess[0], 0)}>{guess[0]}</div>
+                  <div className={letterClasses(guess[1], 1)}>{guess[1]}</div>
+                  <div className={letterClasses(guess[2], 2)}>{guess[2]}</div>
+                  <div className={letterClasses(guess[3], 3)}>{guess[3]}</div>
+                  <div className={letterClasses(guess[4], 4)}>{guess[4]}</div>
+                </>
+              ))}
+            </div>
+          </div>
+          {guessesError && <div className='text-sm text-destructive py-1'>{guessesError}</div>}
+          <div className='flex justify-end space-x-4'>
+            <Button tabIndex={3} disabled={submitDisabled}>
+              Submit
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-export default AddBoard
+export default AddBoardForm

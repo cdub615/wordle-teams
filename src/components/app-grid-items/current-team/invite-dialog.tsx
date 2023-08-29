@@ -2,25 +2,29 @@
 
 import { Button } from '@/components/ui/button'
 import { DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/components/ui/use-toast'
-import AppContext from '@/lib/app-context'
+import { Team, teams } from '@/lib/types'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { log } from 'next-axiom'
-import { Dispatch, SetStateAction, useContext } from 'react'
-import { useForm } from 'react-hook-form'
+import { useRouter } from 'next/navigation'
+import { Form, useForm } from 'react-hook-form'
 import * as z from 'zod'
 
 const FormSchema = z.object({
   email: z.string().email('Please enter a valid email that includes @ and .'),
 })
 
-const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateAction<boolean>> }) => {
-  const { selectedTeam } = useContext(AppContext)
-  const teamId = selectedTeam.id
-  const playerIds = selectedTeam.players.map((p) => p.id)
-  const invited = selectedTeam.invited
+type InviteDialogProps = {
+  team: teams
+  playerIds: string[]
+}
+
+export default function InviteDialog({ team, playerIds }: InviteDialogProps) {
+  const router = useRouter()
+  const selectedTeam = Team.prototype.fromDbTeam(team)
+  const { id: teamId, name: teamName, invited } = selectedTeam
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
@@ -33,7 +37,7 @@ const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateActio
 
     const response = await fetch(`/api/invite-player`, {
       method: 'POST',
-      body: JSON.stringify({ teamId, teamName: selectedTeam.name, playerIds, invited, email }),
+      body: JSON.stringify({ teamId, teamName, playerIds, invited, email }),
       headers: {
         'Content-Type': 'application/json',
       },
@@ -51,7 +55,7 @@ const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateActio
         title: 'Failed to invite player. Please try again.',
       })
     }
-    setInviteOpen(false)
+    router.refresh()
   }
 
   return (
@@ -87,5 +91,3 @@ const InvitePlayer = ({ setInviteOpen }: { setInviteOpen: Dispatch<SetStateActio
     </DialogContent>
   )
 }
-
-export default InvitePlayer
