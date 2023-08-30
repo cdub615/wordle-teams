@@ -23,20 +23,19 @@ export default async function TeamsDropdown({ teamId, month }: { teamId: number;
   const teams = await getTeams()
   const selectedTeam = teams.find((t) => t.id === teamId)
 
-  if (!teams) return <p>Loading teams...</p>
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant='outline'>
-          {selectedTeam?.name} <ChevronDown className='ml-2 h-4 w-4' />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align='end'>
-        <DropdownMenuLabel>Change Team</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <TeamsDropdownRadioGroup teamId={teamId} teams={teams} month={month} />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
+  if (teams)
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant='outline'>
+            {selectedTeam?.name} <ChevronDown className='ml-2 h-4 w-4' />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end'>
+          <DropdownMenuLabel>Change Team</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <TeamsDropdownRadioGroup teamId={teamId} teams={teams} month={month} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
 }

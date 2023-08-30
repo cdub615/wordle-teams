@@ -52,8 +52,8 @@ export default async function invitePlayer(formData: FormData) {
       const invitedByEmail = session.user.email!
 
       const { id } = await resend.emails.send({
-        from: 'Wordle Teams <onboarding@resend.dev>',
-        to: ['christianbwhite@gmail.com'], // TODO replace this with email
+        from: 'Wordle Teams <team@wordleteams.com>',
+        to: [email],
         subject: `${invitedByUsername} has invited you`,
         react: InviteEmail({
           email,
@@ -66,7 +66,6 @@ export default async function invitePlayer(formData: FormData) {
         }),
         text: '',
       })
-      log.debug(`invite email id: ${id}`)
     } catch (error) {
       log.error('Failed to send invite email', { error })
       throw error
