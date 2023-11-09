@@ -2,7 +2,6 @@ import { Player, Team, teams } from '@/lib/types'
 import { SupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { clsx, type ClassValue } from 'clsx'
 import { addMinutes, addMonths, differenceInMonths, startOfMonth } from 'date-fns'
-import { log } from 'next-axiom'
 import { twMerge } from 'tailwind-merge'
 import { Database } from './database.types'
 
@@ -54,18 +53,11 @@ const getImage = (supabase: SupabaseClient<Database>, imageName: string) => {
   return userImage
 }
 
-const setTeam = async (teamId: number) => {
-  try {
-    await fetch(`${process.env.HOST ?? 'http:localhost:3000'}/api/set-team`, {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-  } catch (error) {
-    log.error('Failed to set team id cookie', { error })
-  }
+const getSession = async (supabase: SupabaseClient<Database>) => {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  return session
 }
 
 export {
@@ -74,8 +66,8 @@ export {
   fromNewTeamResult,
   getImage,
   getMonthsFromEarliestScore,
+  getSession,
   monthAsDate,
   passwordRegex,
   playerIdsFromTeams,
-  setTeam,
 }

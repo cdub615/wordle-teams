@@ -18,13 +18,6 @@ export default function MonthDropdownRadioGroup({
   const router = useRouter()
   const handleMonthChange = async (m: string) => {
     const newMonth = format(parseISO(m), 'yyyyMM')
-    await fetch('/api/set-month', {
-      method: 'POST',
-      body: JSON.stringify({ newMonth }),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
     router.replace(`/${teamId}/${newMonth}`)
   }
   return (

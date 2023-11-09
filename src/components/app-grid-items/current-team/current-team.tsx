@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Database } from '@/lib/database.types'
 import { players, teams } from '@/lib/types'
-import { setTeam } from '@/lib/utils'
+import { getSession } from '@/lib/utils'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { UserPlus2 } from 'lucide-react'
 import { cookies } from 'next/headers'
@@ -17,9 +17,7 @@ type CurrentTeamData = {
 
 const getCurrentTeam = async (teamId: number): Promise<CurrentTeamData> => {
   const supabase = createServerComponentClient<Database>({ cookies })
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  const session = await getSession(supabase)
   if (!session) redirect('/login')
   const userId = session.user.id
   const { data: team } = await supabase.from('teams').select('*').eq('id', teamId).single()
@@ -38,7 +36,6 @@ const getCurrentTeam = async (teamId: number): Promise<CurrentTeamData> => {
 
 export default async function CurrentTeam({ teamId }: { teamId: number }) {
   const { team, players, canInvite } = await getCurrentTeam(teamId)
-  await setTeam(team.id)
 
   return (
     <Card className='h-fit'>

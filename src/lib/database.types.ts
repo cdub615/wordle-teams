@@ -104,22 +104,34 @@ export interface Database {
           first_name: string | null
           id: string
           last_name: string | null
+          selected_month: string | null
+          selected_team: number | null
         }
         Insert: {
           first_name?: string | null
           id: string
           last_name?: string | null
+          selected_month?: string | null
+          selected_team?: number | null
         }
         Update: {
           first_name?: string | null
           id?: string
           last_name?: string | null
+          selected_month?: string | null
+          selected_team?: number | null
         }
         Relationships: [
           {
             foreignKeyName: "profiles_id_fkey"
             columns: ["id"]
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_selected_team_fkey"
+            columns: ["selected_team"]
+            referencedRelation: "teams"
             referencedColumns: ["id"]
           }
         ]

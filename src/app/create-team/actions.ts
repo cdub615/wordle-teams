@@ -1,6 +1,7 @@
 'use server'
 
 import { Database } from '@/lib/database.types'
+import { getSession } from '@/lib/utils'
 import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
 import { format } from 'date-fns'
 import { log } from 'next-axiom'
@@ -10,9 +11,7 @@ import { redirect } from 'next/navigation'
 
 export default async function createTeam(formData: FormData) {
   const supabase = createServerActionClient<Database>({ cookies })
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 
   const name = formData.get('name') as string

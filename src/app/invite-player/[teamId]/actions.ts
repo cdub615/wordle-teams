@@ -2,7 +2,7 @@
 
 import InviteEmail from '@/components/emails/invite-email'
 import { Database } from '@/lib/database.types'
-import { getImage } from '@/lib/utils'
+import { getImage, getSession } from '@/lib/utils'
 import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
@@ -17,9 +17,7 @@ const teamImageName = 'wt-icon.png'
 
 export default async function invitePlayer(formData: FormData) {
   const supabase = createServerActionClient<Database>({ cookies })
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 
   const teamId = formData.get('teamId') as string

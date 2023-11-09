@@ -2,7 +2,6 @@
 
 import { DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu'
 import { teams } from '@/lib/types'
-import { setTeam } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
@@ -17,11 +16,10 @@ export default function TeamsDropdownRadioGroup({ teamId, month, teams }: TeamsD
   const [value, setValue] = useState(`${teamId}`)
 
   useEffect(() => {
-    const setTeamCookie = async (id: number) => {
-      await setTeam(id)
+    const updateTeam = async (id: number) => {
       router.replace(`/${id}/${month}`)
     }
-    setTeamCookie(Number.parseInt(value))
+    updateTeam(Number.parseInt(value))
   }, [value])
 
   return (

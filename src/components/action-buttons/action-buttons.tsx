@@ -23,7 +23,7 @@ export default async function ActionButtons({ teamId, month, classes }: ActionBu
           </Button>
         </Link>
       </div>
-      <Link href={'/add-board'}>
+      <Link href={'/scores'}>
         <Button size={'icon'}>
           <Plus size={24} />
         </Button>
