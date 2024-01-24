@@ -4,6 +4,7 @@ import { ListPlus, Plus } from 'lucide-react'
 import Link from 'next/link'
 import MonthDropdown from './month-dropdown/month-dropdown'
 import TeamsDropdown from './teams-dropdown/teams-dropdown'
+import {format} from 'date-fns'
 
 type ActionButtonProps = {
   teamId: number
@@ -23,7 +24,7 @@ export default async function ActionButtons({ teamId, month, classes }: ActionBu
           </Button>
         </Link>
       </div>
-      <Link href={'/scores'}>
+      <Link href={`/scores/${format(new Date(), 'yyyyMMdd')}`}>
         <Button size={'icon'}>
           <Plus size={24} />
         </Button>

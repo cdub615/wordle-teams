@@ -1,34 +1,29 @@
 'use client'
 
-import {
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/use-toast'
 import { DailyScore, daily_scores } from '@/lib/types'
-import { cn } from '@/lib/utils'
-import {isToday, parseISO} from 'date-fns'
-import { log } from 'next-axiom'
+import { cn, padArray } from '@/lib/utils'
+import { addDays, format, isSameDay, parseISO, subDays } from 'date-fns'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { FormEventHandler, KeyboardEvent, KeyboardEventHandler, MouseEventHandler, useEffect, useState } from 'react'
-import addBoard from './actions'
+import { KeyboardEvent, KeyboardEventHandler, useEffect, useState } from 'react'
+import { upsertBoard } from './actions'
 
-type AddBoardFormProps = {
+type BoardProps = {
+  date: Date
   dailyScores: daily_scores[]
   teamId: string
   month: string
 }
 
-const AddBoardForm = ({dailyScores, teamId, month}: AddBoardFormProps) => {
+export default function Board({ date, dailyScores, teamId, month }: BoardProps) {
   const router = useRouter()
   const [scores, setScores] = useState(dailyScores.map((ds) => DailyScore.prototype.fromDbDailyScore(ds)))
   const [scoreId, setScoreId] = useState(-1)
-  const [scoreDate, setScoreDate] = useState(new Date().toISOString())
+  const [scoreDate, setScoreDate] = useState(date.toISOString())
   const [answer, setAnswer] = useState('')
   const [answerError, setAnswerError] = useState<string | undefined>(undefined)
   const [answerTouched, setAnswerTouched] = useState(false)
@@ -41,18 +36,23 @@ const AddBoardForm = ({dailyScores, teamId, month}: AddBoardFormProps) => {
   const boardHidden = 'invisible h-0 w-0'
   const boardVisible = 'visible w-full h-fit'
 
+  // TODO can scrape current days wordle answer from https://www.nytimes.com/2023/10/23/crosswords/wordle-review.html
+
   // TODO get today's score if exists, show in form and allow change of date
   useEffect(() => {
-    const todaysScore = scores.find(s => isToday(parseISO(s.date)))
-    if (!!todaysScore) {
-      setAnswer(todaysScore.answer)
-      setGuesses(todaysScore.guesses)
+    const currentScore = scores.find((s) => isSameDay(date, parseISO(s.date)))
+    if (!!currentScore) {
+      setAnswer(currentScore.answer)
+      setGuesses(padArray(currentScore.guesses, 6))
+      setScoreId(currentScore.id)
     }
   }, [scores])
 
   useEffect(() => {
-    if (hasValidAnswer() && hasGuesses() && hasCompleteGuesses() && lastGuessIsAnswer()) setSubmitDisabled(false)
-    else if (answerTouched && guessesTouched) setSubmitDisabled(true)
+    if (answer && guesses) {
+      if (hasValidAnswer() && hasGuesses() && hasCompleteGuesses() && lastGuessIsAnswer()) setSubmitDisabled(false)
+      else if (answerTouched && guessesTouched) setSubmitDisabled(true)
+    }
   }, [answer, guesses])
 
   const handleBoardKeyDown: KeyboardEventHandler = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -100,7 +100,7 @@ const AddBoardForm = ({dailyScores, teamId, month}: AddBoardFormProps) => {
   const hasCompleteGuesses = () => guesses.every((guess) => guess.length === 0 || guess.length === 5)
   const showIncompleteGuessesError = () => setGuessesError('Every submitted guess must be 5 characters')
   const lastGuessIsAnswer = () =>
-    guesses[5].length === 5 || guesses.filter((guess) => guess.length > 0).pop() === answer
+    guesses[5]?.length === 5 || guesses.filter((guess) => guess.length > 0).pop() === answer
   const showLastGuessNotAnswerError = () => setGuessesError('Last guess must match answer unless board is full')
   const validateForSubmit = (): boolean => {
     if (!hasValidAnswer()) showAnswerError()
@@ -128,37 +128,37 @@ const AddBoardForm = ({dailyScores, teamId, month}: AddBoardFormProps) => {
 
   const cancel = (e: any) => {
     e.preventDefault()
-    router.back()
+    router.push('/')
   }
-
   return (
-    <AlertDialogContent>
-      <AlertDialogHeader>
-        <AlertDialogTitle>Add Board</AlertDialogTitle>
-        <AlertDialogDescription>Enter the day&apos;s answer and your guesses</AlertDialogDescription>
-      </AlertDialogHeader>
-      <form action={addBoard}>
-        <input hidden name='teamId' value={teamId} />
-        <input hidden name='month' value={month} />
-        <input hidden name='scoreId' value={scoreId} />
-        <input hidden name='scoreDate' value={scoreDate} />
-        <input hidden name='guesses' value={guesses} />
-        <div className='flex items-center space-x-4'>
-          <Label htmlFor='answer'>Wordle Answer</Label>
-          <Input
-            name='answer'
-            className='uppercase w-48'
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            onBlur={(e) => setAnswerTouched(true)}
-            maxLength={5}
-            tabIndex={1}
-          />
-        </div>
-        {answerError && <div className='text-sm text-destructive py-1'>{answerError}</div>}
+    <form action={upsertBoard}>
+      <input hidden name='teamId' value={teamId} />
+      <input hidden name='month' value={month} />
+      <input hidden name='scoreId' value={scoreId} />
+      <input hidden name='scoreDate' value={scoreDate} />
+      <input hidden name='guesses' value={guesses} />
+      <div className='flex items-center space-x-4'>
+        <Label htmlFor='answer'>Wordle Answer</Label>
+        <Input
+          name='answer'
+          className='uppercase w-48'
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          onBlur={(e) => setAnswerTouched(true)}
+          maxLength={5}
+          tabIndex={1}
+        />
+      </div>
+      {answerError && <div className='text-sm text-destructive py-1'>{answerError}</div>}
+      <div className='flex items-center'>
+        <Link href={`/scores/${format(subDays(date, 1), 'yyyyMMdd')}`} tabIndex={2}>
+          <Button size={'icon'} variant={'outline'}>
+            <ArrowLeft size={24} />
+          </Button>
+        </Link>
         <div
           onKeyDown={handleBoardKeyDown}
-          tabIndex={2}
+          tabIndex={3}
           className={cn(boardCn, answer.length >= 5 ? boardVisible : boardHidden)}
         >
           <div className='grid grid-cols-5 gap-1 w-80'>
@@ -173,18 +173,21 @@ const AddBoardForm = ({dailyScores, teamId, month}: AddBoardFormProps) => {
             ))}
           </div>
         </div>
-        {guessesError && <div className='text-sm text-destructive py-1'>{guessesError}</div>}
-        <div className='flex justify-end space-x-4'>
-          <Button tabIndex={3} onClick={cancel} variant={'secondary'} type='button'>
-            Cancel
+        <Link href={`/scores/${format(addDays(date, 1), 'yyyyMMdd')}`} tabIndex={4}>
+          <Button size={'icon'} variant={'outline'}>
+            <ArrowRight size={24} />
           </Button>
-          <Button tabIndex={4} disabled={submitDisabled} type='submit'>
-            Submit
-          </Button>
-        </div>
-      </form>
-    </AlertDialogContent>
+        </Link>
+      </div>
+      {guessesError && <div className='text-sm text-destructive py-1'>{guessesError}</div>}
+      <div className='flex justify-end space-x-4'>
+        <Button tabIndex={5} onClick={cancel} variant={'secondary'} type='button'>
+          Cancel
+        </Button>
+        <Button tabIndex={6} disabled={submitDisabled} type='submit'>
+          Submit
+        </Button>
+      </div>
+    </form>
   )
 }
-
-export default AddBoardForm

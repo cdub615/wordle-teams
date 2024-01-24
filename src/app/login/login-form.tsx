@@ -9,11 +9,11 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
-import { toast } from '@/components/ui/use-toast'
 import type { Database } from '@/lib/database.types'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { log } from 'next-axiom'
 import { useForm } from 'react-hook-form'
+import { toast } from 'sonner'
 import { z } from 'zod'
 import { LoginSchema, SignupSchema, validEmail } from './login-utils'
 
@@ -68,16 +68,14 @@ export default function LoginForm({ session }: { session: Session | null }) {
       })
       if (error) {
         log.error(`Error logging in already registered user.`, { error })
-        toast({
-          title: 'Sign up failed',
+        toast('Sign up failed', {
           description: 'An unexpected error occurred during sign in, please try again.',
         })
         signupForm.reset()
       } else router.refresh()
     } else if (error) {
       log.error(`Signup error.`, { error })
-      toast({
-        title: 'Sign up failed',
+      toast('Sign up failed', {
         description: 'An unexpected error occurred during sign in, please try again.',
       })
       signupForm.reset()
@@ -98,15 +96,13 @@ export default function LoginForm({ session }: { session: Session | null }) {
     log.info('login data', { data })
     if (error && error.message.includes('Email not confirmed')) {
       log.error(`Login error.`, { error })
-      toast({
-        title: 'Log in failed',
+      toast('Log in failed', {
         description: 'Email not confirmed. Please confirm your email before logging in.',
       })
       loginForm.reset()
     } else if (error) {
       log.error(`Login error.`, { error })
-      toast({
-        title: 'Log in failed',
+      toast('Log in failed', {
         description: 'Either Email or Password was incorrect. Please try again.',
       })
       loginForm.reset()
@@ -117,8 +113,7 @@ export default function LoginForm({ session }: { session: Session | null }) {
     let emailAddress = prompt('Please provide your email for password reset') ?? ''
     if (!validEmail(emailAddress)) emailAddress = prompt('Invalid or no email provided, please try again') ?? ''
     if (!validEmail(emailAddress)) {
-      toast({
-        title: 'Password reset failed',
+      toast('Password reset failed', {
         description: 'Invalid or no email provided. Please provide a valid email for resetting your password.',
       })
       loginForm.reset()
@@ -129,8 +124,7 @@ export default function LoginForm({ session }: { session: Session | null }) {
     })
     if (error) {
       log.error(`Password reset failed.`, { error })
-      toast({
-        title: 'Password reset failed',
+      toast('Password reset failed', {
         description: 'An unexpected error occurred while resetting password. Please try again.',
       })
       loginForm.reset()

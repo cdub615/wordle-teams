@@ -1,18 +1,22 @@
-import { AlertDialog } from '@/components/ui/alert-dialog'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Database } from '@/lib/database.types'
 import { daily_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'
 import { SupabaseClient, createServerComponentClient } from '@supabase/auth-helpers-nextjs'
-import { isToday, parseISO } from 'date-fns'
+import { parseISO } from 'date-fns'
 import type { Metadata } from 'next'
-import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import AddBoardForm from './add-board-form'
-import EditGuessesForm from './edit-guesses-form'
+import Board from './board'
 
 export const metadata: Metadata = {
-  title: 'Add Board',
+  title: 'Wordle Board',
 }
 
 const getPlayerScores = async (supabase: SupabaseClient<Database>, userId: string): Promise<daily_scores[]> => {
@@ -20,17 +24,23 @@ const getPlayerScores = async (supabase: SupabaseClient<Database>, userId: strin
   return scores ?? []
 }
 
-export default async function Page() {
+export default async function Page({params}: {params: {date: string}}) {
+  const date = parseISO(params.date)
   const supabase = createServerComponentClient<Database>({ cookies })
   const session = await getSession(supabase)
   if (!session) redirect('/login')
   const scores = await getPlayerScores(supabase, session.user.id)
-  const todaysScore = scores.find((s) => isToday(parseISO(s.date)))
   const teamId = cookies().get('teamId')?.value as string
   const month = cookies().get('month')?.value as string
   return (
     <AlertDialog open={true}>
-      {todaysScore ? <EditGuessesForm todaysScore={todaysScore} /> : <AddBoardForm dailyScores={scores} teamId={teamId} month={month} />}
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Add or Update Board</AlertDialogTitle>
+          <AlertDialogDescription>Enter the day&apos;s answer and your guesses</AlertDialogDescription>
+        </AlertDialogHeader>
+        <Board dailyScores={scores} date={date} teamId={teamId} month={month} />
+      </AlertDialogContent>
     </AlertDialog>
   )
 }

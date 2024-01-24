@@ -8,7 +8,7 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-export default async function addBoard(formData: FormData) {
+export async function upsertBoard(formData: FormData) {
   const supabase = createServerActionClient<Database>({ cookies })
   const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')

@@ -35,6 +35,7 @@ const fromNewTeamResult = (result: any): Team => {
 const monthAsDate = (month: string) =>
   new Date(Number.parseInt(month.substring(0, 4)), Number.parseInt(month.substring(4, 6)) - 1)
 
+
 const playerIdsFromTeams = (teams: teams[]): string[] => {
   const player_ids = teams?.map((t) => t.player_ids)
   return !!player_ids && player_ids.length > 0
@@ -60,6 +61,13 @@ const getSession = async (supabase: SupabaseClient<Database>) => {
   return session
 }
 
+const padArray = (arr: string[], length: number) => {
+  while (arr.length < length) {
+    arr.push('')
+  }
+  return arr
+}
+
 export {
   baseUrl,
   cn,
@@ -68,6 +76,7 @@ export {
   getMonthsFromEarliestScore,
   getSession,
   monthAsDate,
+  padArray,
   passwordRegex,
   playerIdsFromTeams,
 }
