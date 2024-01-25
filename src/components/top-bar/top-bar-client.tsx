@@ -8,19 +8,15 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { LogOut } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
-import AppContext from '@/lib/app-context'
 import type { Database } from '@/lib/database.types'
 import { User } from '@/lib/types'
-import { useContext } from 'react'
 
 const TopBarClientComponent = ({ user }: { user: User | undefined }) => {
   const router = useRouter()
   const supabase = createClientComponentClient<Database>()
-  const { setUserId } = useContext(AppContext)
 
   const logout = async () => {
     await supabase.auth.signOut()
-    setUserId('')
     router.refresh()
   }
   return (

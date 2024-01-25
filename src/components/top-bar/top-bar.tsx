@@ -1,14 +1,13 @@
 import { Database } from '@/lib/database.types'
 import { User } from '@/lib/types'
+import { getSession } from '@/lib/utils'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import TopBarClientComponent from './top-bar-client'
 
 const TopBar = async () => {
   const supabase = createServerComponentClient<Database>({ cookies })
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  const session = await getSession(supabase)
 
   let user: User | undefined = undefined
 

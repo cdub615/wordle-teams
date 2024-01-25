@@ -12,12 +12,12 @@ export type User = {
 }
 
 export class DailyScore {
-  id: string
+  id: number
   date: string
   answer: string
   guesses: string[]
 
-  constructor(id: string, date: string, answer: string, guesses: string[]) {
+  constructor(id: number, date: string, answer: string, guesses: string[]) {
     this.id = id
     this.date = date
     this.answer = answer
@@ -73,6 +73,8 @@ export class Player {
 
   public fromDbPlayer(player: players, daily_scores?: daily_scores[]) {
     const { id, first_name: firstName, last_name: lastName, email } = player
+    if (!firstName) throw new Error('First name required for Players')
+    if (!lastName) throw new Error('Last name required for Players')
     const scores = daily_scores?.map((s) => DailyScore.prototype.fromDbDailyScore(s))
     return new Player(id, firstName, lastName, email, scores)
   }
@@ -125,18 +127,18 @@ export class Player {
 }
 
 export class Team {
-  id: string
+  id: number
   name: string
-  creator: string
+  creator: string | null
   playWeekends: boolean
   invited: string[]
   private _scoringSystem: number[][] = defaultSystem
   private _players: Player[] = []
 
   constructor(
-    id: string,
+    id: number,
     name: string,
-    creator: string,
+    creator: string | null,
     playWeekends: boolean,
     invited: string[],
     scoringSystem?: number[][],
@@ -221,7 +223,7 @@ export class Team {
     return this._scoringSystem
   }
 
-  public updatePlayerScore(teams: Team[], selectedTeamId: string, userId: string, score: DailyScore) {
+  public updatePlayerScore(teams: Team[], selectedTeamId: number, userId: string, score: DailyScore) {
     return teams.map((t) => {
       if (t.id === selectedTeamId) {
         t.players.map((p) => {

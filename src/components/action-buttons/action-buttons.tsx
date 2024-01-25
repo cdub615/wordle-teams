@@ -1,50 +1,34 @@
-'use client'
-
-import AddBoard from '@/components/add-board'
-import CreateTeam from '@/components/create-team'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogTrigger } from '@/components/ui/dialog'
-import AppContext from '@/lib/app-context'
 import { cn } from '@/lib/utils'
 import { ListPlus, Plus } from 'lucide-react'
-import { useContext, useState } from 'react'
-import MonthDropdown from './month-dropdown'
-import TeamsDropdown from './teams-dropdown'
+import Link from 'next/link'
+import MonthDropdown from './month-dropdown/month-dropdown'
+import TeamsDropdown from './teams-dropdown/teams-dropdown'
+import {format} from 'date-fns'
 
-const ActionButtons = ({ classes }: { classes?: string }) => {
-  const { teams, setTeams, setSelectedTeam } = useContext(AppContext)
-  const [createTeamOpen, setCreateTeamOpen] = useState(false)
-  const [addBoardOpen, setAddBoardOpen] = useState(false)
-  // TODO allow user to change the date so they can update an existing board as well
+type ActionButtonProps = {
+  teamId: number
+  month: string
+  classes?: string
+}
+
+export default async function ActionButtons({ teamId, month, classes }: ActionButtonProps) {
   return (
     <div className={cn('flex items-center space-x-2 @md:space-x-4', classes)}>
-      <MonthDropdown />
-      <TeamsDropdown />
+      <MonthDropdown teamId={teamId} month={month} />
+      <TeamsDropdown teamId={teamId} month={month} />
       <div className='flex-grow'>
-        <Dialog open={createTeamOpen} onOpenChange={setCreateTeamOpen}>
-          <DialogTrigger asChild>
-            <Button variant={'outline'} size={'icon'}>
-              <ListPlus size={24} />
-            </Button>
-          </DialogTrigger>
-          <CreateTeam
-            setCreateTeamOpen={setCreateTeamOpen}
-            teams={teams}
-            setTeams={setTeams}
-            setSelectedTeam={setSelectedTeam}
-          />
-        </Dialog>
-      </div>
-      <Dialog open={addBoardOpen} onOpenChange={setAddBoardOpen}>
-        <DialogTrigger asChild>
-          <Button size={'icon'}>
-            <Plus size={24} />
+        <Link href={'/create-team'}>
+          <Button variant={'outline'} size={'icon'}>
+            <ListPlus size={24} />
           </Button>
-        </DialogTrigger>
-        <AddBoard setAddBoardOpen={setAddBoardOpen} />
-      </Dialog>
+        </Link>
+      </div>
+      <Link href={`/scores/${format(new Date(), 'yyyyMMdd')}`}>
+        <Button size={'icon'}>
+          <Plus size={24} />
+        </Button>
+      </Link>
     </div>
   )
 }
-
-export default ActionButtons

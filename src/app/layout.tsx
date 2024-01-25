@@ -2,13 +2,14 @@ import BottomBar from '@/components/bottom-bar'
 import ThemeProvider from '@/components/theme-provider'
 import TopBar from '@/components/top-bar'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Toaster } from '@/components/ui/toaster'
+import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 import type { Metadata } from 'next'
+import { AxiomWebVitals } from 'next-axiom'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import {AxiomWebVitals} from 'next-axiom'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
   description: 'Keep score among friends to establish Wordle bragging rights',
 }
 
-export default function RootLayout({children}: {children: React.ReactNode}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang='en' suppressHydrationWarning>
       <AxiomWebVitals />
@@ -36,6 +37,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
           <Toaster />
         </ThemeProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )

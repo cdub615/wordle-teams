@@ -1,38 +1,43 @@
-import AppGrid from '@/components/app-grid'
+import { MyTeams, ScoringSystem } from '@/components/app-grid-items'
+import { Button } from '@/components/ui/button'
 import { Database } from '@/lib/database.types'
-import { createServerActionClient, createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSession } from '@/lib/utils'
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { format } from 'date-fns'
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 
-const getTeams = async (): Promise<any> => {
-  'use server'
-  const supabase = createServerActionClient<Database>({ cookies })
+type TeamsResponse = {
+  teamId: number | undefined
+  month: string
+}
+
+const checkForTeams = async (): Promise<TeamsResponse> => {
+  const supabase = createServerComponentClient<Database>({ cookies })
+  const session = await getSession(supabase)
+  if (!session) redirect('/login')
+
   const { data: teams } = await supabase.from('teams').select('*')
-  let playerIds = []
-  const player_ids = teams?.map((t) => t.player_ids)
 
-  playerIds =
-    !!player_ids && player_ids.length > 0
-      ? player_ids.reduce((prev, current) => {
-          return [...prev, ...current]
-        })
-      : []
-  const { data: players } = await supabase
-    .from('players')
-    .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
-    .in('id', playerIds)
+  let teamId: number | undefined = undefined
 
-  return { teams, players }
+  teamId = teams?.shift()?.id
+  let month = format(new Date(), 'yyyyMM')
+  return { teamId, month }
 }
 
-const Home = async () => {
-  const supabase = createServerComponentClient({ cookies })
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  const teamsData = await getTeams()
-
-  return teamsData ? <AppGrid teamsData={teamsData} session={session} /> : <div>Loading...</div>
+export default async function Home() {
+  const { teamId, month } = await checkForTeams()
+  if (!teamId)
+    return (
+      <div className='p-2 grid gap-2 @md:grid-cols-3 @md:p-12 @md:gap-6'>
+        <div className='flex'>
+          <p>Receive a Team Invite or Create a Team to get started</p>
+          <Button>Create Team</Button>
+        </div>
+        <MyTeams />
+        <ScoringSystem teamId={0} classes={'@md:row-span-3'} />
+      </div>
+    )
+  else redirect(`/${teamId}/${month}`)
 }
-
-export default Home
