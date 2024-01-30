@@ -17,11 +17,11 @@ const TopBarClientComponent = ({ user }: { user: User | undefined }) => {
 
   const logout = async () => {
     await supabase.auth.signOut()
-    router.refresh()
+    router.push('/')
   }
   return (
     <header className='h-0 invisible @md:h-fit @md:visible'>
-      <div className='grid grid-cols-3 p-6'>
+      <div className='grid grid-cols-[1fr_auto_1fr] p-6'>
         <div className='col-start-2 flex justify-center items-center'>
           <h1 className='text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'>
             Wordle Teams
