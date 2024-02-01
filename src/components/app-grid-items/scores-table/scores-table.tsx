@@ -15,10 +15,9 @@ import {
 } from '@tanstack/react-table'
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Database } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/client'
 import { Team } from '@/lib/types'
 import { cn, monthAsDate } from '@/lib/utils'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useEffect, useState } from 'react'
 import { MonthScoresRow } from './scores-table-types'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
@@ -26,7 +25,7 @@ import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } fr
 const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string; classes?: string }) => {
   const [loading, setLoading] = useState(false)
   const selectedMonth = monthAsDate(month)
-  const supabase = createClientComponentClient<Database>()
+  const supabase = createClient()
   const [columns, setColumns] = useState<ColumnDef<MonthScoresRow>[]>([])
   const [data, setData] = useState<MonthScoresRow[]>([])
 

@@ -1,8 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Database } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/server'
 import { Team, players, teams } from '@/lib/types'
 import { playerIdsFromTeams } from '@/lib/utils'
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 
 type MyTeamsData = {
@@ -11,7 +10,7 @@ type MyTeamsData = {
 }
 
 const getMyTeams = async (): Promise<MyTeamsData> => {
-  const supabase = createServerComponentClient<Database>({ cookies })
+  const supabase = createClient(cookies())
   const { data: teams } = await supabase.from('teams').select('*')
   const playerIds = playerIdsFromTeams(teams ?? [])
   const { data: players } = await supabase.from('players').select('*').in('id', playerIds)

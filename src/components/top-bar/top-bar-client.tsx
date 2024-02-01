@@ -4,16 +4,15 @@ import ModeToggle from '@/components/mode-toggle'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { LogOut } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
-import type { Database } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
 
 const TopBarClientComponent = ({ user }: { user: User | undefined }) => {
   const router = useRouter()
-  const supabase = createClientComponentClient<Database>()
+  const supabase = createClient()
 
   const logout = async () => {
     await supabase.auth.signOut()
@@ -35,9 +34,11 @@ const TopBarClientComponent = ({ user }: { user: User | undefined }) => {
             </Avatar>
           )}
           <ModeToggle />
-          <Button size={'icon'} variant={'outline'} onClick={logout}>
-            <LogOut size={18} />
-          </Button>
+          {user && (
+            <Button size={'icon'} variant={'outline'} onClick={logout}>
+              <LogOut size={18} />
+            </Button>
+          )}
         </div>
       </div>
       <Separator />

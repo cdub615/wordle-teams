@@ -1,12 +1,11 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Database } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/server'
 import { Team, defaultSystem } from '@/lib/types'
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 
 const getScoringSystem = async (teamId: number): Promise<number[][]> => {
-  const supabase = createServerComponentClient<Database>({ cookies })
+  const supabase = createClient(cookies())
   const { data: team } = await supabase.from('teams').select('*').eq('id', teamId).single()
   if (team) return Team.prototype.fromDbTeam(team).scoringSystem
   else throw new Error(`Couldn't find team ${teamId}`)

@@ -1,15 +1,14 @@
 'use server'
 
-import { Database } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/actions'
 import { getSession } from '@/lib/utils'
-import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 export async function upsertBoard(formData: FormData) {
-  const supabase = createServerActionClient<Database>({ cookies })
+  const supabase = createClient(cookies())
   const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 

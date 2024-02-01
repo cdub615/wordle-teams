@@ -1,16 +1,18 @@
 import { AlertDialog, AlertDialogContent } from '@/components/ui/alert-dialog'
+import Welcome from '@/components/welcome'
 import type { Metadata } from 'next'
-import {cookies} from 'next/headers'
 
 export const metadata: Metadata = {
   title: 'Login',
 }
 
-export default function LoginLayout({children}: {children: React.ReactNode}) {
-  const keys = cookies().getAll().keys
+export default function LoginLayout({ children }: { children: React.ReactNode }) {
   return (
-    <AlertDialog open={true}>
-      <AlertDialogContent>{children}</AlertDialogContent>
-    </AlertDialog>
+    <>
+      <Welcome />
+      <AlertDialog open={true}>
+        <AlertDialogContent>{children}</AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

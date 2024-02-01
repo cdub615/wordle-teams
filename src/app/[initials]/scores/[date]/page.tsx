@@ -6,9 +6,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Database } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/server'
 import { daily_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'
-import { SupabaseClient, createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { parseISO } from 'date-fns'
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
@@ -24,9 +25,9 @@ const getPlayerScores = async (supabase: SupabaseClient<Database>, userId: strin
   return scores ?? []
 }
 
-export default async function Page({params}: {params: {date: string}}) {
+export default async function Page({ params }: { params: { date: string } }) {
+  const supabase = createClient(cookies())
   const date = parseISO(params.date)
-  const supabase = createServerComponentClient<Database>({ cookies })
   const session = await getSession(supabase)
   if (!session) redirect('/login')
   const scores = await getPlayerScores(supabase, session.user.id)

@@ -6,14 +6,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Database } from '@/lib/database.types'
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@/lib/supabase/server'
 import { ChevronDown } from 'lucide-react'
 import { cookies } from 'next/headers'
 import TeamsDropdownRadioGroup from './teams-dropdown-radio-group'
 
 const getTeams = async () => {
-  const supabase = createServerComponentClient<Database>({ cookies })
+  const supabase = createClient(cookies())
   const { data: teams } = await supabase.from('teams').select('*')
   if (!teams) throw new Error('No teams found')
   return teams
