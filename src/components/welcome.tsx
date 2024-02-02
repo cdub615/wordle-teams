@@ -40,9 +40,11 @@ export default async function Welcome() {
       <span className='text-muted-foreground text-lg text-center md:leading-loose'>
         Keep score among friends to establish Wordle bragging rights
       </span>
-      <Link href='/login' className='text-center mt-4'>
-        <Button>Login / Signup</Button>
-      </Link>
+      <div className='flex justify-center'>
+        <Link href='/login' className='text-center mt-4'>
+          <Button>Login / Signup</Button>
+        </Link>
+      </div>
       <Image
         src='/wt-home-dark-lg.png'
         alt='Wordle Teams Dashboard'

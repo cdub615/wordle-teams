@@ -1,7 +1,11 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { get } from '@vercel/edge-config'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  let maintenance = await get<boolean>(`maintenance_${process.env.ENVIRONMENT}`)
+  if (maintenance) return NextResponse.redirect('/maintenance')
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
