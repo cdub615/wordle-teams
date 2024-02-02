@@ -1,6 +1,7 @@
 'use client'
 
-import { useFormState, useFormStatus } from 'react-dom'
+// @ts-ignore
+import { experimental_useFormStatus as useFormStatus, experimental_useFormState as useFormState } from 'react-dom'
 import { login } from './actions'
 
 const initialState = {
