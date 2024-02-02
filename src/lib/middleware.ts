@@ -3,8 +3,11 @@ import { get } from '@vercel/edge-config'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  let maintenance = await get<boolean>(`maintenance_${process.env.ENVIRONMENT}`)
-  if (maintenance) return NextResponse.redirect('/maintenance')
+  const maintenance = await get<boolean>(`maintenance_${process.env.ENVIRONMENT}`)
+  if (maintenance) {
+    request.nextUrl.pathname = '/maintenance'
+    return NextResponse.rewrite(request.nextUrl)
+  }
 
   let response = NextResponse.next({
     request: {
@@ -67,14 +70,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * Feel free to modify this pattern to include more paths.
-     */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-  ],
+  matcher: '/',
 }
