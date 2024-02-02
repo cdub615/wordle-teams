@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Team, teams } from '@/lib/types'
 import { useRouter } from 'next/navigation'
 import * as z from 'zod'
-import { Input } from '../../../components/ui/input'
+import { Input } from '../../../../components/ui/input'
 import invitePlayer from './actions'
 
 const FormSchema = z.object({

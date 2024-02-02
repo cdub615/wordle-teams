@@ -1,28 +1,39 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-
-import type { Database } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/actions'
+import { cookies } from 'next/headers'
 import type { NextRequest } from 'next/server'
+import { type EmailOtpType } from '@supabase/supabase-js'
 
-export const dynamic = 'force-dynamic'
-
-// TODO apparently code and something else are needed for this to work
-/*
-  error AuthApiError: invalid request: both auth code and code verifier should be non-empty
-
-  happens at SupabaseAuthClient.exchangeCodeForSession
-*/
+// export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const requestUrl = new URL(request.url)
-  const code = requestUrl.searchParams.get('code')
+  const cookieStore = cookies()
 
-  if (code) {
-    const supabase = createRouteHandlerClient<Database>({ cookies })
-    await supabase.auth.exchangeCodeForSession(code)
+  const { searchParams } = new URL(request.url)
+  const token_hash = searchParams.get('token_hash')
+  const type = searchParams.get('type') as EmailOtpType | null
+  const next = searchParams.get('next') ?? '/'
+
+  const redirectTo = request.nextUrl.clone()
+  redirectTo.pathname = next
+  redirectTo.searchParams.delete('token_hash')
+  redirectTo.searchParams.delete('type')
+
+  if (token_hash && type) {
+    const supabase = createClient(cookieStore)
+
+    const { error } = await supabase.auth.verifyOtp({
+      type,
+      token_hash,
+    })
+    if (!error) {
+      cookieStore.set('verificationEmailSent', 'false')
+      redirectTo.searchParams.delete('next')
+      return NextResponse.redirect(redirectTo)
+    }
   }
 
-  // URL to redirect to after sign in process completes
-  return NextResponse.redirect(process.env.VERCEL_URL!)
+  // return the user to an error page with some instructions
+  redirectTo.pathname = '/error'
+  return NextResponse.redirect(redirectTo)
 }

@@ -1,5 +1,5 @@
 import { Player, Team, teams } from '@/lib/types'
-import { SupabaseClient } from '@supabase/auth-helpers-nextjs'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMinutes, addMonths, differenceInMonths, startOfMonth } from 'date-fns'
 import { twMerge } from 'tailwind-merge'
@@ -34,7 +34,6 @@ const fromNewTeamResult = (result: any): Team => {
 
 const monthAsDate = (month: string) =>
   new Date(Number.parseInt(month.substring(0, 4)), Number.parseInt(month.substring(4, 6)) - 1)
-
 
 const playerIdsFromTeams = (teams: teams[]): string[] => {
   const player_ids = teams?.map((t) => t.player_ids)

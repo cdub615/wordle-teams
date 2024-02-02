@@ -1,9 +1,8 @@
 'use server'
 
 import InviteEmail from '@/components/emails/invite-email'
-import { Database } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/actions'
 import { getImage, getSession } from '@/lib/utils'
-import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
@@ -16,7 +15,7 @@ const userImageName = 'new-user.png'
 const teamImageName = 'wt-icon.png'
 
 export default async function invitePlayer(formData: FormData) {
-  const supabase = createServerActionClient<Database>({ cookies })
+  const supabase = createClient(cookies())
   const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 

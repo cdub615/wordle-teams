@@ -34,6 +34,10 @@
     --ring: 142 76% 37%;
 
     --radius: 0.5rem;
+
+    --color-stop-1: 142 76% 37%;
+    --color-stop-2: 119 65% 75%;
+    --color-stop-3: 49 91% 52%;
   }
 
   .dark {

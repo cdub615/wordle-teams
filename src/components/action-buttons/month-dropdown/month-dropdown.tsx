@@ -6,12 +6,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { createClient } from '@/lib/supabase/server'
 import { getMonthsFromEarliestScore, monthAsDate } from '@/lib/utils'
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { format } from 'date-fns'
 import { ChevronDown } from 'lucide-react'
 import { cookies } from 'next/headers'
-import { Database } from '../../../lib/database.types'
 import MonthDropdownRadioGroup from './month-dropdown-radio-group'
 
 type MonthDropdownProps = {
@@ -20,7 +19,7 @@ type MonthDropdownProps = {
 }
 
 export default async function MonthDropdown({ teamId, month }: MonthDropdownProps) {
-  const supabase = createServerComponentClient<Database>({ cookies })
+  const supabase = createClient(cookies())
   const { data: earliestScore } = await supabase.rpc('earliest_score_for_team', { teamid: teamId })
   const earliest = earliestScore ?? new Date().toISOString()
   const selectedMonth = monthAsDate(month)
