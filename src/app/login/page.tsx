@@ -68,7 +68,7 @@ export default async function Page() {
                       </div>
                       <div className='flex flex-col space-y-2'>
                         <Label htmlFor='lastName'>Last Name</Label>
-                        <Input className='col-span-3' name='firstName' required minLength={1} />
+                        <Input className='col-span-3' name='lastName' required minLength={1} />
                       </div>
                     </div>
                     <div className='flex flex-col space-y-2'>
