@@ -52,7 +52,13 @@ export async function signup(formData: FormData) {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
 
-  const { email, firstName, lastName } = signupSchema.parse(formData)
+  const signupForm = {
+    email: formData.get('email'),
+    firstName: formData.get('firstName'),
+    lastName: formData.get('lastName'),
+  }
+
+  const { email, firstName, lastName } = signupSchema.parse(signupForm)
   const data = { firstName, lastName }
 
   const { error } = await supabase.auth.signInWithOtp({
