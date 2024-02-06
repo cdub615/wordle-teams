@@ -48,7 +48,7 @@ const getImage = (supabase: SupabaseClient<Database>, imageName: string) => {
   const {
     data: { publicUrl: userImage },
   } = supabase.storage.from('images').getPublicUrl(imageName)
-  if ((process.env.LOCAL! = 'true'))
+  if ((process.env.LOCAL! == 'true'))
     return userImage.replace('http://localhost:54321', process.env.DEV_SUPABASE_URL!)
   return userImage
 }
