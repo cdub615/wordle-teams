@@ -7,7 +7,7 @@ import { User } from '@/lib/types'
 import { getSession } from '@/lib/utils'
 import { LogOut } from 'lucide-react'
 import { cookies } from 'next/headers'
-import logout from './actions'
+import logout from '../actions'
 
 export default async function TopBar() {
   const supabase = createClient(cookies())

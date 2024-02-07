@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/actions'
+import { logsnagClient } from '@/lib/utils'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -62,6 +63,15 @@ export async function signup(formData: FormData) {
   if (error) {
     redirect('/error')
   }
+
+  const logsnag = logsnagClient()
+  await logsnag.track({
+    channel: 'users',
+    event: 'User Signup',
+    user_id: email,
+    // icon: "💰",
+    notify: true,
+  })
 
   cookieStore.set('awaitingVerification', 'true')
   revalidatePath('/', 'layout')
