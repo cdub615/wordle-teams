@@ -72,8 +72,8 @@ export async function signup(formData: FormData) {
     icon: '🧑‍💻',
     notify: true,
     tags: {
-      firstName,
-      lastName,
+      firstname: firstName,
+      lastname: lastName,
       env: process.env.ENVIRONMENT!,
     },
   })
