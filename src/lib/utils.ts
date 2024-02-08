@@ -2,6 +2,7 @@ import { Player, Team, teams } from '@/lib/types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMinutes, addMonths, differenceInMonths, startOfMonth } from 'date-fns'
+import { LogSnag } from 'logsnag'
 import { twMerge } from 'tailwind-merge'
 import { Database } from './database.types'
 
@@ -10,6 +11,8 @@ const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 const baseUrl = (host: string | null) => `${process?.env.NODE_ENV === 'development' ? 'http' : 'https'}://${host}`
 
 const passwordRegex = `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*.?#^)(-_=+|}{':;~\`&])[A-Za-z\d@$!.%*?#^)(-_=+|}{':;~\`&]{6,20}$`
+
+const logsnagClient = () => new LogSnag({ token: process.env.LOGSNAG_TOKEN!, project: 'wordle-teams' })
 
 const getMonthsFromEarliestScore = (earliest: string): Date[] => {
   const adjustedStartMonth = addMinutes(new Date(earliest), new Date(earliest).getTimezoneOffset())
@@ -48,7 +51,7 @@ const getImage = (supabase: SupabaseClient<Database>, imageName: string) => {
   const {
     data: { publicUrl: userImage },
   } = supabase.storage.from('images').getPublicUrl(imageName)
-  if ((process.env.LOCAL! = 'true'))
+  if (process.env.LOCAL! == 'true')
     return userImage.replace('http://localhost:54321', process.env.DEV_SUPABASE_URL!)
   return userImage
 }
@@ -78,4 +81,5 @@ export {
   padArray,
   passwordRegex,
   playerIdsFromTeams,
+  logsnagClient
 }

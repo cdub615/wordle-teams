@@ -1,23 +1,27 @@
-'use client'
-
 import ModeToggle from '@/components/mode-toggle'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { LogOut } from 'lucide-react'
-import { useRouter } from 'next/navigation'
-
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
+import { getSession } from '@/lib/utils'
+import { LogOut } from 'lucide-react'
+import { cookies } from 'next/headers'
+import logout from '../actions'
 
-const TopBarClientComponent = ({ user }: { user: User | undefined }) => {
-  const router = useRouter()
-  const supabase = createClient()
+export default async function TopBar() {
+  const supabase = createClient(cookies())
+  const session = await getSession(supabase)
 
-  const logout = async () => {
-    await supabase.auth.signOut()
-    router.push('/')
+  let user: User | undefined = undefined
+
+  if (session) {
+    const firstName = session?.user.user_metadata.firstName
+    const lastName = session?.user.user_metadata.lastName
+    const email = session?.user.email
+    user = { firstName, lastName, email }
   }
+
   return (
     <header className='h-0 invisible @md:h-fit @md:visible'>
       <div className='grid grid-cols-[1fr_auto_1fr] p-6'>
@@ -35,9 +39,11 @@ const TopBarClientComponent = ({ user }: { user: User | undefined }) => {
           )}
           <ModeToggle />
           {user && (
-            <Button size={'icon'} variant={'outline'} onClick={logout}>
-              <LogOut size={18} />
-            </Button>
+            <form action={logout}>
+              <Button size={'icon'} variant={'outline'}>
+                <LogOut size={18} />
+              </Button>
+            </form>
           )}
         </div>
       </div>
@@ -45,5 +51,3 @@ const TopBarClientComponent = ({ user }: { user: User | undefined }) => {
     </header>
   )
 }
-
-export default TopBarClientComponent

@@ -1,18 +1,15 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/actions'
+import { logsnagClient } from '@/lib/utils'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { z } from 'zod'
+import { loginSchema, signupSchema } from './schemas'
 
 const emailRedirectTo = process.env.VERCEL_URL
   ? `${process.env.VERCEL_URL}/auth/callback`
   : 'http://localhost:3000/auth/callback'
-
-const loginSchema = z.object({
-  email: z.string().email('Please enter a valid email that includes @ and .'),
-})
 
 export async function login(formData: FormData) {
   const cookieStore = cookies()
@@ -36,23 +33,22 @@ export async function login(formData: FormData) {
     redirect('/error')
   }
 
-  cookieStore.set('verificationEmailSent', 'true')
-
+  cookieStore.set('awaitingVerification', 'true')
   revalidatePath('/', 'layout')
-  redirect('/')
+  redirect('/login')
 }
-
-const signupSchema = z.object({
-  email: z.string().email('Please enter a valid email that includes @ and .'),
-  firstName: z.string().min(1, 'Must be at least 1 character'),
-  lastName: z.string().min(1, 'Must be at least 1 character'),
-})
 
 export async function signup(formData: FormData) {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
 
-  const { email, firstName, lastName } = signupSchema.parse(formData)
+  const signupForm = {
+    email: formData.get('email'),
+    firstName: formData.get('firstName'),
+    lastName: formData.get('lastName'),
+  }
+
+  const { email, firstName, lastName } = signupSchema.parse(signupForm)
   const data = { firstName, lastName }
 
   const { error } = await supabase.auth.signInWithOtp({
@@ -68,8 +64,16 @@ export async function signup(formData: FormData) {
     redirect('/error')
   }
 
-  cookieStore.set('verificationEmailSent', 'true')
+  const logsnag = logsnagClient()
+  await logsnag.track({
+    channel: 'users',
+    event: 'User Signup',
+    user_id: email,
+    // icon: "💰",
+    notify: true,
+  })
 
+  cookieStore.set('awaitingVerification', 'true')
   revalidatePath('/', 'layout')
   redirect('/')
 }

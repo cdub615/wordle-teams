@@ -3,15 +3,11 @@ import { get } from '@vercel/edge-config'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  console.log('running middleware')
   const maintenance = await get<boolean>(`maintenance_${process.env.ENVIRONMENT}`)
-  console.log(`maintenance value from key maintenance_${process.env.ENVIRONMENT}: ${maintenance}`)
   if (maintenance) {
-    console.log('redirecting to maintenance page')
     request.nextUrl.pathname = '/maintenance'
     return NextResponse.rewrite(request.nextUrl)
   }
-  console.log('did not redirect, continuing rest of middleware')
 
   let response = NextResponse.next({
     request: {

@@ -10,8 +10,6 @@ import { AxiomWebVitals } from 'next-axiom'
 import { Inter } from 'next/font/google'
 import './globals.css'
 
-export const dynamic = 'force-dynamic'
-
 const inter = Inter({ subsets: ['latin'] })
 const rootClasses = cn(inter.className, '@container/root min-h-screen')
 
@@ -23,7 +21,6 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const maintenance = await get<boolean>(`maintenance_${process.env.ENVIRONMENT}`)
-  console.log(`maintenance value from key maintenance_${process.env.ENVIRONMENT}: ${maintenance}`)
 
   return (
     <html lang='en' suppressHydrationWarning>

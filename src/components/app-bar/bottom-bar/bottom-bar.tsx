@@ -1,21 +1,25 @@
-'use client'
-
 import ModeToggle from '@/components/mode-toggle'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
+import { getSession } from '@/lib/utils'
 import { LogOut } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { cookies } from 'next/headers'
+import logout from '../actions'
 
-const BottomBarClientComponent = ({ user }: { user: User | undefined }) => {
-  const router = useRouter()
-  const supabase = createClient()
+export default async function BottomBar() {
+  const supabase = createClient(cookies())
+  const session = await getSession(supabase)
 
-  const logout = async () => {
-    await supabase.auth.signOut()
-    router.refresh()
+  let user: User | undefined = undefined
+
+  if (session) {
+    const firstName = session?.user.user_metadata.firstName
+    const lastName = session?.user.user_metadata.lastName
+    const email = session?.user.email
+    user = { firstName, lastName, email }
   }
 
   return (
@@ -35,13 +39,15 @@ const BottomBarClientComponent = ({ user }: { user: User | undefined }) => {
             </Avatar>
           )}
           <ModeToggle />
-          <Button size={'icon'} variant={'outline'} onClick={logout}>
-            <LogOut size={18} />
-          </Button>
+          {user && (
+            <form action={logout}>
+              <Button size={'icon'} variant={'outline'}>
+                <LogOut size={18} />
+              </Button>
+            </form>
+          )}
         </div>
       </div>
     </footer>
   )
 }
-
-export default BottomBarClientComponent
