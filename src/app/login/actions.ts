@@ -69,8 +69,13 @@ export async function signup(formData: FormData) {
     channel: 'users',
     event: 'User Signup',
     user_id: email,
-    // icon: "💰",
+    icon: '🧑‍💻',
     notify: true,
+    tags: {
+      firstName,
+      lastName,
+      env: process.env.ENVIRONMENT!,
+    },
   })
 
   cookieStore.set('awaitingVerification', 'true')
