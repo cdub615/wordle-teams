@@ -14,11 +14,12 @@ import { cookies } from 'next/headers'
 import MonthDropdownRadioGroup from './month-dropdown-radio-group'
 
 type MonthDropdownProps = {
+  initials: string
   teamId: number
   month: string
 }
 
-export default async function MonthDropdown({ teamId, month }: MonthDropdownProps) {
+export default async function MonthDropdown({ initials, teamId, month }: MonthDropdownProps) {
   const supabase = createClient(cookies())
   const { data: earliestScore } = await supabase.rpc('earliest_score_for_team', { teamid: teamId })
   const earliest = earliestScore ?? new Date().toISOString()
@@ -35,7 +36,7 @@ export default async function MonthDropdown({ teamId, month }: MonthDropdownProp
       <DropdownMenuContent align='end'>
         <DropdownMenuLabel>Change Month</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <MonthDropdownRadioGroup teamId={teamId} selectedMonth={selectedMonth} monthOptions={monthOptions} />
+        <MonthDropdownRadioGroup initials={initials} teamId={teamId} selectedMonth={selectedMonth} monthOptions={monthOptions} />
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -25,8 +25,9 @@ const getPlayerScores = async (supabase: SupabaseClient<Database>, userId: strin
   return scores ?? []
 }
 
-export default async function Page({ params }: { params: { date: string } }) {
+export default async function Page({ params }: { params: { initials: string; date: string } }) {
   const supabase = createClient(cookies())
+  const { initials } = params
   const date = parseISO(params.date)
   const session = await getSession(supabase)
   if (!session) redirect('/login')
@@ -40,7 +41,7 @@ export default async function Page({ params }: { params: { date: string } }) {
           <AlertDialogTitle>Add or Update Board</AlertDialogTitle>
           <AlertDialogDescription>Enter the day&apos;s answer and your guesses</AlertDialogDescription>
         </AlertDialogHeader>
-        <Board dailyScores={scores} date={date} teamId={teamId} month={month} />
+        <Board initials={initials} dailyScores={scores} date={date} teamId={teamId} month={month} />
       </AlertDialogContent>
     </AlertDialog>
   )

@@ -1,7 +1,9 @@
+import { AlertDialog, AlertDialogContent } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/server'
 import { format } from 'date-fns'
 import { cookies } from 'next/headers'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 type TeamsResponse = {
@@ -25,12 +27,18 @@ export default async function Home({ params }: { params: { initials: string } })
   const { teamId, month } = await checkForTeams()
   if (!teamId)
     return (
-      <div className='p-2 @md:p-12'>
-        <div className='flex'>
-          <p>Receive a Team Invite or Create a Team to get started</p>
-          <Button>Create Team</Button>
-        </div>
-      </div>
+      <AlertDialog open={true}>
+        <AlertDialogContent>
+          <p className='text-lg max-w-xs text-center mx-auto'>
+            Receive a Team Invite or Create a Team to get started
+          </p>
+          <div className='flex justify-center my-4'>
+            <Link href={`/${initials}/create-team`}>
+              <Button>Create Team</Button>
+            </Link>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     )
   else redirect(`/${initials}/${teamId}/${month}`)
 }

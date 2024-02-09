@@ -6,18 +6,19 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 type TeamsDropdownRadioGroupProps = {
+  initials: string
   teamId: number
   month: string
   teams: teams[]
 }
 
-export default function TeamsDropdownRadioGroup({ teamId, month, teams }: TeamsDropdownRadioGroupProps) {
+export default function TeamsDropdownRadioGroup({ initials, teamId, month, teams }: TeamsDropdownRadioGroupProps) {
   const router = useRouter()
   const [value, setValue] = useState(`${teamId}`)
 
   useEffect(() => {
     const updateTeam = async (id: number) => {
-      router.replace(`/${id}/${month}`)
+      router.push(`/${initials}/${id}/${month}`)
     }
     updateTeam(Number.parseInt(value))
   }, [value])

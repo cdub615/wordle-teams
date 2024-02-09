@@ -13,13 +13,14 @@ import { KeyboardEvent, KeyboardEventHandler, useEffect, useState } from 'react'
 import { upsertBoard } from './actions'
 
 type BoardProps = {
+  initials: string
   date: Date
   dailyScores: daily_scores[]
   teamId: string
   month: string
 }
 
-export default function Board({ date, dailyScores, teamId, month }: BoardProps) {
+export default function Board({ initials, date, dailyScores, teamId, month }: BoardProps) {
   const router = useRouter()
   const [scores, setScores] = useState(dailyScores.map((ds) => DailyScore.prototype.fromDbDailyScore(ds)))
   const [scoreId, setScoreId] = useState(-1)
@@ -128,10 +129,11 @@ export default function Board({ date, dailyScores, teamId, month }: BoardProps) 
 
   const cancel = (e: any) => {
     e.preventDefault()
-    router.push('/')
+    router.push(`/${initials}`)
   }
   return (
     <form action={upsertBoard}>
+      <input hidden name='initials' value={initials} />
       <input hidden name='teamId' value={teamId} />
       <input hidden name='month' value={month} />
       <input hidden name='scoreId' value={scoreId} />
@@ -151,11 +153,12 @@ export default function Board({ date, dailyScores, teamId, month }: BoardProps) 
       </div>
       {answerError && <div className='text-sm text-destructive py-1'>{answerError}</div>}
       <div className='flex items-center'>
-        <Link href={`/scores/${format(subDays(date, 1), 'yyyyMMdd')}`} tabIndex={2}>
+        <Link href={`/${initials}/scores/${format(subDays(date, 1), 'yyyyMMdd')}`} tabIndex={2}>
           <Button size={'icon'} variant={'outline'}>
             <ArrowLeft size={24} />
           </Button>
         </Link>
+        <div className={answer.length < 5 ? 'visible w-full h-24' : 'invisible h-0 w-0'} />
         <div
           onKeyDown={handleBoardKeyDown}
           tabIndex={3}
@@ -173,7 +176,7 @@ export default function Board({ date, dailyScores, teamId, month }: BoardProps) 
             ))}
           </div>
         </div>
-        <Link href={`/scores/${format(addDays(date, 1), 'yyyyMMdd')}`} tabIndex={4}>
+        <Link href={`/${initials}/scores/${format(addDays(date, 1), 'yyyyMMdd')}`} tabIndex={4}>
           <Button size={'icon'} variant={'outline'}>
             <ArrowRight size={24} />
           </Button>

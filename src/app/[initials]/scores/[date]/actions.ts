@@ -12,6 +12,7 @@ export async function upsertBoard(formData: FormData) {
   const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 
+  const initials = formData.get('initials') as string
   const scoreId = formData.get('scoreId') as string
   const scoreDate = formData.get('scoreDate') as string
   const answer = formData.get('answer') as string
@@ -50,5 +51,5 @@ export async function upsertBoard(formData: FormData) {
   }
 
   revalidatePath('/')
-  redirect(`/${teamId}/${month}`)
+  redirect(`/${initials}/${teamId}/${month}`)
 }
