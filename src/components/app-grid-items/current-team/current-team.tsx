@@ -33,7 +33,7 @@ const getCurrentTeam = async (teamId: number): Promise<CurrentTeamData> => {
   }
 }
 
-export default async function CurrentTeam({ teamId }: { teamId: number }) {
+export default async function CurrentTeam({initials, teamId}: {initials: string; teamId: number }) {
   const { team, players, canInvite } = await getCurrentTeam(teamId)
 
   return (
@@ -43,7 +43,7 @@ export default async function CurrentTeam({ teamId }: { teamId: number }) {
           <div className='flex justify-between'>
             <div>{team?.name}</div>
             {canInvite && (
-              <Link href={`/invite-player/${teamId}`}>
+              <Link href={`/${initials}/invite-player/${teamId}`}>
                 <Button size={'icon'} variant={'outline'}>
                   <UserPlus2 size={22} />
                 </Button>

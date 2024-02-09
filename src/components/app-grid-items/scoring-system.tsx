@@ -16,6 +16,7 @@ type Score = {
 }
 
 const ScoringSystem = async ({ teamId, classes }: { teamId: number; classes?: string }) => {
+  // TODO allow score system customization for subscribers
   const scoringSystem = teamId === 0 ? defaultSystem : await getScoringSystem(teamId)
   const scores: Score[] = []
   scoringSystem.forEach((entry) => {

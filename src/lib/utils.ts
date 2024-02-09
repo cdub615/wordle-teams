@@ -1,5 +1,5 @@
 import { Player, Team, teams } from '@/lib/types'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient, UserMetadata } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMinutes, addMonths, differenceInMonths, startOfMonth } from 'date-fns'
 import { LogSnag } from 'logsnag'
@@ -70,16 +70,24 @@ const padArray = (arr: string[], length: number) => {
   return arr
 }
 
+const extractInitials = (user_metadata: UserMetadata) => {
+  const first = user_metadata.firstName
+  const last = user_metadata.lastName
+  const initials = `${first[0].toLocaleLowerCase()}${last[0].toLocaleLowerCase()}`
+  return initials
+}
+
 export {
   baseUrl,
   cn,
+  extractInitials,
   fromNewTeamResult,
   getImage,
   getMonthsFromEarliestScore,
   getSession,
+  logsnagClient,
   monthAsDate,
   padArray,
   passwordRegex,
   playerIdsFromTeams,
-  logsnagClient
 }

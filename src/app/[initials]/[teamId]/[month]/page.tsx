@@ -9,7 +9,7 @@ export default async function Page({params}: {params: {initials: string; teamId:
     <div className='p-2 grid gap-2 @md:grid-cols-3 @md:p-12 @md:gap-6'>
       <ActionButtons classes={'@md:col-span-3'} initials={initials} teamId={teamId} month={month} />
       <ScoresTable classes={'@md:col-span-3'} teamId={teamId} month={month} />
-      <CurrentTeam teamId={teamId} />
+      <CurrentTeam initials={initials} teamId={teamId} />
       <MyTeams />
       <ScoringSystem teamId={teamId} classes={'@md:row-span-3'} />
     </div>

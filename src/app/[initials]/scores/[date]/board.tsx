@@ -39,7 +39,6 @@ export default function Board({ initials, date, dailyScores, teamId, month }: Bo
 
   // TODO can scrape current days wordle answer from https://www.nytimes.com/2023/10/23/crosswords/wordle-review.html
 
-  // TODO get today's score if exists, show in form and allow change of date
   useEffect(() => {
     const currentScore = scores.find((s) => isSameDay(date, parseISO(s.date)))
     if (!!currentScore) {

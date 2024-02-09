@@ -20,6 +20,7 @@ type MonthDropdownProps = {
 }
 
 export default async function MonthDropdown({ initials, teamId, month }: MonthDropdownProps) {
+  // TODO limit to just past 2 months unless user is a subscriber
   const supabase = createClient(cookies())
   const { data: earliestScore } = await supabase.rpc('earliest_score_for_team', { teamid: teamId })
   const earliest = earliestScore ?? new Date().toISOString()
@@ -36,7 +37,12 @@ export default async function MonthDropdown({ initials, teamId, month }: MonthDr
       <DropdownMenuContent align='end'>
         <DropdownMenuLabel>Change Month</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <MonthDropdownRadioGroup initials={initials} teamId={teamId} selectedMonth={selectedMonth} monthOptions={monthOptions} />
+        <MonthDropdownRadioGroup
+          initials={initials}
+          teamId={teamId}
+          selectedMonth={selectedMonth}
+          monthOptions={monthOptions}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   )
