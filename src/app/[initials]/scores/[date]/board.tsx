@@ -159,6 +159,7 @@ export default function Board({ initials, date, dailyScores, teamId, month }: Bo
         </Link>
         <div className={answer.length < 5 ? 'visible w-full h-24' : 'invisible h-0 w-0'} />
         <div
+          contentEditable={true}
           onKeyDown={handleBoardKeyDown}
           tabIndex={3}
           className={cn(boardCn, answer.length >= 5 ? boardVisible : boardHidden)}

@@ -64,20 +64,6 @@ export async function signup(formData: FormData) {
     redirect('/error')
   }
 
-  const logsnag = logsnagClient()
-  await logsnag.track({
-    channel: 'users',
-    event: 'User Signup',
-    user_id: email,
-    icon: '🧑‍💻',
-    notify: true,
-    tags: {
-      firstname: firstName,
-      lastname: lastName,
-      env: process.env.ENVIRONMENT!,
-    },
-  })
-
   cookieStore.set('awaitingVerification', 'true')
   revalidatePath('/', 'layout')
   redirect('/')

@@ -48,7 +48,7 @@ export default async function invitePlayer(formData: FormData) {
       const invitedByUsername = `${session.user.user_metadata.firstName} ${session.user.user_metadata.lastName}`
       const invitedByEmail = session.user.email!
 
-      const { id } = await resend.emails.send({
+      await resend.emails.send({
         from: 'Wordle Teams <team@wordleteams.com>',
         to: [email],
         subject: `${invitedByUsername} has invited you`,

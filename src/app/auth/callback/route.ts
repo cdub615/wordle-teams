@@ -3,8 +3,7 @@ import { type EmailOtpType } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-
-// export const dynamic = 'force-dynamic'
+import {logsnagClient} from '@/lib/utils'
 
 export async function GET(request: NextRequest) {
   const cookieStore = cookies()
@@ -27,6 +26,20 @@ export async function GET(request: NextRequest) {
       token_hash,
     })
     if (!error) {
+      // TODO logsnap the otp type
+  //     const logsnag = logsnagClient()
+  // await logsnag.track({
+  //   channel: 'users',
+  //   event: 'User Signup',
+  //   user_id: email,
+  //   icon: '🧑‍💻',
+  //   notify: true,
+  //   tags: {
+  //     firstname: firstName,
+  //     lastname: lastName,
+  //     env: process.env.ENVIRONMENT!,
+  //   },
+  // })
       cookieStore.set('awaitingVerification', 'false')
       redirectTo.searchParams.delete('next')
       return NextResponse.redirect(redirectTo)
