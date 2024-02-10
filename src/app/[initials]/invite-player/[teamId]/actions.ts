@@ -48,21 +48,21 @@ export default async function invitePlayer(formData: FormData) {
       const invitedByUsername = `${session.user.user_metadata.firstName} ${session.user.user_metadata.lastName}`
       const invitedByEmail = session.user.email!
 
-      await resend.emails.send({
-        from: 'Wordle Teams <team@wordleteams.com>',
-        to: [email],
-        subject: `${invitedByUsername} has invited you`,
-        react: InviteEmail({
-          email,
-          invitedByUsername,
-          invitedByEmail,
-          teamName,
-          logo,
-          userImage,
-          teamImage,
-        }),
-        text: '',
-      })
+      // await resend.emails.send({
+      //   from: 'Wordle Teams <team@wordleteams.com>',
+      //   to: [email],
+      //   subject: `${invitedByUsername} has invited you`,
+      //   react: InviteEmail({
+      //     email,
+      //     invitedByUsername,
+      //     invitedByEmail,
+      //     teamName,
+      //     logo,
+      //     userImage,
+      //     teamImage,
+      //   }),
+      //   text: '',
+      // })
     } catch (error) {
       log.error('Failed to send invite email', { error })
       throw error
