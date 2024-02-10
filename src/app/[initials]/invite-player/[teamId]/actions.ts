@@ -1,6 +1,5 @@
 'use server'
 
-import InviteEmail from '@/components/emails/invite-email'
 import { createClient } from '@/lib/supabase/actions'
 import { getImage, getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
