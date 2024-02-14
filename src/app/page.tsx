@@ -5,12 +5,13 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 export default async function Home() {
-  const supabase = createClient(cookies())
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
   const session = await getSession(supabase)
-  if (session?.user) {
-    const { user_metadata } = session.user
-    const initials = `${user_metadata.firstName[0].toLocaleLowerCase()}${user_metadata.lastName[0].toLocaleLowerCase()}`
-    redirect(`/${initials}`)
+  if (session) {
+    const initials = cookieStore.get('initials')
+    if (!initials || initials.value.length === 0) redirect('/complete-profile')
+    else redirect(`/${initials.value}`)
   }
   return <Welcome />
 }

@@ -4,21 +4,21 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
-import { getSession } from '@/lib/utils'
+import { getUser } from '@/lib/utils'
 import { LogOut } from 'lucide-react'
 import { cookies } from 'next/headers'
 import logout from '../actions'
 
 export default async function TopBar() {
   const supabase = createClient(cookies())
-  const session = await getSession(supabase)
+  const dbUser = await getUser(supabase)
 
   let user: User | undefined = undefined
 
-  if (session) {
-    const firstName = session?.user.user_metadata.firstName
-    const lastName = session?.user.user_metadata.lastName
-    const email = session?.user.email
+  if (dbUser) {
+    const firstName = dbUser.user_metadata.firstName
+    const lastName = dbUser.user_metadata.lastName
+    const email = dbUser.email
     user = { firstName, lastName, email }
   }
 

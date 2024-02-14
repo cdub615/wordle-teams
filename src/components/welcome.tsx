@@ -1,8 +1,6 @@
 import ModeToggle from '@/components/mode-toggle'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { createClient } from '@/lib/supabase/server'
-import { getSession } from '@/lib/utils'
 import { GeistSans } from 'geist/font/sans'
 import { cookies } from 'next/headers'
 import Image from 'next/image'
@@ -10,15 +8,10 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 export default async function Welcome() {
-  const supabase = createClient(cookies())
-  const session = await getSession(supabase)
-  if (session?.user) {
-    const { data } = await supabase.from('profiles').select('first_name, last_name').single()
-    if (data && data.first_name && data.last_name) {
-      const initials = `${data.first_name[0]}${data.last_name[0]}`
-      redirect(`/${initials}`)
-    }
-  }
+  const cookieStore = cookies()
+  const initials = cookieStore.get('initials')
+  if (initials && initials.value.length > 0) redirect(`/${initials.value}`)
+
   return (
     <div className='flex flex-col w-full'>
       <header>

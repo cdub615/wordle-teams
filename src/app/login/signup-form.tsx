@@ -11,7 +11,7 @@ export default function SignupForm({ awaitingVerification }: { awaitingVerificat
     <form action={signup}>
       <CardHeader>
         <CardTitle>Sign Up</CardTitle>
-        {!awaitingVerification && <CardDescription>Sign up with name, email, and password</CardDescription>}
+        {!awaitingVerification && <CardDescription>Sign up with name and email</CardDescription>}
       </CardHeader>
       <CardContent className='space-y-2'>
         {awaitingVerification ? (
