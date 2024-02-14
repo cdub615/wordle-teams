@@ -18,8 +18,7 @@ BEGIN
     ALTER POLICY "Enable users to read teams" ON "public"."teams" TO authenticated;
     ALTER POLICY "Enable users to read teams" ON "public"."teams" RENAME TO "Enable users to read teams they are a part of";
   END IF;
-END;
-$$
+END $$;
 
 
 create or replace function handle_delete_user() returns trigger as $$
