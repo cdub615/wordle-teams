@@ -10,12 +10,16 @@ END;
 $$ language plpgsql security definer;
 
 
-BEGIN;
-  ALTER POLICY "Enable users to read teams" ON "public"."teams" USING (auth.uid() = any (player_ids));
-  ALTER POLICY "Enable users to read teams" ON "public"."teams" TO authenticated;
-  ALTER POLICY "Enable users to read teams" ON "public"."teams" RENAME TO "Enable users to read teams they are a part of";
-COMMIT;
 
+do $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable users to read teams') THEN
+    ALTER POLICY "Enable users to read teams" ON "public"."teams" USING (auth.uid() = ANY(player_ids));
+    ALTER POLICY "Enable users to read teams" ON "public"."teams" TO authenticated;
+    ALTER POLICY "Enable users to read teams" ON "public"."teams" RENAME TO "Enable users to read teams they are a part of";
+  END IF;
+END;
+$$
 
 
 create or replace function handle_delete_user() returns trigger as $$
@@ -36,7 +40,7 @@ $$ language plpgsql security definer;
 
 do $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable users to read their own profile') THEN
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable read access for all users') THEN
     ALTER POLICY "Enable read access for all users" ON "public"."profiles" USING (auth.uid() = id);
     ALTER POLICY "Enable read access for all users" ON "public"."profiles" TO authenticated;
     ALTER POLICY "Enable read access for all users" ON "public"."profiles" RENAME TO "Enable users to read their own profile";
@@ -47,7 +51,7 @@ commit;
 
 do $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable users to read players on their teams') THEN
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable read access for authenticated users') THEN
     ALTER POLICY "Enable read access for authenticated users" ON "public"."players" USING (id = ANY(
         select UNNEST(player_ids)
         from public.teams
