@@ -11,9 +11,9 @@ $$ language plpgsql security definer;
 
 
 BEGIN;
-  ALTER POLICY "Enable users to read teams they are a part of" ON "public"."teams" USING (auth.uid() = any (player_ids));
-  ALTER POLICY "Enable users to read teams they are a part of" ON "public"."teams" TO authenticated;
-  ALTER POLICY "Enable users to read teams they are a part of" ON "public"."teams" RENAME TO "Enable users to read teams they are a part of";
+  ALTER POLICY "Enable users to read teams" ON "public"."teams" USING (auth.uid() = any (player_ids));
+  ALTER POLICY "Enable users to read teams" ON "public"."teams" TO authenticated;
+  ALTER POLICY "Enable users to read teams" ON "public"."teams" RENAME TO "Enable users to read teams they are a part of";
 COMMIT;
 
 
@@ -34,21 +34,37 @@ $$ language plpgsql security definer;
 
 
 
-ALTER POLICY "Enable read access for all users" ON "public"."profiles" USING (auth.uid() = id);
-ALTER POLICY "Enable read access for all users" ON "public"."profiles" TO authenticated;
-ALTER POLICY "Enable read access for all users" ON "public"."profiles" RENAME TO "Enable users to read their own profile";
+do $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable users to read their own profile') THEN
+    ALTER POLICY "Enable read access for all users" ON "public"."profiles" USING (auth.uid() = id);
+    ALTER POLICY "Enable read access for all users" ON "public"."profiles" TO authenticated;
+    ALTER POLICY "Enable read access for all users" ON "public"."profiles" RENAME TO "Enable users to read their own profile";
+  END IF;
+END $$;
+
+commit;
+
+do $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable users to read players on their teams') THEN
+    ALTER POLICY "Enable read access for authenticated users" ON "public"."players" USING (id = ANY(
+        select UNNEST(player_ids)
+        from public.teams
+        where auth.uid() = ANY(player_ids)
+      ));
+    ALTER POLICY "Enable read access for authenticated users" ON "public"."players" TO authenticated;
+    ALTER POLICY "Enable read access for authenticated users" ON "public"."players" RENAME TO "Enable users to read players on their teams";
+  END IF;
+END $$;
+
+commit;
 
 
-ALTER POLICY "Enable read access for authenticated users" ON "public"."players" USING (id = ANY(
-    select UNNEST(player_ids)
-    from public.teams
-    where auth.uid() = ANY(player_ids)
-  ));
-ALTER POLICY "Enable read access for authenticated users" ON "public"."players" TO authenticated;
-ALTER POLICY "Enable read access for authenticated users" ON "public"."players" RENAME TO "Enable users to read players on their teams";
 
-DROP POLICY "Enable delete for users based on user_id" ON "public"."players";
-DROP POLICY "Enable insert for authenticated users only" ON "public"."players";
+
+DROP POLICY IF EXISTS "Enable delete for users based on user_id" ON "public"."players";
+DROP POLICY IF EXISTS "Enable insert for authenticated users only" ON "public"."players";
 
 
 ALTER POLICY "Enable read access for authenticated users" ON "public"."daily_scores" TO authenticated;
