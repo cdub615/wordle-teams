@@ -13,7 +13,7 @@ $$ language plpgsql security definer;
 
 do $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable users to read teams') THEN
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable users to read teams' AND tablename = 'teams') THEN
     ALTER POLICY "Enable users to read teams" ON "public"."teams" USING (auth.uid() = ANY(player_ids));
     ALTER POLICY "Enable users to read teams" ON "public"."teams" TO authenticated;
     ALTER POLICY "Enable users to read teams" ON "public"."teams" RENAME TO "Enable users to read teams they are a part of";
@@ -39,7 +39,7 @@ $$ language plpgsql security definer;
 
 do $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable read access for all users') THEN
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable read access for all users' AND tablename = 'profiles') THEN
     ALTER POLICY "Enable read access for all users" ON "public"."profiles" USING (auth.uid() = id);
     ALTER POLICY "Enable read access for all users" ON "public"."profiles" TO authenticated;
     ALTER POLICY "Enable read access for all users" ON "public"."profiles" RENAME TO "Enable users to read their own profile";
@@ -50,7 +50,7 @@ commit;
 
 do $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable read access for authenticated users') THEN
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Enable read access for authenticated users' AND tablename = 'players') THEN
     ALTER POLICY "Enable read access for authenticated users" ON "public"."players" USING (id = ANY(
         select UNNEST(player_ids)
         from public.teams
