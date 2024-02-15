@@ -16,7 +16,7 @@ export default function LoginForm({ awaitingVerification }: { awaitingVerificati
       <CardContent className='space-y-2'>
         {awaitingVerification ? (
           <div className='text-muted-foreground'>
-            Verification email sent. Please complete verification, then come back and refresh.
+            Verification email sent. Please check your inbox to complete your login.
           </div>
         ) : (
           <div className='flex flex-col space-y-2'>
