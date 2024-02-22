@@ -10,11 +10,19 @@ import { createClient } from '@/lib/supabase/server'
 import { daily_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'
 import { SupabaseClient } from '@supabase/supabase-js'
-import { parseISO } from 'date-fns'
+import { isSameDay, parseISO } from 'date-fns'
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import Board from './board'
+import WordleBoardForm from './wordle-board-form'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 export const metadata: Metadata = {
   title: 'Wordle Board',
@@ -32,17 +40,18 @@ export default async function Page({ params }: { params: { initials: string; dat
   const session = await getSession(supabase)
   if (!session) redirect('/login')
   const scores = await getPlayerScores(supabase, session.user.id)
-  const teamId = cookies().get('teamId')?.value as string
-  const month = cookies().get('month')?.value as string
+  const currentScore = scores.find((s) => isSameDay(date, parseISO(s.date)))
   return (
-    <AlertDialog open={true}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Add or Update Board</AlertDialogTitle>
-          <AlertDialogDescription>Enter the day&apos;s answer and your guesses</AlertDialogDescription>
-        </AlertDialogHeader>
-        <Board initials={initials} dailyScores={scores} date={date} teamId={teamId} month={month} />
-      </AlertDialogContent>
-    </AlertDialog>
+    <div className="flex justify-center items-center">
+      <Card className='max-w-2xl mt-2 mb-2 md:mt-16'>
+        <CardHeader>
+          <CardTitle>Add or Update Board</CardTitle>
+          <CardDescription>Enter the day&apos;s answer and your guesses</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <WordleBoardForm initials={initials} currentScore={currentScore} date={date} />
+        </CardContent>
+      </Card>
+    </div>
   )
 }

@@ -98,9 +98,9 @@ const getColumns = (month: Date, playWeekends: boolean) => {
         return (
           <>
             <div className='font-bold text-right invisible h-0 w-0 @md:visible @md:h-fit @md:w-fit'>
-              Total Score
+              Score
             </div>
-            <div className='font-bold text-right text-xs @md:invisible @md:h-0 @md:w-0'>Total</div>
+            <div className='font-bold text-right text-xs @md:invisible @md:h-0 @md:w-0'>Score</div>
           </>
         )
       },

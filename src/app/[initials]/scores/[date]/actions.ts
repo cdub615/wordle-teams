@@ -18,8 +18,6 @@ export async function upsertBoard(formData: FormData) {
   const answer = formData.get('answer') as string
   const guessesInput = formData.getAll('guesses') as string[]
   const guesses = guessesInput[0].split(',').filter((g) => g !== '')
-  const teamId = formData.get('teamId') as string
-  const month = formData.get('month') as string
 
   let dailyScore
 
@@ -51,5 +49,5 @@ export async function upsertBoard(formData: FormData) {
   }
 
   revalidatePath('/')
-  redirect(`/${initials}/${teamId}/${month}`)
+  redirect(`/${initials}`)
 }
