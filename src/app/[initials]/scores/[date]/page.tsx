@@ -29,12 +29,12 @@ export default async function Page({ params }: { params: { initials: string; dat
   const currentScore = scores.find((s) => isSameDay(date, parseISO(s.date)))
   return (
     <div className='flex justify-center items-center'>
-      <Card className='max-w-2xl mt-2 mb-2 md:mt-16'>
+      <Card className='w-full mx-2 md:max-w-2xl mt-2 mb-2 md:mt-16'>
         <CardHeader>
           <CardTitle>Add or Update Board</CardTitle>
           <CardDescription>Enter the day&apos;s answer and your guesses</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className='p-2 md:p-6 pt-0'>
           <WordleBoardForm initials={initials} currentScore={currentScore} date={date} />
         </CardContent>
       </Card>

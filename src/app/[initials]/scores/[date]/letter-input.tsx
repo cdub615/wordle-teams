@@ -20,7 +20,7 @@ export default function LetterInput({ answer, letter, letterIndex, wordNum }: Le
 
   return (
     <div
-      className={cn('border h-16 flex justify-center items-center text-4xl uppercase', getConditionalClasses())}
+      className={cn('border h-12 md:h-16 text-3xl md:text-4xl uppercase flex justify-center items-center', getConditionalClasses())}
       id={`${wordNum}-${letterNum}`}
     >
       {letter}

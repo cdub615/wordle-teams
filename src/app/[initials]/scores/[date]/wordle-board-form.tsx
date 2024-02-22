@@ -57,8 +57,8 @@ export default function WordleBoardForm({ initials, date, currentScore }: BoardP
       <input hidden readOnly aria-readonly name='scoreId' value={scoreId} />
       <input hidden readOnly aria-readonly name='scoreDate' value={date.toISOString()} />
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
-      <div className='flex flex-col space-y-4 md:space-y-0 md:flex-row md:space-x-4 w-full'>
-        <div className='flex flex-col space-y-2'>
+      <div className='flex flex-col space-y-4 md:space-y-0 md:flex-row md:space-x-4 w-full md:px-20'>
+        <div className='flex flex-col space-y-2 w-full'>
           <Label htmlFor='date'>Wordle Date</Label>
           <DatePicker date={date} setDate={setDate} noDateText='Pick a date' tabIndex={1} />
         </div>

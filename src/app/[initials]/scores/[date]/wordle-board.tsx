@@ -31,7 +31,7 @@ export default function WordleBoard({ guesses, setGuesses, answer, tabIndex }: W
         <div className='w-full pt-1'>
           {guesses.map((guess, index) => (
             <div id={`word-${index}`} key={`word-${index}`} className='flex justify-center'>
-              <div className='grid grid-cols-5 gap-1 mb-1 w-80'>
+              <div className='grid grid-cols-5 gap-1 mb-1 w-64 md:w-80'>
                 <LetterInput answer={answer} letter={guess[0]} letterIndex={0} wordNum={index + 1} />
                 <LetterInput answer={answer} letter={guess[1]} letterIndex={1} wordNum={index + 1} />
                 <LetterInput answer={answer} letter={guess[2]} letterIndex={2} wordNum={index + 1} />
