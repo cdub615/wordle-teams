@@ -1,5 +1,5 @@
 import { Player, Team, teams } from '@/lib/types'
-import type { SupabaseClient, UserMetadata } from '@supabase/supabase-js'
+import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMinutes, addMonths, differenceInMonths, startOfMonth } from 'date-fns'
 import { LogSnag } from 'logsnag'
@@ -8,7 +8,8 @@ import { Database } from './database.types'
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 
-export const baseUrl = (host: string | null) => `${process?.env.NODE_ENV === 'development' ? 'http' : 'https'}://${host}`
+export const baseUrl = (host: string | null) =>
+  `${process?.env.NODE_ENV === 'development' ? 'http' : 'https'}://${host}`
 
 export const passwordRegex = `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*.?#^)(-_=+|}{':;~\`&])[A-Za-z\d@$!.%*?#^)(-_=+|}{':;~\`&]{6,20}$`
 
@@ -77,3 +78,8 @@ export const padArray = (arr: string[], length: number) => {
   return arr
 }
 
+export const getUserInitials = (user: User) => {
+  const firstName = user.user_metadata.firstName[0]
+  const lastName = user.user_metadata.lastName[0]
+  return `${firstName}${lastName}`
+}

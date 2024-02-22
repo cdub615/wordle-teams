@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/server'
-import { getSession } from '@/lib/utils'
+import { getSession, getUser, getUserInitials } from '@/lib/utils'
 import { format } from 'date-fns'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
@@ -9,29 +9,28 @@ import { redirect } from 'next/navigation'
 type TeamsResponse = {
   teamId: number | undefined
   month: string
-  initialsFromCookie: string
 }
 
-const checkForTeams = async (): Promise<TeamsResponse> => {
+const checkForTeams = async (initialsParam: string): Promise<TeamsResponse> => {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
   const { data: teams } = await supabase.from('teams').select('*')
-  const session = await getSession(supabase)
-  if (!session) redirect('/login')
-  const initials = cookieStore.get('initials')
-  if (!initials || initials.value.length === 0) redirect('/complete-profile')
+  const user = await getUser(supabase)
+  if (!user) redirect('/login')
+  const initials = getUserInitials(user)
+  if (!initials || initials.length === 0) redirect('/complete-profile')
+  if (initials !== initialsParam) redirect(`/${initials}`)
 
   let teamId: number | undefined = undefined
 
   teamId = teams?.shift()?.id
   let month = format(new Date(), 'yyyyMM')
-  return { teamId, month, initialsFromCookie: initials.value }
+  return { teamId, month }
 }
 
 export default async function Home({ params }: { params: { initials: string } }) {
   const { initials } = params
-  const { teamId, month, initialsFromCookie } = await checkForTeams()
-  if (initials !== initialsFromCookie) redirect(`/${initials}`)
+  const { teamId, month } = await checkForTeams(initials)
 
   if (!teamId)
     return (
