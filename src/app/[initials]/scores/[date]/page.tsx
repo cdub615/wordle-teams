@@ -1,10 +1,4 @@
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Database } from '@/lib/database.types'
 import { createClient } from '@/lib/supabase/server'
 import { daily_scores } from '@/lib/types'
@@ -15,14 +9,6 @@ import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import WordleBoardForm from './wordle-board-form'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 
 export const metadata: Metadata = {
   title: 'Wordle Board',
@@ -42,7 +28,7 @@ export default async function Page({ params }: { params: { initials: string; dat
   const scores = await getPlayerScores(supabase, session.user.id)
   const currentScore = scores.find((s) => isSameDay(date, parseISO(s.date)))
   return (
-    <div className="flex justify-center items-center">
+    <div className='flex justify-center items-center'>
       <Card className='max-w-2xl mt-2 mb-2 md:mt-16'>
         <CardHeader>
           <CardTitle>Add or Update Board</CardTitle>
