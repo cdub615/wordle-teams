@@ -83,3 +83,14 @@ export const getUserInitials = (user: User) => {
   const lastName = user.user_metadata.lastName[0]
   return `${firstName}${lastName}`
 }
+
+export const validParams = (initials: string, teamId: string, month: string): boolean => {
+  if (initials.length !== 2) return false
+  if (Number.isNaN(Number.parseInt(teamId))) return false
+  try {
+    monthAsDate(month)
+  } catch {
+    return false
+  }
+  return true
+}

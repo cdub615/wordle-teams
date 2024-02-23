@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import Link from 'next/link'
 import createTeam from './actions'
+import SubmitButton from '@/components/submit-button'
 
 export default function CreateTeam({ params }: { params: { initials: string } }) {
   const { initials } = params
@@ -41,7 +42,7 @@ export default function CreateTeam({ params }: { params: { initials: string } })
           <Link href={`/${initials}`}>
             <Button variant={'secondary'}>Cancel</Button>
           </Link>
-          <Button type='submit'>Save</Button>
+          <SubmitButton label='Create' />
         </AlertDialogFooter>
       </form>
     </>

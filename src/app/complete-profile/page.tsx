@@ -1,6 +1,6 @@
-import { Button } from '@/components/ui/button'
+import SubmitButton from '@/components/submit-button'
 import { Input } from '@/components/ui/input'
-import { Label } from '../../components/ui/label'
+import { Label } from '@/components/ui/label'
 import updateProfile from './actions'
 
 export default async function Page() {
@@ -21,7 +21,7 @@ export default async function Page() {
             </div>
           </div>
           <div className='flex justify-end'>
-            <Button type='submit'>Submit</Button>
+            <SubmitButton label='Submit' />
           </div>
         </form>
       </div>

@@ -1,8 +1,11 @@
 import ActionButtons from '@/components/action-buttons'
 import { CurrentTeam, MyTeams, ScoresTable, ScoringSystem } from '@/components/app-grid-items'
+import { validParams } from '@/lib/utils'
+import { redirect } from 'next/navigation'
 
-export default async function Page({params}: {params: {initials: string; teamId: string; month: string } }) {
+export default async function Page({ params }: { params: { initials: string; teamId: string; month: string } }) {
   const { initials, teamId: teamIdString, month } = params
+  if (!validParams(initials, teamIdString, month)) redirect('/')
   const teamId = Number.parseInt(teamIdString)
 
   return (

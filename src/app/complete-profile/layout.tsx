@@ -1,5 +1,5 @@
 import ModeToggle from '@/components/mode-toggle'
-import { Button } from '@/components/ui/button'
+import SubmitButton from '@/components/submit-button'
 import { Separator } from '@/components/ui/separator'
 import logout from '@/lib/shared-actions'
 import { LogOut } from 'lucide-react'
@@ -22,9 +22,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className='flex justify-end items-center space-x-4'>
             <ModeToggle />
             <form action={logout}>
-              <Button size={'icon'} variant={'outline'}>
+              <SubmitButton>
                 <LogOut size={18} />
-              </Button>
+              </SubmitButton>
             </form>
           </div>
         </div>

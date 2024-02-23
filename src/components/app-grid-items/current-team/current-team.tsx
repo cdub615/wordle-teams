@@ -1,5 +1,7 @@
+import SubmitButton from '@/components/submit-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { createClient } from '@/lib/supabase/server'
 import { players, teams } from '@/lib/types'
 import { getSession } from '@/lib/utils'
@@ -47,11 +49,20 @@ export default async function CurrentTeam({ initials, teamId }: { initials: stri
           <div className='flex justify-between'>
             <div>{team?.name}</div>
             {canInvite && (
-              <Link href={`/${initials}/invite-player/${teamId}`}>
-                <Button size={'icon'} variant={'outline'}>
-                  <UserPlus2 size={22} />
-                </Button>
-              </Link>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link href={`/${initials}/invite-player/${teamId}`}>
+                      <Button size={'icon'} variant={'outline'}>
+                        <UserPlus2 size={22} />
+                      </Button>
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Invite Player</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
         </CardTitle>
@@ -69,9 +80,18 @@ export default async function CurrentTeam({ initials, teamId }: { initials: stri
                   <input type='hidden' name='playerIds' value={playerIds} />
                   <input type='hidden' name='playerId' value={player.id} />
                   <input type='hidden' name='teamId' value={teamId} />
-                  <Button size={'icon'} variant={'outline'}>
-                    <Trash2 size={16} className='text-red-500' />
-                  </Button>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <SubmitButton>
+                          <Trash2 size={16} className='text-red-500' />
+                        </SubmitButton>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Remove Player</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </form>
               )}
             </li>

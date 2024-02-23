@@ -1,6 +1,6 @@
 import Welcome from '@/components/welcome'
 import { createClient } from '@/lib/supabase/server'
-import { getSession, getUser, getUserInitials } from '@/lib/utils'
+import { getUser, getUserInitials } from '@/lib/utils'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 

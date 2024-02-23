@@ -1,6 +1,6 @@
 import ModeToggle from '@/components/mode-toggle'
+import SubmitButton from '@/components/submit-button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
@@ -41,9 +41,9 @@ export default async function BottomBar() {
           <ModeToggle />
           {user && (
             <form action={logout}>
-              <Button size={'icon'} variant={'outline'}>
+              <SubmitButton>
                 <LogOut size={18} />
-              </Button>
+              </SubmitButton>
             </form>
           )}
         </div>

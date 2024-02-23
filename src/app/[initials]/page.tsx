@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/server'
-import { getSession, getUser, getUserInitials } from '@/lib/utils'
+import { getUser, getUserInitials } from '@/lib/utils'
 import { format } from 'date-fns'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
@@ -30,6 +30,7 @@ const checkForTeams = async (initialsParam: string): Promise<TeamsResponse> => {
 
 export default async function Home({ params }: { params: { initials: string } }) {
   const { initials } = params
+  if (initials.length !== 2) redirect('/')
   const { teamId, month } = await checkForTeams(initials)
 
   if (!teamId)

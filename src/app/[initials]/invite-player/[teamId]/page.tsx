@@ -6,6 +6,7 @@ import { Team, teams } from '@/lib/types'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
 import invitePlayer from './actions'
+import SubmitButton from '@/components/submit-button'
 
 type TeamInfo = {
   team: teams
@@ -44,7 +45,7 @@ export default async function InvitePlayer({ params }: { params: { initials: str
           <Link href={`/${initials}`}>
             <Button variant={'secondary'}>Cancel</Button>
           </Link>
-          <Button type='submit'>Submit</Button>
+          <SubmitButton label='Invite' />
         </div>
       </form>
     </>
