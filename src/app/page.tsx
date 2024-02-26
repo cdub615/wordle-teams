@@ -1,6 +1,6 @@
 import Welcome from '@/components/welcome'
 import { createClient } from '@/lib/supabase/server'
-import { getUser, getUserInitials } from '@/lib/utils'
+import { getUser, getUserInitials, setInitialsCookie } from '@/lib/utils'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
@@ -14,7 +14,7 @@ export default async function Home() {
     if (!user) return <Welcome />
 
     initials = getUserInitials(user)
-    cookieStore.set('initials', initials)
+    await setInitialsCookie(initials)
   } else initials = initialsCookie.value
 
   if (!initials || initials.length === 0) redirect('/complete-profile')

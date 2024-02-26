@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/server'
-import { getSession, getUserInitials } from '@/lib/utils'
+import { getSession, getUserInitials, setInitialsCookie } from '@/lib/utils'
 import { format } from 'date-fns'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
@@ -23,7 +23,7 @@ const checkForTeams = async (initialsParam: string): Promise<TeamsResponse> => {
     // TODO verify we have what we need here and don't get sent to complete profile when we shouldn't
     if (!initials || initials.length === 0) redirect('/complete-profile')
 
-    cookieStore.set('initials', initials)
+    await setInitialsCookie(initials)
     if (initials !== initialsParam) redirect(`/${initials}`)
   } else if (initialsCookie.value !== initialsParam) redirect(`/${initials}`)
 
