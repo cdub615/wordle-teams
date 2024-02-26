@@ -7,11 +7,16 @@ import { redirect } from 'next/navigation'
 export default async function Home() {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
-  const user = await getUser(supabase)
-  if (user) {
-    const initials = getUserInitials(user)
-    if (!initials || initials.length === 0) redirect('/complete-profile')
-    else redirect(`/${initials}`)
-  }
-  return <Welcome />
+  let initials
+  const initialsCookie = cookieStore.get('initials')
+  if (!initialsCookie || !initialsCookie.value || initialsCookie.value.length === 0) {
+    const user = await getUser(supabase)
+    if (!user) return <Welcome />
+
+    initials = getUserInitials(user)
+    cookieStore.set('initials', initials)
+  } else initials = initialsCookie.value
+
+  if (!initials || initials.length === 0) redirect('/complete-profile')
+  else redirect(`/${initials}`)
 }

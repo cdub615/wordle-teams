@@ -74,7 +74,9 @@ export default async function CurrentTeam({ initials, teamId }: { initials: stri
               <div>
                 {player.first_name} {player.last_name}
               </div>
-              {/* TODO add tooltips for the buttons and open an alert dialog for deletion */}
+              {/* TODO add tooltips for the buttons and open an alert dialog for deletion
+              the tooltip might be interfering with the submit button pending state,
+              maybe just have the alert dialog where we'll have a working submit button */}
               {canInvite && player.id !== userId && (
                 <form action={removePlayer}>
                   <input type='hidden' name='playerIds' value={playerIds} />

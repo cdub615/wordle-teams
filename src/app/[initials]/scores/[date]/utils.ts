@@ -1,4 +1,13 @@
 import { Dispatch, SetStateAction } from 'react'
+import { toast } from 'sonner'
+
+export const updateAnswer = (key: string, answer: string, setAnswer: Dispatch<SetStateAction<string>>) => {
+  const isBackspace = key === 'Backspace' || key === '{backspace}'
+  if (isBackspace && answer.length > 0) setAnswer(answer.slice(0, answer.length - 1))
+
+  const isLetter = /[a-zA-Z]/.test(key) && key.length === 1
+  if (isLetter && answer.length < 5) setAnswer(answer + key.toUpperCase())
+}
 
 export const handleLetter = (
   key: string,
@@ -36,11 +45,16 @@ export const handleKey = (
     if (isBackspace) handleBackspace(guesses, setGuesses)
 
     const isEnter = key === 'Enter' || key === '{ent}'
-    if (isEnter && boardIsValid(answer, guesses)) document.getElementById('board-submit')?.click()
+    if (isEnter) {
+      if (boardIsValid(answer, guesses)) document.getElementById('board-submit')?.click()
+      else toast.warning('Board must be complete to submit')
+    }
 
     const isLetter = /[a-zA-Z]/.test(key) && key.length === 1
     if (isLetter && !boardIsValid(answer, guesses) && guesses[5].length < 5)
       handleLetter(key, answer, guesses, setGuesses)
+
+    if (key === '{back}') document.getElementById('board-cancel')?.click()
   }
 }
 

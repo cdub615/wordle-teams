@@ -101,6 +101,7 @@
   background-color: hsl(var(--secondary));
   color: hsl(var(--foreground));
   border-bottom-color: hsl(var(--background));
+  font-weight: 500;
 }
 
 .simple-keyboard.wt-keyboard .hg-button:active {

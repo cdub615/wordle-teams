@@ -38,6 +38,7 @@ export default async function ActionButtons({ initials, teamId, month, classes }
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
+            {/* TODO make this link a client component so that the date generated is in time zone of the user*/}
             <Link href={`/${initials}/scores/${format(new Date(), 'yyyyMMdd')}`}>
               <Button size={'icon'}>
                 <Plus size={24} />

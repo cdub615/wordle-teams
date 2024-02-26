@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/server'
-import { getUser, getUserInitials } from '@/lib/utils'
+import { getSession, getUserInitials } from '@/lib/utils'
 import { format } from 'date-fns'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
@@ -14,12 +14,20 @@ type TeamsResponse = {
 const checkForTeams = async (initialsParam: string): Promise<TeamsResponse> => {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
+  let initials
+  const initialsCookie = cookieStore.get('initials')
+  if (!initialsCookie || !initialsCookie.value || initialsCookie.value.length === 0) {
+    const session = await getSession(supabase)
+    if (!session) redirect('/login')
+    const initials = getUserInitials(session.user)
+    // TODO verify we have what we need here and don't get sent to complete profile when we shouldn't
+    if (!initials || initials.length === 0) redirect('/complete-profile')
+
+    cookieStore.set('initials', initials)
+    if (initials !== initialsParam) redirect(`/${initials}`)
+  } else if (initialsCookie.value !== initialsParam) redirect(`/${initials}`)
+
   const { data: teams } = await supabase.from('teams').select('*')
-  const user = await getUser(supabase)
-  if (!user) redirect('/login')
-  const initials = getUserInitials(user)
-  if (!initials || initials.length === 0) redirect('/complete-profile')
-  if (initials !== initialsParam) redirect(`/${initials}`)
 
   let teamId: number | undefined = undefined
 

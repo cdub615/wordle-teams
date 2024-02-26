@@ -20,6 +20,7 @@ import { Team } from '@/lib/types'
 import { cn, monthAsDate } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 import { MonthScoresRow } from './scores-table-types'
+import SkeletonRows from './skeleton-rows'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
 
 const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string; classes?: string }) => {
@@ -115,11 +116,7 @@ const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={columns.length} className='h-24 text-center'>
-                  No results.
-                </TableCell>
-              </TableRow>
+              <SkeletonRows />
             )}
           </TableBody>
         </Table>
