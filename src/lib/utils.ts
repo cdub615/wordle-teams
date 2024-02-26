@@ -95,7 +95,9 @@ export const validParams = (initials: string, teamId: string, month: string): bo
   return true
 }
 
-export const setInitialsCookie = async (initials: string) => {
-  const body = JSON.stringify({ initials })
-  await fetch('/auth/set-initials', { method: 'POST', body, headers: { 'Content-Type': 'application/json' } })
-}
+export const setInitialsCookie = async (initials: string) =>
+  await fetch(`${process.env.VERCEL_URL}/auth/set-initials`, {
+    method: 'POST',
+    body: JSON.stringify({ initials }),
+    headers: { 'Content-Type': 'application/json' },
+  })
