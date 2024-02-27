@@ -9,18 +9,19 @@ import { LogOut } from 'lucide-react'
 import { cookies } from 'next/headers'
 import logout from './actions'
 
-export default async function AppBar() {
-  // if public mode dont fetch user
-  const supabase = createClient(cookies())
-  const dbUser = await getUser(supabase)
-
+export default async function AppBar({ publicMode }: { publicMode?: boolean }) {
   let user: User | undefined = undefined
 
-  if (dbUser) {
-    const firstName = dbUser.user_metadata.firstName
-    const lastName = dbUser.user_metadata.lastName
-    const email = dbUser.email
-    user = { firstName, lastName, email }
+  if (!publicMode) {
+    const supabase = createClient(cookies())
+    const dbUser = await getUser(supabase)
+
+    if (dbUser) {
+      const firstName = dbUser.user_metadata.firstName
+      const lastName = dbUser.user_metadata.lastName
+      const email = dbUser.email
+      user = { firstName, lastName, email }
+    }
   }
 
   return (
