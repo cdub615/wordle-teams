@@ -1,10 +1,10 @@
-import AppBar from '@/components/app-bar'
+import AppBar from '@/components/app-bar/app-bar-base'
 import { GeistSans } from 'geist/font/sans'
 
 export default function Maintenance() {
   return (
     <div className='flex flex-col w-full'>
-      <AppBar publicMode />
+      <AppBar />
       <svg viewBox='0 0 0 0' width='0' height='0' className='absolute' aria-hidden='true' focusable='false'>
         <linearGradient id='svg-gradient'>
           <stop offset='0%' stopColor='hsl(var(--color-stop-1))' />

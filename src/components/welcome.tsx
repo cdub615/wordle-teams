@@ -1,4 +1,4 @@
-import AppBar from '@/components/app-bar'
+import AppBar from '@/components/app-bar/app-bar-base'
 import { Button } from '@/components/ui/button'
 import { GeistSans } from 'geist/font/sans'
 import { cookies } from 'next/headers'
@@ -13,7 +13,7 @@ export default async function Welcome() {
 
   return (
     <div className='flex flex-col w-full'>
-      <AppBar publicMode />
+      <AppBar />
       <h1 className={`${GeistSans.className} pt-8 md:pt-16 pb-2 text-center text-3xl md:text-6xl`}>
         Compete with your friends
       </h1>

@@ -99,7 +99,7 @@ export default function WordleBoardForm({ initials, scoreDate, scores }: BoardPr
             >
               <svg xmlns='http://www.w3.org/2000/svg' className='h-5 w-5' viewBox='0 0 20 20' fill='currentColor'>
                 <path
-                  fill-rule='evenodd'
+                  fillRule='evenodd'
                   d='M10 8.586l4.293-4.293 1.414 1.414L11.414 10l4.293 4.293-1.414 1.414L10 11.414l-4.293 4.293-1.414-1.414L8.586 10 4.293 5.707l1.414-1.414L10 8.586z'
                 />
               </svg>
