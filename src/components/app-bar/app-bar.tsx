@@ -10,6 +10,7 @@ import { cookies } from 'next/headers'
 import logout from './actions'
 
 export default async function AppBar() {
+  // if public mode dont fetch user
   const supabase = createClient(cookies())
   const dbUser = await getUser(supabase)
 
