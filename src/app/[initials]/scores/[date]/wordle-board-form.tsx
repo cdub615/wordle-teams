@@ -32,7 +32,7 @@ export default function WordleBoardForm({ initials, scoreDate, scores }: BoardPr
 
   useEffect(() => {
     if (currentScore) {
-      setAnswer(currentScore.answer!)
+      setAnswer(currentScore.answer ?? '')
       setGuesses(padArray(currentScore.guesses, 6))
       setScoreId(currentScore.id)
     }
@@ -75,6 +75,7 @@ export default function WordleBoardForm({ initials, scoreDate, scores }: BoardPr
       <input hidden readOnly aria-readonly name='scoreId' value={scoreId} />
       <input hidden readOnly aria-readonly name='scoreDate' value={date.toISOString()} />
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
+      <input hidden readOnly aria-readonly name='answer' value={answer} />
       <div className='flex flex-col space-y-4 md:space-y-0 md:flex-row md:space-x-4 w-full px-4'>
         <div className='flex flex-col space-y-2 w-full'>
           <Label htmlFor='date'>Wordle Date</Label>
