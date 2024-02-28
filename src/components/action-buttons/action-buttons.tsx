@@ -1,11 +1,11 @@
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { format } from 'date-fns'
-import { ListPlus, Plus } from 'lucide-react'
+import { ListPlus } from 'lucide-react'
 import Link from 'next/link'
 import MonthDropdown from './month-dropdown/month-dropdown'
 import TeamsDropdown from './teams-dropdown/teams-dropdown'
+import WordleBoardLink from './wordle-board-link'
 
 type ActionButtonProps = {
   initials: string
@@ -38,12 +38,7 @@ export default async function ActionButtons({ initials, teamId, month, classes }
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            {/* TODO make this link a client component so that the date generated is in time zone of the user*/}
-            <Link href={`/${initials}/scores/${format(new Date(), 'yyyyMMdd')}`}>
-              <Button size={'icon'}>
-                <Plus size={24} />
-              </Button>
-            </Link>
+            <WordleBoardLink initials={initials} />
           </TooltipTrigger>
           <TooltipContent>
             <p>Add Board</p>
