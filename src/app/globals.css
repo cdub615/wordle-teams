@@ -111,3 +111,8 @@
 .simple-keyboard.wt-keyboard .hg-activeButton {
   color: hsl(var(--primary-foreground)) !important;
 }
+
+.simple-keyboard.wt-keyboard .hg-button-backspace {
+  font-size: larger;
+  line-height: normal;
+}
