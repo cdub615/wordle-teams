@@ -20,7 +20,7 @@ import { Team } from '@/lib/types'
 import { cn, monthAsDate } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 import { MonthScoresRow } from './scores-table-types'
-import SkeletonRows from './skeleton-rows'
+import SkeletonTable from './skeleton-table'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
 
 const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string; classes?: string }) => {
@@ -85,7 +85,7 @@ const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string
     },
   })
 
-  return (
+  return table.getRowModel().rows?.length ? (
     <div className={classes}>
       <div className='rounded-md border text-xs max-w-[96vw] @md:text-base'>
         <Table className={cn('relative', loading ? 'animate-pulse' : '')}>
@@ -116,12 +116,18 @@ const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string
                 </TableRow>
               ))
             ) : (
-              <SkeletonRows />
+              <TableRow>
+                <TableCell colSpan={columns.length} className='h-24 text-center'>
+                  No results.
+                </TableCell>
+              </TableRow>
             )}
           </TableBody>
         </Table>
       </div>
     </div>
+  ) : (
+    <SkeletonTable classes={classes} />
   )
 }
 
