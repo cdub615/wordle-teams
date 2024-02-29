@@ -3,8 +3,8 @@
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import SubmitButton from '@/components/submit-button'
 import { login } from './actions'
-import SubmitButton from './submit-button'
 
 export default function LoginForm({ awaitingVerification }: { awaitingVerification: boolean }) {
   return (
@@ -16,7 +16,7 @@ export default function LoginForm({ awaitingVerification }: { awaitingVerificati
       <CardContent className='space-y-2'>
         {awaitingVerification ? (
           <div className='text-muted-foreground'>
-            Verification email sent. Please complete verification, then come back and refresh.
+            Verification email sent. Please check your inbox to complete your login.
           </div>
         ) : (
           <div className='flex flex-col space-y-2'>

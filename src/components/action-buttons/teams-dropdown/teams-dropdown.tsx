@@ -18,7 +18,13 @@ const getTeams = async () => {
   return teams
 }
 
-export default async function TeamsDropdown({ teamId, month }: { teamId: number; month: string }) {
+type TeamsDropdownProps = {
+  initials: string
+  teamId: number
+  month: string
+}
+
+export default async function TeamsDropdown({ initials, teamId, month }: TeamsDropdownProps) {
   const teams = await getTeams()
   const selectedTeam = teams.find((t) => t.id === teamId)
 
@@ -33,7 +39,7 @@ export default async function TeamsDropdown({ teamId, month }: { teamId: number;
         <DropdownMenuContent align='end'>
           <DropdownMenuLabel>Change Team</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <TeamsDropdownRadioGroup teamId={teamId} teams={teams} month={month} />
+          <TeamsDropdownRadioGroup initials={initials} teamId={teamId} teams={teams} month={month} />
         </DropdownMenuContent>
       </DropdownMenu>
     )

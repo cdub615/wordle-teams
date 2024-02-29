@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/actions'
+import { logsnagClient } from '@/lib/utils'
 import { type EmailOtpType } from '@supabase/supabase-js'
+import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-
-// export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   const cookieStore = cookies()
@@ -22,17 +22,62 @@ export async function GET(request: NextRequest) {
   if (token_hash && type) {
     const supabase = createClient(cookieStore)
 
-    const { error } = await supabase.auth.verifyOtp({
+    const { data, error } = await supabase.auth.verifyOtp({
       type,
       token_hash,
     })
     if (!error) {
+      const { email } = data.user ?? {}
+      const { firstName, lastName } = data.user?.user_metadata ?? {}
+      let event = null
+      if (type === 'magiclink') event = 'User Login'
+      if (type === 'signup') event = 'User Signup'
+      if (type === 'invite') event = 'Invited User Signup'
+
+      if (event) {
+        const logsnag = logsnagClient()
+        await logsnag.track({
+          channel: 'users',
+          event,
+          user_id: email,
+          icon: '🧑‍💻',
+          notify: type !== 'magiclink',
+          tags: {
+            email: email!,
+            firstname: firstName,
+            lastname: lastName,
+            env: process.env.ENVIRONMENT!,
+          },
+        })
+      }
+
+      if (type === 'invite') {
+        const id = data.user?.id ?? ''
+        const { error } = await supabase.rpc('handle_invited_signup', {
+          invited_email: email ?? '',
+          invited_id: id,
+        })
+        if (error) {
+          log.error('Failed to handle invited signup', error)
+          redirectTo.pathname = '/error'
+          return NextResponse.redirect(redirectTo)
+        }
+      } else {
+        const initials = `${firstName[0]?.toLocaleLowerCase()}${lastName[0]?.toLocaleLowerCase()}`
+        cookieStore.set('initials', initials)
+      }
       cookieStore.set('awaitingVerification', 'false')
       redirectTo.searchParams.delete('next')
+      if (type === 'invite') redirectTo.pathname = '/complete-profile'
+      return NextResponse.redirect(redirectTo)
+    } else {
+      log.error('Failed to verify OTP', error)
+      redirectTo.pathname = '/error'
       return NextResponse.redirect(redirectTo)
     }
-    console.error(error)
   }
+
+  log.error('Token Hash or Type were missing in the auth callback')
 
   // return the user to an error page with some instructions
   redirectTo.pathname = '/error'

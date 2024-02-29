@@ -1,16 +1,22 @@
 import Welcome from '@/components/welcome'
 import { createClient } from '@/lib/supabase/server'
-import { getSession } from '@/lib/utils'
+import { getUser, getUserInitials, setInitialsCookie } from '@/lib/utils'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 export default async function Home() {
-  const supabase = createClient(cookies())
-  const session = await getSession(supabase)
-  if (session?.user) {
-    const { user_metadata } = session.user
-    const initials = `${user_metadata.firstName[0].toLocaleLowerCase()}${user_metadata.lastName[0].toLocaleLowerCase()}`
-    redirect(`/${initials}`)
-  }
-  return <Welcome />
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
+  let initials
+  const initialsCookie = cookieStore.get('initials')
+  if (!initialsCookie || !initialsCookie.value || initialsCookie.value.length === 0) {
+    const user = await getUser(supabase)
+    if (!user) return <Welcome />
+
+    initials = getUserInitials(user)
+    await setInitialsCookie(initials)
+  } else initials = initialsCookie.value
+
+  if (!initials || initials.length === 0) redirect('/complete-profile')
+  else redirect(`/${initials}`)
 }

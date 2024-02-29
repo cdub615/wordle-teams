@@ -5,12 +5,14 @@ import { format, formatISO, parseISO } from 'date-fns'
 import { useRouter } from 'next/navigation'
 
 type MonthDropdownRadioGroupProps = {
+  initials: string
   teamId: number
   selectedMonth: Date
   monthOptions: Date[]
 }
 
 export default function MonthDropdownRadioGroup({
+  initials,
   teamId,
   selectedMonth,
   monthOptions,
@@ -18,7 +20,7 @@ export default function MonthDropdownRadioGroup({
   const router = useRouter()
   const handleMonthChange = async (m: string) => {
     const newMonth = format(parseISO(m), 'yyyyMM')
-    router.replace(`/${teamId}/${newMonth}`)
+    router.push(`/${initials}/${teamId}/${newMonth}`)
   }
   return (
     <DropdownMenuRadioGroup value={formatISO(selectedMonth)} onValueChange={handleMonthChange}>

@@ -5,7 +5,6 @@ import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 
 export async function upsertBoard(formData: FormData) {
   const supabase = createClient(cookies())
@@ -17,10 +16,9 @@ export async function upsertBoard(formData: FormData) {
   const answer = formData.get('answer') as string
   const guessesInput = formData.getAll('guesses') as string[]
   const guesses = guessesInput[0].split(',').filter((g) => g !== '')
-  const teamId = formData.get('teamId') as string
-  const month = formData.get('month') as string
 
   let dailyScore
+  let message
 
   if (!!scoreId && scoreId !== '-1') {
     const { data: newScore, error } = await supabase
@@ -32,9 +30,10 @@ export async function upsertBoard(formData: FormData) {
 
     if (error) {
       log.error('Failed to add or update board', { error })
-      throw new Error('Failed to add or update board')
+      return { success: false, message: 'Failed to add or update board' }
     }
     dailyScore = newScore
+    message = 'Successfully updated board'
   } else {
     const { data: newScore, error } = await supabase
       .from('daily_scores')
@@ -44,11 +43,13 @@ export async function upsertBoard(formData: FormData) {
 
     if (error) {
       log.error('Failed to add or update board', { error })
-      throw new Error('Failed to add or update board')
+      return { success: false, message: 'Failed to add or update board' }
     }
     dailyScore = newScore
+    message = 'Successfully added board'
   }
 
   revalidatePath('/')
-  redirect(`/${teamId}/${month}`)
+
+  return { success: true, message }
 }

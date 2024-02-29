@@ -6,7 +6,6 @@ const nextConfig = {}
 module.exports = withAxiom(nextConfig)
 
 // Injected content via Sentry wizard below
-
 const { withSentryConfig } = require('@sentry/nextjs')
 
 module.exports = withSentryConfig(

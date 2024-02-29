@@ -13,6 +13,7 @@ export default async function createTeam(formData: FormData) {
   const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 
+  const initials = formData.get('initials') as string
   const name = formData.get('name') as string
   const playWeekends = (formData.get('playWeekends') as string) === 'on'
   const creator = session.user.id
@@ -29,5 +30,5 @@ export default async function createTeam(formData: FormData) {
   }
 
   revalidatePath('/')
-  redirect(`/${newTeam.id}/${format(new Date(), 'yyyyMM')}`)
+  redirect(`/${initials}/${newTeam.id}/${format(new Date(), 'yyyyMM')}`)
 }

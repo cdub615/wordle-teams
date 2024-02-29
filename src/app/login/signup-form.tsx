@@ -3,20 +3,20 @@
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import SubmitButton from '@/components/submit-button'
 import { signup } from './actions'
-import SubmitButton from './submit-button'
 
 export default function SignupForm({ awaitingVerification }: { awaitingVerification: boolean }) {
   return (
     <form action={signup}>
       <CardHeader>
         <CardTitle>Sign Up</CardTitle>
-        {!awaitingVerification && <CardDescription>Sign up with name, email, and password</CardDescription>}
+        {!awaitingVerification && <CardDescription>Sign up with name and email</CardDescription>}
       </CardHeader>
       <CardContent className='space-y-2'>
         {awaitingVerification ? (
           <div className='text-muted-foreground'>
-            Verification email sent. Please complete verification, then come back and refresh.
+            Verification email sent. Please check your inbox to complete your signup.
           </div>
         ) : (
           <>

@@ -88,3 +88,31 @@
 .icon-gradient {
   fill: url(#svg-gradient) #16a34a;
 }
+
+.simple-keyboard.wt-keyboard {
+  background-color: hsl(var(--background));
+}
+
+.simple-keyboard.wt-keyboard .hg-button {
+  height: 50px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+  border-bottom-color: hsl(var(--background));
+  font-weight: 500;
+}
+
+.simple-keyboard.wt-keyboard .hg-button:active {
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+.simple-keyboard.wt-keyboard .hg-activeButton {
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+.simple-keyboard.wt-keyboard .hg-button-backspace {
+  font-size: larger;
+  line-height: normal;
+}
