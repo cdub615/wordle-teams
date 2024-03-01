@@ -1,9 +1,18 @@
 import { isSameMonth, isWeekend } from 'date-fns'
-import { Database } from './database.types'
-export type players = Database['public']['Tables']['players']['Row']
-export type daily_scores = Database['public']['Tables']['daily_scores']['Row']
-export type teams = Database['public']['Tables']['teams']['Row']
-export type profiles = Database['public']['Tables']['profiles']['Row']
+import { Tables } from './database.types'
+export type players = Tables<'players'>
+export type daily_scores = Tables<'daily_scores'>
+export type teams = Tables<'teams'>
+export type profiles = Tables<'profiles'>
+
+export type player_with_scores = players & {
+  daily_scores: daily_scores[]
+}
+
+export type team_with_players = teams & {
+  players: player_with_scores[]
+}
+
 
 export type User = {
   firstName: string
@@ -154,7 +163,7 @@ export class Team {
     if (players) this._players = players
   }
 
-  public fromDbTeam(team: teams, dbPlayers?: any[]) {
+  public fromDbTeam(team: teams, dbPlayers?: player_with_scores[]) {
     const {
       id,
       name,

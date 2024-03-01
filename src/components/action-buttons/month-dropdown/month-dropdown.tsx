@@ -21,9 +21,10 @@ type MonthDropdownProps = {
 
 export default async function MonthDropdown({ initials, teamId, month }: MonthDropdownProps) {
   // TODO limit to just past 2 months unless user is a subscriber
+  // make client component that handles earliest score for team
   const supabase = createClient(cookies())
   const { data: earliestScore } = await supabase.rpc('earliest_score_for_team', { teamid: teamId })
-  const earliest = earliestScore ?? new Date().toISOString()
+  const earliest = earliestScore ?? new Date().toISOString() // this needs to be done client side for time zone
   const selectedMonth = monthAsDate(month)
   const monthOptions = getMonthsFromEarliestScore(earliest)
 

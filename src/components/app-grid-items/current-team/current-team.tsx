@@ -38,7 +38,8 @@ const getCurrentTeam = async (teamId: number): Promise<CurrentTeamData> => {
   }
 }
 
-export default async function CurrentTeam({ initials, teamId }: { initials: string; teamId: number }) {
+export default async function CurrentTeam({initials, teamId}: {initials: string; teamId: number}) {
+  // TODO read this data from context
   const { userId, team, players, canInvite } = await getCurrentTeam(teamId)
   const playerIds = players.map((p) => p.id)
 

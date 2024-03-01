@@ -16,7 +16,7 @@ type ActionButtonProps = {
 
 export default async function ActionButtons({ initials, teamId, month, classes }: ActionButtonProps) {
   return (
-    <div className={cn('flex items-center space-x-2 @md:space-x-4', classes)}>
+    <div className={cn('flex items-center space-x-2 md:space-x-4', classes)}>
       <MonthDropdown initials={initials} teamId={teamId} month={month} />
       <TeamsDropdown initials={initials} teamId={teamId} month={month} />
       <div className='flex-grow'>

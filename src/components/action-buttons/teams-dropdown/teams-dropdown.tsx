@@ -1,22 +1,19 @@
+'use client'
+
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { createClient } from '@/lib/supabase/server'
+import { useTeams } from '@/lib/contexts/teams-context'
 import { ChevronDown } from 'lucide-react'
-import { cookies } from 'next/headers'
-import TeamsDropdownRadioGroup from './teams-dropdown-radio-group'
-
-const getTeams = async () => {
-  const supabase = createClient(cookies())
-  const { data: teams } = await supabase.from('teams').select('*')
-  if (!teams) throw new Error('No teams found')
-  return teams
-}
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 type TeamsDropdownProps = {
   initials: string
@@ -24,9 +21,18 @@ type TeamsDropdownProps = {
   month: string
 }
 
-export default async function TeamsDropdown({ initials, teamId, month }: TeamsDropdownProps) {
-  const teams = await getTeams()
+export default function TeamsDropdown({ initials, teamId, month }: TeamsDropdownProps) {
+  const router = useRouter()
+  const [value, setValue] = useState(`${teamId}`)
+  const [teams] = useTeams()
   const selectedTeam = teams.find((t) => t.id === teamId)
+
+  useEffect(() => {
+    const updateTeam = async (id: number) => {
+      router.push(`/${initials}/${id}/${month}`)
+    }
+    updateTeam(Number.parseInt(value))
+  }, [value])
 
   if (teams)
     return (
@@ -39,7 +45,13 @@ export default async function TeamsDropdown({ initials, teamId, month }: TeamsDr
         <DropdownMenuContent align='end'>
           <DropdownMenuLabel>Change Team</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <TeamsDropdownRadioGroup initials={initials} teamId={teamId} teams={teams} month={month} />
+          <DropdownMenuRadioGroup value={value} onValueChange={setValue}>
+            {teams.map((option) => (
+              <DropdownMenuRadioItem key={option.id} value={`${option.id}`}>
+                {option.name}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
     )

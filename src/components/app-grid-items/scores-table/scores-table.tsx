@@ -30,6 +30,8 @@ const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string
   const [columns, setColumns] = useState<ColumnDef<MonthScoresRow>[]>([])
   const [data, setData] = useState<MonthScoresRow[]>([])
 
+  // TODO rethink data loading strategy for user teams, team players, and scores
+  // read from context
   useEffect(() => {
     const getTeams = async () => {
       setLoading(true)
@@ -87,7 +89,7 @@ const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string
 
   return table.getRowModel().rows?.length ? (
     <div className={classes}>
-      <div className='rounded-md border text-xs max-w-[96vw] @md:text-base'>
+      <div className='rounded-md border text-xs max-w-[96vw] md:text-base'>
         <Table className={cn('relative', loading ? 'animate-pulse' : '')}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

@@ -1,29 +1,10 @@
+'use client'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { createClient } from '@/lib/supabase/server'
-import { Team, players, teams } from '@/lib/types'
-import { playerIdsFromTeams } from '@/lib/utils'
-import { cookies } from 'next/headers'
+import { useTeams } from '@/lib/contexts/teams-context'
 
-type MyTeamsData = {
-  teams: teams[]
-  players: players[]
-}
-
-const getMyTeams = async (): Promise<MyTeamsData> => {
-  const supabase = createClient(cookies())
-  const { data: teams } = await supabase.from('teams').select('*')
-  const playerIds = playerIdsFromTeams(teams ?? [])
-  const { data: players } = await supabase.from('players').select('*').in('id', playerIds)
-  return { teams: teams ?? [], players: players ?? [] }
-}
-
-export default async function MyTeams() {
-  const { teams: dbTeams, players } = await getMyTeams()
-
-  const teams = dbTeams.map((t) => {
-    const teamPlayers = players.filter((p) => t.player_ids.includes(p.id))
-    return Team.prototype.fromDbTeam(t, teamPlayers)
-  })
+export default function MyTeams() {
+  const [teams] = useTeams()
   return (
     <Card className='h-fit'>
       <CardHeader>

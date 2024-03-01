@@ -86,9 +86,9 @@ export const getUserInitials = (user: User) => {
 
 export const validParams = (initials: string, teamId: string, month: string): boolean => {
   if (initials.length !== 2) return false
-  if (Number.isNaN(Number.parseInt(teamId))) return false
+  if (teamId === 'first' || Number.isNaN(Number.parseInt(teamId))) return false
   try {
-    monthAsDate(month)
+    if (month !== 'current') monthAsDate(month)
   } catch {
     return false
   }

@@ -5,6 +5,7 @@ import { Team, defaultSystem } from '@/lib/types'
 import { cookies } from 'next/headers'
 
 const getScoringSystem = async (teamId: number): Promise<number[][]> => {
+  // TODO read team from context
   const supabase = createClient(cookies())
   const { data: team } = await supabase.from('teams').select('*').eq('id', teamId).single()
   if (team) return Team.prototype.fromDbTeam(team).scoringSystem

@@ -64,7 +64,7 @@ const getColumns = (month: Date, playWeekends: boolean) => {
     const day = new Date(month.getFullYear(), month.getMonth(), dayNum)
     return {
       accessorKey: `day${dayNum}`,
-      header: () => <div className='text-xs @md:text-sm'>{format(day, 'EE do')}</div>,
+      header: () => <div className='text-xs md:text-sm'>{format(day, 'EE do')}</div>,
       cell: ({ row }) =>
         isWeekend(day) && !playWeekends ? (
           <div className='text-muted-foreground text-xs'>N/A</div>
@@ -77,7 +77,7 @@ const getColumns = (month: Date, playWeekends: boolean) => {
   const columns: ColumnDef<MonthScoresRow>[] = [
     {
       accessorKey: 'playerName',
-      header: () => <div className='text-xs @md:text-sm'>Player</div>,
+      header: () => <div className='text-xs md:text-sm'>Player</div>,
       cell: ({ row }) => {
         const name = `${row.getValue('playerName')}`
         const first = name.split('____')[0]
@@ -85,8 +85,8 @@ const getColumns = (month: Date, playWeekends: boolean) => {
         const initials = `${first[0]}${last[0]}`
         return (
           <>
-            <div className='invisible h-0 w-0 @md:visible @md:h-fit @md:w-fit'>{first}</div>
-            <div className='text-xs @md:text-sm @md:invisible @md:h-0 @md:w-0'>{initials}</div>
+            <div className='invisible h-0 w-0 md:visible md:h-fit md:w-fit'>{first}</div>
+            <div className='text-xs md:text-sm md:invisible md:h-0 md:w-0'>{initials}</div>
           </>
         )
       },
@@ -97,10 +97,10 @@ const getColumns = (month: Date, playWeekends: boolean) => {
       header: () => {
         return (
           <>
-            <div className='font-bold text-right invisible h-0 w-0 @md:visible @md:h-fit @md:w-fit'>
+            <div className='font-bold text-right invisible h-0 w-0 md:visible md:h-fit md:w-fit'>
               Score
             </div>
-            <div className='font-bold text-right text-xs @md:invisible @md:h-0 @md:w-0'>Score</div>
+            <div className='font-bold text-right text-xs md:invisible md:h-0 md:w-0'>Score</div>
           </>
         )
       },
@@ -121,11 +121,11 @@ const getDayVisibility = (month: Date): VisibilityState => {
 }
 
 const playerNameHeaderClass =
-  'sticky left-0 px-2 @md:px-4 rounded-tl-lg bg-[rgb(255,255,255)] dark:bg-[rgb(13,10,10)]'
-const playerNameRowClass = 'sticky left-0 rounded-bl-lg bg-[rgb(255,255,255)] dark:bg-[rgb(13,10,10)]'
+  'sticky left-0 px-2 md:px-4 rounded-tl-lg bg-background'
+const playerNameRowClass = 'sticky left-0 rounded-bl-lg bg-background'
 const monthTotalHeaderClass =
-  'sticky right-0 px-2 @md:px-4 rounded-tr-lg bg-[rgb(255,255,255)] dark:bg-[rgb(13,10,10)]'
-const monthTotalRowClass = 'sticky right-0 rounded-br-lg bg-[rgb(255,255,255)] dark:bg-[rgb(13,10,10)]'
+  'sticky right-0 px-2 md:px-4 rounded-tr-lg bg-background'
+const monthTotalRowClass = 'sticky right-0 rounded-br-lg bg-background'
 
 const getHeaderClass = (id: string) => {
   if (id === 'playerName') return playerNameHeaderClass
