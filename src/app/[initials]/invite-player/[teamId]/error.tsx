@@ -1,4 +1,6 @@
-import AppBar from '@/components/app-bar'
+'use client'
+
+import AppBar from '@/components/app-bar/app-bar-base'
 
 export default function Error() {
   return (
