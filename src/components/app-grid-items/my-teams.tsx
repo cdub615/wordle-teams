@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTeams } from '@/lib/contexts/teams-context'
 
 export default function MyTeams() {
-  const [teams] = useTeams()
+  const { teams } = useTeams()
   return (
     <Card className='h-fit'>
       <CardHeader>

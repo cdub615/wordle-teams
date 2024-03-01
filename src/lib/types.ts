@@ -212,6 +212,13 @@ export class Team {
     return this._players
   }
 
+  public get earliestScore() {
+    return this._players
+      .map((p) => p.scores)
+      .flat()
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]
+  }
+
   public addPlayer(player: Player): Player[] {
     this._players.push(player)
     return this._players

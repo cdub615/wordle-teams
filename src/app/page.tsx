@@ -18,5 +18,5 @@ export default async function Home() {
   } else initials = initialsCookie.value
 
   if (!initials || initials.length === 0) redirect('/complete-profile')
-  else redirect(`/${initials}`)
+  else redirect(`/${initials}/first/current`)
 }

@@ -9,7 +9,7 @@ import { redirect } from 'next/navigation'
 export default async function Welcome() {
   const cookieStore = cookies()
   const initials = cookieStore.get('initials')
-  if (initials && initials.value.length > 0) redirect(`/${initials.value}`)
+  if (initials && initials.value.length > 0) redirect(`/${initials.value}/first/current`)
 
   return (
     <div className='flex flex-col w-full'>

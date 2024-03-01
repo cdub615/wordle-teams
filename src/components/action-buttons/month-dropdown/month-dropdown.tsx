@@ -1,3 +1,5 @@
+'use client'
+
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -6,26 +8,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { createClient } from '@/lib/supabase/server'
-import { getMonthsFromEarliestScore, monthAsDate } from '@/lib/utils'
+import { useTeams } from '@/lib/contexts/teams-context'
+import { getMonthsFromEarliestScore } from '@/lib/utils'
 import { format } from 'date-fns'
 import { ChevronDown } from 'lucide-react'
-import { cookies } from 'next/headers'
 import MonthDropdownRadioGroup from './month-dropdown-radio-group'
 
-type MonthDropdownProps = {
-  initials: string
-  teamId: number
-  month: string
-}
-
-export default async function MonthDropdown({ initials, teamId, month }: MonthDropdownProps) {
+export default function MonthDropdown({ initials }: { initials: string }) {
   // TODO limit to just past 2 months unless user is a subscriber
-  // make client component that handles earliest score for team
-  const supabase = createClient(cookies())
-  const { data: earliestScore } = await supabase.rpc('earliest_score_for_team', { teamid: teamId })
-  const earliest = earliestScore ?? new Date().toISOString() // this needs to be done client side for time zone
-  const selectedMonth = monthAsDate(month)
+  const { teams, teamId, selectedMonth } = useTeams()
+  const earliest = teams.find((t) => t.id === teamId)?.earliestScore?.date ?? new Date().toISOString()
   const monthOptions = getMonthsFromEarliestScore(earliest)
 
   return (

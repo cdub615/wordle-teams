@@ -1,7 +1,9 @@
-export default function Loading() {
+import AppBar from '@/components/app-bar/app-bar-base'
+
+export default function NotFound() {
   return (
-    <div className='flex justify-center items-center h-screen'>
-      <h1>Loading...</h1>
+    <div className='animate-pulse'>
+      <AppBar />
     </div>
   )
 }

@@ -15,43 +15,26 @@ import {
 } from '@tanstack/react-table'
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { createClient } from '@/lib/supabase/client'
-import { Team } from '@/lib/types'
-import { cn, monthAsDate } from '@/lib/utils'
+import { useTeams } from '@/lib/contexts/teams-context'
+import { cn } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 import { MonthScoresRow } from './scores-table-types'
 import SkeletonTable from './skeleton-table'
 import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } from './table-config'
 
-const ScoresTable = ({ teamId, month, classes }: { teamId: number; month: string; classes?: string }) => {
-  const [loading, setLoading] = useState(false)
-  const selectedMonth = monthAsDate(month)
-  const supabase = createClient()
+const ScoresTable = ({ classes }: { classes?: string }) => {
+  const [loading, setLoading] = useState(true)
+  const { teams, teamId, selectedMonth } = useTeams()
   const [columns, setColumns] = useState<ColumnDef<MonthScoresRow>[]>([])
   const [data, setData] = useState<MonthScoresRow[]>([])
 
-  // TODO rethink data loading strategy for user teams, team players, and scores
-  // read from context
   useEffect(() => {
-    const getTeams = async () => {
-      setLoading(true)
-      const { data: dbTeam } = await supabase.from('teams').select('*').eq('id', teamId).single()
-      const playerIds = dbTeam?.player_ids ?? []
-      const { data: players } = await supabase
-        .from('players')
-        .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
-        .in('id', playerIds)
-
-      if (dbTeam) {
-        const team = Team.prototype.fromDbTeam(dbTeam, players ?? undefined)
-
-        setColumns(getColumns(selectedMonth, team.playWeekends ?? false))
-        setData(getData(team, selectedMonth))
-      }
-      setLoading(false)
+    const team = teams?.find((t) => t.id === teamId)
+    if (team) {
+      setColumns(getColumns(selectedMonth, team.playWeekends ?? false))
+      setData(getData(team, selectedMonth))
     }
-
-    getTeams()
+    setLoading(false)
   }, [])
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])

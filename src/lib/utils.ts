@@ -84,17 +84,6 @@ export const getUserInitials = (user: User) => {
   return `${firstName}${lastName}`
 }
 
-export const validParams = (initials: string, teamId: string, month: string): boolean => {
-  if (initials.length !== 2) return false
-  if (teamId === 'first' || Number.isNaN(Number.parseInt(teamId))) return false
-  try {
-    if (month !== 'current') monthAsDate(month)
-  } catch {
-    return false
-  }
-  return true
-}
-
 export const setInitialsCookie = async (initials: string) =>
   await fetch(`https://${process.env.VERCEL_URL}/auth/set-initials`, {
     method: 'POST',

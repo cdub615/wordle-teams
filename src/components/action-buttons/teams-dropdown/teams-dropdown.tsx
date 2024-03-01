@@ -17,14 +17,13 @@ import { useEffect, useState } from 'react'
 
 type TeamsDropdownProps = {
   initials: string
-  teamId: number
   month: string
 }
 
-export default function TeamsDropdown({ initials, teamId, month }: TeamsDropdownProps) {
+export default function TeamsDropdown({ initials, month }: TeamsDropdownProps) {
   const router = useRouter()
+  const { teams, teamId } = useTeams()
   const [value, setValue] = useState(`${teamId}`)
-  const [teams] = useTeams()
   const selectedTeam = teams.find((t) => t.id === teamId)
 
   useEffect(() => {

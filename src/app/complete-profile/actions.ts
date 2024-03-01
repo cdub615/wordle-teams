@@ -31,5 +31,5 @@ export default async function updateProfile(formData: FormData) {
 
   cookieStore.set('initials', initials)
   revalidatePath('/[initials]', 'layout')
-  redirect(`/${initials}`)
+  redirect(`/${initials}/first/current`)
 }

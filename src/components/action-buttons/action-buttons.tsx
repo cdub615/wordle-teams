@@ -9,16 +9,15 @@ import WordleBoardLink from './wordle-board-link'
 
 type ActionButtonProps = {
   initials: string
-  teamId: number
   month: string
   classes?: string
 }
 
-export default async function ActionButtons({ initials, teamId, month, classes }: ActionButtonProps) {
+export default async function ActionButtons({ initials, month, classes }: ActionButtonProps) {
   return (
     <div className={cn('flex items-center space-x-2 md:space-x-4', classes)}>
-      <MonthDropdown initials={initials} teamId={teamId} month={month} />
-      <TeamsDropdown initials={initials} teamId={teamId} month={month} />
+      <MonthDropdown initials={initials} />
+      <TeamsDropdown initials={initials} month={month} />
       <div className='flex-grow'>
         <TooltipProvider>
           <Tooltip>
