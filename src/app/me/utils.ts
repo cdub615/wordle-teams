@@ -15,6 +15,7 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
   const supabase = createClient(cookieStore)
   const user = await getUser(supabase)
   if (!user) redirect('/login')
+  const isSubscriber = (user.app_metadata.is_subscriber as boolean) ?? false
 
   const { data: teams } = await supabase.from('teams').select('*').returns<teams[]>()
   const playerIds = teams?.flatMap((t) => t.player_ids) ?? []
@@ -30,5 +31,5 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
       return { ...t, players: teamPlayers } as team_with_players
     }) ?? []
 
-  return { userId: user.id, teams: teamsWithPlayers, isSubscriber: user.app_metadata.is_subscriber as boolean }
+  return { userId: user.id, teams: teamsWithPlayers, isSubscriber }
 }

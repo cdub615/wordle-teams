@@ -62,9 +62,6 @@ export async function GET(request: NextRequest) {
           redirectTo.pathname = '/error'
           return NextResponse.redirect(redirectTo)
         }
-      } else {
-        const initials = `${firstName[0]?.toLocaleLowerCase()}${lastName[0]?.toLocaleLowerCase()}`
-        cookieStore.set('initials', initials)
       }
       cookieStore.set('awaitingVerification', 'false')
       redirectTo.searchParams.delete('next')

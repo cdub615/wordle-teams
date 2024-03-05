@@ -20,5 +20,5 @@ export async function removePlayer(formData: FormData) {
     throw new Error('Failed to remove player from team')
   }
 
-  revalidatePath('/[initials]', 'page')
+  revalidatePath('/me', 'page')
 }

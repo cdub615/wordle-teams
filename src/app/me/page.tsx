@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 // TODO OG Images
 // TODO Lemon Squeezy
 export default async function Page() {
-  const { userId, teams, isSubscriber } = await getTeams()
+  const {userId, teams, isSubscriber} = await getTeams()
   if (!teams || teams.length === 0)
     return (
       <TeamsProvider initialTeams={teams} isSubscriber={isSubscriber}>

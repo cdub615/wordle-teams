@@ -2,9 +2,9 @@ import ModeToggle from '@/components/mode-toggle'
 import SubmitButton from '@/components/submit-button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
+import logout from './actions'
 import { User } from '@/lib/types'
 import { LogOut } from 'lucide-react'
-import logout from './actions'
 
 type AppBarBaseProps = {
   user?: User

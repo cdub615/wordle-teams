@@ -1,6 +1,5 @@
 'use client'
 
-import InvitePlayer from './invite-player'
 import SubmitButton from '@/components/submit-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,13 +8,19 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { Trash2, UserPlus2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { removePlayer } from './actions'
+import InvitePlayer from './invite-player'
 
 export default function CurrentTeamClient({ userId }: { userId: string }) {
   const { teams, teamId } = useTeams()
-  const team = teams.find((t) => t.id === teamId)
+  const [team, setTeam] = useState(teams.find((t) => t.id === teamId))
   const canInvite = team?.creator === userId
   const playerIds = team?.players.map((p) => p.id)
+
+  useEffect(() => {
+    setTeam(teams.find((t) => t.id === teamId))
+  }, [teamId, teams])
 
   return (
     <Card className='h-fit'>

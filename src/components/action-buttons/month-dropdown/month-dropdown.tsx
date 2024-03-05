@@ -10,23 +10,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { getMonthsFromScoreDate } from '@/lib/utils'
-import { differenceInMonths, format, formatISO, parseISO, subMonths } from 'date-fns'
+import { format, formatISO, parseISO, subMonths } from 'date-fns'
 import { ChevronDown } from 'lucide-react'
+import { getScrollAreaHeight } from './utils'
 
 export default function MonthDropdown() {
   const { teams, teamId, month, setMonth, subscriber } = useTeams()
-  let startingMonth = subMonths(new Date(), 2)
+  let startingMonth = subMonths(new Date(), 1)
 
-  if (subscriber) {
+  if (subscriber || true) {
     const earliest = teams.find((t) => t.id === teamId)?.earliestScore?.date ?? new Date().toISOString()
-    const earliestScoreDate = new Date(earliest)
-    differenceInMonths(earliestScoreDate, new Date()) > 2
-    startingMonth = earliestScoreDate
+    let earliestScoreDate = new Date(earliest)
+    if (earliestScoreDate < startingMonth) startingMonth = earliestScoreDate
   }
 
   const monthOptions = getMonthsFromScoreDate(startingMonth)
+  const scrollAreaHeight = getScrollAreaHeight(monthOptions.length)
   const handleMonthChange = (m: string) => setMonth(parseISO(m))
 
   return (
@@ -36,16 +38,19 @@ export default function MonthDropdown() {
           {format(month, 'MMM yyyy')} <ChevronDown className='ml-1 md:ml-2 h-4 w-4' />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='end'>
+      <DropdownMenuContent>
         <DropdownMenuLabel>Change Month</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup value={formatISO(month)} onValueChange={handleMonthChange}>
-          {monthOptions.map((option) => (
-            <DropdownMenuRadioItem key={formatISO(option)} value={formatISO(option)}>
-              {format(option, 'MMM yyyy')}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        <ScrollArea className={scrollAreaHeight}>
+          <DropdownMenuRadioGroup value={formatISO(month)} onValueChange={handleMonthChange}>
+            {monthOptions.map((option) => (
+              <DropdownMenuRadioItem key={formatISO(option)} value={formatISO(option)}>
+                {format(option, 'MMM yyyy')}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+          <ScrollBar orientation='vertical' />
+        </ScrollArea>
       </DropdownMenuContent>
     </DropdownMenu>
   )
