@@ -24,15 +24,15 @@ import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } fr
 
 const ScoresTable = ({ classes }: { classes?: string }) => {
   const [loading, setLoading] = useState(true)
-  const { teams, teamId, selectedMonth } = useTeams()
+  const { teams, teamId, month } = useTeams()
   const [columns, setColumns] = useState<ColumnDef<MonthScoresRow>[]>([])
   const [data, setData] = useState<MonthScoresRow[]>([])
 
   useEffect(() => {
     const team = teams?.find((t) => t.id === teamId)
     if (team) {
-      setColumns(getColumns(selectedMonth, team.playWeekends ?? false))
-      setData(getData(team, selectedMonth))
+      setColumns(getColumns(month, team.playWeekends ?? false))
+      setData(getData(team, month))
     }
     setLoading(false)
   }, [])
@@ -40,7 +40,7 @@ const ScoresTable = ({ classes }: { classes?: string }) => {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({})
   const [rowSelection, setRowSelection] = useState({})
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(getDayVisibility(selectedMonth))
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(getDayVisibility(month))
 
   const table = useReactTable({
     data,

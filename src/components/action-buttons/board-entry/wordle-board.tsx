@@ -13,7 +13,6 @@ type WordleBoardProps = {
   answer: string
   setAnswer: Dispatch<SetStateAction<string>>
   tabIndex?: number
-  cancel: (e: any) => void
   submitting: boolean
   submitDisabled: boolean
 }
@@ -24,7 +23,6 @@ export default function WordleBoard({
   answer,
   setAnswer,
   tabIndex,
-  cancel,
   submitting,
   submitDisabled,
 }: WordleBoardProps) {
@@ -39,7 +37,7 @@ export default function WordleBoard({
     <>
       <div
         onKeyDown={handleBoardKeyDown}
-        className='flex w-full h-fit justify-center mt-2 md:my-6 rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
+        className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
         role='region'
         aria-label='Wordle Board'
         tabIndex={tabIndex}
@@ -59,9 +57,6 @@ export default function WordleBoard({
         </div>
       </div>
       <div className='flex justify-end space-x-4 mt-2 md:mt-4 invisible h-0 md:visible md:h-fit'>
-        <Button id='board-cancel' onClick={cancel} variant={'secondary'} type='button' tabIndex={4}>
-          Cancel
-        </Button>
         <Button
           disabled={submitting || submitDisabled}
           aria-disabled={submitting || submitDisabled}

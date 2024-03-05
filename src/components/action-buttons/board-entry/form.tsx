@@ -1,27 +1,25 @@
 'use client'
 
+import { upsertBoard } from '@/app/me/actions'
 import DatePicker from '@/components/date-picker'
+import { Button } from '@/components/ui/button'
+import { DrawerClose, DrawerFooter } from '@/components/ui/drawer'
 import { Label } from '@/components/ui/label'
-import { daily_scores } from '@/lib/types'
+import { useTeams } from '@/lib/contexts/teams-context'
 import { cn, padArray } from '@/lib/utils'
-import { format, isSameDay, parseISO } from 'date-fns'
-import { useRouter } from 'next/navigation'
+import { isSameDay, parseISO } from 'date-fns'
+import { Loader2 } from 'lucide-react'
 import { FormEventHandler, KeyboardEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { upsertBoard } from './actions'
 import { boardIsValid, updateAnswer } from './utils'
 import WordleBoard from './wordle-board'
 
-type BoardProps = {
-  initials: string
-  scoreDate: string
-  scores: daily_scores[]
-}
+export default function WordleBoardForm({ userId }: { userId: string }) {
+  const { teams, teamId } = useTeams()
+  const scores = teams.find((t) => t.id === teamId)?.players.find((p) => p.id === userId)?.scores ?? []
 
-export default function WordleBoardForm({ initials, scoreDate, scores }: BoardProps) {
-  const date = parseISO(scoreDate)
+  const [date, setDate] = useState(new Date())
   const currentScore = scores.find((s) => isSameDay(date, parseISO(s.date)))
-  const router = useRouter()
   const [scoreId, setScoreId] = useState(-1)
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState(['', '', '', '', '', ''])
@@ -44,15 +42,6 @@ export default function WordleBoardForm({ initials, scoreDate, scores }: BoardPr
     }
   }, [answer, guesses])
 
-  const cancel = (e: any) => {
-    e.preventDefault()
-    router.push(`/${initials}`)
-  }
-
-  const setDate = (newDate: Date | undefined) => {
-    if (newDate) router.push(`/${initials}/scores/${format(newDate!, 'yyyyMMdd')}`)
-  }
-
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
     setSubmitting(true)
     e.preventDefault()
@@ -60,18 +49,21 @@ export default function WordleBoardForm({ initials, scoreDate, scores }: BoardPr
     const result = await upsertBoard(formData)
     if (result.success) {
       toast.success(result.message)
-      router.push(`/${initials}`)
     } else {
       toast.error(result.message)
     }
     setSubmitting(false)
+
+    document.getElementById('close-board-entry')?.click()
   }
 
   const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => updateAnswer(e.key, answer, setAnswer)
+  const handleDateChange = (newDate: Date | undefined) => {
+    if (newDate) setDate(newDate)
+  }
 
   return (
     <form onSubmit={handleSubmit} className={cn(submitting ? 'animate-pulse' : '')}>
-      <input hidden readOnly aria-readonly name='initials' value={initials} />
       <input hidden readOnly aria-readonly name='scoreId' value={scoreId} />
       <input hidden readOnly aria-readonly name='scoreDate' value={date.toISOString()} />
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
@@ -79,7 +71,7 @@ export default function WordleBoardForm({ initials, scoreDate, scores }: BoardPr
       <div className='flex flex-col space-y-4 md:space-y-0 md:flex-row md:space-x-4 w-full px-4'>
         <div className='flex flex-col space-y-2 w-full'>
           <Label htmlFor='date'>Wordle Date</Label>
-          <DatePicker date={date} setDate={setDate} noDateText='Pick a date' tabIndex={1} />
+          <DatePicker date={date} setDate={handleDateChange} noDateText='Pick a date' tabIndex={1} />
         </div>
         <div className='flex flex-col space-y-2 w-full'>
           <Label htmlFor='answer'>Wordle Answer</Label>
@@ -96,7 +88,10 @@ export default function WordleBoardForm({ initials, scoreDate, scores }: BoardPr
               id='clearButton'
               type='reset'
               onClick={() => setAnswer('')}
-              className={cn('absolute right-0 top-0 mr-2 mt-2 text-gray-500 hover:text-gray-700 focus:outline-none', answer.length === 0 ? 'hidden' : '')}
+              className={cn(
+                'absolute right-0 top-0 mr-2 mt-2 text-gray-500 hover:text-gray-700 focus:outline-none',
+                answer.length === 0 ? 'hidden' : ''
+              )}
             >
               <svg xmlns='http://www.w3.org/2000/svg' className='h-5 w-5' viewBox='0 0 20 20' fill='currentColor'>
                 <path
@@ -114,10 +109,23 @@ export default function WordleBoardForm({ initials, scoreDate, scores }: BoardPr
         answer={answer}
         setAnswer={setAnswer}
         tabIndex={3}
-        cancel={cancel}
         submitting={submitting}
         submitDisabled={submitDisabled}
       />
+      <DrawerFooter className='pt-2 flex flex-row w-full md:invisible md:h-0'>
+        <DrawerClose asChild>
+          <Button variant='outline' className='w-full' id='close-board-entry'>Cancel</Button>
+        </DrawerClose>
+        <Button
+          disabled={submitting || submitDisabled}
+          aria-disabled={submitting || submitDisabled}
+          type='submit'
+          className='w-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-transparent'
+        >
+          {submitting && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+          Submit
+        </Button>
+      </DrawerFooter>
     </form>
   )
 }

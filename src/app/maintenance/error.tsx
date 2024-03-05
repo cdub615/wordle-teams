@@ -1,20 +1,7 @@
 'use client'
 
-import AppBar from '@/components/app-bar/app-bar-base'
+import ErrorMessage from '@/components/error-message'
 
-export default function Error() {
-  return (
-    <>
-      <AppBar />
-      <div className='flex w-full justify-center'>
-        <div className='flex flex-col max-w-lg items-center text-center pt-10 space-y-4'>
-          <p className='text-xl'>Ruh roh, something went wrong!</p>
-          <p className='text-muted-foreground'>
-            Please try again. We are monitoring recurring issues so if your issue persists, we hope to have it
-            resolved soon.
-          </p>
-        </div>
-      </div>
-    </>
-  )
+export default function Error({ error, reset }: any) {
+  return <ErrorMessage error={error} reset={reset} />
 }

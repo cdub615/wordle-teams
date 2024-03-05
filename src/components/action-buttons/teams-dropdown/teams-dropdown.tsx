@@ -1,9 +1,12 @@
 'use client'
 
+import CreateTeam from './create-team'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogTrigger } from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -11,47 +14,44 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useTeams } from '@/lib/contexts/teams-context'
-import { ChevronDown } from 'lucide-react'
-import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { ChevronDown, Plus } from 'lucide-react'
 
-type TeamsDropdownProps = {
-  initials: string
-  month: string
-}
-
-export default function TeamsDropdown({ initials, month }: TeamsDropdownProps) {
-  const router = useRouter()
-  const { teams, teamId } = useTeams()
-  const [value, setValue] = useState(`${teamId}`)
+export default function TeamsDropdown() {
+  const { teams, teamId, setTeamId } = useTeams()
   const selectedTeam = teams.find((t) => t.id === teamId)
-
-  useEffect(() => {
-    const updateTeam = async (id: number) => {
-      router.push(`/${initials}/${id}/${month}`)
-    }
-    updateTeam(Number.parseInt(value))
-  }, [value])
+  const handleTeamChange = (t: string) => setTeamId(Number.parseInt(t))
 
   if (teams)
     return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant='outline'>
-            {selectedTeam?.name} <ChevronDown className='ml-2 h-4 w-4' />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align='end'>
-          <DropdownMenuLabel>Change Team</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuRadioGroup value={value} onValueChange={setValue}>
-            {teams.map((option) => (
-              <DropdownMenuRadioItem key={option.id} value={`${option.id}`}>
-                {option.name}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <Dialog>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant='outline' className='text-xs px-2 md:text-sm md:px-4'>
+              {selectedTeam?.name} <ChevronDown className='ml-1 md:ml-2 h-4 w-4' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end'>
+            <DropdownMenuLabel>Change Team</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuRadioGroup value={`${teamId}`} onValueChange={handleTeamChange}>
+              {teams.map((option) => (
+                <DropdownMenuRadioItem key={option.id} value={`${option.id}`}>
+                  {option.name}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DialogTrigger className='w-full'>
+              <DropdownMenuItem>
+                <div className='flex items-center w-full space-x-2'>
+                  <Plus size={18} />
+                  <span>New Team</span>
+                </div>
+              </DropdownMenuItem>
+            </DialogTrigger>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <CreateTeam />
+      </Dialog>
     )
 }

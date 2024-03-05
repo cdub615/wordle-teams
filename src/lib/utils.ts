@@ -15,14 +15,13 @@ export const passwordRegex = `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*.?#^)(-_
 
 export const logsnagClient = () => new LogSnag({ token: process.env.LOGSNAG_TOKEN!, project: 'wordle-teams' })
 
-export const getMonthsFromEarliestScore = (earliest: string): Date[] => {
-  const adjustedStartMonth = addMinutes(new Date(earliest), new Date(earliest).getTimezoneOffset())
-  const monthsToCurrent = differenceInMonths(new Date(), adjustedStartMonth)
-  let monthOption = startOfMonth(adjustedStartMonth)
-  let options: Date[] = []
+export const getMonthsFromScoreDate = (scoreDate: Date): Date[] => {
+  const monthsToCurrent = differenceInMonths(new Date(), scoreDate)
+  let monthOption = startOfMonth(scoreDate)
+  let options: Date[] = [monthOption]
   for (let i = 0; i <= monthsToCurrent; i++) {
-    options.push(monthOption)
     monthOption = startOfMonth(addMonths(monthOption, 1))
+    options.push(monthOption)
   }
   return options
 }

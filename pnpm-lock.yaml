@@ -173,6 +173,9 @@ dependencies:
   uuid:
     specifier: ^9.0.0
     version: 9.0.0
+  vaul:
+    specifier: ^0.9.0
+    version: 0.9.0(@types/react-dom@18.2.19)(@types/react@18.2.18)(react-dom@18.3.0-canary-98b8359f6-20240223)(react@18.3.0-canary-98b8359f6-20240223)
   zod:
     specifier: ^3.21.4
     version: 3.21.4
@@ -5212,6 +5215,20 @@ packages:
   /uuid@9.0.0:
     resolution: {integrity: sha512-MXcSTerfPa4uqyzStbRoTgt5XIe3x5+42+q1sDuy3R5MDk66URdLMOZe5aPX/SQd+kuYAh0FdP/pO28IkQyTeg==}
     hasBin: true
+    dev: false
+
+  /vaul@0.9.0(@types/react-dom@18.2.19)(@types/react@18.2.18)(react-dom@18.3.0-canary-98b8359f6-20240223)(react@18.3.0-canary-98b8359f6-20240223):
+    resolution: {integrity: sha512-bZSySGbAHiTXmZychprnX/dE0EsSige88xtyyL3/MCRbrFotRPQZo7UdydGXZWw+CKbNOw5Ow8gwAo93/nB/Cg==}
+    peerDependencies:
+      react: ^16.8 || ^17.0 || ^18.0
+      react-dom: ^16.8 || ^17.0 || ^18.0
+    dependencies:
+      '@radix-ui/react-dialog': 1.0.4(@types/react-dom@18.2.19)(@types/react@18.2.18)(react-dom@18.3.0-canary-98b8359f6-20240223)(react@18.3.0-canary-98b8359f6-20240223)
+      react: 18.3.0-canary-98b8359f6-20240223
+      react-dom: 18.3.0-canary-98b8359f6-20240223(react@18.3.0-canary-98b8359f6-20240223)
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
     dev: false
 
   /webidl-conversions@3.0.1:
