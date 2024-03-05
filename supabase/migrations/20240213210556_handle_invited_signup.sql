@@ -1,5 +1,3 @@
-drop function handle_invited_signup;
-
 create or replace function handle_invited_signup (invited_email text, invited_id uuid) returns void as $$
 BEGIN
     UPDATE public.teams
