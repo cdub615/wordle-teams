@@ -25,7 +25,7 @@ export default function InvitePlayer() {
     <DialogContent>
       <DialogHeader>
         <DialogTitle>Invite Player to {team.name}</DialogTitle>
-        <DialogDescription>Enter player's email address</DialogDescription>
+        <DialogDescription>Enter player&apos;s email address</DialogDescription>
       </DialogHeader>
       <form onSubmit={handleSubmit} className='w-full space-y-6'>
         <Input type='email' name='email' required />
