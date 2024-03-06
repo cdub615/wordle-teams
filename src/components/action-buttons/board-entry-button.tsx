@@ -11,6 +11,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { Plus } from 'lucide-react'
@@ -53,7 +54,9 @@ export function BoardEntryButton({ userId }: { userId: string }) {
         </Button>
       </DrawerTrigger>
       <DrawerContent onPointerDown={(e) => e.stopPropagation()}>
-        <WordleBoardForm userId={userId} />
+        <ScrollArea className='h-[95vh]'>
+          <WordleBoardForm userId={userId} />
+        </ScrollArea>
       </DrawerContent>
     </Drawer>
   )
