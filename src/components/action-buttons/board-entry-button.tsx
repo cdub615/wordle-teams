@@ -53,7 +53,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
           <Plus size={20} className='ml-2' />
         </Button>
       </DrawerTrigger>
-      <DrawerContent onPointerDown={(e) => e.stopPropagation()}>
+      <DrawerContent>
         <ScrollArea className='h-[95vh]'>
           <WordleBoardForm userId={userId} />
         </ScrollArea>
