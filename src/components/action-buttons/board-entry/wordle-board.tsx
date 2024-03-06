@@ -37,7 +37,7 @@ export default function WordleBoard({
     <>
       <div
         onKeyDown={handleBoardKeyDown}
-        className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
+        className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg md:focus:outline-none md:focus:ring-2 md:focus:ring-ring md:focus:ring-offset-4 md:focus:ring-offset-background md:focus-visible:outline-none md:focus-visible:ring-2 md:focus-visible:ring-ring md:focus-visible:ring-offset-4 md:focus-visible:ring-offset-background'
         role='region'
         aria-label='Wordle Board'
         tabIndex={tabIndex}

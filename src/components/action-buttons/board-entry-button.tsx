@@ -26,7 +26,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button>
+          <Button variant={'secondary'}>
             Board Entry
             <Plus size={20} className='ml-2' />
           </Button>
@@ -48,7 +48,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>
-        <Button className='text-xs px-2'>
+        <Button className='text-xs px-2' variant={'secondary'}>
           Board Entry
           <Plus size={20} className='ml-2' />
         </Button>

@@ -8,16 +8,19 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { Matcher } from 'react-day-picker'
+import {Dispatch, SetStateAction} from 'react'
 
 type DatePickerProps = {
   date: Date | undefined
-  setDate: (newDate: Date | undefined) => void
+  setDate: Dispatch<SetStateAction<Date | undefined>>
   noDateText: string
   tabIndex: number | undefined
+  playWeekends: boolean
 }
 
-export default function DatePicker({ date, setDate, noDateText, tabIndex }: DatePickerProps) {
-  const disabledDays: Matcher = { after: new Date() }
+export default function DatePicker({ date, setDate, noDateText, tabIndex, playWeekends }: DatePickerProps) {
+  const disabledDays: Matcher[] = [{ after: new Date() }]
+  if (!playWeekends) disabledDays.push({ dayOfWeek: [0, 6] })
   return (
     <Popover>
       <PopoverTrigger asChild>

@@ -15,11 +15,12 @@ import { boardIsValid, updateAnswer } from './utils'
 import WordleBoard from './wordle-board'
 
 export default function WordleBoardForm({ userId }: { userId: string }) {
-  const { teams, teamId } = useTeams()
-  const scores = teams.find((t) => t.id === teamId)?.players.find((p) => p.id === userId)?.scores ?? []
+  const {teams, teamId} = useTeams()
+  const [team, setTeam] = useState(teams.find((t) => t.id === teamId)!)
+  const scores = team.players.find((p) => p.id === userId)?.scores ?? []
 
-  const [date, setDate] = useState(new Date())
-  const [currentScore, setCurrentScore] = useState(scores.find((s) => isSameDay(date, parseISO(s.date))))
+  const [date, setDate] = useState<Date | undefined>(new Date())
+  const [currentScore, setCurrentScore] = useState(scores.find((s) => isSameDay(date!, parseISO(s.date))))
   const [scoreId, setScoreId] = useState(-1)
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState(['', '', '', '', '', ''])
@@ -27,6 +28,10 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   const [submitting, setSubmitting] = useState(false)
 
   // TODO can scrape current days wordle answer from https://www.nytimes.com/2023/10/23/crosswords/wordle-review.html
+
+  useEffect(() => {
+    setTeam(teams.find((t) => t.id === teamId)!)
+  }, [teamId])
 
   useEffect(() => {
     if (currentScore) {
@@ -37,7 +42,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   }, [currentScore])
 
   useEffect(() => {
-    const score = scores.find((s) => isSameDay(date, parseISO(s.date)))
+    const score = scores.find((s) => isSameDay(date!, parseISO(s.date)))
     if (score) {
       setCurrentScore(score)
       setAnswer(score.answer ?? '')
@@ -68,22 +73,19 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   }
 
   const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => updateAnswer(e.key, answer, setAnswer)
-  const handleDateChange = (newDate: Date | undefined) => {
-    if (newDate) setDate(newDate)
-  }
 
   return (
     <form onSubmit={handleSubmit} className={cn(submitting ? 'animate-pulse' : '')}>
       <input hidden readOnly aria-readonly name='scoreId' value={scoreId} />
-      <input hidden readOnly aria-readonly name='scoreDate' value={date.toISOString()} />
+      <input hidden readOnly aria-readonly name='scoreDate' value={date?.toISOString()} />
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
       <input hidden readOnly aria-readonly name='answer' value={answer} />
-      <div className='flex flex-col space-y-4 md:space-y-0 md:flex-row md:space-x-4 w-full px-4'>
+      <div className='flex items-center space-y-4 md:space-y-0 space-x-2 md:space-x-4 w-full px-4'>
         <div className='flex flex-col space-y-2 w-full'>
           <Label htmlFor='date'>Wordle Date</Label>
-          <DatePicker date={date} setDate={handleDateChange} noDateText='Pick a date' tabIndex={1} />
+          <DatePicker date={date} setDate={setDate} noDateText='Pick a date' tabIndex={1} playWeekends={team.playWeekends} />
         </div>
-        <div className='flex flex-col space-y-2 w-full'>
+        <div className='flex flex-col space-y-2 w-[10rem] md:w-full'>
           <Label htmlFor='answer'>Wordle Answer</Label>
           <div className='relative'>
             <div
