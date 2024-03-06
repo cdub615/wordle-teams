@@ -14,14 +14,16 @@ import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
 import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { Plus } from 'lucide-react'
+import { useState } from 'react'
 import WordleBoardForm from './board-entry/form'
 
 export function BoardEntryButton({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false)
   const isDesktop = useMediaQuery('(min-width: 768px)')
 
   if (isDesktop) {
     return (
-      <Dialog>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button>
             Board Entry
@@ -43,7 +45,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
   }
 
   return (
-    <Drawer>
+    <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>
         <Button className='text-xs px-2'>
           Board Entry
