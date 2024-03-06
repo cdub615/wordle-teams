@@ -56,6 +56,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
       <DrawerContent>
         <ScrollArea className='h-[95vh]'>
           <WordleBoardForm userId={userId} />
+          <div className='h-32'></div>
         </ScrollArea>
       </DrawerContent>
     </Drawer>
