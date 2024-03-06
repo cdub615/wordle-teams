@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { Matcher } from 'react-day-picker'
 
 type DatePickerProps = {
   date: Date | undefined
@@ -16,6 +17,7 @@ type DatePickerProps = {
 }
 
 export default function DatePicker({ date, setDate, noDateText, tabIndex }: DatePickerProps) {
+  const disabledDays: Matcher = { after: new Date() }
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -29,7 +31,15 @@ export default function DatePicker({ date, setDate, noDateText, tabIndex }: Date
         </Button>
       </PopoverTrigger>
       <PopoverContent className='w-auto p-0'>
-        <Calendar mode='single' selected={date} onSelect={setDate} initialFocus />
+        <Calendar
+          mode='single'
+          selected={date}
+          onSelect={setDate}
+          initialFocus
+          showOutsideDays
+          fixedWeeks
+          disabled={disabledDays}
+        />
       </PopoverContent>
     </Popover>
   )

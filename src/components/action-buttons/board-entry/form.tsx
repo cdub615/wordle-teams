@@ -19,7 +19,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   const scores = teams.find((t) => t.id === teamId)?.players.find((p) => p.id === userId)?.scores ?? []
 
   const [date, setDate] = useState(new Date())
-  const currentScore = scores.find((s) => isSameDay(date, parseISO(s.date)))
+  const [currentScore, setCurrentScore] = useState(scores.find((s) => isSameDay(date, parseISO(s.date))))
   const [scoreId, setScoreId] = useState(-1)
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState(['', '', '', '', '', ''])
@@ -35,6 +35,16 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       setScoreId(currentScore.id)
     }
   }, [currentScore])
+
+  useEffect(() => {
+    const score = scores.find((s) => isSameDay(date, parseISO(s.date)))
+    if (score) {
+      setCurrentScore(score)
+      setAnswer(score.answer ?? '')
+      setGuesses(padArray(score.guesses, 6))
+      setScoreId(score.id)
+    }
+  }, [date])
 
   useEffect(() => {
     if (answer && guesses) {
