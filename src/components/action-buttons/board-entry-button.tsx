@@ -16,6 +16,7 @@ import { DialogClose } from '@radix-ui/react-dialog'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import WordleBoardForm from './board-entry/form'
+import {Sheet, SheetContent, SheetTrigger} from '@/components/ui/sheet'
 
 export function BoardEntryButton({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false)
@@ -45,17 +46,17 @@ export function BoardEntryButton({ userId }: { userId: string }) {
   }
 
   return (
-    <Drawer open={open} onOpenChange={setOpen}>
-      <DrawerTrigger asChild>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
         <Button className='text-xs px-2' variant={'secondary'}>
           Board Entry
           <Plus size={20} className='ml-2' />
         </Button>
-      </DrawerTrigger>
-      <DrawerContent>
+      </SheetTrigger>
+      <SheetContent side={'top'}>
         <WordleBoardForm userId={userId} />
         <div className='h-32'></div>
-      </DrawerContent>
-    </Drawer>
+      </SheetContent>
+    </Sheet>
   )
 }
