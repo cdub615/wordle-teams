@@ -115,22 +115,6 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
         submitting={submitting}
         submitDisabled={submitDisabled}
       />
-      <DrawerFooter className='pt-2 flex flex-row w-full md:invisible md:h-0 md:p-0'>
-        <DrawerClose asChild>
-          <Button variant='outline' className='w-full' id='close-board-entry'>
-            Cancel
-          </Button>
-        </DrawerClose>
-        <Button
-          disabled={submitting || submitDisabled}
-          aria-disabled={submitting || submitDisabled}
-          type='submit'
-          className='w-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-transparent'
-        >
-          {submitting && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-          Submit
-        </Button>
-      </DrawerFooter>
     </form>
   )
 }
