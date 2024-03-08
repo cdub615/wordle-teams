@@ -40,22 +40,17 @@ export const handleKey = (
   guesses: string[],
   setGuesses: Dispatch<SetStateAction<string[]>>
 ) => {
-  if (answer.length === 5) {
-    const isBackspace = key === 'Backspace' || key === '{backspace}'
-    if (isBackspace) handleBackspace(guesses, setGuesses)
+  const isBackspace = key === 'Backspace' || key === '{backspace}'
+  if (isBackspace) handleBackspace(guesses, setGuesses)
 
-    const isEnter = key === 'Enter' || key === '{ent}'
-    if (isEnter) {
-      if (boardIsValid(answer, guesses)) document.getElementById('board-submit')?.click()
-      else toast.warning('Board must be complete to submit')
-    }
-
-    const isLetter = /[a-zA-Z]/.test(key) && key.length === 1
-    if (isLetter && !boardIsValid(answer, guesses) && guesses[5].length < 5)
-      handleLetter(key, answer, guesses, setGuesses)
-
-    if (key === '{back}') document.getElementById('board-cancel')?.click()
+  if (key === 'Enter') {
+    if (boardIsValid(answer, guesses)) document.getElementById('board-submit')?.click()
+    else toast.warning('Board must be complete to submit')
   }
+
+  const isLetter = /[a-zA-Z]/.test(key) && key.length === 1
+  if (isLetter && !boardIsValid(answer, guesses) && guesses[5].length < 5)
+    handleLetter(key, answer, guesses, setGuesses)
 }
 
 const hasValidAnswer = (answer: string) => answer.length === 5

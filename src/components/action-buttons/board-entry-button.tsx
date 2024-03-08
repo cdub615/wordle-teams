@@ -10,13 +10,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import WordleBoardForm from './board-entry/form'
-import {Sheet, SheetContent, SheetTrigger} from '@/components/ui/sheet'
 
 export function BoardEntryButton({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false)
@@ -55,7 +54,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
       </SheetTrigger>
       <SheetContent side={'top'}>
         <WordleBoardForm userId={userId} />
-        <div className='h-32'></div>
+        {/* <div className='h-32'></div> */}
       </SheetContent>
     </Sheet>
   )

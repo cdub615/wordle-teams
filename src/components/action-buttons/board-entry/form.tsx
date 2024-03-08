@@ -15,12 +15,11 @@ import { boardIsValid, updateAnswer } from './utils'
 import WordleBoard from './wordle-board'
 
 export default function WordleBoardForm({ userId }: { userId: string }) {
-  const {teams, teamId} = useTeams()
-  const [team, setTeam] = useState(teams.find((t) => t.id === teamId)!)
+  const { teams, teamId } = useTeams()
+  const team = teams.find((t) => t.id === teamId)!
   const scores = team.players.find((p) => p.id === userId)?.scores ?? []
 
   const [date, setDate] = useState<Date | undefined>(new Date())
-  const [currentScore, setCurrentScore] = useState(scores.find((s) => isSameDay(date!, parseISO(s.date))))
   const [scoreId, setScoreId] = useState(-1)
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState(['', '', '', '', '', ''])
@@ -30,25 +29,11 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   // TODO can scrape current days wordle answer from https://www.nytimes.com/2023/10/23/crosswords/wordle-review.html
 
   useEffect(() => {
-    setTeam(teams.find((t) => t.id === teamId)!)
-  }, [teamId])
-
-  useEffect(() => {
-    if (currentScore) {
-      setAnswer(currentScore.answer ?? '')
-      setGuesses(padArray(currentScore.guesses, 6))
-      setScoreId(currentScore.id)
-    }
-  }, [currentScore])
-
-  useEffect(() => {
     const score = scores.find((s) => isSameDay(date!, parseISO(s.date)))
-    if (score) {
-      setCurrentScore(score)
-      setAnswer(score.answer ?? '')
-      setGuesses(padArray(score.guesses, 6))
-      setScoreId(score.id)
-    }
+    const guesses = score?.guesses ?? []
+    setAnswer(score?.answer ?? '')
+    setGuesses(padArray(guesses, 6))
+    setScoreId(score?.id ?? -1)
   }, [date])
 
   useEffect(() => {
@@ -73,24 +58,30 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   }
 
   const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => updateAnswer(e.key, answer, setAnswer)
-
+  // TODO make the inputs just text once answer is set
   return (
     <form onSubmit={handleSubmit} className={cn(submitting ? 'animate-pulse' : '')}>
       <input hidden readOnly aria-readonly name='scoreId' value={scoreId} />
       <input hidden readOnly aria-readonly name='scoreDate' value={date?.toISOString()} />
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
       <input hidden readOnly aria-readonly name='answer' value={answer} />
-      <div className='flex items-center space-y-4 md:space-y-0 space-x-2 md:space-x-4 w-full px-4'>
-        <div className='flex flex-col space-y-2 w-full'>
+      <div className='flex items-center md:space-y-0 space-x-2 md:space-x-4 w-full md:px-4'>
+        <div className='flex flex-col space-y-2 w-[60%] md:w-full'>
           <Label htmlFor='date'>Wordle Date</Label>
-          <DatePicker date={date} setDate={setDate} noDateText='Pick a date' tabIndex={1} playWeekends={team.playWeekends} />
+          <DatePicker
+            date={date}
+            setDate={setDate}
+            noDateText='Pick a date'
+            tabIndex={1}
+            playWeekends={team.playWeekends}
+          />
         </div>
-        <div className='flex flex-col space-y-2 w-[10rem] md:w-full'>
+        <div className='flex flex-col space-y-2 w-[30%] md:w-full'>
           <Label htmlFor='answer'>Wordle Answer</Label>
           <div className='relative'>
             <div
               id='answer'
-              className='uppercase flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+              className='uppercase flex h-10 w-full rounded-md border border-input bg-background px-2 md:px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
               tabIndex={2}
               onKeyDown={handleKeyDown}
             >
@@ -124,9 +115,11 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
         submitting={submitting}
         submitDisabled={submitDisabled}
       />
-      <DrawerFooter className='pt-2 flex flex-row w-full md:invisible md:h-0'>
+      <DrawerFooter className='pt-2 flex flex-row w-full md:invisible md:h-0 md:p-0'>
         <DrawerClose asChild>
-          <Button variant='outline' className='w-full' id='close-board-entry'>Cancel</Button>
+          <Button variant='outline' className='w-full' id='close-board-entry'>
+            Cancel
+          </Button>
         </DrawerClose>
         <Button
           disabled={submitting || submitDisabled}

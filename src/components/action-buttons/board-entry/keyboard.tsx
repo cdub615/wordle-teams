@@ -9,7 +9,7 @@ interface KeyboardProps {
 
 export default function Keyboard({ onKeyPress, keyboardRef }: KeyboardProps) {
   return (
-    <div className='md:invisible md:h-0 pb-2'>
+    <div className='md:invisible md:h-0 pb-2 md:p-0'>
       <SimpleKeyboard
         theme={'hg-theme-default wt-keyboard'}
         keyboardRef={(r) => (keyboardRef.current = r)}
