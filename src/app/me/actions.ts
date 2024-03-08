@@ -4,7 +4,8 @@ import { createAdminClient, createClient } from '@/lib/supabase/actions'
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
+import {cookies} from 'next/headers'
+import type { daily_scores } from '@/lib/types'
 
 export async function createTeam(formData: FormData) {
   const supabase = createClient(cookies())
@@ -109,7 +110,7 @@ export async function upsertBoard(formData: FormData) {
   const guessesInput = formData.getAll('guesses') as string[]
   const guesses = guessesInput[0].split(',').filter((g) => g !== '')
 
-  let dailyScore
+  let dailyScore: daily_scores
   let message
 
   if (!!scoreId && scoreId !== '-1') {
@@ -118,6 +119,7 @@ export async function upsertBoard(formData: FormData) {
       .update({ answer, guesses })
       .eq('id', scoreId)
       .select('*')
+      .returns<daily_scores[]>()
       .single()
 
     if (error) {
@@ -131,6 +133,7 @@ export async function upsertBoard(formData: FormData) {
       .from('daily_scores')
       .insert({ answer, date: scoreDate, guesses, player_id: session.user.id })
       .select('*')
+      .returns<daily_scores[]>()
       .single()
 
     if (error) {
@@ -143,5 +146,5 @@ export async function upsertBoard(formData: FormData) {
 
   revalidatePath('/')
 
-  return { success: true, message }
+  return { success: true, message, dailyScore }
 }

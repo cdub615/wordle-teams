@@ -10,9 +10,10 @@ import { FormEventHandler, KeyboardEventHandler, useEffect, useState } from 'rea
 import { toast } from 'sonner'
 import { boardIsValid, updateAnswer } from './utils'
 import WordleBoard from './wordle-board'
+import {DailyScore, Team} from '@/lib/types'
 
 export default function WordleBoardForm({ userId }: { userId: string }) {
-  const { teams, teamId } = useTeams()
+  const { teams, teamId, setTeams } = useTeams()
   const team = teams.find((t) => t.id === teamId)!
   const scores = team.players.find((p) => p.id === userId)?.scores ?? []
 
@@ -45,6 +46,10 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
     const formData: FormData = new FormData(e.currentTarget)
     const result = await upsertBoard(formData)
     if (result.success) {
+      if (result.dailyScore) {
+        const newScore = DailyScore.prototype.fromDbDailyScore(result.dailyScore)
+        setTeams(Team.prototype.updatePlayerScore(teams, teamId, userId, newScore))
+      }
       toast.success(result.message)
     } else {
       toast.error(result.message)

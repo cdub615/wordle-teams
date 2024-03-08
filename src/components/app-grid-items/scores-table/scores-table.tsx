@@ -35,7 +35,7 @@ const ScoresTable = ({ classes }: { classes?: string }) => {
       setData(getData(team, month))
     }
     setLoading(false)
-  }, [month, teamId])
+  }, [month, teamId, teams])
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({})
