@@ -3,7 +3,6 @@
 import { Button } from '@/components/ui/button'
 import { Loader2 } from 'lucide-react'
 import { Dispatch, KeyboardEvent, KeyboardEventHandler, SetStateAction, useRef } from 'react'
-import Keyboard from './keyboard'
 import LetterInput from './letter-input'
 import { handleKey, updateAnswer } from './utils'
 
@@ -28,15 +27,21 @@ export default function WordleBoard({
 }: WordleBoardProps) {
   const keyboardRef = useRef(undefined)
 
-  const handleBoardKeyDown: KeyboardEventHandler = (e: KeyboardEvent<HTMLDivElement>) =>
-    handleKey(e.key, answer, guesses, setGuesses)
+  const handleBoardKeyDown: KeyboardEventHandler = (e: KeyboardEvent<HTMLDivElement>) => {
+    const key = e.key
+    e.preventDefault()
+    handleKey(key, answer, guesses, setGuesses)
+  }
   const handleKeyboardButton = (key: string) =>
     answer?.length < 5 ? updateAnswer(key, answer, setAnswer) : handleKey(key, answer, guesses, setGuesses)
 
   return (
     <>
       <div
+        contentEditable={true}
         onKeyDown={handleBoardKeyDown}
+        onChange={(e) => e.preventDefault()}
+        onInput={(e) => e.preventDefault()}
         className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
         role='region'
         aria-label='Wordle Board'

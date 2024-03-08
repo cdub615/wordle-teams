@@ -2,13 +2,10 @@
 
 import { upsertBoard } from '@/app/me/actions'
 import DatePicker from '@/components/date-picker'
-import { Button } from '@/components/ui/button'
-import { DrawerClose, DrawerFooter } from '@/components/ui/drawer'
 import { Label } from '@/components/ui/label'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { cn, padArray } from '@/lib/utils'
 import { isSameDay, parseISO } from 'date-fns'
-import { Loader2 } from 'lucide-react'
 import { FormEventHandler, KeyboardEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { boardIsValid, updateAnswer } from './utils'
@@ -84,6 +81,9 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
               className='uppercase flex h-10 w-full rounded-md border border-input bg-background px-2 md:px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
               tabIndex={2}
               onKeyDown={handleKeyDown}
+              contentEditable={true}
+              onChange={(e) => e.preventDefault()}
+              onInput={(e) => e.preventDefault()}
             >
               {answer}
             </div>
