@@ -2,15 +2,18 @@
 
 import { upsertBoard } from '@/app/me/actions'
 import DatePicker from '@/components/date-picker'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { SheetClose, SheetFooter } from '@/components/ui/sheet'
 import { useTeams } from '@/lib/contexts/teams-context'
+import { DailyScore, Team } from '@/lib/types'
 import { cn, padArray } from '@/lib/utils'
 import { isSameDay, parseISO } from 'date-fns'
+import { Loader2 } from 'lucide-react'
 import { FormEventHandler, KeyboardEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { boardIsValid, updateAnswer } from './utils'
 import WordleBoard from './wordle-board'
-import {DailyScore, Team} from '@/lib/types'
 
 export default function WordleBoardForm({ userId }: { userId: string }) {
   const { teams, teamId, setTeams } = useTeams()
@@ -59,17 +62,23 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
     document.getElementById('close-board-entry')?.click()
   }
 
-  const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => updateAnswer(e.key, answer, setAnswer)
-  // TODO make the inputs just text once answer is set
+  const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => {
+    const key = e.key
+    e.preventDefault()
+    updateAnswer(key, answer, setAnswer)
+  }
+
   return (
     <form onSubmit={handleSubmit} className={cn(submitting ? 'animate-pulse' : '')}>
       <input hidden readOnly aria-readonly name='scoreId' value={scoreId} />
       <input hidden readOnly aria-readonly name='scoreDate' value={date?.toISOString()} />
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
       <input hidden readOnly aria-readonly name='answer' value={answer} />
-      <div className='flex items-center md:space-y-0 space-x-2 md:space-x-4 w-full md:px-4'>
-        <div className='flex flex-col space-y-2 w-[60%] md:w-full'>
-          <Label htmlFor='date'>Wordle Date</Label>
+      <div className='flex items-center space-x-2 md:space-x-4 w-full md:px-4'>
+        <div className='flex flex-col w-[60%] md:w-full'>
+          <Label htmlFor='date' className='mb-2'>
+            Wordle Date
+          </Label>
           <DatePicker
             date={date}
             setDate={setDate}
@@ -120,6 +129,22 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
         submitting={submitting}
         submitDisabled={submitDisabled}
       />
+      <SheetFooter className='pt-2 flex flex-row space-x-2 w-full md:invisible md:h-0 md:p-0'>
+        <SheetClose asChild>
+          <Button variant='outline' className='w-full' id='close-board-entry'>
+            Cancel
+          </Button>
+        </SheetClose>
+        <Button
+          disabled={submitting || submitDisabled}
+          aria-disabled={submitting || submitDisabled}
+          type='submit'
+          className='w-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-transparent'
+        >
+          {submitting && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+          Submit
+        </Button>
+      </SheetFooter>
     </form>
   )
 }
