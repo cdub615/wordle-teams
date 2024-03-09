@@ -1,11 +1,11 @@
 'use server'
 
 import { createAdminClient, createClient } from '@/lib/supabase/actions'
+import type { daily_scores, player_with_scores, players } from '@/lib/types'
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
-import {cookies} from 'next/headers'
-import type { daily_scores } from '@/lib/types'
+import { cookies } from 'next/headers'
 
 export async function createTeam(formData: FormData) {
   const supabase = createClient(cookies())
@@ -27,8 +27,15 @@ export async function createTeam(formData: FormData) {
     return { success: false, message: 'Team creation failed, please try again' }
   }
 
+  const { data: player } = await supabase
+    .from('players')
+    .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
+    .eq('id', creator)
+    .returns<player_with_scores[]>()
+    .single()
+
   revalidatePath('/me', 'page')
-  return { success: true, message: 'Successfully created team', newTeam: data }
+  return { success: true, message: 'Successfully created team', newTeam: data, player }
 }
 
 export async function deleteTeam(teamId: string) {
@@ -57,11 +64,13 @@ export async function invitePlayer(formData: FormData) {
   const invited = formData.getAll('invited') as string[]
   const email = formData.get('email') as string
 
-  const { data: players, error } = await supabase.from('players').select('*').eq('email', email)
+  const {data: player, error} = await supabase.from('players').select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )').eq('email', email).maybeSingle()
+  let invitedPlayer: player_with_scores | undefined
 
-  if (players && players[0]) {
-    if (!playerIds.includes(players[0].id)) {
-      const newPlayerIds = playerIds.length > 0 ? [...playerIds, players[0].id] : [players[0].id]
+  if (player) {
+    if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
+    else {
+      const newPlayerIds = playerIds.length > 0 ? [...playerIds, player.id] : [player.id]
       const { error } = await supabase
         .from('teams')
         .update({ player_ids: newPlayerIds })
@@ -71,7 +80,8 @@ export async function invitePlayer(formData: FormData) {
         log.error(`Failed to fetch team ${teamId}`, { error })
         return { success: false, message: 'Player invite failed' }
       }
-    } else log.info(`Player with email ${email} already on team ${teamId}`)
+      invitedPlayer = player
+    }
   } else {
     const { error } = await supabase.auth.admin.inviteUserByEmail(email)
     if (error) {
@@ -96,7 +106,7 @@ export async function invitePlayer(formData: FormData) {
   }
 
   revalidatePath('/me', 'page')
-  return { success: true, message: 'Successfully invited player' }
+  return { success: true, message: 'Successfully invited player', invitedPlayer }
 }
 
 export async function upsertBoard(formData: FormData) {

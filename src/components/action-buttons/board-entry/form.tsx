@@ -27,8 +27,6 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   const [submitDisabled, setSubmitDisabled] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
-  // TODO can scrape current days wordle answer from https://www.nytimes.com/2023/10/23/crosswords/wordle-review.html
-
   useEffect(() => {
     const score = scores.find((s) => isSameDay(date!, parseISO(s.date)))
     const guesses = score?.guesses ?? []
@@ -64,8 +62,11 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
 
   const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => {
     const key = e.key
-    e.preventDefault()
-    updateAnswer(key, answer, setAnswer)
+    if (key !== 'Tab') {
+      console.log('key', key)
+      e.preventDefault()
+      updateAnswer(key, answer, setAnswer)
+    }
   }
 
   return (
@@ -124,7 +125,6 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
         guesses={guesses}
         setGuesses={setGuesses}
         answer={answer}
-        setAnswer={setAnswer}
         tabIndex={3}
         submitting={submitting}
         submitDisabled={submitDisabled}

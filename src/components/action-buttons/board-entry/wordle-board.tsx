@@ -2,15 +2,14 @@
 
 import { Button } from '@/components/ui/button'
 import { Loader2 } from 'lucide-react'
-import { Dispatch, KeyboardEvent, KeyboardEventHandler, SetStateAction, useRef } from 'react'
+import { Dispatch, KeyboardEvent, KeyboardEventHandler, SetStateAction } from 'react'
 import LetterInput from './letter-input'
-import { handleKey, updateAnswer } from './utils'
+import { handleKey } from './utils'
 
 type WordleBoardProps = {
   guesses: string[]
   setGuesses: Dispatch<SetStateAction<string[]>>
   answer: string
-  setAnswer: Dispatch<SetStateAction<string>>
   tabIndex?: number
   submitting: boolean
   submitDisabled: boolean
@@ -20,20 +19,17 @@ export default function WordleBoard({
   guesses,
   setGuesses,
   answer,
-  setAnswer,
   tabIndex,
   submitting,
   submitDisabled,
 }: WordleBoardProps) {
-  const keyboardRef = useRef(undefined)
-
   const handleBoardKeyDown: KeyboardEventHandler = (e: KeyboardEvent<HTMLDivElement>) => {
     const key = e.key
-    e.preventDefault()
-    handleKey(key, answer, guesses, setGuesses)
+    if (key !== 'Tab') {
+      e.preventDefault()
+      handleKey(key, answer, guesses, setGuesses)
+    }
   }
-  const handleKeyboardButton = (key: string) =>
-    answer?.length < 5 ? updateAnswer(key, answer, setAnswer) : handleKey(key, answer, guesses, setGuesses)
 
   return (
     <>
@@ -74,7 +70,6 @@ export default function WordleBoard({
           Submit
         </Button>
       </div>
-      {/* <Keyboard keyboardRef={keyboardRef} onKeyPress={handleKeyboardButton} /> */}
     </>
   )
 }

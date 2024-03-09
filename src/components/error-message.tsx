@@ -18,10 +18,7 @@ export default function ErrorMessage({ error, reset }: ErrorMessageProps) {
     <div className='flex w-full justify-center'>
       <div className='flex flex-col max-w-lg items-center text-center pt-10 space-y-4'>
         <p className='text-xl'>Ruh roh, something went wrong!</p>
-        <p className='text-muted-foreground'>{error?.message}</p>
-        <p className='text-muted-foreground'>
-          Please try again.
-        </p>
+        <p className='text-muted-foreground'>Please try again.</p>
         <Button onClick={() => reset()}>Try again</Button>
       </div>
     </div>

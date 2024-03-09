@@ -54,7 +54,6 @@ export function BoardEntryButton({ userId }: { userId: string }) {
       </SheetTrigger>
       <SheetContent side={'top'}>
         <WordleBoardForm userId={userId} />
-        {/* <div className='h-32'></div> */}
       </SheetContent>
     </Sheet>
   )
