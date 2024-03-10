@@ -17,8 +17,10 @@ export async function removePlayer(formData: FormData) {
   const { error } = await supabase.from('teams').update({ player_ids: newPlayerIds }).eq('id', teamId).select('*')
   if (error) {
     log.error(`Failed to remove player ${playerId} from team ${teamId}`, { error })
-    throw new Error('Failed to remove player from team')
+    return { success: false, message: 'Failed to remove player' }
   }
 
   revalidatePath('/me', 'page')
+
+  return { success: true, message: 'Successfully removed player' }
 }

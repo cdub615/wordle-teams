@@ -3,11 +3,11 @@ import { Button } from '@/components/ui/button'
 import { DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useTeams } from '@/lib/contexts/teams-context'
+import { Player } from '@/lib/types'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { Loader2 } from 'lucide-react'
 import { FormEvent, useState } from 'react'
 import { toast } from 'sonner'
-import {Player} from '../../../lib/types'
 
 export default function InvitePlayer() {
   const [pending, setPending] = useState(false)
@@ -23,7 +23,10 @@ export default function InvitePlayer() {
 
     if (result.success) {
       if (result.invitedPlayer) {
-        const newPlayer = Player.prototype.fromDbPlayer(result.invitedPlayer, result.invitedPlayer?.daily_scores ?? [])
+        const newPlayer = Player.prototype.fromDbPlayer(
+          result.invitedPlayer,
+          result.invitedPlayer?.daily_scores ?? []
+        )
         const updatedTeams = teams.map((t) => {
           if (t.id === teamId) t.addPlayer(newPlayer)
           return t
@@ -31,8 +34,7 @@ export default function InvitePlayer() {
         setTeams(updatedTeams)
       }
       toast.success(result.message)
-    }
-    else toast.error(result.message)
+    } else toast.error(result.message)
     document.getElementById('close-invite-player')?.click()
     setPending(false)
   }

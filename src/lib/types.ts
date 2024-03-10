@@ -225,9 +225,9 @@ export class Team {
     return this._players
   }
 
-  public deletePlayer(id: string): Player[] {
-    const indexToDelete = this._players.findIndex((s) => s.id === id)
-    this._players.splice(indexToDelete, 1)
+  public removePlayer(id: string): Player[] {
+    const indexToRemove = this._players.findIndex((s) => s.id === id)
+    this._players.splice(indexToRemove, 1)
     return this._players
   }
 

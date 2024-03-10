@@ -1,7 +1,7 @@
 'use server'
 
 import { createAdminClient, createClient } from '@/lib/supabase/actions'
-import type { daily_scores, player_with_scores, players } from '@/lib/types'
+import type { daily_scores, player_with_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
@@ -64,7 +64,11 @@ export async function invitePlayer(formData: FormData) {
   const invited = formData.getAll('invited') as string[]
   const email = formData.get('email') as string
 
-  const {data: player, error} = await supabase.from('players').select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )').eq('email', email).maybeSingle()
+  const { data: player, error } = await supabase
+    .from('players')
+    .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
+    .eq('email', email)
+    .maybeSingle()
   let invitedPlayer: player_with_scores | undefined
 
   if (player) {
