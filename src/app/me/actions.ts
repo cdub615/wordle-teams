@@ -60,7 +60,7 @@ export async function invitePlayer(formData: FormData) {
   if (!session) throw new Error('Unauthorized')
 
   const teamId = formData.get('teamId') as string
-  const playerIds = formData.getAll('playerIds') as string[]
+  const playerIds = (formData.get('playerIds') as string).split(',')
   const invited = formData.getAll('invited') as string[]
   const email = formData.get('email') as string
 
