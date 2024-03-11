@@ -62,7 +62,7 @@ export async function middleware(request: NextRequest) {
   )
   const { data } = await supabase.auth.getUser()
   const pathname = request.nextUrl.pathname
-  if (!data.user && (pathname.includes('/branding') || pathname.includes('/[initials]'))) {
+  if (!data.user && (pathname.includes('/branding') || pathname.includes('/me'))) {
     return NextResponse.redirect('/login')
   }
 

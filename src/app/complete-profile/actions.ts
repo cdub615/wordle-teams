@@ -15,7 +15,6 @@ export default async function updateProfile(formData: FormData) {
 
   const firstName = formData.get('firstName') as string
   const lastName = formData.get('lastName') as string
-  const initials = `${firstName[0].toLocaleLowerCase()}${lastName[0].toLocaleLowerCase()}`
 
   const { error } = await supabase
     .from('profiles')
@@ -29,7 +28,6 @@ export default async function updateProfile(formData: FormData) {
     throw new Error('Failed to update profile')
   }
 
-  cookieStore.set('initials', initials)
-  revalidatePath('/[initials]', 'layout')
-  redirect(`/${initials}`)
+  revalidatePath('/me', 'layout')
+  redirect('/me')
 }

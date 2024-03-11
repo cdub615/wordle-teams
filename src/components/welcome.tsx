@@ -1,5 +1,7 @@
 import AppBar from '@/components/app-bar/app-bar-base'
 import { Button } from '@/components/ui/button'
+import { createClient } from '@/lib/supabase/server'
+import { getSession } from '@/lib/utils'
 import { GeistSans } from 'geist/font/sans'
 import { cookies } from 'next/headers'
 import Image from 'next/image'
@@ -8,8 +10,9 @@ import { redirect } from 'next/navigation'
 
 export default async function Welcome() {
   const cookieStore = cookies()
-  const initials = cookieStore.get('initials')
-  if (initials && initials.value.length > 0) redirect(`/${initials.value}`)
+  const supabase = createClient(cookieStore)
+  const session = await getSession(supabase)
+  if (session) redirect('/me')
 
   return (
     <div className='flex flex-col w-full'>

@@ -34,7 +34,7 @@ export async function login(formData: FormData) {
 
   cookieStore.set('awaitingVerification', 'true')
   revalidatePath('/', 'layout')
-  redirect('/login')
+  // redirect('/login')
 }
 
 export async function signup(formData: FormData) {
@@ -65,5 +65,5 @@ export async function signup(formData: FormData) {
 
   cookieStore.set('awaitingVerification', 'true')
   revalidatePath('/', 'layout')
-  redirect('/')
+  // redirect('/me')
 }

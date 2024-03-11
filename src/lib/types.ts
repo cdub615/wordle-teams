@@ -1,9 +1,17 @@
 import { isSameMonth, isWeekend } from 'date-fns'
-import { Database } from './database.types'
-export type players = Database['public']['Tables']['players']['Row']
-export type daily_scores = Database['public']['Tables']['daily_scores']['Row']
-export type teams = Database['public']['Tables']['teams']['Row']
-export type profiles = Database['public']['Tables']['profiles']['Row']
+import { Tables } from './database.types'
+export type players = Tables<'players'>
+export type daily_scores = Tables<'daily_scores'>
+export type teams = Tables<'teams'>
+export type profiles = Tables<'profiles'>
+
+export type player_with_scores = players & {
+  daily_scores: daily_scores[]
+}
+
+export type team_with_players = teams & {
+  players: player_with_scores[]
+}
 
 export type User = {
   firstName: string
@@ -101,9 +109,7 @@ export class Player {
   public addOrUpdateScore(score: DailyScore): DailyScore[] {
     const existingScore = this._scores.find((s) => s.id === score.id)
     if (existingScore) {
-      const { id, date, answer, guesses } = score
-      this._scores.splice(this._scores.indexOf(existingScore), 1)
-      this._scores.push(new DailyScore(id, date, answer, guesses))
+      this._scores.splice(this._scores.indexOf(existingScore), 1, score)
       return this._scores
     } else {
       this._scores.push(score)
@@ -154,7 +160,7 @@ export class Team {
     if (players) this._players = players
   }
 
-  public fromDbTeam(team: teams, dbPlayers?: any[]) {
+  public fromDbTeam(team: teams, dbPlayers?: player_with_scores[]) {
     const {
       id,
       name,
@@ -203,14 +209,25 @@ export class Team {
     return this._players
   }
 
+  private set players(players: Player[]) {
+    this._players = players
+  }
+
+  public get earliestScore() {
+    return this._players
+      .map((p) => p.scores)
+      .flat()
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]
+  }
+
   public addPlayer(player: Player): Player[] {
     this._players.push(player)
     return this._players
   }
 
-  public deletePlayer(id: string): Player[] {
-    const indexToDelete = this._players.findIndex((s) => s.id === id)
-    this._players.splice(indexToDelete, 1)
+  public removePlayer(id: string): Player[] {
+    const indexToRemove = this._players.findIndex((s) => s.id === id)
+    this._players.splice(indexToRemove, 1)
     return this._players
   }
 
@@ -226,14 +243,12 @@ export class Team {
   public updatePlayerScore(teams: Team[], selectedTeamId: number, userId: string, score: DailyScore) {
     return teams.map((t) => {
       if (t.id === selectedTeamId) {
-        t.players.map((p) => {
+        t.players = t.players.map((p) => {
           if (p.id === userId) p.addOrUpdateScore(score)
-          const { id, firstName, lastName, email, scores } = p
-          return new Player(id, firstName, lastName, email, scores)
+          return p
         })
       }
-      const { id, name, creator, playWeekends, invited, scoringSystem, players } = t
-      return new Team(id, name, creator, playWeekends, invited, scoringSystem, players)
+      return t
     })
   }
 }

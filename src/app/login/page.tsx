@@ -7,7 +7,6 @@ import SignupForm from './signup-form'
 export default async function Page() {
   const cookieStore = cookies()
   const awaitingVerification = (cookieStore.get('awaitingVerification')?.value ?? '') === 'true'
-  
   return (
     <>
       <div className='flex justify-center mt-2'>

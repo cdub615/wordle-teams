@@ -7,10 +7,11 @@ import { useFormStatus } from 'react-dom'
 
 type SubmitButtonProps = {
   label?: string
+  variant?: 'link' | 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | null | undefined
   children?: ReactNode
 }
 
-export default function SubmitButton({ label, children, ...props }: SubmitButtonProps) {
+export default function SubmitButton({ label, variant, children, ...props }: SubmitButtonProps) {
   const { pending } = useFormStatus()
 
   if (children)
@@ -18,7 +19,7 @@ export default function SubmitButton({ label, children, ...props }: SubmitButton
       <Button
         type='submit'
         size={'icon'}
-        variant={'outline'}
+        variant={variant ?? 'outline'}
         aria-disabled={pending}
         disabled={pending}
         {...props}

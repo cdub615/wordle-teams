@@ -1,48 +1,56 @@
+'use client'
+
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { createClient } from '@/lib/supabase/server'
-import { getMonthsFromEarliestScore, monthAsDate } from '@/lib/utils'
-import { format } from 'date-fns'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
+import { useTeams } from '@/lib/contexts/teams-context'
+import { getMonthsFromScoreDate } from '@/lib/utils'
+import { format, formatISO, parseISO, subMonths } from 'date-fns'
 import { ChevronDown } from 'lucide-react'
-import { cookies } from 'next/headers'
-import MonthDropdownRadioGroup from './month-dropdown-radio-group'
+import { getScrollAreaHeight } from './utils'
 
-type MonthDropdownProps = {
-  initials: string
-  teamId: number
-  month: string
-}
+export default function MonthDropdown() {
+  const { teams, teamId, month, setMonth, subscriber } = useTeams()
+  let startingMonth = subMonths(new Date(), 1)
 
-export default async function MonthDropdown({ initials, teamId, month }: MonthDropdownProps) {
-  // TODO limit to just past 2 months unless user is a subscriber
-  const supabase = createClient(cookies())
-  const { data: earliestScore } = await supabase.rpc('earliest_score_for_team', { teamid: teamId })
-  const earliest = earliestScore ?? new Date().toISOString()
-  const selectedMonth = monthAsDate(month)
-  const monthOptions = getMonthsFromEarliestScore(earliest)
+  if (subscriber || true) {
+    const earliest = teams.find((t) => t.id === teamId)?.earliestScore?.date ?? new Date().toISOString()
+    let earliestScoreDate = new Date(earliest)
+    if (earliestScoreDate < startingMonth) startingMonth = earliestScoreDate
+  }
+
+  const monthOptions = getMonthsFromScoreDate(startingMonth)
+  const scrollAreaHeight = getScrollAreaHeight(monthOptions.length)
+  const handleMonthChange = (m: string) => setMonth(parseISO(m))
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant='outline'>
-          {format(selectedMonth, 'MMM yyyy')} <ChevronDown className='ml-2 h-4 w-4' />
+        <Button variant='outline' className='text-xs px-2 md:text-sm md:px-4'>
+          {format(month, 'MMM yyyy')} <ChevronDown className='ml-1 md:ml-2 h-4 w-4' />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='end'>
+      <DropdownMenuContent>
         <DropdownMenuLabel>Change Month</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <MonthDropdownRadioGroup
-          initials={initials}
-          teamId={teamId}
-          selectedMonth={selectedMonth}
-          monthOptions={monthOptions}
-        />
+        <ScrollArea className={scrollAreaHeight}>
+          <DropdownMenuRadioGroup value={formatISO(month)} onValueChange={handleMonthChange}>
+            {monthOptions.map((option) => (
+              <DropdownMenuRadioItem key={formatISO(option)} value={formatISO(option)}>
+                {format(option, 'MMM yyyy')}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+          <ScrollBar orientation='vertical' />
+        </ScrollArea>
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -1,27 +1,21 @@
+'use client'
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { createClient } from '@/lib/supabase/server'
-import { Team, defaultSystem } from '@/lib/types'
-import { cookies } from 'next/headers'
+import { useTeams } from '@/lib/contexts/teams-context'
+import { defaultSystem } from '@/lib/types'
 
-const getScoringSystem = async (teamId: number): Promise<number[][]> => {
-  const supabase = createClient(cookies())
-  const { data: team } = await supabase.from('teams').select('*').eq('id', teamId).single()
-  if (team) return Team.prototype.fromDbTeam(team).scoringSystem
-  else throw new Error(`Couldn't find team ${teamId}`)
-}
 type Score = {
   attempts: number
   points: number
 }
 
-const ScoringSystem = async ({ teamId, classes }: { teamId: number; classes?: string }) => {
+export default function ScoringSystem({ classes }: { classes?: string }) {
   // TODO allow score system customization for subscribers
-  const scoringSystem = teamId === 0 ? defaultSystem : await getScoringSystem(teamId)
+  const { teams, teamId } = useTeams()
+  const scoringSystem = teams.find((t) => t.id === teamId)?.scoringSystem || defaultSystem
   const scores: Score[] = []
-  scoringSystem.forEach((entry) => {
-    scores.push({ attempts: entry[0], points: entry[1] })
-  })
+  scoringSystem.forEach((entry) => scores.push({ attempts: entry[0], points: entry[1] }))
 
   return (
     <Card className={classes}>
@@ -57,5 +51,3 @@ const ScoringSystem = async ({ teamId, classes }: { teamId: number; classes?: st
     </Card>
   )
 }
-
-export default ScoringSystem

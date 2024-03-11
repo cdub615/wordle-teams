@@ -15,7 +15,6 @@ export default async function logout() {
     redirect('/error')
   }
 
-  cookieStore.delete('initials')
   revalidatePath('/', 'layout')
   redirect('/')
 }

@@ -17,6 +17,12 @@ export const metadata: Metadata = {
   title: 'Wordle Teams: Track, Challenge, and Dominate with Friends',
   description:
     'Wordle Teams lets you compete with friends by tracking and comparing your Wordle scores, adding a competitive edge to the popular word-guessing game. Stay ahead of the competition, enjoy friendly rivalry, and prove your Wordle mastery with this exciting score-tracking app. Revive the Wordle craze and bring your A-game to the ultimate word-guessing showdown with Wordle Teams!',
+  openGraph: {
+    url: 'https://wordleteams.com',
+    description:
+      'Wordle Teams lets you compete with friends by tracking and comparing your Wordle scores, adding a competitive edge to the popular word-guessing game. Revive the Wordle craze and bring your A-game to the ultimate word-guessing showdown with Wordle Teams!',
+  },
+  metadataBase: new URL('https://wordleteams.com'),
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

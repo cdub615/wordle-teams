@@ -1,53 +1,82 @@
+'use client'
+
+import { deleteTeam } from '@/app/me/actions'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { createClient } from '@/lib/supabase/server'
-import { Team, players, teams } from '@/lib/types'
-import { playerIdsFromTeams } from '@/lib/utils'
-import { cookies } from 'next/headers'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
+import { useTeams } from '@/lib/contexts/teams-context'
+import { Loader2, Trash2 } from 'lucide-react'
+import { MouseEventHandler, useState } from 'react'
+import { toast } from 'sonner'
+import {cn} from '@/lib/utils'
 
-type MyTeamsData = {
-  teams: teams[]
-  players: players[]
-}
-
-const getMyTeams = async (): Promise<MyTeamsData> => {
-  const supabase = createClient(cookies())
-  const { data: teams } = await supabase.from('teams').select('*')
-  const playerIds = playerIdsFromTeams(teams ?? [])
-  const { data: players } = await supabase.from('players').select('*').in('id', playerIds)
-  return { teams: teams ?? [], players: players ?? [] }
-}
-
-export default async function MyTeams() {
-  const { teams: dbTeams, players } = await getMyTeams()
-
-  const teams = dbTeams.map((t) => {
-    const teamPlayers = players.filter((p) => t.player_ids.includes(p.id))
-    return Team.prototype.fromDbTeam(t, teamPlayers)
-  })
+export default function MyTeams({ userId }: { userId: string }) {
+  const { teams, setTeams, teamId, setTeamId } = useTeams()
+  const [pendingTeamId, setPendingTeamId] = useState(0)
+  const handleClick: MouseEventHandler<HTMLButtonElement> = async (e) => {
+    e.preventDefault()
+    const teamIdToDelete = Number.parseInt(e.currentTarget.id)
+    setPendingTeamId(teamIdToDelete)
+    const result = await deleteTeam(e.currentTarget.id)
+    if (result.success) {
+      const newTeams = teams.filter((t) => t.id !== teamIdToDelete)
+      setTeams(newTeams)
+      if (teamIdToDelete === teamId) setTeamId(newTeams[0]?.id)
+      toast.success(result.message)
+    } else toast.error(result.message)
+    setPendingTeamId(0)
+  }
   return (
     <Card className='h-fit'>
       <CardHeader>
         <CardTitle>
           <div className='flex justify-between'>
             <div>My Teams</div>
-            {/* <Button size={'icon'} variant={'outline'}>
-              <Settings2 size={24} />
-            </Button> */}
           </div>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <ul className='flex flex-col space-y-2'>
-          {teams.map((team) => (
-            <li key={team.name} className='flex justify-between'>
-              <div>{team.name}</div>
-              <ul>
-                {team.players.map((player) => (
-                  <li key={player.fullName}>
-                    <div className='text-right'>{player.fullName}</div>
-                  </li>
-                ))}
-              </ul>
+          {teams.map((team, index) => (
+            <li key={team.name}>
+              <div className={cn('grid items-center', team.creator === userId ? 'grid-cols-[minmax(0,1fr)_3rem_minmax(0,2fr)]' : 'grid-cols-[minmax(0,1fr)_minmax(0,2fr)]')}>
+                <div>{team.name}</div>
+                {team.creator === userId && (
+                  <Popover>
+                    <PopoverTrigger>
+                      <Button variant={'ghost'}>
+                        <Trash2 size={16} className='text-red-500' />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className='w-auto'>
+                      <div className='flex flex-col space-y-4'>
+                        <div>Delete {team.name}?</div>
+                        <Button
+                          variant={'destructive'}
+                          size='sm'
+                          disabled={pendingTeamId === team.id}
+                          aria-disabled={pendingTeamId === team.id}
+                          onClick={handleClick}
+                          id={`${team.id}`}
+                        >
+                          {pendingTeamId === team.id && <Loader2 className='h-4 w-4 mr-2 animate-spin' />}
+                          Delete
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
+                <ul>
+                  {team.players.map((player) => (
+                    <li key={player.fullName} className='flex justify-end'>
+                      <span>{player.firstName}</span>
+                      <span className='invisible w-0 md:visible md:w-fit'>&nbsp;{`${player.lastName}`}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {index < teams.length - 1 && <Separator className='mt-2' />}
             </li>
           ))}
         </ul>

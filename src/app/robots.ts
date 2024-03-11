@@ -5,7 +5,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: '*',
       allow: '/',
-      disallow: ['/[initials]/', '/branding', '/complete-profile'],
+      disallow: ['/me/', '/branding', '/complete-profile'],
     },
     sitemap: 'https://wordleteams.com/sitemap.xml',
   }
