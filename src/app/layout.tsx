@@ -22,6 +22,7 @@ export const metadata: Metadata = {
     description:
       'Wordle Teams lets you compete with friends by tracking and comparing your Wordle scores, adding a competitive edge to the popular word-guessing game. Revive the Wordle craze and bring your A-game to the ultimate word-guessing showdown with Wordle Teams!',
   },
+  metadataBase: new URL('https://wordleteams.com'),
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
