@@ -33,13 +33,17 @@ export default async function Welcome() {
         alt='Wordle Teams Dashboard'
         width={1000}
         height={800}
-        className='my-8 mx-auto'
+        className='my-8 mx-auto rounded-lg'
         priority
       />
       <span className='text-muted-foreground text-xs md:text-sm fixed bottom-4 text-center w-full'>
         Built by{' '}
-        <Link href='https://twitter.com/cwhitedev' className='underline underline-offset-4'>
-          cwhitedev
+        <Link href='https://github.com/cdub615' className='underline underline-offset-4'>
+          Christian White
+        </Link>
+        . Follow us on{' '}
+        <Link href='https://twitter.com/wordleteams' className='underline underline-offset-4'>
+          X
         </Link>
         . View source code on{' '}
         <Link href='https://github.com/cdub615/wordle-teams' className='underline underline-offset-4'>
