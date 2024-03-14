@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
-import { User } from '@/lib/types'
-import { getUser } from '@/lib/utils'
+import { User, UserToken } from '@/lib/types'
+import { getSession } from '@/lib/utils'
+import { jwtDecode } from 'jwt-decode'
 import { cookies } from 'next/headers'
 import AppBarBase from './app-bar-base'
 
@@ -8,13 +9,12 @@ export default async function AppBarServer() {
   let user: User | undefined = undefined
 
   const supabase = createClient(cookies())
-  const dbUser = await getUser(supabase)
-
-  if (dbUser) {
-    const firstName = dbUser.user_metadata.firstName
-    const lastName = dbUser.user_metadata.lastName
-    const email = dbUser.email
-    user = { firstName, lastName, email }
+  const session = await getSession(supabase)
+  if (session) {
+    const token = jwtDecode<UserToken>(session.access_token)
+    console.dir(token)
+    const { user_first_name: firstName, user_last_name: lastName } = token
+    user = { firstName, lastName, email: session.user.email }
   }
 
   return <AppBarBase user={user} />

@@ -12,18 +12,20 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
-  const { userId, teams, isSubscriber } = await getTeams()
+  const { userId, teams, proMember } = await getTeams()
+  // TODO consider dropping the profiles table (and updating functions that reference it)
+  // and potentially store player names as claims in the jwt like we're now doing with member status
 
   if (!teams || teams.length === 0)
     return (
-      <TeamsProvider initialTeams={teams} isSubscriber={isSubscriber}>
+      <TeamsProvider initialTeams={teams} isProMember={proMember}>
         <NoTeams />
       </TeamsProvider>
     )
 
   return (
     <div className='p-2 grid gap-2 md:grid-cols-3 md:p-12 md:gap-6'>
-      <TeamsProvider initialTeams={teams} isSubscriber={isSubscriber}>
+      <TeamsProvider initialTeams={teams} isProMember={proMember}>
         <ActionButtons classes={'md:col-span-3'} userId={userId} />
         <Suspense fallback={<SkeletonTable classes={'md:col-span-3'} />}>
           <ScoresTable classes={'md:col-span-3'} />

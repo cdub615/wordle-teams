@@ -1,7 +1,6 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/actions'
-import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { loginSchema, signupSchema } from './schemas'
@@ -33,8 +32,6 @@ export async function login(formData: FormData) {
   }
 
   cookieStore.set('awaitingVerification', 'true')
-  revalidatePath('/', 'layout')
-  // redirect('/login')
 }
 
 export async function signup(formData: FormData) {
@@ -64,6 +61,9 @@ export async function signup(formData: FormData) {
   }
 
   cookieStore.set('awaitingVerification', 'true')
-  revalidatePath('/', 'layout')
-  // redirect('/me')
+}
+
+export async function retry() {
+  const cookieStore = cookies()
+  cookieStore.set('awaitingVerification', 'false')
 }

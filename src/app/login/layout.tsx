@@ -3,7 +3,7 @@ import Welcome from '@/components/welcome'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Login',
+  title: 'Login / Signup',
 }
 
 export default function LoginLayout({ children }: { children: React.ReactNode }) {

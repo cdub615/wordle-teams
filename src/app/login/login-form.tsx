@@ -1,10 +1,11 @@
 'use client'
 
+import SubmitButton from '@/components/submit-button'
+import { Button } from '@/components/ui/button'
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import SubmitButton from '@/components/submit-button'
-import { login } from './actions'
+import { login, retry } from './actions'
 
 export default function LoginForm({ awaitingVerification }: { awaitingVerification: boolean }) {
   return (
@@ -25,11 +26,15 @@ export default function LoginForm({ awaitingVerification }: { awaitingVerificati
           </div>
         )}
       </CardContent>
-      {!awaitingVerification && (
-        <CardFooter className='justify-end'>
+      <CardFooter className='justify-end'>
+        {awaitingVerification ? (
+          <Button formAction={retry} variant={'secondary'}>
+            Retry
+          </Button>
+        ) : (
           <SubmitButton label={'Log In'} />
-        </CardFooter>
-      )}
+        )}
+      </CardFooter>
     </form>
   )
 }

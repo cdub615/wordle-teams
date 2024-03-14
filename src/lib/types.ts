@@ -1,4 +1,5 @@
 import { isSameMonth, isWeekend } from 'date-fns'
+import { JwtPayload } from 'jwt-decode'
 import { Tables } from './database.types'
 export type players = Tables<'players'>
 export type daily_scores = Tables<'daily_scores'>
@@ -17,6 +18,14 @@ export type User = {
   firstName: string
   lastName: string
   email: string | undefined
+}
+
+export type UserToken = JwtPayload & {
+  user_member_status: 'free' | 'pro'
+  user_member_variant: number
+  user_first_name: string
+  user_last_name: string
+  // TODO once we add OAuth providers, add avatar image
 }
 
 export class DailyScore {
