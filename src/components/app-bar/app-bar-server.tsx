@@ -7,6 +7,8 @@ import AppBarBase from './app-bar-base'
 
 export default async function AppBarServer() {
   let user: User | undefined = undefined
+  // Create a 'profile' modal that opens on click of their initials,
+  // show first name, last name, member status 'Free' or 'Pro', and a button to manage membership linking to store.wordleteams.com/billing
 
   const supabase = createClient(cookies())
   const session = await getSession(supabase)

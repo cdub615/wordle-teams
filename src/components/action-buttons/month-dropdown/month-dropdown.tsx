@@ -18,10 +18,10 @@ import { ChevronDown } from 'lucide-react'
 import { getScrollAreaHeight } from './utils'
 
 export default function MonthDropdown() {
-  const { teams, teamId, month, setMonth, subscriber } = useTeams()
+  const { teams, teamId, month, setMonth, proMember } = useTeams()
   let startingMonth = subMonths(new Date(), 1)
 
-  if (subscriber || true) {
+  if (proMember) {
     const earliest = teams.find((t) => t.id === teamId)?.earliestScore?.date ?? new Date().toISOString()
     let earliestScoreDate = new Date(earliest)
     if (earliestScoreDate < startingMonth) startingMonth = earliestScoreDate

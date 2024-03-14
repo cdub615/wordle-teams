@@ -16,6 +16,9 @@ export default async function Page() {
   // TODO consider dropping the profiles table (and updating functions that reference it)
   // and potentially store player names as claims in the jwt like we're now doing with member status
 
+  // On the logged in page, if membership status is 'new', show an alert dialog with cards of the membership options
+  // each button creates a checkout url for the variant and redirects to that checkout
+
   if (!teams || teams.length === 0)
     return (
       <TeamsProvider initialTeams={teams} isProMember={proMember}>

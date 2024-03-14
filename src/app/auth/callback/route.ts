@@ -35,6 +35,8 @@ export async function GET(request: NextRequest) {
 
       if (event) {
         // TODO create customer, create checkout for Free variant, redirect to checkout
+        // In the auth callback, we should fetch the Free product variant id, create a lemonsqueezy customer,
+        //   and update players table setting customer_id
 
         const logsnag = logsnagClient()
         await logsnag.track({

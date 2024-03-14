@@ -11,7 +11,7 @@ type Score = {
 }
 
 export default function ScoringSystem({ classes }: { classes?: string }) {
-  // TODO allow score system customization for subscribers
+  // TODO allow score system customization for pro members
   const { teams, teamId } = useTeams()
   const scoringSystem = teams.find((t) => t.id === teamId)?.scoringSystem || defaultSystem
   const scores: Score[] = []
