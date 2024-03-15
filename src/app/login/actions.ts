@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/actions'
+import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { loginSchema, signupSchema } from './schemas'
@@ -19,7 +20,7 @@ export async function login(formData: FormData) {
 
   const { email } = loginSchema.parse(loginForm)
 
-  const { error } = await supabase.auth.signInWithOtp({
+  const { data, error } = await supabase.auth.signInWithOtp({
     email,
     options: {
       shouldCreateUser: false,
@@ -28,10 +29,16 @@ export async function login(formData: FormData) {
   })
 
   if (error) {
-    redirect('/error')
+    log.error(error.message)
+    if (error?.message === 'Signups not allowed for otp') {
+      return { error: `Login failed. If you haven't yet signed up, please try the Sign Up form.` }
+    }
+
+    return { error: 'Login failed. Please try again.' }
   }
 
   cookieStore.set('awaitingVerification', 'true')
+  return { error: null }
 }
 
 export async function signup(formData: FormData) {
