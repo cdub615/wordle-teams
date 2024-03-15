@@ -11,11 +11,8 @@ as $$
     user_last_name text;
     user_customer_id int;
   begin
-    select membership_status into user_member_status,
-      membership_variant into user_member_variant,
-      first_name into user_first_name,
-      last_name into user_last_name,
-      customer_id into user_customer_id
+    select membership_status, membership_variant, first_name, last_name, customer_id
+    into user_member_status, user_member_variant, user_first_name, user_last_name, user_customer_id
     from public.players
     where id = (event->>'user_id')::uuid;
 
