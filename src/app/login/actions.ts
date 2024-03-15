@@ -64,7 +64,8 @@ export async function signup(formData: FormData) {
   })
 
   if (error) {
-    redirect('/error')
+    log.error(error.message)
+    return { error: 'Signup failed. Please try again.' }
   }
 
   cookieStore.set('awaitingVerification', 'true')
