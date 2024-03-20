@@ -1,16 +1,7 @@
-const relevantEvents = new Set([
-  'order_created',
-  'subscription_created',
-  'subscription_cancelled',
-  'subscription_updated',
-  'subscription_expired',
-  'subscription_payment_failed',
-])
-
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
+import { WebhookEvent } from '@/lib/types'
 import crypto from 'node:crypto'
-import { WebhookEvent } from '../../../lib/types'
 
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -40,7 +31,12 @@ export async function POST(request: Request) {
       return new Response('Failed to store webhook event', { status: 500 })
     }
 
-    const webhookEvent = new WebhookEvent(webhookEventId, data.meta.custom_data.user_id, data.meta.event_name, data)
+    const webhookEvent = new WebhookEvent(
+      webhookEventId,
+      data.meta.custom_data.user_id,
+      data.meta.event_name,
+      data
+    )
     // Non-blocking call to process the webhook event.
     void processWebhookEvent(webhookEvent)
 

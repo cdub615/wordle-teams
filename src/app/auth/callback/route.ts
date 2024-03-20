@@ -1,4 +1,3 @@
-import { createNewCustomer } from '@/lib/lemonsqueezy'
 import { createClient } from '@/lib/supabase/actions'
 import { logsnagClient } from '@/lib/utils'
 import { type EmailOtpType } from '@supabase/supabase-js'
@@ -49,14 +48,6 @@ export async function GET(request: NextRequest) {
             env: process.env.ENVIRONMENT!,
           },
         })
-
-        const newCustomer = await createNewCustomer(`${firstName} ${lastName}`, email!)
-        if (newCustomer) {
-          const customer_id = Number.parseInt(newCustomer.data.id)
-          const { error } = await supabase.from('players').update({ customer_id }).eq('id', id!)
-          if (error) log.error('Failed to update players table', error)
-        }
-        else log.warn('Failed to create new customer')
       }
 
       if (type === 'invite') {
