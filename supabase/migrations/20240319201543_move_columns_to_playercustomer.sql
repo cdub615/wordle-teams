@@ -31,7 +31,7 @@ revoke all
 create policy "Allow auth admin to read player customer table" ON public.player_customer
 as permissive for select
 to supabase_auth_admin
-using (true)
+using (true);
 
 
 create or replace function public.custom_access_token_hook(event jsonb)
