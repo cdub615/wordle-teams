@@ -1,10 +1,12 @@
 import { isSameMonth, isWeekend } from 'date-fns'
 import { JwtPayload } from 'jwt-decode'
-import { Tables } from './database.types'
+import { Tables, Enums } from './database.types'
 export type players = Tables<'players'>
+export type player_customer = Tables<'player_customer'>
 export type daily_scores = Tables<'daily_scores'>
 export type teams = Tables<'teams'>
-export type profiles = Tables<'profiles'>
+export type webhook_events = Tables<'webhook_events'>
+export type member_status = Enums<'member_status'>
 
 export type player_with_scores = players & {
   daily_scores: daily_scores[]
@@ -15,17 +17,37 @@ export type team_with_players = teams & {
 }
 
 export type User = {
+  id: string
   firstName: string
   lastName: string
-  email: string | undefined
+  initials: string
+  email: string
+  memberStatus: 'new' | 'free' | 'pro'
+  memberVariant: number | null
+  billingPortalUrl: string | null
 }
 
 export type UserToken = JwtPayload & {
-  user_member_status: 'free' | 'pro'
-  user_member_variant: number
+  user_member_status: 'new' | 'free' | 'pro'
+  user_member_variant: number | null
   user_first_name: string
   user_last_name: string
+  user_customer_portal_url: string | null
   // TODO once we add OAuth providers, add avatar image
+}
+
+export class WebhookEvent {
+  id: number
+  playerId: string
+  eventName: string
+  body: any
+
+  constructor(id: number, playerId: string, eventName: string, body: any) {
+    this.id = id
+    this.playerId = playerId
+    this.eventName = eventName
+    this.body = body
+  }
 }
 
 export class DailyScore {

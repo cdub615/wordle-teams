@@ -1,8 +1,18 @@
 'use server'
 
+import { createNewCheckout, getFreeVariantId } from '@/lib/lemonsqueezy'
 import { createAdminClient, createClient } from '@/lib/supabase/actions'
-import type { daily_scores, player_with_scores } from '@/lib/types'
+import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
+import type {
+  User,
+  WebhookEvent,
+  daily_scores,
+  member_status,
+  player_customer,
+  player_with_scores,
+} from '@/lib/types'
 import { getSession } from '@/lib/utils'
+import { randomUUID } from 'crypto'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
@@ -181,4 +191,85 @@ export async function removePlayer(formData: FormData) {
   revalidatePath('/me', 'page')
 
   return { success: true, message: 'Successfully removed player' }
+}
+
+export async function processWebhookEvent(webhookEvent: WebhookEvent) {
+  const supabase = createAdminClient(cookies())
+
+  const dbwebhookEvent = await supabase.from('webhook_events').select().eq('id', webhookEvent.id).maybeSingle()
+
+  if (!dbwebhookEvent) {
+    throw new Error(`Webhook event #${webhookEvent.id} not found in the database.`)
+  }
+
+  let processingError = ''
+  const eventBody = webhookEvent.body
+
+  if (!webhookHasMeta(eventBody)) {
+    processingError = "Event body is missing the 'meta' property."
+  } else if (webhookHasData(eventBody) && webhookEvent.eventName.startsWith('subscription_')) {
+    /**
+      subscription_created
+      subscription_updated
+      subscription_resumed
+
+      subscription_cancelled
+      subscription_expired
+     */
+    const attributes = eventBody.data.attributes
+    let variantId = attributes.variant_id as number | null
+    const freeVariantId = await getFreeVariantId()
+    let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
+    if (webhookEvent.eventName.includes('cancelled')) {
+      membershipStatus = 'cancelled' as member_status
+      variantId = null
+    }
+    if (webhookEvent.eventName.includes('expired')) {
+      membershipStatus = 'expired' as member_status
+      variantId = null
+    }
+
+    const playerCustomer: player_customer = {
+      customer_id: attributes.customer_id as number,
+      customer_portal_url: attributes.urls.customer_portal as string,
+      id: randomUUID() as string,
+      membership_status: membershipStatus,
+      membership_variant: variantId,
+      player_id: eventBody.meta.custom_data.user_id as string,
+    }
+
+    const { error } = await supabase.from('player_customer').upsert(playerCustomer, { onConflict: 'customer_id' })
+
+    if (error) {
+      processingError = error.message
+      log.error('Failed to update player_customer', { error })
+      throw new Error('Failed to update player_customer')
+    }
+  }
+
+  await supabase
+    .from('webhook_events')
+    .update({ processed: true, processing_error: processingError })
+    .eq('id', webhookEvent.id)
+}
+
+export async function storeWebhookEvent(eventName: string, body: WebhookEvent['body']) {
+  const supabase = createAdminClient(cookies())
+  const { data } = await supabase
+    .from('webhook_events')
+    .insert({
+      event_name: eventName,
+      body,
+      player_id: body.meta.custom_data.user_id,
+    })
+    .select()
+    .single()
+
+  return data?.id
+}
+
+export async function getCheckoutUrl(user: User) {
+  const checkout = await createNewCheckout(`${user.firstName} ${user.lastName}`, user.email, user.id)
+  if (checkout?.data?.attributes?.url) return { checkoutUrl: checkout?.data?.attributes?.url }
+  else return { error: 'Failed to create checkout, please try again later.' }
 }

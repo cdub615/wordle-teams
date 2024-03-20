@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "gen-types": "supabase gen types typescript --project-id sgrxuealmksermhjqepj > src/lib/database.types.ts",
+    "gen-types": "supabase gen types typescript --local > src/lib/database.types.ts",
     "pull-edge-config": "vercel env pull .env.local"
   },
   "dependencies": {

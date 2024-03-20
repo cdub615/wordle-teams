@@ -2,23 +2,16 @@ import Maintenance from '@/components/maintenance'
 import ThemeProvider from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
-import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js'
 import { Analytics } from '@vercel/analytics/react'
 import { get } from '@vercel/edge-config'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import type { Metadata } from 'next'
-import { AxiomWebVitals, log } from 'next-axiom'
+import { AxiomWebVitals } from 'next-axiom'
 import { Inter } from 'next/font/google'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
 const rootClasses = cn(inter.className, '@container/root min-h-screen')
-lemonSqueezySetup({
-  apiKey: process.env.LEMONSQUEEZY_API_KEY,
-  onError(error) {
-    log.error(error.message, error)
-  },
-})
 
 export const metadata: Metadata = {
   title: 'Wordle Teams: Track, Challenge, and Dominate with Friends',

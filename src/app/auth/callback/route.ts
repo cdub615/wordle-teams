@@ -1,3 +1,4 @@
+import { createNewCustomer } from '@/lib/lemonsqueezy'
 import { createClient } from '@/lib/supabase/actions'
 import { logsnagClient } from '@/lib/utils'
 import { type EmailOtpType } from '@supabase/supabase-js'
@@ -27,17 +28,13 @@ export async function GET(request: NextRequest) {
       token_hash,
     })
     if (!error) {
-      const { email } = data.user ?? {}
+      const { email, id } = data.user ?? {}
       const { firstName, lastName } = data.user?.user_metadata ?? {}
       let event = null
       if (type === 'signup') event = 'User Signup'
       if (type === 'invite') event = 'Invited User Signup'
 
       if (event) {
-        // TODO create customer, create checkout for Free variant, redirect to checkout
-        // In the auth callback, we should fetch the Free product variant id, create a lemonsqueezy customer,
-        //   and update players table setting customer_id
-
         const logsnag = logsnagClient()
         await logsnag.track({
           channel: 'users',
@@ -52,6 +49,14 @@ export async function GET(request: NextRequest) {
             env: process.env.ENVIRONMENT!,
           },
         })
+
+        const newCustomer = await createNewCustomer(`${firstName} ${lastName}`, email!)
+        if (newCustomer) {
+          const customer_id = Number.parseInt(newCustomer.data.id)
+          const { error } = await supabase.from('players').update({ customer_id }).eq('id', id!)
+          if (error) log.error('Failed to update players table', error)
+        }
+        else log.warn('Failed to create new customer')
       }
 
       if (type === 'invite') {

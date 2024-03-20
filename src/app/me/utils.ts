@@ -1,14 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
-import { UserToken, player_with_scores, team_with_players, teams } from '@/lib/types'
-import { getSession } from '@/lib/utils'
-import { jwtDecode } from 'jwt-decode'
+import { User, player_with_scores, team_with_players, teams } from '@/lib/types'
+import { getSession, getUserFromSession } from '@/lib/utils'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 type GetTeamsResponse = {
-  userId: string
+  user: User
   teams: team_with_players[]
-  proMember: boolean
 }
 
 export const getTeams = async (): Promise<GetTeamsResponse> => {
@@ -16,9 +14,7 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
   const supabase = createClient(cookieStore)
   const session = await getSession(supabase)
   if (!session) redirect('/login')
-  const jwt = jwtDecode<UserToken>(session.access_token)
-  const membershipStatus = jwt.user_member_status
-  const proMember = membershipStatus === 'pro'
+  const user = getUserFromSession(session)
 
   const { data: teams } = await supabase.from('teams').select('*').returns<teams[]>()
   const playerIds = teams?.flatMap((t) => t.player_ids) ?? []
@@ -34,5 +30,5 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
       return { ...t, players: teamPlayers } as team_with_players
     }) ?? []
 
-  return { userId: session.user.id, teams: teamsWithPlayers, proMember }
+  return { user, teams: teamsWithPlayers }
 }

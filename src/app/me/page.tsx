@@ -12,29 +12,24 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
-  const { userId, teams, proMember } = await getTeams()
-  // TODO consider dropping the profiles table (and updating functions that reference it)
-  // and potentially store player names as claims in the jwt like we're now doing with member status
-
-  // On the logged in page, if membership status is 'new', show an alert dialog with cards of the membership options
-  // each button creates a checkout url for the variant and redirects to that checkout
+  const { user, teams } = await getTeams()
 
   if (!teams || teams.length === 0)
     return (
-      <TeamsProvider initialTeams={teams} isProMember={proMember}>
+      <TeamsProvider initialTeams={teams} user={user}>
         <NoTeams />
       </TeamsProvider>
     )
 
   return (
     <div className='p-2 grid gap-2 md:grid-cols-3 md:p-12 md:gap-6'>
-      <TeamsProvider initialTeams={teams} isProMember={proMember}>
-        <ActionButtons classes={'md:col-span-3'} userId={userId} />
+      <TeamsProvider initialTeams={teams} user={user}>
+        <ActionButtons classes={'md:col-span-3'} userId={user.id} />
         <Suspense fallback={<SkeletonTable classes={'md:col-span-3'} />}>
           <ScoresTable classes={'md:col-span-3'} />
         </Suspense>
         <CurrentTeam />
-        <MyTeams userId={userId} />
+        <MyTeams userId={user.id} />
         <ScoringSystem classes={'md:row-span-3'} />
       </TeamsProvider>
     </div>
