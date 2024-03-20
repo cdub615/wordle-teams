@@ -73,12 +73,14 @@ export const getSession = async (supabase: SupabaseClient<Database>) => {
 
 export const getUserFromSession = (session: Session) => {
   const token = jwtDecode<UserToken>(session.access_token)
+  const initials =
+    token.user_first_name && token.user_last_name ? `${token.user_first_name[0]}${token.user_last_name[0]}` : 'WT'
   const user: User = {
     id: session.user.id,
     email: session.user.email!,
     firstName: token.user_first_name,
     lastName: token.user_last_name,
-    initials: `${token.user_first_name[0]}${token.user_last_name[0]}`,
+    initials,
     memberStatus: token.user_member_status,
     memberVariant: token.user_member_variant,
     billingPortalUrl: token.user_customer_portal_url,
