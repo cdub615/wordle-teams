@@ -12,6 +12,9 @@ export function createClient(cookieStore: ReturnType<typeof cookies>) {
           return cookieStore.get(name)?.value
         },
       },
+      auth: {
+        debug: process.env.ENVIRONMENT !== 'prod',
+      }
     }
   )
 }
