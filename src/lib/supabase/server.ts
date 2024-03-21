@@ -12,10 +12,6 @@ export function createClient(cookieStore: ReturnType<typeof cookies>) {
           return cookieStore.get(name)?.value
         },
       },
-      auth: {
-        // TODO turn this back off because it bloats the logs a ton
-        debug: process.env.ENVIRONMENT !== 'prod',
-      }
     }
   )
 }
