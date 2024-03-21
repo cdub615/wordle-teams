@@ -1,0 +1,1 @@
+alter table "public"."webhook_events" enable row level security;
