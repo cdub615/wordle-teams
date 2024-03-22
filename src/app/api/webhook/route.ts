@@ -2,7 +2,6 @@ import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
-import crypto from 'node:crypto'
 
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -16,18 +15,19 @@ export async function POST(request: Request) {
   try {
     // First, make sure the request is from Lemon Squeezy.
     rawBody = await request.text()
-    log.info(`rawBody`, { rawBody })
     const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET
-    log.info(`ls sec: ${secret}`)
-    log.info(`signature: ${request.headers.get('X-Signature')}`)
 
-    const hmac = crypto.createHmac('sha256', secret)
-    const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
-    const signature = Buffer.from(request.headers.get('X-Signature') ?? '', 'utf8')
+    // const hmac = crypto.createHmac('sha256', secret)
+    // const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
+    // const signature = Buffer.from(request.headers.get('X-Signature') ?? '', 'utf8')
+    const signature = request.headers.get('X-Signature') ?? ''
 
-    if (!crypto.timingSafeEqual(digest, signature)) {
+    if (secret !== signature) {
       return new Response('Invalid signature', { status: 400 })
     }
+    // if (!crypto.timingSafeEqual(digest, signature)) {
+    //   return new Response('Invalid signature', { status: 400 })
+    // }
   } catch (error: any) {
     log.error(error)
     return new Response('Could not validate signature', { status: 500 })
