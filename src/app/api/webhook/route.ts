@@ -18,6 +18,8 @@ export async function POST(request: Request) {
   const hmac = crypto.createHmac('sha256', secret)
   const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
   const signature = Buffer.from(request.headers.get('X-Signature') ?? '', 'utf8')
+  log.info(`ls sec: ${secret}`)
+  log.info(`signature: ${request.headers.get('X-Signature')}`)
 
   try {
     if (!crypto.timingSafeEqual(digest, signature)) {
@@ -25,7 +27,7 @@ export async function POST(request: Request) {
     }
   } catch (error: any) {
     log.error(error.message)
-    return new Response('Invalid signature', { status: 400 })
+    return new Response('Could not validate signature', { status: 500 })
   }
 
   const data = JSON.parse(rawBody) as unknown
