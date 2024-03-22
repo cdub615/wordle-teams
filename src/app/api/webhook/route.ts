@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       return new Response('Invalid signature', { status: 400 })
     }
   } catch (error: any) {
-    log.error(error.message)
+    log.error(error)
     return new Response('Could not validate signature', { status: 500 })
   }
 
