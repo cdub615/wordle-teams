@@ -5,7 +5,13 @@ import { log } from 'next-axiom'
 
 const testMode = process.env.ENVIRONMENT !== 'prod'
 const storeId = process.env.LEMONSQUEEZY_STORE_ID!
-const redirectUrl = `${process.env.NEXT_PUBLIC_VERCEL_URL}/me`
+const url =
+  process.env.ENVIRONMENT === 'prod'
+    ? 'https://wordleteams.com'
+    : process.env.ENVIRONMENT === 'dev'
+    ? 'https://dev.wordleteams.com'
+    : 'http://localhost:3000'
+const redirectUrl = `${url}/me`
 
 function configureLemonSqueezy() {
   const requiredVars = ['LEMONSQUEEZY_API_KEY', 'LEMONSQUEEZY_STORE_ID', 'LEMONSQUEEZY_WEBHOOK_SECRET']
@@ -44,13 +50,6 @@ const getProVariantId = async () => {
 export const createNewCheckout = async (name: string, email: string, userId: string) => {
   configureLemonSqueezy()
   const variantId = await getProVariantId()
-  log.info(`storeId: ${storeId}`)
-  log.info(`pro variantId: ${variantId}`)
-  log.info(`redirectUrl: ${redirectUrl}`)
-  log.info(`testMode: ${testMode}`)
-  log.info(`name: ${name}`)
-  log.info(`email: ${email}`)
-  log.info(`userId: ${userId}`)
   if (!variantId) return undefined
   const newCheckout: NewCheckout = {
     productOptions: {
