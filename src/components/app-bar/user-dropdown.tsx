@@ -38,7 +38,7 @@ export default function UserDropdown({ user }: { user: User }) {
       if (error) setCheckoutError(error)
       if (checkoutUrl) setCheckoutUrl(checkoutUrl)
     }
-    if (!checkoutUrl) customCheckoutUrl()
+    if (!checkoutUrl && user.memberStatus !== 'pro') customCheckoutUrl()
   }, [checkoutUrl])
   const handleUpgrade = () => {
     if (checkoutError) toast.error(checkoutError)

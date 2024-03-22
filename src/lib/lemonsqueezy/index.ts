@@ -70,7 +70,6 @@ export const createNewCheckout = async (name: string, email: string, userId: str
     },
     testMode,
   }
-  log.info('newCheckout', newCheckout)
   const { error, data } = await createCheckout(storeId, variantId, newCheckout)
   if (error) log.error(error.message)
   return data ?? undefined

@@ -1,6 +1,7 @@
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
+import {log} from 'next-axiom'
 import crypto from 'node:crypto'
 
 export async function POST(request: Request) {
@@ -18,7 +19,12 @@ export async function POST(request: Request) {
   const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
   const signature = Buffer.from(request.headers.get('X-Signature') ?? '', 'utf8')
 
-  if (!crypto.timingSafeEqual(digest, signature)) {
+  try {
+    if (!crypto.timingSafeEqual(digest, signature)) {
+      return new Response('Invalid signature', { status: 400 })
+    }
+  } catch (error: any) {
+    log.error(error.message)
     return new Response('Invalid signature', { status: 400 })
   }
 
