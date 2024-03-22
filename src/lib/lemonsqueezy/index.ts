@@ -1,16 +1,11 @@
 'use server'
 
-import {
-  NewCheckout,
-  NewCustomer,
-  createCheckout,
-  createCustomer,
-  lemonSqueezySetup,
-  listProducts,
-} from '@lemonsqueezy/lemonsqueezy.js'
+import { NewCheckout, createCheckout, lemonSqueezySetup, listProducts } from '@lemonsqueezy/lemonsqueezy.js'
 import { log } from 'next-axiom'
 
 const testMode = process.env.ENVIRONMENT !== 'prod'
+const storeId = process.env.LEMONSQUEEZY_STORE_ID!
+const redirectUrl = `${process.env.NEXT_PUBLIC_VERCEL_URL}/me`
 
 function configureLemonSqueezy() {
   const requiredVars = ['LEMONSQUEEZY_API_KEY', 'LEMONSQUEEZY_STORE_ID', 'LEMONSQUEEZY_WEBHOOK_SECRET']
@@ -33,41 +28,33 @@ function configureLemonSqueezy() {
 
 export const getFreeVariantId = async () => {
   configureLemonSqueezy()
-  const { error, data } = await listProducts({
-    filter: { storeId: process.env.LEMONSQUEEZY_STORE_ID! },
-    include: ['variants'],
-  })
+  const { error, data } = await listProducts({ filter: { storeId }, include: ['variants'] })
   if (error) log.error(error.message)
   const pro = data?.data.find((p) => p.attributes.name === 'Free')
   if (pro && pro.relationships?.variants?.data) return Number.parseInt(pro.relationships?.variants?.data[0]?.id)
 }
 
 const getProVariantId = async () => {
-  configureLemonSqueezy()
-  const { error, data } = await listProducts({
-    filter: { storeId: process.env.LEMONSQUEEZY_STORE_ID! },
-    include: ['variants'],
-  })
+  const { error, data } = await listProducts({ filter: { storeId }, include: ['variants'] })
   if (error) log.error(error.message)
   const pro = data?.data.find((p) => p.attributes.name === 'Pro')
   if (pro && pro.relationships?.variants?.data) return pro.relationships?.variants?.data[0]?.id
 }
 
-export const createNewCustomer = async (name: string, email: string) => {
-  configureLemonSqueezy()
-  const newCustomer: NewCustomer = { name, email }
-  const { error, data } = await createCustomer(process.env.LEMONSQUEEZY_STORE_ID!, newCustomer)
-  if (error) log.error(error.message)
-  return data ?? undefined
-}
-
 export const createNewCheckout = async (name: string, email: string, userId: string) => {
   configureLemonSqueezy()
   const variantId = await getProVariantId()
+  log.info(`storeId: ${storeId}`)
+  log.info(`pro variantId: ${variantId}`)
+  log.info(`redirectUrl: ${redirectUrl}`)
+  log.info(`testMode: ${testMode}`)
+  log.info(`name: ${name}`)
+  log.info(`email: ${email}`)
+  log.info(`userId: ${userId}`)
   if (!variantId) return undefined
   const newCheckout: NewCheckout = {
     productOptions: {
-      redirectUrl: `${process.env.NEXT_PUBLIC_VERCEL_URL}/me`,
+      redirectUrl,
       receiptButtonText: 'Go to Dashboard',
       receiptThankYouNote: 'Thank you for signing up Wordle Teams!',
     },
@@ -84,7 +71,8 @@ export const createNewCheckout = async (name: string, email: string, userId: str
     },
     testMode,
   }
-  const { error, data } = await createCheckout(process.env.LEMONSQUEEZY_STORE_ID!, variantId, newCheckout)
+  log.info('newCheckout', newCheckout)
+  const { error, data } = await createCheckout(storeId, variantId, newCheckout)
   if (error) log.error(error.message)
   return data ?? undefined
 }
