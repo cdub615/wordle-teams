@@ -55,7 +55,7 @@ export const createNewCheckout = async (name: string, email: string, userId: str
     productOptions: {
       redirectUrl,
       receiptButtonText: 'Go to Dashboard',
-      receiptThankYouNote: 'Thank you for signing up Wordle Teams!',
+      receiptThankYouNote: 'Thank you for purchasing Wordle Teams!',
     },
     checkoutOptions: {
       dark: true,
