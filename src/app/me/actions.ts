@@ -12,7 +12,7 @@ import type {
   player_with_scores,
 } from '@/lib/types'
 import { getSession } from '@/lib/utils'
-import { randomUUID } from 'crypto'
+import { UUID, randomUUID } from 'crypto'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
@@ -253,15 +253,16 @@ export async function processWebhookEvent(webhookId: string) {
     .eq('webhook_id', webhookId)
 }
 
-export async function storeWebhookEvent(eventName: string, body: WebhookEvent['body']) {
+export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
+  const { body, eventName, playerId, webhookId } = webhookEvent
   const supabase = createAdminClient(cookies())
   const { data } = await supabase
     .from('webhook_events')
     .insert({
       event_name: eventName,
       body,
-      player_id: body.meta.custom_data.user_id,
-      webhook_id: body.meta.webhook_id,
+      player_id: playerId,
+      webhook_id: webhookId,
     })
     .select()
     .single()

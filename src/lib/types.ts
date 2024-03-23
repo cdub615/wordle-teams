@@ -37,14 +37,12 @@ export type UserToken = JwtPayload & {
 }
 
 export class WebhookEvent {
-  id: number
   playerId: string
   eventName: string
   webhookId: string
   body: any
 
-  constructor(id: number, playerId: string, eventName: string, webhookId: string, body: any) {
-    this.id = id
+  constructor(playerId: string, eventName: string, webhookId: string, body: any) {
     this.playerId = playerId
     this.eventName = eventName
     this.webhookId = webhookId

@@ -207,7 +207,7 @@ export type Database = {
           player_id: string
           processed: boolean
           processing_error: string | null
-          webhook_id: number | null
+          webhook_id: string | null
         }
         Insert: {
           body: Json
@@ -217,7 +217,7 @@ export type Database = {
           player_id: string
           processed?: boolean
           processing_error?: string | null
-          webhook_id?: number | null
+          webhook_id?: string | null
         }
         Update: {
           body?: Json
@@ -227,7 +227,7 @@ export type Database = {
           player_id?: string
           processed?: boolean
           processing_error?: string | null
-          webhook_id?: number | null
+          webhook_id?: string | null
         }
         Relationships: [
           {

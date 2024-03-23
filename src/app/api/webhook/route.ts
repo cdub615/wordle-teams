@@ -1,6 +1,7 @@
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
 import { log } from 'next-axiom'
+import {WebhookEvent} from '@/lib/types'
 
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -28,7 +29,13 @@ export async function POST(request: Request) {
     // Type guard to check if the object has a 'meta' property.
     if (webhookHasMeta(data)) {
       log.info('trying to store webhook event')
-      const webhookEventId = await storeWebhookEvent(data.meta.event_name, data)
+      const webhookEvent: WebhookEvent = {
+        playerId: data.meta.custom_data.user_id,
+        eventName: data.meta.event_name,
+        webhookId: data.meta.webhook_id,
+        body: data,
+      }
+      const webhookEventId = await storeWebhookEvent(webhookEvent)
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })
       }
