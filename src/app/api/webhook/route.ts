@@ -25,6 +25,11 @@ export async function POST(request: Request) {
 
     // Type guard to check if the object has a 'meta' property.
     if (webhookHasMeta(data)) {
+      log.info('Storing webhook event', {
+        eventName: data.meta.event_name,
+        player_id: data.meta.custom_data.user_id,
+        webhook_id: data.meta.webhook_id,
+      })
       const webhookEventId = await storeWebhookEvent(data.meta.event_name, data)
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })

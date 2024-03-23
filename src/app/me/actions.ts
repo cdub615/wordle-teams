@@ -255,11 +255,6 @@ export async function processWebhookEvent(webhookId: string) {
 
 export async function storeWebhookEvent(eventName: string, body: WebhookEvent['body']) {
   const supabase = createAdminClient(cookies())
-  log.info('Storing webhook event', {
-    eventName,
-    player_id: body.meta.custom_data.user_id,
-    webhook_id: body.meta.webhook_id,
-  })
   const { data } = await supabase
     .from('webhook_events')
     .insert({

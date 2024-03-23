@@ -12,6 +12,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 export function webhookHasMeta(obj: unknown): obj is {
   meta: {
     event_name: string
+    webhook_id: string
     custom_data: {
       user_id: string
     }
