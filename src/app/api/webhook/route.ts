@@ -16,7 +16,6 @@ export async function POST(request: Request) {
   }
 
   const rawBody = await request.text()
-  log.info('Webhook received', { rawBody })
   const { fromLemonSqueezy, fromSupabase } = validateSignature(request.headers.get('X-Signature') ?? '')
   if (!fromLemonSqueezy && !fromSupabase) {
     return new Response('Invalid signature', { status: 400 })
@@ -35,6 +34,8 @@ export async function POST(request: Request) {
         webhookId: data.meta.webhook_id,
         body: data,
       }
+
+      log.info('webhookEvent', { playerId: webhookEvent.playerId, eventName: webhookEvent.eventName, webhookId: webhookEvent.webhookId })
       const webhookEventId = await storeWebhookEvent(webhookEvent)
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })
