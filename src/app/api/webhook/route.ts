@@ -37,8 +37,14 @@ export async function POST(request: Request) {
   }
 
   if (fromSupabase) {
-    const webhookEvent = JSON.parse(rawBody) as WebhookEvent
-    await processWebhookEvent(webhookEvent)
+    try {
+      const webhookEvent = JSON.parse(rawBody) as WebhookEvent
+      await processWebhookEvent(webhookEvent)
+      return new Response('OK', { status: 200 })
+    } catch (error) {
+      log.error(error)
+      return new Response('Failed to process webhook event', { status: 500 })
+    }
   }
 }
 
