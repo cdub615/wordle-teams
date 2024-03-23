@@ -1,6 +1,7 @@
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
+import { log } from 'next-axiom'
 
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
       await processWebhookEvent(webhookEvent)
       return new Response('OK', { status: 200 })
     } catch (error) {
-      log.error(error)
+      log.error(error as any)
       return new Response('Failed to process webhook event', { status: 500 })
     }
   }
