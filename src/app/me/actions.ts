@@ -12,7 +12,7 @@ import type {
   player_with_scores,
 } from '@/lib/types'
 import { getSession } from '@/lib/utils'
-import { UUID, randomUUID } from 'crypto'
+import { randomUUID } from 'crypto'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
@@ -256,7 +256,7 @@ export async function processWebhookEvent(webhookId: string) {
 export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
   const { body, eventName, playerId, webhookId } = webhookEvent
   const supabase = createAdminClient(cookies())
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('webhook_events')
     .insert({
       event_name: eventName,
@@ -266,6 +266,8 @@ export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
     })
     .select()
     .single()
+
+  if (error) log.error('Failed to store webhook event', { error: error?.message })
 
   return data?.id
 }
