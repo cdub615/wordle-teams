@@ -1,6 +1,6 @@
 import { isSameMonth, isWeekend } from 'date-fns'
 import { JwtPayload } from 'jwt-decode'
-import { Tables, Enums } from './database.types'
+import { Enums, Tables } from './database.types'
 export type players = Tables<'players'>
 export type player_customer = Tables<'player_customer'>
 export type daily_scores = Tables<'daily_scores'>
@@ -40,12 +40,14 @@ export class WebhookEvent {
   id: number
   playerId: string
   eventName: string
+  webhookId: string
   body: any
 
-  constructor(id: number, playerId: string, eventName: string, body: any) {
+  constructor(id: number, playerId: string, eventName: string, webhookId: string, body: any) {
     this.id = id
     this.playerId = playerId
     this.eventName = eventName
+    this.webhookId = webhookId
     this.body = body
   }
 }

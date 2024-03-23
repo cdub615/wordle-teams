@@ -71,24 +71,24 @@ export type Database = {
       }
       player_customer: {
         Row: {
-          customer_id: number
-          customer_portal_url: string
+          customer_id: number | null
+          customer_portal_url: string | null
           id: string
           membership_status: Database["public"]["Enums"]["member_status"]
           membership_variant: number | null
           player_id: string
         }
         Insert: {
-          customer_id: number
-          customer_portal_url: string
-          id: string
+          customer_id?: number | null
+          customer_portal_url?: string | null
+          id?: string
           membership_status: Database["public"]["Enums"]["member_status"]
           membership_variant?: number | null
           player_id: string
         }
         Update: {
-          customer_id?: number
-          customer_portal_url?: string
+          customer_id?: number | null
+          customer_portal_url?: string | null
           id?: string
           membership_status?: Database["public"]["Enums"]["member_status"]
           membership_variant?: number | null
@@ -207,6 +207,7 @@ export type Database = {
           player_id: string
           processed: boolean
           processing_error: string | null
+          webhook_id: number | null
         }
         Insert: {
           body: Json
@@ -216,6 +217,7 @@ export type Database = {
           player_id: string
           processed?: boolean
           processing_error?: string | null
+          webhook_id?: number | null
         }
         Update: {
           body?: Json
@@ -225,6 +227,7 @@ export type Database = {
           player_id?: string
           processed?: boolean
           processing_error?: string | null
+          webhook_id?: number | null
         }
         Relationships: [
           {

@@ -193,21 +193,21 @@ export async function removePlayer(formData: FormData) {
   return { success: true, message: 'Successfully removed player' }
 }
 
-export async function processWebhookEvent(webhookEvent: WebhookEvent) {
+export async function processWebhookEvent(webhookId: string) {
   const supabase = createAdminClient(cookies())
 
-  const dbwebhookEvent = await supabase.from('webhook_events').select().eq('id', webhookEvent.id).maybeSingle()
+  const { data, error } = await supabase.from('webhook_events').select().eq('webhook_id', webhookId).maybeSingle()
 
-  if (!dbwebhookEvent) {
-    throw new Error(`Webhook event #${webhookEvent.id} not found in the database.`)
+  if (error || !data) {
+    throw new Error(`Failed to get webhook event #${webhookId} not found in the database.`)
   }
 
   let processingError = ''
-  const eventBody = webhookEvent.body
+  const eventBody = data.body
 
   if (!webhookHasMeta(eventBody)) {
     processingError = "Event body is missing the 'meta' property."
-  } else if (webhookHasData(eventBody) && webhookEvent.eventName.startsWith('subscription_')) {
+  } else if (webhookHasData(eventBody) && data.event_name.startsWith('subscription_')) {
     /**
       subscription_created
       subscription_updated
@@ -220,11 +220,11 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
     let variantId = attributes.variant_id as number | null
     const freeVariantId = await getFreeVariantId()
     let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
-    if (webhookEvent.eventName.includes('cancelled')) {
+    if (data.event_name.includes('cancelled')) {
       membershipStatus = 'cancelled' as member_status
       variantId = null
     }
-    if (webhookEvent.eventName.includes('expired')) {
+    if (data.event_name.includes('expired')) {
       membershipStatus = 'expired' as member_status
       variantId = null
     }
@@ -250,7 +250,7 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
   await supabase
     .from('webhook_events')
     .update({ processed: true, processing_error: processingError })
-    .eq('id', webhookEvent.id)
+    .eq('webhook_id', webhookId)
 }
 
 export async function storeWebhookEvent(eventName: string, body: WebhookEvent['body']) {
@@ -261,6 +261,7 @@ export async function storeWebhookEvent(eventName: string, body: WebhookEvent['b
       event_name: eventName,
       body,
       player_id: body.meta.custom_data.user_id,
+      webhook_id: body.meta.webhook_id,
     })
     .select()
     .single()

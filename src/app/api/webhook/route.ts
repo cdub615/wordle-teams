@@ -1,6 +1,5 @@
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
-import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
 
 export async function POST(request: Request) {
@@ -39,8 +38,8 @@ export async function POST(request: Request) {
 
   if (fromSupabase) {
     try {
-      const webhookEvent = JSON.parse(rawBody) as WebhookEvent
-      await processWebhookEvent(webhookEvent)
+      const { webhookId } = JSON.parse(rawBody) as { webhookId: string }
+      await processWebhookEvent(webhookId)
       return new Response('OK', { status: 200 })
     } catch (error) {
       log.error(error as any)
