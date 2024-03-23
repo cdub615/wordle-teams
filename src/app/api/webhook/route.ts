@@ -15,21 +15,19 @@ export async function POST(request: Request) {
   }
 
   const rawBody = await request.text()
+  log.info('Webhook received', { rawBody })
   const { fromLemonSqueezy, fromSupabase } = validateSignature(request.headers.get('X-Signature') ?? '')
   if (!fromLemonSqueezy && !fromSupabase) {
     return new Response('Invalid signature', { status: 400 })
   }
 
   if (fromLemonSqueezy) {
+    log.info('from lemon squeezy')
     const data = JSON.parse(rawBody) as unknown
 
     // Type guard to check if the object has a 'meta' property.
     if (webhookHasMeta(data)) {
-      log.info('Storing webhook event', {
-        eventName: data.meta.event_name,
-        player_id: data.meta.custom_data.user_id,
-        webhook_id: data.meta.webhook_id,
-      })
+      log.info('trying to store webhook event')
       const webhookEventId = await storeWebhookEvent(data.meta.event_name, data)
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })
@@ -43,7 +41,9 @@ export async function POST(request: Request) {
 
   if (fromSupabase) {
     try {
-      const { webhookId } = JSON.parse(rawBody) as { webhookId: string }
+      log.info('from supabase')
+      const {webhookId} = JSON.parse(rawBody) as {webhookId: string}
+      log.info('webhookId', { webhookId })
       await processWebhookEvent(webhookId)
       return new Response('OK', { status: 200 })
     } catch (error) {
