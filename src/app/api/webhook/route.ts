@@ -40,6 +40,7 @@ export async function POST(request: Request) {
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })
       }
+      processWebhookEvent(data.meta.webhook_id)
 
       return new Response('OK', { status: 200 })
     }
