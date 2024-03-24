@@ -3,16 +3,8 @@
 import { createNewCheckout, getFreeVariantId } from '@/lib/lemonsqueezy'
 import { createAdminClient, createClient } from '@/lib/supabase/actions'
 import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
-import type {
-  User,
-  WebhookEvent,
-  daily_scores,
-  member_status,
-  player_customer,
-  player_with_scores,
-} from '@/lib/types'
+import type { User, WebhookEvent, daily_scores, member_status, player_with_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'
-import { randomUUID } from 'crypto'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
@@ -223,7 +215,7 @@ export async function processWebhookEvent(webhookId: string) {
     const attributes = eventBody.data.attributes
     let variantId = attributes.variant_id as number | null
     const freeVariantId = await getFreeVariantId()
-    log.info('variant and free variant',{ variantId, freeVariantId })
+    log.info('variant and free variant', { variantId, freeVariantId })
     let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
     if (eventName.includes('cancelled')) {
       membershipStatus = 'cancelled' as member_status
@@ -234,23 +226,21 @@ export async function processWebhookEvent(webhookId: string) {
       variantId = null
     }
 
-    const playerCustomer: player_customer = {
-      customer_id: attributes.customer_id as number,
-      customer_portal_url: attributes.urls.customer_portal as string,
-      id: randomUUID() as string,
-      membership_status: membershipStatus,
-      membership_variant: variantId,
-      player_id: eventBody.meta.custom_data.user_id as string,
-    }
+    log.info('updating player customer')
 
-    log.info('upserting player customer', { playerCustomer })
-
-    const { error } = await supabase.from('player_customer').upsert(playerCustomer, { onConflict: 'customer_id' })
+    const { error } = await supabase
+      .from('player_customer')
+      .update({
+        customer_id: attributes.customer_id as number,
+        customer_portal_url: attributes.urls.customer_portal as string,
+        membership_status: membershipStatus,
+        membership_variant: variantId,
+      })
+      .eq('player_id', eventBody.meta.custom_data.user_id)
 
     if (error) {
       processingError = error.message
       log.error('Failed to update player_customer', { error })
-      throw new Error('Failed to update player_customer')
     }
   }
 

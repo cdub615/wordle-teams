@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
     return new Response('Data invalid', { status: 400 })
   }
-
+  // TODO cleanup all this unused mess
   if (fromSupabase) {
     try {
       log.info('from supabase')
