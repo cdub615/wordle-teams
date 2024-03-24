@@ -198,6 +198,7 @@ export async function processWebhookEvent(webhookId: string) {
   let processingError = ''
   const eventBody = data[0].body
   const eventName = data[0].event_name
+  const playerId = data[0].player_id
   log.info('processing webhook event', { webhookId, eventName })
 
   if (!webhookHasMeta(eventBody)) {
@@ -236,7 +237,7 @@ export async function processWebhookEvent(webhookId: string) {
         membership_status: membershipStatus,
         membership_variant: variantId,
       })
-      .eq('player_id', eventBody.meta.custom_data.user_id)
+      .eq('player_id', playerId)
 
     if (error) {
       processingError = error.message
