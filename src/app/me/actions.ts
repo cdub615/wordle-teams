@@ -206,6 +206,7 @@ export async function processWebhookEvent(webhookId: string) {
   let processingError = ''
   const eventBody = data[0].body
   const eventName = data[0].event_name
+  log.info('processing webhook event', { webhookId, eventName })
 
   if (!webhookHasMeta(eventBody)) {
     processingError = "Event body is missing the 'meta' property."
@@ -218,9 +219,11 @@ export async function processWebhookEvent(webhookId: string) {
       subscription_cancelled
       subscription_expired
      */
+    log.info('has meta and has data')
     const attributes = eventBody.data.attributes
     let variantId = attributes.variant_id as number | null
     const freeVariantId = await getFreeVariantId()
+    log.info('variant and free variant',{ variantId, freeVariantId })
     let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
     if (eventName.includes('cancelled')) {
       membershipStatus = 'cancelled' as member_status
@@ -240,6 +243,8 @@ export async function processWebhookEvent(webhookId: string) {
       player_id: eventBody.meta.custom_data.user_id as string,
     }
 
+    log.info('upserting player customer', { playerCustomer })
+
     const { error } = await supabase.from('player_customer').upsert(playerCustomer, { onConflict: 'customer_id' })
 
     if (error) {
@@ -249,10 +254,16 @@ export async function processWebhookEvent(webhookId: string) {
     }
   }
 
-  await supabase
+  log.info('upserted player customer, updating webhook event')
+  const { error: updateError } = await supabase
     .from('webhook_events')
     .update({ processed: true, processing_error: processingError })
     .eq('webhook_id', webhookId)
+
+  if (updateError) {
+    log.error('Failed to update webhook event', { error: updateError?.message })
+    throw new Error('Failed to update webhook event')
+  }
 }
 
 export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
