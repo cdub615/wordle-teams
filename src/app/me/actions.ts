@@ -199,6 +199,7 @@ export async function processWebhookEvent(webhookId: string) {
   const { data, error } = await supabase.from('webhook_events').select().eq('webhook_id', webhookId).maybeSingle()
 
   if (error || !data) {
+    if (error) log.error('Failed to get webhook event', { error: error?.message })
     throw new Error(`Failed to get webhook event #${webhookId} not found in the database.`)
   }
 
