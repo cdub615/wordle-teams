@@ -229,6 +229,8 @@ export async function processWebhookEvent(webhookId: string) {
 
     log.info('updating player customer')
 
+
+    // TODO add an RLS policy to allow update for service role
     const { error } = await supabase
       .from('player_customer')
       .update({
@@ -241,7 +243,9 @@ export async function processWebhookEvent(webhookId: string) {
 
     if (error) {
       processingError = error.message
-      log.error('Failed to update player_customer', { error })
+      log.error('Failed to update player_customer', {error})
+
+      return { success: false, message: 'Failed to update player_customer' }
     }
   }
 
@@ -252,9 +256,11 @@ export async function processWebhookEvent(webhookId: string) {
     .eq('webhook_id', webhookId)
 
   if (updateError) {
-    log.error('Failed to update webhook event', { error: updateError?.message })
-    throw new Error('Failed to update webhook event')
+    log.error('Failed to update webhook event', {error: updateError?.message})
+    return { success: false, message: 'Failed to process webhook event' }
   }
+
+  return { success: true, message: 'Successfully processed webhook event' }
 }
 
 export async function storeWebhookEvent(webhookEvent: WebhookEvent) {

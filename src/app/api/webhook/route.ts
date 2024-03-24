@@ -1,7 +1,7 @@
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
+import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
-import {WebhookEvent} from '@/lib/types'
 
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -35,12 +35,19 @@ export async function POST(request: Request) {
         body: data,
       }
 
-      log.info('webhookEvent', { playerId: webhookEvent.playerId, eventName: webhookEvent.eventName, webhookId: webhookEvent.webhookId })
+      log.info('webhookEvent', {
+        playerId: webhookEvent.playerId,
+        eventName: webhookEvent.eventName,
+        webhookId: webhookEvent.webhookId,
+      })
       const webhookEventId = await storeWebhookEvent(webhookEvent)
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })
       }
-      processWebhookEvent(data.meta.webhook_id)
+      const { success } = await processWebhookEvent(webhookEvent.webhookId)
+      if (!success) {
+        return new Response('Failed to process webhook event', { status: 500 })
+      }
 
       return new Response('OK', { status: 200 })
     }
@@ -51,7 +58,7 @@ export async function POST(request: Request) {
   if (fromSupabase) {
     try {
       log.info('from supabase')
-      const {webhookId} = JSON.parse(rawBody) as {webhookId: string}
+      const { webhookId } = JSON.parse(rawBody) as { webhookId: string }
       log.info('webhookId', { webhookId })
       await processWebhookEvent(webhookId)
       return new Response('OK', { status: 200 })
