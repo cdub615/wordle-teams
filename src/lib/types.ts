@@ -24,7 +24,7 @@ export type User = {
   email: string
   memberStatus: 'new' | 'free' | 'pro'
   memberVariant: number | null
-  billingPortalUrl: string | null
+  customerId: number | null
 }
 
 export type UserToken = JwtPayload & {
@@ -32,7 +32,7 @@ export type UserToken = JwtPayload & {
   user_member_variant: number | null
   user_first_name: string
   user_last_name: string
-  user_customer_portal_url: string | null
+  user_customer_id: number | null
   // TODO once we add OAuth providers, add avatar image
 }
 

@@ -13,45 +13,54 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { redirect } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
 export default function UserDropdown({ user }: { user: User }) {
   const { setTheme } = useTheme()
   const [pending, setPending] = useState(false)
-  const [checkoutUrl, setCheckoutUrl] = useState<string | undefined>(undefined)
-  const [checkoutError, setCheckoutError] = useState<string | undefined>(undefined)
+  const [loading, setLoading] = useState(false)
   const handleLogout = async () => {
     setPending(true)
     await logout()
     setPending(false)
   }
   const memberStatus = user.memberStatus === 'pro' ? 'Pro' : 'Free'
-  useEffect(() => {
-    const customCheckoutUrl = async () => {
-      const { checkoutUrl, error } = await getCheckoutUrl(user)
-      if (error) setCheckoutError(error)
-      if (checkoutUrl) setCheckoutUrl(checkoutUrl)
-    }
-    if (!checkoutUrl && user.memberStatus !== 'pro') customCheckoutUrl()
-  }, [checkoutUrl])
-  const handleUpgrade = () => {
-    if (checkoutError) toast.error(checkoutError)
-    if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
+
+  const handleUpgrade = async () => {
+    setLoading(true)
+    const { checkoutUrl, error } = await getCheckoutUrl(user)
+    if (error) toast.error(error)
+    else if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
+    setLoading(false)
   }
-  const sendToBillingPortal = () => {
-    if (user.billingPortalUrl) redirect(user.billingPortalUrl)
+
+  // TODO add rls policy to allow select on player customer for their own row,
+  // and turn on realtime and listen for updates, and update the User on change
+  const sendToBillingPortal = async () => {
+    setLoading(true)
+    if (!user.customerId) return
+    const url = await getCustomerPortalUrl(user.customerId)
+    if (url) redirect(url)
     else toast.error('Failed to send to billing portal, please try again later.')
+    setLoading(false)
   }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Avatar className='cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'>
+        <Avatar
+          className={cn(
+            loading && 'animate-pulse',
+            'cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'
+          )}
+        >
           {/* <AvatarImage src='' alt='@username' /> */}
           <AvatarFallback className='bg-background p-2'>{`${user.initials}`}</AvatarFallback>
         </Avatar>
@@ -109,7 +118,7 @@ export default function UserDropdown({ user }: { user: User }) {
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => handleLogout()} aria-disabled={pending} disabled={pending}>
+        <DropdownMenuItem onClick={handleLogout} aria-disabled={pending} disabled={pending}>
           <LogOut className='mr-2 h-4 w-4' />
           <span>Log out</span>
           {pending && <Loader2 className='ml-2 h-4 w-4 animate-spin' />}

@@ -1,6 +1,6 @@
 'use server'
 
-import { NewCheckout, createCheckout, lemonSqueezySetup, listProducts } from '@lemonsqueezy/lemonsqueezy.js'
+import { NewCheckout, createCheckout, getCustomer, lemonSqueezySetup, listProducts } from '@lemonsqueezy/lemonsqueezy.js'
 import { log } from 'next-axiom'
 
 const testMode = process.env.ENVIRONMENT !== 'prod'
@@ -73,4 +73,11 @@ export const createNewCheckout = async (name: string, email: string, userId: str
   const { error, data } = await createCheckout(storeId, variantId, newCheckout)
   if (error) log.error(error.message)
   return data ?? undefined
+}
+
+export const getCustomerPortalUrl = async (customerId: number) => {
+  configureLemonSqueezy()
+  const { error, data } = await getCustomer(customerId)
+  if (error) log.error(error.message)
+  return data?.data.attributes.urls?.customer_portal ?? undefined
 }

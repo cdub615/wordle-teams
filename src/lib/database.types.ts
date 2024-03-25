@@ -72,7 +72,6 @@ export type Database = {
       player_customer: {
         Row: {
           customer_id: number | null
-          customer_portal_url: string | null
           id: string
           membership_status: Database["public"]["Enums"]["member_status"]
           membership_variant: number | null
@@ -80,7 +79,6 @@ export type Database = {
         }
         Insert: {
           customer_id?: number | null
-          customer_portal_url?: string | null
           id?: string
           membership_status: Database["public"]["Enums"]["member_status"]
           membership_variant?: number | null
@@ -88,7 +86,6 @@ export type Database = {
         }
         Update: {
           customer_id?: number | null
-          customer_portal_url?: string | null
           id?: string
           membership_status?: Database["public"]["Enums"]["member_status"]
           membership_variant?: number | null

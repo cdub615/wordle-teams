@@ -1,5 +1,6 @@
 'use client'
 
+import { getCheckoutUrl } from '@/app/me/actions'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -15,13 +16,16 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { getMonthsFromScoreDate } from '@/lib/utils'
 import { format, formatISO, parseISO, startOfMonth, subMonths } from 'date-fns'
-import { ChevronDown, Sparkles } from 'lucide-react'
+import { ChevronDown, Loader2, Sparkles } from 'lucide-react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { getScrollAreaHeight } from './utils'
 
 export default function MonthDropdown() {
-  const { teams, teamId, month, setMonth, proMember, checkoutUrl, checkoutError } = useTeams()
+  const [loading, setLoading] = useState(false)
+  const { teams, teamId, month, setMonth, user } = useTeams()
   let startingMonth = subMonths(new Date(), 1)
+  const proMember = user.memberStatus === 'pro'
 
   if (proMember) {
     const earliest = teams.find((t) => t.id === teamId)?.earliestScore?.date ?? new Date().toISOString()
@@ -32,16 +36,25 @@ export default function MonthDropdown() {
   const monthOptions = getMonthsFromScoreDate(startingMonth)
   const scrollAreaHeight = getScrollAreaHeight(monthOptions.length)
   const handleMonthChange = (m: string) => setMonth(parseISO(m))
-  const handleUpgrade = () => {
-    if (checkoutError) toast.error(checkoutError)
-    if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
+  const handleUpgrade = async () => {
+    setLoading(true)
+    const { checkoutUrl, error } = await getCheckoutUrl(user)
+    if (error) toast.error(error)
+    else if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
+    setLoading(false)
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant='outline' className='text-xs px-2 md:text-sm md:px-4'>
-          {format(month, 'MMM yyyy')} <ChevronDown className='ml-1 md:ml-2 h-4 w-4' />
+          {loading ? (
+            <Loader2 className='h-4 w-4 animate-spin' />
+          ) : (
+            <>
+              {format(month, 'MMM yyyy')} <ChevronDown className='ml-1 md:ml-2 h-4 w-4' />
+            </>
+          )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>

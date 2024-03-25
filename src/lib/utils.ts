@@ -85,7 +85,7 @@ export const getUserFromSession = (session: Session) => {
     initials,
     memberStatus: token.user_member_status,
     memberVariant: token.user_member_variant,
-    billingPortalUrl: token.user_customer_portal_url,
+    customerId: token.user_customer_id,
   }
 
   return user

@@ -1,5 +1,6 @@
 'use client'
 
+import { getCheckoutUrl } from '@/app/me/actions'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogTrigger } from '@/components/ui/dialog'
 import {
@@ -13,12 +14,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useTeams } from '@/lib/contexts/teams-context'
-import { ChevronDown, Plus, Sparkles } from 'lucide-react'
+import { ChevronDown, Loader2, Plus, Sparkles } from 'lucide-react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import CreateTeam from './create-team'
 
 export default function TeamsDropdown() {
-  const { teams, teamId, setTeamId, proMember, checkoutUrl, checkoutError } = useTeams()
+  const [loading, setLoading] = useState(false)
+  const { teams, teamId, setTeamId, user } = useTeams()
+  const proMember = user.memberStatus === 'pro'
   const selectedTeam = teams.find((t) => t.id === teamId)
   const teamName = !selectedTeam?.name
     ? 'No team selected'
@@ -26,9 +30,12 @@ export default function TeamsDropdown() {
     ? `${selectedTeam?.name.slice(0, 15)}...`
     : selectedTeam?.name
   const handleTeamChange = (t: string) => setTeamId(Number.parseInt(t))
-  const handleUpgrade = () => {
-    if (checkoutError) toast.error(checkoutError)
-    if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
+  const handleUpgrade = async () => {
+    setLoading(true)
+    const { checkoutUrl, error } = await getCheckoutUrl(user)
+    if (error) toast.error(error)
+    else if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
+    setLoading(false)
   }
 
   if (teams)
@@ -37,7 +44,13 @@ export default function TeamsDropdown() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant='outline' className='text-xs px-2 max-w-[9.5rem] md:text-sm md:px-4 md:max-w-none'>
-              {teamName} <ChevronDown className='ml-1 md:ml-2 h-4 w-4' />
+              {loading ? (
+                <Loader2 className='h-4 w-4 animate-spin' />
+              ) : (
+                <>
+                  {teamName} <ChevronDown className='ml-1 md:ml-2 h-4 w-4' />
+                </>
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align='end'>

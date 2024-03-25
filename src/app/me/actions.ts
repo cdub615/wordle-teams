@@ -276,8 +276,6 @@ export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
     })
     .select()
     .single()
-  // looks like the process webhook is happening on insert, and the function doesnt have access to decrypted secrets
-  // try to create a role for trigger function, apply it and give it the permissions it needs
 
   if (error) log.error('Failed to store webhook event', { error: error?.message })
 
