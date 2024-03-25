@@ -19,13 +19,14 @@ import { cn } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
-import { redirect } from 'next/navigation'
+import { redirect, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
 export default function UserDropdown({ user }: { user: User }) {
-  const { setTheme } = useTheme()
+  const {setTheme} = useTheme()
+  const router = useRouter()
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
   const handleLogout = async () => {
@@ -52,7 +53,7 @@ export default function UserDropdown({ user }: { user: User }) {
       toast.error('Failed to send to billing portal, please try again later.')
     } else {
       const url = await getCustomerPortalUrl(user.customerId)
-      if (url) window.LemonSqueezy.Url.Open(url)
+      if (url) router.push(url)
       else toast.error('Failed to send to billing portal, please try again later.')
     }
     setLoading(false)
