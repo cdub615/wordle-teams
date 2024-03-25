@@ -16,14 +16,14 @@ export default async function Page() {
 
   if (!teams || teams.length === 0)
     return (
-      <TeamsProvider initialTeams={teams} user={user}>
+      <TeamsProvider initialTeams={teams} _user={user}>
         <NoTeams />
       </TeamsProvider>
     )
 
   return (
     <div className='p-2 grid gap-2 md:grid-cols-3 md:p-12 md:gap-6'>
-      <TeamsProvider initialTeams={teams} user={user}>
+      <TeamsProvider initialTeams={teams} _user={user}>
         <ActionButtons classes={'md:col-span-3'} userId={user.id} />
         <Suspense fallback={<SkeletonTable classes={'md:col-span-3'} />}>
           <ScoresTable classes={'md:col-span-3'} />
