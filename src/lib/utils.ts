@@ -73,6 +73,7 @@ export const getSession = async (supabase: SupabaseClient<Database>) => {
 
 export const getUserFromSession = (session: Session) => {
   const token = jwtDecode<UserToken>(session.access_token)
+  log.info(`token`, token)
   const firstName = token.user_first_name ?? ''
   const lastName = token.user_last_name ?? ''
   const initials =
