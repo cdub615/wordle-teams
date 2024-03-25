@@ -17,6 +17,7 @@ import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
+import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { redirect } from 'next/navigation'
 import { useState } from 'react'
@@ -46,10 +47,14 @@ export default function UserDropdown({ user }: { user: User }) {
   // and turn on realtime and listen for updates, and update the User on change
   const sendToBillingPortal = async () => {
     setLoading(true)
-    if (!user.customerId) return
-    const url = await getCustomerPortalUrl(user.customerId)
-    if (url) redirect(url)
-    else toast.error('Failed to send to billing portal, please try again later.')
+    if (!user.customerId) {
+      log.warn(`Billing link showed but no customer id for user ${user.id}`)
+      toast.error('Failed to send to billing portal, please try again later.')
+    } else {
+      const url = await getCustomerPortalUrl(user.customerId)
+      if (url) redirect(url)
+      else toast.error('Failed to send to billing portal, please try again later.')
+    }
     setLoading(false)
   }
   return (
