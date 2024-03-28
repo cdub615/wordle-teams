@@ -2,6 +2,7 @@ import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
+import crypto from 'node:crypto'
 
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -9,19 +10,12 @@ export async function POST(request: Request) {
       status: 500,
     })
   }
-  if (!process.env.SUPABASE_WEBHOOK_SECRET) {
-    return new Response('Supabase Webhook Secret not set in .env', {
-      status: 500,
-    })
-  }
 
   const rawBody = await request.text()
-  const { fromLemonSqueezy, fromSupabase } = validateSignature(request.headers.get('X-Signature') ?? '')
-  if (!fromLemonSqueezy && !fromSupabase) {
-    return new Response('Invalid signature', { status: 400 })
-  }
+  const signature = request.headers.get('X-Signature') ?? ''
 
-  if (fromLemonSqueezy) {
+  if (!validSignature(signature, rawBody)) return new Response('Invalid signature', { status: 400 })
+  else {
     log.info('from lemon squeezy')
     const data = JSON.parse(rawBody) as unknown
 
@@ -54,27 +48,20 @@ export async function POST(request: Request) {
 
     return new Response('Data invalid', { status: 400 })
   }
-  // TODO cleanup all this unused mess
-  if (fromSupabase) {
-    try {
-      log.info('from supabase')
-      const { webhookId } = JSON.parse(rawBody) as { webhookId: string }
-      log.info('webhookId', { webhookId })
-      await processWebhookEvent(webhookId)
-      return new Response('OK', { status: 200 })
-    } catch (error) {
-      log.error(error as any)
-      return new Response('Failed to process webhook event', { status: 500 })
-    }
-  }
 }
 
-const validateSignature = (signature: string) => {
-  const lemonSqueezySecret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET
-  const supabaseSecret = process.env.SUPABASE_WEBHOOK_SECRET
+const validSignature = (signature: string, rawBody: string) => {
+  const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET!
 
-  const fromLemonSqueezy = signature === lemonSqueezySecret
-  const fromSupabase = signature === supabaseSecret
+  log.info('signature', { signature })
 
-  return { fromLemonSqueezy, fromSupabase }
+  const hmac = crypto.createHmac('sha256', secret)
+  const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
+  const signatureBuffer = Buffer.from(signature, 'utf8')
+
+  log.info(`digest byte length: ${digest.byteLength}, signature byte length: ${signatureBuffer.byteLength}`)
+
+  // if (!crypto.timingSafeEqual(digest, signatureBuffer)) return false
+
+  return signature === secret
 }

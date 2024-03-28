@@ -19,13 +19,13 @@ import { cn } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
-import { redirect, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
 export default function UserDropdown({ user }: { user: User }) {
-  const {setTheme} = useTheme()
+  const { setTheme } = useTheme()
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
