@@ -5,6 +5,7 @@ import { log } from 'next-axiom'
 import crypto from 'node:crypto'
 
 export async function POST(request: Request) {
+  log.info('executing webhook POST')
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
     return new Response('Lemon Squeezy Webhook Secret not set in .env', {
       status: 500,

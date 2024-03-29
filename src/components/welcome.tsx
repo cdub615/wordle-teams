@@ -18,7 +18,7 @@ export default async function Welcome() {
     <div className='flex flex-col w-full'>
       <AppBar />
       <h1 className={`${GeistSans.className} pt-8 md:pt-16 pb-2 text-center text-3xl md:text-6xl`}>
-        Compete with your friends
+        Compete with friends
       </h1>
       <span className='text-muted-foreground text-lg text-center md:leading-loose'>
         Keep score among friends to establish Wordle bragging rights
