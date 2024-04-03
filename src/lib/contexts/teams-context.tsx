@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { Team, User, player_customer, team_with_players } from '@/lib/types'
 import { getUserFromSession } from '@/lib/utils'
+import {log} from 'next-axiom'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
 
 type TeamsContext = {
