@@ -43,7 +43,8 @@ export default function UserDropdown({ user }: { user: User }) {
   useEffect(() => {
     const channel = supabase
       .channel('player membership')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'player_customer' }, (payload) => {
+      .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'player_customer'}, (payload) => {
+        log.info('player membership update, processing in user-dropdown', payload)
         const updated = payload.new as player_customer
         setProMember(updated.membership_status === 'pro')
       })

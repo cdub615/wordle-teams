@@ -48,7 +48,8 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
   useEffect(() => {
     const channel = supabase
       .channel('player membership')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'player_customer' }, (payload) => {
+      .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'player_customer'}, (payload) => {
+        log.info('player membership update, processing in teams-context', payload)
         const updated = payload.new as player_customer
         setUser({ ...user, memberStatus: updated.membership_status, memberVariant: updated.membership_variant })
       })
