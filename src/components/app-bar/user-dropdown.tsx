@@ -1,3 +1,5 @@
+'use client'
+
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -14,27 +16,43 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
-import { User } from '@/lib/types'
+import { createClient } from '@/lib/supabase/client'
+import { User, player_customer } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
 export default function UserDropdown({ user }: { user: User }) {
+  const supabase = createClient()
   const { setTheme } = useTheme()
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [proMember, setProMember] = useState(user.memberStatus === 'pro')
   const handleLogout = async () => {
     setPending(true)
     await logout()
     setPending(false)
   }
-  const memberStatus = user.memberStatus === 'pro' ? 'Pro' : 'Free'
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('player membership')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'player_customer' }, (payload) => {
+        const updated = payload.new as player_customer
+        setProMember(updated.membership_status === 'pro')
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase])
 
   const handleUpgrade = async () => {
     setLoading(true)
@@ -76,7 +94,7 @@ export default function UserDropdown({ user }: { user: User }) {
           <span>
             {user.firstName} {user.lastName}
           </span>
-          <Badge variant={memberStatus === 'Pro' ? 'success' : 'default'}>{memberStatus}</Badge>
+          <Badge variant={proMember ? 'success' : 'default'}>{proMember ? 'Pro' : 'Free'}</Badge>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {/* <DropdownMenuItem>
@@ -112,7 +130,7 @@ export default function UserDropdown({ user }: { user: User }) {
             <span>New Team</span>
           </DropdownMenuItem> */}
         </DropdownMenuGroup>
-        {user.memberStatus === 'pro' ? (
+        {proMember ? (
           <DropdownMenuItem onClick={sendToBillingPortal}>
             <CreditCard className='mr-2 h-4 w-4' />
             <span>Billing</span>

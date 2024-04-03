@@ -1,7 +1,7 @@
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
-import { Team, User, team_with_players } from '@/lib/types'
+import { Team, User, player_customer, team_with_players } from '@/lib/types'
 import { getUserFromSession } from '@/lib/utils'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
 
@@ -43,7 +43,21 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
       }
     })
     return subscription.unsubscribe()
-  }, [])
+  }, [supabase])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('player membership')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'player_customer' }, (payload) => {
+        const updated = payload.new as player_customer
+        setUser({ ...user, memberStatus: updated.membership_status, memberVariant: updated.membership_variant })
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase])
 
   return (
     <TeamsContext.Provider

@@ -22,13 +22,13 @@ export type User = {
   lastName: string
   initials: string
   email: string
-  memberStatus: 'new' | 'free' | 'pro'
+  memberStatus: member_status
   memberVariant: number | null
   customerId: number | null
 }
 
 export type UserToken = JwtPayload & {
-  user_member_status: 'new' | 'free' | 'pro'
+  user_member_status: member_status
   user_member_variant: number | null
   user_first_name: string
   user_last_name: string
