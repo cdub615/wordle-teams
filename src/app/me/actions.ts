@@ -229,13 +229,10 @@ export async function processWebhookEvent(webhookId: string) {
 
     log.info('updating player customer')
 
-
-    // TODO add an RLS policy to allow update for service role
     const { error } = await supabase
       .from('player_customer')
       .update({
         customer_id: attributes.customer_id as number,
-        customer_portal_url: attributes.urls.customer_portal as string,
         membership_status: membershipStatus,
         membership_variant: variantId,
       })

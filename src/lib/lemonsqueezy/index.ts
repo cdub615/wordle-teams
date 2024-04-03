@@ -76,10 +76,8 @@ export const createNewCheckout = async (name: string, email: string, userId: str
 }
 
 export const getCustomerPortalUrl = async (customerId: number) => {
-  log.info(`getting customer portal url for customer ${customerId}`)
   configureLemonSqueezy()
   const { error, data } = await getCustomer(customerId)
-  log.info(`received`, { data: data?.data.attributes.urls?.customer_portal })
   if (error) log.error(error.message)
   return data?.data.attributes.urls?.customer_portal ?? undefined
 }
