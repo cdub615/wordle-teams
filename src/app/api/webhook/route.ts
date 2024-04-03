@@ -51,18 +51,17 @@ export async function POST(request: Request) {
   }
 }
 
-const validSignature = (signature: string, rawBody: string) => {
-  const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET!
+const validSignature = (signature: string, rawBody: string): boolean => {
+  try {
+    const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET!
 
-  log.info('signature', { signature })
+    const hmac = crypto.createHmac('sha256', secret)
+    const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
+    const signatureBuffer = Buffer.from(signature, 'utf8')
 
-  const hmac = crypto.createHmac('sha256', secret)
-  const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
-  const signatureBuffer = Buffer.from(signature, 'utf8')
-
-  log.info(`digest byte length: ${digest.byteLength}, signature byte length: ${signatureBuffer.byteLength}`)
-
-  // if (!crypto.timingSafeEqual(digest, signatureBuffer)) return false
-
-  return signature === secret
+    return crypto.timingSafeEqual(digest, signatureBuffer)
+  } catch (error: any) {
+    log.error('Failed to validate webhook signature', { error: error.message })
+    return false
+  }
 }
