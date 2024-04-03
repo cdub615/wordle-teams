@@ -43,10 +43,11 @@ export default function UserDropdown({ user }: { user: User }) {
   useEffect(() => {
     const channel = supabase
       .channel('player membership')
-      .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'player_customer', filter: `player_id=eq.${user.id}`}, (payload) => {
+      .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'player_customer'/*, filter: `player_id=eq.${user.id}`*/}, (payload) => {
         log.info('player membership update, processing in user-dropdown', payload)
         const updated = payload.new as player_customer
-        setProMember(updated.membership_status === 'pro')
+        if (updated.player_id === user.id)
+          setProMember(updated.membership_status === 'pro')
       })
       .subscribe()
 
@@ -66,7 +67,7 @@ export default function UserDropdown({ user }: { user: User }) {
   // TODO add rls policy to allow select on player customer for their own row,
   // and turn on realtime and listen for updates, and update the User on change
 
-  // TODO configure custom auth hook in prod, enable realtime for player_customer in prod
+  // TODO configure custom auth hook in prod, enable realtime for player_customer in prod, prevent authapi error due to refresh token expiration
   const sendToBillingPortal = async () => {
     setLoading(true)
     if (!user.customerId) {

@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { Team, User, player_customer, team_with_players } from '@/lib/types'
 import { getUserFromSession } from '@/lib/utils'
-import {log} from 'next-axiom'
+import { log } from 'next-axiom'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
 
 type TeamsContext = {
@@ -49,11 +49,20 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
   useEffect(() => {
     const channel = supabase
       .channel('player membership')
-      .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'player_customer', filter: `player_id=eq.${user.id}`}, (payload) => {
-        log.info('player membership update, processing in teams-context', payload)
-        const updated = payload.new as player_customer
-        setUser({ ...user, memberStatus: updated.membership_status, memberVariant: updated.membership_variant })
-      })
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'player_customer' /*, filter: `player_id=eq.${user.id}`*/ },
+        (payload) => {
+          log.info('player membership update, processing in teams-context', payload)
+          const updated = payload.new as player_customer
+          if (updated.player_id === user.id)
+            setUser({
+              ...user,
+              memberStatus: updated.membership_status,
+              memberVariant: updated.membership_variant,
+            })
+        }
+      )
       .subscribe()
 
     return () => {
