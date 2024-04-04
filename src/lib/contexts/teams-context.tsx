@@ -70,6 +70,15 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
     }
   }, [supabase])
 
+  useEffect(() => {
+    const getStuff = async () => {
+      const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).single()
+      if (error) log.error(error.message)
+      log.info('player_customer', {data})
+    }
+    getStuff()
+  }, [])
+
   return (
     <TeamsContext.Provider
       value={{
