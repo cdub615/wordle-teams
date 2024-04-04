@@ -41,6 +41,15 @@ export default function UserDropdown({ user }: { user: User }) {
   }
 
   useEffect(() => {
+    const getStuff = async () => {
+      const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).single()
+      if (error) log.error(error.message)
+      log.info('player_customer', {data})
+    }
+    getStuff()
+  }, [])
+
+  useEffect(() => {
     const channel = supabase
       .channel('player membership')
       .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'player_customer'/*, filter: `player_id=eq.${user.id}`*/}, (payload) => {
