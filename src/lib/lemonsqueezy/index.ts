@@ -59,7 +59,7 @@ export const createNewCheckout = async (name: string, email: string, userId: str
     },
     checkoutOptions: {
       dark: true,
-      embed: true,
+      embed: false,
     },
     checkoutData: {
       email,

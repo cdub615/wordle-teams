@@ -18,7 +18,7 @@ import {
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
-import { cn, getUserFromSession } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
@@ -50,30 +50,19 @@ export default function UserDropdown({ user }: { user: User }) {
   }, [])
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      log.info('processing auth state change in user dropdown', { event, session })
-      if (session) {
-        const user = getUserFromSession(session)
-        setProMember(user.memberStatus === 'pro')
-      }
-    })
-    return subscription.unsubscribe()
+    const getPlayerCustomer = async () => {
+      const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).maybeSingle()
+      if (error) log.error(error.message)
+      if (data && data.membership_status !== user.memberStatus) setProMember(data.membership_status === 'pro')
+    }
+    getPlayerCustomer()
   }, [supabase])
 
   const handleUpgrade = async () => {
     setLoading(true)
     const { checkoutUrl, error } = await getCheckoutUrl(user)
     if (error) toast.error(error)
-    else if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
-    setLoading(false)
-  }
-
-  const refreshToken = async () => {
-    setLoading(true)
-    const { error } = await supabase.auth.refreshSession()
-    if (error) toast.error(error.message)
+    else if (checkoutUrl) router.push(checkoutUrl)
     setLoading(false)
   }
 
@@ -153,10 +142,6 @@ export default function UserDropdown({ user }: { user: User }) {
             <span>New Team</span>
           </DropdownMenuItem> */}
         </DropdownMenuGroup>
-        <DropdownMenuItem onClick={refreshToken}>
-          <Sparkles className='mr-2 h-4 w-4' />
-          <span>Refresh Token</span>
-        </DropdownMenuItem>
         {proMember ? (
           <DropdownMenuItem onClick={sendToBillingPortal}>
             <CreditCard className='mr-2 h-4 w-4' />
