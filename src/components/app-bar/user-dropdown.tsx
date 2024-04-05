@@ -18,7 +18,7 @@ import {
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { createClient } from '@/lib/supabase/client'
 import { User, player_customer } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { cn, getUserFromSession } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
@@ -50,19 +50,16 @@ export default function UserDropdown({ user }: { user: User }) {
   }, [])
 
   useEffect(() => {
-    const channel = supabase
-      .channel('player membership')
-      .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'player_customer'/*, filter: `player_id=eq.${user.id}`*/}, (payload) => {
-        log.info('player membership update, processing in user-dropdown', payload)
-        const updated = payload.new as player_customer
-        if (updated.player_id === user.id)
-          setProMember(updated.membership_status === 'pro')
-      })
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      log.info('processing auth state change in user dropdown', { event, session })
+      if (session) {
+        const user = getUserFromSession(session)
+        setProMember(user.memberStatus === 'pro')
+      }
+    })
+    return subscription.unsubscribe()
   }, [supabase])
 
   const handleUpgrade = async () => {
@@ -73,10 +70,16 @@ export default function UserDropdown({ user }: { user: User }) {
     setLoading(false)
   }
 
-  // TODO add rls policy to allow select on player customer for their own row,
-  // and turn on realtime and listen for updates, and update the User on change
 
-  // TODO configure custom auth hook in prod, enable realtime for player_customer in prod, prevent authapi error due to refresh token expiration
+  /*  TODO
+
+    Turn off realtime, and just check player_customer member status in user dropdown and teams context and refresh token if not a match
+
+    configure custom auth hook in prod, prevent authapi error due to refresh token expiration
+
+  */
+
+
   const sendToBillingPortal = async () => {
     setLoading(true)
     if (!user.customerId) {

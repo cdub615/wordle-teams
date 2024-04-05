@@ -38,36 +38,13 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      log.info('processing auth state change in teams context', { event, session })
       if (session) {
         const user = getUserFromSession(session)
         setUser(user)
       }
     })
     return subscription.unsubscribe()
-  }, [supabase])
-
-  useEffect(() => {
-    const channel = supabase
-      .channel('player membership')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'player_customer' /*, filter: `player_id=eq.${user.id}`*/ },
-        (payload) => {
-          log.info('player membership update, processing in teams-context', payload)
-          const updated = payload.new as player_customer
-          if (updated.player_id === user.id)
-            setUser({
-              ...user,
-              memberStatus: updated.membership_status,
-              memberVariant: updated.membership_variant,
-            })
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
   }, [supabase])
 
   useEffect(() => {

@@ -240,7 +240,7 @@ export async function processWebhookEvent(webhookId: string) {
 
     if (error) {
       processingError = error.message
-      log.error('Failed to update player_customer', {error})
+      log.error('Failed to update player_customer', { error })
 
       return { success: false, message: 'Failed to update player_customer' }
     }
@@ -253,9 +253,11 @@ export async function processWebhookEvent(webhookId: string) {
     .eq('webhook_id', webhookId)
 
   if (updateError) {
-    log.error('Failed to update webhook event', {error: updateError?.message})
+    log.error('Failed to update webhook event', { error: updateError?.message })
     return { success: false, message: 'Failed to process webhook event' }
   }
+
+  await supabase.auth.refreshSession()
 
   return { success: true, message: 'Successfully processed webhook event' }
 }
