@@ -257,8 +257,6 @@ export async function processWebhookEvent(webhookId: string) {
     return { success: false, message: 'Failed to process webhook event' }
   }
 
-  await supabase.auth.refreshSession()
-
   return { success: true, message: 'Successfully processed webhook event' }
 }
 

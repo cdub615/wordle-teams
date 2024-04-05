@@ -38,23 +38,24 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      log.info('processing auth state change in teams context', { event, session })
       if (session) {
         const user = getUserFromSession(session)
         setUser(user)
       }
     })
+
+    const getPlayerCustomer = async () => {
+      const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).maybeSingle()
+      if (error) log.error(error.message)
+      if (data && data.membership_status !== user.memberStatus)
+      {
+        setUser({ ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant })
+      }
+    }
+    getPlayerCustomer()
+
     return subscription.unsubscribe()
   }, [supabase])
-
-  useEffect(() => {
-    const getStuff = async () => {
-      const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).single()
-      if (error) log.error(error.message)
-      log.info('player_customer', {data})
-    }
-    getStuff()
-  }, [])
 
   return (
     <TeamsContext.Provider

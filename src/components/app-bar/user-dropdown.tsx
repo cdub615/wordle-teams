@@ -41,15 +41,6 @@ export default function UserDropdown({ user }: { user: User }) {
   }
 
   useEffect(() => {
-    const getStuff = async () => {
-      const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).single()
-      if (error) log.error(error.message)
-      log.info('player_customer', { data })
-    }
-    getStuff()
-  }, [])
-
-  useEffect(() => {
     const getPlayerCustomer = async () => {
       const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).maybeSingle()
       if (error) log.error(error.message)
@@ -68,9 +59,7 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    Turn off realtime
-
-    do we need to check player_customer table? or does our refreshSession solution work?
+    Turn off realtime via a migration
 
     configure custom auth hook in prod, prevent authapi error due to refresh token expiration
 
