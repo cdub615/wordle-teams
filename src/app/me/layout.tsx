@@ -6,7 +6,7 @@ export default function LoggedInLayout({ children }: { children: React.ReactNode
     <div className='h-screen flex flex-col'>
       <AppBar />
       <ScrollArea className='flex-grow'>
-        <main>{children}</main>
+        <section>{children}</section>
       </ScrollArea>
     </div>
   )

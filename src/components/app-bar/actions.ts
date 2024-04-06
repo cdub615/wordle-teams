@@ -1,11 +1,13 @@
 'use server'
 
+import { createNewCheckout } from '@/lib/lemonsqueezy'
 import { createClient } from '@/lib/supabase/actions'
+import { User } from '@/lib/types'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-export default async function logout() {
+export async function logout() {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
 
@@ -17,4 +19,10 @@ export default async function logout() {
 
   revalidatePath('/', 'layout')
   redirect('/')
+}
+
+export async function getCheckoutUrl(user: User) {
+  const checkout = await createNewCheckout(`${user.firstName} ${user.lastName}`, user.email, user.id)
+  if (checkout?.data?.attributes?.url) return { checkoutUrl: checkout?.data?.attributes?.url }
+  else return { error: 'Failed to create checkout, please try again later.' }
 }

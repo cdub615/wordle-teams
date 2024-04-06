@@ -1,8 +1,10 @@
-import { Player, Team, teams } from '@/lib/types'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import { Player, Team, User, UserToken, teams } from '@/lib/types'
+import { AuthApiError, Session, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMonths, differenceInMonths, startOfMonth } from 'date-fns'
+import { jwtDecode } from 'jwt-decode'
 import { LogSnag } from 'logsnag'
+import { log } from 'next-axiom'
 import { twMerge } from 'tailwind-merge'
 import { Database } from './database.types'
 
@@ -47,26 +49,45 @@ export const playerIdsFromTeams = (teams: teams[]): string[] => {
     : []
 }
 
-export const getImage = (supabase: SupabaseClient<Database>, imageName: string) => {
-  const {
-    data: { publicUrl: userImage },
-  } = supabase.storage.from('images').getPublicUrl(imageName)
-  if (process.env.LOCAL! == 'true')
-    return userImage.replace('http://localhost:54321', process.env.DEV_SUPABASE_URL!)
-  return userImage
-}
-
 export const getSession = async (supabase: SupabaseClient<Database>) => {
   const {
     data: { session },
+    error,
   } = await supabase.auth.getSession()
+  if (error) log.warn(`failed to get session, trying session refresh: ${error.message}`)
+  if (error instanceof AuthApiError && error.message.includes('Refresh Token Not Found')) {
+    const { data, error: refreshError } = await supabase.auth.refreshSession()
+
+    if (refreshError) {
+      log.warn(`Session refresh error, logging out: ${refreshError.message}`)
+      const { error: signOutError } = await supabase.auth.signOut()
+      if (signOutError) {
+        log.warn(`Failed to logout failed, might already be logged out: ${signOutError.message}`)
+      }
+      return null
+    }
+    return data.session
+  }
   return session
 }
 
-export const getUser = async (supabase: SupabaseClient<Database>) => {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+export const getUserFromSession = (session: Session) => {
+  const token = jwtDecode<UserToken>(session.access_token)
+  const firstName = token.user_first_name ?? ''
+  const lastName = token.user_last_name ?? ''
+  const initials =
+    token.user_first_name && token.user_last_name ? `${token.user_first_name[0]}${token.user_last_name[0]}` : 'WT'
+  const user: User = {
+    id: session.user.id,
+    email: session.user.email!,
+    firstName,
+    lastName,
+    initials,
+    memberStatus: token.user_member_status,
+    memberVariant: token.user_member_variant,
+    customerId: token.user_customer_id,
+  }
+
   return user
 }
 
@@ -77,5 +98,7 @@ export const padArray = (arr: string[], length: number) => {
   return arr
 }
 
-export const hasName = (user: User) => !!user.user_metadata.firstName && !!user.user_metadata.lastName
-
+export const hasName = (session: Session) => {
+  const user = getUserFromSession(session)
+  return user.firstName.length > 1 && user.lastName.length > 1
+}

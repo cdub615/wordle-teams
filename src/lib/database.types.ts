@@ -69,6 +69,38 @@ export type Database = {
           },
         ]
       }
+      player_customer: {
+        Row: {
+          customer_id: number | null
+          id: string
+          membership_status: Database["public"]["Enums"]["member_status"]
+          membership_variant: number | null
+          player_id: string
+        }
+        Insert: {
+          customer_id?: number | null
+          id?: string
+          membership_status: Database["public"]["Enums"]["member_status"]
+          membership_variant?: number | null
+          player_id: string
+        }
+        Update: {
+          customer_id?: number | null
+          id?: string
+          membership_status?: Database["public"]["Enums"]["member_status"]
+          membership_variant?: number | null
+          player_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_customer_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       players: {
         Row: {
           created_at: string | null
@@ -97,45 +129,6 @@ export type Database = {
             columns: ["id"]
             isOneToOne: true
             referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      profiles: {
-        Row: {
-          first_name: string | null
-          id: string
-          last_name: string | null
-          selected_month: string | null
-          selected_team: number | null
-        }
-        Insert: {
-          first_name?: string | null
-          id: string
-          last_name?: string | null
-          selected_month?: string | null
-          selected_team?: number | null
-        }
-        Update: {
-          first_name?: string | null
-          id?: string
-          last_name?: string | null
-          selected_month?: string | null
-          selected_team?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "profiles_id_fkey"
-            columns: ["id"]
-            isOneToOne: true
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "profiles_selected_team_fkey"
-            columns: ["selected_team"]
-            isOneToOne: false
-            referencedRelation: "teams"
             referencedColumns: ["id"]
           },
         ]
@@ -202,16 +195,57 @@ export type Database = {
           },
         ]
       }
+      webhook_events: {
+        Row: {
+          body: Json
+          created_at: string
+          event_name: string
+          id: number
+          player_id: string
+          processed: boolean
+          processing_error: string | null
+          webhook_id: string | null
+        }
+        Insert: {
+          body: Json
+          created_at?: string
+          event_name: string
+          id?: number
+          player_id: string
+          processed?: boolean
+          processing_error?: string | null
+          webhook_id?: string | null
+        }
+        Update: {
+          body?: Json
+          created_at?: string
+          event_name?: string
+          id?: number
+          player_id?: string
+          processed?: boolean
+          processing_error?: string | null
+          webhook_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_events_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      earliest_score_for_team: {
+      custom_access_token_hook: {
         Args: {
-          teamid: number
+          event: Json
         }
-        Returns: string
+        Returns: Json
       }
       handle_invited_signup: {
         Args: {
@@ -222,7 +256,7 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      member_status: "new" | "free" | "pro" | "cancelled" | "expired"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -370,7 +404,7 @@ export type Database = {
         Args: {
           name: string
         }
-        Returns: unknown
+        Returns: string[]
       }
       get_size_by_bucket: {
         Args: Record<PropertyKey, never>

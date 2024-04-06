@@ -1,5 +1,6 @@
 'use client'
 
+import { removePlayer } from '@/app/me/actions'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogTrigger } from '@/components/ui/dialog'
@@ -9,7 +10,6 @@ import { useTeams } from '@/lib/contexts/teams-context'
 import { Loader2, Trash2, UserPlus2 } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { removePlayer } from './actions'
 import InvitePlayer from './invite-player'
 
 export default function CurrentTeamClient({ userId }: { userId: string }) {

@@ -27,10 +27,9 @@ export async function GET(request: NextRequest) {
       token_hash,
     })
     if (!error) {
-      const { email } = data.user ?? {}
+      const { email, id } = data.user ?? {}
       const { firstName, lastName } = data.user?.user_metadata ?? {}
       let event = null
-      if (type === 'magiclink') event = 'User Login'
       if (type === 'signup') event = 'User Signup'
       if (type === 'invite') event = 'Invited User Signup'
 
@@ -41,7 +40,7 @@ export async function GET(request: NextRequest) {
           event,
           user_id: email,
           icon: '🧑‍💻',
-          notify: type !== 'magiclink',
+          notify: true,
           tags: {
             email: email!,
             firstname: firstName,
@@ -53,6 +52,8 @@ export async function GET(request: NextRequest) {
 
       if (type === 'invite') {
         const id = data.user?.id ?? ''
+        // TODO update handle_invited_signup to account for the unlikely scenario where
+        // the user has not yet signed up but has more than 2 team invites
         const { error } = await supabase.rpc('handle_invited_signup', {
           invited_email: email ?? '',
           invited_id: id,

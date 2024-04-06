@@ -1,0 +1,1 @@
+grant usage on schema vault to supabase_auth_admin;

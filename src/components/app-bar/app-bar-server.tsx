@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
-import { getUser } from '@/lib/utils'
+import { getSession, getUserFromSession } from '@/lib/utils'
+import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import AppBarBase from './app-bar-base'
 
@@ -8,13 +9,9 @@ export default async function AppBarServer() {
   let user: User | undefined = undefined
 
   const supabase = createClient(cookies())
-  const dbUser = await getUser(supabase)
-
-  if (dbUser) {
-    const firstName = dbUser.user_metadata.firstName
-    const lastName = dbUser.user_metadata.lastName
-    const email = dbUser.email
-    user = { firstName, lastName, email }
+  const session = await getSession(supabase)
+  if (session) {
+    user = getUserFromSession(session)
   }
 
   return <AppBarBase user={user} />
