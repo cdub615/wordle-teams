@@ -185,6 +185,13 @@ export async function removePlayer(formData: FormData) {
   return { success: true, message: 'Successfully removed player' }
 }
 
+const relevantEvents = new Set([
+  'subscription_created',
+  'subscription_resumed',
+  'subscription_cancelled',
+  'subscription_expired',
+])
+
 export async function processWebhookEvent(webhookId: string) {
   const supabase = createAdminClient(cookies())
 
@@ -203,15 +210,7 @@ export async function processWebhookEvent(webhookId: string) {
 
   if (!webhookHasMeta(eventBody)) {
     processingError = "Event body is missing the 'meta' property."
-  } else if (webhookHasData(eventBody) && eventName.startsWith('subscription_')) {
-    /**
-      subscription_created
-      subscription_updated
-      subscription_resumed
-
-      subscription_cancelled
-      subscription_expired
-     */
+  } else if (webhookHasData(eventBody) && relevantEvents.has(eventName)) {
     log.info('has meta and has data')
     const attributes = eventBody.data.attributes
     let variantId = attributes.variant_id as number | null
