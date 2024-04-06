@@ -42,7 +42,11 @@ export default function UserDropdown({ user }: { user: User }) {
 
   useEffect(() => {
     const getPlayerCustomer = async () => {
-      const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).maybeSingle()
+      const { data, error } = await supabase
+        .from('player_customer')
+        .select('*')
+        .eq('player_id', user.id)
+        .maybeSingle()
       if (error) log.error(error.message)
       if (data && data.membership_status !== user.memberStatus) setProMember(data.membership_status === 'pro')
     }
@@ -53,7 +57,7 @@ export default function UserDropdown({ user }: { user: User }) {
     setLoading(true)
     const { checkoutUrl, error } = await getCheckoutUrl(user)
     if (error) toast.error(error)
-    else if (checkoutUrl) router.push(checkoutUrl)
+    else if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
     setLoading(false)
   }
 

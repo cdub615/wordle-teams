@@ -2,6 +2,7 @@
 
 import { Separator } from '@/components/ui/separator'
 import { User } from '@/lib/types'
+import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect } from 'react'
 import UserDropdown from './user-dropdown'
@@ -11,8 +12,16 @@ type AppBarBaseProps = {
 }
 
 export default function AppBarBase({ user }: AppBarBaseProps) {
+  const router = useRouter()
   useEffect(() => {
     window.createLemonSqueezy()
+    window.LemonSqueezy.Setup({
+      eventHandler: (data) => {
+        if (data.event == 'Checkout.Success') {
+          router.refresh()
+        }
+      },
+    })
   }, [])
   return (
     <header>

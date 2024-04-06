@@ -1,6 +1,12 @@
 'use server'
 
-import { NewCheckout, createCheckout, getCustomer, lemonSqueezySetup, listProducts } from '@lemonsqueezy/lemonsqueezy.js'
+import {
+  NewCheckout,
+  createCheckout,
+  getCustomer,
+  lemonSqueezySetup,
+  listProducts,
+} from '@lemonsqueezy/lemonsqueezy.js'
 import { log } from 'next-axiom'
 
 const testMode = process.env.ENVIRONMENT !== 'prod'
@@ -54,12 +60,13 @@ export const createNewCheckout = async (name: string, email: string, userId: str
   const newCheckout: NewCheckout = {
     productOptions: {
       redirectUrl,
-      receiptButtonText: 'Go to Dashboard',
+      receiptButtonText: 'Go to Wordle Teams',
       receiptThankYouNote: 'Thank you for purchasing Wordle Teams!',
+      receiptLinkUrl: redirectUrl,
     },
     checkoutOptions: {
       dark: true,
-      embed: false,
+      embed: true,
     },
     checkoutData: {
       email,
@@ -69,6 +76,7 @@ export const createNewCheckout = async (name: string, email: string, userId: str
       },
     },
     testMode,
+    preview: true,
   }
   const { error, data } = await createCheckout(storeId, variantId, newCheckout)
   if (error) log.error(error.message)

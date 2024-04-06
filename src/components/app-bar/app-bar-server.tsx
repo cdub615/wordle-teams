@@ -12,7 +12,6 @@ export default async function AppBarServer() {
   const session = await getSession(supabase)
   if (session) {
     user = getUserFromSession(session)
-    log.info(`User`, user)
   }
 
   return <AppBarBase user={user} />

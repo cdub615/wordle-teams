@@ -206,16 +206,13 @@ export async function processWebhookEvent(webhookId: string) {
   const eventBody = data[0].body
   const eventName = data[0].event_name
   const playerId = data[0].player_id
-  log.info('processing webhook event', { webhookId, eventName })
 
   if (!webhookHasMeta(eventBody)) {
     processingError = "Event body is missing the 'meta' property."
   } else if (webhookHasData(eventBody) && relevantEvents.has(eventName)) {
-    log.info('has meta and has data')
     const attributes = eventBody.data.attributes
     let variantId = attributes.variant_id as number | null
     const freeVariantId = await getFreeVariantId()
-    log.info('variant and free variant', { variantId, freeVariantId })
     let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
     if (eventName.includes('cancelled')) {
       membershipStatus = 'cancelled' as member_status
@@ -225,8 +222,6 @@ export async function processWebhookEvent(webhookId: string) {
       membershipStatus = 'expired' as member_status
       variantId = null
     }
-
-    log.info('updating player customer')
 
     const { error } = await supabase
       .from('player_customer')
@@ -245,7 +240,6 @@ export async function processWebhookEvent(webhookId: string) {
     }
   }
 
-  log.info('upserted player customer, updating webhook event')
   const { error: updateError } = await supabase
     .from('webhook_events')
     .update({ processed: true, processing_error: processingError })

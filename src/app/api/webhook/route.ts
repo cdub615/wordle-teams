@@ -5,7 +5,6 @@ import { log } from 'next-axiom'
 import crypto from 'node:crypto'
 
 export async function POST(request: Request) {
-  log.info('executing webhook POST')
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
     return new Response('Lemon Squeezy Webhook Secret not set in .env', {
       status: 500,
@@ -17,24 +16,17 @@ export async function POST(request: Request) {
 
   if (!validSignature(signature, rawBody)) return new Response('Invalid signature', { status: 400 })
   else {
-    log.info('from lemon squeezy')
     const data = JSON.parse(rawBody) as unknown
 
     // Type guard to check if the object has a 'meta' property.
     if (webhookHasMeta(data)) {
-      log.info('trying to store webhook event')
+
       const webhookEvent: WebhookEvent = {
         playerId: data.meta.custom_data.user_id,
         eventName: data.meta.event_name,
         webhookId: data.meta.webhook_id,
         body: data,
       }
-
-      log.info('webhookEvent', {
-        playerId: webhookEvent.playerId,
-        eventName: webhookEvent.eventName,
-        webhookId: webhookEvent.webhookId,
-      })
       const webhookEventId = await storeWebhookEvent(webhookEvent)
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })
