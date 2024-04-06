@@ -1,0 +1,1 @@
+alter publication supabase_realtime drop table public.player_customer;

@@ -59,7 +59,9 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    Turn off realtime via a migration
+    score customization
+
+    invite logic for free members
 
     configure custom auth hook in prod, prevent authapi error due to refresh token expiration
 
