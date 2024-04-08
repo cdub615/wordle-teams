@@ -86,6 +86,9 @@ dependencies:
   '@vercel/edge-config':
     specifier: ^0.4.1
     version: 0.4.1
+  '@vercel/kv':
+    specifier: ^1.0.1
+    version: 1.0.1
   '@vercel/speed-insights':
     specifier: ^1.0.8
     version: 1.0.8(next@14.1.0)(react@18.3.0-canary-98b8359f6-20240223)
@@ -2099,6 +2102,12 @@ packages:
       eslint-visitor-keys: 3.4.2
     dev: false
 
+  /@upstash/redis@1.25.1:
+    resolution: {integrity: sha512-ACj0GhJ4qrQyBshwFgPod6XufVEfKX2wcaihsEvSdLYnY+m+pa13kGt1RXm/yTHKf4TQi/Dy2A8z/y6WUEOmlg==}
+    dependencies:
+      crypto-js: 4.2.0
+    dev: false
+
   /@vercel/analytics@1.0.2:
     resolution: {integrity: sha512-BZFxVrv24VbNNl5xMxqUojQIegEeXMI6rX3rg1uVLYUEXsuKNBSAEQf4BWEcjQDp/8aYJOj6m8V4PUA3x/cxgg==}
     dev: false
@@ -2112,6 +2121,13 @@ packages:
     engines: {node: '>=14.6'}
     dependencies:
       '@vercel/edge-config-fs': 0.1.0
+    dev: false
+
+  /@vercel/kv@1.0.1:
+    resolution: {integrity: sha512-uTKddsqVYS2GRAM/QMNNXCTuw9N742mLoGRXoNDcyECaxEXvIHG0dEY+ZnYISV4Vz534VwJO+64fd9XeSggSKw==}
+    engines: {node: '>=14.6'}
+    dependencies:
+      '@upstash/redis': 1.25.1
     dev: false
 
   /@vercel/speed-insights@1.0.8(next@14.1.0)(react@18.3.0-canary-98b8359f6-20240223):
@@ -2542,6 +2558,10 @@ packages:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+    dev: false
+
+  /crypto-js@4.2.0:
+    resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
     dev: false
 
   /cssesc@3.0.0:

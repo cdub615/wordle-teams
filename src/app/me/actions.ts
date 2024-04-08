@@ -5,6 +5,7 @@ import { createAdminClient, createAuthAdminClient, createClient } from '@/lib/su
 import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
 import type { User, WebhookEvent, daily_scores, member_status, player_with_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'
+import { kv } from '@vercel/kv'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
@@ -217,10 +218,12 @@ export async function processWebhookEvent(webhookId: string) {
     if (eventName.includes('cancelled')) {
       membershipStatus = 'cancelled' as member_status
       variantId = null
+      await kv.set(`${process.env.ENVIRONMENT}_${playerId}`, true)
     }
     if (eventName.includes('expired')) {
       membershipStatus = 'expired' as member_status
       variantId = null
+      await kv.set(`${process.env.ENVIRONMENT}_${playerId}`, true)
     }
 
     const { error } = await supabase

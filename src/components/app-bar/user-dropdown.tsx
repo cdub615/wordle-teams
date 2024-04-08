@@ -19,6 +19,7 @@ import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { kv } from '@vercel/kv'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
@@ -39,6 +40,19 @@ export default function UserDropdown({ user }: { user: User }) {
     await logout()
     setPending(false)
   }
+
+  useEffect(() => {
+    const checkKv = async () => {
+      const refresh = await kv.getdel<boolean>(`${process.env.ENVIRONMENT}_${user.id}`)
+      if (refresh !== null && refresh) {
+        const { error } = await supabase.auth.refreshSession()
+        if (error) log.error(error.message)
+        router.refresh()
+      }
+    }
+
+    checkKv()
+  }, [])
 
   // useEffect(() => {
   //   const getPlayerCustomer = async () => {

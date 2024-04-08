@@ -1,7 +1,7 @@
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
-import { Team, User, player_customer, team_with_players } from '@/lib/types'
+import { Team, User, team_with_players } from '@/lib/types'
 import { getUserFromSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
@@ -38,6 +38,7 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      log.info('processing auth state change')
       if (session) {
         const user = getUserFromSession(session)
         setUser(user)
