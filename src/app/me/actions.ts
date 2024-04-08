@@ -250,6 +250,27 @@ export async function processWebhookEvent(webhookId: string) {
     return { success: false, message: 'Failed to process webhook event' }
   }
 
+  const { data: refreshTokenData, error: getRefreshTokenError } = await supabase
+    .from('auth.refresh_tokens')
+    .select('token')
+    .eq('revoked', false)
+    .eq('user_id', playerId)
+    .returns<string>()
+    .limit(1)
+
+  log.info('Refresh token data:', { refreshTokenData })
+
+  if (getRefreshTokenError) {
+    log.error('Error fetching user:', getRefreshTokenError)
+  }
+
+  const refresh_token = refreshTokenData ?? ''
+  const { error: refreshTokenError } = await supabase.auth.refreshSession({ refresh_token })
+
+  if (refreshTokenError) {
+    log.error('Error refreshing session:', refreshTokenError)
+  }
+
   return { success: true, message: 'Successfully processed webhook event' }
 }
 
