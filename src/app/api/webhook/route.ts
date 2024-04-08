@@ -37,17 +37,8 @@ export async function POST(request: Request) {
         return new Response('Failed to process webhook event', { status: 500 })
       }
 
-      const supabase = createClient(cookies())
-      const { data: sessionData } = await supabase.auth.getSession()
-      const refreshToken = sessionData.session?.refresh_token
-      log.info(`current session found: ${!!sessionData}`, { session: sessionData.session })
-      log.info(`refreshing session with current session: ${refreshToken}`)
-
-      const { error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken ?? '' })
-
-      if (refreshError) {
-        log.error('Failed to refresh session', { error: refreshError?.message })
-      }
+      const cookieStore = cookies()
+      cookieStore.set('refreshSession', 'true')
       return new Response('OK', { status: 200 })
     }
 
