@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
 import { getSession, getUserFromSession } from '@/lib/utils'
-import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import AppBarBase from './app-bar-base'
 

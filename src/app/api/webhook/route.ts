@@ -1,7 +1,9 @@
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
+import { createClient } from '@/lib/supabase/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
+import { cookies } from 'next/headers'
 import crypto from 'node:crypto'
 
 export async function POST(request: Request) {
@@ -20,7 +22,6 @@ export async function POST(request: Request) {
 
     // Type guard to check if the object has a 'meta' property.
     if (webhookHasMeta(data)) {
-
       const webhookEvent: WebhookEvent = {
         playerId: data.meta.custom_data.user_id,
         eventName: data.meta.event_name,
@@ -36,6 +37,12 @@ export async function POST(request: Request) {
         return new Response('Failed to process webhook event', { status: 500 })
       }
 
+      const supabase = createClient(cookies())
+      const { error: refreshError } = await supabase.auth.refreshSession()
+
+      if (refreshError) {
+        log.error('Failed to refresh session', { error: refreshError?.message })
+      }
       return new Response('OK', { status: 200 })
     }
 
