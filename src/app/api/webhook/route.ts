@@ -1,9 +1,7 @@
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
-import { createClient } from '@/lib/supabase/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
-import { cookies } from 'next/headers'
 import crypto from 'node:crypto'
 
 export async function POST(request: Request) {
@@ -37,8 +35,6 @@ export async function POST(request: Request) {
         return new Response('Failed to process webhook event', { status: 500 })
       }
 
-      const cookieStore = cookies()
-      cookieStore.set('refreshSession', 'true')
       return new Response('OK', { status: 200 })
     }
 

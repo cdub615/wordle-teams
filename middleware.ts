@@ -1,7 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { get } from '@vercel/edge-config'
 import { log } from 'next-axiom'
-import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -68,17 +67,6 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   if (!data.user && (pathname.includes('/branding') || pathname.includes('/me'))) {
     return NextResponse.redirect('/login')
-  }
-
-  const cookieStore = cookies()
-  const refreshSession = cookieStore.get('refreshSession')
-  log.info('refreshSession cookie', refreshSession)
-  if (refreshSession && refreshSession.value === 'true') {
-    cookieStore.set('refreshSession', 'false')
-    const { error: refreshError } = await supabase.auth.refreshSession()
-    if (refreshError) {
-      log.error(`Failed to refresh session: ${refreshError.message}`)
-    }
   }
 
   return response
