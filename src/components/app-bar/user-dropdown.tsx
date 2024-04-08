@@ -84,7 +84,7 @@ export default function UserDropdown({ user }: { user: User }) {
       toast.error('Failed to send to billing portal, please try again later.')
     } else {
       const url = await getCustomerPortalUrl(user.customerId)
-      if (url) router.push(url)
+      if (url) window.LemonSqueezy.Url.Open(url)
       else toast.error('Failed to send to billing portal, please try again later.')
     }
     setLoading(false)

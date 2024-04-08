@@ -4,7 +4,6 @@ import { log } from 'next-axiom'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  log.info('executing middleware, trying to see if we can trigger a session refresh after processing a webhook')
   const maintenance = await get<boolean>(`maintenance_${process.env.ENVIRONMENT}`)
   if (maintenance) {
     request.nextUrl.pathname = '/maintenance'

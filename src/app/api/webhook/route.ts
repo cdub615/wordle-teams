@@ -1,7 +1,6 @@
 import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
 import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
-import { createClient } from '@supabase/supabase-js'
 import { log } from 'next-axiom'
 import crypto from 'node:crypto'
 

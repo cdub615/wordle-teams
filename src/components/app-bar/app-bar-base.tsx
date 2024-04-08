@@ -1,7 +1,9 @@
 'use client'
 
 import { Separator } from '@/components/ui/separator'
+import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
+import { log } from 'next-axiom'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect } from 'react'
@@ -13,11 +15,15 @@ type AppBarBaseProps = {
 
 export default function AppBarBase({ user }: AppBarBaseProps) {
   const router = useRouter()
+  const supabase = createClient()
   useEffect(() => {
     window.createLemonSqueezy()
     window.LemonSqueezy.Setup({
-      eventHandler: (data) => {
+      eventHandler: async (data) => {
+        log.info(`LemonSqueezy event: ${data.event}`)
         if (data.event == 'Checkout.Success') {
+          const { error } = await supabase.auth.refreshSession()
+          if (error) log.error(error.message)
           router.refresh()
         }
       },
