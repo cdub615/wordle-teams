@@ -40,18 +40,18 @@ export default function UserDropdown({ user }: { user: User }) {
     setPending(false)
   }
 
-  useEffect(() => {
-    const getPlayerCustomer = async () => {
-      const { data, error } = await supabase
-        .from('player_customer')
-        .select('*')
-        .eq('player_id', user.id)
-        .maybeSingle()
-      if (error) log.error(error.message)
-      if (data && data.membership_status !== user.memberStatus) setProMember(data.membership_status === 'pro')
-    }
-    getPlayerCustomer()
-  }, [supabase])
+  // useEffect(() => {
+  //   const getPlayerCustomer = async () => {
+  //     const { data, error } = await supabase
+  //       .from('player_customer')
+  //       .select('*')
+  //       .eq('player_id', user.id)
+  //       .maybeSingle()
+  //     if (error) log.error(error.message)
+  //     if (data && data.membership_status !== user.memberStatus) setProMember(data.membership_status === 'pro')
+  //   }
+  //   getPlayerCustomer()
+  // }, [supabase])
 
   const handleUpgrade = async () => {
     setLoading(true)
@@ -63,11 +63,17 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
+    configure custom auth hook in prod
+
     score customization
 
     invite logic for free members
 
-    configure custom auth hook in prod, prevent authapi error due to refresh token expiration
+    prevent authapi error due to refresh token expiration
+
+    update og and store images
+
+    teams boards card with date picker and carousel
 
   */
 

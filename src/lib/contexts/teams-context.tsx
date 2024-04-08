@@ -44,15 +44,15 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
       }
     })
 
-    const getPlayerCustomer = async () => {
-      const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).maybeSingle()
-      if (error) log.error(error.message)
-      if (data && data.membership_status !== user.memberStatus)
-      {
-        setUser({ ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant })
-      }
-    }
-    getPlayerCustomer()
+    // const getPlayerCustomer = async () => {
+    //   const { data, error } = await supabase.from('player_customer').select('*').eq('player_id', user.id).maybeSingle()
+    //   if (error) log.error(error.message)
+    //   if (data && data.membership_status !== user.memberStatus)
+    //   {
+    //     setUser({ ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant })
+    //   }
+    // }
+    // getPlayerCustomer()
 
     return subscription.unsubscribe()
   }, [supabase])
