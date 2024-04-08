@@ -1,7 +1,7 @@
 'use server'
 
 import { createNewCheckout, getFreeVariantId } from '@/lib/lemonsqueezy'
-import { createAdminClient, createClient } from '@/lib/supabase/actions'
+import { createAdminClient, createAuthAdminClient, createClient } from '@/lib/supabase/actions'
 import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
 import type { User, WebhookEvent, daily_scores, member_status, player_with_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'
@@ -250,8 +250,10 @@ export async function processWebhookEvent(webhookId: string) {
     return { success: false, message: 'Failed to process webhook event' }
   }
 
-  const { data: refreshTokenData, error: getRefreshTokenError } = await supabase
-    .from('auth.refresh_tokens')
+  const supabaseAuth = createAuthAdminClient(cookies())
+  const { data: refreshTokenData, error: getRefreshTokenError } = await supabaseAuth
+    .schema('auth')
+    .from('refresh_tokens')
     .select('token')
     .eq('revoked', false)
     .eq('user_id', playerId)
