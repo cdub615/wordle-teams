@@ -38,8 +38,8 @@ export async function POST(request: Request) {
       }
 
       const supabase = createClient(cookies())
-      const { data } = await supabase.auth.getSession()
-      const refreshToken = data.session?.refresh_token
+      const { data: sessionData } = await supabase.auth.getSession()
+      const refreshToken = sessionData.session?.refresh_token
       log.info('refreshing session with current session', { refreshToken })
 
       const { error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken ?? '' })
