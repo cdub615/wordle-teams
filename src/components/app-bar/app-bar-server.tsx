@@ -2,9 +2,9 @@ import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
 import { getSession, getUserFromSession } from '@/lib/utils'
 import { kv } from '@vercel/kv'
+import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import AppBarBase from './app-bar-base'
-import {log} from 'next-axiom'
 
 export default async function AppBarServer() {
   let user: User | undefined = undefined
@@ -18,8 +18,11 @@ export default async function AppBarServer() {
   if (user) {
     const refresh = await kv.getdel<boolean>(`${process.env.ENVIRONMENT}_${user.id}`)
     if (refresh !== null && refresh) {
-      const { error } = await supabase.auth.refreshSession()
+      const { data, error } = await supabase.auth.refreshSession()
       if (error) log.error(error.message)
+      if (data?.session) {
+        user = getUserFromSession(data.session)
+      }
     }
   }
 

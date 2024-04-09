@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Team, User, team_with_players } from '@/lib/types'
 import { getUserFromSession } from '@/lib/utils'
 import { log } from 'next-axiom'
+import { revalidatePath } from 'next/cache'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
 
 type TeamsContext = {
@@ -38,6 +39,7 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      revalidatePath('/me', 'layout')
       log.info('processing auth state change')
       console.log('processing auth state change')
       if (session) {

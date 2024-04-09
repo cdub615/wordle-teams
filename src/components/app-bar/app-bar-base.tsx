@@ -3,7 +3,9 @@
 import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
+import { getUserFromSession } from '@/lib/utils'
 import { log } from 'next-axiom'
+import { revalidatePath } from 'next/cache'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect } from 'react'
@@ -20,10 +22,13 @@ export default function AppBarBase({ user }: AppBarBaseProps) {
     window.createLemonSqueezy()
     window.LemonSqueezy.Setup({
       eventHandler: async (data) => {
-        log.info(`LemonSqueezy event: ${data.event}`)
         if (data.event == 'Checkout.Success') {
-          const { error } = await supabase.auth.refreshSession()
+          const { data, error } = await supabase.auth.refreshSession()
           if (error) log.error(error.message)
+          revalidatePath('/me', 'layout')
+          if (data?.session) {
+            user = getUserFromSession(data.session)
+          }
           router.refresh()
         }
       },
