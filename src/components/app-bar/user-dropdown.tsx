@@ -16,43 +16,27 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
-import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { kv } from '@vercel/kv'
 import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
 export default function UserDropdown({ user }: { user: User }) {
-  const supabase = createClient()
   const { setTheme } = useTheme()
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [proMember, setProMember] = useState(user.memberStatus === 'pro')
+  const proMember = user.memberStatus === 'pro'
   const handleLogout = async () => {
     setPending(true)
     await logout()
     setPending(false)
   }
-
-  // useEffect(() => {
-  //   const getPlayerCustomer = async () => {
-  //     const { data, error } = await supabase
-  //       .from('player_customer')
-  //       .select('*')
-  //       .eq('player_id', user.id)
-  //       .maybeSingle()
-  //     if (error) log.error(error.message)
-  //     if (data && data.membership_status !== user.memberStatus) setProMember(data.membership_status === 'pro')
-  //   }
-  //   getPlayerCustomer()
-  // }, [supabase])
 
   const handleUpgrade = async () => {
     setLoading(true)
