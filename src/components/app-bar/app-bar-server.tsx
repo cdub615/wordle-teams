@@ -17,6 +17,7 @@ export default async function AppBarServer() {
 
   if (user) {
     const refresh = await kv.getdel<boolean>(`${process.env.ENVIRONMENT}_${user.id}`)
+    log.info(`fetched refresh for env_userid: ${refresh}`)
     if (refresh !== null && refresh) {
       const { data, error } = await supabase.auth.refreshSession()
       if (error) log.error(error.message)
