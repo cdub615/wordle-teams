@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 type GetTeamsResponse = {
-  user: User
+  _user: User
   teams: team_with_players[]
 }
 
@@ -30,5 +30,5 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
       return { ...t, players: teamPlayers } as team_with_players
     }) ?? []
 
-  return { user, teams: teamsWithPlayers }
+  return { _user: user, teams: teamsWithPlayers }
 }

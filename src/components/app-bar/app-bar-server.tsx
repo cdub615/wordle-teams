@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
 import { getSession, getUserFromSession } from '@/lib/utils'
-import { kv } from '@vercel/kv'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
@@ -17,15 +16,15 @@ export default async function AppBarServer() {
   }
 
   if (user) {
-    const refresh = await kv.getdel<boolean>(`${process.env.ENVIRONMENT}_${user.id}`)
-    log.info(`fetched refresh for env_userid: ${refresh}`)
-    if (refresh !== null && refresh) {
-      const { data, error } = await supabase.auth.refreshSession()
-      if (error) log.error(error.message)
+    const { data, error } = await supabase
+      .from('player_customer')
+      .select('*')
+      .eq('player_id', user.id)
+      .maybeSingle()
+    if (error) log.error('Failed to fetch customer', { error })
+    else if (data && data.membership_status !== user.memberStatus) {
       revalidatePath('/me', 'layout')
-      if (data?.session) {
-        user = getUserFromSession(data.session)
-      }
+      user = { ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant }
     }
   }
 

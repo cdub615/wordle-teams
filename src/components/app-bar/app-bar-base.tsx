@@ -23,9 +23,9 @@ export default function AppBarBase({ user }: AppBarBaseProps) {
     window.LemonSqueezy.Setup({
       eventHandler: async (data) => {
         if (data.event == 'Checkout.Success') {
+          revalidatePath('/me', 'layout')
           const { data, error } = await supabase.auth.refreshSession()
           if (error) log.error(error.message)
-          revalidatePath('/me', 'layout')
           if (data?.session) {
             user = getUserFromSession(data.session)
           }
