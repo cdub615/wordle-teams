@@ -41,19 +41,6 @@ export default function UserDropdown({ user }: { user: User }) {
     setPending(false)
   }
 
-  useEffect(() => {
-    const checkKv = async () => {
-      const refresh = await kv.getdel<boolean>(`${process.env.ENVIRONMENT}_${user.id}`)
-      if (refresh !== null && refresh) {
-        const { error } = await supabase.auth.refreshSession()
-        if (error) log.error(error.message)
-        router.refresh()
-      }
-    }
-
-    checkKv()
-  }, [])
-
   // useEffect(() => {
   //   const getPlayerCustomer = async () => {
   //     const { data, error } = await supabase
