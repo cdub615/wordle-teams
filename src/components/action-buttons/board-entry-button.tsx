@@ -16,10 +16,17 @@ import { DialogClose } from '@radix-ui/react-dialog'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import WordleBoardForm from './board-entry/form'
+import {createClient} from '../../lib/supabase/client'
+import {log} from 'next-axiom'
 
 export function BoardEntryButton({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false)
   const isDesktop = useMediaQuery('(min-width: 768px)')
+  const supabase = createClient()
+  const updateToken = async () => {
+    const { error } = await supabase.auth.refreshSession()
+    if (error) log.error(error?.message)
+  }
 
   if (isDesktop) {
     return (
@@ -40,6 +47,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
             <DialogClose id='close-board-entry' />
           </DialogFooter>
         </DialogContent>
+        <Button variant={'secondary'} onClick={updateToken}>Update Token</Button>
       </Dialog>
     )
   }
