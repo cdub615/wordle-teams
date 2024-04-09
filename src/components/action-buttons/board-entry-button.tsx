@@ -24,8 +24,10 @@ export function BoardEntryButton({ userId }: { userId: string }) {
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const supabase = createClient()
   const updateToken = async () => {
-    const { error } = await supabase.auth.refreshSession()
+    log.info('updating token')
+    const { error, data } = await supabase.auth.refreshSession()
     if (error) log.error(error?.message)
+    else log.info(data?.session?.refresh_token || 'no data')
   }
 
   if (isDesktop) {
