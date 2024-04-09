@@ -25,7 +25,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
   const supabase = createClient()
   const updateToken = async () => {
     log.info('updating token')
-    const { error, data } = await supabase.auth.refreshSession()
+    const { error, data } = await supabase.auth.getSession()
     if (error) log.error(error?.message)
     else log.info(data?.session?.refresh_token || 'no data')
   }
