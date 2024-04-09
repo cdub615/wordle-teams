@@ -39,6 +39,7 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       log.info('processing auth state change')
+      console.log('processing auth state change')
       if (session) {
         const user = getUserFromSession(session)
         setUser(user)
