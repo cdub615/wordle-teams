@@ -1,0 +1,1 @@
+drop function process_event_on_insert cascade;

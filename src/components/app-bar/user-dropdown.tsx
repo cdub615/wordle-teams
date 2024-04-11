@@ -48,8 +48,6 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    configure custom auth hook in prod
-
     score customization
 
     invite logic for free members

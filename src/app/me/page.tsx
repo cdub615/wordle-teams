@@ -47,7 +47,7 @@ export default async function Page() {
         </Suspense>
         <CurrentTeam />
         <MyTeams userId={user.id} />
-        <ScoringSystem classes={'md:row-span-3'} />
+        <ScoringSystem proMember={user.memberStatus === 'pro'} classes={'md:row-span-3'} />
       </TeamsProvider>
     </div>
   )
