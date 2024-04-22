@@ -44,7 +44,7 @@ export default function MyTeams({ userId }: { userId: string }) {
                 <div>{team.name}</div>
                 {team.creator === userId && (
                   <Popover>
-                    <PopoverTrigger>
+                    <PopoverTrigger asChild>
                       <Button variant={'ghost'}>
                         <Trash2 size={16} className='text-red-500' />
                       </Button>

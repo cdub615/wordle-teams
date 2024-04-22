@@ -49,7 +49,7 @@ export default function CurrentTeamClient({ userId }: { userId: string }) {
             <div>{team?.name}</div>
             {canInvite && (
               <Dialog>
-                <DialogTrigger>
+                <DialogTrigger asChild>
                   <Button size={'icon'} variant={'outline'}>
                     <UserPlus2 size={22} />
                   </Button>

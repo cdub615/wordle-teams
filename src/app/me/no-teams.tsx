@@ -13,7 +13,7 @@ export default function NoTeams() {
         </p>
         <div className='flex justify-center my-4'>
           <Dialog>
-            <DialogTrigger>
+            <DialogTrigger asChild>
               <Button>Create Team</Button>
             </DialogTrigger>
             <CreateTeam />
