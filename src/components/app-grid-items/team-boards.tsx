@@ -65,7 +65,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
                 )}
                 {!showBoards && (
                   <div className='flex h-full justify-center'>
-                    <p className='pt-[164px] text-muted-foreground'>Today's board not yet submitted</p>
+                    <p className='pt-[164px] text-muted-foreground'>Today&apos;s board not yet submitted</p>
                   </div>
                 )}
               </CarouselItem>
