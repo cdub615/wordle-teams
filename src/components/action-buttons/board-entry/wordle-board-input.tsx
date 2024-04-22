@@ -3,8 +3,8 @@
 import { Button } from '@/components/ui/button'
 import { Loader2 } from 'lucide-react'
 import { Dispatch, KeyboardEvent, KeyboardEventHandler, SetStateAction } from 'react'
-import LetterInput from './letter-input'
 import { handleKey } from './utils'
+import WordleBoard from '@/components/wordle-board'
 
 type WordleBoardProps = {
   guesses: string[]
@@ -15,7 +15,7 @@ type WordleBoardProps = {
   submitDisabled: boolean
 }
 
-export default function WordleBoard({
+export default function WordleBoardInput({
   guesses,
   setGuesses,
   answer,
@@ -43,19 +43,7 @@ export default function WordleBoard({
         aria-label='Wordle Board'
         tabIndex={tabIndex}
       >
-        <div className='w-full pt-1'>
-          {guesses.map((guess, index) => (
-            <div id={`word-${index}`} key={`word-${index}`} className='flex justify-center'>
-              <div className='grid grid-cols-5 gap-1 mb-1 w-72 md:w-80'>
-                <LetterInput answer={answer} letter={guess[0]} letterIndex={0} wordNum={index + 1} />
-                <LetterInput answer={answer} letter={guess[1]} letterIndex={1} wordNum={index + 1} />
-                <LetterInput answer={answer} letter={guess[2]} letterIndex={2} wordNum={index + 1} />
-                <LetterInput answer={answer} letter={guess[3]} letterIndex={3} wordNum={index + 1} />
-                <LetterInput answer={answer} letter={guess[4]} letterIndex={4} wordNum={index + 1} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <WordleBoard guesses={guesses} answer={answer} />
       </div>
       <div className='flex justify-end space-x-4 mt-2 md:mt-4 invisible h-0 md:visible md:h-fit'>
         <Button

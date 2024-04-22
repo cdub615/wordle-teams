@@ -45,6 +45,7 @@
     "clsx": "^2.0.0",
     "date-fns": "^2.30.0",
     "date-fns-tz": "^2.0.0",
+    "embla-carousel-react": "^8.0.2",
     "eslint": "8.46.0",
     "eslint-config-next": "13.4.12",
     "geist": "^1.2.1",

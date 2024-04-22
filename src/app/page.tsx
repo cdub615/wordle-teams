@@ -10,6 +10,6 @@ export default async function Home() {
   const session = await getSession(supabase)
   if (!session) return <Welcome />
 
-  if (!hasName(session)) redirect('/complete-profile')
+  if (!hasName(session!)) redirect('/complete-profile')
   else redirect('/me')
 }

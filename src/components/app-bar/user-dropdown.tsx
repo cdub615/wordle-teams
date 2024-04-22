@@ -48,15 +48,15 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    score customization
+    teams boards card with date picker and carousel
 
-    invite logic for free members
+    invite logic for free members (disallow, notification in user dropdown, check for invites on upgrade)
+
+    upon downgrade, remove from all but earliest 2 teams
 
     prevent authapi error due to refresh token expiration
 
     update og and store images
-
-    teams boards card with date picker and carousel
 
   */
 

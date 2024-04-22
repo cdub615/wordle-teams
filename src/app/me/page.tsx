@@ -1,5 +1,12 @@
 import ActionButtons from '@/components/action-buttons'
-import { CurrentTeam, MyTeams, ScoresTable, ScoringSystem, SkeletonTable } from '@/components/app-grid-items'
+import {
+  CurrentTeam,
+  MyTeams,
+  ScoresTable,
+  ScoringSystem,
+  SkeletonTable,
+  TeamBoards,
+} from '@/components/app-grid-items'
 import { TeamsProvider } from '@/lib/contexts/teams-context'
 
 import { createClient } from '@/lib/supabase/server'
@@ -46,8 +53,9 @@ export default async function Page() {
           <ScoresTable classes={'md:col-span-3'} />
         </Suspense>
         <CurrentTeam />
-        <MyTeams userId={user.id} />
+        <TeamBoards classes={'md:row-span-3'} />
         <ScoringSystem proMember={user.memberStatus === 'pro'} classes={'md:row-span-3'} />
+        <MyTeams userId={user.id} />
       </TeamsProvider>
     </div>
   )

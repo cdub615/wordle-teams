@@ -13,7 +13,7 @@ import { Loader2 } from 'lucide-react'
 import { FormEventHandler, KeyboardEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { boardIsValid, updateAnswer } from './utils'
-import WordleBoard from './wordle-board'
+import WordleBoardInput from './wordle-board-input'
 
 export default function WordleBoardForm({ userId }: { userId: string }) {
   const { teams, teamId, setTeams } = useTeams()
@@ -121,7 +121,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
           </div>
         </div>
       </div>
-      <WordleBoard
+      <WordleBoardInput
         guesses={guesses}
         setGuesses={setGuesses}
         answer={answer}
