@@ -69,7 +69,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     <Card className={cn('w-full max-w-md', classes)}>
       <CardHeader>
         <CardTitle>Team Boards</CardTitle>
-        <div className='w-full pt-2 flex justify-between'>
+        <div className='pt-2 flex justify-between'>
           <Button className='text-sm font-normal' variant='outline' onClick={setPrevDay}>
             <ArrowLeft className='h-4 w-4' />
             <span className='sr-only'>Previous day</span>
@@ -98,12 +98,12 @@ export default function TeamBoards({ classes }: { classes?: string }) {
                 {showBoards && b.exists && <WordleBoard answer={b.answer} guesses={b.guesses} />}
                 {showBoards && !b.exists && (
                   <div className='flex h-full justify-center'>
-                    <p className='pt-[146px] w-48 text-center text-muted-foreground'>No board for player on this date</p>
+                    <p className='pt-[156px] w-auto text-center text-muted-foreground'>No board for player on this date</p>
                   </div>
                 )}
                 {!showBoards && (
                   <div className='flex h-full justify-center'>
-                    <p className='pt-[146px] w-48 text-center text-muted-foreground'>Visible after today&apos;s submission</p>
+                    <p className='pt-[156px] w-auto text-center text-muted-foreground'>Visible after today&apos;s submission</p>
                   </div>
                 )}
               </CarouselItem>

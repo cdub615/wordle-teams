@@ -48,7 +48,7 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    invite logic for free members (disallow, notification in user dropdown, check for invites on upgrade)
+    invite logic for free members (disallow invitee if already 2 teams, notification in user dropdown, check for invites on upgrade)
 
     upon downgrade, remove from all but earliest 2 teams
 
