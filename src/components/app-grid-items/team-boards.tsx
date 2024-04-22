@@ -98,12 +98,12 @@ export default function TeamBoards({ classes }: { classes?: string }) {
                 {showBoards && b.exists && <WordleBoard answer={b.answer} guesses={b.guesses} />}
                 {showBoards && !b.exists && (
                   <div className='flex h-full justify-center'>
-                    <p className='pt-[156px] text-muted-foreground'>No board for player on this date</p>
+                    <p className='pt-[146px] w-48 text-center text-muted-foreground'>No board for player on this date</p>
                   </div>
                 )}
                 {!showBoards && (
                   <div className='flex h-full justify-center'>
-                    <p className='pt-[156px] text-muted-foreground'>Today&apos;s board not yet submitted</p>
+                    <p className='pt-[146px] w-48 text-center text-muted-foreground'>Visible after today&apos;s submission</p>
                   </div>
                 )}
               </CarouselItem>
