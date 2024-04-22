@@ -74,8 +74,8 @@ export default function TeamBoards({ classes }: { classes?: string }) {
             <ArrowLeft className='h-4 w-4' />
             <span className='sr-only'>Previous day</span>
           </Button>
-          <div className='w-2/3'>
-            <DatePicker date={date} setDate={setDate} playWeekends={team.playWeekends} className='w-full' />
+          <div>
+            <DatePicker date={date} setDate={setDate} playWeekends={team.playWeekends} className='w-52 md:w-56' />
           </div>
           <Button
             className='text-sm font-normal'
