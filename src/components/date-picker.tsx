@@ -52,7 +52,7 @@ export default function DatePicker({ date, setDate, noDateText, tabIndex, playWe
           disabled={disabledDays}
         />
       </PopoverContent>
-      <PopoverClose id='date-picker-close' className='invisible h-0 m-0' />
+      <PopoverClose id='date-picker-close' className='invisible h-0 !m-0' />
     </Popover>
   )
 }

@@ -1,12 +1,14 @@
 'use client'
 
 import DatePicker from '@/components/date-picker'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel'
 import WordleBoard from '@/components/wordle-board'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { cn } from '@/lib/utils'
-import { isSameDay, isToday } from 'date-fns'
+import { isSameDay, isToday, isWeekend } from 'date-fns'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 export default function TeamBoards({ classes }: { classes?: string }) {
@@ -32,6 +34,26 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   const shouldShowBoards = (selectedDate: Date) =>
     !isToday(selectedDate) ||
     (team.players.find((p) => p.id === user?.id)?.scores.some((s) => isToday(new Date(s.date))) ?? false)
+  const setPrevDay = () => {
+    const prevDay = new Date(date!)
+    prevDay.setDate(date!.getDate() - 1)
+    if (!team.playWeekends) {
+      while (isWeekend(prevDay)) {
+        prevDay.setDate(prevDay.getDate() - 1)
+      }
+    }
+    setDate(prevDay)
+  }
+  const setNextDay = () => {
+    const nextDay = new Date(date!)
+    nextDay.setDate(date!.getDate() + 1)
+    if (!team.playWeekends) {
+      while (isWeekend(nextDay)) {
+        nextDay.setDate(nextDay.getDate() + 1)
+      }
+    }
+    setDate(nextDay)
+  }
 
   const [boards, setBoards] = useState(getBoardsForDate(date!))
   const [showBoards, setShowBoards] = useState(shouldShowBoards(date!))
@@ -47,8 +69,22 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     <Card className={cn('w-full max-w-md', classes)}>
       <CardHeader>
         <CardTitle>Team Boards</CardTitle>
-        <div className='w-full max-w-md pt-2'>
+        <div className='w-full max-w-md pt-2 flex space-x-2'>
+          <Button className='text-sm font-normal' variant='outline' onClick={setPrevDay}>
+            <ArrowLeft className='h-4 w-4' />
+            <span className='sr-only'>Previous day</span>
+          </Button>
           <DatePicker date={date} setDate={setDate} playWeekends={team.playWeekends} />
+          <Button
+            className='text-sm font-normal'
+            variant='outline'
+            onClick={setNextDay}
+            disabled={isToday(date!)}
+            aria-disabled={isToday(date!)}
+          >
+            <ArrowRight className='h-4 w-4' />
+            <span className='sr-only'>Next day</span>
+          </Button>
         </div>
       </CardHeader>
       <CardContent>
@@ -56,23 +92,23 @@ export default function TeamBoards({ classes }: { classes?: string }) {
           <CarouselContent>
             {boards.map((b) => (
               <CarouselItem key={b.id} className='h-[400px]'>
-                <div className='font-semibold text-center pb-2 h-[24px]'>{b.playerName}</div>
+                <div className='font-semibold text-center mb-2 h-[24px]'>{b.playerName}</div>
                 {showBoards && b.exists && <WordleBoard answer={b.answer} guesses={b.guesses} />}
                 {showBoards && !b.exists && (
                   <div className='flex h-full justify-center'>
-                    <p className='pt-[164px] text-muted-foreground'>No board for player on this date</p>
+                    <p className='pt-[156px] text-muted-foreground'>No board for player on this date</p>
                   </div>
                 )}
                 {!showBoards && (
                   <div className='flex h-full justify-center'>
-                    <p className='pt-[164px] text-muted-foreground'>Today&apos;s board not yet submitted</p>
+                    <p className='pt-[156px] text-muted-foreground'>Today&apos;s board not yet submitted</p>
                   </div>
                 )}
               </CarouselItem>
             ))}
           </CarouselContent>
-          <CarouselPrevious className='-left-5 md:-left-4' />
-          <CarouselNext className='-right-5 md:-right-4' />
+          <CarouselPrevious className='-left-5 md:-left-4 rounded-md' />
+          <CarouselNext className='-right-5 md:-right-4 rounded-md' />
         </Carousel>
       </CardContent>
     </Card>
