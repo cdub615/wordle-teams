@@ -76,6 +76,7 @@ export async function invitePlayer(formData: FormData) {
   if (player) {
     if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
     else {
+      // TODO check here if player is already on two teams, and if so create some sort of notification and leave them in invited
       const newPlayerIds = playerIds.length > 0 ? [...playerIds, player.id] : [player.id]
       const { error } = await supabase
         .from('teams')
@@ -238,6 +239,9 @@ export async function processWebhookEvent(webhookId: string) {
 
       return { success: false, message: 'Failed to update player_customer' }
     }
+
+    // TODO check if user is in any teams' invited lists and add to team if so
+    // TODO if cancelled or expired, remove from all but two earliest teams
   }
 
   const { error: updateError } = await supabase

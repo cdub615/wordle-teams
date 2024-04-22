@@ -9,7 +9,7 @@ type WordleBoardProps = {
 
 export default function WordleBoard({ guesses, answer }: WordleBoardProps) {
   return (
-    <div className='w-full pt-1'>
+    <div className='pt-1'>
       {guesses.map((guess, index) => (
         <div id={`word-${index}`} key={`word-${index}`} className='flex justify-center'>
           <div className='grid grid-cols-5 gap-1 mb-1 w-72 md:w-80'>
