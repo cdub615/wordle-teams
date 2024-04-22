@@ -3,11 +3,11 @@
 import DatePicker from '@/components/date-picker'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel'
+import WordleBoard from '@/components/wordle-board'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { cn } from '@/lib/utils'
 import { isSameDay, isToday } from 'date-fns'
 import { useEffect, useState } from 'react'
-import WordleBoard from '../wordle-board'
 
 export default function TeamBoards({ classes }: { classes?: string }) {
   const { teams, teamId, user } = useTeams()
