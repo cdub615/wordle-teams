@@ -17,9 +17,10 @@ type DatePickerProps = {
   noDateText?: string
   tabIndex?: number | undefined
   playWeekends?: boolean
+  className?: string
 }
 
-export default function DatePicker({ date, setDate, noDateText, tabIndex, playWeekends }: DatePickerProps) {
+export default function DatePicker({ date, setDate, noDateText, tabIndex, playWeekends, className }: DatePickerProps) {
   const disabledDays: Matcher[] = [{ after: new Date() }]
   if (!playWeekends) disabledDays.push({ dayOfWeek: [0, 6] })
   const onSelect = (date: Date | undefined) => {
@@ -33,8 +34,9 @@ export default function DatePicker({ date, setDate, noDateText, tabIndex, playWe
           tabIndex={tabIndex}
           variant={'outline'}
           className={cn(
-            'w-full justify-start text-left font-normal px-2 md:px-4',
-            !date && 'text-muted-foreground'
+            'justify-start text-left font-normal px-2 md:px-4',
+            !date && 'text-muted-foreground',
+            className
           )}
         >
           <CalendarIcon className='mr-2 h-4 w-4' />

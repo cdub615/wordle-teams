@@ -69,12 +69,12 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     <Card className={cn('w-full max-w-md', classes)}>
       <CardHeader>
         <CardTitle>Team Boards</CardTitle>
-        <div className='w-full max-w-md pt-2 flex space-x-2'>
+        <div className='w-full max-w-md pt-2 flex space-x-2 justify-between'>
           <Button className='text-sm font-normal' variant='outline' onClick={setPrevDay}>
             <ArrowLeft className='h-4 w-4' />
             <span className='sr-only'>Previous day</span>
           </Button>
-          <DatePicker date={date} setDate={setDate} playWeekends={team.playWeekends} />
+          <DatePicker date={date} setDate={setDate} playWeekends={team.playWeekends} className='w-full' />
           <Button
             className='text-sm font-normal'
             variant='outline'

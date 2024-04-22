@@ -48,8 +48,6 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    teams boards card with date picker and carousel
-
     invite logic for free members (disallow, notification in user dropdown, check for invites on upgrade)
 
     upon downgrade, remove from all but earliest 2 teams
