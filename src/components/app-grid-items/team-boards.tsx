@@ -109,8 +109,8 @@ export default function TeamBoards({ classes }: { classes?: string }) {
               </CarouselItem>
             ))}
           </CarouselContent>
-          <CarouselPrevious className='-left-5 md:-left-4 rounded-md' />
-          <CarouselNext className='-right-5 md:-right-4 rounded-md' />
+          <CarouselPrevious className='-left-3 md:-left-4 rounded-md' />
+          <CarouselNext className='-right-3 md:-right-4 rounded-md' />
         </Carousel>
       </CardContent>
     </Card>
