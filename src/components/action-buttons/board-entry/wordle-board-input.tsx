@@ -13,6 +13,7 @@ type WordleBoardProps = {
   tabIndex?: number
   submitting: boolean
   submitDisabled: boolean
+  scoreId: number
 }
 
 export default function WordleBoardInput({
@@ -22,12 +23,13 @@ export default function WordleBoardInput({
   tabIndex,
   submitting,
   submitDisabled,
+  scoreId
 }: WordleBoardProps) {
   const handleBoardKeyDown: KeyboardEventHandler = (e: KeyboardEvent<HTMLDivElement>) => {
     const key = e.key
     if (key !== 'Tab') {
       e.preventDefault()
-      handleKey(key, answer, guesses, setGuesses)
+      handleKey(key, answer, guesses, setGuesses, scoreId)
     }
   }
 

@@ -93,7 +93,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
         <Carousel className='w-full'>
           <CarouselContent>
             {boards.map((b) => (
-              <CarouselItem key={b.id} className='h-[400px]'>
+              <CarouselItem key={b.id} className='h-[450px]'>
                 <div className='font-semibold text-center mb-2 h-[24px]'>{b.playerName}</div>
                 {showBoards && b.exists && <WordleBoard answer={b.answer} guesses={b.guesses} />}
                 {showBoards && !b.exists && (

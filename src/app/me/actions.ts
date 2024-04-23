@@ -127,25 +127,43 @@ export async function upsertBoard(formData: FormData) {
   const guessesInput = formData.getAll('guesses') as string[]
   const guesses = guessesInput[0].split(',').filter((g) => g !== '')
 
-  let dailyScore: daily_scores
+  if (guesses.length === 6 && guesses[5] != answer) guesses.push('')
+
+  let dailyScore: daily_scores | undefined
   let message
+  let action: 'create' | 'update' | 'delete' = 'create'
 
   if (!!scoreId && scoreId !== '-1') {
-    const { data: newScore, error } = await supabase
-      .from('daily_scores')
-      .update({ answer, guesses })
-      .eq('id', scoreId)
-      .select('*')
-      .returns<daily_scores[]>()
-      .single()
+    if (answer.length === 0 && guesses.every((guess) => guess.length === 0)) {
+      action = 'delete'
+      const { error } = await supabase.from('daily_scores').delete().eq('id', scoreId)
 
-    if (error) {
-      log.error('Failed to add or update board', { error })
-      return { success: false, message: 'Failed to add or update board' }
+      if (error) {
+        log.error('Failed to delete board', { error })
+        return { success: false, message: 'Failed to delete board' }
+      }
+
+      dailyScore = undefined
+      message = 'Successfully deleted board'
+    } else {
+      action = 'update'
+      const { data: newScore, error } = await supabase
+        .from('daily_scores')
+        .update({ answer, guesses })
+        .eq('id', scoreId)
+        .select('*')
+        .returns<daily_scores[]>()
+        .single()
+
+      if (error) {
+        log.error('Failed to add or update board', { error })
+        return { success: false, message: 'Failed to add or update board' }
+      }
+      dailyScore = newScore
+      message = 'Successfully updated board'
     }
-    dailyScore = newScore
-    message = 'Successfully updated board'
   } else {
+    action = 'create'
     const { data: newScore, error } = await supabase
       .from('daily_scores')
       .insert({ answer, date: scoreDate, guesses, player_id: session.user.id })
@@ -163,7 +181,7 @@ export async function upsertBoard(formData: FormData) {
 
   revalidatePath('/')
 
-  return { success: true, message, dailyScore }
+  return { success: true, message, action, dailyScore }
 }
 
 export async function removePlayer(formData: FormData) {

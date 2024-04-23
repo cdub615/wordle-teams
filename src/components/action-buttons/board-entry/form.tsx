@@ -24,7 +24,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   const [scoreId, setScoreId] = useState(-1)
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState(['', '', '', '', '', ''])
-  const [submitDisabled, setSubmitDisabled] = useState(true)
+  const [submitDisabled, setSubmitDisabled] = useState(!boardIsValid(answer, guesses, scoreId))
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -36,9 +36,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   }, [date])
 
   useEffect(() => {
-    if (answer && guesses) {
-      setSubmitDisabled(!boardIsValid(answer, guesses))
-    }
+    setSubmitDisabled(!boardIsValid(answer, guesses, scoreId))
   }, [answer, guesses])
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
@@ -63,7 +61,6 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => {
     const key = e.key
     if (key !== 'Tab') {
-      console.log('key', key)
       e.preventDefault()
       updateAnswer(key, answer, setAnswer)
     }
@@ -128,6 +125,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
         tabIndex={3}
         submitting={submitting}
         submitDisabled={submitDisabled}
+        scoreId={scoreId}
       />
       <SheetFooter className='pt-2 flex flex-row space-x-2 w-full md:invisible md:h-0 md:p-0'>
         <SheetClose asChild>
