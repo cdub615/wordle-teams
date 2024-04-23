@@ -15,6 +15,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   const { teams, teamId, user } = useTeams()
   const team = teams.find((t) => t.id === teamId)!
   const [date, setDate] = useState<Date | undefined>(new Date())
+
   const getBoardsForDate = (selectedDate: Date) => {
     const boards = team.players.map((p) => {
       const score = p.scores.find((s) => isSameDay(new Date(s.date), selectedDate))
@@ -31,9 +32,9 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     })
     return boards
   }
-  const shouldShowBoards = (selectedDate: Date) =>
-    !isToday(selectedDate) ||
-    (team.players.find((p) => p.id === user?.id)?.scores.some((s) => isToday(new Date(s.date))) ?? false)
+  const currentPlayerCompletedToday = () =>
+    team.players.find((p) => p.id === user?.id)?.scores.some((s) => isToday(new Date(s.date))) ?? false
+  const shouldHide = (selectedDate: Date) => isToday(selectedDate) && !currentPlayerCompletedToday()
   const setPrevDay = () => {
     const prevDay = new Date(date!)
     prevDay.setDate(date!.getDate() - 1)
@@ -56,12 +57,17 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   }
 
   const [boards, setBoards] = useState(getBoardsForDate(date!))
-  const [showBoards, setShowBoards] = useState(shouldShowBoards(date!))
+  const [hide, setHide] = useState(shouldHide(date!))
+  const [message, setMessage] = useState(
+    hide ? 'Visible after today&apos;s submission' : 'No board for player on this date'
+  )
 
   useEffect(() => {
     if (date) {
       setBoards(getBoardsForDate(date!))
-      setShowBoards(shouldShowBoards(date!))
+      const hideBoards = shouldHide(date!)
+      setHide(hideBoards)
+      setMessage(hideBoards ? 'Visible after today&apos;s submission' : 'No board for player on this date')
     }
   }, [date])
 
@@ -95,17 +101,13 @@ export default function TeamBoards({ classes }: { classes?: string }) {
             {boards.map((b) => (
               <CarouselItem key={b.id} className='h-[450px]'>
                 <div className='font-semibold text-center mb-2 h-[24px]'>{b.playerName}</div>
-                {showBoards && b.exists && <WordleBoard answer={b.answer} guesses={b.guesses} />}
-                {showBoards && !b.exists && (
-                  <div className='flex h-full justify-center'>
-                    <p className='pt-[156px] w-auto text-center text-muted-foreground'>No board for player on this date</p>
-                  </div>
-                )}
-                {!showBoards && (
-                  <div className='flex h-full justify-center'>
-                    <p className='pt-[156px] w-auto text-center text-muted-foreground'>Visible after today&apos;s submission</p>
-                  </div>
-                )}
+                <div className='flex h-full justify-center'>
+                  {hide || !b.exists ? (
+                    <p className='pt-[180px] w-auto text-center text-muted-foreground'>{message}</p>
+                  ) : (
+                    <WordleBoard answer={b.answer} guesses={b.guesses} />
+                  )}
+                </div>
               </CarouselItem>
             ))}
           </CarouselContent>
