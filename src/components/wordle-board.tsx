@@ -13,7 +13,7 @@ export default function WordleBoard({ guesses, answer }: WordleBoardProps) {
       {guesses.map(
         (guess, index) =>
           index < 6 && (
-            <div id={`word-${index}`} key={`word-${index}`} className='flex justify-center'>
+            <div id={`word-${index}`} key={`word-${index}`} className='flex justify-around'>
               <div className='grid grid-cols-5 gap-1 mb-1 w-72 md:w-80'>
                 <LetterBox answer={answer} letter={guess[0]} letterIndex={0} wordNum={index + 1} />
                 <LetterBox answer={answer} letter={guess[1]} letterIndex={1} wordNum={index + 1} />
