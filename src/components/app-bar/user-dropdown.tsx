@@ -76,7 +76,7 @@ export default function UserDropdown({ user }: { user: User }) {
         <Avatar
           className={cn(
             loading && 'animate-pulse',
-            'cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'
+            'drop-shadow-md cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'
           )}
         >
           {/* <AvatarImage src='' alt='@username' /> */}
