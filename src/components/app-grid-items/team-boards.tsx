@@ -69,7 +69,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     <Card className={cn('w-full max-w-md', classes)}>
       <CardHeader>
         <CardTitle>Team Boards</CardTitle>
-        <div className='pt-2 flex'>
+        {/* <div className='pt-2 flex'>
           <Button className='text-sm font-normal' variant='outline' onClick={setPrevDay}>
             <ArrowLeft className='h-4 w-4' />
             <span className='sr-only'>Previous day</span>
@@ -87,7 +87,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
             <ArrowRight className='h-4 w-4' />
             <span className='sr-only'>Next day</span>
           </Button>
-        </div>
+        </div> */}
       </CardHeader>
       <CardContent>
         <Carousel className='w-full'>
