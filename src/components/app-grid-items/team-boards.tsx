@@ -72,7 +72,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   }, [date])
 
   return (
-    <Card className={cn('w-full max-w-md', classes)}>
+    <Card className={cn('w-full max-w-[96vw]', classes)}>
       <CardHeader>
         <CardTitle>Team Boards</CardTitle>
         <div className='pt-2 flex'>
