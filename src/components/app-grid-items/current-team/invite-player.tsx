@@ -14,6 +14,7 @@ export default function InvitePlayer() {
   const { teams, teamId, setTeams } = useTeams()
   const team = teams.find((t) => t.id === teamId)
   const playerIds = team?.players?.map((p) => p.id)
+  throw new Error('testing sentry from invite player')
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
