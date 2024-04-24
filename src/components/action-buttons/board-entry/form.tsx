@@ -65,6 +65,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       updateAnswer(key, answer, setAnswer)
     }
   }
+  throw new Error('testing sentry from board entry client component')
 
   return (
     <form onSubmit={handleSubmit} className={cn(submitting ? 'animate-pulse' : '')}>

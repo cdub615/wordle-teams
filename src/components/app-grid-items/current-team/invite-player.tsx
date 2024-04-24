@@ -14,7 +14,6 @@ export default function InvitePlayer() {
   const { teams, teamId, setTeams } = useTeams()
   const team = teams.find((t) => t.id === teamId)
   const playerIds = team?.players?.map((p) => p.id)
-  throw new Error('testing sentry from invite player')
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -22,20 +21,20 @@ export default function InvitePlayer() {
     const formData = new FormData(event.currentTarget)
     const result = await invitePlayer(formData)
 
-    if (result.success) {
-      if (result.invitedPlayer) {
-        const newPlayer = Player.prototype.fromDbPlayer(
-          result.invitedPlayer,
-          result.invitedPlayer?.daily_scores ?? []
-        )
-        const updatedTeams = teams.map((t) => {
-          if (t.id === teamId) t.addPlayer(newPlayer)
-          return t
-        })
-        setTeams(updatedTeams)
-      }
-      toast.success(result.message)
-    } else toast.error(result.message)
+    // if (result.success) {
+    //   if (result.invitedPlayer) {
+    //     const newPlayer = Player.prototype.fromDbPlayer(
+    //       result.invitedPlayer,
+    //       result.invitedPlayer?.daily_scores ?? []
+    //     )
+    //     const updatedTeams = teams.map((t) => {
+    //       if (t.id === teamId) t.addPlayer(newPlayer)
+    //       return t
+    //     })
+    //     setTeams(updatedTeams)
+    //   }
+    //   toast.success(result.message)
+    // } else toast.error(result.message)
     document.getElementById('close-invite-player')?.click()
     setPending(false)
   }

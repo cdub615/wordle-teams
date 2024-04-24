@@ -57,63 +57,64 @@ export async function deleteTeam(teamId: string) {
 }
 
 export async function invitePlayer(formData: FormData) {
-  const supabase = createAdminClient(cookies())
-  const session = await getSession(supabase)
-  if (!session) throw new Error('Unauthorized')
+  throw new Error('testing sentry from server action in invite player')
+  // const supabase = createAdminClient(cookies())
+  // const session = await getSession(supabase)
+  // if (!session) throw new Error('Unauthorized')
 
-  const teamId = formData.get('teamId') as string
-  const playerIds = (formData.get('playerIds') as string).split(',')
-  const invited = formData.getAll('invited') as string[]
-  const email = formData.get('email') as string
+  // const teamId = formData.get('teamId') as string
+  // const playerIds = (formData.get('playerIds') as string).split(',')
+  // const invited = formData.getAll('invited') as string[]
+  // const email = formData.get('email') as string
 
-  const { data: player, error } = await supabase
-    .from('players')
-    .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
-    .eq('email', email)
-    .maybeSingle()
-  let invitedPlayer: player_with_scores | undefined
+  // const { data: player, error } = await supabase
+  //   .from('players')
+  //   .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
+  //   .eq('email', email)
+  //   .maybeSingle()
+  // let invitedPlayer: player_with_scores | undefined
 
-  if (player) {
-    if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
-    else {
-      // TODO check here if player is already on two teams, and if so create some sort of notification and leave them in invited
-      const newPlayerIds = playerIds.length > 0 ? [...playerIds, player.id] : [player.id]
-      const { error } = await supabase
-        .from('teams')
-        .update({ player_ids: newPlayerIds })
-        .eq('id', teamId)
-        .select('*')
-      if (error) {
-        log.error(`Failed to fetch team ${teamId}`, { error })
-        return { success: false, message: 'Player invite failed' }
-      }
-      invitedPlayer = player
-    }
-  } else {
-    const { error } = await supabase.auth.admin.inviteUserByEmail(email)
-    if (error) {
-      log.error('Failed to send invite email', { error })
-      return { success: false, message: 'Player invite failed' }
-    }
-    const newInvited = [...invited, email]
-    const { error: teamUpdateError } = await supabase
-      .from('teams')
-      .update({ invited: newInvited })
-      .eq('id', teamId)
-      .select('*')
-    if (teamUpdateError) {
-      log.error('team update error', { teamUpdateError })
-      return { success: false, message: 'Player invite failed' }
-    }
-  }
+  // if (player) {
+  //   if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
+  //   else {
+  //     // TODO check here if player is already on two teams, and if so create some sort of notification and leave them in invited
+  //     const newPlayerIds = playerIds.length > 0 ? [...playerIds, player.id] : [player.id]
+  //     const { error } = await supabase
+  //       .from('teams')
+  //       .update({ player_ids: newPlayerIds })
+  //       .eq('id', teamId)
+  //       .select('*')
+  //     if (error) {
+  //       log.error(`Failed to fetch team ${teamId}`, { error })
+  //       return { success: false, message: 'Player invite failed' }
+  //     }
+  //     invitedPlayer = player
+  //   }
+  // } else {
+  //   const { error } = await supabase.auth.admin.inviteUserByEmail(email)
+  //   if (error) {
+  //     log.error('Failed to send invite email', { error })
+  //     return { success: false, message: 'Player invite failed' }
+  //   }
+  //   const newInvited = [...invited, email]
+  //   const { error: teamUpdateError } = await supabase
+  //     .from('teams')
+  //     .update({ invited: newInvited })
+  //     .eq('id', teamId)
+  //     .select('*')
+  //   if (teamUpdateError) {
+  //     log.error('team update error', { teamUpdateError })
+  //     return { success: false, message: 'Player invite failed' }
+  //   }
+  // }
 
-  if (error) {
-    log.error('An unexpected error occurred while trying to invite player', { error })
-    return { success: false, message: 'Player invite failed' }
-  }
+  // if (error) {
+  //   log.error('An unexpected error occurred while trying to invite player', { error })
+  //   return { success: false, message: 'Player invite failed' }
+  // }
 
-  revalidatePath('/me', 'page')
-  return { success: true, message: 'Successfully invited player', invitedPlayer }
+  // revalidatePath('/me', 'page')
+  // return { success: true, message: 'Successfully invited player', invitedPlayer }
 }
 
 export async function upsertBoard(formData: FormData) {
