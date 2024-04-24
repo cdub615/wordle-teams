@@ -59,7 +59,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   const [boards, setBoards] = useState(getBoardsForDate(date!))
   const [hide, setHide] = useState(shouldHide(date!))
   const [message, setMessage] = useState(
-    hide ? 'Visible after today&apos;s submission' : 'No board for player on this date'
+    hide ? `Visible after today's submission` : 'No board for player on this date'
   )
 
   useEffect(() => {
@@ -67,7 +67,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
       setBoards(getBoardsForDate(date!))
       const hideBoards = shouldHide(date!)
       setHide(hideBoards)
-      setMessage(hideBoards ? 'Visible after today&apos;s submission' : 'No board for player on this date')
+      setMessage(hideBoards ? `Visible after today's submission` : 'No board for player on this date')
     }
   }, [date])
 
@@ -96,7 +96,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
         </div>
       </CardHeader>
       <CardContent>
-        <Carousel className='w-full'>
+        <Carousel>
           <CarouselContent>
             {boards.map((b) => (
               <CarouselItem key={b.id} className='h-[450px]'>
