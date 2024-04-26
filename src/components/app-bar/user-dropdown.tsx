@@ -140,7 +140,7 @@ export default function UserDropdown({ user }: { user: User }) {
             <span>Upgrade</span>
           </DropdownMenuItem>
         )}
-        {!proMember && user.invitesPendingUpgrade && user.invitesPendingUpgrade > 0 && (
+        {!proMember && user.invitesPendingUpgrade > 0 && (
           <DropdownMenuItem>
             <Mails className='mr-2 h-4 w-4' />
             <span>{user.invitesPendingUpgrade} Invite{user.invitesPendingUpgrade === 1 ? '' : 's'} Pending</span>
