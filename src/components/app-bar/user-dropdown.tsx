@@ -35,6 +35,7 @@ export default function UserDropdown({ user }: { user: User }) {
   const handleLogout = async () => {
     setPending(true)
     await logout()
+    router.push('/')
     setPending(false)
   }
 
