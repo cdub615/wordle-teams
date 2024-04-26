@@ -48,11 +48,15 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    invite logic for free members (disallow invitee if already 2 teams, notification in user dropdown, check for invites on upgrade)
+    invite logic for free members (disallow free invitee if already 2 teams and update app metadata, handle upgrade/downgrade)
+    pull invites_pending_upgrade from app metadata and show in user dropdown
+      test cases:
+        - send 3 invites to a non member each for different teams, then as that non member signup from one of the invites
+        - invite a free member to their 3rd (really their 4th) team
+        - upgrade the free member to pro
+        - downgrade the pro member to free
 
-    upon downgrade, remove from all but earliest 2 teams
-
-    prevent authapi error due to refresh token expiration
+    (might be resolved?) prevent authapi error due to refresh token expiration
 
     update og and store images
 

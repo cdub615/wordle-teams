@@ -52,8 +52,6 @@ export async function GET(request: NextRequest) {
 
       if (type === 'invite') {
         const id = data.user?.id ?? ''
-        // TODO update handle_invited_signup to account for the unlikely scenario where
-        // the user has not yet signed up but has more than 2 team invites
         const { error } = await supabase.rpc('handle_invited_signup', {
           invited_email: email ?? '',
           invited_id: id,
