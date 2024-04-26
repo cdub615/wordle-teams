@@ -86,6 +86,7 @@ export const getUserFromSession = (session: Session) => {
     memberStatus: token.user_member_status,
     memberVariant: token.user_member_variant,
     customerId: token.user_customer_id,
+    invitesPendingUpgrade: session.user.app_metadata?.invites_pending_upgrade,
   }
 
   return user

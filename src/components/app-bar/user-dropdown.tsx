@@ -18,7 +18,7 @@ import {
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
+import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon, MessageSquare } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
@@ -137,6 +137,12 @@ export default function UserDropdown({ user }: { user: User }) {
           <DropdownMenuItem onClick={handleUpgrade}>
             <Sparkles className='mr-2 h-4 w-4' />
             <span>Upgrade</span>
+          </DropdownMenuItem>
+        )}
+        {!proMember && user.invitesPendingUpgrade && user.invitesPendingUpgrade > 0 && (
+          <DropdownMenuItem>
+            <Mails className='mr-2 h-4 w-4' />
+            <span>{user.invitesPendingUpgrade} Invite{user.invitesPendingUpgrade === 1 ? '' : 's'} Pending</span>
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
