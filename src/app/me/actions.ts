@@ -61,7 +61,7 @@ export async function invitePlayer(formData: FormData) {
   const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 
-  const teamId = formData.get('teamId') as string
+  const teamId = Number.parseInt(formData.get('teamId') as string)
   const playerIds = (formData.get('playerIds') as string).split(',')
   const invited = formData.getAll('invited') as string[]
   const email = formData.get('email') as string
@@ -76,13 +76,11 @@ export async function invitePlayer(formData: FormData) {
   if (player) {
     if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
     else {
-      // call handle_add_player_to_team passing in playerId and teamId
-      const newPlayerIds = playerIds.length > 0 ? [...playerIds, player.id] : [player.id]
-      const { error } = await supabase
-        .from('teams')
-        .update({ player_ids: newPlayerIds })
-        .eq('id', teamId)
-        .select('*')
+      const { error } = await supabase.rpc('handle_add_player_to_team', {
+        player_id: player.id,
+        team_id: teamId,
+      })
+
       if (error) {
         log.error(`Failed to fetch team ${teamId}`, { error })
         return { success: false, message: 'Player invite failed' }
@@ -258,8 +256,26 @@ export async function processWebhookEvent(webhookId: string) {
       return { success: false, message: 'Failed to update player_customer' }
     }
 
-    // upon upgrade, call handle_upgrade_team_invites
-    // upon downgrade, call handle_downgrade_team_removal
+    if (eventName.includes('created') || eventName.includes('resumed')) {
+      const { error } = await supabase.rpc('handle_upgrade_team_invites', {
+        player_id: playerId,
+      })
+      if (error) {
+        processingError = error.message
+        log.error('Failure in handle_upgrade_team_invites', { error })
+        return { success: false, message: 'Failure in handle_upgrade_team_invites' }
+      }
+    }
+    if (eventName.includes('cancelled') || eventName.includes('expired')) {
+      const { error } = await supabase.rpc('handle_downgrade_team_removal', {
+        player_id: playerId,
+      })
+      if (error) {
+        processingError = error.message
+        log.error('Failure in handle_downgrade_team_removal', { error })
+        return { success: false, message: 'Failure in handle_downgrade_team_removal' }
+      }
+    }
   }
 
   const { error: updateError } = await supabase

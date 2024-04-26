@@ -247,6 +247,19 @@ export type Database = {
         }
         Returns: Json
       }
+      handle_add_player_to_team: {
+        Args: {
+          player_id: string
+          team_id: number
+        }
+        Returns: undefined
+      }
+      handle_downgrade_team_removal: {
+        Args: {
+          player_id: string
+        }
+        Returns: undefined
+      }
       handle_invited_signup: {
         Args: {
           invited_email: string
@@ -254,6 +267,20 @@ export type Database = {
         }
         Returns: undefined
       }
+      handle_upgrade_team_invites:
+        | {
+            Args: {
+              player_id: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              player_id: string
+              player_email: string
+            }
+            Returns: undefined
+          }
     }
     Enums: {
       member_status: "new" | "free" | "pro" | "cancelled" | "expired"
@@ -404,7 +431,7 @@ export type Database = {
         Args: {
           name: string
         }
-        Returns: string[]
+        Returns: unknown
       }
       get_size_by_bucket: {
         Args: Record<PropertyKey, never>
