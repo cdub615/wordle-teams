@@ -70,6 +70,7 @@ export async function invitePlayer(formData: FormData) {
     .from('players')
     .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
     .eq('email', email)
+    .not('first_name', 'is', null)
     .maybeSingle()
   let invitedPlayer: player_with_scores | undefined
 
