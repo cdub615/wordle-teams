@@ -86,7 +86,7 @@ export const getUserFromSession = (session: Session) => {
     memberStatus: token.user_member_status,
     memberVariant: token.user_member_variant,
     customerId: token.user_customer_id,
-    invitesPendingUpgrade: session.user.app_metadata?.invites_pending_upgrade,
+    invitesPendingUpgrade: session.user?.app_metadata?.invites_pending_upgrade ?? 0,
   }
 
   return user
@@ -100,6 +100,11 @@ export const padArray = (arr: string[], length: number) => {
 }
 
 export const hasName = (session: Session) => {
-  const user = getUserFromSession(session)
-  return user.firstName.length > 1 && user.lastName.length > 1
+  try {
+    const user = getUserFromSession(session)
+    return user.firstName.length > 1 && user.lastName.length > 1
+  } catch (error) {
+    log.error('Failed to check if user has name', {error})
+    throw error
+  }
 }
