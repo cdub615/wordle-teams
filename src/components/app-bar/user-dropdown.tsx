@@ -57,9 +57,14 @@ export default function UserDropdown({ user }: { user: User }) {
         - upgrade the free member to pro
         - downgrade the pro member to free
 
-    (might be resolved?) prevent authapi error due to refresh token expiration
+    set up mailgun for dev email smtp
 
     update og and store images
+      - wt-home-dark-lg.png used in welcome component (1534 x 1067)
+      - opengraph-image.png (1200 x 630)
+      - twitter-image.png (1200 x 630)
+
+    (might be resolved?) prevent authapi error due to refresh token expiration
 
   */
 
