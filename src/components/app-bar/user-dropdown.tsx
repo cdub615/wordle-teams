@@ -52,12 +52,10 @@ export default function UserDropdown({ user }: { user: User }) {
     invite logic for free members (disallow free invitee if already 2 teams and update app metadata, handle upgrade/downgrade)
     pull invites_pending_upgrade from app metadata and show in user dropdown
       test cases:
-        - send 3 invites to a non member each for different teams, then as that non member signup from one of the invites
+        - (COMPLETE) send 3 invites to a non member each for different teams, then as that non member signup from one of the invites
         - invite a free member to their 3rd (really their 4th) team
         - upgrade the free member to pro
         - downgrade the pro member to free
-
-    set up mailgun for dev email smtp
 
     update og and store images
       - wt-home-dark-lg.png used in welcome component (1534 x 1067)
@@ -146,7 +144,7 @@ export default function UserDropdown({ user }: { user: User }) {
           </DropdownMenuItem>
         )}
         {!proMember && user.invitesPendingUpgrade > 0 && (
-          <DropdownMenuItem>
+          <DropdownMenuItem className='focus:bg-transparent'>
             <Mails className='mr-2 h-4 w-4' />
             <span>{user.invitesPendingUpgrade} Invite{user.invitesPendingUpgrade === 1 ? '' : 's'} Pending</span>
           </DropdownMenuItem>
