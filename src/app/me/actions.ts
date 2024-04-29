@@ -82,8 +82,8 @@ export async function invitePlayer(formData: FormData) {
     }
     else {
       const { error } = await supabase.rpc('handle_add_player_to_team', {
-        player_id: player.id,
-        team_id: teamId,
+        player_id_input: player.id,
+        team_id_input: teamId,
       })
 
       if (error) {
@@ -263,7 +263,7 @@ export async function processWebhookEvent(webhookId: string) {
 
     if (eventName.includes('created') || eventName.includes('resumed')) {
       const { error } = await supabase.rpc('handle_upgrade_team_invites', {
-        player_id: playerId,
+        player_id_input: playerId,
       })
       if (error) {
         processingError = error.message
@@ -273,7 +273,7 @@ export async function processWebhookEvent(webhookId: string) {
     }
     if (eventName.includes('cancelled') || eventName.includes('expired')) {
       const { error } = await supabase.rpc('handle_downgrade_team_removal', {
-        player_id: playerId,
+        player_id_input: playerId,
       })
       if (error) {
         processingError = error.message
