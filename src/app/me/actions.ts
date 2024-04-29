@@ -70,12 +70,16 @@ export async function invitePlayer(formData: FormData) {
     .from('players')
     .select('*, daily_scores ( id, created_at, player_id, date, answer, guesses )')
     .eq('email', email)
-    .not('first_name', 'is', null)
     .maybeSingle()
   let invitedPlayer: player_with_scores | undefined
 
   if (player) {
     if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
+    else if (invited.includes(email))
+    {
+      log.info(`Player with email ${email} already invited to team ${teamId}`)
+      return { success: true, message: 'Player already invited to this team' }
+    }
     else {
       const { error } = await supabase.rpc('handle_add_player_to_team', {
         player_id: player.id,

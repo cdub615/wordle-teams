@@ -28,6 +28,6 @@ export default async function updateProfile(formData: FormData) {
     throw new Error('Failed to update profile')
   }
 
-  revalidatePath('/me', 'layout')
+  revalidatePath('/', 'layout')
   redirect('/me')
 }
