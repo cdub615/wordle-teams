@@ -17,15 +17,21 @@ export default async function updateProfile(formData: FormData) {
   const lastName = formData.get('lastName') as string
 
   const { error } = await supabase
-    .from('profiles')
+    .from('players')
     .update({ first_name: firstName, last_name: lastName })
     .eq('id', session.user.id)
     .select('*')
     .single()
 
   if (error) {
-    log.error('Failed to update profile', { error })
-    throw new Error('Failed to update profile')
+    log.error('Failed to update player name', { error })
+    throw new Error('Failed to update player name')
+  }
+
+  const currentSession = { refresh_token: session.refresh_token }
+  const {error: refreshError} = await supabase.auth.refreshSession(currentSession)
+  if (refreshError) {
+    log.error('Failed to refresh session after updating player name', { error })
   }
 
   revalidatePath('/', 'layout')
