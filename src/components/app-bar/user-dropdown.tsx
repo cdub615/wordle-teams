@@ -53,9 +53,11 @@ export default function UserDropdown({ user }: { user: User }) {
     pull invites_pending_upgrade from app metadata and show in user dropdown
       test cases:
         - (COMPLETE) send 3 invites to a non member each for different teams, then as that non member signup from one of the invites
-        - invite a free member to their 3rd (really their 4th) team
-        - upgrade the free member to pro
-        - downgrade the pro member to free
+        - (COMPLETE) invite a free member to their 3rd (really their 4th) team
+        - (COMPLETE) upgrade the free member to pro
+        - downgrade the pro member to free (customer id wasn't available so couldn't get to billing page)
+
+    update raw_user_meta_data with the users name when doing the Complete Profile piece
 
     update og and store images
       - wt-home-dark-lg.png used in welcome component (1534 x 1067)
