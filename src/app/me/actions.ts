@@ -75,12 +75,10 @@ export async function invitePlayer(formData: FormData) {
 
   if (player) {
     if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
-    else if (invited.includes(email))
-    {
+    else if (invited.includes(email)) {
       log.info(`Player with email ${email} already invited to team ${teamId}`)
       return { success: true, message: 'Player already invited to this team' }
-    }
-    else {
+    } else {
       const { error } = await supabase.rpc('handle_add_player_to_team', {
         player_id_input: player.id,
         team_id_input: teamId,
@@ -90,7 +88,8 @@ export async function invitePlayer(formData: FormData) {
         log.error(`Failed to fetch team ${teamId}`, { error })
         return { success: false, message: 'Player invite failed' }
       }
-      invitedPlayer = player
+
+      if (player.first_name !== null) invitedPlayer = player
     }
   } else {
     const { error } = await supabase.auth.admin.inviteUserByEmail(email)
