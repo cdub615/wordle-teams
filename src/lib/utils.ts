@@ -21,7 +21,7 @@ export const getMonthsFromScoreDate = (scoreDate: Date): Date[] => {
   const monthsToCurrent = differenceInMonths(new Date(), scoreDate)
   let monthOption = startOfMonth(scoreDate)
   let options: Date[] = [monthOption]
-  for (let i = 0; i < monthsToCurrent; i++) {
+  for (let i = 0; i <= monthsToCurrent; i++) {
     monthOption = startOfMonth(addMonths(monthOption, 1))
     options.push(monthOption)
   }
