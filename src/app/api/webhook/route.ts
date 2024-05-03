@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })
       }
-      const { success } = await processWebhookEvent(webhookEvent.webhookId)
+      const { success } = await processWebhookEvent(webhookEvent)
       if (!success) {
         return new Response('Failed to process webhook event', { status: 500 })
       }

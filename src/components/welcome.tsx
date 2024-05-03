@@ -29,7 +29,7 @@ export default async function Welcome() {
         </Link>
       </div>
       <Image
-        src='/wt-home-dark-lg.png'
+        src='/welcome-screenshot.png'
         alt='Wordle Teams Dashboard'
         width={1000}
         height={800}

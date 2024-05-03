@@ -213,20 +213,11 @@ const relevantEvents = new Set([
   'subscription_expired',
 ])
 
-export async function processWebhookEvent(webhookId: string) {
+export async function processWebhookEvent(webhookEvent: WebhookEvent) {
+  const { webhookId, body: eventBody, eventName, playerId } = webhookEvent
   const supabase = createAdminClient(cookies())
 
-  const { data, error } = await supabase.from('webhook_events').select().eq('webhook_id', webhookId)
-
-  if (error || !data) {
-    if (error) log.error('Failed to get webhook event', { error: error?.message })
-    throw new Error(`Failed to get webhook event #${webhookId} not found in the database.`)
-  }
-
   let processingError = ''
-  const eventBody = data[0].body
-  const eventName = data[0].event_name
-  const playerId = data[0].player_id
 
   if (!webhookHasMeta(eventBody)) {
     processingError = "Event body is missing the 'meta' property."
@@ -235,6 +226,7 @@ export async function processWebhookEvent(webhookId: string) {
     let variantId = attributes.variant_id as number | null
     const freeVariantId = await getFreeVariantId()
     let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
+    
     if (eventName.includes('cancelled')) {
       membershipStatus = 'cancelled' as member_status
       variantId = null
