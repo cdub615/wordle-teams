@@ -3,7 +3,8 @@
 import { Button } from '@/components/ui/button'
 import { log } from 'next-axiom'
 import Link from 'next/link'
-import { useEffect } from 'react'
+import {useEffect} from 'react'
+import * as Sentry from '@sentry/nextjs'
 
 type ErrorMessageProps = {
   error: Error & { digest?: string }
@@ -12,6 +13,7 @@ type ErrorMessageProps = {
 
 export default function ErrorMessage({ error, reset }: ErrorMessageProps) {
   useEffect(() => {
+    Sentry.captureException(error)
     log.error(error.message, { error })
   }, [error])
 

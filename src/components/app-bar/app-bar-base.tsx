@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { useEffect } from 'react'
 import UserDropdown from './user-dropdown'
+import * as Sentry from '@sentry/nextjs'
 
 type AppBarBaseProps = {
   user?: User
@@ -25,7 +26,10 @@ export default function AppBarBase({ user }: AppBarBaseProps) {
         if (data.event == 'Checkout.Success') {
           revalidatePath('/me', 'layout')
           const { data, error } = await supabase.auth.refreshSession()
-          if (error) log.error(error.message)
+          if (error) {
+            Sentry.captureException(error)
+            log.error(error.message)
+          }
           if (data?.session) {
             user = getUserFromSession(data.session)
           }

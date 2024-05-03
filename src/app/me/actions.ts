@@ -7,7 +7,8 @@ import type { User, WebhookEvent, daily_scores, member_status, player_with_score
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
+import {cookies} from 'next/headers'
+import * as Sentry from '@sentry/nextjs'
 
 export async function createTeam(formData: FormData) {
   const supabase = createClient(cookies())
@@ -25,6 +26,7 @@ export async function createTeam(formData: FormData) {
     .single()
 
   if (error) {
+    Sentry.captureException(error)
     log.error('Failed to insert team', { error })
     return { success: false, message: 'Team creation failed, please try again' }
   }
@@ -48,6 +50,7 @@ export async function deleteTeam(teamId: string) {
   const { error } = await supabase.from('teams').delete().eq('id', teamId)
 
   if (error) {
+    Sentry.captureException(error)
     log.error('Failed to delete team', { error })
     return { success: false, message: 'Team deletion failed, please try again' }
   }
@@ -85,6 +88,7 @@ export async function invitePlayer(formData: FormData) {
       })
 
       if (error) {
+        Sentry.captureException(error)
         log.error(`Failed to fetch team ${teamId}`, { error })
         return { success: false, message: 'Player invite failed' }
       }
@@ -94,6 +98,7 @@ export async function invitePlayer(formData: FormData) {
   } else {
     const { error } = await supabase.auth.admin.inviteUserByEmail(email)
     if (error) {
+      Sentry.captureException(error)
       log.error('Failed to send invite email', { error })
       return { success: false, message: 'Player invite failed' }
     }
@@ -104,12 +109,14 @@ export async function invitePlayer(formData: FormData) {
       .eq('id', teamId)
       .select('*')
     if (teamUpdateError) {
+      Sentry.captureException(teamUpdateError)
       log.error('team update error', { teamUpdateError })
       return { success: false, message: 'Player invite failed' }
     }
   }
 
   if (error) {
+    Sentry.captureException(error)
     log.error('An unexpected error occurred while trying to invite player', { error })
     return { success: false, message: 'Player invite failed' }
   }
@@ -141,6 +148,7 @@ export async function upsertBoard(formData: FormData) {
       const { error } = await supabase.from('daily_scores').delete().eq('id', scoreId)
 
       if (error) {
+        Sentry.captureException(error)
         log.error('Failed to delete board', { error })
         return { success: false, message: 'Failed to delete board' }
       }
@@ -158,6 +166,7 @@ export async function upsertBoard(formData: FormData) {
         .single()
 
       if (error) {
+        Sentry.captureException(error)
         log.error('Failed to add or update board', { error })
         return { success: false, message: 'Failed to add or update board' }
       }
@@ -174,6 +183,7 @@ export async function upsertBoard(formData: FormData) {
       .single()
 
     if (error) {
+      Sentry.captureException(error)
       log.error('Failed to add or update board', { error })
       return { success: false, message: 'Failed to add or update board' }
     }
@@ -197,6 +207,7 @@ export async function removePlayer(formData: FormData) {
   const newPlayerIds = playerIds.filter((id) => id !== playerId)
   const { error } = await supabase.from('teams').update({ player_ids: newPlayerIds }).eq('id', teamId).select('*')
   if (error) {
+    Sentry.captureException(error)
     log.error(`Failed to remove player ${playerId} from team ${teamId}`, { error })
     return { success: false, message: 'Failed to remove player' }
   }
@@ -226,7 +237,7 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
     let variantId = attributes.variant_id as number | null
     const freeVariantId = await getFreeVariantId()
     let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
-    
+
     if (eventName.includes('cancelled')) {
       membershipStatus = 'cancelled' as member_status
       variantId = null
@@ -247,6 +258,7 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
 
     if (error) {
       processingError = error.message
+      Sentry.captureException(error)
       log.error('Failed to update player_customer', { error })
 
       return { success: false, message: 'Failed to update player_customer' }
@@ -258,6 +270,7 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
       })
       if (error) {
         processingError = error.message
+        Sentry.captureException(error)
         log.error('Failure in handle_upgrade_team_invites', { error })
         return { success: false, message: 'Failure in handle_upgrade_team_invites' }
       }
@@ -268,6 +281,7 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
       })
       if (error) {
         processingError = error.message
+        Sentry.captureException(error)
         log.error('Failure in handle_downgrade_team_removal', { error })
         return { success: false, message: 'Failure in handle_downgrade_team_removal' }
       }
@@ -280,6 +294,7 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
     .eq('webhook_id', webhookId)
 
   if (updateError) {
+    Sentry.captureException(updateError)
     log.error('Failed to update webhook event', { error: updateError?.message })
     return { success: false, message: 'Failed to process webhook event' }
   }
@@ -301,7 +316,10 @@ export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
     .select()
     .single()
 
-  if (error) log.error('Failed to store webhook event', { error: error?.message })
+  if (error) {
+    Sentry.captureException(error)
+    log.error('Failed to store webhook event', {error: error?.message})
+  }
 
   return data?.id
 }

@@ -5,6 +5,7 @@ import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import AppBarBase from './app-bar-base'
+import * as Sentry from '@sentry/nextjs'
 
 export default async function AppBarServer() {
   let user: User | undefined = undefined
@@ -21,7 +22,10 @@ export default async function AppBarServer() {
       .select('*')
       .eq('player_id', user.id)
       .maybeSingle()
-    if (error) log.error('Failed to fetch customer', { error })
+    if (error) {
+      Sentry.captureException(error)
+      log.error('Failed to fetch customer', {error})
+    }
     else if (data && data.membership_status !== user.memberStatus) {
       revalidatePath('/me', 'layout')
       user = { ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant, customerId: data.customer_id }

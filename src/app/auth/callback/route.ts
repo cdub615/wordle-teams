@@ -4,7 +4,8 @@ import { type EmailOtpType } from '@supabase/supabase-js'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import type { NextRequest } from 'next/server'
-import { NextResponse } from 'next/server'
+import {NextResponse} from 'next/server'
+import * as Sentry from '@sentry/nextjs'
 
 export async function GET(request: NextRequest) {
   const cookieStore = cookies()
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
           invited_id: id,
         })
         if (error) {
+          Sentry.captureException(error)
           log.error('Failed to handle invited signup', error)
           redirectTo.pathname = '/error'
           return NextResponse.redirect(redirectTo)
@@ -67,12 +69,14 @@ export async function GET(request: NextRequest) {
       if (type === 'invite') redirectTo.pathname = '/complete-profile'
       return NextResponse.redirect(redirectTo)
     } else {
+      Sentry.captureException(error)
       log.error('Failed to verify OTP', error)
       redirectTo.pathname = '/error'
       return NextResponse.redirect(redirectTo)
     }
   }
-
+  
+  Sentry.captureException('Token Hash or Type were missing in the auth callback')
   log.error('Token Hash or Type were missing in the auth callback')
 
   // return the user to an error page with some instructions

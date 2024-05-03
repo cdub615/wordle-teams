@@ -17,7 +17,8 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { Suspense } from 'react'
 import NoTeams from './no-teams'
-import { getTeams } from './utils'
+import {getTeams} from './utils'
+import * as Sentry from '@sentry/nextjs'
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -34,7 +35,10 @@ export default async function Page() {
     .eq('player_id', _user.id)
     .maybeSingle()
 
-  if (error) log.error('Failed to fetch customer', { error })
+  if (error) {
+    Sentry.captureException(error)
+    log.error('Failed to fetch customer', {error})
+  }
   else if (data && data.membership_status !== user.memberStatus) {
     revalidatePath('/me', 'layout')
     user = { ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant }

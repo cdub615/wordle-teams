@@ -3,6 +3,7 @@ import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
 import crypto from 'node:crypto'
+import * as Sentry from '@sentry/nextjs'
 
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -52,6 +53,7 @@ const validSignature = (signature: string, rawBody: string): boolean => {
 
     return crypto.timingSafeEqual(digest, signatureBuffer)
   } catch (error: any) {
+    Sentry.captureException(error)
     log.error('Failed to validate webhook signature', { error: error.message })
     return false
   }

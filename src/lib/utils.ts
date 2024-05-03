@@ -6,7 +6,8 @@ import { jwtDecode } from 'jwt-decode'
 import { LogSnag } from 'logsnag'
 import { log } from 'next-axiom'
 import { twMerge } from 'tailwind-merge'
-import { Database } from './database.types'
+import {Database} from './database.types'
+import * as Sentry from '@sentry/nextjs'
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 
@@ -104,6 +105,7 @@ export const hasName = (session: Session) => {
     const user = getUserFromSession(session)
     return user.firstName.length > 1 && user.lastName.length > 1
   } catch (error) {
+    Sentry.captureException(error)
     log.error('Failed to check if user has name', {error})
     throw error
   }

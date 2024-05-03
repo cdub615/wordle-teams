@@ -1,7 +1,8 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { get } from '@vercel/edge-config'
 import { log } from 'next-axiom'
-import { NextResponse, type NextRequest } from 'next/server'
+import {NextResponse, type NextRequest} from 'next/server'
+import * as Sentry from '@sentry/nextjs'
 
 export async function middleware(request: NextRequest) {
   const maintenance = await get<boolean>(`maintenance_${process.env.ENVIRONMENT}`)
@@ -64,6 +65,7 @@ export async function middleware(request: NextRequest) {
   // This will refresh session if expired - required for Server Components
   const {data, error} = await supabase.auth.getUser()
   if (error) {
+    Sentry.captureException(error)
     log.error(error.message)
     return NextResponse.redirect('/login')
   }
