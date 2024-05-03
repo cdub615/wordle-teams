@@ -1,6 +1,8 @@
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { BoardEntryButton } from './board-entry-button'
 import MonthDropdown from './month-dropdown/month-dropdown'
+import SentryClientTest from './sentry-test'
 import TeamsDropdown from './teams-dropdown/teams-dropdown'
 
 type ActionButtonProps = {
@@ -15,7 +17,20 @@ export default async function ActionButtons({ userId, classes }: ActionButtonPro
       <div className='flex-grow'>
         <TeamsDropdown />
       </div>
+      <SentryServerTest />
+      <SentryClientTest />
       <BoardEntryButton userId={userId} />
     </div>
+  )
+}
+export async function SentryServerTest() {
+  const handleSubmit = async (formData: FormData) => {
+    'use server'
+    throw new Error('Testing Sentry from server component')
+  }
+  return (
+    <form action={handleSubmit}>
+      <Button type='submit'>Sentry Server Test</Button>
+    </form>
   )
 }
