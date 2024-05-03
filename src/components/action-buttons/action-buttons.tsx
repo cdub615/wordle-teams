@@ -4,6 +4,7 @@ import { BoardEntryButton } from './board-entry-button'
 import MonthDropdown from './month-dropdown/month-dropdown'
 import SentryClientTest from './sentry-test'
 import TeamsDropdown from './teams-dropdown/teams-dropdown'
+import * as Sentry from '@sentry/nextjs'
 
 type ActionButtonProps = {
   userId: string
@@ -26,7 +27,7 @@ export default async function ActionButtons({ userId, classes }: ActionButtonPro
 export async function SentryServerTest() {
   const handleSubmit = async (formData: FormData) => {
     'use server'
-    throw new Error('Testing Sentry from server component')
+    Sentry.captureException(new Error('testing Sentry from server component'))
   }
   return (
     <form action={handleSubmit}>
