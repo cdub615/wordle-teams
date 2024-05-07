@@ -1,7 +1,8 @@
 'use client'
 
 import { Team, User, team_with_players } from '@/lib/types'
-import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useState } from 'react'
+import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
+import {isBrowser} from '../utils'
 
 type TeamsContext = {
   teams: Team[]
@@ -25,9 +26,29 @@ type TeamsProviderProps = {
 export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderProps) {
   const _teams = initialTeams?.map((t: team_with_players) => Team.prototype.fromDbTeam(t, t.players)) ?? []
   const [teams, setTeams] = useState(_teams)
-  const [month, setMonth] = useState(new Date())
-  const [teamId, setTeamId] = useState(_teams[0]?.id ?? -1)
+  const [month, setMonth] = useState(() => {
+    if (isBrowser()) {
+      const selectedMonth = localStorage.getItem('selectedMonth')
+      return selectedMonth ? new Date(selectedMonth) : new Date()
+    }
+    return new Date()
+  })
+  const [teamId, setTeamId] = useState(() => {
+    if (isBrowser()) {
+      const selectedTeam = localStorage.getItem('selectedTeam')
+      return selectedTeam ? Number.parseInt(selectedTeam) : _teams[0]?.id ?? -1
+    }
+    return _teams[0]?.id ?? -1
+  })
   const [user, setUser] = useState<User>(_user)
+
+  useEffect(() => {
+    localStorage.setItem('selectedMonth', month.toISOString())
+  }, [month])
+
+  useEffect(() => {
+    localStorage.setItem('selectedTeam', teamId.toString())
+  }, [teamId])
 
   return (
     <TeamsContext.Provider

@@ -110,3 +110,5 @@ export const hasName = (session: Session) => {
     throw error
   }
 }
+
+export const isBrowser = () => typeof window !== 'undefined'

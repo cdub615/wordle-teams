@@ -49,22 +49,9 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    invite logic for free members (disallow free invitee if already 2 teams and update app metadata, handle upgrade/downgrade)
-    pull invites_pending_upgrade from app metadata and show in user dropdown
-      test cases:
-        - (COMPLETE) send 3 invites to a non member each for different teams, then as that non member signup from one of the invites
-        - (COMPLETE) invite a free member to their 3rd (really their 4th) team
-        - (COMPLETE) upgrade the free member to pro
-        - downgrade the pro member to free (customer id wasn't available so couldn't get to billing page)
+    scores/dates seem to be misaligned, and april shows may 1st at end
 
-    update raw_user_meta_data with the users name when doing the Complete Profile piece
-
-    update og and store images
-      - wt-home-dark-lg.png used in welcome component (1534 x 1067)
-      - opengraph-image.png (1200 x 630)
-      - twitter-image.png (1200 x 630)
-
-    (might be resolved?) prevent authapi error due to refresh token expiration
+    open board entry to next available date in the currently selected month
 
   */
 

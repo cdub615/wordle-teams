@@ -73,8 +73,8 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
       <input hidden readOnly aria-readonly name='answer' value={answer} />
       <div className='flex items-center space-x-2 md:space-x-4 w-full md:px-4'>
-        <div className='flex flex-col w-[60%] md:w-full'>
-          <Label htmlFor='date' className='mb-2'>
+        <div id='wordle-board-date' className='flex flex-col w-[60%] md:w-full'>
+          <Label htmlFor='wordle-board-date' className='mb-2'>
             Wordle Date
           </Label>
           <DatePicker

@@ -8,7 +8,7 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { PopoverClose } from '@radix-ui/react-popover'
-import { Dispatch, SetStateAction } from 'react'
+import { Dispatch, SetStateAction, useState } from 'react'
 import { Matcher } from 'react-day-picker'
 
 type DatePickerProps = {
@@ -20,15 +20,17 @@ type DatePickerProps = {
   className?: string
 }
 
-export default function DatePicker({ date, setDate, noDateText, tabIndex, playWeekends, className }: DatePickerProps) {
+export default function DatePicker({date, setDate, noDateText, tabIndex, playWeekends, className}: DatePickerProps) {
+  const [open, setOpen] = useState(false)
+
   const disabledDays: Matcher[] = [{ after: new Date() }]
   if (!playWeekends) disabledDays.push({ dayOfWeek: [0, 6] })
   const onSelect = (date: Date | undefined) => {
     setDate(date)
-    document.getElementById('date-picker-close')?.click()
+    setOpen(false)
   }
   return (
-    <Popover modal={true}>
+    <Popover modal={true} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           tabIndex={tabIndex}
