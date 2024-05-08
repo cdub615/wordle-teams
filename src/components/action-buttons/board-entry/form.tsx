@@ -66,6 +66,8 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
     }
   }
 
+  // TODO if not current month, open board entry to next available date in the currently selected month
+
   return (
     <form onSubmit={handleSubmit} className={cn(submitting ? 'animate-pulse' : '')}>
       <input hidden readOnly aria-readonly name='scoreId' value={scoreId} />

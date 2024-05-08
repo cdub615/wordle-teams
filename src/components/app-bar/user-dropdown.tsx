@@ -49,9 +49,10 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    scores/dates seem to be misaligned, and april shows may 1st at end
-
     open board entry to next available date in the currently selected month
+      also set team boards to latest date of selected month
+
+    investigate month dropdown for free members
 
   */
 
