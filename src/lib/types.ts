@@ -25,6 +25,7 @@ export type User = {
   memberStatus: member_status
   memberVariant: number | null
   customerId: number | null
+  invitesPendingUpgrade: number
 }
 
 export type UserToken = JwtPayload & {

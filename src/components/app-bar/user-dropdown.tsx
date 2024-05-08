@@ -16,42 +16,28 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
-import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { CreditCard, Loader2, LogOut, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
+import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon, MessageSquare } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
 export default function UserDropdown({ user }: { user: User }) {
-  const supabase = createClient()
   const { setTheme } = useTheme()
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [proMember, setProMember] = useState(user.memberStatus === 'pro')
+  const proMember = user.memberStatus === 'pro'
   const handleLogout = async () => {
     setPending(true)
     await logout()
+    router.push('/')
     setPending(false)
   }
-
-  useEffect(() => {
-    const getPlayerCustomer = async () => {
-      const { data, error } = await supabase
-        .from('player_customer')
-        .select('*')
-        .eq('player_id', user.id)
-        .maybeSingle()
-      if (error) log.error(error.message)
-      if (data && data.membership_status !== user.memberStatus) setProMember(data.membership_status === 'pro')
-    }
-    getPlayerCustomer()
-  }, [supabase])
 
   const handleUpgrade = async () => {
     setLoading(true)
@@ -63,11 +49,9 @@ export default function UserDropdown({ user }: { user: User }) {
 
   /*  TODO
 
-    score customization
+    scores/dates seem to be misaligned, and april shows may 1st at end
 
-    invite logic for free members
-
-    configure custom auth hook in prod, prevent authapi error due to refresh token expiration
+    open board entry to next available date in the currently selected month
 
   */
 
@@ -89,7 +73,7 @@ export default function UserDropdown({ user }: { user: User }) {
         <Avatar
           className={cn(
             loading && 'animate-pulse',
-            'cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'
+            'drop-shadow-md cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'
           )}
         >
           {/* <AvatarImage src='' alt='@username' /> */}
@@ -146,6 +130,12 @@ export default function UserDropdown({ user }: { user: User }) {
           <DropdownMenuItem onClick={handleUpgrade}>
             <Sparkles className='mr-2 h-4 w-4' />
             <span>Upgrade</span>
+          </DropdownMenuItem>
+        )}
+        {!proMember && user.invitesPendingUpgrade > 0 && (
+          <DropdownMenuItem className='focus:bg-transparent'>
+            <Mails className='mr-2 h-4 w-4' />
+            <span>{user.invitesPendingUpgrade} Invite{user.invitesPendingUpgrade === 1 ? '' : 's'} Pending</span>
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />

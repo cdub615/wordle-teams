@@ -7,7 +7,8 @@ import {
   lemonSqueezySetup,
   listProducts,
 } from '@lemonsqueezy/lemonsqueezy.js'
-import { log } from 'next-axiom'
+import {log} from 'next-axiom'
+import * as Sentry from '@sentry/nextjs'
 
 const testMode = process.env.ENVIRONMENT !== 'prod'
 const storeId = process.env.LEMONSQUEEZY_STORE_ID!
@@ -33,6 +34,7 @@ function configureLemonSqueezy() {
   lemonSqueezySetup({
     apiKey: process.env.LEMONSQUEEZY_API_KEY,
     onError: (error) => {
+      Sentry.captureException(error)
       log.error(error.message, error)
     },
   })
@@ -41,14 +43,20 @@ function configureLemonSqueezy() {
 export const getFreeVariantId = async () => {
   configureLemonSqueezy()
   const { error, data } = await listProducts({ filter: { storeId }, include: ['variants'] })
-  if (error) log.error(error.message)
+  if (error) {
+    Sentry.captureException(error)
+    log.error(error.message)
+  }
   const pro = data?.data.find((p) => p.attributes.name === 'Free')
   if (pro && pro.relationships?.variants?.data) return Number.parseInt(pro.relationships?.variants?.data[0]?.id)
 }
 
 const getProVariantId = async () => {
   const { error, data } = await listProducts({ filter: { storeId }, include: ['variants'] })
-  if (error) log.error(error.message)
+  if (error) {
+    Sentry.captureException(error)
+    log.error(error.message)
+  }
   const pro = data?.data.find((p) => p.attributes.name === 'Pro')
   if (pro && pro.relationships?.variants?.data) return pro.relationships?.variants?.data[0]?.id
 }
@@ -79,13 +87,19 @@ export const createNewCheckout = async (name: string, email: string, userId: str
     preview: true,
   }
   const { error, data } = await createCheckout(storeId, variantId, newCheckout)
-  if (error) log.error(error.message)
+  if (error) {
+    Sentry.captureException(error)
+    log.error(error.message)
+  }
   return data ?? undefined
 }
 
 export const getCustomerPortalUrl = async (customerId: number) => {
   configureLemonSqueezy()
   const { error, data } = await getCustomer(customerId)
-  if (error) log.error(error.message)
+  if (error) {
+    Sentry.captureException(error)
+    log.error(error.message)
+  }
   return data?.data.attributes.urls?.customer_portal ?? undefined
 }

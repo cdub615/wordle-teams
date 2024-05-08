@@ -38,18 +38,19 @@ export const handleKey = (
   key: string,
   answer: string,
   guesses: string[],
-  setGuesses: Dispatch<SetStateAction<string[]>>
+  setGuesses: Dispatch<SetStateAction<string[]>>,
+  scoreId: number
 ) => {
   const isBackspace = key === 'Backspace' || key === '{backspace}'
   if (isBackspace) handleBackspace(guesses, setGuesses)
 
   if (key === 'Enter') {
-    if (boardIsValid(answer, guesses)) document.getElementById('board-submit')?.click()
+    if (boardIsValid(answer, guesses, scoreId)) document.getElementById('board-submit')?.click()
     else toast.warning('Board must be complete to submit')
   }
 
   const isLetter = /[a-zA-Z]/.test(key) && key.length === 1
-  if (isLetter && !boardIsValid(answer, guesses) && guesses[5].length < 5)
+  if (isLetter && !boardIsValid(answer, guesses, scoreId) && guesses[5].length < 5)
     handleLetter(key, answer, guesses, setGuesses)
 }
 
@@ -59,8 +60,10 @@ const hasCompleteGuesses = (guesses: string[]) =>
   guesses.every((guess) => guess.length === 0 || guess.length === 5)
 const lastGuessIsAnswer = (answer: string, guesses: string[]) =>
   guesses[5]?.length === 5 || guesses.filter((guess) => guess.length > 0).pop() === answer
+const isEmpty = (answer: string, guesses: string[]) => answer.length === 0 && guesses.every(guess => guess.length === 0)
 
-export const boardIsValid = (answer: string, guesses: string[]) =>
+export const boardIsValid = (answer: string, guesses: string[], scoreId: number) =>
+  scoreId !== -1 && isEmpty(answer, guesses) ||
   hasValidAnswer(answer) &&
   hasGuesses(guesses) &&
   hasCompleteGuesses(guesses) &&

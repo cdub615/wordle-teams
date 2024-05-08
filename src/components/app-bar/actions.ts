@@ -18,7 +18,6 @@ export async function logout() {
   }
 
   revalidatePath('/', 'layout')
-  redirect('/')
 }
 
 export async function getCheckoutUrl(user: User) {

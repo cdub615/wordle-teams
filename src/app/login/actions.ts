@@ -1,9 +1,9 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/actions'
+import * as Sentry from '@sentry/nextjs'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 import { loginSchema, signupSchema } from './schemas'
 
 const emailRedirectTo = process.env.VERCEL_URL
@@ -29,6 +29,7 @@ export async function login(formData: FormData) {
   })
 
   if (error) {
+    Sentry.captureException(error)
     log.error(error.message)
     if (error?.message === 'Signups not allowed for otp') {
       return { error: `Login failed. If you haven't yet signed up, please try the Sign Up form.` }
@@ -64,6 +65,7 @@ export async function signup(formData: FormData) {
   })
 
   if (error) {
+    Sentry.captureException(error)
     log.error(error.message)
     return { error: 'Signup failed. Please try again.' }
   }

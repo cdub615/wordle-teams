@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 type GetTeamsResponse = {
-  user: User
+  _user: User
   teams: team_with_players[]
 }
 
@@ -16,7 +16,7 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
   if (!session) redirect('/login')
   const user = getUserFromSession(session)
 
-  const { data: teams } = await supabase.from('teams').select('*').returns<teams[]>()
+  const { data: teams } = await supabase.from('teams').select('*').order('created_at').returns<teams[]>()
   const playerIds = teams?.flatMap((t) => t.player_ids) ?? []
   const { data: players } = await supabase
     .from('players')
@@ -30,5 +30,5 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
       return { ...t, players: teamPlayers } as team_with_players
     }) ?? []
 
-  return { user, teams: teamsWithPlayers }
+  return { _user: user, teams: teamsWithPlayers }
 }

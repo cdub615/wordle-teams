@@ -4,8 +4,6 @@ import { Label } from '@/components/ui/label'
 import updateProfile from './actions'
 
 export default async function Page() {
-  // On the create profile page, add these cards to that page as well, and ensure name is filled out before
-  // allowing click on links, and on click save the player's name and then redirect to checkout
   return (
     <div className='flex justify-center mt-24 px-6'>
       <div className='max-w-lg'>

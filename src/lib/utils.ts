@@ -6,7 +6,8 @@ import { jwtDecode } from 'jwt-decode'
 import { LogSnag } from 'logsnag'
 import { log } from 'next-axiom'
 import { twMerge } from 'tailwind-merge'
-import { Database } from './database.types'
+import {Database} from './database.types'
+import * as Sentry from '@sentry/nextjs'
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 
@@ -21,7 +22,7 @@ export const getMonthsFromScoreDate = (scoreDate: Date): Date[] => {
   const monthsToCurrent = differenceInMonths(new Date(), scoreDate)
   let monthOption = startOfMonth(scoreDate)
   let options: Date[] = [monthOption]
-  for (let i = 0; i < monthsToCurrent; i++) {
+  for (let i = 0; i <= monthsToCurrent; i++) {
     monthOption = startOfMonth(addMonths(monthOption, 1))
     options.push(monthOption)
   }
@@ -86,6 +87,7 @@ export const getUserFromSession = (session: Session) => {
     memberStatus: token.user_member_status,
     memberVariant: token.user_member_variant,
     customerId: token.user_customer_id,
+    invitesPendingUpgrade: session.user?.app_metadata?.invites_pending_upgrade ?? 0,
   }
 
   return user
@@ -99,6 +101,14 @@ export const padArray = (arr: string[], length: number) => {
 }
 
 export const hasName = (session: Session) => {
-  const user = getUserFromSession(session)
-  return user.firstName.length > 1 && user.lastName.length > 1
+  try {
+    const user = getUserFromSession(session)
+    return user.firstName.length > 1 && user.lastName.length > 1
+  } catch (error) {
+    Sentry.captureException(error)
+    log.error('Failed to check if user has name', {error})
+    throw error
+  }
 }
+
+export const isBrowser = () => typeof window !== 'undefined'

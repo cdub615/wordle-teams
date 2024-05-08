@@ -8,7 +8,7 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { PopoverClose } from '@radix-ui/react-popover'
-import { Dispatch, SetStateAction } from 'react'
+import { Dispatch, SetStateAction, useState } from 'react'
 import { Matcher } from 'react-day-picker'
 
 type DatePickerProps = {
@@ -17,24 +17,28 @@ type DatePickerProps = {
   noDateText?: string
   tabIndex?: number | undefined
   playWeekends?: boolean
+  className?: string
 }
 
-export default function DatePicker({ date, setDate, noDateText, tabIndex, playWeekends }: DatePickerProps) {
+export default function DatePicker({date, setDate, noDateText, tabIndex, playWeekends, className}: DatePickerProps) {
+  const [open, setOpen] = useState(false)
+
   const disabledDays: Matcher[] = [{ after: new Date() }]
   if (!playWeekends) disabledDays.push({ dayOfWeek: [0, 6] })
   const onSelect = (date: Date | undefined) => {
     setDate(date)
-    document.getElementById('date-picker-close')?.click()
+    setOpen(false)
   }
   return (
-    <Popover modal={true}>
+    <Popover modal={true} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           tabIndex={tabIndex}
           variant={'outline'}
           className={cn(
-            'w-full justify-start text-left font-normal px-2 md:px-4',
-            !date && 'text-muted-foreground'
+            'justify-start text-left font-normal px-2 md:px-4',
+            !date && 'text-muted-foreground',
+            className
           )}
         >
           <CalendarIcon className='mr-2 h-4 w-4' />
@@ -52,7 +56,7 @@ export default function DatePicker({ date, setDate, noDateText, tabIndex, playWe
           disabled={disabledDays}
         />
       </PopoverContent>
-      <PopoverClose id='date-picker-close' className='invisible h-0 m-0' />
+      <PopoverClose id='date-picker-close' className='invisible h-0 !m-0' />
     </Popover>
   )
 }

@@ -29,7 +29,7 @@ export default async function Welcome() {
         </Link>
       </div>
       <Image
-        src='/wt-home-dark-lg.png'
+        src='/welcome-screenshot.png'
         alt='Wordle Teams Dashboard'
         width={1000}
         height={800}
@@ -45,7 +45,7 @@ export default async function Welcome() {
         <Link href='https://twitter.com/wordleteams' className='underline underline-offset-4'>
           X
         </Link>
-        . View source code on{' '}
+        . View source code in{' '}
         <Link href='https://github.com/cdub615/wordle-teams' className='underline underline-offset-4'>
           GitHub
         </Link>

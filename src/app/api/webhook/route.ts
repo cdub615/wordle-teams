@@ -3,6 +3,7 @@ import { webhookHasMeta } from '@/lib/typeguards'
 import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
 import crypto from 'node:crypto'
+import * as Sentry from '@sentry/nextjs'
 
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -20,7 +21,6 @@ export async function POST(request: Request) {
 
     // Type guard to check if the object has a 'meta' property.
     if (webhookHasMeta(data)) {
-
       const webhookEvent: WebhookEvent = {
         playerId: data.meta.custom_data.user_id,
         eventName: data.meta.event_name,
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       if (!webhookEventId) {
         return new Response('Failed to store webhook event', { status: 500 })
       }
-      const { success } = await processWebhookEvent(webhookEvent.webhookId)
+      const { success } = await processWebhookEvent(webhookEvent)
       if (!success) {
         return new Response('Failed to process webhook event', { status: 500 })
       }
@@ -53,6 +53,7 @@ const validSignature = (signature: string, rawBody: string): boolean => {
 
     return crypto.timingSafeEqual(digest, signatureBuffer)
   } catch (error: any) {
+    Sentry.captureException(error)
     log.error('Failed to validate webhook signature', { error: error.message })
     return false
   }

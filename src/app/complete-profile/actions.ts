@@ -5,7 +5,8 @@ import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
+import {redirect} from 'next/navigation'
+import * as Sentry from '@sentry/nextjs'
 
 export default async function updateProfile(formData: FormData) {
   const cookieStore = cookies()
@@ -17,17 +18,25 @@ export default async function updateProfile(formData: FormData) {
   const lastName = formData.get('lastName') as string
 
   const { error } = await supabase
-    .from('profiles')
+    .from('players')
     .update({ first_name: firstName, last_name: lastName })
     .eq('id', session.user.id)
     .select('*')
     .single()
 
   if (error) {
-    log.error('Failed to update profile', { error })
-    throw new Error('Failed to update profile')
+    'Token Hash or Type were missing in the auth callback'
+    log.error('Failed to update player name', { error })
+    throw new Error('Failed to update player name')
   }
 
-  revalidatePath('/me', 'layout')
+  const currentSession = { refresh_token: session.refresh_token }
+  const {error: refreshError} = await supabase.auth.refreshSession(currentSession)
+  if (refreshError) {
+    'Token Hash or Type were missing in the auth callback'
+    log.error('Failed to refresh session after updating player name', { error })
+  }
+
+  revalidatePath('/', 'layout')
   redirect('/me')
 }

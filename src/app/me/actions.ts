@@ -7,7 +7,8 @@ import type { User, WebhookEvent, daily_scores, member_status, player_with_score
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
+import {cookies} from 'next/headers'
+import * as Sentry from '@sentry/nextjs'
 
 export async function createTeam(formData: FormData) {
   const supabase = createClient(cookies())
@@ -25,6 +26,7 @@ export async function createTeam(formData: FormData) {
     .single()
 
   if (error) {
+    Sentry.captureException(error)
     log.error('Failed to insert team', { error })
     return { success: false, message: 'Team creation failed, please try again' }
   }
@@ -48,6 +50,7 @@ export async function deleteTeam(teamId: string) {
   const { error } = await supabase.from('teams').delete().eq('id', teamId)
 
   if (error) {
+    Sentry.captureException(error)
     log.error('Failed to delete team', { error })
     return { success: false, message: 'Team deletion failed, please try again' }
   }
@@ -61,7 +64,7 @@ export async function invitePlayer(formData: FormData) {
   const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 
-  const teamId = formData.get('teamId') as string
+  const teamId = Number.parseInt(formData.get('teamId') as string)
   const playerIds = (formData.get('playerIds') as string).split(',')
   const invited = formData.getAll('invited') as string[]
   const email = formData.get('email') as string
@@ -75,22 +78,27 @@ export async function invitePlayer(formData: FormData) {
 
   if (player) {
     if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
-    else {
-      const newPlayerIds = playerIds.length > 0 ? [...playerIds, player.id] : [player.id]
-      const { error } = await supabase
-        .from('teams')
-        .update({ player_ids: newPlayerIds })
-        .eq('id', teamId)
-        .select('*')
+    else if (invited.includes(email)) {
+      log.info(`Player with email ${email} already invited to team ${teamId}`)
+      return { success: true, message: 'Player already invited to this team' }
+    } else {
+      const { error } = await supabase.rpc('handle_add_player_to_team', {
+        player_id_input: player.id,
+        team_id_input: teamId,
+      })
+
       if (error) {
+        Sentry.captureException(error)
         log.error(`Failed to fetch team ${teamId}`, { error })
         return { success: false, message: 'Player invite failed' }
       }
-      invitedPlayer = player
+
+      if (player.first_name !== null) invitedPlayer = player
     }
   } else {
     const { error } = await supabase.auth.admin.inviteUserByEmail(email)
     if (error) {
+      Sentry.captureException(error)
       log.error('Failed to send invite email', { error })
       return { success: false, message: 'Player invite failed' }
     }
@@ -101,12 +109,14 @@ export async function invitePlayer(formData: FormData) {
       .eq('id', teamId)
       .select('*')
     if (teamUpdateError) {
+      Sentry.captureException(teamUpdateError)
       log.error('team update error', { teamUpdateError })
       return { success: false, message: 'Player invite failed' }
     }
   }
 
   if (error) {
+    Sentry.captureException(error)
     log.error('An unexpected error occurred while trying to invite player', { error })
     return { success: false, message: 'Player invite failed' }
   }
@@ -126,25 +136,45 @@ export async function upsertBoard(formData: FormData) {
   const guessesInput = formData.getAll('guesses') as string[]
   const guesses = guessesInput[0].split(',').filter((g) => g !== '')
 
-  let dailyScore: daily_scores
+  if (guesses.length === 6 && guesses[5] != answer) guesses.push('')
+
+  let dailyScore: daily_scores | undefined
   let message
+  let action: 'create' | 'update' | 'delete' = 'create'
 
   if (!!scoreId && scoreId !== '-1') {
-    const { data: newScore, error } = await supabase
-      .from('daily_scores')
-      .update({ answer, guesses })
-      .eq('id', scoreId)
-      .select('*')
-      .returns<daily_scores[]>()
-      .single()
+    if (answer.length === 0 && guesses.every((guess) => guess.length === 0)) {
+      action = 'delete'
+      const { error } = await supabase.from('daily_scores').delete().eq('id', scoreId)
 
-    if (error) {
-      log.error('Failed to add or update board', { error })
-      return { success: false, message: 'Failed to add or update board' }
+      if (error) {
+        Sentry.captureException(error)
+        log.error('Failed to delete board', { error })
+        return { success: false, message: 'Failed to delete board' }
+      }
+
+      dailyScore = undefined
+      message = 'Successfully deleted board'
+    } else {
+      action = 'update'
+      const { data: newScore, error } = await supabase
+        .from('daily_scores')
+        .update({ answer, guesses })
+        .eq('id', scoreId)
+        .select('*')
+        .returns<daily_scores[]>()
+        .single()
+
+      if (error) {
+        Sentry.captureException(error)
+        log.error('Failed to add or update board', { error })
+        return { success: false, message: 'Failed to add or update board' }
+      }
+      dailyScore = newScore
+      message = 'Successfully updated board'
     }
-    dailyScore = newScore
-    message = 'Successfully updated board'
   } else {
+    action = 'create'
     const { data: newScore, error } = await supabase
       .from('daily_scores')
       .insert({ answer, date: scoreDate, guesses, player_id: session.user.id })
@@ -153,6 +183,7 @@ export async function upsertBoard(formData: FormData) {
       .single()
 
     if (error) {
+      Sentry.captureException(error)
       log.error('Failed to add or update board', { error })
       return { success: false, message: 'Failed to add or update board' }
     }
@@ -162,7 +193,7 @@ export async function upsertBoard(formData: FormData) {
 
   revalidatePath('/')
 
-  return { success: true, message, dailyScore }
+  return { success: true, message, action, dailyScore }
 }
 
 export async function removePlayer(formData: FormData) {
@@ -176,6 +207,7 @@ export async function removePlayer(formData: FormData) {
   const newPlayerIds = playerIds.filter((id) => id !== playerId)
   const { error } = await supabase.from('teams').update({ player_ids: newPlayerIds }).eq('id', teamId).select('*')
   if (error) {
+    Sentry.captureException(error)
     log.error(`Failed to remove player ${playerId} from team ${teamId}`, { error })
     return { success: false, message: 'Failed to remove player' }
   }
@@ -192,20 +224,11 @@ const relevantEvents = new Set([
   'subscription_expired',
 ])
 
-export async function processWebhookEvent(webhookId: string) {
+export async function processWebhookEvent(webhookEvent: WebhookEvent) {
+  const { webhookId, body: eventBody, eventName, playerId } = webhookEvent
   const supabase = createAdminClient(cookies())
 
-  const { data, error } = await supabase.from('webhook_events').select().eq('webhook_id', webhookId)
-
-  if (error || !data) {
-    if (error) log.error('Failed to get webhook event', { error: error?.message })
-    throw new Error(`Failed to get webhook event #${webhookId} not found in the database.`)
-  }
-
   let processingError = ''
-  const eventBody = data[0].body
-  const eventName = data[0].event_name
-  const playerId = data[0].player_id
 
   if (!webhookHasMeta(eventBody)) {
     processingError = "Event body is missing the 'meta' property."
@@ -214,6 +237,7 @@ export async function processWebhookEvent(webhookId: string) {
     let variantId = attributes.variant_id as number | null
     const freeVariantId = await getFreeVariantId()
     let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
+
     if (eventName.includes('cancelled')) {
       membershipStatus = 'cancelled' as member_status
       variantId = null
@@ -234,9 +258,33 @@ export async function processWebhookEvent(webhookId: string) {
 
     if (error) {
       processingError = error.message
+      Sentry.captureException(error)
       log.error('Failed to update player_customer', { error })
 
       return { success: false, message: 'Failed to update player_customer' }
+    }
+
+    if (eventName.includes('created') || eventName.includes('resumed')) {
+      const { error } = await supabase.rpc('handle_upgrade_team_invites', {
+        player_id_input: playerId,
+      })
+      if (error) {
+        processingError = error.message
+        Sentry.captureException(error)
+        log.error('Failure in handle_upgrade_team_invites', { error })
+        return { success: false, message: 'Failure in handle_upgrade_team_invites' }
+      }
+    }
+    if (eventName.includes('cancelled') || eventName.includes('expired')) {
+      const { error } = await supabase.rpc('handle_downgrade_team_removal', {
+        player_id_input: playerId,
+      })
+      if (error) {
+        processingError = error.message
+        Sentry.captureException(error)
+        log.error('Failure in handle_downgrade_team_removal', { error })
+        return { success: false, message: 'Failure in handle_downgrade_team_removal' }
+      }
     }
   }
 
@@ -246,6 +294,7 @@ export async function processWebhookEvent(webhookId: string) {
     .eq('webhook_id', webhookId)
 
   if (updateError) {
+    Sentry.captureException(updateError)
     log.error('Failed to update webhook event', { error: updateError?.message })
     return { success: false, message: 'Failed to process webhook event' }
   }
@@ -267,7 +316,10 @@ export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
     .select()
     .single()
 
-  if (error) log.error('Failed to store webhook event', { error: error?.message })
+  if (error) {
+    Sentry.captureException(error)
+    log.error('Failed to store webhook event', {error: error?.message})
+  }
 
   return data?.id
 }

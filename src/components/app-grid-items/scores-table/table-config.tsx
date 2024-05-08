@@ -10,10 +10,13 @@ const getData = (team: Team, month: Date): MonthScoresRow[] => {
     const scores = player.scores?.filter((s) => isSameMonth(month, new Date(s.date)))
     const dailyAttempts = []
     for (let i = 1; i <= 31; i++) {
-      const attempts =
-        scores.find((s) => isSameDay(new Date(s.date), new Date(getYear(month), getMonth(month), i)))?.attempts ??
-        ''
-      dailyAttempts.push(attempts)
+      const attempts = scores.find((s) =>
+        isSameDay(new Date(s.date), new Date(getYear(month), getMonth(month), i))
+      )?.attempts
+
+      if (!attempts || attempts === 0) dailyAttempts.push('')
+      else if (attempts === 7) dailyAttempts.push('X')
+      else dailyAttempts.push(attempts)
     }
 
     const row = {
@@ -97,9 +100,7 @@ const getColumns = (month: Date, playWeekends: boolean) => {
       header: () => {
         return (
           <>
-            <div className='font-bold text-right invisible h-0 w-0 md:visible md:h-fit md:w-fit'>
-              Score
-            </div>
+            <div className='font-bold text-right invisible h-0 w-0 md:visible md:h-fit md:w-fit'>Score</div>
             <div className='font-bold text-right text-xs md:invisible md:h-0 md:w-0'>Score</div>
           </>
         )
@@ -120,11 +121,9 @@ const getDayVisibility = (month: Date): VisibilityState => {
   return dayVisibility
 }
 
-const playerNameHeaderClass =
-  'sticky left-0 px-2 md:px-4 rounded-tl-lg bg-background'
+const playerNameHeaderClass = 'sticky left-0 px-2 md:px-4 rounded-tl-lg bg-background'
 const playerNameRowClass = 'sticky left-0 rounded-bl-lg bg-background'
-const monthTotalHeaderClass =
-  'sticky right-0 px-2 md:px-4 rounded-tr-lg bg-background'
+const monthTotalHeaderClass = 'sticky right-0 px-2 md:px-4 rounded-tr-lg bg-background'
 const monthTotalRowClass = 'sticky right-0 rounded-br-lg bg-background'
 
 const getHeaderClass = (id: string) => {

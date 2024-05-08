@@ -24,7 +24,7 @@ import { getScrollAreaHeight } from './utils'
 export default function MonthDropdown() {
   const [loading, setLoading] = useState(false)
   const { teams, teamId, month, setMonth, user } = useTeams()
-  let startingMonth = subMonths(new Date(), 1)
+  let startingMonth = subMonths(new Date(), 2)
   const proMember = user.memberStatus === 'pro'
 
   if (proMember) {
