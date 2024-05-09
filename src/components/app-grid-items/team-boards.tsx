@@ -71,6 +71,8 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     }
   }, [date])
 
+  // TODO if not current month, set date as last playable date in the currently selected month
+
   return (
     <Card className={cn('w-full max-w-[96vw]', classes)}>
       <CardHeader>

@@ -34,7 +34,6 @@ export type UserToken = JwtPayload & {
   user_first_name: string
   user_last_name: string
   user_customer_id: number | null
-  // TODO once we add OAuth providers, add avatar image
 }
 
 export class WebhookEvent {

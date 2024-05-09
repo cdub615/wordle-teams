@@ -47,15 +47,6 @@ export default function UserDropdown({ user }: { user: User }) {
     setLoading(false)
   }
 
-  /*  TODO
-
-    open board entry to next available date in the currently selected month
-      also set team boards to latest date of selected month
-
-    investigate month dropdown for free members
-
-  */
-
   const sendToBillingPortal = async () => {
     setLoading(true)
     if (!user.customerId) {
