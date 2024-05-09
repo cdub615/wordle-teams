@@ -23,7 +23,6 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   const getDate = () => {
     if (isSameMonth(new Date(), month)) return new Date()
 
-    // set date as the next unplayed day
     let nextDate = new Date(month)
     const thisMonthScores = scores.filter((s) => isSameMonth(new Date(s.date), month))
 

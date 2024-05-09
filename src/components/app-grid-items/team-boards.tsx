@@ -7,14 +7,24 @@ import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious
 import WordleBoard from '@/components/wordle-board'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { cn } from '@/lib/utils'
-import { isSameDay, isToday, isWeekend } from 'date-fns'
+import { isSameDay, isSameMonth, isToday, isWeekend, lastDayOfMonth } from 'date-fns'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 export default function TeamBoards({ classes }: { classes?: string }) {
-  const { teams, teamId, user } = useTeams()
+  const { teams, teamId, user, month } = useTeams()
   const team = teams.find((t) => t.id === teamId)!
-  const [date, setDate] = useState<Date | undefined>(new Date())
+
+  const getDate = () => {
+    if (isSameMonth(new Date(), month)) return new Date()
+
+    let lastDay = lastDayOfMonth(month)
+    while (!team.playWeekends && isWeekend(lastDay)) {
+      lastDay = new Date(lastDay.setDate(lastDay.getDate() - 1))
+    }
+    return lastDay
+  }
+  const [date, setDate] = useState<Date | undefined>(getDate())
 
   const getBoardsForDate = (selectedDate: Date) => {
     const boards = team.players.map((p) => {
@@ -71,7 +81,9 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     }
   }, [date])
 
-  // TODO if not current month, set date as last playable date in the currently selected month
+  useEffect(() => {
+    setDate(getDate())
+  }, [month])
 
   return (
     <Card className={cn('w-full max-w-[96vw]', classes)}>
