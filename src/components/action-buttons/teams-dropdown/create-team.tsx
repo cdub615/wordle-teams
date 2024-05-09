@@ -42,8 +42,6 @@ export default function CreateTeam() {
           Enter your team&apos;s name and specify whether you want to include weekend scores
         </DialogDescription>
       </DialogHeader>
-      {/* TODO if user already has 2 teams and is not a pro member, hide form, show message saying they need to upgrade,
-        with a link to a Pro subscription checkout */}
       <form onSubmit={handleSubmit} className='w-full space-y-6'>
         <div className='grid gap-4 py-4'>
           <div className='grid grid-cols-3 items-center gap-4'>

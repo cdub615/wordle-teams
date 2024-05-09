@@ -8,7 +8,7 @@ import { SheetClose, SheetFooter } from '@/components/ui/sheet'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { DailyScore, Team } from '@/lib/types'
 import { cn, padArray } from '@/lib/utils'
-import { isSameDay, parseISO } from 'date-fns'
+import { isSameDay, isSameMonth, isWeekend, parseISO } from 'date-fns'
 import { Loader2 } from 'lucide-react'
 import { FormEventHandler, KeyboardEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -16,11 +16,27 @@ import { boardIsValid, updateAnswer } from './utils'
 import WordleBoardInput from './wordle-board-input'
 
 export default function WordleBoardForm({ userId }: { userId: string }) {
-  const { teams, teamId, setTeams } = useTeams()
+  const { teams, teamId, setTeams, month } = useTeams()
   const team = teams.find((t) => t.id === teamId)!
   const scores = team.players.find((p) => p.id === userId)?.scores ?? []
 
-  const [date, setDate] = useState<Date | undefined>(new Date())
+  const getDate = () => {
+    if (isSameMonth(new Date(), month)) return new Date()
+
+    let nextDate = new Date(month)
+    const thisMonthScores = scores.filter((s) => isSameMonth(new Date(s.date), month))
+
+    while (
+      thisMonthScores.some((s) => isSameDay(new Date(s.date), nextDate)) ||
+      (!team.playWeekends && isWeekend(nextDate))
+    ) {
+      nextDate = new Date(nextDate.setDate(nextDate.getDate() + 1))
+      if (nextDate.getMonth() !== month.getMonth()) return new Date(nextDate.setDate(nextDate.getDate() - 1))
+    }
+    return nextDate
+  }
+
+  const [date, setDate] = useState<Date | undefined>(getDate())
   const [scoreId, setScoreId] = useState(-1)
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState(['', '', '', '', '', ''])
@@ -65,8 +81,6 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       updateAnswer(key, answer, setAnswer)
     }
   }
-
-  // TODO if not current month, open board entry to next available date in the currently selected month
 
   return (
     <form onSubmit={handleSubmit} className={cn(submitting ? 'animate-pulse' : '')}>
