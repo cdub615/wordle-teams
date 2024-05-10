@@ -3,10 +3,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cookies } from 'next/headers'
 import LoginForm from './login-form'
 import SignupForm from './signup-form'
+import LoginToast from './login-toast'
 
 export default async function Page() {
   const cookieStore = cookies()
   const awaitingVerification = (cookieStore.get('awaitingVerification')?.value ?? '') === 'true'
+  const failedOTP = (cookieStore.get('failedOTP')?.value ?? '') === 'true'
   return (
     <>
       <div className='flex justify-center mt-2'>
@@ -33,6 +35,7 @@ export default async function Page() {
           </Card>
         </TabsContent>
       </Tabs>
+      <LoginToast failedOTP={failedOTP} />
     </>
   )
 }
