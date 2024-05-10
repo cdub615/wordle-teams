@@ -76,4 +76,5 @@ export async function signup(formData: FormData) {
 export async function retry() {
   const cookieStore = cookies()
   cookieStore.set('awaitingVerification', 'false')
+  cookieStore.set('failedOTP', 'false')
 }
