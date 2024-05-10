@@ -11,9 +11,11 @@ const getData = (team: Team, month: Date): MonthScoresRow[] => {
     const daysInMonth = getDaysInMonth(month)
     const dailyAttempts = []
     for (let i = 1; i <= daysInMonth; i++) {
-      const attempts = scores.find((s) =>
+      const scoreForDay = scores.find((s) =>
         isSameDay(new Date(s.date), new Date(getYear(month), getMonth(month), i))
-      )?.attempts
+      )
+      scoreForDay?.trimEmptyGuesses()
+      const attempts = scoreForDay?.guesses?.length
 
       if (!attempts || attempts === 0) dailyAttempts.push('')
       else if (attempts === 7) dailyAttempts.push('X')

@@ -60,7 +60,11 @@ export class DailyScore {
     this.id = id
     this.date = date
     this.answer = answer
-    this.guesses = guesses
+    this.guesses = guesses.filter((g) => g !== '')
+  }
+
+  public trimEmptyGuesses() {
+    this.guesses = this.guesses.filter((g) => g !== '')
   }
 
   public fromDbDailyScore(daily_scores: daily_scores) {
@@ -138,6 +142,7 @@ export class Player {
   }
 
   public addOrUpdateScore(score: DailyScore): DailyScore[] {
+    score.trimEmptyGuesses()
     const existingScore = this._scores.find((s) => s.id === score.id)
     if (existingScore) {
       this._scores.splice(this._scores.indexOf(existingScore), 1, score)
