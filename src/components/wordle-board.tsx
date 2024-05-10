@@ -1,13 +1,14 @@
 'use client'
 
-import { cn } from '@/lib/utils'
+import { cn, padArray } from '@/lib/utils'
 
 type WordleBoardProps = {
-  guesses: string[]
+  guessesProp: string[]
   answer: string
 }
 
-export default function WordleBoard({ guesses, answer }: WordleBoardProps) {
+export default function WordleBoard({ guessesProp, answer }: WordleBoardProps) {
+  const guesses = guessesProp.length === 6 ? guessesProp : padArray(guessesProp, 6)
   return (
     <div className='pt-1'>
       {guesses.map(
