@@ -1,6 +1,6 @@
 'use client'
 
-import { cn } from '@/lib/utils'
+import { cn, padArray } from '@/lib/utils'
 
 type WordleBoardProps = {
   guesses: string[]
@@ -8,9 +8,10 @@ type WordleBoardProps = {
 }
 
 export default function WordleBoard({ guesses, answer }: WordleBoardProps) {
+  const guessList = guesses.length === 6 ? guesses : padArray(guesses, 6)
   return (
     <div className='pt-1'>
-      {guesses.map(
+      {guessList.map(
         (guess, index) =>
           index < 6 && (
             <div id={`word-${index}`} key={`word-${index}`} className='flex justify-center'>
