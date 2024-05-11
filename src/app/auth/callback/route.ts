@@ -89,7 +89,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(redirectTo)
   } catch (error) {
     Sentry.captureException(error)
-    log.error('Unexpected error occurred in auth callback', { error })
-    return NextResponse.redirect('/error')
+    log.error('Unexpected error occurred in auth callback', {error})
+    const redirectTo = request.nextUrl.clone()
+    redirectTo.pathname = '/error'
+    return NextResponse.redirect(redirectTo)
   }
 }
