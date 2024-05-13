@@ -82,6 +82,7 @@ export async function signup(formData: FormData) {
     }
 
     cookieStore.set('awaitingVerification', 'true')
+    return { error: null }
   } catch (error) {
     Sentry.captureException(error)
     log.error('Unexpected error occurred in signup', { error })
