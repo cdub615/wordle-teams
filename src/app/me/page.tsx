@@ -16,6 +16,7 @@ import type { Metadata } from 'next'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import NoTeams from './no-teams'
 import { getTeams } from './utils'
@@ -25,14 +26,16 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
-  const { _user, teams } = await getTeams()
-  let user: User = _user
+  const { _user, teams, hasSession, hasName } = await getTeams()
+  if (!hasSession) redirect('/login')
+  if (!hasName) redirect('/complete-profile')
+  let user: User = _user!
 
   const supabase = createClient(cookies())
   const { data, error } = await supabase
     .from('player_customer')
     .select('*')
-    .eq('player_id', _user.id)
+    .eq('player_id', _user!.id)
     .maybeSingle()
 
   if (error) {

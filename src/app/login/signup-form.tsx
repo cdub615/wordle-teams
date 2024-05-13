@@ -1,15 +1,27 @@
 'use client'
 
-import SubmitButton from '@/components/submit-button'
 import { Button } from '@/components/ui/button'
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Loader2 } from 'lucide-react'
+import { FormEvent, useState } from 'react'
+import { toast } from 'sonner'
 import { retry, signup } from './actions'
 
 export default function SignupForm({ awaitingVerification }: { awaitingVerification: boolean }) {
+  const [pending, setPending] = useState(false)
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    setPending(true)
+    e.preventDefault()
+    const formData: FormData = new FormData(e.currentTarget)
+    const result = await signup(formData)
+    if (result.error) toast.error(result.error)
+    setPending(false)
+  }
+  const handleRetry = async () => await retry()
   return (
-    <form action={signup}>
+    <form onSubmit={handleSubmit}>
       <CardHeader>
         <CardTitle>Sign Up</CardTitle>
         {!awaitingVerification && <CardDescription>Sign up with name and email</CardDescription>}
@@ -40,11 +52,14 @@ export default function SignupForm({ awaitingVerification }: { awaitingVerificat
       </CardContent>
       <CardFooter className='justify-end'>
         {awaitingVerification ? (
-          <Button formAction={retry} variant={'secondary'}>
+          <Button type='button' onClick={handleRetry} variant={'secondary'}>
             Retry
           </Button>
         ) : (
-          <SubmitButton label={'Sign Up'} />
+          <Button type='submit' variant={'secondary'} aria-disabled={pending} disabled={pending}>
+            {pending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+            Sign Up
+          </Button>
         )}
       </CardFooter>
     </form>

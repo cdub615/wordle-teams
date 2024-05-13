@@ -4,11 +4,12 @@ import { getSession, getUserFromSession, hasName } from '@/lib/utils'
 import * as Sentry from '@sentry/nextjs'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 
 type GetTeamsResponse = {
-  _user: User
+  _user: User | undefined
   teams: team_with_players[]
+  hasSession: boolean
+  hasName: boolean
 }
 
 export const getTeams = async (): Promise<GetTeamsResponse> => {
@@ -16,8 +17,8 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
     const cookieStore = cookies()
     const supabase = createClient(cookieStore)
     const session = await getSession(supabase)
-    if (!session) redirect('/login')
-    if (!hasName(session!)) redirect('/complete-profile')
+    if (!session) return { _user: undefined, teams: [], hasSession: false, hasName: false }
+    if (!hasName(session!)) return { _user: undefined, teams: [], hasSession: true, hasName: false }
     const user = getUserFromSession(session)
 
     const { data: teams } = await supabase.from('teams').select('*').order('created_at').returns<teams[]>()
@@ -34,7 +35,7 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
         return { ...t, players: teamPlayers } as team_with_players
       }) ?? []
 
-    return { _user: user, teams: teamsWithPlayers }
+    return { _user: user, teams: teamsWithPlayers, hasSession: true, hasName: true }
   } catch (error) {
     Sentry.captureException(error)
     log.error('Unexpected error occurred in getTeams', { error })

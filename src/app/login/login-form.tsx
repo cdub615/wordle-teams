@@ -19,6 +19,7 @@ export default function LoginForm({ awaitingVerification }: { awaitingVerificati
     if (result.error) toast.error(result.error)
     setPending(false)
   }
+  const handleRetry = async () => await retry()
   return (
     <form onSubmit={handleSubmit}>
       <CardHeader>
@@ -39,7 +40,7 @@ export default function LoginForm({ awaitingVerification }: { awaitingVerificati
       </CardContent>
       <CardFooter className='justify-end'>
         {awaitingVerification ? (
-          <Button formAction={retry} variant={'secondary'}>
+          <Button type='button' onClick={handleRetry} variant={'secondary'}>
             Retry
           </Button>
         ) : (
