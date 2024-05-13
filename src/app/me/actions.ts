@@ -102,7 +102,7 @@ export async function invitePlayer(formData: FormData) {
 
         if (error) {
           Sentry.captureException(error)
-          log.error(`Failed to fetch team ${teamId}`, { error })
+          log.error(`Failed to add player to team ${teamId}`, { error })
           return { success: false, message: 'Player invite failed' }
         }
 

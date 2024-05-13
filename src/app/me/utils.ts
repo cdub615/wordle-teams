@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { User, player_with_scores, team_with_players, teams } from '@/lib/types'
-import { getSession, getUserFromSession } from '@/lib/utils'
+import { getSession, getUserFromSession, hasName } from '@/lib/utils'
 import * as Sentry from '@sentry/nextjs'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
@@ -17,6 +17,7 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
     const supabase = createClient(cookieStore)
     const session = await getSession(supabase)
     if (!session) redirect('/login')
+    if (!hasName(session!)) redirect('/complete-profile')
     const user = getUserFromSession(session)
 
     const { data: teams } = await supabase.from('teams').select('*').order('created_at').returns<teams[]>()

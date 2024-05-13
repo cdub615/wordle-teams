@@ -67,8 +67,8 @@ export async function GET(request: NextRequest) {
           }
         }
         cookieStore.set('awaitingVerification', 'false')
-        redirectTo.searchParams.delete('next')
         if (type === 'invite') redirectTo.pathname = '/complete-profile'
+        else redirectTo.pathname = '/me'
         return NextResponse.redirect(redirectTo)
       } else {
         Sentry.captureException(error)
