@@ -1,12 +1,11 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/actions'
-import { getSession } from '@/lib/utils'
-import { log } from 'next-axiom'
-import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
-import {redirect} from 'next/navigation'
+import {createClient} from '@/lib/supabase/actions'
+import {getSession} from '@/lib/utils'
 import * as Sentry from '@sentry/nextjs'
+import {log} from 'next-axiom'
+import {cookies} from 'next/headers'
+import {redirect} from 'next/navigation'
 
 export default async function updateProfile(formData: FormData) {
   try {
@@ -23,10 +22,10 @@ export default async function updateProfile(formData: FormData) {
       .update({ first_name: firstName, last_name: lastName })
       .eq('id', session.user.id)
       .select('*')
-      .single()
+      .maybeSingle()
 
     if (error) {
-      'Token Hash or Type were missing in the auth callback'
+      Sentry.captureException(error)
       log.error('Failed to update player name', { error })
       throw new Error('Failed to update player name')
     }
@@ -34,11 +33,11 @@ export default async function updateProfile(formData: FormData) {
     const currentSession = { refresh_token: session.refresh_token }
     const {error: refreshError} = await supabase.auth.refreshSession(currentSession)
     if (refreshError) {
-      'Token Hash or Type were missing in the auth callback'
+      Sentry.captureException(refreshError)
       log.error('Failed to refresh session after updating player name', { error })
     }
 
-    redirect('/me')
+    redirect('/')
   } catch (error) {
     Sentry.captureException(error)
     log.error('An unexpected error occurred in updateProfile', { error })
