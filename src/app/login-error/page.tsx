@@ -22,7 +22,7 @@ export default function Page() {
           possible, click the button in the email.
         </div>
         <div className='text-xs text-muted-foreground text-center'>
-          <b>*</b> if you came from an invite, you can proceed with Signup and the team's creator can add you.
+          <b>*</b> if you came from an invite, you can proceed with Signup and the team&apos;s creator can add you.
         </div>
         <div className='flex justify-center'>
           <Link href='/login' className='text-center mt-6'>
