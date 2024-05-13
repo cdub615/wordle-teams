@@ -8,11 +8,13 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
-export default async function Welcome() {
-  const cookieStore = cookies()
-  const supabase = createClient(cookieStore)
-  const session = await getSession(supabase)
-  if (session) redirect('/me')
+export default async function Welcome({ autoRedirect = true }: { autoRedirect?: boolean }) {
+  if (autoRedirect) {
+    const cookieStore = cookies()
+    const supabase = createClient(cookieStore)
+    const session = await getSession(supabase)
+    if (session) redirect('/me')
+  }
 
   return (
     <div className='flex flex-col w-full'>

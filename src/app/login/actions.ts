@@ -19,9 +19,11 @@ export async function login(formData: FormData) {
       email: formData.get('email'),
     }
 
-    const { email } = loginSchema.parse(loginForm)
+    const result = await loginSchema.safeParseAsync(loginForm)
+    if (!result.success) return { error: result.error?.message }
+    const { email } = result.data
 
-    const { data, error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
         shouldCreateUser: false,
@@ -59,7 +61,9 @@ export async function signup(formData: FormData) {
       lastName: formData.get('lastName'),
     }
 
-    const { email, firstName, lastName } = signupSchema.parse(signupForm)
+    const result = await signupSchema.safeParseAsync(signupForm)
+    if (!result.success) return { error: result.error?.message }
+    const { email, firstName, lastName } = result.data
     const data = { firstName, lastName }
 
     const { error } = await supabase.auth.signInWithOtp({
@@ -89,7 +93,6 @@ export async function retry() {
   try {
     const cookieStore = cookies()
     cookieStore.set('awaitingVerification', 'false')
-    cookieStore.set('failedOTP', 'false')
   } catch (error) {
     Sentry.captureException(error)
     log.error('Unexpected error occurred in retry', { error })

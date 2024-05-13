@@ -60,38 +60,33 @@ export async function GET(request: NextRequest) {
           })
           if (error) {
             cookieStore.set('awaitingVerification', 'false')
-            Sentry.captureException(error)
             log.error('Failed to handle invited signup', error)
-            redirectTo.pathname = '/error'
+            redirectTo.pathname = '/login-error'
             return NextResponse.redirect(redirectTo)
           }
         }
         cookieStore.set('awaitingVerification', 'false')
-        redirectTo.searchParams.delete('next')
         if (type === 'invite') redirectTo.pathname = '/complete-profile'
+        else redirectTo.pathname = '/me'
         return NextResponse.redirect(redirectTo)
       } else {
-        cookieStore.set('awaitingVerification', 'false')
-        cookieStore.set('failedOTP', 'true')
-        Sentry.captureException(error)
         log.error('Failed to verify OTP', error)
-        redirectTo.pathname = '/login'
+        redirectTo.pathname = '/login-error'
         return NextResponse.redirect(redirectTo)
       }
     }
 
     cookieStore.set('awaitingVerification', 'false')
-    Sentry.captureException('Token Hash or Type were missing in the auth callback')
     log.error('Token Hash or Type were missing in the auth callback')
 
     // return the user to an error page with some instructions
-    redirectTo.pathname = '/error'
+    redirectTo.pathname = '/login-error'
     return NextResponse.redirect(redirectTo)
   } catch (error) {
     Sentry.captureException(error)
-    log.error('Unexpected error occurred in auth callback', {error})
+    log.error('Unexpected error occurred in auth callback', { error })
     const redirectTo = request.nextUrl.clone()
-    redirectTo.pathname = '/error'
+    redirectTo.pathname = '/login-error'
     return NextResponse.redirect(redirectTo)
   }
 }

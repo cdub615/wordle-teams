@@ -112,3 +112,16 @@ export const hasName = (session: Session) => {
 }
 
 export const isBrowser = () => typeof window !== 'undefined'
+
+export const clearAllCookies = () => {
+  if (typeof window !== 'undefined') {
+    const cookies = document.cookie.split(';');
+
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i];
+      const eqPos = cookie.indexOf('=');
+      const name = eqPos > -1 ? cookie.substring(0, eqPos) : cookie;
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+    }
+  }
+}
