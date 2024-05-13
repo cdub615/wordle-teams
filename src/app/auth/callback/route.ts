@@ -60,7 +60,6 @@ export async function GET(request: NextRequest) {
           })
           if (error) {
             cookieStore.set('awaitingVerification', 'false')
-            Sentry.captureException(error)
             log.error('Failed to handle invited signup', error)
             redirectTo.pathname = '/login-error'
             return NextResponse.redirect(redirectTo)
@@ -71,7 +70,6 @@ export async function GET(request: NextRequest) {
         else redirectTo.pathname = '/me'
         return NextResponse.redirect(redirectTo)
       } else {
-        Sentry.captureException(error)
         log.error('Failed to verify OTP', error)
         redirectTo.pathname = '/login-error'
         return NextResponse.redirect(redirectTo)
@@ -79,7 +77,6 @@ export async function GET(request: NextRequest) {
     }
 
     cookieStore.set('awaitingVerification', 'false')
-    Sentry.captureException('Token Hash or Type were missing in the auth callback')
     log.error('Token Hash or Type were missing in the auth callback')
 
     // return the user to an error page with some instructions
