@@ -89,7 +89,6 @@ export async function retry() {
   try {
     const cookieStore = cookies()
     cookieStore.set('awaitingVerification', 'false')
-    cookieStore.set('failedOTP', 'false')
   } catch (error) {
     Sentry.captureException(error)
     log.error('Unexpected error occurred in retry', { error })

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 export default function LoginLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <Welcome />
+      <Welcome autoRedirect={false} />
       <AlertDialog open={true}>
         <AlertDialogContent>{children}</AlertDialogContent>
       </AlertDialog>
