@@ -276,14 +276,22 @@ export class Team {
     return this._scoringSystem
   }
 
-  public updatePlayerScore(teams: Team[], selectedTeamId: number, userId: string, score: DailyScore) {
+  public updatePlayerScore(teams: Team[], userId: string, score: DailyScore) {
     return teams.map((t) => {
-      if (t.id === selectedTeamId) {
-        t.players = t.players.map((p) => {
-          if (p.id === userId) p.addOrUpdateScore(score)
-          return p
-        })
-      }
+      t.players = t.players.map((p) => {
+        if (p.id === userId) p.addOrUpdateScore(score)
+        return p
+      })
+      return t
+    })
+  }
+
+  public removePlayerScore(teams: Team[], userId: string, scoreDate: string) {
+    return teams.map((t) => {
+      t.players = t.players.map((p) => {
+        if (p.id === userId) p.deleteScore(scoreDate)
+        return p
+      })
       return t
     })
   }

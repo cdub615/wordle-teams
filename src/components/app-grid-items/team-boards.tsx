@@ -12,21 +12,22 @@ import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 export default function TeamBoards({ classes }: { classes?: string }) {
-  const { teams, teamId, user, month } = useTeams()
-  const team = teams.find((t) => t.id === teamId)!
+  const {teams, teamId, user, month} = useTeams()
 
   const getDate = () => {
     if (isSameMonth(new Date(), month)) return new Date()
 
     let lastDay = lastDayOfMonth(month)
-    while (!team.playWeekends && isWeekend(lastDay)) {
+    const playWeekends = teams.find((t) => t.id === teamId)?.playWeekends
+    while (!playWeekends && isWeekend(lastDay)) {
       lastDay = new Date(lastDay.setDate(lastDay.getDate() - 1))
     }
     return lastDay
   }
   const [date, setDate] = useState<Date | undefined>(getDate())
 
-  const getBoardsForDate = (selectedDate: Date) => {
+  const getBoardsForDate = (selectedDate: Date, selectedTeam: number) => {
+    const team = teams.find((t) => t.id === selectedTeam)!
     const boards = team.players.map((p) => {
       const score = p.scores.find((s) => isSameDay(new Date(s.date), selectedDate))
       const board: Board = {
@@ -43,12 +44,12 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     return boards
   }
   const currentPlayerCompletedToday = () =>
-    team.players.find((p) => p.id === user?.id)?.scores.some((s) => isToday(new Date(s.date))) ?? false
+    teams.find((t) => t.id === teamId)!.players.find((p) => p.id === user?.id)?.scores.some((s) => isToday(new Date(s.date))) ?? false
   const shouldHide = (selectedDate: Date) => isToday(selectedDate) && !currentPlayerCompletedToday()
   const setPrevDay = () => {
     const prevDay = new Date(date!)
     prevDay.setDate(date!.getDate() - 1)
-    if (!team.playWeekends) {
+    if (!teams.find((t) => t.id === teamId)?.playWeekends) {
       while (isWeekend(prevDay)) {
         prevDay.setDate(prevDay.getDate() - 1)
       }
@@ -58,7 +59,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   const setNextDay = () => {
     const nextDay = new Date(date!)
     nextDay.setDate(date!.getDate() + 1)
-    if (!team.playWeekends) {
+    if (!teams.find((t) => t.id === teamId)?.playWeekends) {
       while (isWeekend(nextDay)) {
         nextDay.setDate(nextDay.getDate() + 1)
       }
@@ -66,7 +67,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     setDate(nextDay)
   }
 
-  const [boards, setBoards] = useState(getBoardsForDate(date!))
+  const [boards, setBoards] = useState(getBoardsForDate(date!, teamId))
   const [hide, setHide] = useState(shouldHide(date!))
   const [message, setMessage] = useState(
     hide ? `Visible after today's submission` : 'No board for player on this date'
@@ -74,7 +75,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
 
   useEffect(() => {
     if (date) {
-      setBoards(getBoardsForDate(date!))
+      setBoards(getBoardsForDate(date!, teamId))
       const hideBoards = shouldHide(date!)
       setHide(hideBoards)
       setMessage(hideBoards ? `Visible after today's submission` : 'No board for player on this date')
@@ -84,6 +85,10 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   useEffect(() => {
     setDate(getDate())
   }, [month])
+
+  useEffect(() => {
+    setBoards(getBoardsForDate(date!, teamId))
+  }, [teams, teamId])
 
   return (
     <Card className={cn('w-full max-w-[96vw]', classes)}>
@@ -95,7 +100,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
             <span className='sr-only'>Previous day</span>
           </Button>
           <div className='mx-auto'>
-            <DatePicker date={date} setDate={setDate} playWeekends={team.playWeekends} className='w-52 md:w-56' />
+            <DatePicker date={date} setDate={setDate} playWeekends={teams.find((t) => t.id === teamId)?.playWeekends} className='w-52 md:w-56' />
           </div>
           <Button
             className='text-sm font-normal'
