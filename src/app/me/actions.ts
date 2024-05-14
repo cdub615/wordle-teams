@@ -79,7 +79,7 @@ export async function invitePlayer(formData: FormData) {
 
     const teamId = Number.parseInt(formData.get('teamId') as string)
     const playerIds = (formData.get('playerIds') as string).split(',')
-    const invited = formData.getAll('invited') as string[]
+    const invited = (formData.get('invited') as string).split(',').filter((x) => x !== '')
     const email = formData.get('email') as string
 
     const { data: player, error } = await supabase
@@ -92,8 +92,14 @@ export async function invitePlayer(formData: FormData) {
     if (player) {
       if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
       else if (invited.includes(email)) {
-        log.info(`Player with email ${email} already invited to team ${teamId}`)
-        return { success: true, message: 'Player already invited to this team' }
+        const { error } = await supabase.auth.admin.inviteUserByEmail(email)
+        if (error) {
+          Sentry.captureException(error)
+          log.error('Failed to send additional invite email', { error })
+          return { success: false, message: 'Player invite failed' }
+        }
+        log.info(`Player with email ${email} already invited to team ${teamId}, sending new invite.`)
+        return { success: true, message: 'Successfully invited player' }
       } else {
         const { error } = await supabase.rpc('handle_add_player_to_team', {
           player_id_input: player.id,
@@ -230,7 +236,11 @@ export async function removePlayer(formData: FormData) {
     const teamId = formData.get('teamId') as string
 
     const newPlayerIds = playerIds.filter((id) => id !== playerId)
-    const { error } = await supabase.from('teams').update({ player_ids: newPlayerIds }).eq('id', teamId).select('*')
+    const { error } = await supabase
+      .from('teams')
+      .update({ player_ids: newPlayerIds })
+      .eq('id', teamId)
+      .select('*')
     if (error) {
       Sentry.captureException(error)
       log.error(`Failed to remove player ${playerId} from team ${teamId}`, { error })
