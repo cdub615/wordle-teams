@@ -150,6 +150,8 @@ export async function invitePlayer(formData: FormData) {
 }
 
 export async function upsertBoard(formData: FormData) {
+  let action: 'create' | 'update' | 'delete' = 'create'
+
   try {
     const supabase = createClient(cookies())
     const session = await getSession(supabase)
@@ -165,7 +167,6 @@ export async function upsertBoard(formData: FormData) {
 
     let dailyScore: daily_scores | undefined
     let message
-    let action: 'create' | 'update' | 'delete' = 'create'
 
     if (!!scoreId && scoreId !== '-1') {
       if (answer.length === 0 && guesses.every((guess) => guess.length === 0)) {
@@ -175,7 +176,7 @@ export async function upsertBoard(formData: FormData) {
         if (error) {
           Sentry.captureException(error)
           log.error('Failed to delete board', { error })
-          return { success: false, message: 'Failed to delete board' }
+          return { success: false, action, message: 'Failed to delete board' }
         }
 
         dailyScore = undefined
@@ -193,7 +194,7 @@ export async function upsertBoard(formData: FormData) {
         if (error) {
           Sentry.captureException(error)
           log.error('Failed to add or update board', { error })
-          return { success: false, message: 'Failed to add or update board' }
+          return { success: false, action, message: 'Failed to add or update board' }
         }
         dailyScore = newScore
         message = 'Successfully updated board'
@@ -210,7 +211,7 @@ export async function upsertBoard(formData: FormData) {
       if (error) {
         Sentry.captureException(error)
         log.error('Failed to add or update board', { error })
-        return { success: false, message: 'Failed to add or update board' }
+        return { success: false, action, message: 'Failed to add or update board' }
       }
       dailyScore = newScore
       message = 'Successfully added board'
@@ -222,7 +223,7 @@ export async function upsertBoard(formData: FormData) {
   } catch (error) {
     Sentry.captureException(error)
     log.error('Unexpected error occurred in upsertBoard', { error })
-    return { success: false, message: 'Failed to add or update board' }
+    return { success: false, action, message: 'Failed to add or update board' }
   }
 }
 
