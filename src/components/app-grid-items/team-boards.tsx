@@ -27,8 +27,8 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   const [date, setDate] = useState<Date | undefined>(getDate())
 
   const getBoardsForDate = (selectedDate: Date, selectedTeam: number) => {
-    const team = teams.find((t) => t.id === selectedTeam)!
-    const boards = team.players.map((p) => {
+    const team = teams.find((t) => t.id === selectedTeam)
+    const boards = team?.players.map((p) => {
       const score = p.scores.find((s) => isSameDay(new Date(s.date), selectedDate))
       const board: Board = {
         id: score ? score.id.toString() : p.id,
@@ -44,7 +44,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     return boards
   }
   const currentPlayerCompletedToday = () =>
-    teams.find((t) => t.id === teamId)!.players.find((p) => p.id === user?.id)?.scores.some((s) => isToday(new Date(s.date))) ?? false
+    teams.find((t) => t.id === teamId)?.players.find((p) => p.id === user?.id)?.scores.some((s) => isToday(new Date(s.date))) ?? false
   const shouldHide = (selectedDate: Date) => isToday(selectedDate) && !currentPlayerCompletedToday()
   const setPrevDay = () => {
     const prevDay = new Date(date!)
@@ -117,7 +117,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
       <CardContent>
         <Carousel>
           <CarouselContent>
-            {boards.map((b) => (
+            {boards?.map((b) => (
               <CarouselItem key={b.id} className='h-[450px]'>
                 <div className='font-semibold text-center mb-2 h-[24px]'>{b.playerName}</div>
                 <div className='flex h-full justify-center'>
