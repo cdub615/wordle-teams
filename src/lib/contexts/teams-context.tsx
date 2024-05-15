@@ -2,7 +2,7 @@
 
 import { Team, User, team_with_players } from '@/lib/types'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
-import {isBrowser} from '../utils'
+import { clearAwaitingVerification, isBrowser } from '../utils'
 
 type TeamsContext = {
   teams: Team[]
@@ -49,6 +49,10 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
   useEffect(() => {
     localStorage.setItem('selectedTeam', teamId.toString())
   }, [teamId])
+
+  useEffect(() => {
+    clearAwaitingVerification()
+  }, [])
 
   return (
     <TeamsContext.Provider
