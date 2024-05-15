@@ -1,4 +1,5 @@
 import { Player, Team, User, UserToken, teams } from '@/lib/types'
+import * as Sentry from '@sentry/nextjs'
 import { AuthApiError, Session, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMonths, differenceInMonths, startOfMonth } from 'date-fns'
@@ -6,8 +7,7 @@ import { jwtDecode } from 'jwt-decode'
 import { LogSnag } from 'logsnag'
 import { log } from 'next-axiom'
 import { twMerge } from 'tailwind-merge'
-import {Database} from './database.types'
-import * as Sentry from '@sentry/nextjs'
+import { Database } from './database.types'
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 
@@ -106,7 +106,7 @@ export const hasName = (session: Session) => {
     return user.firstName.length > 1 && user.lastName.length > 1
   } catch (error) {
     Sentry.captureException(error)
-    log.error('Failed to check if user has name', {error})
+    log.error('Failed to check if user has name', { error })
     throw error
   }
 }
@@ -115,13 +115,28 @@ export const isBrowser = () => typeof window !== 'undefined'
 
 export const clearAllCookies = () => {
   if (typeof window !== 'undefined') {
-    const cookies = document.cookie.split(';');
+    const cookies = document.cookie.split(';')
 
     for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i];
-      const eqPos = cookie.indexOf('=');
-      const name = eqPos > -1 ? cookie.substring(0, eqPos) : cookie;
-      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+      const cookie = cookies[i]
+      const eqPos = cookie.indexOf('=')
+      const name = eqPos > -1 ? cookie.substring(0, eqPos) : cookie
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
+    }
+  }
+}
+
+export const clearAwaitingVerification = () => {
+  if (typeof window !== 'undefined') {
+    const cookies = document.cookie.split(';')
+
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i]
+      const eqPos = cookie.indexOf('=')
+      const name = eqPos > -1 ? cookie.substring(0, eqPos) : cookie
+      if (name.trim() === 'awaitingVerification') {
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
+      }
     }
   }
 }

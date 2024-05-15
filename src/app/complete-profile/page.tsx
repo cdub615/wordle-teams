@@ -3,10 +3,11 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { clearAwaitingVerification } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useRouter } from 'next/navigation'
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import updateProfile from './actions'
 
@@ -25,6 +26,10 @@ export default function Page() {
     setPending(false)
     router.push('/me')
   }
+
+  useEffect(() => {
+    clearAwaitingVerification()
+  }, [])
   return (
     <div className='flex justify-center mt-24 px-6'>
       <div className='max-w-lg'>

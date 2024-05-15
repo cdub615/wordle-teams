@@ -17,8 +17,8 @@ import WordleBoardInput from './wordle-board-input'
 
 export default function WordleBoardForm({ userId }: { userId: string }) {
   const { teams, teamId, setTeams, month } = useTeams()
-  const team = teams.find((t) => t.id === teamId)!
-  const scores = team.players.find((p) => p.id === userId)?.scores ?? []
+  const team = teams.find((t) => t.id === teamId)
+  const scores = team?.players.find((p) => p.id === userId)?.scores ?? []
 
   const getDate = () => {
     if (isSameMonth(new Date(), month)) return new Date()
@@ -28,7 +28,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
 
     while (
       thisMonthScores.some((s) => isSameDay(new Date(s.date), nextDate)) ||
-      (!team.playWeekends && isWeekend(nextDate))
+      (!team?.playWeekends && isWeekend(nextDate))
     ) {
       nextDate = new Date(nextDate.setDate(nextDate.getDate() + 1))
       if (nextDate.getMonth() !== month.getMonth()) return new Date(nextDate.setDate(nextDate.getDate() - 1))
@@ -101,7 +101,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
             setDate={setDate}
             noDateText='Pick a date'
             tabIndex={1}
-            playWeekends={team.playWeekends}
+            playWeekends={team?.playWeekends}
           />
         </div>
         <div className='flex flex-col space-y-2 w-[30%] md:w-full'>

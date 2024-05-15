@@ -64,7 +64,6 @@ export async function GET(request: NextRequest) {
             return NextResponse.redirect(redirectTo)
           }
         }
-        cookieStore.set('awaitingVerification', 'false')
         if (type === 'invite') redirectTo.pathname = '/complete-profile'
         else redirectTo.pathname = '/me'
         return NextResponse.redirect(redirectTo)
