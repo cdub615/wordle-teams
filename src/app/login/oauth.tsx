@@ -11,7 +11,7 @@ export function GitHubLogin() {
     await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${baseUrl}/auth/callback`,
+        redirectTo: `https://dev.wordleteams.com/auth/callback`,
       },
     })
   }
