@@ -36,9 +36,9 @@ export default async function Page() {
         </TabsContent>
       </Tabs>
       <div className='flex justify-center items-center space-x-4'>
-        <Separator className='w-[35%]' />
-        <span>or</span>
-        <Separator className='w-[35%]' />
+        <Separator className='w-[30%]' />
+        <span>or sign in using</span>
+        <Separator className='w-[30%]' />
       </div>
       <GitHubLogin />
     </>
