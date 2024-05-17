@@ -11,9 +11,6 @@ import { Database } from './database.types'
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 
-export const baseUrl = (host: string | null) =>
-  `${process?.env.NODE_ENV === 'development' ? 'http' : 'https'}://${host}`
-
 export const passwordRegex = `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*.?#^)(-_=+|}{':;~\`&])[A-Za-z\d@$!.%*?#^)(-_=+|}{':;~\`&]{6,20}$`
 
 export const logsnagClient = () => new LogSnag({ token: process.env.LOGSNAG_TOKEN!, project: 'wordle-teams' })
@@ -140,3 +137,6 @@ export const clearAwaitingVerification = () => {
     }
   }
 }
+
+
+export const baseUrl = process.env.VERCEL_URL ? process.env.VERCEL_URL : 'http://localhost:3000'

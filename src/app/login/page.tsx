@@ -1,7 +1,9 @@
 import { Card } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cookies } from 'next/headers'
 import LoginForm from './login-form'
+import { GitHubLogin } from './oauth'
 import SignupForm from './signup-form'
 
 export default async function Page() {
@@ -33,6 +35,12 @@ export default async function Page() {
           </Card>
         </TabsContent>
       </Tabs>
+      <div className='flex justify-center items-center space-x-4'>
+        <Separator className='w-[35%]' />
+        <span>or</span>
+        <Separator className='w-[35%]' />
+      </div>
+      <GitHubLogin />
     </>
   )
 }
