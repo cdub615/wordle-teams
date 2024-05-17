@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
         token_hash,
       })
       if (!error) {
-        const { email, id } = data.user ?? {}
-        const { firstName, lastName } = data.user?.user_metadata ?? {}
+        const {email, id, last_sign_in_at} = data.user ?? {}
+        const { firstName, lastName, invited } = data.user?.user_metadata ?? {}
         let event = null
-        if (type === 'signup') event = 'User Signup'
-        if (type === 'invite') event = 'Invited User Signup'
+        if (!last_sign_in_at) event = 'User Signup'
+        if (invited === true) event = 'Invited User Signup'
 
         if (event) {
           const logsnag = logsnagClient()
@@ -52,20 +52,21 @@ export async function GET(request: NextRequest) {
           })
         }
 
-        if (type === 'invite') {
-          const id = data.user?.id ?? ''
+        if (invited === true) {
           const { error } = await supabase.rpc('handle_invited_signup', {
             invited_email: email ?? '',
-            invited_id: id,
+            invited_id: id ?? '',
           })
           if (error) {
             log.error('Failed to handle invited signup', error)
             redirectTo.pathname = '/login-error'
             return NextResponse.redirect(redirectTo)
           }
+
+          redirectTo.pathname = '/complete-profile'
+          return NextResponse.redirect(redirectTo)
         }
-        if (type === 'invite') redirectTo.pathname = '/complete-profile'
-        else redirectTo.pathname = '/me'
+        redirectTo.pathname = '/me'
         return NextResponse.redirect(redirectTo)
       } else {
         log.error('Failed to verify OTP', error)
