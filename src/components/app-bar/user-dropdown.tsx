@@ -18,7 +18,7 @@ import {
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon, MessageSquare } from 'lucide-react'
+import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
@@ -68,7 +68,8 @@ export default function UserDropdown({ user }: { user: User }) {
             'drop-shadow-md cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'
           )}
         >
-          {/* <AvatarImage src='' alt='@username' /> */}
+          {/* TODO fix styling of avatar with gradient ring around it  */}
+          {/* <AvatarImage src={user.avatarUrl} alt={user.initials} /> */}
           <AvatarFallback className='bg-background p-2'>{`${user.initials}`}</AvatarFallback>
         </Avatar>
       </DropdownMenuTrigger>
@@ -108,10 +109,6 @@ export default function UserDropdown({ user }: { user: User }) {
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
-          {/* <DropdownMenuItem>
-            <Plus className='mr-2 h-4 w-4' />
-            <span>New Team</span>
-          </DropdownMenuItem> */}
         </DropdownMenuGroup>
         {proMember ? (
           <DropdownMenuItem onClick={sendToBillingPortal}>
@@ -127,7 +124,9 @@ export default function UserDropdown({ user }: { user: User }) {
         {!proMember && user.invitesPendingUpgrade > 0 && (
           <DropdownMenuItem className='focus:bg-transparent'>
             <Mails className='mr-2 h-4 w-4' />
-            <span>{user.invitesPendingUpgrade} Invite{user.invitesPendingUpgrade === 1 ? '' : 's'} Pending</span>
+            <span>
+              {user.invitesPendingUpgrade} Invite{user.invitesPendingUpgrade === 1 ? '' : 's'} Pending
+            </span>
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />

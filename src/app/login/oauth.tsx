@@ -34,12 +34,12 @@ export default function OAuthLogin({ provider }: { provider: Provider }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <Button type='button' onClick={handleLogin} variant={'outline'} className='py-6'>
-            {provider === 'github' && <Github className='mr-2 h-5 w-5' />}
-            {provider === 'google' && <Google className='mr-2 h-5 w-5' />}
-            {provider === 'facebook' && <Facebook className='mr-2 h-5 w-5' />}
-            {provider === 'azure' && <Microsoft className='mr-2 h-5 w-5' />}
-            {provider === 'slack' && <Slack className='mr-2 h-5 w-5' />}
-            {provider === 'workos' && <WorkOS className='mr-2 h-5 w-5' />}
+            {provider === 'github' && <Github className='h-5 w-5' />}
+            {provider === 'google' && <Google className='h-5 w-5' />}
+            {provider === 'facebook' && <Facebook className='h-5 w-5' />}
+            {provider === 'azure' && <Microsoft className='h-5 w-5' />}
+            {provider === 'slack' && <Slack className='h-5 w-5' />}
+            {provider === 'workos' && <WorkOS className='h-5 w-5' />}
             <span className='sr-only'>Sign in with {providerName}</span>
           </Button>
         </TooltipTrigger>
