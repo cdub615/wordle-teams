@@ -17,8 +17,17 @@ export default async function Page() {
         </div>
       </div>
       <div className='flex justify-center mb-2'>
-        <div className='text-muted-foreground'>Please log in or sign up to continue</div>
+        <div className='text-muted-foreground'>Please sign in to continue</div>
       </div>
+      <div className="grid grid-cols-3 gap-4">
+        <OAuthLogin provider='google' />
+        <OAuthLogin provider='facebook' />
+        <OAuthLogin provider='azure' />
+        <OAuthLogin provider='github' />
+        <OAuthLogin provider='slack' />
+        <OAuthLogin provider='workos' />
+      </div>
+      <Separator />
       <Tabs defaultValue='login'>
         <TabsList className='grid w-full grid-cols-2'>
           <TabsTrigger value='login'>Log In</TabsTrigger>
@@ -35,19 +44,6 @@ export default async function Page() {
           </Card>
         </TabsContent>
       </Tabs>
-      <div className='flex justify-center items-center space-x-4'>
-        <Separator className='w-[25%]' />
-        <span>or sign in using</span>
-        <Separator className='w-[25%]' />
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        <OAuthLogin provider='google' />
-        <OAuthLogin provider='facebook' />
-        <OAuthLogin provider='azure' />
-        <OAuthLogin provider='github' />
-        <OAuthLogin provider='slack' />
-        <OAuthLogin provider='workos' />
-      </div>
     </>
   )
 }
