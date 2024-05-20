@@ -3,7 +3,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cookies } from 'next/headers'
 import LoginForm from './login-form'
-import { GitHubLogin } from './oauth'
+import OAuthLogin from './oauth'
 import SignupForm from './signup-form'
 
 export default async function Page() {
@@ -40,7 +40,14 @@ export default async function Page() {
         <span>or sign in using</span>
         <Separator className='w-[25%]' />
       </div>
-      <GitHubLogin />
+      <div className="grid grid-cols-3 gap-4">
+        <OAuthLogin provider='google' />
+        <OAuthLogin provider='facebook' />
+        <OAuthLogin provider='azure' />
+        <OAuthLogin provider='github' />
+        <OAuthLogin provider='slack' />
+        <OAuthLogin provider='workos' />
+      </div>
     </>
   )
 }

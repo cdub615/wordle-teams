@@ -1,6 +1,6 @@
 import { Player, Team, User, UserToken, teams } from '@/lib/types'
 import * as Sentry from '@sentry/nextjs'
-import { AuthApiError, Session, type SupabaseClient } from '@supabase/supabase-js'
+import { AuthApiError, Provider, Session, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMonths, differenceInMonths, startOfMonth } from 'date-fns'
 import { jwtDecode } from 'jwt-decode'
@@ -75,6 +75,7 @@ export const getUserFromSession = (session: Session) => {
   const lastName = token.user_last_name ?? ''
   const initials =
     token.user_first_name && token.user_last_name ? `${token.user_first_name[0]}${token.user_last_name[0]}` : 'WT'
+  const identities = session.user?.identities ?? []
   const user: User = {
     id: session.user.id,
     email: session.user.email!,
@@ -85,6 +86,7 @@ export const getUserFromSession = (session: Session) => {
     memberVariant: token.user_member_variant,
     customerId: token.user_customer_id,
     invitesPendingUpgrade: session.user?.app_metadata?.invites_pending_upgrade ?? 0,
+    avatarUrl: identities[0].identity_data?.avatar_url,
   }
 
   return user
@@ -139,4 +141,21 @@ export const clearAwaitingVerification = () => {
 }
 
 
-export const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL ? process.env.NEXT_PUBLIC_VERCEL_URL : 'http://localhost:3000'
+export const getOAuthProviderName = (provider: Provider | string) => {
+  switch (provider) {
+    case 'github':
+      return 'GitHub'
+    case 'google':
+      return 'Google'
+    case 'facebook':
+      return 'Facebook'
+    case 'azure':
+      return 'Microsoft'
+    case 'slack':
+      return 'Slack'
+    case 'workos':
+      return 'WorkOS'
+    default:
+      return provider
+  }
+}
