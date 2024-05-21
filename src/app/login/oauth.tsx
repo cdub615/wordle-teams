@@ -7,8 +7,8 @@ import { getOAuthProviderName } from '@/lib/utils'
 import { Provider } from '@supabase/supabase-js'
 import { Facebook, Github, Google, Microsoft, Slack, WorkOS } from './oauth-icons'
 import Apple from './oauth-icons/apple'
-import X from './oauth-icons/x'
 import Discord from './oauth-icons/discord'
+import X from './oauth-icons/x'
 
 const getRedirect = () => {
   switch (process.env.NEXT_PUBLIC_VERCEL_ENV) {
@@ -22,15 +22,46 @@ const getRedirect = () => {
   }
 }
 
+const getCreds = (redirectTo: string, provider: Provider) => {
+  switch (provider) {
+    case 'google':
+      return {
+        provider,
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      }
+    case 'azure':
+      return { provider, options: { redirectTo, scopes: 'offline_access' } }
+    case 'github':
+    case 'facebook':
+    case 'slack':
+    case 'workos':
+    case 'apple':
+    case 'twitter':
+    case 'discord':
+      return { provider, options: { redirectTo } }
+    default:
+      return { provider, options: { redirectTo } }
+  }
+}
+
+// TODO follow the supabase docs and customize teh sign in with oauth call for each provider
+// TODO test out with all providers as a new user
+// TODO complete Google app verification
+// TODO complete Facebook app verification
+
 export default function OAuthLogin({ provider }: { provider: Provider }) {
   const supabase = createClient()
   const redirectTo = getRedirect()
+  const creds = getCreds(redirectTo, provider)
   const providerName = getOAuthProviderName(provider)
   const handleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo },
-    })
+    await supabase.auth.signInWithOAuth(creds)
   }
   return (
     <TooltipProvider>
