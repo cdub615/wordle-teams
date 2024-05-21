@@ -140,6 +140,21 @@ export const clearAwaitingVerification = () => {
   }
 }
 
+export const getAwaitingVerification = () => {
+  const name = 'awaitingVerification'
+  if (typeof window !== 'undefined') {
+    const cookies = document.cookie.split(';')
+
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim()
+      if (cookie.startsWith(name + '=')) {
+        return cookie.substring(name.length + 1) === 'true'
+      }
+    }
+    return false
+  }
+  return false
+}
 
 export const getOAuthProviderName = (provider: Provider | string) => {
   switch (provider) {
@@ -155,6 +170,12 @@ export const getOAuthProviderName = (provider: Provider | string) => {
       return 'Slack'
     case 'workos':
       return 'WorkOS'
+    case 'apple':
+      return 'Apple'
+    case 'twitter':
+      return 'X'
+    case 'discord':
+      return 'Discord'
     default:
       return provider
   }

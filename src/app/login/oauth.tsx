@@ -6,6 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import { getOAuthProviderName } from '@/lib/utils'
 import { Provider } from '@supabase/supabase-js'
 import { Facebook, Github, Google, Microsoft, Slack, WorkOS } from './oauth-icons'
+import Apple from './oauth-icons/apple'
+import X from './oauth-icons/x'
+import Discord from './oauth-icons/discord'
 
 const getRedirect = () => {
   switch (process.env.NEXT_PUBLIC_VERCEL_ENV) {
@@ -40,6 +43,9 @@ export default function OAuthLogin({ provider }: { provider: Provider }) {
             {provider === 'azure' && <Microsoft className='h-5 w-5' />}
             {provider === 'slack' && <Slack className='h-5 w-5' />}
             {provider === 'workos' && <WorkOS className='h-5 w-5' />}
+            {provider === 'apple' && <Apple className='h-5 w-5' />}
+            {provider === 'twitter' && <X className='h-5 w-5' />}
+            {provider === 'discord' && <Discord className='h-5 w-5' />}
             <span className='sr-only'>Sign in with {providerName}</span>
           </Button>
         </TooltipTrigger>

@@ -4,12 +4,13 @@ import { Button } from '@/components/ui/button'
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { getAwaitingVerification } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { login, retry } from './actions'
 
-export default function LoginForm({ awaitingVerification }: { awaitingVerification: boolean }) {
+export default function LoginForm({ backToOauth }: { backToOauth: () => void }) {
   const [pending, setPending] = useState(false)
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     setPending(true)
@@ -20,6 +21,12 @@ export default function LoginForm({ awaitingVerification }: { awaitingVerificati
     setPending(false)
   }
   const handleRetry = async () => await retry()
+
+  let awaitingVerification = false
+  useEffect(() => {
+    awaitingVerification = getAwaitingVerification()
+  }, [])
+
   return (
     <form onSubmit={handleSubmit}>
       <CardHeader>
@@ -39,6 +46,7 @@ export default function LoginForm({ awaitingVerification }: { awaitingVerificati
         )}
       </CardContent>
       <CardFooter className='justify-end'>
+        <Button type='button' variant='outline' onClick={backToOauth} className='mr-4'>Back</Button>
         {awaitingVerification ? (
           <Button type='button' onClick={handleRetry} variant={'secondary'}>
             Retry
