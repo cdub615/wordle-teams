@@ -22,7 +22,7 @@ import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } 
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { MouseEventHandler, useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
@@ -32,7 +32,8 @@ export default function UserDropdown({ user }: { user: User }) {
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
   const proMember = user.memberStatus === 'pro'
-  const handleLogout = async () => {
+  const handleLogout: MouseEventHandler<HTMLDivElement> = async (e) => {
+    e.preventDefault()
     setPending(true)
     await logout()
     router.push('/')
