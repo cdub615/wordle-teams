@@ -5,10 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { createClient } from '@/lib/supabase/client'
 import { getOAuthProviderName } from '@/lib/utils'
 import { Provider } from '@supabase/supabase-js'
-import { Facebook, Github, Google, Microsoft, Slack, WorkOS } from './oauth-icons'
-import Apple from './oauth-icons/apple'
-import Discord from './oauth-icons/discord'
-import X from './oauth-icons/x'
+import { Facebook, Github, Google, Microsoft, Slack, X } from './oauth-icons'
 
 const getRedirect = () => {
   switch (process.env.NEXT_PUBLIC_VERCEL_ENV) {
@@ -37,14 +34,6 @@ const getCreds = (redirectTo: string, provider: Provider) => {
       }
     case 'azure':
       return { provider, options: { redirectTo, scopes: 'email offline_access' } }
-    case 'github':
-    case 'facebook':
-    case 'slack':
-    case 'workos':
-    case 'apple':
-    case 'twitter':
-    case 'discord':
-      return { provider, options: { redirectTo } }
     default:
       return { provider, options: { redirectTo } }
   }
@@ -54,6 +43,7 @@ const getCreds = (redirectTo: string, provider: Provider) => {
 // TODO test out with all providers as a new user
 // TODO complete Google app verification
 // TODO complete Facebook app verification
+// TODO terms of service link and privacy policy link for Twitter
 
 export default function OAuthLogin({ provider }: { provider: Provider }) {
   const supabase = createClient()
@@ -73,10 +63,7 @@ export default function OAuthLogin({ provider }: { provider: Provider }) {
             {provider === 'facebook' && <Facebook className='h-5 w-5' />}
             {provider === 'azure' && <Microsoft className='h-5 w-5' />}
             {provider === 'slack' && <Slack className='h-5 w-5' />}
-            {provider === 'workos' && <WorkOS className='h-5 w-5' />}
-            {provider === 'apple' && <Apple className='h-5 w-5' />}
             {provider === 'twitter' && <X className='h-5 w-5' />}
-            {provider === 'discord' && <Discord className='h-5 w-5' />}
             <span className='sr-only'>Sign in with {providerName}</span>
           </Button>
         </TooltipTrigger>

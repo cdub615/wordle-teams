@@ -168,14 +168,8 @@ export const getOAuthProviderName = (provider: Provider | string) => {
       return 'Microsoft'
     case 'slack':
       return 'Slack'
-    case 'workos':
-      return 'WorkOS'
-    case 'apple':
-      return 'Apple'
     case 'twitter':
       return 'X'
-    case 'discord':
-      return 'Discord'
     default:
       return provider
   }

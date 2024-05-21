@@ -1,6 +1,6 @@
 'use client'
 
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
-import { cn } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
@@ -63,16 +62,13 @@ export default function UserDropdown({ user }: { user: User }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Avatar
-          className={cn(
-            loading && 'animate-pulse',
-            'drop-shadow-md cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'
-          )}
-        >
-          {/* TODO fix styling of avatar with gradient ring around it  */}
-          {/* <AvatarImage src={user.avatarUrl} alt={user.initials} /> */}
-          <AvatarFallback className='bg-background p-2'>{`${user.initials}`}</AvatarFallback>
-        </Avatar>
+        <div className='relative'>
+          <div className='absolute -inset-0.5 rounded-full blur-sm opacity-90 animate-spin-slow bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'></div>
+          <Avatar className='relative cursor-pointer'>
+            <AvatarImage src={user.avatarUrl} alt='Avatar' />
+            <AvatarFallback>{`${user.initials}`}</AvatarFallback>
+          </Avatar>
+        </div>
       </DropdownMenuTrigger>
       <DropdownMenuContent className='w-56'>
         <DropdownMenuLabel className='flex justify-between'>

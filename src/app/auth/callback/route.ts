@@ -1,8 +1,9 @@
 import { Database } from '@/lib/database.types'
 import { createClient } from '@/lib/supabase/actions'
-import { getUserFromSession } from '@/lib/utils'
+import { UserToken } from '@/lib/types'
 import * as Sentry from '@sentry/nextjs'
 import { Session, SupabaseClient, User, type EmailOtpType } from '@supabase/supabase-js'
+import { jwtDecode } from 'jwt-decode'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import type { NextRequest } from 'next/server'
@@ -24,14 +25,18 @@ export async function GET(request: NextRequest) {
       redirectTo.pathname = '/login-error'
       return NextResponse.redirect(redirectTo)
     }
-    if (!user) {
-      log.error('No user returned from sign in')
+    if (!user || !session) {
+      log.error('No user or session returned from sign in')
       redirectTo.pathname = '/login-error'
       return NextResponse.redirect(redirectTo)
     }
 
-    let { firstName, lastName, full_name } = user.user_metadata
-    if (!firstName || !lastName) {
+    const token = jwtDecode<UserToken>(session.access_token)
+    const { user_first_name, user_last_name } = token
+    const { full_name } = user.user_metadata
+    let firstName = user_first_name
+    let lastName = user_last_name
+    if (!user_first_name || !user_last_name || user_first_name.length === 0 || user_last_name.length === 0) {
       const { first, last } = await setNames(user.id, full_name, supabase)
       firstName = first
       lastName = last
@@ -92,10 +97,10 @@ const handleEmailSignin = async (
 }
 
 const handleInvite = async (user: User, supabase: SupabaseClient<Database>) => {
-  const { email, id } = user
   const { invited } = user.user_metadata
 
   if (invited === true) {
+    const { email, id } = user
     const { error } = await supabase.rpc('handle_invited_signup', {
       invited_email: email ?? '',
       invited_id: id ?? '',

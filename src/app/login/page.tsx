@@ -29,11 +29,8 @@ export default function Page() {
             <OAuthLogin provider='facebook' />
             <OAuthLogin provider='azure' />
             <OAuthLogin provider='twitter' />
-            <OAuthLogin provider='apple' />
             <OAuthLogin provider='github' />
             <OAuthLogin provider='slack' />
-            <OAuthLogin provider='discord' />
-            <OAuthLogin provider='workos' />
           </div>
           <div className='flex items-center justify-center space-x-4'>
             <Separator className='w-[40%]' />
