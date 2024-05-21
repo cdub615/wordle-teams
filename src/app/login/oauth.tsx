@@ -36,7 +36,7 @@ const getCreds = (redirectTo: string, provider: Provider) => {
         },
       }
     case 'azure':
-      return { provider, options: { redirectTo, scopes: 'offline_access' } }
+      return { provider, options: { redirectTo, scopes: 'email offline_access' } }
     case 'github':
     case 'facebook':
     case 'slack':
