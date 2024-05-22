@@ -1,11 +1,9 @@
 'use client'
 import AppBar from '@/components/app-bar/app-bar-base'
 import { Button } from '@/components/ui/button'
-import * as Sentry from '@sentry/nextjs'
 import Link from 'next/link'
 
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  Sentry.captureException(error)
   return (
     <>
       <AppBar />

@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/actions'
 import { logsnagClient } from '@/lib/utils'
-import * as Sentry from '@sentry/nextjs'
 import { type EmailOtpType } from '@supabase/supabase-js'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
@@ -80,7 +79,6 @@ export async function GET(request: NextRequest) {
     redirectTo.pathname = '/login-error'
     return NextResponse.redirect(redirectTo)
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in auth callback', { error })
     const redirectTo = request.nextUrl.clone()
     redirectTo.pathname = '/login-error'

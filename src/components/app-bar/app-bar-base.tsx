@@ -4,7 +4,6 @@ import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
 import { getUserFromSession } from '@/lib/utils'
-import * as Sentry from '@sentry/nextjs'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import Link from 'next/link'
@@ -28,7 +27,6 @@ export default function AppBarBase({ user }: AppBarBaseProps) {
           revalidatePath('/me', 'layout')
           const { data, error } = await supabase.auth.refreshSession()
           if (error) {
-            Sentry.captureException(error)
             log.error(error.message)
           }
           if (data?.session) {

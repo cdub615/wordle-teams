@@ -1,5 +1,4 @@
 import { Player, Team, User, UserToken, teams } from '@/lib/types'
-import * as Sentry from '@sentry/nextjs'
 import { AuthApiError, Session, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMonths, differenceInMonths, startOfMonth } from 'date-fns'
@@ -105,7 +104,6 @@ export const hasName = (session: Session) => {
     const user = getUserFromSession(session)
     return user.firstName.length > 1 && user.lastName.length > 1
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Failed to check if user has name', { error })
     throw error
   }

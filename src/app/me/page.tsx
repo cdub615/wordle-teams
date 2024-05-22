@@ -11,7 +11,6 @@ import { TeamsProvider } from '@/lib/contexts/teams-context'
 
 import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
-import * as Sentry from '@sentry/nextjs'
 import type { Metadata } from 'next'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
@@ -39,7 +38,6 @@ export default async function Page() {
     .maybeSingle()
 
   if (error) {
-    Sentry.captureException(error)
     log.error('Failed to fetch customer', { error })
   } else if (data && data.membership_status !== user.memberStatus) {
     revalidatePath('/me', 'layout')

@@ -1,7 +1,6 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/actions'
-import * as Sentry from '@sentry/nextjs'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import { loginSchema, signupSchema } from './schemas'
@@ -32,7 +31,6 @@ export async function login(formData: FormData) {
     })
 
     if (error) {
-      Sentry.captureException(error)
       log.error(error.message)
       if (error?.message === 'Signups not allowed for otp') {
         return { error: `Login failed. If you haven't yet signed up, please try the Sign Up form.` }
@@ -44,7 +42,6 @@ export async function login(formData: FormData) {
     cookieStore.set('awaitingVerification', 'true')
     return { error: null }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in login', { error })
     return { error: 'Login failed. Please try again.' }
   }
@@ -76,7 +73,6 @@ export async function signup(formData: FormData) {
     })
 
     if (error) {
-      Sentry.captureException(error)
       log.error(error.message)
       return { error: 'Signup failed. Please try again.' }
     }
@@ -84,7 +80,6 @@ export async function signup(formData: FormData) {
     cookieStore.set('awaitingVerification', 'true')
     return { error: null }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in signup', { error })
     return { error: 'Signup failed. Please try again.' }
   }
@@ -95,7 +90,6 @@ export async function retry() {
     const cookieStore = cookies()
     cookieStore.set('awaitingVerification', 'false')
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in retry', { error })
   }
 }
