@@ -27,7 +27,7 @@ export default async function Welcome({ autoRedirect = true }: { autoRedirect?: 
       </span>
       <div className='flex justify-center'>
         <Link href='/login' className='text-center mt-4'>
-          <Button>Login / Signup</Button>
+          <Button>Get Started</Button>
         </Link>
       </div>
       <Image
@@ -38,7 +38,7 @@ export default async function Welcome({ autoRedirect = true }: { autoRedirect?: 
         className='my-8 mx-auto rounded-lg'
         priority
       />
-      <span className='text-muted-foreground text-xs md:text-sm fixed bottom-4 text-center w-full'>
+      <span className='text-muted-foreground text-xs md:text-sm fixed bottom-4 text-center w-full leading-loose'>
         Built by{' '}
         <Link href='https://github.com/cdub615' className='underline underline-offset-4'>
           Christian White
@@ -52,6 +52,13 @@ export default async function Welcome({ autoRedirect = true }: { autoRedirect?: 
           GitHub
         </Link>
         .
+        <Link href={'/privacy'} className='ml-6'>
+          Privacy Policy
+        </Link>
+
+        <Link href={'/terms'} className='ml-6'>
+          Terms
+        </Link>
       </span>
     </div>
   )

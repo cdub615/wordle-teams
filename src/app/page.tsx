@@ -8,8 +8,7 @@ export default async function Home() {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
   const session = await getSession(supabase)
-  if (!session) return <Welcome />
+  if (session && !hasName(session)) redirect('/complete-profile')
 
-  if (!hasName(session!)) redirect('/complete-profile')
-  else redirect('/me')
+  return <Welcome autoRedirect={false} />
 }
