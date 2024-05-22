@@ -49,7 +49,6 @@ export async function GET(request: NextRequest) {
     redirectTo.pathname = success ? '/me' : '/login-error'
     return NextResponse.redirect(redirectTo)
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in auth callback', { error })
     const redirectTo = request.nextUrl.clone()
     redirectTo.pathname = '/login-error'

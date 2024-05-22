@@ -2,7 +2,6 @@
 
 import { createClient } from '@/lib/supabase/actions'
 import { getSession } from '@/lib/utils'
-import * as Sentry from '@sentry/nextjs'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 
@@ -24,7 +23,6 @@ export default async function updateProfile(formData: FormData) {
       .maybeSingle()
 
     if (error) {
-      Sentry.captureException(error)
       log.error('Failed to update player name', { error })
       return { error: 'Failed to update player name' }
     }
@@ -32,13 +30,11 @@ export default async function updateProfile(formData: FormData) {
     const currentSession = { refresh_token: session.refresh_token }
     const { error: refreshError } = await supabase.auth.refreshSession(currentSession)
     if (refreshError) {
-      Sentry.captureException(refreshError)
       log.error('Failed to refresh session after updating player name', { error })
     }
 
     return { error: undefined }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('An unexpected error occurred in updateProfile', { error })
     return { error: 'An unexpected error occurred in updateProfile' }
   }

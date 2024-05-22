@@ -7,8 +7,7 @@ import {
   lemonSqueezySetup,
   listProducts,
 } from '@lemonsqueezy/lemonsqueezy.js'
-import {log} from 'next-axiom'
-import * as Sentry from '@sentry/nextjs'
+import { log } from 'next-axiom'
 
 const testMode = process.env.ENVIRONMENT !== 'prod'
 const storeId = process.env.LEMONSQUEEZY_STORE_ID!
@@ -34,7 +33,6 @@ function configureLemonSqueezy() {
   lemonSqueezySetup({
     apiKey: process.env.LEMONSQUEEZY_API_KEY,
     onError: (error) => {
-      Sentry.captureException(error)
       log.error(error.message, error)
     },
   })
@@ -44,7 +42,6 @@ export const getFreeVariantId = async () => {
   configureLemonSqueezy()
   const { error, data } = await listProducts({ filter: { storeId }, include: ['variants'] })
   if (error) {
-    Sentry.captureException(error)
     log.error(error.message)
   }
   const pro = data?.data.find((p) => p.attributes.name === 'Free')
@@ -54,7 +51,6 @@ export const getFreeVariantId = async () => {
 const getProVariantId = async () => {
   const { error, data } = await listProducts({ filter: { storeId }, include: ['variants'] })
   if (error) {
-    Sentry.captureException(error)
     log.error(error.message)
   }
   const pro = data?.data.find((p) => p.attributes.name === 'Pro')
@@ -88,7 +84,6 @@ export const createNewCheckout = async (name: string, email: string, userId: str
   }
   const { error, data } = await createCheckout(storeId, variantId, newCheckout)
   if (error) {
-    Sentry.captureException(error)
     log.error(error.message)
   }
   return data ?? undefined
@@ -98,7 +93,6 @@ export const getCustomerPortalUrl = async (customerId: number) => {
   configureLemonSqueezy()
   const { error, data } = await getCustomer(customerId)
   if (error) {
-    Sentry.captureException(error)
     log.error(error.message)
   }
   return data?.data.attributes.urls?.customer_portal ?? undefined

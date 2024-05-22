@@ -5,7 +5,6 @@ import { createAdminClient, createClient } from '@/lib/supabase/actions'
 import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
 import type { User, WebhookEvent, daily_scores, member_status, player_with_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'
-import * as Sentry from '@sentry/nextjs'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
@@ -27,7 +26,6 @@ export async function createTeam(formData: FormData) {
       .single()
 
     if (error) {
-      Sentry.captureException(error)
       log.error('Failed to insert team', { error })
       return { success: false, message: 'Team creation failed, please try again' }
     }
@@ -42,7 +40,6 @@ export async function createTeam(formData: FormData) {
     revalidatePath('/me', 'page')
     return { success: true, message: 'Successfully created team', newTeam: data, player }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in createTeam', { error })
     return { success: false, message: 'Team creation failed, please try again' }
   }
@@ -57,7 +54,6 @@ export async function deleteTeam(teamId: string) {
     const { error } = await supabase.from('teams').delete().eq('id', teamId)
 
     if (error) {
-      Sentry.captureException(error)
       log.error('Failed to delete team', { error })
       return { success: false, message: 'Team deletion failed, please try again' }
     }
@@ -65,7 +61,6 @@ export async function deleteTeam(teamId: string) {
     revalidatePath('/me', 'page')
     return { success: true, message: 'Successfully deleted team' }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in deleteTeam', { error })
     return { success: false, message: 'Team deletion failed, please try again' }
   }
@@ -98,7 +93,6 @@ export async function invitePlayer(formData: FormData) {
           },
         })
         if (error) {
-          Sentry.captureException(error)
           log.error('Failed to send additional invite email', { error })
           return { success: false, message: 'Player invite failed' }
         }
@@ -111,7 +105,6 @@ export async function invitePlayer(formData: FormData) {
         })
 
         if (error) {
-          Sentry.captureException(error)
           log.error(`Failed to add player to team ${teamId}`, { error })
           return { success: false, message: 'Player invite failed' }
         }
@@ -125,7 +118,6 @@ export async function invitePlayer(formData: FormData) {
         },
       })
       if (error) {
-        Sentry.captureException(error)
         log.error('Failed to send invite email', { error })
         return { success: false, message: 'Player invite failed' }
       }
@@ -136,14 +128,12 @@ export async function invitePlayer(formData: FormData) {
         .eq('id', teamId)
         .select('*')
       if (teamUpdateError) {
-        Sentry.captureException(teamUpdateError)
         log.error('team update error', { teamUpdateError })
         return { success: false, message: 'Player invite failed' }
       }
     }
 
     if (error) {
-      Sentry.captureException(error)
       log.error('An unexpected error occurred while trying to invite player', { error })
       return { success: false, message: 'Player invite failed' }
     }
@@ -151,7 +141,6 @@ export async function invitePlayer(formData: FormData) {
     revalidatePath('/me', 'page')
     return { success: true, message: 'Successfully invited player', invitedPlayer }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in invitePlayer', { error })
     return { success: false, message: 'Player invite failed' }
   }
@@ -182,7 +171,6 @@ export async function upsertBoard(formData: FormData) {
         const { error } = await supabase.from('daily_scores').delete().eq('id', scoreId)
 
         if (error) {
-          Sentry.captureException(error)
           log.error('Failed to delete board', { error })
           return { success: false, action, message: 'Failed to delete board' }
         }
@@ -200,7 +188,6 @@ export async function upsertBoard(formData: FormData) {
           .single()
 
         if (error) {
-          Sentry.captureException(error)
           log.error('Failed to add or update board', { error })
           return { success: false, action, message: 'Failed to add or update board' }
         }
@@ -217,7 +204,6 @@ export async function upsertBoard(formData: FormData) {
         .single()
 
       if (error) {
-        Sentry.captureException(error)
         log.error('Failed to add or update board', { error })
         return { success: false, action, message: 'Failed to add or update board' }
       }
@@ -229,7 +215,6 @@ export async function upsertBoard(formData: FormData) {
 
     return { success: true, message, action, dailyScore }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in upsertBoard', { error })
     return { success: false, action, message: 'Failed to add or update board' }
   }
@@ -251,7 +236,6 @@ export async function removePlayer(formData: FormData) {
       .eq('id', teamId)
       .select('*')
     if (error) {
-      Sentry.captureException(error)
       log.error(`Failed to remove player ${playerId} from team ${teamId}`, { error })
       return { success: false, message: 'Failed to remove player' }
     }
@@ -260,7 +244,6 @@ export async function removePlayer(formData: FormData) {
 
     return { success: true, message: 'Successfully removed player' }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in removePlayer', { error })
     return { success: false, message: 'Failed to remove player' }
   }
@@ -308,7 +291,6 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
 
       if (error) {
         processingError = error.message
-        Sentry.captureException(error)
         log.error('Failed to update player_customer', { error })
 
         return { success: false, message: 'Failed to update player_customer' }
@@ -320,7 +302,6 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
         })
         if (error) {
           processingError = error.message
-          Sentry.captureException(error)
           log.error('Failure in handle_upgrade_team_invites', { error })
           return { success: false, message: 'Failure in handle_upgrade_team_invites' }
         }
@@ -331,7 +312,6 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
         })
         if (error) {
           processingError = error.message
-          Sentry.captureException(error)
           log.error('Failure in handle_downgrade_team_removal', { error })
           return { success: false, message: 'Failure in handle_downgrade_team_removal' }
         }
@@ -344,14 +324,12 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
       .eq('webhook_id', webhookId)
 
     if (updateError) {
-      Sentry.captureException(updateError)
       log.error('Failed to update webhook event', { error: updateError?.message })
       return { success: false, message: 'Failed to process webhook event' }
     }
 
     return { success: true, message: 'Successfully processed webhook event' }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in processWebhookEvent', { error })
     return { success: false, message: 'Failed to process webhook event' }
   }
@@ -372,7 +350,6 @@ export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
     .single()
 
   if (error) {
-    Sentry.captureException(error)
     log.error('Failed to store webhook event', { error: error?.message })
   }
 
@@ -385,7 +362,6 @@ export async function getCheckoutUrl(user: User) {
     if (checkout?.data?.attributes?.url) return { checkoutUrl: checkout?.data?.attributes?.url }
     else return { error: 'Failed to create checkout, please try again later.' }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in getCheckoutUrl', { error })
     return { error: 'Failed to create checkout, please try again later.' }
   }

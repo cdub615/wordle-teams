@@ -104,7 +104,6 @@ export const hasName = (session: Session) => {
     const user = getUserFromSession(session)
     return user.firstName.length > 1 && user.lastName.length > 1
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Failed to check if user has name', { error })
     throw error
   }

@@ -4,8 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
-import {cookies} from 'next/headers'
-import * as Sentry from '@sentry/nextjs'
+import { cookies } from 'next/headers'
 
 export async function save(formData: FormData) {
   const supabase = createClient(cookies())
@@ -36,7 +35,6 @@ export async function save(formData: FormData) {
     })
     .eq('id', teamId)
   if (error) {
-    Sentry.captureException(error)
     log.error('Failed to update scoring system', { error })
     return { success: false, message: 'Failed to save scoring system' }
   }

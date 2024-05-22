@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { User, player_with_scores, team_with_players, teams } from '@/lib/types'
 import { getSession, getUserFromSession, hasName } from '@/lib/utils'
-import * as Sentry from '@sentry/nextjs'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 
@@ -37,7 +36,6 @@ export const getTeams = async (): Promise<GetTeamsResponse> => {
 
     return { _user: user, teams: teamsWithPlayers, hasSession: true, hasName: true }
   } catch (error) {
-    Sentry.captureException(error)
     log.error('Unexpected error occurred in getTeams', { error })
     throw error
   }
