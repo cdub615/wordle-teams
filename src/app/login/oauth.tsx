@@ -39,11 +39,8 @@ const getCreds = (redirectTo: string, provider: Provider) => {
   }
 }
 
-// TODO follow the supabase docs and customize teh sign in with oauth call for each provider
 // TODO test out with all providers as a new user
-// TODO complete Google app verification
-// TODO complete Facebook app verification
-// TODO terms of service link and privacy policy link for Twitter
+// TODO scrap Facebook, configure Discord
 
 export default function OAuthLogin({ provider }: { provider: Provider }) {
   const supabase = createClient()
