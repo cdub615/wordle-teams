@@ -75,7 +75,7 @@ export default async function Page() {
               <li>Stalk, harass, bully, intimidate, threaten or defraud others</li>
               <li>
                 Post, upload, share or distribute User Content that is defamatory, libelous, inaccurate, violent,
-                abusive, profane, vulgar, obscene, pornographic, invasive of another's privacy, or otherwise
+                abusive, profane, vulgar, obscene, pornographic, invasive of another&apos;s privacy, or otherwise
                 objectionable
               </li>
               <li>
