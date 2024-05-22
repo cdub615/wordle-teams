@@ -3263,7 +3263,7 @@ snapshots:
 
   '@radix-ui/react-arrow@1.0.3(@types/react-dom@18.2.19)(@types/react@18.2.18)(react-dom@18.3.0-canary-98b8359f6-20240223(react@18.3.0-canary-98b8359f6-20240223))(react@18.3.0-canary-98b8359f6-20240223)':
     dependencies:
-      '@babel/runtime': 7.22.6
+      '@babel/runtime': 7.23.9
       '@radix-ui/react-primitive': 1.0.3(@types/react-dom@18.2.19)(@types/react@18.2.18)(react-dom@18.3.0-canary-98b8359f6-20240223(react@18.3.0-canary-98b8359f6-20240223))(react@18.3.0-canary-98b8359f6-20240223)
       react: 18.3.0-canary-98b8359f6-20240223
       react-dom: 18.3.0-canary-98b8359f6-20240223(react@18.3.0-canary-98b8359f6-20240223)
@@ -3757,7 +3757,7 @@ snapshots:
 
   '@radix-ui/react-use-escape-keydown@1.0.3(@types/react@18.2.18)(react@18.3.0-canary-98b8359f6-20240223)':
     dependencies:
-      '@babel/runtime': 7.22.6
+      '@babel/runtime': 7.23.9
       '@radix-ui/react-use-callback-ref': 1.0.1(@types/react@18.2.18)(react@18.3.0-canary-98b8359f6-20240223)
       react: 18.3.0-canary-98b8359f6-20240223
     optionalDependencies:
@@ -3779,7 +3779,7 @@ snapshots:
 
   '@radix-ui/react-use-rect@1.0.1(@types/react@18.2.18)(react@18.3.0-canary-98b8359f6-20240223)':
     dependencies:
-      '@babel/runtime': 7.22.6
+      '@babel/runtime': 7.23.9
       '@radix-ui/rect': 1.0.1
       react: 18.3.0-canary-98b8359f6-20240223
     optionalDependencies:
@@ -3805,7 +3805,7 @@ snapshots:
 
   '@radix-ui/rect@1.0.1':
     dependencies:
-      '@babel/runtime': 7.22.6
+      '@babel/runtime': 7.23.9
 
   '@react-email/render@0.0.12':
     dependencies:
