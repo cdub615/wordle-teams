@@ -8,8 +8,8 @@ export default async function Page() {
         <div className='px-4 py-5 sm:p-6'>
           <p className='text-gray-700 dark:text-gray-300 text-base'>
             Welcome to Wordle Teams! By accessing or using the Wordle Teams website, mobile application, or any
-            other products or services provided by Wordle Teams (collectively, the "Service"), you agree to be
-            bound by these Terms of Service ("Terms"). Please read them carefully.
+            other products or services provided by Wordle Teams (collectively, the &quot;Service&quot;), you agree
+            to be bound by these Terms of Service (&quot;Terms&quot;). Please read them carefully.
           </p>
 
           <div className='mt-6'>
@@ -17,10 +17,10 @@ export default async function Page() {
               Account Registration
             </h4>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
-              To access certain features of the Service, you must register for an account ("Account"). When you
-              register for an Account, you may be required to provide us with some information about yourself, such
-              as your email address or other contact information. You agree that the information you provide to us
-              is accurate and up-to-date.
+              To access certain features of the Service, you must register for an account (&quot;Account&quot;).
+              When you register for an Account, you may be required to provide us with some information about
+              yourself, such as your email address or other contact information. You agree that the information you
+              provide to us is accurate and up-to-date.
             </p>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
               You are responsible for all activity that occurs under your Account, so please keep your Account
@@ -32,8 +32,8 @@ export default async function Page() {
             <h4 className='text-lg leading-6 font-medium text-gray-900 dark:text-gray-100'>User Content</h4>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
               The Service allows you and other users to create, post, share and store content such as wordle
-              scores, game boards, and team information ("User Content"). You retain ownership of any intellectual
-              property rights that you hold in your User Content.
+              scores, game boards, and team information (&quot;User Content&quot;). You retain ownership of any
+              intellectual property rights that you hold in your User Content.
             </p>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
               When you create, post or share User Content with Wordle Teams, you grant us a worldwide,
@@ -122,9 +122,9 @@ export default async function Page() {
           <div className='mt-6'>
             <h4 className='text-lg leading-6 font-medium text-gray-900 dark:text-gray-100'>Disclaimers</h4>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
-              THE SERVICE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND. WE DISCLAIM ALL WARRANTIES, EXPRESS
-              OR IMPLIED, INCLUDING ANY WARRANTY OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, OR
-              NON-INFRINGEMENT.
+              THE SERVICE IS PROVIDED &quot;AS IS&quot; WITHOUT WARRANTIES OF ANY KIND. WE DISCLAIM ALL WARRANTIES,
+              EXPRESS OR IMPLIED, INCLUDING ANY WARRANTY OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
+              TITLE, OR NON-INFRINGEMENT.
             </p>
           </div>
 
