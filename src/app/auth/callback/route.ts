@@ -1,7 +1,6 @@
 import { Database } from '@/lib/database.types'
 import { createClient } from '@/lib/supabase/actions'
 import { UserToken } from '@/lib/types'
-import * as Sentry from '@sentry/nextjs'
 import { Session, SupabaseClient, User, type EmailOtpType } from '@supabase/supabase-js'
 import { jwtDecode } from 'jwt-decode'
 import { log } from 'next-axiom'
@@ -36,7 +35,12 @@ export async function GET(request: NextRequest) {
     const { full_name } = user.user_metadata
     let firstName = user_first_name
     let lastName = user_last_name
-    if (!user_first_name || !user_last_name || user_first_name.length === 0 || user_last_name.length === 0) {
+    if (
+      (!user_first_name || !user_last_name || user_first_name.length === 0 || user_last_name.length === 0) &&
+      full_name &&
+      full_name.length > 0 &&
+      full_name.includes(' ')
+    ) {
       const { first, last } = await setNames(user.id, full_name, supabase)
       firstName = first
       lastName = last

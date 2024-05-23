@@ -1,5 +1,4 @@
 import { Player, Team, User, UserToken, teams } from '@/lib/types'
-import * as Sentry from '@sentry/nextjs'
 import { AuthApiError, Provider, Session, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMonths, differenceInMonths, startOfMonth } from 'date-fns'
@@ -71,11 +70,12 @@ export const getSession = async (supabase: SupabaseClient<Database>) => {
 
 export const getUserFromSession = (session: Session) => {
   const token = jwtDecode<UserToken>(session.access_token)
+  let avatarUrl = token.user_metadata?.avatar_url
+
   const firstName = token.user_first_name ?? ''
   const lastName = token.user_last_name ?? ''
   const initials =
     token.user_first_name && token.user_last_name ? `${token.user_first_name[0]}${token.user_last_name[0]}` : 'WT'
-  const identities = session.user?.identities ?? []
   const user: User = {
     id: session.user.id,
     email: session.user.email!,
@@ -86,7 +86,7 @@ export const getUserFromSession = (session: Session) => {
     memberVariant: token.user_member_variant,
     customerId: token.user_customer_id,
     invitesPendingUpgrade: session.user?.app_metadata?.invites_pending_upgrade ?? 0,
-    avatarUrl: identities[0].identity_data?.avatar_url,
+    avatarUrl,
   }
 
   return user
@@ -124,23 +124,22 @@ export const clearAllCookies = () => {
   }
 }
 
-export const clearAwaitingVerification = () => {
+export const clearCookie = (name: string) => {
   if (typeof window !== 'undefined') {
     const cookies = document.cookie.split(';')
 
     for (let i = 0; i < cookies.length; i++) {
       const cookie = cookies[i]
       const eqPos = cookie.indexOf('=')
-      const name = eqPos > -1 ? cookie.substring(0, eqPos) : cookie
-      if (name.trim() === 'awaitingVerification') {
+      const cookieName = eqPos > -1 ? cookie.substring(0, eqPos) : cookie
+      if (cookieName.trim() === name) {
         document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
       }
     }
   }
 }
 
-export const getAwaitingVerification = () => {
-  const name = 'awaitingVerification'
+export const getCookie = (name: string) => {
   if (typeof window !== 'undefined') {
     const cookies = document.cookie.split(';')
 
@@ -153,6 +152,12 @@ export const getAwaitingVerification = () => {
     return false
   }
   return false
+}
+
+export const setCookie = (name: string, value: any) => {
+  if (typeof window !== 'undefined') {
+    document.cookie = `${name}=${value};path=/`
+  }
 }
 
 export const getOAuthProviderName = (provider: Provider | string) => {
@@ -169,6 +174,8 @@ export const getOAuthProviderName = (provider: Provider | string) => {
       return 'Slack'
     case 'twitter':
       return 'X'
+    case 'discord':
+      return 'Discord'
     default:
       return provider
   }

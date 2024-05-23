@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { createClient } from '@/lib/supabase/client'
 import { getOAuthProviderName } from '@/lib/utils'
 import { Provider } from '@supabase/supabase-js'
-import { Facebook, Github, Google, Microsoft, Slack, X } from './oauth-icons'
+import { Discord, Github, Google, Microsoft, Slack, X } from './oauth-icons'
 
 const getRedirect = () => {
   switch (process.env.NEXT_PUBLIC_VERCEL_ENV) {
@@ -39,17 +39,14 @@ const getCreds = (redirectTo: string, provider: Provider) => {
   }
 }
 
-// TODO test out with all providers as a new user
-// TODO scrap Facebook, configure Discord
-
 export default function OAuthLogin({ provider }: { provider: Provider }) {
   const supabase = createClient()
   const redirectTo = getRedirect()
   const creds = getCreds(redirectTo, provider)
   const providerName = getOAuthProviderName(provider)
-  const handleLogin = async () => {
-    await supabase.auth.signInWithOAuth(creds)
-  }
+
+  const handleLogin = async () => await supabase.auth.signInWithOAuth(creds)
+
   return (
     <TooltipProvider>
       <Tooltip>
@@ -57,7 +54,7 @@ export default function OAuthLogin({ provider }: { provider: Provider }) {
           <Button type='button' onClick={handleLogin} variant={'outline'} className='py-6'>
             {provider === 'github' && <Github className='h-5 w-5' />}
             {provider === 'google' && <Google className='h-5 w-5' />}
-            {provider === 'facebook' && <Facebook className='h-5 w-5' />}
+            {provider === 'discord' && <Discord className='h-5 w-5' />}
             {provider === 'azure' && <Microsoft className='h-5 w-5' />}
             {provider === 'slack' && <Slack className='h-5 w-5' />}
             {provider === 'twitter' && <X className='h-5 w-5' />}

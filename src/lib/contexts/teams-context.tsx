@@ -2,8 +2,8 @@
 
 import { Team, User, team_with_players } from '@/lib/types'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
-import { clearAwaitingVerification, isBrowser } from '../utils'
-import {createClient} from '../supabase/client'
+import { createClient } from '../supabase/client'
+import { clearCookie, isBrowser } from '../utils'
 
 type TeamsContext = {
   teams: Team[]
@@ -24,7 +24,7 @@ type TeamsProviderProps = {
   children: ReactNode
 }
 
-export function TeamsProvider({initialTeams, _user, children}: TeamsProviderProps) {
+export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderProps) {
   const supabase = createClient()
   supabase.auth.onAuthStateChange((event, session) => {
     if (session && session.provider_token) {
@@ -68,7 +68,7 @@ export function TeamsProvider({initialTeams, _user, children}: TeamsProviderProp
   }, [teamId])
 
   useEffect(() => {
-    clearAwaitingVerification()
+    clearCookie('awaitingVerification')
   }, [])
 
   return (

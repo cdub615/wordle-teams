@@ -1,6 +1,7 @@
 import { isSameMonth, isWeekend } from 'date-fns'
 import { JwtPayload } from 'jwt-decode'
 import { Enums, Tables } from './database.types'
+import {UserMetadata} from '@supabase/supabase-js'
 export type players = Tables<'players'>
 export type player_customer = Tables<'player_customer'>
 export type daily_scores = Tables<'daily_scores'>
@@ -29,12 +30,19 @@ export type User = {
   avatarUrl?: string
 }
 
+type AuthenticationMethod = {
+  method: string
+  timestamp: number
+}
+
 export type UserToken = JwtPayload & {
   user_member_status: member_status
   user_member_variant: number | null
   user_first_name: string
   user_last_name: string
   user_customer_id: number | null
+  user_metadata: UserMetadata
+  amr: AuthenticationMethod[]
 }
 
 export class WebhookEvent {

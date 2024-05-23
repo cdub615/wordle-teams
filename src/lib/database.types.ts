@@ -273,6 +273,14 @@ export type Database = {
         }
         Returns: undefined
       }
+      update_player_names: {
+        Args: {
+          email_to_update: string
+          new_first_name: string
+          new_last_name: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       member_status: "new" | "free" | "pro" | "cancelled" | "expired"

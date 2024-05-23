@@ -63,7 +63,7 @@ export default function UserDropdown({ user }: { user: User }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <div className='relative'>
-          <div className='absolute -inset-0.5 rounded-full blur-sm opacity-90 animate-spin-slow bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'></div>
+          <div className='absolute -inset-0.5 rounded-full animate-spin-super-slow bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'></div>
           <Avatar className='relative cursor-pointer'>
             <AvatarImage src={user.avatarUrl} alt='Avatar' />
             <AvatarFallback>{`${user.initials}`}</AvatarFallback>
@@ -111,11 +111,13 @@ export default function UserDropdown({ user }: { user: User }) {
           <DropdownMenuItem onClick={sendToBillingPortal}>
             <CreditCard className='mr-2 h-4 w-4' />
             <span>Billing</span>
+            {loading && <Loader2 className='ml-2 h-4 w-4 animate-spin' />}
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem onClick={handleUpgrade}>
             <Sparkles className='mr-2 h-4 w-4' />
             <span>Upgrade</span>
+            {loading && <Loader2 className='ml-2 h-4 w-4 animate-spin' />}
           </DropdownMenuItem>
         )}
         {!proMember && user.invitesPendingUpgrade > 0 && (

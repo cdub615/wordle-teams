@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { clearAwaitingVerification } from '@/lib/utils'
+import { clearCookie } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useRouter } from 'next/navigation'
@@ -28,7 +28,7 @@ export default function Page() {
   }
 
   useEffect(() => {
-    clearAwaitingVerification()
+    clearCookie('awaitingVerification')
   }, [])
   return (
     <div className='flex justify-center mt-24 px-6'>

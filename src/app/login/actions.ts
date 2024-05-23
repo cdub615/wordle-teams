@@ -63,6 +63,15 @@ export async function signup(formData: FormData) {
     const { email, firstName, lastName } = result.data
     const data = { firstName, lastName }
 
+    const { error: playerUpdateError } = await supabase.rpc('update_player_names', {
+      email_to_update: email,
+      new_first_name: firstName,
+      new_last_name: lastName,
+    })
+    if (playerUpdateError) {
+      log.error(playerUpdateError.message)
+    }
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {

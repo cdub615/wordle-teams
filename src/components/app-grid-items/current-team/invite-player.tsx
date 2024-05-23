@@ -46,10 +46,10 @@ export default function InvitePlayer() {
       </DialogHeader>
       <form onSubmit={handleSubmit} className='w-full space-y-6'>
         <Input type='email' name='email' required />
-        <input hidden name='teamId' value={teamId} />
-        <input hidden name='teamName' value={team?.name} />
-        <input hidden name='playerIds' value={playerIds} />
-        <input hidden name='invited' value={team?.invited} />
+        <input hidden readOnly aria-readonly name='teamId' value={teamId} />
+        <input hidden readOnly aria-readonly name='teamName' value={team?.name} />
+        <input hidden readOnly aria-readonly name='playerIds' value={playerIds} />
+        <input hidden readOnly aria-readonly name='invited' value={team?.invited} />
         <DialogFooter>
           <DialogClose id='close-invite-player' />
           <div className='flex justify-end space-x-4'>
