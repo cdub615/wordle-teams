@@ -1,4 +1,19 @@
-# Wordle Teams
+<p align="center">
+  <a href="https://wordleteams.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="./public/wt-icon-144x144.png">
+      <img src="./public/wt-icon-144x144.png" height="128">
+    </picture>
+    <h1 align="center">Wordle Teams</h1>
+  </a>
+</p>
+
+<p align="center">
+  <a aria-label="Join the community on GitHub" href="https://github.com/cdub615/wordle-teams/discussions">
+    <img alt="" src="https://img.shields.io/badge/Join%20the%20community-indigo.svg?style=social&labelColor=000000&logo=github&logoWidth=20">
+  </a>
+</p>
+
 
 Wordle Teams is an open-source multiplayer version of the popular word-guessing game Wordle, built with Next.js, Supabase, and shadcn/ui. This project is designed to bring the fun of Wordle to teams and groups, allowing players to collaborate and compete in a shared game experience.
 
