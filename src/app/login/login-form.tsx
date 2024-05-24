@@ -5,11 +5,16 @@ import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2 } from 'lucide-react'
-import { FormEvent, useState } from 'react'
+import { Dispatch, FormEvent, SetStateAction, useState } from 'react'
 import { toast } from 'sonner'
 import { login } from './actions'
 
-export default function LoginForm({ backToOauth }: { backToOauth: () => void }) {
+type LoginFormProps = {
+  backToOauth: () => void
+  setAwaitingVerification: Dispatch<SetStateAction<boolean>>
+}
+
+export default function LoginForm({ backToOauth, setAwaitingVerification }: LoginFormProps) {
   const [pending, setPending] = useState(false)
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -17,6 +22,7 @@ export default function LoginForm({ backToOauth }: { backToOauth: () => void }) 
     const formData: FormData = new FormData(e.currentTarget)
     const result = await login(formData)
     if (result.error) toast.error(result.error)
+    else setAwaitingVerification(true)
     setPending(false)
   }
 

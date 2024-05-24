@@ -1,11 +1,11 @@
 'use client'
 
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getCookie } from '@/lib/utils'
-import { useEffect, useState } from 'react'
-import { Button } from '../../components/ui/button'
+import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 import { retry } from './actions'
 import LoginForm from './login-form'
 import OAuthLogin from './oauth'
@@ -64,14 +64,21 @@ export default function Page() {
               </div>
             </>
           )}
-          {emailSignin && <EmailSignin backToOauth={backToOauth} />}
+          {emailSignin && (
+            <EmailSignin backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} />
+          )}
         </>
       )}
     </>
   )
 }
 
-function EmailSignin({ backToOauth }: { backToOauth: () => void }) {
+type EmailSigninProps = {
+  backToOauth: () => void
+  setAwaitingVerification: Dispatch<SetStateAction<boolean>>
+}
+
+function EmailSignin({ backToOauth, setAwaitingVerification }: EmailSigninProps) {
   return (
     <Tabs defaultValue='login'>
       <TabsList className='grid w-full grid-cols-2'>
@@ -80,12 +87,12 @@ function EmailSignin({ backToOauth }: { backToOauth: () => void }) {
       </TabsList>
       <TabsContent value='login'>
         <Card>
-          <LoginForm backToOauth={backToOauth} />
+          <LoginForm backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} />
         </Card>
       </TabsContent>
       <TabsContent value='signup'>
         <Card>
-          <SignupForm backToOauth={backToOauth} />
+          <SignupForm backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} />
         </Card>
       </TabsContent>
     </Tabs>
