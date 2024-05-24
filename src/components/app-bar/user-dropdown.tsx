@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
+import { clearAllCookies } from '@/lib/utils'
 import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
@@ -35,6 +36,8 @@ export default function UserDropdown({ user }: { user: User }) {
     e.preventDefault()
     setPending(true)
     await logout()
+    localStorage.clear()
+    clearAllCookies()
     router.push('/')
     setPending(false)
   }
