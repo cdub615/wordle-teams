@@ -87,7 +87,11 @@ export async function invitePlayer(formData: FormData) {
     if (player) {
       if (playerIds.includes(player.id)) log.info(`Player with email ${email} already on team ${teamId}`)
       else if (invited.includes(email)) {
-        const { error } = await supabase.auth.admin.inviteUserByEmail(email)
+        const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
+          data: {
+            invited: true,
+          },
+        })
         if (error) {
           log.error('Failed to send additional invite email', { error })
           return { success: false, message: 'Player invite failed' }
@@ -108,7 +112,11 @@ export async function invitePlayer(formData: FormData) {
         if (player.first_name !== null) invitedPlayer = player
       }
     } else {
-      const { error } = await supabase.auth.admin.inviteUserByEmail(email)
+      const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
+        data: {
+          invited: true,
+        },
+      })
       if (error) {
         log.error('Failed to send invite email', { error })
         return { success: false, message: 'Player invite failed' }

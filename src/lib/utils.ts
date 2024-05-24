@@ -1,5 +1,5 @@
 import { Player, Team, User, UserToken, teams } from '@/lib/types'
-import { AuthApiError, Session, type SupabaseClient } from '@supabase/supabase-js'
+import { AuthApiError, Provider, Session, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMonths, differenceInMonths, startOfMonth } from 'date-fns'
 import { jwtDecode } from 'jwt-decode'
@@ -9,9 +9,6 @@ import { twMerge } from 'tailwind-merge'
 import { Database } from './database.types'
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
-
-export const baseUrl = (host: string | null) =>
-  `${process?.env.NODE_ENV === 'development' ? 'http' : 'https'}://${host}`
 
 export const passwordRegex = `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*.?#^)(-_=+|}{':;~\`&])[A-Za-z\d@$!.%*?#^)(-_=+|}{':;~\`&]{6,20}$`
 
@@ -73,6 +70,8 @@ export const getSession = async (supabase: SupabaseClient<Database>) => {
 
 export const getUserFromSession = (session: Session) => {
   const token = jwtDecode<UserToken>(session.access_token)
+  let avatarUrl = token.user_metadata?.avatar_url
+
   const firstName = token.user_first_name ?? ''
   const lastName = token.user_last_name ?? ''
   const initials =
@@ -87,6 +86,7 @@ export const getUserFromSession = (session: Session) => {
     memberVariant: token.user_member_variant,
     customerId: token.user_customer_id,
     invitesPendingUpgrade: session.user?.app_metadata?.invites_pending_upgrade ?? 0,
+    avatarUrl,
   }
 
   return user
@@ -124,17 +124,59 @@ export const clearAllCookies = () => {
   }
 }
 
-export const clearAwaitingVerification = () => {
+export const clearCookie = (name: string) => {
   if (typeof window !== 'undefined') {
     const cookies = document.cookie.split(';')
 
     for (let i = 0; i < cookies.length; i++) {
       const cookie = cookies[i]
       const eqPos = cookie.indexOf('=')
-      const name = eqPos > -1 ? cookie.substring(0, eqPos) : cookie
-      if (name.trim() === 'awaitingVerification') {
+      const cookieName = eqPos > -1 ? cookie.substring(0, eqPos) : cookie
+      if (cookieName.trim() === name) {
         document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
       }
     }
+  }
+}
+
+export const getCookie = (name: string) => {
+  if (typeof window !== 'undefined') {
+    const cookies = document.cookie.split(';')
+
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim()
+      if (cookie.startsWith(name + '=')) {
+        return cookie.substring(name.length + 1) === 'true'
+      }
+    }
+    return false
+  }
+  return false
+}
+
+export const setCookie = (name: string, value: any) => {
+  if (typeof window !== 'undefined') {
+    document.cookie = `${name}=${value};path=/`
+  }
+}
+
+export const getOAuthProviderName = (provider: Provider | string) => {
+  switch (provider) {
+    case 'github':
+      return 'GitHub'
+    case 'google':
+      return 'Google'
+    case 'facebook':
+      return 'Facebook'
+    case 'azure':
+      return 'Microsoft'
+    case 'slack':
+      return 'Slack'
+    case 'twitter':
+      return 'X'
+    case 'discord':
+      return 'Discord'
+    default:
+      return provider
   }
 }

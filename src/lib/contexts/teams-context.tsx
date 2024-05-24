@@ -2,7 +2,8 @@
 
 import { Team, User, team_with_players } from '@/lib/types'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
-import { clearAwaitingVerification, isBrowser } from '../utils'
+import { createClient } from '../supabase/client'
+import { clearCookie, isBrowser } from '../utils'
 
 type TeamsContext = {
   teams: Team[]
@@ -24,6 +25,22 @@ type TeamsProviderProps = {
 }
 
 export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderProps) {
+  const supabase = createClient()
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (session && session.provider_token) {
+      window.localStorage.setItem('oauth_provider_token', session.provider_token)
+    }
+
+    if (session && session.provider_refresh_token) {
+      window.localStorage.setItem('oauth_provider_refresh_token', session.provider_refresh_token)
+    }
+
+    if (event === 'SIGNED_OUT') {
+      window.localStorage.removeItem('oauth_provider_token')
+      window.localStorage.removeItem('oauth_provider_refresh_token')
+    }
+  })
+
   const _teams = initialTeams?.map((t: team_with_players) => Team.prototype.fromDbTeam(t, t.players)) ?? []
   const [teams, setTeams] = useState(_teams)
   const [month, setMonth] = useState(() => {
@@ -51,7 +68,7 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
   }, [teamId])
 
   useEffect(() => {
-    clearAwaitingVerification()
+    clearCookie('awaitingVerification')
   }, [])
 
   return (

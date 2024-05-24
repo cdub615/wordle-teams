@@ -28,7 +28,7 @@ export default function CreateTeam() {
         newTeam.addPlayer(player)
       }
       setTeams([...teams, newTeam])
-      if (teamId === -1) setTeamId(newTeam.id)
+      setTeamId(newTeam.id)
       toast.success(result.message)
     } else toast.error(result.message)
     document.getElementById('close-create-team')?.click()

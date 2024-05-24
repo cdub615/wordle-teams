@@ -1,6 +1,6 @@
 'use client'
 
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
@@ -17,12 +17,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
-import { cn } from '@/lib/utils'
-import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon, MessageSquare } from 'lucide-react'
+import { clearAllCookies } from '@/lib/utils'
+import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { MouseEventHandler, useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
@@ -32,9 +32,12 @@ export default function UserDropdown({ user }: { user: User }) {
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
   const proMember = user.memberStatus === 'pro'
-  const handleLogout = async () => {
+  const handleLogout: MouseEventHandler<HTMLDivElement> = async (e) => {
+    e.preventDefault()
     setPending(true)
     await logout()
+    localStorage.clear()
+    clearAllCookies()
     router.push('/')
     setPending(false)
   }
@@ -62,15 +65,13 @@ export default function UserDropdown({ user }: { user: User }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Avatar
-          className={cn(
-            loading && 'animate-pulse',
-            'drop-shadow-md cursor-pointer p-0.5 bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'
-          )}
-        >
-          {/* <AvatarImage src='' alt='@username' /> */}
-          <AvatarFallback className='bg-background p-2'>{`${user.initials}`}</AvatarFallback>
-        </Avatar>
+        <div className='relative'>
+          <div className='absolute -inset-0.5 rounded-full animate-spin-super-slow bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'></div>
+          <Avatar className='relative cursor-pointer'>
+            <AvatarImage src={user.avatarUrl} alt='Avatar' />
+            <AvatarFallback>{`${user.initials}`}</AvatarFallback>
+          </Avatar>
+        </div>
       </DropdownMenuTrigger>
       <DropdownMenuContent className='w-56'>
         <DropdownMenuLabel className='flex justify-between'>
@@ -108,26 +109,26 @@ export default function UserDropdown({ user }: { user: User }) {
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
-          {/* <DropdownMenuItem>
-            <Plus className='mr-2 h-4 w-4' />
-            <span>New Team</span>
-          </DropdownMenuItem> */}
         </DropdownMenuGroup>
         {proMember ? (
           <DropdownMenuItem onClick={sendToBillingPortal}>
             <CreditCard className='mr-2 h-4 w-4' />
             <span>Billing</span>
+            {loading && <Loader2 className='ml-2 h-4 w-4 animate-spin' />}
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem onClick={handleUpgrade}>
             <Sparkles className='mr-2 h-4 w-4' />
             <span>Upgrade</span>
+            {loading && <Loader2 className='ml-2 h-4 w-4 animate-spin' />}
           </DropdownMenuItem>
         )}
         {!proMember && user.invitesPendingUpgrade > 0 && (
           <DropdownMenuItem className='focus:bg-transparent'>
             <Mails className='mr-2 h-4 w-4' />
-            <span>{user.invitesPendingUpgrade} Invite{user.invitesPendingUpgrade === 1 ? '' : 's'} Pending</span>
+            <span>
+              {user.invitesPendingUpgrade} Invite{user.invitesPendingUpgrade === 1 ? '' : 's'} Pending
+            </span>
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
