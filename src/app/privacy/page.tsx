@@ -18,8 +18,8 @@ export default async function Page() {
               Information We Collect
             </h4>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
-              <strong>Account Information:</strong> When you create an account with us, we collect your name, email
-              address, and the URL to your avatar image if provided by the third-party sign-in provider you use
+              <strong>Account Information:</strong> When you create an account with us, we collect your name, username, email
+              address, and your profile image if provided by the third-party sign-in provider you use
               (e.g., Google, Apple, Facebook, etc.).
             </p>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
