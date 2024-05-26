@@ -6,8 +6,8 @@ import { cookies } from 'next/headers'
 import { loginSchema, signupSchema } from './schemas'
 
 const emailRedirectTo = process.env.VERCEL_URL
-  ? `${process.env.VERCEL_URL}/auth/callback`
-  : 'http://localhost:3000/auth/callback'
+  ? `${process.env.VERCEL_URL}/api/auth/callback`
+  : 'http://localhost:3000/api/auth/callback'
 
 export async function login(formData: FormData) {
   try {

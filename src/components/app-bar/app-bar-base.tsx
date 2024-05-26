@@ -1,5 +1,6 @@
 'use client'
 
+import ModeToggle from '@/components/mode-toggle'
 import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
@@ -50,6 +51,7 @@ export default function AppBarBase({ user }: AppBarBaseProps) {
         </div>
         <div className='flex justify-end items-center space-x-2 md:space-x-4'>
           {user && <UserDropdown user={user} />}
+          {!user && <ModeToggle variant='ghost' />}
         </div>
       </div>
       <Separator />

@@ -55,7 +55,6 @@ export default async function Welcome({ autoRedirect = true }: { autoRedirect?: 
         <Link href={'/privacy'} className='ml-6'>
           Privacy Policy
         </Link>
-
         <Link href={'/terms'} className='ml-6'>
           Terms
         </Link>
