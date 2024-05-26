@@ -11,11 +11,11 @@ const getRedirect = () => {
   switch (process.env.NEXT_PUBLIC_VERCEL_ENV) {
     case 'preview':
     case 'development':
-      return 'https://dev.wordleteams.com/auth/callback'
+      return 'https://dev.wordleteams.com/api/auth/callback'
     case 'local':
-      return 'http://localhost:3000/auth/callback'
+      return 'http://localhost:3000/api/auth/callback'
     default:
-      return 'https://wordleteams.com/auth/callback'
+      return 'https://wordleteams.com/api/auth/callback'
   }
 }
 
