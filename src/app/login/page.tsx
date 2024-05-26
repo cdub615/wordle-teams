@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getCookie } from '@/lib/utils'
+import Link from 'next/link'
 import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 import { retry } from './actions'
 import LoginForm from './login-form'
@@ -67,6 +68,10 @@ export default function Page() {
           {emailSignin && (
             <EmailSignin backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} />
           )}
+          <p className='text-xs text-center text-muted-foreground pt-4'>
+            By signing in, you agree to our <Link href='/terms' className='underline'>Terms of Service</Link> and{' '}
+            <Link href='/privacy' className='underline'>Privacy Policy</Link>
+          </p>
         </>
       )}
     </>
