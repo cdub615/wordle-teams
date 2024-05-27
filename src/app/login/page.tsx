@@ -46,12 +46,12 @@ export default function Page() {
           {!emailSignin && (
             <>
               <div className='grid grid-cols-3 gap-4'>
-                {/* <OAuthLogin provider='google' /> */}
+                <OAuthLogin provider='google' />
                 <OAuthLogin provider='twitter' />
                 <OAuthLogin provider='github' />
                 <OAuthLogin provider='azure' />
-                {/* <OAuthLogin provider='slack' /> */}
-                {/* <OAuthLogin provider='discord' /> */}
+                <OAuthLogin provider='slack' />
+                <OAuthLogin provider='discord' />
               </div>
               <div className='flex items-center justify-center space-x-4'>
                 <Separator className='w-[40%]' />
