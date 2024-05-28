@@ -12,6 +12,9 @@
   <a aria-label="Join the community on GitHub" href="https://github.com/cdub615/wordle-teams/discussions">
     <img alt="" src="https://img.shields.io/badge/Join%20the%20community-indigo.svg?style=social&labelColor=000000&logo=github&logoWidth=20">
   </a>
+  <a aria-label="Changelog" href="https://feedback.wordleteams.com/changelog">
+    <img alt="" src="https://img.shields.io/badge/Changelog-blueviolet.svg">
+  </a>
 </p>
 
 

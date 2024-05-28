@@ -14,7 +14,7 @@ const inter = Inter({ subsets: ['latin'] })
 const rootClasses = cn(inter.className, '@container/root min-h-screen')
 
 export const metadata: Metadata = {
-  title: 'Wordle Teams: Track, Challenge, and Dominate with Friends',
+  title: 'Wordle Teams: The ultimate app for Wordle enthusiasts',
   description:
     'Wordle Teams lets you compete with friends by tracking and comparing your Wordle scores, adding a competitive edge to the popular word-guessing game. Stay ahead of the competition, enjoy friendly rivalry, and prove your Wordle mastery with this exciting score-tracking app. Revive the Wordle craze and bring your A-game to the ultimate word-guessing showdown with Wordle Teams!',
   openGraph: {
