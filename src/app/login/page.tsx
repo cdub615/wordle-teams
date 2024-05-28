@@ -48,8 +48,8 @@ export default function Page() {
               <div className='grid grid-cols-3 gap-4'>
                 <OAuthLogin provider='google' />
                 <OAuthLogin provider='twitter' />
-                <OAuthLogin provider='github' />
                 <OAuthLogin provider='azure' />
+                <OAuthLogin provider='github' />
                 <OAuthLogin provider='slack' />
                 <OAuthLogin provider='discord' />
               </div>
