@@ -25,9 +25,11 @@ export default function Page() {
   return (
     <>
       <div className='flex justify-center mt-2'>
-        <div className='text-4xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-green-600 via-green-500 to-yellow-400'>
-          Wordle Teams
-        </div>
+        <Link href='/'>
+          <div className='text-4xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-green-600 via-green-500 to-yellow-400'>
+            Wordle Teams
+          </div>
+        </Link>
       </div>
       {awaitingVerification && (
         <div className='flex flex-col text-muted-foreground my-6 space-y-4'>
@@ -69,8 +71,14 @@ export default function Page() {
             <EmailSignin backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} />
           )}
           <p className='text-xs text-center text-muted-foreground pt-4'>
-            By signing in, you agree to our <Link href='/terms' className='underline'>Terms of Service</Link> and{' '}
-            <Link href='/privacy' className='underline'>Privacy Policy</Link>
+            By signing in, you agree to our{' '}
+            <Link href='/terms' className='underline'>
+              Terms of Service
+            </Link>{' '}
+            and{' '}
+            <Link href='/privacy' className='underline'>
+              Privacy Policy
+            </Link>
           </p>
         </>
       )}
