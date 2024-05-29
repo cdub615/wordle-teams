@@ -91,7 +91,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   }, [teams, teamId])
 
   return (
-    <Card className={cn('w-full max-w-[96vw]', classes)}>
+    <Card className={cn('w-full max-w-[96vw] h-fit', classes)}>
       <CardHeader>
         <CardTitle>Team Boards</CardTitle>
         <div className='pt-2 flex'>
