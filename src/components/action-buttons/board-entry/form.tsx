@@ -96,9 +96,9 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       <input hidden readOnly aria-readonly name='scoreDate' value={date?.toISOString()} />
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
       <input hidden readOnly aria-readonly name='answer' value={answer} />
-      <div className='flex items-center space-x-2 md:space-x-4 w-full md:px-4'>
-        <div id='wordle-board-date' className='flex flex-col w-[60%] md:w-full'>
-          <Label htmlFor='wordle-board-date' className='mb-2'>
+      <div className='flex items-center space-x-4 md:space-x-4 w-full md:px-4 ml-2'>
+        <div id='wordle-board-date' className='flex flex-col w-[54%] md:w-full'>
+          <Label htmlFor='wordle-board-date' className='mb-2 text-xs sm:text-sm'>
             Wordle Date
           </Label>
           <DatePicker
@@ -110,7 +110,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
           />
         </div>
         <div className='flex flex-col space-y-2 w-[30%] md:w-full'>
-          <Label htmlFor='answer'>Wordle Answer</Label>
+          <Label htmlFor='answer' className='text-xs sm:text-sm'>Wordle Answer</Label>
           <div className='relative'>
             <div
               id='answer'

@@ -36,7 +36,7 @@ export default function DatePicker({date, setDate, noDateText, tabIndex, playWee
           tabIndex={tabIndex}
           variant={'outline'}
           className={cn(
-            'justify-start text-left font-normal px-2 md:px-4',
+            'justify-start text-left font-normal px-2 md:px-4 text-xs sm:text-sm',
             !date && 'text-muted-foreground',
             className
           )}
