@@ -10,7 +10,7 @@ import { DailyScore, Team } from '@/lib/types'
 import { cn, padArray } from '@/lib/utils'
 import { isSameDay, isSameMonth, isWeekend, parseISO } from 'date-fns'
 import { Loader2 } from 'lucide-react'
-import { FormEventHandler, KeyboardEventHandler, useEffect, useState } from 'react'
+import { FormEventHandler, KeyboardEventHandler, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { boardIsValid, updateAnswer } from './utils'
 import WordleBoardInput from './wordle-board-input'
@@ -42,6 +42,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   const [guesses, setGuesses] = useState(['', '', '', '', '', ''])
   const [submitDisabled, setSubmitDisabled] = useState(!boardIsValid(answer, guesses, scoreId))
   const [submitting, setSubmitting] = useState(false)
+  const answerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const score = scores.find((s) => isSameDay(date!, parseISO(s.date)))
@@ -54,6 +55,10 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   useEffect(() => {
     setSubmitDisabled(!boardIsValid(answer, guesses, scoreId))
   }, [answer, guesses])
+
+  useEffect(() => {
+    if (answerRef.current) answerRef.current.focus()
+  }, [])
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
     setSubmitting(true)
@@ -91,9 +96,9 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       <input hidden readOnly aria-readonly name='scoreDate' value={date?.toISOString()} />
       <input hidden readOnly aria-readonly name='guesses' value={guesses} />
       <input hidden readOnly aria-readonly name='answer' value={answer} />
-      <div className='flex items-center space-x-2 md:space-x-4 w-full md:px-4'>
-        <div id='wordle-board-date' className='flex flex-col w-[60%] md:w-full'>
-          <Label htmlFor='wordle-board-date' className='mb-2'>
+      <div className='flex items-center space-x-4 md:space-x-4 w-full md:px-4 ml-2'>
+        <div id='wordle-board-date' className='flex flex-col w-[54%] md:w-full'>
+          <Label htmlFor='wordle-board-date' className='mb-2 text-xs sm:text-sm'>
             Wordle Date
           </Label>
           <DatePicker
@@ -105,10 +110,11 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
           />
         </div>
         <div className='flex flex-col space-y-2 w-[30%] md:w-full'>
-          <Label htmlFor='answer'>Wordle Answer</Label>
+          <Label htmlFor='answer' className='text-xs sm:text-sm'>Wordle Answer</Label>
           <div className='relative'>
             <div
               id='answer'
+              ref={answerRef}
               className='uppercase flex h-10 w-full rounded-md border border-input bg-background px-2 md:px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
               tabIndex={2}
               onKeyDown={handleKeyDown}

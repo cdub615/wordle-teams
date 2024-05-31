@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { defaultSystem } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import { CustomizeButton } from './customize-button'
 
 export type Score = {
@@ -12,19 +13,19 @@ export type Score = {
 }
 
 export default function ScoringSystem({ proMember, classes }: { proMember: boolean; classes?: string }) {
-  const { teams, teamId, user } = useTeams()
+  const { teams, teamId } = useTeams()
   const team = teams.find((t) => t.id === teamId)
   const scoringSystem = team?.scoringSystem || defaultSystem
   const scores: Score[] = []
   scoringSystem.forEach((entry) => scores.push({ attempts: entry[0], points: entry[1] }))
 
   return (
-    <Card className={classes}>
+    <Card className={cn('h-fit', classes)}>
       <CardHeader>
         <CardTitle>
           <div className='flex justify-between'>
             <div>Scoring System</div>
-            {proMember && /*user.id === team?.creator &&*/ <CustomizeButton scores={scores} />}
+            {proMember && <CustomizeButton scores={scores} />}
           </div>
         </CardTitle>
         <CardDescription>Points awarded by number of attempts</CardDescription>

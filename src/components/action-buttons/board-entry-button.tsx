@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTrigger } from '@/components/ui/sheet'
 import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { Plus } from 'lucide-react'
@@ -33,7 +33,7 @@ export function BoardEntryButton({ userId }: { userId: string }) {
         <DialogContent>
           <DialogHeader className='pb-4'>
             <DialogTitle>Add or Update Board</DialogTitle>
-            <DialogDescription>Enter the day&apos;s answer and your guesses</DialogDescription>
+            <DialogDescription>Enter the day&apos;s answer and then your guesses</DialogDescription>
           </DialogHeader>
           <WordleBoardForm userId={userId} />
           <DialogFooter>
@@ -53,6 +53,9 @@ export function BoardEntryButton({ userId }: { userId: string }) {
         </Button>
       </SheetTrigger>
       <SheetContent side={'top'}>
+        <SheetHeader className='mt-4 mb-4 -ml-4'>
+          <SheetDescription>Enter the day&apos;s answer and then your guesses</SheetDescription>
+        </SheetHeader>
         <WordleBoardForm userId={userId} />
       </SheetContent>
     </Sheet>
