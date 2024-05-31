@@ -58,29 +58,6 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (answerRef.current) answerRef.current.focus()
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length > 1 || window.innerWidth - e.touches[0].pageX <= 20) {
-        e.preventDefault()
-      }
-    }
-
-    const handleTouchMove = (e: TouchEvent) => {
-      e.preventDefault()
-    }
-
-    const div = answerRef.current
-    if (div) {
-      div.addEventListener('touchstart', handleTouchStart, { passive: false })
-      div.addEventListener('touchmove', handleTouchMove, { passive: false })
-    }
-
-    return () => {
-      if (div) {
-        div.removeEventListener('touchstart', handleTouchStart)
-        div.removeEventListener('touchmove', handleTouchMove)
-      }
-    }
   }, [])
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
@@ -140,7 +117,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
             <div
               id='answer'
               ref={answerRef}
-              className='select-none uppercase flex h-10 w-full rounded-md border border-input bg-background px-2 md:px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+              className='caret-transparent uppercase flex h-10 w-full rounded-md border border-input bg-background px-2 md:px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
               tabIndex={2}
               onKeyDown={handleKeyDown}
               contentEditable={true}

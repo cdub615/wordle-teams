@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button'
 import WordleBoard from '@/components/wordle-board'
 import { Loader2 } from 'lucide-react'
-import { Dispatch, KeyboardEvent, KeyboardEventHandler, SetStateAction, useEffect, useRef } from 'react'
+import { Dispatch, KeyboardEvent, KeyboardEventHandler, SetStateAction } from 'react'
 import { handleKey } from './utils'
 
 type WordleBoardProps = {
@@ -32,41 +32,15 @@ export default function WordleBoardInput({
       handleKey(key, answer, guesses, setGuesses, scoreId)
     }
   }
-  const formRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length > 1 || window.innerWidth - e.touches[0].pageX <= 20) {
-        e.preventDefault()
-      }
-    }
-
-    const handleTouchMove = (e: TouchEvent) => {
-      e.preventDefault()
-    }
-
-    const div = formRef.current
-    if (div) {
-      div.addEventListener('touchstart', handleTouchStart, { passive: false })
-      div.addEventListener('touchmove', handleTouchMove, { passive: false })
-    }
-
-    return () => {
-      if (div) {
-        div.removeEventListener('touchstart', handleTouchStart)
-        div.removeEventListener('touchmove', handleTouchMove)
-      }
-    }
-  }, [])
 
   return (
     <>
       <div
-        ref={formRef}
         contentEditable={true}
         onKeyDown={handleBoardKeyDown}
         onChange={(e) => e.preventDefault()}
         onInput={(e) => e.preventDefault()}
-        className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg select-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
+        className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg caret-transparent select-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
         role='region'
         aria-label='Wordle Board'
         tabIndex={tabIndex}
