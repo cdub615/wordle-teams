@@ -40,7 +40,7 @@ export default function WordleBoardInput({
         onKeyDown={handleBoardKeyDown}
         onChange={(e) => e.preventDefault()}
         onInput={(e) => e.preventDefault()}
-        className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
+        className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg select-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
         role='region'
         aria-label='Wordle Board'
         tabIndex={tabIndex}
