@@ -58,6 +58,29 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (answerRef.current) answerRef.current.focus()
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length > 1 || window.innerWidth - e.touches[0].pageX <= 20) {
+        e.preventDefault()
+      }
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault()
+    }
+
+    const div = answerRef.current
+    if (div) {
+      div.addEventListener('touchstart', handleTouchStart, { passive: false })
+      div.addEventListener('touchmove', handleTouchMove, { passive: false })
+    }
+
+    return () => {
+      if (div) {
+        div.removeEventListener('touchstart', handleTouchStart)
+        div.removeEventListener('touchmove', handleTouchMove)
+      }
+    }
   }, [])
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
@@ -110,7 +133,9 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
           />
         </div>
         <div className='flex flex-col space-y-2 w-[30%] md:w-full'>
-          <Label htmlFor='answer' className='text-xs sm:text-sm'>Wordle Answer</Label>
+          <Label htmlFor='answer' className='text-xs sm:text-sm'>
+            Wordle Answer
+          </Label>
           <div className='relative'>
             <div
               id='answer'

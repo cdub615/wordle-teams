@@ -1,10 +1,10 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { Loader2 } from 'lucide-react'
-import { Dispatch, KeyboardEvent, KeyboardEventHandler, SetStateAction } from 'react'
-import { handleKey } from './utils'
 import WordleBoard from '@/components/wordle-board'
+import { Loader2 } from 'lucide-react'
+import { Dispatch, KeyboardEvent, KeyboardEventHandler, SetStateAction, useEffect, useRef } from 'react'
+import { handleKey } from './utils'
 
 type WordleBoardProps = {
   guesses: string[]
@@ -23,7 +23,7 @@ export default function WordleBoardInput({
   tabIndex,
   submitting,
   submitDisabled,
-  scoreId
+  scoreId,
 }: WordleBoardProps) {
   const handleBoardKeyDown: KeyboardEventHandler = (e: KeyboardEvent<HTMLDivElement>) => {
     const key = e.key
@@ -32,10 +32,36 @@ export default function WordleBoardInput({
       handleKey(key, answer, guesses, setGuesses, scoreId)
     }
   }
+  const formRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length > 1 || window.innerWidth - e.touches[0].pageX <= 20) {
+        e.preventDefault()
+      }
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault()
+    }
+
+    const div = formRef.current
+    if (div) {
+      div.addEventListener('touchstart', handleTouchStart, { passive: false })
+      div.addEventListener('touchmove', handleTouchMove, { passive: false })
+    }
+
+    return () => {
+      if (div) {
+        div.removeEventListener('touchstart', handleTouchStart)
+        div.removeEventListener('touchmove', handleTouchMove)
+      }
+    }
+  }, [])
 
   return (
     <>
       <div
+        ref={formRef}
         contentEditable={true}
         onKeyDown={handleBoardKeyDown}
         onChange={(e) => e.preventDefault()}
