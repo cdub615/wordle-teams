@@ -1,6 +1,7 @@
 'use client'
 
 import { Team, User, team_with_players } from '@/lib/types'
+import { isSameMonth } from 'date-fns'
 import { Dispatch, ReactNode, SetStateAction, createContext, useContext, useEffect, useState } from 'react'
 import { createClient } from '../supabase/client'
 import { clearCookie, isBrowser } from '../utils'
@@ -69,6 +70,14 @@ export function TeamsProvider({ initialTeams, _user, children }: TeamsProviderPr
 
   useEffect(() => {
     clearCookie('awaitingVerification')
+
+    const today = new Date()
+    const selectedMonth = localStorage.getItem('selectedMonth') ?? today.toISOString()
+    const adjustedMonthFor = localStorage.getItem('adjustedMonthFor') ?? new Date(1900, 0, 1).toISOString()
+    if (!isSameMonth(new Date(adjustedMonthFor), today) && !isSameMonth(new Date(selectedMonth), today)) {
+      setMonth(today)
+      localStorage.setItem('adjustedMonthFor', today.toISOString())
+    }
   }, [])
 
   return (
