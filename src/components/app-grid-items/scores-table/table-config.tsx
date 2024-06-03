@@ -60,7 +60,7 @@ const getData = (team: Team, month: Date): MonthScoresRow[] => {
     data.push(row)
   })
 
-  return data
+  return data.sort((a, b) => b.monthTotal - a.monthTotal)
 }
 
 const getColumns = (month: Date, playWeekends: boolean) => {
