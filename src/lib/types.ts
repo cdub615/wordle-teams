@@ -1,7 +1,7 @@
+import { UserMetadata } from '@supabase/supabase-js'
 import { isSameMonth, isWeekend } from 'date-fns'
 import { JwtPayload } from 'jwt-decode'
 import { Enums, Tables } from './database.types'
-import {UserMetadata} from '@supabase/supabase-js'
 export type players = Tables<'players'>
 export type player_customer = Tables<'player_customer'>
 export type daily_scores = Tables<'daily_scores'>
@@ -87,6 +87,7 @@ export class DailyScore {
   }
 
   public get attempts(): number {
+    if (this.guesses && this.guesses.length >= 6 && this.guesses[5] !== this.answer) return 7
     return this.guesses?.length ?? 0
   }
 

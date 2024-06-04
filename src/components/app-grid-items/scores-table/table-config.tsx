@@ -15,7 +15,7 @@ const getData = (team: Team, month: Date): MonthScoresRow[] => {
         isSameDay(new Date(s.date), new Date(getYear(month), getMonth(month), i))
       )
       scoreForDay?.trimEmptyGuesses()
-      const attempts = scoreForDay?.guesses?.length
+      const attempts = scoreForDay?.attempts
 
       if (!attempts || attempts === 0) dailyAttempts.push('')
       else if (attempts === 7) dailyAttempts.push('X')
