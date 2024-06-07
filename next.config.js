@@ -1,12 +1,8 @@
 const { withAxiom } = require('next-axiom')
-
-/** @type {import('next').NextConfig} */
-const nextConfig = withAxiom({})
-
-// Injected content via Sentry wizard below
 const { withSentryConfig } = require('@sentry/nextjs')
+const { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } = require('next/constants')
 
-module.exports = withSentryConfig(nextConfig, {
+const sentryOptions = {
   // For all available options, see:
   // https://github.com/getsentry/sentry-webpack-plugin#options
 
@@ -32,4 +28,20 @@ module.exports = withSentryConfig(nextConfig, {
 
   // Automatically tree-shake Sentry logger statements to reduce bundle size
   disableLogger: true,
-})
+}
+
+/** @type {(phase: string, defaultConfig: import("next").NextConfig) => Promise<import("next").NextConfig>} */
+module.exports = async (phase) => {
+  /** @type {import("next").NextConfig} */
+  const nextConfig = withAxiom({})
+
+  if (phase === PHASE_DEVELOPMENT_SERVER || phase === PHASE_PRODUCTION_BUILD) {
+    const withSerwist = (await import('@serwist/next')).default({
+      swSrc: 'src/app/sw.ts',
+      swDest: 'public/sw.js',
+    })
+    return withSentryConfig(withSerwist(nextConfig), sentryOptions)
+  }
+
+  return withSentryConfig(nextConfig, sentryOptions)
+}
