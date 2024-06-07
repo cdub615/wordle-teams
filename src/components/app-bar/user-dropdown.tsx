@@ -16,13 +16,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
-import { User } from '@/lib/types'
+import { BeforeInstallPromptEvent, User } from '@/lib/types'
 import { clearAllCookies } from '@/lib/utils'
-import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
+import { CreditCard, Download, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
-import { MouseEventHandler, useState } from 'react'
+import { MouseEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
@@ -31,7 +31,47 @@ export default function UserDropdown({ user }: { user: User }) {
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<Event | null>(null)
+  const [installButtonVisible, setInstallButtonVisible] = useState(false)
   const proMember = user.memberStatus === 'pro'
+  const disableInAppInstallPrompt = () => {
+    setInstallPrompt(null)
+    setInstallButtonVisible(false)
+  }
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) {
+      log.warn('No install prompt available.')
+      return
+    }
+    try {
+      const beforeInstallPromptEvent = installPrompt as BeforeInstallPromptEvent
+      const result = await beforeInstallPromptEvent.prompt()
+      log.info(`Install prompt was: ${result.outcome}`)
+      disableInAppInstallPrompt()
+    } catch (error) {
+      log.error('Install prompt failed', { error })
+    }
+  }
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = async (event: Event) => {
+      event.preventDefault()
+      setInstallPrompt(event as BeforeInstallPromptEvent)
+      setInstallButtonVisible(true)
+    }
+
+    const handleAppInstalled = () => disableInAppInstallPrompt()
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('appinstalled', handleAppInstalled)
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', handleAppInstalled)
+    }
+  }, [])
+
   const handleLogout: MouseEventHandler<HTMLDivElement> = async (e) => {
     e.preventDefault()
     setPending(true)
@@ -132,6 +172,12 @@ export default function UserDropdown({ user }: { user: User }) {
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
+        {installButtonVisible && (
+          <DropdownMenuItem onClick={handleInstallClick}>
+            <Download className='mr-2 h-4 w-4' />
+            <span>Install</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={handleLogout} aria-disabled={pending} disabled={pending}>
           <LogOut className='mr-2 h-4 w-4' />
           <span>Log out</span>
