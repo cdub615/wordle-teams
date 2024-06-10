@@ -2,11 +2,28 @@
 
 import { HeroHighlight } from '@/components/ui/aceternity/hero-highlight'
 import { BorderBeam } from '@/components/ui/magicui/border-beam'
+import { createClient } from '@/lib/supabase/client'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 
 export default function DashboardPreview() {
+  const supabase = createClient()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (window) {
+      const isStandalone =
+        (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (isStandalone && session) {
+          router.push('/me')
+        }
+      })
+    }
+  }, [])
   return (
     <HeroHighlight>
       <motion.h1
