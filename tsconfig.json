@@ -4,7 +4,11 @@
     "lib": [
       "dom",
       "dom.iterable",
-      "esnext"
+      "esnext",
+      "webworker"
+    ],
+    "types": [
+      "@serwist/next/typings"
     ],
     "allowJs": true,
     "skipLibCheck": true,
@@ -37,6 +41,7 @@
     "middleware.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "public/sw.js"
   ]
 }

@@ -18,11 +18,12 @@ import {
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
 import { clearAllCookies } from '@/lib/utils'
-import { CreditCard, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
+import { CreditCard, Download, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { MouseEventHandler, useState } from 'react'
+import { MouseEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
 
@@ -31,7 +32,17 @@ export default function UserDropdown({ user }: { user: User }) {
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [showInstallButton, setShowInstallButton] = useState(false)
   const proMember = user.memberStatus === 'pro'
+
+  useEffect(() => {
+    if (window) {
+      const isStandalone =
+        (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
+      setShowInstallButton(!isStandalone)
+    }
+  }, [])
+
   const handleLogout: MouseEventHandler<HTMLDivElement> = async (e) => {
     e.preventDefault()
     setPending(true)
@@ -132,6 +143,14 @@ export default function UserDropdown({ user }: { user: User }) {
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
+        {showInstallButton && (
+          <Link href='/install'>
+            <DropdownMenuItem>
+              <Download className='mr-2 h-4 w-4' />
+              <span>Install</span>
+            </DropdownMenuItem>
+          </Link>
+        )}
         <DropdownMenuItem onClick={handleLogout} aria-disabled={pending} disabled={pending}>
           <LogOut className='mr-2 h-4 w-4' />
           <span>Log out</span>

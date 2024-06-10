@@ -1,0 +1,33 @@
+{
+  "name": "Wordle Teams",
+  "short_name": "Wordle Teams",
+  "icons": [
+    {
+      "src": "/wt-icon.svg",
+      "sizes": "16x16 20x20 24x24 30x30 32x32 36x36 40x40 44x44 48x48 50x50 55x55 58x58 60x60 63x63 64x64 66x66 71x71 72x72 75x75 76x76 80x80 87x87 88x88 89x89 92x92 96x96 100x100 102x102 107x107 108x108 114x114 120x120 128x128 142x142 150x150 152x152 167x167 172x172 176x176 180x180 188x188 192x192 196x196 200x200 216x216 225x225 234x234 256x256 258x258 284x284 300x300 310x310 388x388 465x465 512x512 600x600 620x620 640x640 768x768 853x853 1024x1024 1152x1152 1240x1240 1280x1280 1440x1440 1920x1920 2560x2560",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/wt-icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/wt-icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/wt-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#0a0a0a",
+  "background_color": "#0a0a0a",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait"
+}
