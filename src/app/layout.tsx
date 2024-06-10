@@ -54,6 +54,13 @@ export const metadata: Metadata = {
     description: APP_DESCRIPTION,
   },
   metadataBase: new URL('https://wordleteams.com'),
+  icons: {
+    apple: {
+      url: '/wt-icon-1024x1024.png',
+      type: 'image/png',
+      sizes: '1024x1024',
+    },
+  },
 }
 
 export const viewport: Viewport = {
