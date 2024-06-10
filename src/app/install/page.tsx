@@ -17,7 +17,7 @@ export default function Page() {
         </Link>
         <div className='flex flex-col space-y-4 my-4'>
           <div className='text-lg pt-2'>To Install Wordle Teams as an app</div>
-          <ul className='leading-loose list-decimal list-inside pb-4'>
+          <ul className='leading-loose list-decimal list-inside pb-4 text-sm md:text-base'>
             <li>
               Tap the three-dot menu icon <Ellipsis /> or the Share icon <Share className='inline-flex' size={18} />
             </li>
