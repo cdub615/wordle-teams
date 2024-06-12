@@ -7,20 +7,22 @@ import { Label } from '@/components/ui/label'
 import { Loader2 } from 'lucide-react'
 import { Dispatch, FormEvent, SetStateAction, useState } from 'react'
 import { toast } from 'sonner'
-import { login } from './actions'
+import { signup } from '../actions'
 
-type LoginFormProps = {
+type SignupFormProps = {
   backToOauth: () => void
   setAwaitingVerification: Dispatch<SetStateAction<boolean>>
+  setEmail: Dispatch<SetStateAction<string>>
 }
 
-export default function LoginForm({ backToOauth, setAwaitingVerification }: LoginFormProps) {
+export default function SignupForm({ backToOauth, setAwaitingVerification, setEmail }: SignupFormProps) {
   const [pending, setPending] = useState(false)
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setPending(true)
     const formData: FormData = new FormData(e.currentTarget)
-    const result = await login(formData)
+    setEmail(formData.get('email') as string)
+    const result = await signup(formData)
     if (result.error) toast.error(result.error)
     else setAwaitingVerification(true)
     setPending(false)
@@ -29,14 +31,26 @@ export default function LoginForm({ backToOauth, setAwaitingVerification }: Logi
   return (
     <form onSubmit={handleSubmit}>
       <CardHeader>
-        <CardTitle>Log In</CardTitle>
-        <CardDescription>Log in with email</CardDescription>
+        <CardTitle>Sign Up</CardTitle>
+        <CardDescription>Sign up with name and email</CardDescription>
       </CardHeader>
       <CardContent className='space-y-2'>
-        <div className='flex flex-col space-y-2'>
-          <Label htmlFor='email'>Email</Label>
-          <Input type='email' name='email' required />
-        </div>
+        <>
+          <div className='flex space-x-4'>
+            <div className='flex flex-col space-y-2'>
+              <Label htmlFor='firstName'>First Name</Label>
+              <Input className='col-span-3' name='firstName' required minLength={1} />
+            </div>
+            <div className='flex flex-col space-y-2'>
+              <Label htmlFor='lastName'>Last Name</Label>
+              <Input className='col-span-3' name='lastName' required minLength={1} />
+            </div>
+          </div>
+          <div className='flex flex-col space-y-2'>
+            <Label htmlFor='email'>Email</Label>
+            <Input className='col-span-3' type='email' name='email' required />
+          </div>
+        </>
       </CardContent>
       <CardFooter className='justify-end'>
         <Button type='button' variant='outline' onClick={backToOauth} className='mr-4'>
@@ -44,7 +58,7 @@ export default function LoginForm({ backToOauth, setAwaitingVerification }: Logi
         </Button>
         <Button type='submit' variant={'secondary'} aria-disabled={pending} disabled={pending}>
           {pending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-          Log In
+          Sign Up
         </Button>
       </CardFooter>
     </form>

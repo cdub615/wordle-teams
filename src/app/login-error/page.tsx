@@ -12,21 +12,20 @@ export default function Page() {
 
   return (
     <div className='flex justify-center my-12'>
-      <div className='max-w-lg'>
+      <div className='max-w-sm'>
         <div className='text-3xl md:text-4xl text-center font-semibold leading-loose mb-6'>
-          Login / Signup Failed
+          Sign In Failed
         </div>
         <div className='text-muted-foreground text-center mb-4'>Please try again</div>
         <div className='text-xs text-muted-foreground text-center mb-4'>
-          <b>*</b> some email clients open a preview window when you copy the link which makes it expire. If
-          possible, click the button in the email.
+          <b>*</b> sometimes the first login with a sign in provider fails when redirecting to Wordle Teams.
         </div>
         <div className='text-xs text-muted-foreground text-center'>
-          <b>*</b> if you came from an invite, you can proceed with Signup and the team&apos;s creator can add you.
+          <b>*</b> a One Time Passcode &#40;OTP&#41; will expire after 1 hour. If your email has been delayed you may need to try again.
         </div>
         <div className='flex justify-center'>
           <Link href='/login' className='text-center mt-6'>
-            <Button>Head to Login / Signup</Button>
+            <Button>Head to Sign In</Button>
           </Link>
         </div>
       </div>

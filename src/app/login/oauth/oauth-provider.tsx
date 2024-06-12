@@ -39,7 +39,7 @@ const getCreds = (redirectTo: string, provider: Provider) => {
   }
 }
 
-export default function OAuthLogin({ provider }: { provider: Provider }) {
+export default function OAuthProvider({ provider }: { provider: Provider }) {
   const supabase = createClient()
   const redirectTo = getRedirect()
   const creds = getCreds(redirectTo, provider)

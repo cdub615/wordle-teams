@@ -54,6 +54,7 @@
     "eslint-config-next": "13.4.12",
     "framer-motion": "^11.2.6",
     "geist": "^1.2.1",
+    "input-otp": "^1.2.4",
     "jwt-decode": "^4.0.0",
     "logsnag": "^1.0.0",
     "lucide-react": "^0.264.0",

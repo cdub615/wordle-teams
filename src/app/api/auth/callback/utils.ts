@@ -8,6 +8,7 @@ import type { NextRequest } from 'next/server'
 
 export const parseRequest = (request: NextRequest) => {
   const { searchParams } = new URL(request.url)
+  log.info(`Parsing request: ${request.url}`)
   const next = searchParams.get('next') ?? '/me'
   const code = searchParams.get('code')
   const token_hash = searchParams.get('token_hash')
