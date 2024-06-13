@@ -23,9 +23,10 @@ export default function LoginForm({ backToOauth, setAwaitingVerification }: Logi
     const formData: FormData = new FormData(e.currentTarget)
     setCookie('email', formData.get('email') as string)
     const result = await login(formData)
-    if (result.error) toast.error(result.error)
-    else setAwaitingVerification(true)
-    setPending(false)
+    if (result.error) {
+      toast.error(result.error)
+      setPending(false)
+    } else setAwaitingVerification(true)
   }
 
   return (

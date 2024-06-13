@@ -23,9 +23,10 @@ export default function SignupForm({ backToOauth, setAwaitingVerification }: Sig
     const formData: FormData = new FormData(e.currentTarget)
     setCookie('email', formData.get('email') as string)
     const result = await signup(formData)
-    if (result.error) toast.error(result.error)
-    else setAwaitingVerification(true)
-    setPending(false)
+    if (result.error) {
+      toast.error(result.error)
+      setPending(false)
+    } else setAwaitingVerification(true)
   }
 
   return (

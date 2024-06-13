@@ -29,12 +29,14 @@ export default function Otp() {
     setPending(true)
     const formData = new FormData(e.currentTarget)
     const result = await verifyOtp(formData)
-    if (result.error) toast.error(result.error)
+    if (result.error) {
+      toast.error(result.error)
+      setPending(false)
+    }
     else {
       clearCookie('email')
       router.push('/me')
     }
-    setPending(false)
   }
   const handleRetry = async () => await retry()
 
