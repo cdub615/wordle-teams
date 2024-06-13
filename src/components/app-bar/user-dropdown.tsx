@@ -50,7 +50,6 @@ export default function UserDropdown({ user }: { user: User }) {
     localStorage.clear()
     clearAllCookies()
     router.push('/')
-    setPending(false)
   }
 
   const handleUpgrade = async () => {

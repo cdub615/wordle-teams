@@ -22,8 +22,8 @@ export default function Page() {
     if (error) {
       log.error('Failed to update profile', { error })
       toast.error(error)
+      setPending(false)
     }
-    setPending(false)
     router.push('/me')
   }
 
