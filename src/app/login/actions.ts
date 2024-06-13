@@ -3,8 +3,7 @@
 import { createClient } from '@/lib/supabase/actions'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
-import { z } from 'zod'
-import { OtpSchema } from './email/otp'
+import { finishSignIn } from '../../lib/utils'
 import { loginSchema, signupSchema } from './email/schemas'
 
 const emailRedirectTo = process.env.VERCEL_URL
@@ -96,23 +95,33 @@ export async function signup(formData: FormData) {
   }
 }
 
-export async function verifyOtp(data: z.infer<typeof OtpSchema>) {
+export async function verifyOtp(formData: FormData) {
   try {
     const cookieStore = cookies()
     const supabase = createClient(cookieStore)
-    const {email, otp} = data
-    log.info(`Verifying email ${email} with otp ${otp}`)
-    const { error } = await supabase.auth.verifyOtp({
+    const email = formData.get('email') as string
+    const otp = formData.get('otp') as string
+
+    const {
+      data: { user, session },
+      error,
+    } = await supabase.auth.verifyOtp({
       email,
       token: otp,
       type: 'email',
-      options: { redirectTo: emailRedirectTo },
     })
     if (error) {
       log.error(error.message)
       return { error: 'Verification failed. Please try again.' }
     }
-    return { error: null }
+    if (!user || !session) {
+      log.error('No user or session returned from sign in')
+      return { error: 'Verification failed. Please try again.' }
+    }
+
+    const success = await finishSignIn(user, session, supabase)
+
+    return { error: success ? null : 'Verification failed. Please try again.' }
   } catch (error) {
     log.error('Unexpected error occurred in verifyOtp', { error })
     return { error: 'Verification failed. Please try again.' }

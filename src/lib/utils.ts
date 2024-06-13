@@ -1,7 +1,7 @@
 import { Player, Team, User, UserToken, teams } from '@/lib/types'
-import { AuthApiError, Provider, Session, type SupabaseClient } from '@supabase/supabase-js'
+import { AuthApiError, Provider, Session, User as SupabaseUser, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
-import { addMonths, differenceInMonths, startOfMonth } from 'date-fns'
+import { addMonths, differenceInMonths, differenceInSeconds, parseISO, startOfMonth } from 'date-fns'
 import { jwtDecode } from 'jwt-decode'
 import { LogSnag } from 'logsnag'
 import { log } from 'next-axiom'
@@ -146,12 +146,12 @@ export const getCookie = (name: string) => {
     for (let i = 0; i < cookies.length; i++) {
       const cookie = cookies[i].trim()
       if (cookie.startsWith(name + '=')) {
-        return cookie.substring(name.length + 1) === 'true'
+        return cookie.substring(name.length + 1)
       }
     }
-    return false
+    return null
   }
-  return false
+  return null
 }
 
 export const setCookie = (name: string, value: any) => {
@@ -179,4 +179,103 @@ export const getOAuthProviderName = (provider: Provider | string) => {
     default:
       return provider
   }
+}
+
+export const finishSignIn = async (user: SupabaseUser, session: Session, supabase: SupabaseClient<Database>) => {
+  const token = jwtDecode<UserToken>(session.access_token)
+  const { user_first_name, user_last_name } = token
+  const { full_name } = user.user_metadata
+  let firstName = user_first_name
+  let lastName = user_last_name
+  if (
+    (!user_first_name || !user_last_name || user_first_name.length === 0 || user_last_name.length === 0) &&
+    full_name &&
+    full_name.length > 0 &&
+    full_name.includes(' ')
+  ) {
+    const { first, last } = await setNames(user.id, full_name, supabase)
+    firstName = first
+    lastName = last
+  }
+
+  await handleLogsnagEvent(user, firstName, lastName)
+
+  return await handleInvite(user, supabase)
+}
+
+export const setNames = async (id: string, full_name: string, supabase: SupabaseClient<Database>) => {
+  const nameParts = full_name.trim().split(' ')
+  const first = nameParts[0]
+  const last = nameParts.slice(1).join(' ')
+  const { error } = await supabase
+    .from('players')
+    .update({ first_name: first, last_name: last })
+    .eq('id', id)
+    .select('*')
+    .maybeSingle()
+
+  if (error) {
+    log.error('Failed to update player name', { error })
+  }
+
+  const { error: refreshError } = await supabase.auth.refreshSession()
+  if (refreshError) {
+    log.error('Failed to refresh session after updating player name', { error })
+  }
+
+  return { first, last }
+}
+
+const isFirstSignIn = (created_at: string, last_sign_in_at: string) => {
+  const created = parseISO(created_at)
+  const last = parseISO(last_sign_in_at)
+  const diff = Math.abs(differenceInSeconds(last, created))
+  return diff <= 20
+}
+
+export const handleLogsnagEvent = async (user: SupabaseUser, firstName: string, lastName: string) => {
+  const { email, last_sign_in_at, created_at } = user
+  const { invited } = user.user_metadata
+
+  const { provider } = user.app_metadata
+  const providerName = getOAuthProviderName(provider ?? '')
+
+  let event = null
+  if (!last_sign_in_at || isFirstSignIn(created_at, last_sign_in_at)) event = 'User Signup'
+  if (invited === true) event = 'Invited User Signup'
+
+  if (event) {
+    const logsnag = logsnagClient()
+    await logsnag.track({
+      channel: 'users',
+      event,
+      user_id: email,
+      icon: '🧑‍💻',
+      notify: true,
+      tags: {
+        email: email!,
+        firstname: firstName,
+        lastname: lastName,
+        env: process.env.ENVIRONMENT!,
+        provider: providerName.length > 0 ? providerName : 'Email',
+      },
+    })
+  }
+}
+
+const handleInvite = async (user: SupabaseUser, supabase: SupabaseClient<Database>) => {
+  const { invited } = user.user_metadata
+
+  if (invited === true) {
+    const { email, id } = user
+    const { error } = await supabase.rpc('handle_invited_signup', {
+      invited_email: email ?? '',
+      invited_id: id ?? '',
+    })
+    if (error) {
+      log.error('Failed to handle invited signup', error)
+      return false
+    }
+  }
+  return true
 }

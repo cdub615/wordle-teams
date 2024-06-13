@@ -1,13 +1,12 @@
 import { Database } from '@/lib/database.types'
 import { createClient } from '@/lib/supabase/actions'
-import { UserToken } from '@/lib/types'
+import { finishSignIn } from '@/lib/utils'
 import { Session, SupabaseClient, User, type EmailOtpType } from '@supabase/supabase-js'
-import { jwtDecode } from 'jwt-decode'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
-import { handleLogsnagEvent, parseRequest, prepareRedirect, setNames } from './utils'
+import { parseRequest, prepareRedirect } from './utils'
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,6 +20,7 @@ export async function GET(request: NextRequest) {
       : await handleEmailSignin(token_hash, type, supabase)
 
     if (error) {
+      log.error('Failed to sign in', { error })
       redirectTo.pathname = '/login-error'
       return NextResponse.redirect(redirectTo)
     }
@@ -30,25 +30,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(redirectTo)
     }
 
-    const token = jwtDecode<UserToken>(session.access_token)
-    const { user_first_name, user_last_name } = token
-    const { full_name } = user.user_metadata
-    let firstName = user_first_name
-    let lastName = user_last_name
-    if (
-      (!user_first_name || !user_last_name || user_first_name.length === 0 || user_last_name.length === 0) &&
-      full_name &&
-      full_name.length > 0 &&
-      full_name.includes(' ')
-    ) {
-      const { first, last } = await setNames(user.id, full_name, supabase)
-      firstName = first
-      lastName = last
-    }
-
-    await handleLogsnagEvent(user, firstName, lastName)
-
-    const success = await handleInvite(user, supabase)
+    const success = await finishSignIn(user, session, supabase)
 
     redirectTo.pathname = success ? '/me' : '/login-error'
     return NextResponse.redirect(redirectTo)
@@ -97,23 +79,6 @@ const handleEmailSignin = async (
   }
 
   return { user, session, error: false }
-}
-
-const handleInvite = async (user: User, supabase: SupabaseClient<Database>) => {
-  const { invited } = user.user_metadata
-
-  if (invited === true) {
-    const { email, id } = user
-    const { error } = await supabase.rpc('handle_invited_signup', {
-      invited_email: email ?? '',
-      invited_id: id ?? '',
-    })
-    if (error) {
-      log.error('Failed to handle invited signup', error)
-      return false
-    }
-  }
-  return true
 }
 
 type SigninResult = {

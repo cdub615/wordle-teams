@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { setCookie } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
 import { Dispatch, FormEvent, SetStateAction, useState } from 'react'
 import { toast } from 'sonner'
@@ -12,16 +13,15 @@ import { login } from '../actions'
 type LoginFormProps = {
   backToOauth: () => void
   setAwaitingVerification: Dispatch<SetStateAction<boolean>>
-  setEmail: Dispatch<SetStateAction<string>>
 }
 
-export default function LoginForm({ backToOauth, setAwaitingVerification, setEmail }: LoginFormProps) {
+export default function LoginForm({ backToOauth, setAwaitingVerification }: LoginFormProps) {
   const [pending, setPending] = useState(false)
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setPending(true)
     const formData: FormData = new FormData(e.currentTarget)
-    setEmail(formData.get('email') as string)
+    setCookie('email', formData.get('email') as string)
     const result = await login(formData)
     if (result.error) toast.error(result.error)
     else setAwaitingVerification(true)

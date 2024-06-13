@@ -9,10 +9,9 @@ import OAuthSignin from './oauth'
 export default function Page() {
   const [awaitingVerification, setAwaitingVerification] = useState(false)
   const [emailSignin, setEmailSignin] = useState(false)
-  const [email, setEmail] = useState('')
 
   useEffect(() => {
-    setAwaitingVerification(getCookie('awaitingVerification'))
+    setAwaitingVerification(getCookie('awaitingVerification') === 'true')
   }, [awaitingVerification])
 
   return (
@@ -24,7 +23,7 @@ export default function Page() {
           </div>
         </Link>
       </div>
-      {awaitingVerification && <Otp email={email} />}
+      {awaitingVerification && <Otp />}
       {!awaitingVerification && (
         <>
           <div className='flex justify-center mb-2'>
@@ -35,7 +34,6 @@ export default function Page() {
             <EmailSignin
               backToOauth={() => setEmailSignin(false)}
               setAwaitingVerification={setAwaitingVerification}
-              setEmail={setEmail}
             />
           )}
           <p className='text-xs text-center text-muted-foreground pt-4'>

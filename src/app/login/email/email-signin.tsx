@@ -9,10 +9,9 @@ import SignupForm from './signup-form'
 type EmailSigninProps = {
   backToOauth: () => void
   setAwaitingVerification: Dispatch<SetStateAction<boolean>>
-  setEmail: Dispatch<SetStateAction<string>>
 }
 
-export default function EmailSignin({ backToOauth, setAwaitingVerification, setEmail }: EmailSigninProps) {
+export default function EmailSignin({ backToOauth, setAwaitingVerification }: EmailSigninProps) {
   return (
     <Tabs defaultValue='login'>
       <TabsList className='grid w-full grid-cols-2'>
@@ -21,12 +20,12 @@ export default function EmailSignin({ backToOauth, setAwaitingVerification, setE
       </TabsList>
       <TabsContent value='login'>
         <Card>
-          <LoginForm backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} setEmail={setEmail} />
+          <LoginForm backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} />
         </Card>
       </TabsContent>
       <TabsContent value='signup'>
         <Card>
-          <SignupForm backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} setEmail={setEmail} />
+          <SignupForm backToOauth={backToOauth} setAwaitingVerification={setAwaitingVerification} />
         </Card>
       </TabsContent>
     </Tabs>
