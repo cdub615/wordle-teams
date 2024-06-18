@@ -17,7 +17,7 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
-import NoTeams from './no-teams'
+import Intro from './intro'
 import { getTeams } from './utils'
 
 export const metadata: Metadata = {
@@ -45,7 +45,7 @@ export default async function Page() {
   } else if (!teams || teams.length === 0)
     return (
       <TeamsProvider initialTeams={teams} _user={user}>
-        <NoTeams />
+        <Intro />
       </TeamsProvider>
     )
 

@@ -18,7 +18,7 @@ import {
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
 import { clearAllCookies } from '@/lib/utils'
-import { CreditCard, Download, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
+import { CreditCard, Download, Info, Loader2, LogOut, Mails, MoonStar, Sparkles, Sun, SunMoon } from 'lucide-react'
 import { log } from 'next-axiom'
 import { useTheme } from 'next-themes'
 import Link from 'next/link'
@@ -141,6 +141,12 @@ export default function UserDropdown({ user }: { user: User }) {
             </span>
           </DropdownMenuItem>
         )}
+        <Link href='/about'>
+          <DropdownMenuItem>
+            <Info className='mr-2 h-4 w-4' />
+            <span>About</span>
+          </DropdownMenuItem>
+        </Link>
         <DropdownMenuSeparator />
         {showInstallButton && (
           <Link href='/install'>
