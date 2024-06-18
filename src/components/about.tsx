@@ -10,7 +10,7 @@ export default function About() {
         <div className='flex flex-col md:flex-row justify-center items-center gap-4 md:gap-8'>
           <p className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
             Wordle Teams is a companion app to the New York Times Wordle game. Enter your daily Wordle guesses and
-            the day's answer to share with your friends and teammates. Not connected or affiliated
+            the day&apos;s answer to share with your friends and teammates. Not connected or affiliated
           </p>
           <Image src='/board-entry.png' alt='board entry screenshot' width={300} height={300}  className='outline outline-4 outline-offset-2 outline-green-600 rounded-xl md:rotate-3' />
         </div>
@@ -31,7 +31,7 @@ export default function About() {
         <div className='flex flex-col-reverse md:flex-row justify-center items-center gap-4 md:gap-8'>
           <Image src='/upgrade-button.png' alt='upgrade button screenshot' width={200} height={200}  className='outline outline-4 outline-offset-2 outline-green-600 rounded-xl md:-rotate-6' />
           <p className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
-            Upgrade to unlock unlimited teams, access all of your previous months' scores, customize the scoring
+            Upgrade to unlock unlimited teams, access all of your previous months&apos; scores, customize the scoring
             system for your teams, and more.
           </p>
         </div>
