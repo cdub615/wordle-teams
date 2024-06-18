@@ -23,7 +23,7 @@ export default function About() {
         </div>
         <div className='flex flex-col md:flex-row justify-center items-center gap-4 md:gap-8'>
           <p className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
-            To get started, you'll need to either create a team, or ask a friend for an invite to their team if you
+            To get started, you&apos;ll need to either create a team, or ask a friend for an invite to their team if you
             heard about the app from a friend.
           </p>
           <Image src='/create-team.png' alt='create team screenshot' width={400} height={300}  className='outline outline-4 outline-offset-2 outline-green-600 rounded-xl md:rotate-3' />
