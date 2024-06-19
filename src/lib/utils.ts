@@ -1,7 +1,7 @@
 import { Player, Team, User, UserToken, teams } from '@/lib/types'
 import { AuthApiError, Provider, Session, User as SupabaseUser, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
-import { addMonths, differenceInMonths, differenceInSeconds, parseISO, startOfMonth } from 'date-fns'
+import { addMonths, differenceInMinutes, differenceInMonths, parseISO, startOfMonth } from 'date-fns'
 import { jwtDecode } from 'jwt-decode'
 import { LogSnag } from 'logsnag'
 import { log } from 'next-axiom'
@@ -229,8 +229,8 @@ export const setNames = async (id: string, full_name: string, supabase: Supabase
 const isFirstSignIn = (created_at: string, last_sign_in_at: string) => {
   const created = parseISO(created_at)
   const last = parseISO(last_sign_in_at)
-  const diff = Math.abs(differenceInSeconds(last, created))
-  return diff <= 20
+  const diff = Math.abs(differenceInMinutes(last, created))
+  return diff <= 60
 }
 
 export const handleLogsnagEvent = async (user: SupabaseUser, firstName: string, lastName: string) => {

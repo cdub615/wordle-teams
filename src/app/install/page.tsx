@@ -10,14 +10,14 @@ export default function Page() {
   return (
     <>
       <div className='flex flex-col justify-center items-center my-2'>
-        <Link href='/'>
+        <Link href='/home'>
           <div className='text-4xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-green-600 via-green-500 to-yellow-400'>
             Wordle Teams
           </div>
         </Link>
         <div className='flex flex-col space-y-4 my-4'>
           <div className='text-lg pt-2'>To Install Wordle Teams as an app</div>
-          <ul className='leading-loose list-decimal list-inside pb-4 text-sm md:text-base'>
+          <ul className='leading-loose list-decimal  pb-4 text-sm md:text-base ml-2'>
             <li>
               Tap the three-dot menu icon <Ellipsis /> or the Share icon <Share className='inline-flex' size={18} />
             </li>

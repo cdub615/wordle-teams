@@ -14,6 +14,7 @@ export default function Footer() {
           <Link href='mailto:support@wordleteams.com'>Support</Link>
         </div>
         <div className='flex flex-col space-y-2'>
+          <Link href='/about'>About</Link>
           <Link href='https://github.com/cdub615/wordleteams'>Source Code</Link>
           <Link href='https://twitter.com/wordleteams'>X</Link>
         </div>

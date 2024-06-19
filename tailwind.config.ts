@@ -80,6 +80,16 @@ module.exports = {
           '0%,70%,100%': { opacity: '1' },
           '20%,50%': { opacity: '0' },
         },
+        gradient: {
+          to: {
+            backgroundPosition: 'var(--bg-size) 0',
+          },
+        },
+        scroll: {
+          to: {
+            transform: 'translate(calc(-50% - 0.5rem))',
+          },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
@@ -89,6 +99,8 @@ module.exports = {
         'spin-slow': 'spin 3s linear infinite',
         'spin-super-slow': 'spin 5s linear infinite',
         'caret-blink': 'caret-blink 1.25s ease-out infinite',
+        gradient: 'gradient 8s linear infinite',
+        scroll: 'scroll var(--animation-duration, 40s) var(--animation-direction, forwards) linear infinite',
       },
     },
   },

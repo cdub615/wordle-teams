@@ -47,6 +47,18 @@ function Guess({ guess, wordIndex, answer }: GuessProps) {
       })
     }
 
+    // adjust any yellows if a green has come later, ensuring the greens plus yellows for a letter don't exceed the count in the answer
+    if (letterMap.size > 0) {
+      letterColors = letterColors.map((color, index) => {
+        const letterCount = letterMap.get(guess[index]) ?? 0
+        const countInAnswer = countLetters(answer, guess[index])
+        if (color.includes('bg-yellow') && letterCount > countInAnswer) {
+          return 'bg-muted'
+        }
+        return color
+      })
+    }
+
     return letterColors
   }
 

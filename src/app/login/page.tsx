@@ -17,7 +17,7 @@ export default function Page() {
   return (
     <>
       <div className='flex justify-center mt-2'>
-        <Link href='/'>
+        <Link href='/home'>
           <div className='text-4xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-green-600 via-green-500 to-yellow-400'>
             Wordle Teams
           </div>

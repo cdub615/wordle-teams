@@ -35,7 +35,7 @@ export default function CreateTeam() {
     setPending(false)
   }
   return (
-    <DialogContent>
+    <DialogContent className='w-11/12 rounded-lg'>
       <DialogHeader>
         <DialogTitle>Create Team</DialogTitle>
         <DialogDescription>
