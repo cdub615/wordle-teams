@@ -4,6 +4,7 @@ import boardEntry from '@/public/board-entry.png'
 import changelogPage from '@/public/changelog-page.png'
 import createTeam from '@/public/create-team.png'
 import feedbackPage from '@/public/feedback-page.png'
+import githubRepo from '@/public/github-repo.png'
 import installButton from '@/public/install-button.png'
 import twitterAcct from '@/public/twitter-acct.png'
 import upgradeButton from '@/public/upgrade-button.png'
@@ -77,16 +78,33 @@ export default function About({ title, actionButton }: AboutProps) {
             </p>
           </div>
           <div className='flex flex-col justify-center items-center gap-8'>
-            <p className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
-              For any suggestions or issues, please see our{' '}
-              <Link href='/contact' className='underline'>
-                contact page
-              </Link>
-              . We also have Feedback and changelog, GitHub repo and Twitter account.
-            </p>
+            <article className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
+              <p>
+                For any suggestions or issues, please see our{' '}
+                <Link href='https://feedback.wordleteams.com/feedback' className='font-semibold text-green-600'>
+                  Feedback
+                </Link>
+                &nbsp;page. You can also follow us on{' '}
+                <Link href='https://x.com/wordleteams' className='font-semibold text-green-600'>
+                  X (Twitter)
+                </Link>{' '}
+                and check out our{' '}
+                <Link href='https://feedback.wordleteams.com/changelog' className='font-semibold text-green-600'>
+                  Changelog
+                </Link>{' '}
+                to learn about new features as they&apos;re released.
+              </p>
+              <p>
+                For those interested, this is an open source project on{' '}
+                <Link href='https://github.com/cdub615/wordle-teams' className='font-semibold text-green-600'>
+                  GitHub
+                </Link>{'. '}
+                 Contributions are welcome.
+              </p>
+            </article>
             <InfiniteMovingCards
               speed='slow'
-              className='max-w-[90vw] md:max-w-7xl'
+              className='max-w-[90vw] md:max-w-4xl'
               items={[
                 <Image
                   src={feedbackPage}
@@ -110,6 +128,15 @@ export default function About({ title, actionButton }: AboutProps) {
                   src={twitterAcct}
                   alt='twitter account screenshot'
                   key='twitter account screenshot'
+                  height={400}
+                  loading='lazy'
+                  placeholder='blur'
+                  className='rounded-xl'
+                />,
+                <Image
+                  src={githubRepo}
+                  alt='github repo screenshot'
+                  key='github repo screenshot'
                   height={400}
                   loading='lazy'
                   placeholder='blur'
