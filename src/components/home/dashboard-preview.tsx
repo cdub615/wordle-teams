@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
-export default function DashboardPreview() {
+export default function DashboardPreview({ redirectForPwa = true }: { redirectForPwa?: boolean }) {
   const supabase = createClient()
   const router = useRouter()
 
@@ -18,7 +18,7 @@ export default function DashboardPreview() {
       const isStandalone =
         (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
       supabase.auth.getSession().then(({ data: { session } }) => {
-        if (isStandalone && session) {
+        if (isStandalone && session && redirectForPwa) {
           router.push('/me')
         }
       })
@@ -39,7 +39,7 @@ export default function DashboardPreview() {
           duration: 0.5,
           ease: [0.4, 0.0, 0.2, 1],
         }}
-        className='text-2xl px-4 md:text-4xl lg:text-5xl font-bold text-neutral-700 dark:text-white max-w-4xl leading-relaxed lg:leading-snug text-center mx-auto '
+        className='text-2xl px-4 md:text-4xl lg:text-5xl font-bold text-neutral-700 dark:text-white leading-relaxed lg:leading-snug text-center'
       >
         <div className='relative md:h-[695px] md:w-[1000px] rounded-xl mx-auto'>
           <Image

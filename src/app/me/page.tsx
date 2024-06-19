@@ -50,7 +50,7 @@ export default async function Page() {
     )
 
   return (
-    <div className='p-2 grid gap-2 md:grid-cols-3 md:p-12 md:gap-6'>
+    <div className='p-2 grid gap-2 md:grid-cols-3 md:p-12 md:gap-6 mb-12'>
       <TeamsProvider initialTeams={teams} _user={user}>
         <ActionButtons classes={'md:col-span-3'} userId={user.id} />
         <Suspense fallback={<SkeletonTable classes={'md:col-span-3'} />}>
