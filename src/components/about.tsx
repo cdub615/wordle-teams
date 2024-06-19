@@ -8,6 +8,7 @@ import installButton from '@/public/install-button.png'
 import twitterAcct from '@/public/twitter-acct.png'
 import upgradeButton from '@/public/upgrade-button.png'
 import Image from 'next/image'
+import Link from 'next/link'
 import { Fragment, ReactNode } from 'react'
 import { InfiniteMovingCards } from './ui/aceternity/infinite-moving-cards'
 
@@ -26,8 +27,8 @@ export default function About({ title, actionButton }: AboutProps) {
             <article className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400 text-center flex flex-col gap-2'>
               <p>Wordle Teams is designed as a companion app to the New York Times Wordle game.*</p>
               <p>
-                Play Wordle as you normally would in the official app or website, then come here to enter the day&apos;s answer and
-                your guesses and see how you stack up against your friends.
+                Play Wordle as you normally would in the official app or website, then come here to enter the
+                day&apos;s answer and your guesses and see how you stack up against your friends.
               </p>
             </article>
             <Image
@@ -46,13 +47,15 @@ export default function About({ title, actionButton }: AboutProps) {
               className='outline outline-4 outline-offset-2 outline-green-600 rounded-xl md:-rotate-6'
             />
             <p className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
-              For a more app-like experience, you can install Wordle Teams to your home screen or desktop using the instructions from the Install button in your user dropdown at the top right.
+              For a more app-like experience, you can install Wordle Teams to your home screen or desktop using the
+              instructions from the Install button in your user dropdown at the top right.
             </p>
           </div>
           <div className='flex flex-col md:flex-row justify-center items-center gap-8'>
             <p className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
-              To get started, you&apos;ll need to either create a team (button below), or ask for an invite to an existing team
-              if you heard about us from a friend. They&apos;ll just need the email you used to sign in.
+              To get started, you&apos;ll need to either create a team (button below), or ask for an invite to an
+              existing team if you heard about us from a friend. They&apos;ll just need the email you used to sign
+              in.
             </p>
             <Image
               src={createTeam}
@@ -69,13 +72,17 @@ export default function About({ title, actionButton }: AboutProps) {
               className='outline outline-4 outline-offset-2 outline-green-600 rounded-xl md:-rotate-6'
             />
             <p className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
-              Upgrade to unlock unlimited teams, access to all of your previous months&apos; scores,
-              scoring system customization for your teams, and more.
+              Upgrade to unlock unlimited teams, access to all of your previous months&apos; scores, scoring system
+              customization for your teams, and more.
             </p>
           </div>
           <div className='flex flex-col justify-center items-center gap-8'>
             <p className='max-w-xl text-lg md:text-xl text-gray-600 dark:text-gray-400'>
-              Feedback and changelog, GitHub repo and Twitter account.
+              For any suggestions or issues, please see our{' '}
+              <Link href='/contact' className='underline'>
+                contact page
+              </Link>
+              . We also have Feedback and changelog, GitHub repo and Twitter account.
             </p>
             <InfiniteMovingCards
               speed='slow'
@@ -84,6 +91,7 @@ export default function About({ title, actionButton }: AboutProps) {
                 <Image
                   src={feedbackPage}
                   alt='feedback screenshot'
+                  key='feedback screenshot'
                   height={400}
                   loading='lazy'
                   placeholder='blur'
@@ -92,6 +100,7 @@ export default function About({ title, actionButton }: AboutProps) {
                 <Image
                   src={changelogPage}
                   alt='changelog screenshot'
+                  key='changelog screenshot'
                   height={400}
                   loading='lazy'
                   placeholder='blur'
@@ -100,6 +109,7 @@ export default function About({ title, actionButton }: AboutProps) {
                 <Image
                   src={twitterAcct}
                   alt='twitter account screenshot'
+                  key='twitter account screenshot'
                   height={400}
                   loading='lazy'
                   placeholder='blur'
