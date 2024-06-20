@@ -47,9 +47,8 @@ export function BoardEntryButton({ userId }: { userId: string }) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button className='text-xs px-2' variant={'secondary'}>
-          Board Entry
-          <Plus size={20} className='ml-2' />
+        <Button className='text-xs' variant={'secondary'}>
+          <Plus size={20} />
         </Button>
       </SheetTrigger>
       <SheetContent side={'top'}>
