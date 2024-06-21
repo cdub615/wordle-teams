@@ -3,7 +3,9 @@ import { TeamsProvider } from '@/lib/contexts/teams-context'
 
 import { Button } from '@/components/ui/button'
 import AnimatedGradientText from '@/components/ui/magicui/animated-gradient-text'
+import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
+import { cookies } from 'next/headers'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getTeams } from '../me/utils'
@@ -30,7 +32,9 @@ const actionButton = (
 )
 
 export default async function Page() {
-  const { _user, teams, hasSession } = await getTeams()
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
+  const { _user, teams, hasSession } = await getTeams(supabase)
   if (!hasSession) redirect('/login')
 
   let user: User = _user!

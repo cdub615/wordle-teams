@@ -1,8 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
+import { Database } from '@/lib/database.types'
 import { User, player_with_scores, team_with_players, teams } from '@/lib/types'
 import { getSession, getUserFromSession, hasName } from '@/lib/utils'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { log } from 'next-axiom'
-import { cookies } from 'next/headers'
 
 type GetTeamsResponse = {
   _user: User | undefined
@@ -11,10 +11,8 @@ type GetTeamsResponse = {
   hasName: boolean
 }
 
-export const getTeams = async (): Promise<GetTeamsResponse> => {
+export const getTeams = async (supabase: SupabaseClient<Database>): Promise<GetTeamsResponse> => {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
     const session = await getSession(supabase)
     if (!session) return { _user: undefined, teams: [], hasSession: false, hasName: false }
     if (!hasName(session!)) return { _user: undefined, teams: [], hasSession: true, hasName: false }
