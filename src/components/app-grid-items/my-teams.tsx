@@ -45,7 +45,7 @@ export default function MyTeams({ userId }: { userId: string }) {
                 {team.creator === userId && (
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant={'ghost'}>
+                      <Button variant={'ghost'} aria-label='Delete team'>
                         <Trash2 size={16} className='text-red-500' />
                       </Button>
                     </PopoverTrigger>

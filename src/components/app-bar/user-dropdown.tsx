@@ -75,7 +75,7 @@ export default function UserDropdown({ user }: { user: User }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <div className='relative'>
+        <div className='relative' role='button' aria-label='User dropdown menu'>
           <div className='absolute -inset-0.5 rounded-full animate-spin-super-slow bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 dark:from-green-600 dark:via-green-300 dark:to-yellow-400'></div>
           <Avatar className='relative cursor-pointer'>
             <AvatarImage src={user.avatarUrl} alt='Avatar' />

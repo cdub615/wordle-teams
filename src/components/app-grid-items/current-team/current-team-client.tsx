@@ -50,7 +50,7 @@ export default function CurrentTeamClient({ userId }: { userId: string }) {
             {canInvite && (
               <Dialog>
                 <DialogTrigger asChild>
-                  <Button size={'icon'} variant={'outline'}>
+                  <Button size={'icon'} variant={'outline'} aria-label='Invite player'>
                     <UserPlus2 size={22} />
                   </Button>
                 </DialogTrigger>
@@ -75,7 +75,7 @@ export default function CurrentTeamClient({ userId }: { userId: string }) {
                     <input type='hidden' name='teamId' value={teamId} />
                     <Popover>
                       <PopoverTrigger>
-                        <Button variant={'ghost'} type='button'>
+                        <Button variant={'ghost'} type='button' aria-label='Remove player'>
                           <Trash2 size={16} className='text-red-500' />
                         </Button>
                       </PopoverTrigger>

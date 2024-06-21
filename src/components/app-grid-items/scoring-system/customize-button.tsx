@@ -31,7 +31,7 @@ export function CustomizeButton({ scores }: { scores: Score[] }) {
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button size={'icon'} variant={'outline'}>
+          <Button size={'icon'} variant={'outline'} aria-label='Customize Scoring System'>
             <Settings2 size={24} />
           </Button>
         </DialogTrigger>
@@ -49,7 +49,7 @@ export function CustomizeButton({ scores }: { scores: Score[] }) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button size={'icon'} variant={'outline'}>
+        <Button size={'icon'} variant={'outline'} aria-label='Customize Scoring System'>
           <Settings2 size={24} />
         </Button>
       </SheetTrigger>
