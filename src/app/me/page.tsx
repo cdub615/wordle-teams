@@ -25,12 +25,12 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
-  const { _user, teams, hasSession, hasName } = await getTeams()
+  const supabase = createClient(cookies())
+  const { _user, teams, hasSession, hasName } = await getTeams(supabase)
   if (!hasSession) redirect('/login')
   if (!hasName) redirect('/complete-profile')
   let user: User = _user!
 
-  const supabase = createClient(cookies())
   const { data, error } = await supabase
     .from('player_customer')
     .select('*')

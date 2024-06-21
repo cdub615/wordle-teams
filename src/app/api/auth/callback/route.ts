@@ -8,6 +8,8 @@ import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 import { parseRequest, prepareRedirect } from './utils'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const { next, code, token_hash, type } = parseRequest(request)
