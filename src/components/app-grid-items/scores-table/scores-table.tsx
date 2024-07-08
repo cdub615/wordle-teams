@@ -24,9 +24,11 @@ import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } fr
 
 const ScoresTable = ({ classes }: { classes?: string }) => {
   const [loading, setLoading] = useState(true)
-  const {teams, teamId, month} = useTeams()
+  const { teams, teamId, month } = useTeams()
   const team = teams?.find((t) => t.id === teamId)
-  const [columns, setColumns] = useState<ColumnDef<MonthScoresRow>[]>(getColumns(month, team?.playWeekends ?? false))
+  const [columns, setColumns] = useState<ColumnDef<MonthScoresRow>[]>(
+    getColumns(month, team?.playWeekends ?? false, team?.players ?? [])
+  )
   const [data, setData] = useState<MonthScoresRow[]>(team ? getData(team, month) : [])
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -37,7 +39,7 @@ const ScoresTable = ({ classes }: { classes?: string }) => {
   useEffect(() => {
     const team = teams?.find((t) => t.id === teamId)
     if (team) {
-      setColumns(getColumns(month, team.playWeekends ?? false))
+      setColumns(getColumns(month, team.playWeekends ?? false, team.players))
       setData(getData(team, month))
       setColumnVisibility(getDayVisibility(month))
     }
