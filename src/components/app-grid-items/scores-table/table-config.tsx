@@ -63,7 +63,27 @@ const getData = (team: Team, month: Date): MonthScoresRow[] => {
   return data.sort((a, b) => b.monthTotal - a.monthTotal)
 }
 
-const getColumns = (month: Date, playWeekends: boolean) => {
+const getDuplicateFirstNames = (players: Player[]): string[] =>{
+  const firstNameCounts = new Map<string, number>();
+
+  // Count occurrences of each first name
+  players.forEach(player => {
+    const count = firstNameCounts.get(player.firstName) || 0;
+    firstNameCounts.set(player.firstName, count + 1);
+  });
+
+  // Filter for names that appear more than once
+  const duplicateNames = Array.from(firstNameCounts.entries())
+    .filter(([_, count]) => count > 1)
+    .map(([name, _]) => name);
+
+  return duplicateNames;
+}
+
+const getColumns = (month: Date, playWeekends: boolean, players: Player[]) => {
+  // TODO get any player firstName values that are repeated in the players array
+  const duplicateFirstNames = getDuplicateFirstNames(players);
+
   const days = new Array(31).fill(1)
   const dayColumns: ColumnDef<MonthScoresRow>[] = days.map((_, i) => {
     const dayNum = i + 1
@@ -91,7 +111,7 @@ const getColumns = (month: Date, playWeekends: boolean) => {
         const initials = `${first[0]}${last[0]}`
         return (
           <>
-            <div className='invisible h-0 w-0 md:visible md:h-fit md:w-fit'>{first}</div>
+            <div className='invisible h-0 w-0 md:visible md:h-fit md:w-max md:pr-px'>{duplicateFirstNames.includes(first) ? `${first} ${last[0]}` : first}</div>
             <div className='text-xs md:text-sm md:invisible md:h-0 md:w-0'>{initials}</div>
           </>
         )
