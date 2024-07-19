@@ -13,6 +13,10 @@ export type player_with_scores = players & {
   daily_scores: daily_scores[]
 }
 
+export type player_with_customer = players & {
+  player_customer: player_customer
+}
+
 export type team_with_players = teams & {
   players: player_with_scores[]
 }
@@ -28,6 +32,10 @@ export type User = {
   customerId: number | null
   invitesPendingUpgrade: number
   avatarUrl?: string
+  hasPwa: boolean
+  reminderDeliveryMethods: string[]
+  reminderDeliveryTime: string
+  timeZone: string | null
 }
 
 type AuthenticationMethod = {
@@ -35,6 +43,7 @@ type AuthenticationMethod = {
   timestamp: number
 }
 
+// TODO need to move this stuff
 export type UserToken = JwtPayload & {
   user_member_status: member_status
   user_member_variant: number | null

@@ -10,14 +10,25 @@ import { revalidatePath } from 'next/cache'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import UserDropdown from './user-dropdown'
 
-type AppBarBaseProps = {
-  user?: User
+// Mapping of JS time zones to PostgreSQL time zones
+const timeZoneMapping: { [key: string]: string } = {
+  'Asia/Kolkata': 'Asia/Calcutta',
+  'Asia/Kathmandu': 'Asia/Katmandu',
+  'Asia/Yangon': 'Asia/Rangoon',
+  'Europe/Kiev': 'Europe/Kyiv',
+  'Pacific/Enderbury': 'Pacific/Kanton',
+  // Add more mappings as needed
 }
 
-export default function AppBarBase({ user }: AppBarBaseProps) {
+type AppBarBaseProps = {
+  userFromServer?: User
+}
+
+export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
+  const [user, setUser] = useState<User | undefined>(userFromServer)
   const router = useRouter()
   const supabase = createClient()
   useEffect(() => {
@@ -31,12 +42,49 @@ export default function AppBarBase({ user }: AppBarBaseProps) {
             log.error(error.message)
           }
           if (data?.session) {
-            user = getUserFromSession(data.session)
+            setUser(await getUserFromSession(supabase))
           }
           router.refresh()
         }
       },
     })
+
+    if (window) {
+      const isStandalone =
+        (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
+      if (isStandalone && user && !user.hasPwa) {
+        const userId = user.id
+        supabase
+          .from('players')
+          .update({ has_pwa: true })
+          .eq('id', userId)
+          .then(({ error }) => {
+            if (error) log.error(`Failed to set has_pwa for player ${userId}`, { error })
+          })
+
+        setUser({ ...user, hasPwa: true })
+      }
+    }
+
+    const defaultTzIfMissing = async () => {
+      if (user) {
+        if (!user.timeZone || user.timeZone.length === 0) {
+          const jsTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+          const mappedTimeZone = timeZoneMapping[jsTimeZone] || jsTimeZone
+
+          user.timeZone = mappedTimeZone
+          const { error: updateError } = await supabase
+            .from('players')
+            .update({ time_zone: mappedTimeZone })
+            .eq('id', user.id)
+
+          if (updateError) log.error(`Failed to set time_zone for player ${user.id}`, { updateError })
+
+          setUser({ ...user, timeZone: mappedTimeZone })
+        }
+      }
+    }
+    defaultTzIfMissing()
   }, [])
   return (
     <header>
@@ -50,7 +98,7 @@ export default function AppBarBase({ user }: AppBarBaseProps) {
           </Link>
         </div>
         <div className='flex justify-end items-center space-x-2 md:space-x-4'>
-          {user && <UserDropdown user={user} />}
+          {user && <UserDropdown userFromAppBar={user} />}
           {!user && <ModeToggle variant='ghost' />}
         </div>
       </div>

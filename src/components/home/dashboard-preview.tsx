@@ -17,8 +17,8 @@ export default function DashboardPreview({ redirectForPwa = true }: { redirectFo
     if (window) {
       const isStandalone =
         (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (isStandalone && session && redirectForPwa) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (isStandalone && user && redirectForPwa) {
           router.push('/me')
         }
       })

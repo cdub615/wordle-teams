@@ -1,5 +1,5 @@
 import { Database } from '@/lib/database.types'
-import { createClient } from '@/lib/supabase/actions'
+import { createClient } from '@/lib/supabase/server'
 import { finishSignIn } from '@/lib/utils'
 import { Session, SupabaseClient, User, type EmailOtpType } from '@supabase/supabase-js'
 import { log } from 'next-axiom'

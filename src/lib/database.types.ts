@@ -69,6 +69,41 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          date: string
+          dismissed: boolean
+          id: string
+          message: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_profile_id: string
+        }
+        Insert: {
+          date: string
+          dismissed?: boolean
+          id?: string
+          message: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_profile_id: string
+        }
+        Update: {
+          date?: string
+          dismissed?: boolean
+          id?: string
+          message?: string
+          type?: Database["public"]["Enums"]["notification_type"]
+          user_profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_user_profile"
+            columns: ["user_profile_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       player_customer: {
         Row: {
           customer_id: number | null
@@ -106,22 +141,37 @@ export type Database = {
           created_at: string | null
           email: string
           first_name: string | null
+          has_pwa: boolean
           id: string
+          last_board_entry_reminder: string | null
           last_name: string | null
+          reminder_delivery_methods: string[]
+          reminder_delivery_time: string
+          time_zone: string | null
         }
         Insert: {
           created_at?: string | null
           email: string
           first_name?: string | null
+          has_pwa?: boolean
           id: string
+          last_board_entry_reminder?: string | null
           last_name?: string | null
+          reminder_delivery_methods?: string[]
+          reminder_delivery_time?: string
+          time_zone?: string | null
         }
         Update: {
           created_at?: string | null
           email?: string
           first_name?: string | null
+          has_pwa?: boolean
           id?: string
+          last_board_entry_reminder?: string | null
           last_name?: string | null
+          reminder_delivery_methods?: string[]
+          reminder_delivery_time?: string
+          time_zone?: string | null
         }
         Relationships: [
           {
@@ -194,6 +244,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_profiles: {
+        Row: {
+          first_name: string
+          id: string
+          last_name: string
+        }
+        Insert: {
+          first_name: string
+          id?: string
+          last_name: string
+        }
+        Update: {
+          first_name?: string
+          id?: string
+          last_name?: string
+        }
+        Relationships: []
       }
       webhook_events: {
         Row: {
@@ -273,6 +341,20 @@ export type Database = {
         }
         Returns: undefined
       }
+      handle_user_profile_save: {
+        Args: {
+          p_first_name: string
+          p_last_name: string
+          p_notifications: Json
+        }
+        Returns: string
+      }
+      is_valid_timezone: {
+        Args: {
+          tz: string
+        }
+        Returns: boolean
+      }
       update_player_names: {
         Args: {
           email_to_update: string
@@ -284,6 +366,7 @@ export type Database = {
     }
     Enums: {
       member_status: "new" | "free" | "pro" | "cancelled" | "expired"
+      notification_type: "reminder" | "checkpoint" | "announcement" | "victory"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -565,6 +648,10 @@ export type Database = {
           metadata: Json
           updated_at: string
         }[]
+      }
+      operation: {
+        Args: Record<PropertyKey, never>
+        Returns: string
       }
       search: {
         Args: {
