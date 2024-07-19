@@ -1,7 +1,8 @@
+import {formatDate} from 'date-fns'
 import { z } from 'zod'
 
 export const payloadSchema = z.object({
-  previewText: z.string().default('Board Entry Reminder'),
+  previewText: z.string().default(`Don't miss out on points!`),
   wordleTeamsImage: z
     .string()
     .url()
@@ -19,5 +20,5 @@ export const payloadSchema = z.object({
 })
 
 export const controlSchema = z.object({
-  subject: z.string().default('Board Entry Reminder'),
+  subject: z.string().default(`Board Entry Reminder ${formatDate(new Date(), 'M/dd/yy')}`),
 })
