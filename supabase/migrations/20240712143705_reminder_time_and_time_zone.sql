@@ -21,7 +21,7 @@ ALTER TABLE players
 
 
 -- Index for notification_time
-CREATE INDEX idx_players_board_entry_reminder_time ON players (board_entry_reminder_time);
+CREATE INDEX idx_players_reminder_delivery_time ON players (reminder_delivery_time);
 
 -- Index for last_reminder_sent
 CREATE INDEX idx_players_last_board_entry_reminder ON players (last_board_entry_reminder);
@@ -30,7 +30,7 @@ CREATE INDEX idx_players_last_board_entry_reminder ON players (last_board_entry_
 CREATE INDEX idx_players_time_zone ON players (time_zone);
 
 -- Composite index for notification_time and time_zone
-CREATE INDEX idx_players_board_entry_reminder_time_time_zone ON players (board_entry_reminder_time, time_zone);
+CREATE INDEX idx_players_reminder_delivery_time_time_zone ON players (reminder_delivery_time, time_zone);
 
 -- Composite index for last_reminder_sent and time_zone
-CREATE INDEX idx_players_last_board_entry_reminder_time_zone ON players (last_board_entry_reminder, time_zone);
+CREATE INDEX idx_players_last_reminder_delivery_time_zone ON players (last_board_entry_reminder, time_zone);
