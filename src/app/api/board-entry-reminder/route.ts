@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-export default async function POST(request: Request) {
+export async function POST(request: Request) {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
 
