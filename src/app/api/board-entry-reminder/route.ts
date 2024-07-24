@@ -12,7 +12,6 @@ export async function POST(request: Request) {
   const supabase = createAdminClient(cookieStore)
 
   const { data, error } = await supabase.rpc('get_players_for_reminder')
-  console.log(JSON.stringify(data))
 
   if (error) {
     log.error('Error querying users:', error)
