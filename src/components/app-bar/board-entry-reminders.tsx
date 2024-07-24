@@ -118,7 +118,7 @@ export default function BoardEntryReminders({ user, setUser }: BoardEntryReminde
             />
           )}
         </div>
-        {hasPwa && (
+        {/* {hasPwa && (
           <div className='flex items-center justify-between text-muted-foreground space-x-2'>
             <Label htmlFor='pushReminders'>Push</Label>
             {togglingPush ? (
@@ -131,7 +131,7 @@ export default function BoardEntryReminders({ user, setUser }: BoardEntryReminde
               />
             )}
           </div>
-        )}
+        )} */}
       </div>
     </div>
   )
