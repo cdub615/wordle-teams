@@ -1,6 +1,6 @@
+import { BoardEntryReminderEmailWorkflow } from '@/app/novu/workflows'
 import { serve } from '@novu/framework/next'
-import { BoardEntryReminderEmailWorkflow, BoardEntryReminderPushWorkflow } from '../../novu/workflows'
 
 export const { GET, POST, OPTIONS } = serve({
-  workflows: [BoardEntryReminderEmailWorkflow, BoardEntryReminderPushWorkflow],
+  workflows: [BoardEntryReminderEmailWorkflow],
 })

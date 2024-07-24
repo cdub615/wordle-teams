@@ -315,6 +315,21 @@ export type Database = {
         }
         Returns: Json
       }
+      get_players_for_reminder: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          created_at: string | null
+          email: string
+          first_name: string | null
+          has_pwa: boolean
+          id: string
+          last_board_entry_reminder: string | null
+          last_name: string | null
+          reminder_delivery_methods: string[]
+          reminder_delivery_time: string
+          time_zone: string | null
+        }[]
+      }
       handle_add_player_to_team: {
         Args: {
           player_id_input: string
@@ -354,6 +369,12 @@ export type Database = {
           tz: string
         }
         Returns: boolean
+      }
+      update_last_board_entry_reminder: {
+        Args: {
+          player_id_param: string
+        }
+        Returns: undefined
       }
       update_player_names: {
         Args: {

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { players } from '@/lib/types'
 import { Novu } from '@novu/node'
 import { log } from 'next-axiom'
@@ -9,20 +9,10 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request) {
   const cookieStore = cookies()
-  const supabase = createClient(cookieStore)
+  const supabase = createAdminClient(cookieStore)
 
-  const { data, error } = await supabase
-    .from('players')
-    .select('*')
-    .filter('reminder_delivery_time', 'lte', `(CURRENT_TIMESTAMP AT TIME ZONE time_zone)::time`)
-    .filter(
-      'reminder_delivery_time',
-      'gte',
-      `((CURRENT_TIMESTAMP - INTERVAL '1 hour') AT TIME ZONE time_zone)::time`
-    )
-    .filter('last_board_entry_reminder', 'lt', `DATE_TRUNC('day', CURRENT_TIMESTAMP AT TIME ZONE time_zone)`)
-    .order('last_board_entry_reminder', { ascending: true })
-    .returns<players[]>()
+  const { data, error } = await supabase.rpc('get_players_for_reminder')
+  console.log(JSON.stringify(data))
 
   if (error) {
     log.error('Error querying users:', error)
@@ -30,7 +20,7 @@ export async function POST(request: Request) {
   }
 
   // Process the matching users
-  log.info(`Users to notify: ${data.length}`)
+  log.info(`Users to send board entry reminders to: ${data.length}`)
 
   for (const user of data) {
     try {
@@ -43,10 +33,9 @@ export async function POST(request: Request) {
       }
 
       // Update last_reminder_sent
-      const { error: updateError } = await supabase
-        .from('players')
-        .update({ last_board_entry_reminder: `CURRENT_TIMESTAMP AT TIME ZONE '${user.time_zone}'` })
-        .eq('id', user.id)
+      const { error: updateError } = await supabase.rpc('update_last_board_entry_reminder', {
+        player_id_param: user.id,
+      })
 
       if (updateError) {
         log.error(`Error updating last_board_entry_reminder for user ${user.id}:`, updateError)
@@ -72,26 +61,29 @@ async function sendNotification(player: players) {
         payload: {
           email: player.email,
           firstName: player.first_name ?? player.email,
+          lastName: player.last_name ?? player.email,
         },
       })
     } catch (error) {
-      log.error('Error sending email:', { error })
+      log.error('Error sending email:', {error})
+      throw error
     }
   }
 
-  if (player.reminder_delivery_methods?.includes('push')) {
-    try {
-      await novu.trigger('board-entry-reminder-push', {
-        to: {
-          subscriberId: player.id,
-        },
-        payload: {
-          email: player.email,
-          firstName: player.first_name ?? player.email,
-        },
-      })
-    } catch (error) {
-      log.error('Error sending push:', { error })
-    }
-  }
+  // if (player.reminder_delivery_methods?.includes('push')) {
+  //   try {
+  //     await novu.trigger('board-entry-reminder-push', {
+  //       to: {
+  //         subscriberId: player.id,
+  //       },
+  //       payload: {
+  //         email: player.email,
+  //         firstName: player.first_name ?? player.email,
+  //         lastName: player.last_name ?? player.email,
+  //       },
+  //     })
+  //   } catch (error) {
+  //     log.error('Error sending push:', { error })
+  //   }
+  // }
 }

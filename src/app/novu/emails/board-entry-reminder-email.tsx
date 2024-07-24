@@ -46,8 +46,8 @@ export const BoardEntryReminderEmail = ({
             <Text className='text-black text-lg'>Wordle Teams</Text>
             <Hr className='border border-solid border-[#eaeaea] my-[26px] mx-0 w-full' />
             <Text className='text-[#858585] text-sm leading-[24px]'>
-              This invitation was intended for <span className='text-black'>{email}</span>. If you were not
-              expecting this invitation, you can ignore this email.
+              This email was reminder for <span className='text-black'>{email}</span>. If you were not
+              expecting this reminder, you can ignore this email.
             </Text>
           </Container>
         </Body>

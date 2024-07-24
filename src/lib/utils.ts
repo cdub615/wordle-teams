@@ -1,11 +1,11 @@
 import { Player, Team, User, UserToken, player_with_customer, teams } from '@/lib/types'
+import { Novu } from '@novu/node'
 import { AuthApiError, Provider, Session, User as SupabaseUser, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMonths, differenceInMinutes, differenceInMonths, parseISO, startOfMonth } from 'date-fns'
 import { jwtDecode } from 'jwt-decode'
 import { LogSnag } from 'logsnag'
 import { log } from 'next-axiom'
-import { Dispatch, SetStateAction } from 'react'
 import { twMerge } from 'tailwind-merge'
 import { Database } from './database.types'
 
@@ -246,8 +246,25 @@ export const finishSignIn = async (user: SupabaseUser, session: Session, supabas
   }
 
   await handleLogsnagEvent(user, firstName, lastName)
+  await createNovuSubscriber(user, firstName, lastName)
 
   return await handleInvite(user, supabase)
+}
+
+const createNovuSubscriber = async (user: SupabaseUser, firstName: string, lastName: string) => {
+  const { id, email, last_sign_in_at, created_at } = user
+  if (!last_sign_in_at || isFirstSignIn(created_at, last_sign_in_at)) {
+    const novu = new Novu(process.env.NOVU_API_KEY!)
+    try {
+      await novu.subscribers.identify(id, {
+        email,
+        firstName,
+        lastName,
+      })
+    } catch (error) {
+      log.error('Failed to create novu subscriber', { error })
+    }
+  }
 }
 
 export const setNames = async (id: string, full_name: string, supabase: SupabaseClient<Database>) => {
