@@ -1,5 +1,6 @@
 'use client'
 
+import ky from 'ky'
 import { log } from 'next-axiom'
 import { useState } from 'react'
 
@@ -15,13 +16,7 @@ export default function SubscribeButton() {
       })
 
       // Send the subscription to your server
-      await fetch('/api/subscribe', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(subscription),
-      })
+      await ky.post('/api/subscribe', { json: subscription })
 
       setIsSubscribed(true)
       log.info('Push notification subscription successful')

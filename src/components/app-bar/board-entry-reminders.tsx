@@ -53,7 +53,7 @@ export default function BoardEntryReminders({ user, setUser }: BoardEntryReminde
 
   const formatTime = (time: string, use24Hour: boolean = false) => {
     const date = parse(time, 'HH:mm:ss', new Date())
-    const formatString = use24Hour ? 'HH:mm' : 'h:mm a'
+    const formatString = use24Hour ? 'H' : 'h a'
     return format(date, formatString)
   }
 
