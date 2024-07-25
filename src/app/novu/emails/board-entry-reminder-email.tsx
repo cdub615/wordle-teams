@@ -48,7 +48,7 @@ export const BoardEntryReminderEmail = ({
             <Hr className='border border-solid border-[#eaeaea] my-[26px] mx-0 w-full' />
             <Text className='text-[#858585] text-sm leading-[24px]'>
               If you do not wish to receive these reminders, or you want to customize when you receive them, please head
-              to <Link href='https://wordleteams.com'>wordleteams.com</Link> and select the Notifications option in
+              to the dashboard of the app and select the Notifications option in
               the user dropdown at the top right of your screen.
             </Text>
           </Container>
