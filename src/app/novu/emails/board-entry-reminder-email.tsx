@@ -6,6 +6,7 @@ import {
   Hr,
   Html,
   Img,
+  Link,
   Preview,
   render,
   Section,
@@ -46,8 +47,9 @@ export const BoardEntryReminderEmail = ({
             <Text className='text-black text-lg'>Wordle Teams</Text>
             <Hr className='border border-solid border-[#eaeaea] my-[26px] mx-0 w-full' />
             <Text className='text-[#858585] text-sm leading-[24px]'>
-              This email was intended for <span className='text-black'>{email}</span>. If you were not
-              expecting this reminder, you can ignore this email.
+              If you do not wish to receive these reminders, or you want to customize when you receive them, please head
+              to <Link href='https://wordleteams.com'>wordleteams.com</Link> and select the Notifications option in
+              the user dropdown at the top right of your screen.
             </Text>
           </Container>
         </Body>
