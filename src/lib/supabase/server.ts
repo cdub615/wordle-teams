@@ -1,6 +1,5 @@
 import { Database } from '@/lib/database.types'
 import { createServerClient } from '@supabase/ssr'
-import { randomUUID } from 'crypto'
 import { cookies } from 'next/headers'
 
 export function createClient(cookieStore: ReturnType<typeof cookies>) {
@@ -20,11 +19,6 @@ export function createClient(cookieStore: ReturnType<typeof cookies>) {
             // This can be ignored if you have middleware refreshing
             // user sessions.
           }
-        },
-      },
-      global: {
-        headers: {
-          'X-Entity-Ref-ID': randomUUID(),
         },
       },
     }
@@ -48,11 +42,6 @@ export function createAdminClient(cookieStore: ReturnType<typeof cookies>) {
             // This can be ignored if you have middleware refreshing
             // user sessions.
           }
-        },
-      },
-      global: {
-        headers: {
-          'X-Entity-Ref-ID': randomUUID(),
         },
       },
     }
