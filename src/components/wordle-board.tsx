@@ -49,14 +49,22 @@ function Guess({ guess, wordIndex, answer }: GuessProps) {
 
     // adjust any yellows if a green has come later, ensuring the greens plus yellows for a letter don't exceed the count in the answer
     if (letterMap.size > 0) {
-      letterColors = letterColors.map((color, index) => {
-        const letterCount = letterMap.get(guess[index]) ?? 0
-        const countInAnswer = countLetters(answer, guess[index])
-        if (color.includes('bg-yellow') && letterCount > countInAnswer) {
-          return 'bg-muted'
+      for (let i = 0; i < letterColors.length; i++) {
+        if (letterColors[i].includes('bg-yellow')) {
+          const letter = guess[i]
+          const letterCount = letterMap.get(letter) ?? 0
+          const countInAnswer = countLetters(answer, letter)
+
+          // Check if there's a subsequent green letter for the same character
+          const hasSubsequentGreen = letterColors.slice(i + 1).some((color, index) =>
+            color.includes('bg-green') && guess[i + 1 + index] === letter
+          )
+
+          if (letterCount > countInAnswer && hasSubsequentGreen) {
+            letterColors[i] = 'bg-muted'
+          }
         }
-        return color
-      })
+      }
     }
 
     return letterColors

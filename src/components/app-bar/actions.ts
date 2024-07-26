@@ -1,7 +1,7 @@
 'use server'
 
 import { createNewCheckout } from '@/lib/lemonsqueezy'
-import { createClient } from '@/lib/supabase/actions'
+import { createClient } from '@/lib/supabase/server'
 import { User } from '@/lib/types'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'

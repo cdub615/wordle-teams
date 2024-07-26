@@ -2,7 +2,7 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog } from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +19,6 @@ import {
 import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
 import { clearAllCookies } from '@/lib/utils'
-import { DotsHorizontalIcon } from '@radix-ui/react-icons'
 import {
   CreditCard,
   Download,
@@ -30,7 +29,6 @@ import {
   Mails,
   MessagesSquare,
   MoonStar,
-  Share,
   Sparkles,
   Sun,
   SunMoon,
@@ -42,13 +40,18 @@ import { useRouter } from 'next/navigation'
 import { MouseEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { getCheckoutUrl, logout } from './actions'
+import UserDialog from './user-dialog'
 
-export default function UserDropdown({ user }: { user: User }) {
+export default function UserDropdown({ userFromAppBar }: { userFromAppBar: User }) {
   const { setTheme } = useTheme()
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showInstallButton, setShowInstallButton] = useState(false)
+  const [user, setUser] = useState<User>(userFromAppBar)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [defaultTab, setDefaultTab] = useState<'notifications' | 'install'>('notifications')
+
   const proMember = user.memberStatus === 'pro'
 
   useEffect(() => {
@@ -58,6 +61,10 @@ export default function UserDropdown({ user }: { user: User }) {
       setShowInstallButton(!isStandalone)
     }
   }, [])
+
+  useEffect(() => {
+    setUser(userFromAppBar)
+  }, [userFromAppBar])
 
   const handleLogout: MouseEventHandler<HTMLDivElement> = async (e) => {
     e.preventDefault()
@@ -88,8 +95,19 @@ export default function UserDropdown({ user }: { user: User }) {
     }
     setLoading(false)
   }
+
+  const handleNotificationsClick = () => {
+    setDefaultTab('notifications')
+    setDialogOpen(true)
+  }
+
+  const handleInstallClick = () => {
+    setDefaultTab('install')
+    setDialogOpen(true)
+  }
+
   return (
-    <Dialog>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <div className='relative' role='button' aria-label='User dropdown menu'>
@@ -114,12 +132,10 @@ export default function UserDropdown({ user }: { user: User }) {
               <span>Dashboard</span>
             </DropdownMenuItem>
           </Link>
-          {/* <DialogTrigger asChild>
-            <DropdownMenuItem>
-              <Mails className='mr-2 h-4 w-4' />
-              <span>Notifications</span>
-            </DropdownMenuItem>
-          </DialogTrigger> */}
+          <DropdownMenuItem onClick={handleNotificationsClick}>
+            <Mails className='mr-2 h-4 w-4' />
+            <span>Notifications</span>
+          </DropdownMenuItem>
           <DropdownMenuGroup>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
@@ -181,12 +197,10 @@ export default function UserDropdown({ user }: { user: User }) {
           </Link>
           <DropdownMenuSeparator />
           {showInstallButton && (
-            <DialogTrigger asChild>
-              <DropdownMenuItem>
-                <Download className='mr-2 h-4 w-4' />
-                <span>Install</span>
-              </DropdownMenuItem>
-            </DialogTrigger>
+            <DropdownMenuItem onClick={handleInstallClick}>
+              <Download className='mr-2 h-4 w-4' />
+              <span>Install</span>
+            </DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={handleLogout} aria-disabled={pending} disabled={pending}>
             <LogOut className='mr-2 h-4 w-4' />
@@ -195,70 +209,7 @@ export default function UserDropdown({ user }: { user: User }) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <DialogContent className='w-11/12 px-2 py-4 md:p-6'>
-        <DialogHeader>
-          <DialogTitle>
-            {user.firstName} {user.lastName}
-          </DialogTitle>
-        </DialogHeader>
-        <div className='flex flex-col space-y-1.5 px-2 py-6 md:p-6'>
-          <h3 className='text-2xl font-semibold leading-none tracking-tight'>Installation</h3>
-          <p className='text-sm text-muted-foreground'>To install Wordle Teams as an app</p>
-        </div>
-        <div className='px-2 py-6 md:px-6 md:pb-6 pt-0'>
-          <ul className='list-decimal text-sm md:text-base ml-4'>
-            <li className='mb-2'>
-              Tap the three-dot menu icon{' '}
-              <span className='inline-flex'>
-                <DotsHorizontalIcon />
-              </span>{' '}
-              or the Share icon <Share className='inline-flex' size={18} />
-            </li>
-            <li className='mb-2'>Select &quot;Add to Home Screen&quot; or &quot;Install app&quot;</li>
-            <li>Confirm by tapping &quot;Install&quot; or &quot;Add&quot;</li>
-          </ul>
-        </div>
-        {/* <Tabs defaultValue='notifications'>
-          <TabsList>
-            <TabsTrigger value='notifications'>Notifications</TabsTrigger>
-            <TabsTrigger value='settings'>Settings</TabsTrigger>
-            <TabsTrigger value='install'>Install Guide</TabsTrigger>
-          </TabsList>
-          <TabsContent value='notifications'>
-            <div className='flex flex-col space-y-1.5 px-2 py-6 md:p-6'>
-              <h3 className='text-2xl font-semibold leading-none tracking-tight'>Your Notifications</h3>
-              <p className='text-sm text-muted-foreground'>Review and manage your notifications</p>
-            </div>
-            <div className='px-2 py-6 md:px-6 md:pb-6 pt-0'>content</div>
-          </TabsContent>
-          <TabsContent value='settings'>
-            <div className='flex flex-col space-y-1.5 px-2 py-6 md:p-6'>
-              <h3 className='text-2xl font-semibold leading-none tracking-tight'>Settings</h3>
-              <p className='text-sm text-muted-foreground'>Manage your settings here</p>
-            </div>
-            <div className='px-2 py-6 md:px-6 md:pb-6 pt-0'>content</div>
-          </TabsContent>
-          <TabsContent value='install'>
-            <div className='flex flex-col space-y-1.5 px-2 py-6 md:p-6'>
-              <h3 className='text-2xl font-semibold leading-none tracking-tight'>Installation</h3>
-              <p className='text-sm text-muted-foreground'>To install Wordle Teams as an app</p>
-            </div>
-            <div className='px-2 py-6 md:px-6 md:pb-6 pt-0'>
-              <ul className='list-decimal text-sm md:text-base ml-4'>
-                <li className='mb-2'>
-                  Tap the three-dot menu icon{' '}
-                  <span className='inline-flex'>
-                    <DotsHorizontalIcon />
-                  </span>{' '}
-                  or the Share icon <Share className='inline-flex' size={18} />
-                </li>
-                <li className='mb-2'>Select &quot;Add to Home Screen&quot; or &quot;Install app&quot;</li>
-                <li>Confirm by tapping &quot;Install&quot; or &quot;Add&quot;</li>
-              </ul>
-            </div>
-          </TabsContent>
-        </Tabs> */}
-      </DialogContent>
+      <UserDialog user={user} setUser={setUser} defaultTab={defaultTab} />
     </Dialog>
   )
 }

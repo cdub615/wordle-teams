@@ -1,7 +1,7 @@
 'use server'
 
 import { createNewCheckout, getFreeVariantId } from '@/lib/lemonsqueezy'
-import { createAdminClient, createClient } from '@/lib/supabase/actions'
+import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
 import type { User, WebhookEvent, daily_scores, member_status, player_with_scores } from '@/lib/types'
 import { getSession } from '@/lib/utils'

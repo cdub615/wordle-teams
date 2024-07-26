@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/actions'
+import { createClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'

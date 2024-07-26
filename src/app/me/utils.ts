@@ -15,8 +15,8 @@ export const getTeams = async (supabase: SupabaseClient<Database>): Promise<GetT
   try {
     const session = await getSession(supabase)
     if (!session) return { _user: undefined, teams: [], hasSession: false, hasName: false }
-    if (!hasName(session!)) return { _user: undefined, teams: [], hasSession: true, hasName: false }
-    const user = getUserFromSession(session)
+    if (!hasName(supabase)) return { _user: undefined, teams: [], hasSession: true, hasName: false }
+    const user = await getUserFromSession(supabase)
 
     const { data: teams } = await supabase.from('teams').select('*').order('created_at').returns<teams[]>()
     const playerIds = teams?.flatMap((t) => t.player_ids) ?? []

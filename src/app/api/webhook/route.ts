@@ -4,6 +4,8 @@ import { WebhookEvent } from '@/lib/types'
 import { log } from 'next-axiom'
 import crypto from 'node:crypto'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: Request) {
   if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
     return new Response('Lemon Squeezy Webhook Secret not set in .env', {

@@ -1,4 +1,5 @@
-import { Player, Team, User, UserToken, teams } from '@/lib/types'
+import { Player, Team, User, UserToken, player_with_customer, teams } from '@/lib/types'
+import { Novu } from '@novu/node'
 import { AuthApiError, Provider, Session, User as SupabaseUser, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
 import { addMonths, differenceInMinutes, differenceInMonths, parseISO, startOfMonth } from 'date-fns'
@@ -46,6 +47,27 @@ export const playerIdsFromTeams = (teams: teams[]): string[] => {
     : []
 }
 
+export const getUser = async (supabase: SupabaseClient<Database>) => {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser()
+  if (error instanceof AuthApiError && error.message.includes('Refresh Token Not Found')) {
+    const { data, error: refreshError } = await supabase.auth.refreshSession()
+
+    if (refreshError) {
+      log.warn(`Session refresh error, logging out: ${refreshError.message}`)
+      await supabase.auth.signOut()
+      return null
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    return user
+  }
+  return user
+}
+
 export const getSession = async (supabase: SupabaseClient<Database>) => {
   const {
     data: { session },
@@ -68,7 +90,17 @@ export const getSession = async (supabase: SupabaseClient<Database>) => {
   return session
 }
 
-export const getUserFromSession = (session: Session) => {
+export const getUserFromSession = async (supabase: SupabaseClient<Database>) => {
+  const session = await getSession(supabase)
+  if (!session) return {} as User
+  const { data: player, error } = await supabase
+    .from('players')
+    .select('*, player_customer(*)')
+    .eq('id', session.user.id)
+    .returns<player_with_customer>()
+  if (error) {
+    log.warn(`Failed to fetch user data: ${error.message}`)
+  }
   const token = jwtDecode<UserToken>(session.access_token)
   let avatarUrl = token.user_metadata?.avatar_url
 
@@ -82,11 +114,15 @@ export const getUserFromSession = (session: Session) => {
     firstName,
     lastName,
     initials,
-    memberStatus: token.user_member_status,
-    memberVariant: token.user_member_variant,
-    customerId: token.user_customer_id,
+    memberStatus: player?.player_customer?.membership_status ?? 'new',
+    memberVariant: player?.player_customer?.membership_variant ?? 0,
+    customerId: player?.player_customer?.customer_id ?? null,
     invitesPendingUpgrade: session.user?.app_metadata?.invites_pending_upgrade ?? 0,
     avatarUrl,
+    hasPwa: player?.has_pwa ?? false,
+    reminderDeliveryMethods: player?.reminder_delivery_methods ?? [],
+    reminderDeliveryTime: player?.reminder_delivery_time ?? '10:00:00',
+    timeZone: player?.time_zone ?? null,
   }
 
   return user
@@ -99,9 +135,16 @@ export const padArray = (arr: string[], length: number) => {
   return arr
 }
 
-export const hasName = (session: Session) => {
+export const hasName = async (supabase: SupabaseClient<Database>) => {
   try {
-    const user = getUserFromSession(session)
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session) {
+      log.error('Failed to get session to check if user has name')
+      return false
+    }
+    const user = await getUserFromSession(supabase)
     return user.firstName.length > 1 && user.lastName.length > 1
   } catch (error) {
     log.error('Failed to check if user has name', { error })
@@ -182,13 +225,17 @@ export const getOAuthProviderName = (provider: Provider | string) => {
 }
 
 export const finishSignIn = async (user: SupabaseUser, session: Session, supabase: SupabaseClient<Database>) => {
-  const token = jwtDecode<UserToken>(session.access_token)
-  const { user_first_name, user_last_name } = token
+  const { data, error } = await supabase.from('players').select('*').eq('id', user.id).single()
+  if (error) {
+    log.error('Failed to fetch user data', { error })
+  }
+  const { first_name, last_name } = data ?? { first_name: '', last_name: '' }
   const { full_name } = user.user_metadata
-  let firstName = user_first_name
-  let lastName = user_last_name
+  let firstName = first_name ?? ''
+  let lastName = last_name ?? ''
+
   if (
-    (!user_first_name || !user_last_name || user_first_name.length === 0 || user_last_name.length === 0) &&
+    (!first_name || !last_name || first_name.length === 0 || last_name.length === 0) &&
     full_name &&
     full_name.length > 0 &&
     full_name.includes(' ')
@@ -199,8 +246,25 @@ export const finishSignIn = async (user: SupabaseUser, session: Session, supabas
   }
 
   await handleLogsnagEvent(user, firstName, lastName)
+  await createNovuSubscriber(user, firstName, lastName)
 
   return await handleInvite(user, supabase)
+}
+
+const createNovuSubscriber = async (user: SupabaseUser, firstName: string, lastName: string) => {
+  const { id, email, last_sign_in_at, created_at } = user
+  if (!last_sign_in_at || isFirstSignIn(created_at, last_sign_in_at)) {
+    const novu = new Novu(process.env.NOVU_API_KEY!)
+    try {
+      await novu.subscribers.identify(id, {
+        email,
+        firstName,
+        lastName,
+      })
+    } catch (error) {
+      log.error('Failed to create novu subscriber', { error })
+    }
+  }
 }
 
 export const setNames = async (id: string, full_name: string, supabase: SupabaseClient<Database>) => {

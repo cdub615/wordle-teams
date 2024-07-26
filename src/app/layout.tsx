@@ -1,4 +1,5 @@
 import Maintenance from '@/components/maintenance'
+import ServiceWorkerRegistration from '@/components/service-worker-registration'
 import ThemeProvider from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
@@ -74,6 +75,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang='en' suppressHydrationWarning>
       <AxiomWebVitals />
       <body className={rootClasses}>
+        <ServiceWorkerRegistration />
         <ThemeProvider attribute='class' defaultTheme='system' enableSystem>
           <main>{maintenance ? <Maintenance /> : children}</main>
           <Toaster />

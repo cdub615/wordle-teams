@@ -2,17 +2,15 @@ import { defaultCache } from '@serwist/next/worker'
 import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist'
 import { Serwist } from 'serwist'
 
-// This declares the value of `injectionPoint` to TypeScript.
-// `injectionPoint` is the string that will be replaced by the
-// actual precache manifest. By default, this string is set to
-// `"self.__SW_MANIFEST"`.
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
     __SW_MANIFEST: (PrecacheEntry | string)[] | undefined
   }
 }
 
-declare const self: ServiceWorkerGlobalScope
+declare const self: ServiceWorkerGlobalScope & {
+  clients: Clients
+}
 
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
@@ -23,3 +21,26 @@ const serwist = new Serwist({
 })
 
 serwist.addEventListeners()
+
+// Listen for push events
+self.addEventListener('push', (event) => {
+  const data = event.data?.json() ?? {};
+  const title = data.title || 'New Notification';
+  const options = {
+    body: data.body || 'You have a new notification',
+    icon: '/icon.png', // TODO Path to your app icon
+    badge: '/badge.png', // TODO Path to your notification badge icon
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+// Handle notification click
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.openWindow('/')
+  );
+});

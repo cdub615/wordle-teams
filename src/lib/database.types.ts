@@ -106,22 +106,37 @@ export type Database = {
           created_at: string | null
           email: string
           first_name: string | null
+          has_pwa: boolean
           id: string
+          last_board_entry_reminder: string | null
           last_name: string | null
+          reminder_delivery_methods: string[]
+          reminder_delivery_time: string
+          time_zone: string | null
         }
         Insert: {
           created_at?: string | null
           email: string
           first_name?: string | null
+          has_pwa?: boolean
           id: string
+          last_board_entry_reminder?: string | null
           last_name?: string | null
+          reminder_delivery_methods?: string[]
+          reminder_delivery_time?: string
+          time_zone?: string | null
         }
         Update: {
           created_at?: string | null
           email?: string
           first_name?: string | null
+          has_pwa?: boolean
           id?: string
+          last_board_entry_reminder?: string | null
           last_name?: string | null
+          reminder_delivery_methods?: string[]
+          reminder_delivery_time?: string
+          time_zone?: string | null
         }
         Relationships: [
           {
@@ -247,6 +262,21 @@ export type Database = {
         }
         Returns: Json
       }
+      get_players_for_reminder: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          created_at: string | null
+          email: string
+          first_name: string | null
+          has_pwa: boolean
+          id: string
+          last_board_entry_reminder: string | null
+          last_name: string | null
+          reminder_delivery_methods: string[]
+          reminder_delivery_time: string
+          time_zone: string | null
+        }[]
+      }
       handle_add_player_to_team: {
         Args: {
           player_id_input: string
@@ -270,6 +300,18 @@ export type Database = {
       handle_upgrade_team_invites: {
         Args: {
           player_id_input: string
+        }
+        Returns: undefined
+      }
+      is_valid_timezone: {
+        Args: {
+          tz: string
+        }
+        Returns: boolean
+      }
+      update_last_board_entry_reminder: {
+        Args: {
+          player_id_param: string
         }
         Returns: undefined
       }
