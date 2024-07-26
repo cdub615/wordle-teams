@@ -14,6 +14,8 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.DEV_SUPABASE_DB_PASSWORD }}
       SUPABASE_PROJECT_ID: ${{ secrets.DEV_SUPABASE_PROJECT_ID }}
+      NOVU_SECRET_KEY: ${{ secrets.DEV_NOVU_SECRET_KEY }}
+      NOVU_BRIDGE_URL: ${{ secrets.DEV_NOVU_BRIDGE_URL }}
 
     steps:
       - uses: actions/checkout@v3
@@ -24,3 +26,9 @@ jobs:
 
       - run: supabase link --project-ref $SUPABASE_PROJECT_ID
       - run: supabase db push
+
+      - name: Sync State to Novu
+        uses: novuhq/actions-novu-sync@v2
+        with:
+          secret-key: $NOVU_SECRET_KEY
+          bridge-url: $NOVU_BRIDGE_URL
