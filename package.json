@@ -9,7 +9,7 @@
     "lint": "next lint",
     "gen-types": "supabase gen types typescript --local > src/lib/database.types.ts",
     "pull-edge-config": "vercel env pull .env.local",
-    "migrate-to-novu": "ts-node scripts/migrateUsersToNovu.ts"
+    "migrate-to-novu": "ts-node --compilerOptions '{\"module\":\"commonjs\"}' -r dotenv/config ./src/lib/migrate-to-novu.ts dotenv_config_path=.env.local"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.2.0",
@@ -94,7 +94,9 @@
   },
   "devDependencies": {
     "@types/uuid": "^9.0.2",
+    "dotenv": "^16.4.5",
     "encoding": "^0.1.13",
-    "serwist": "^9.0.2"
+    "serwist": "^9.0.2",
+    "ts-node": "^10.9.2"
   }
 }
