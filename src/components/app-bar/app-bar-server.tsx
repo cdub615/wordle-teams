@@ -24,13 +24,13 @@ export default async function AppBarServer() {
 
     if (error) {
       log.error('Failed to fetch customer in app bar server', { error })
-    } else if (data && data.player_customer && data.player_customer.membership_status !== user.memberStatus) {
+    } else if (data && data.player_customer && data.player_customer[0]?.membership_status !== user.memberStatus) {
       revalidatePath('/me', 'layout')
       user = {
         ...user,
-        memberStatus: data.player_customer.membership_status,
-        memberVariant: data.player_customer.membership_variant,
-        customerId: data.player_customer.customer_id,
+        memberStatus: data.player_customer[0].membership_status,
+        memberVariant: data.player_customer[0].membership_variant,
+        customerId: data.player_customer[0].customer_id,
         timeZone: data.time_zone,
         hasPwa: data.has_pwa,
         reminderDeliveryMethods: data.reminder_delivery_methods,
