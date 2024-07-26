@@ -1,4 +1,4 @@
-import { Player, Team, User, UserToken, player_with_customer, teams } from '@/lib/types'
+import { Player, Team, User, UserToken, member_status, player_with_customer, teams } from '@/lib/types'
 import { Novu } from '@novu/node'
 import { AuthApiError, Provider, Session, User as SupabaseUser, type SupabaseClient } from '@supabase/supabase-js'
 import { clsx, type ClassValue } from 'clsx'
@@ -101,6 +101,16 @@ export const getUserFromSession = async (supabase: SupabaseClient<Database>) => 
   if (error) {
     log.warn(`Failed to fetch user data: ${error.message}`)
   }
+  let memberStatus: member_status = 'new'
+  let memberVariant: number = 0
+  let customerId: number | null = null
+
+  if (player?.player_customer &&player?.player_customer?.length > 0) {
+    memberStatus = player?.player_customer[0]?.membership_status ?? 'new'
+    memberVariant = player?.player_customer[0]?.membership_variant ?? 0
+    customerId = player?.player_customer[0]?.customer_id ?? null
+  }
+
   const token = jwtDecode<UserToken>(session.access_token)
   let avatarUrl = token.user_metadata?.avatar_url
 
@@ -114,9 +124,9 @@ export const getUserFromSession = async (supabase: SupabaseClient<Database>) => 
     firstName,
     lastName,
     initials,
-    memberStatus: player?.player_customer?.membership_status ?? 'new',
-    memberVariant: player?.player_customer?.membership_variant ?? 0,
-    customerId: player?.player_customer?.customer_id ?? null,
+    memberStatus,
+    memberVariant,
+    customerId,
     invitesPendingUpgrade: session.user?.app_metadata?.invites_pending_upgrade ?? 0,
     avatarUrl,
     hasPwa: player?.has_pwa ?? false,

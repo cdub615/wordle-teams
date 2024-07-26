@@ -14,7 +14,7 @@ export type player_with_scores = players & {
 }
 
 export type player_with_customer = players & {
-  player_customer: player_customer
+  player_customer: player_customer[]
 }
 
 export type team_with_players = teams & {

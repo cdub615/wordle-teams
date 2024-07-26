@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js'
 import { Database } from './database.types'
 import {AxiosError} from 'axios'
 
-// TODO update to prod values before running
 const supabase = createClient<Database>(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 const novu = new Novu(process.env.NOVU_API_KEY!)
 
