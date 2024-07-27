@@ -12,13 +12,14 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useMediaQuery } from '@/lib/hooks/use-media-query'
+import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
 import { DotsHorizontalIcon } from '@radix-ui/react-icons'
 import { Loader2, Share } from 'lucide-react'
 import { log } from 'next-axiom'
-import { Dispatch, SetStateAction, useState, useTransition } from 'react'
+import { Dispatch, SetStateAction, useMemo, useState, useTransition } from 'react'
 import { toast } from 'sonner'
-import { createClient } from '../../lib/supabase/client'
 import BoardEntryReminders from './board-entry-reminders'
 
 type UserDialogProps = {
@@ -31,6 +32,7 @@ export default function UserDialog({ user, setUser, defaultTab }: UserDialogProp
   const supabase = createClient()
   const { id: userId, timeZone } = user
   const [updatingTimeZone, startTransition] = useTransition()
+  const isSmallScreen = useMediaQuery('(max-width: 640px)')
 
   const handleUpdateTimeZone = async (timeZone: string) => {
     startTransition(async () => {
@@ -45,8 +47,73 @@ export default function UserDialog({ user, setUser, defaultTab }: UserDialogProp
     })
   }
 
+  const options = [
+    {
+      label: 'North America',
+      items: [
+        { value: 'America/New_York', label: 'Eastern Standard Time (EST)', shortLabel: 'EST' },
+        { value: 'America/Chicago', label: 'Central Standard Time (CST)', shortLabel: 'CST' },
+        { value: 'America/Denver', label: 'Mountain Standard Time (MST)', shortLabel: 'MST' },
+        { value: 'America/Los_Angeles', label: 'Pacific Standard Time (PST)', shortLabel: 'PST' },
+        { value: 'America/Anchorage', label: 'Alaska Standard Time (AKST)', shortLabel: 'AKST' },
+        { value: 'Pacific/Honolulu', label: 'Hawaii Standard Time (HST)', shortLabel: 'HST' },
+      ],
+    },
+    {
+      label: 'Europe & Africa',
+      items: [
+        { value: 'Europe/London', label: 'Greenwich Mean Time (GMT)', shortLabel: 'GMT' },
+        { value: 'Europe/Paris', label: 'Central European Time (CET)', shortLabel: 'CET' },
+        { value: 'Europe/Athens', label: 'Eastern European Time (EET)', shortLabel: 'EET' },
+        { value: 'Europe/Lisbon', label: 'Western European Summer Time (WEST)', shortLabel: 'WEST' },
+        { value: 'Africa/Harare', label: 'Central Africa Time (CAT)', shortLabel: 'CAT' },
+        { value: 'Africa/Nairobi', label: 'East Africa Time (EAT)', shortLabel: 'EAT' },
+      ],
+    },
+    {
+      label: 'Asia',
+      items: [
+        { value: 'Europe/Moscow', label: 'Moscow Time (MSK)', shortLabel: 'MSK' },
+        { value: 'Asia/Kolkata', label: 'India Standard Time (IST)', shortLabel: 'IST' },
+        { value: 'Asia/Shanghai', label: 'China Standard Time (CST)', shortLabel: 'CST' },
+        { value: 'Asia/Tokyo', label: 'Japan Standard Time (JST)', shortLabel: 'JST' },
+        { value: 'Asia/Seoul', label: 'Korea Standard Time (KST)', shortLabel: 'KST' },
+        { value: 'Asia/Makassar', label: 'Indonesia Central Standard Time (WITA)', shortLabel: 'WITA' },
+      ],
+    },
+    {
+      label: 'Australia & Pacific',
+      items: [
+        { value: 'Australia/Perth', label: 'Australian Western Standard Time (AWST)', shortLabel: 'AWST' },
+        { value: 'Australia/Darwin', label: 'Australian Central Standard Time (ACST)', shortLabel: 'ACST' },
+        { value: 'Australia/Sydney', label: 'Australian Eastern Standard Time (AEST)', shortLabel: 'AEST' },
+        { value: 'Pacific/Auckland', label: 'New Zealand Standard Time (NZST)', shortLabel: 'NZST' },
+        { value: 'Pacific/Fiji', label: 'Fiji Time (FJT)', shortLabel: 'FJT' },
+      ],
+    },
+    {
+      label: 'South America',
+      items: [
+        { value: 'America/Argentina/Buenos_Aires', label: 'Argentina Time (ART)', shortLabel: 'ART' },
+        { value: 'America/La_Paz', label: 'Bolivia Time (BOT)', shortLabel: 'BOT' },
+        { value: 'America/Sao_Paulo', label: 'Brasilia Time (BRT)', shortLabel: 'BRT' },
+        { value: 'America/Santiago', label: 'Chile Standard Time (CLT)', shortLabel: 'CLT' },
+      ],
+    },
+  ]
+
+  const displayValue = useMemo(() => {
+    for (const group of options) {
+      const selectedOption = group.items.find((item) => item.value === timeZone)
+      if (selectedOption) {
+        return isSmallScreen ? selectedOption.shortLabel : selectedOption.label
+      }
+    }
+    return 'Select a timezone'
+  }, [timeZone, isSmallScreen])
+
   return (
-    <DialogContent className='w-11/12 px-2 py-4 md:p-6'>
+    <DialogContent className='w-11/12 px-3 py-4 md:p-6'>
       <Tabs defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value='notifications'>Notifications</TabsTrigger>
@@ -65,52 +132,20 @@ export default function UserDialog({ user, setUser, defaultTab }: UserDialogProp
                   <Loader2 className='animate-spin' />
                 ) : (
                   <Select onValueChange={handleUpdateTimeZone} defaultValue={timeZone}>
-                    <SelectTrigger className='w-[280px]'>
-                      <SelectValue />
+                    <SelectTrigger className='w-[115px] md:w-[280px]'>
+                      <SelectValue>{displayValue}</SelectValue>
                     </SelectTrigger>
                     <SelectContent className='!max-h-[300px] !overflow-y-auto'>
-                      <SelectGroup>
-                        <SelectLabel>North America</SelectLabel>
-                        <SelectItem value='America/New_York'>Eastern Standard Time (EST)</SelectItem>
-                        <SelectItem value='America/Chicago'>Central Standard Time (CST)</SelectItem>
-                        <SelectItem value='America/Denver'>Mountain Standard Time (MST)</SelectItem>
-                        <SelectItem value='America/Los_Angeles'>Pacific Standard Time (PST)</SelectItem>
-                        <SelectItem value='America/Anchorage'>Alaska Standard Time (AKST)</SelectItem>
-                        <SelectItem value='Pacific/Honolulu'>Hawaii Standard Time (HST)</SelectItem>
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel>Europe & Africa</SelectLabel>
-                        <SelectItem value='Europe/London'>Greenwich Mean Time (GMT)</SelectItem>
-                        <SelectItem value='Europe/Paris'>Central European Time (CET)</SelectItem>
-                        <SelectItem value='Europe/Athens'>Eastern European Time (EET)</SelectItem>
-                        <SelectItem value='Europe/Lisbon'>Western European Summer Time (WEST)</SelectItem>
-                        <SelectItem value='Africa/Harare'>Central Africa Time (CAT)</SelectItem>
-                        <SelectItem value='Africa/Nairobi'>East Africa Time (EAT)</SelectItem>
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel>Asia</SelectLabel>
-                        <SelectItem value='Europe/Moscow'>Moscow Time (MSK)</SelectItem>
-                        <SelectItem value='Asia/Kolkata'>India Standard Time (IST)</SelectItem>
-                        <SelectItem value='Asia/Shanghai'>China Standard Time (CST)</SelectItem>
-                        <SelectItem value='Asia/Tokyo'>Japan Standard Time (JST)</SelectItem>
-                        <SelectItem value='Asia/Seoul'>Korea Standard Time (KST)</SelectItem>
-                        <SelectItem value='Asia/Makassar'>Indonesia Central Standard Time (WITA)</SelectItem>
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel>Australia & Pacific</SelectLabel>
-                        <SelectItem value='Australia/Perth'>Australian Western Standard Time (AWST)</SelectItem>
-                        <SelectItem value='Australia/Darwin'>Australian Central Standard Time (ACST)</SelectItem>
-                        <SelectItem value='Australia/Sydney'>Australian Eastern Standard Time (AEST)</SelectItem>
-                        <SelectItem value='Pacific/Auckland'>New Zealand Standard Time (NZST)</SelectItem>
-                        <SelectItem value='Pacific/Fiji'>Fiji Time (FJT)</SelectItem>
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel>South America</SelectLabel>
-                        <SelectItem value='America/Argentina/Buenos_Aires'>Argentina Time (ART)</SelectItem>
-                        <SelectItem value='America/La_Paz'>Bolivia Time (BOT)</SelectItem>
-                        <SelectItem value='America/Sao_Paulo'>Brasilia Time (BRT)</SelectItem>
-                        <SelectItem value='America/Santiago'>Chile Standard Time (CLT)</SelectItem>
-                      </SelectGroup>
+                      {options.map((group, index) => (
+                        <SelectGroup key={index}>
+                          <SelectLabel>{group.label}</SelectLabel>
+                          {group.items.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
                     </SelectContent>
                   </Select>
                 )}

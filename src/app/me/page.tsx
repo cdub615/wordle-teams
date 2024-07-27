@@ -56,8 +56,8 @@ export default async function Page() {
         <Suspense fallback={<SkeletonTable classes={'md:col-span-3'} />}>
           <ScoresTable classes={'md:col-span-3'} />
         </Suspense>
-        <CurrentTeam />
         <TeamBoards classes={'md:row-span-3'} />
+        <CurrentTeam />
         <ScoringSystem proMember={user.memberStatus === 'pro'} classes={'md:row-span-3'} />
         <MyTeams userId={user.id} />
       </TeamsProvider>
