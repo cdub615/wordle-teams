@@ -12,7 +12,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 export default function TeamBoards({ classes }: { classes?: string }) {
-  const {teams, teamId, user, month} = useTeams()
+  const { teams, teamId, user, month } = useTeams()
 
   const getDate = () => {
     if (isSameMonth(new Date(), month)) return new Date()
@@ -44,7 +44,10 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     return boards
   }
   const currentPlayerCompletedToday = () =>
-    teams.find((t) => t.id === teamId)?.players.find((p) => p.id === user?.id)?.scores.some((s) => isToday(new Date(s.date))) ?? false
+    teams
+      .find((t) => t.id === teamId)
+      ?.players.find((p) => p.id === user?.id)
+      ?.scores.some((s) => isToday(new Date(s.date))) ?? false
   const shouldHide = (selectedDate: Date) => isToday(selectedDate) && !currentPlayerCompletedToday()
   const setPrevDay = () => {
     const prevDay = new Date(date!)
@@ -100,7 +103,12 @@ export default function TeamBoards({ classes }: { classes?: string }) {
             <span className='sr-only'>Previous day</span>
           </Button>
           <div className='mx-auto'>
-            <DatePicker date={date} setDate={setDate} playWeekends={teams.find((t) => t.id === teamId)?.playWeekends} className='w-52 md:w-56' />
+            <DatePicker
+              date={date}
+              setDate={setDate}
+              playWeekends={teams.find((t) => t.id === teamId)?.playWeekends}
+              className='w-52 md:w-56'
+            />
           </div>
           <Button
             className='text-sm font-normal'
@@ -115,7 +123,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
         </div>
       </CardHeader>
       <CardContent>
-        <Carousel>
+        <Carousel opts={{ loop: true }}>
           <CarouselContent>
             {boards?.map((b) => (
               <CarouselItem key={b.id} className='h-[450px]'>
