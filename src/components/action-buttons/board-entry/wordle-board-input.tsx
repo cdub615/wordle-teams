@@ -45,7 +45,7 @@ export default function WordleBoardInput({
         aria-label='Wordle Board'
         tabIndex={tabIndex}
       >
-        <WordleBoard guesses={guesses} answer={answer} />
+        <WordleBoard guesses={guesses} answer={answer} boardEntry={true} />
       </div>
       <div className='flex justify-end space-x-4 mt-2 md:mt-4 invisible h-0 md:visible md:h-fit'>
         <Button

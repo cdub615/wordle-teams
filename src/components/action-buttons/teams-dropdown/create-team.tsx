@@ -43,26 +43,32 @@ export default function CreateTeam() {
         </DialogDescription>
       </DialogHeader>
       <form onSubmit={handleSubmit} className='w-full space-y-6'>
-        <div className='grid gap-4 py-4'>
-          <div className='grid grid-cols-3 items-center gap-4'>
+        <div className='flex flex-col space-y-4 py-4'>
+          <div className='flex justify-between items-center'>
             <Label htmlFor='name' className='text-right'>
               Team Name
             </Label>
-            <Input name='name' className='col-span-2' minLength={2} required />
+            <Input name='name' required className='w-48 md:w-80' />
           </div>
-          <div className='grid grid-cols-3 items-center gap-4'>
-            <Label htmlFor='playWeekends' className='text-right'>
+          <div className='flex justify-between items-center'>
+            <Label htmlFor='playWeekends'>
               Play Weekends
             </Label>
-            <Switch name='playWeekends' />
+            <Switch name='playWeekends' defaultChecked />
+          </div>
+          <div className='flex justify-between items-center'>
+            <Label htmlFor='showLetters'>
+              Show Letters in Completed Boards
+            </Label>
+            <Switch name='showLetters' defaultChecked />
           </div>
         </div>
         <DialogFooter>
-          <DialogClose id='close-create-team' />
           <Button type='submit' variant={'secondary'} aria-disabled={pending} disabled={pending}>
             {pending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             Create
           </Button>
+          <DialogClose id='close-create-team' />
         </DialogFooter>
       </form>
     </DialogContent>

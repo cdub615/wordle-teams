@@ -1,0 +1,2 @@
+ALTER TABLE public.teams
+ADD COLUMN show_letters BOOLEAN NOT NULL DEFAULT TRUE;
