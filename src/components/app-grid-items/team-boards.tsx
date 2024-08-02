@@ -132,7 +132,7 @@ export default function TeamBoards({ classes }: { classes?: string }) {
                   {hide || !b.exists ? (
                     <p className='pt-[180px] w-auto text-center text-muted-foreground'>{message}</p>
                   ) : (
-                    <WordleBoard answer={b.answer} guesses={b.guesses} />
+                      <WordleBoard answer={b.answer} guesses={b.guesses} boardEntry={false} />
                   )}
                 </div>
               </CarouselItem>

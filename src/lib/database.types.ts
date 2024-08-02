@@ -162,6 +162,7 @@ export type Database = {
           one_guess: number
           play_weekends: boolean
           player_ids: string[]
+          show_letters: boolean
           six_guesses: number
           three_guesses: number
           two_guesses: number
@@ -179,6 +180,7 @@ export type Database = {
           one_guess?: number
           play_weekends?: boolean
           player_ids?: string[]
+          show_letters?: boolean
           six_guesses?: number
           three_guesses?: number
           two_guesses?: number
@@ -196,6 +198,7 @@ export type Database = {
           one_guess?: number
           play_weekends?: boolean
           player_ids?: string[]
+          show_letters?: boolean
           six_guesses?: number
           three_guesses?: number
           two_guesses?: number

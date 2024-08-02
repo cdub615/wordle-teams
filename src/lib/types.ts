@@ -192,6 +192,7 @@ export class Team {
   name: string
   creator: string | null
   playWeekends: boolean
+  showLetters: boolean
   invited: string[]
   private _scoringSystem: number[][] = defaultSystem
   private _players: Player[] = []
@@ -201,6 +202,7 @@ export class Team {
     name: string,
     creator: string | null,
     playWeekends: boolean,
+    showLetters: boolean,
     invited: string[],
     scoringSystem?: number[][],
     players?: Player[]
@@ -209,6 +211,7 @@ export class Team {
     this.name = name
     this.creator = creator
     this.playWeekends = playWeekends
+    this.showLetters = showLetters
     this.invited = invited
 
     if (scoringSystem) this._scoringSystem = scoringSystem
@@ -221,6 +224,7 @@ export class Team {
       name,
       creator,
       play_weekends: playWeekends,
+      show_letters: showLetters,
       n_a,
       one_guess,
       two_guesses,
@@ -244,16 +248,17 @@ export class Team {
 
     const players = dbPlayers?.map((p) => Player.prototype.fromDbPlayer(p, p.daily_scores))
 
-    return new Team(id, name, creator, playWeekends, invited, scoringSystem, players)
+    return new Team(id, name, creator, playWeekends, showLetters, invited, scoringSystem, players)
   }
 
   public hydrate(team: Team): Team {
-    const { id, name, creator, playWeekends, invited, scoringSystem, _players } = team
+    const { id, name, creator, playWeekends, showLetters, invited, scoringSystem, _players } = team
     return new Team(
       id,
       name,
       creator,
       playWeekends,
+      showLetters,
       invited,
       scoringSystem,
       _players.map((p) => Player.prototype.hydrate(p))

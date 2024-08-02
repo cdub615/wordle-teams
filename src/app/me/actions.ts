@@ -17,11 +17,12 @@ export async function createTeam(formData: FormData) {
 
     const name = formData.get('name') as string
     const playWeekends = (formData.get('playWeekends') as string) === 'on'
+    const showLetters = (formData.get('showLetters') as string) === 'on'
     const creator = session.user.id
 
     const { data, error } = await supabase
       .from('teams')
-      .insert({ name, play_weekends: playWeekends, creator, player_ids: [creator] })
+      .insert({ name, play_weekends: playWeekends, show_letters: showLetters, creator, player_ids: [creator] })
       .select('*')
       .single()
 
