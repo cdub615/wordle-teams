@@ -39,7 +39,7 @@ export default function CreateTeam() {
       <DialogHeader>
         <DialogTitle>Create Team</DialogTitle>
         <DialogDescription>
-          Enter your team&apos;s name and specify whether you want to include weekend scores
+          Enter your team&apos;s name and select desired team settings
         </DialogDescription>
       </DialogHeader>
       <form onSubmit={handleSubmit} className='w-full space-y-6'>
