@@ -62,6 +62,7 @@ export const metadata: Metadata = {
       sizes: '1024x1024',
     },
   },
+  manifest: '/manifest.json',
 }
 
 export const viewport: Viewport = {
