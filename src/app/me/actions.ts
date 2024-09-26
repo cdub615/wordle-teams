@@ -3,7 +3,7 @@
 import { createNewCheckout, getFreeVariantId } from '@/lib/lemonsqueezy'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
-import type { User, WebhookEvent, daily_scores, member_status, player_with_scores } from '@/lib/types'
+import type { User, WebhookEvent, daily_scores, member_status, player_with_scores, teams } from '@/lib/types'
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
@@ -40,6 +40,35 @@ export async function createTeam(formData: FormData) {
 
     revalidatePath('/me', 'page')
     return { success: true, message: 'Successfully created team', newTeam: data, player }
+  } catch (error) {
+    log.error('Unexpected error occurred in createTeam', { error })
+    return { success: false, message: 'Team creation failed, please try again' }
+  }
+}
+
+export async function updateTeam(formData: FormData) {
+  try {
+    const supabase = createClient(cookies())
+    const session = await getSession(supabase)
+    if (!session) throw new Error('Unauthorized')
+
+    const teamId = formData.get('teamId') as string
+    const name = formData.get('name') as string
+    const playWeekends = (formData.get('playWeekends') as string) === 'on'
+    const showLetters = (formData.get('showLetters') as string) === 'on'
+
+    const { error } = await supabase
+      .from('teams')
+      .update({ name, play_weekends: playWeekends, show_letters: showLetters })
+      .eq('id', teamId)
+
+    if (error) {
+      log.error('Failed to update team', { error })
+      return { success: false, message: 'Team update failed, please try again' }
+    }
+
+    revalidatePath('/me', 'page')
+    return { success: true, message: 'Successfully updated team' }
   } catch (error) {
     log.error('Unexpected error occurred in createTeam', { error })
     return { success: false, message: 'Team creation failed, please try again' }

@@ -5,8 +5,7 @@ import { MonthScoresRow } from './scores-table-types'
 
 const getData = (team: Team, month: Date): MonthScoresRow[] => {
   const data: MonthScoresRow[] = []
-
-  team.players.map((player: Player) => {
+  team.players?.map((player: Player) => {
     const scores = player.scores?.filter((s) => isSameMonth(month, new Date(s.date)))
     const daysInMonth = getDaysInMonth(month)
     const dailyAttempts = []
@@ -63,7 +62,7 @@ const getData = (team: Team, month: Date): MonthScoresRow[] => {
   return data.sort((a, b) => b.monthTotal - a.monthTotal)
 }
 
-const getDuplicateFirstNames = (players: Player[]): string[] =>{
+const getDuplicateFirstNames = (players: Player[]): string[] => {
   const firstNameCounts = new Map<string, number>();
 
   // Count occurrences of each first name
