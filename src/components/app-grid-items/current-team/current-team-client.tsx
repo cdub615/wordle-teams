@@ -7,20 +7,21 @@ import { Dialog, DialogTrigger } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
 import { useTeams } from '@/lib/contexts/teams-context'
-import { Loader2, Trash2, UserPlus2 } from 'lucide-react'
+import { Loader2, Settings, Trash2, UserPlus2 } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import InvitePlayer from './invite-player'
+import UpdateTeam from './update-team'
 
 export default function CurrentTeamClient({ userId }: { userId: string }) {
   const { teams, teamId, setTeams } = useTeams()
-  const [team, setTeam] = useState(teams.find((t) => t.id === teamId))
+  const [team, setTeam] = useState(teams.find((t) => t.id === teamId)!)
   const [pending, setPending] = useState(false)
   const canInvite = team?.creator === userId
   const playerIds = team?.players.map((p) => p.id)
 
   useEffect(() => {
-    setTeam(teams.find((t) => t.id === teamId))
+    setTeam(teams.find((t) => t.id === teamId)!)
   }, [teamId, teams])
 
   const handleSubmit = async (event: FormEvent<HTMLButtonElement>) => {
@@ -48,14 +49,24 @@ export default function CurrentTeamClient({ userId }: { userId: string }) {
           <div className='flex justify-between'>
             <div>{team?.name}</div>
             {canInvite && (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button size={'icon'} variant={'outline'} aria-label='Invite player'>
-                    <UserPlus2 size={22} />
-                  </Button>
-                </DialogTrigger>
-                <InvitePlayer />
-              </Dialog>
+              <div className='flex gap-2'>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button size={'icon'} variant={'outline'} aria-label='Update team'>
+                      <Settings size={22} />
+                    </Button>
+                  </DialogTrigger>
+                  <UpdateTeam />
+                </Dialog>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button size={'icon'} variant={'outline'} aria-label='Invite player'>
+                      <UserPlus2 size={22} />
+                    </Button>
+                  </DialogTrigger>
+                  <InvitePlayer />
+                </Dialog>
+              </div>
             )}
           </div>
         </CardTitle>

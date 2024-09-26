@@ -319,6 +319,21 @@ export class Team {
       return t
     })
   }
+
+  public updateTeamName(name: string) {
+    this.name = name
+    return this
+  }
+
+  public updatePlayWeekends(playWeekends: boolean) {
+    this.playWeekends = playWeekends
+    return this
+  }
+
+  public updateShowLetters(showLetters: boolean) {
+    this.showLetters = showLetters
+    return this
+  }
 }
 
 export type BeforeInstallPromptEvent = Event & {
