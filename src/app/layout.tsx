@@ -1,10 +1,8 @@
-import Maintenance from '@/components/maintenance'
 import ServiceWorkerRegistration from '@/components/service-worker-registration'
 import ThemeProvider from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 import { Analytics } from '@vercel/analytics/react'
-import { get } from '@vercel/edge-config'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import type { Metadata, Viewport } from 'next'
 import { AxiomWebVitals } from 'next-axiom'
@@ -70,7 +68,6 @@ export const viewport: Viewport = {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const maintenance = await get<boolean>(`maintenance_${process.env.ENVIRONMENT}`)
 
   return (
     <html lang='en' suppressHydrationWarning>
@@ -78,7 +75,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className={rootClasses}>
         <ServiceWorkerRegistration />
         <ThemeProvider attribute='class' defaultTheme='system' enableSystem>
-          <main>{maintenance ? <Maintenance /> : children}</main>
+          <main>{children}</main>
           <Toaster />
         </ThemeProvider>
         <Analytics />
