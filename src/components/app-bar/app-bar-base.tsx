@@ -66,8 +66,6 @@ export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
       }
     }
 
-    // TODO figure out how to subscribe user to push notifications and wire up to supabase user id
-
     const defaultTzIfMissing = async () => {
       if (user) {
         if (!user.timeZone || user.timeZone.length === 0) {
