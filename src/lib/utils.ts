@@ -15,14 +15,17 @@ export const passwordRegex = `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*.?#^)(-_
 
 export const logsnagClient = () => new LogSnag({ token: process.env.LOGSNAG_TOKEN!, project: 'wordle-teams' })
 
-export const getMonthsFromScoreDate = (scoreDate: Date): Date[] => {
-  const monthsToCurrent = differenceInMonths(new Date(), scoreDate)
-  let monthOption = startOfMonth(scoreDate)
+export const getMonthsFromScoreDate = (startingMonth: Date): Date[] => {
+  const monthsToCurrent = differenceInMonths(new Date(), startingMonth)
+  let monthOption = startOfMonth(startingMonth)
   let options: Date[] = [monthOption]
   for (let i = 0; i < monthsToCurrent; i++) {
     monthOption = startOfMonth(addMonths(monthOption, 1))
     options.push(monthOption)
   }
+
+  if (options[options.length - 1].getMonth() !== new Date().getMonth()) options.push(startOfMonth(new Date()))
+
   return options
 }
 
@@ -42,8 +45,8 @@ export const playerIdsFromTeams = (teams: teams[]): string[] => {
   const player_ids = teams?.map((t) => t.player_ids)
   return !!player_ids && player_ids.length > 0
     ? player_ids.reduce((prev, current) => {
-        return [...prev, ...current]
-      })
+      return [...prev, ...current]
+    })
     : []
 }
 
@@ -105,7 +108,7 @@ export const getUserFromSession = async (supabase: SupabaseClient<Database>) => 
   let memberVariant: number = 0
   let customerId: number | null = null
 
-  if (player?.player_customer &&player?.player_customer?.length > 0) {
+  if (player?.player_customer && player?.player_customer?.length > 0) {
     memberStatus = player?.player_customer[0]?.membership_status ?? 'new'
     memberVariant = player?.player_customer[0]?.membership_variant ?? 0
     customerId = player?.player_customer[0]?.customer_id ?? null
