@@ -72,6 +72,7 @@
     "next-themes": "^0.2.1",
     "postcss": "8.4.27",
     "react": "18.3.1",
+    "react-confetti-explosion": "^2.1.2",
     "react-day-picker": "^8.10.0",
     "react-dom": "18.3.1",
     "react-email": "^2.1.5",

@@ -334,6 +334,17 @@ export class Team {
     this.showLetters = showLetters
     return this
   }
+
+  public get thisMonthsCurrentWinner() {
+    const sortedPlayers = this._players.sort((a, b) => {
+      const now = new Date().toISOString()
+      const aScore = a.aggregateScoreByMonth(now, this.playWeekends, this.scoringSystem)
+      const bScore = b.aggregateScoreByMonth(now, this.playWeekends, this.scoringSystem)
+
+      return aScore - bScore
+    })
+    return sortedPlayers[0].id
+  }
 }
 
 export type BeforeInstallPromptEvent = Event & {
