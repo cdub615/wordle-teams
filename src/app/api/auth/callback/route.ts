@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   try {
     const { next, code, token_hash, type } = parseRequest(request)
     const redirectTo = prepareRedirect(request, next)
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const { user, session, error } = code

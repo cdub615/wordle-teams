@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
-  const supabase = createClient(cookies())
+  const supabase = createClient(await cookies())
   const { _user, teams, hasSession, hasName } = await getTeams(supabase)
   if (!hasSession) redirect('/login')
   if (!hasName) redirect('/complete-profile')

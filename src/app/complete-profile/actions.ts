@@ -7,7 +7,7 @@ import { cookies } from 'next/headers'
 
 export default async function updateProfile(formData: FormData) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')

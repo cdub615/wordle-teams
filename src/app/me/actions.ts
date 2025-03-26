@@ -11,7 +11,7 @@ import { cookies } from 'next/headers'
 
 export async function createTeam(formData: FormData) {
   try {
-    const supabase = createClient(cookies())
+    const supabase = createClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -48,7 +48,7 @@ export async function createTeam(formData: FormData) {
 
 export async function updateTeam(formData: FormData) {
   try {
-    const supabase = createClient(cookies())
+    const supabase = createClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -77,7 +77,7 @@ export async function updateTeam(formData: FormData) {
 
 export async function deleteTeam(teamId: string) {
   try {
-    const supabase = createClient(cookies())
+    const supabase = createClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -98,7 +98,7 @@ export async function deleteTeam(teamId: string) {
 
 export async function invitePlayer(formData: FormData) {
   try {
-    const supabase = createAdminClient(cookies())
+    const supabase = createAdminClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -180,7 +180,7 @@ export async function upsertBoard(formData: FormData) {
   let action: 'create' | 'update' | 'delete' = 'create'
 
   try {
-    const supabase = createClient(cookies())
+    const supabase = createClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -252,7 +252,7 @@ export async function upsertBoard(formData: FormData) {
 
 export async function removePlayer(formData: FormData) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const playerIds = (formData.get('playerIds') as string).split(',')
@@ -289,7 +289,7 @@ const relevantEvents = new Set([
 export async function processWebhookEvent(webhookEvent: WebhookEvent) {
   try {
     const { webhookId, body: eventBody, eventName, playerId } = webhookEvent
-    const supabase = createAdminClient(cookies())
+    const supabase = createAdminClient(await cookies())
 
     let processingError = ''
 
@@ -367,7 +367,7 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
 
 export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
   const { body, eventName, playerId, webhookId } = webhookEvent
-  const supabase = createAdminClient(cookies())
+  const supabase = createAdminClient(await cookies())
   const { data, error } = await supabase
     .from('webhook_events')
     .insert({

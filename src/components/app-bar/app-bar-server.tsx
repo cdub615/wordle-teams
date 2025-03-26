@@ -9,7 +9,7 @@ import AppBarBase from './app-bar-base'
 export default async function AppBarServer() {
   let user: User | undefined = undefined
 
-  const supabase = createClient(cookies())
+  const supabase = createClient(await cookies())
   const session = await getSession(supabase)
   if (session) {
     user = await getUserFromSession(supabase)

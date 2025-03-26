@@ -10,7 +10,7 @@ import { redirect } from 'next/navigation'
 
 export default async function Welcome({ autoRedirect = true }: { autoRedirect?: boolean }) {
   if (autoRedirect) {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     const session = await getSession(supabase)
     if (session) redirect('/me')
