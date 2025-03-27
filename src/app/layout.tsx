@@ -8,6 +8,7 @@ import type { Metadata, Viewport } from 'next'
 import { AxiomWebVitals } from 'next-axiom'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { URL } from 'next/dist/compiled/@edge-runtime/primitives/url'
 
 const inter = Inter({ subsets: ['latin'] })
 const rootClasses = cn(inter.className, '@container/root min-h-screen')
