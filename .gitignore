@@ -36,3 +36,6 @@ next-env.d.ts
 
 # Sentry Auth Token
 .sentryclirc
+
+# Sentry Config File
+.env.sentry-build-plugin
