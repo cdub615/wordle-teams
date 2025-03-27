@@ -72,7 +72,7 @@
     "next-themes": "^0.2.1",
     "postcss": "8.4.27",
     "react": "19.0.0",
-    "react-day-picker": "^9.6.3",
+    "react-day-picker": "^8.10.1",
     "react-dom": "19.0.0",
     "react-email": "^2.1.5",
     "react-hook-form": "^7.54.2",
@@ -89,7 +89,7 @@
     "uuid": "^9.0.0",
     "vaul": "^1.1.2",
     "web-push": "^3.6.7",
-    "zod": "^3.23.8",
+    "zod": "^3.24.2",
     "zod-to-json-schema": "^3.23.1"
   },
   "devDependencies": {
