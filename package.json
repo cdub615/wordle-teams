@@ -59,7 +59,7 @@
     "embla-carousel-react": "^8.0.2",
     "eslint": "8.46.0",
     "eslint-config-next": "15.2.4",
-    "framer-motion": "^11.2.6",
+    "framer-motion": "^12.6.2",
     "geist": "^1.2.1",
     "input-otp": "^1.2.4",
     "jwt-decode": "^4.0.0",
