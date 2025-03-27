@@ -41,8 +41,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "middleware.ts",
-    "sentry.*.config.ts"
+    "middleware.ts"
   ],
   "exclude": [
     "node_modules",
