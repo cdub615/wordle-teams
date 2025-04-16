@@ -226,7 +226,7 @@ export const getOAuthProviderName = (provider: Provider | string) => {
       return 'Facebook'
     case 'azure':
       return 'Microsoft'
-    case 'slack':
+    case 'slack_oidc':
       return 'Slack'
     case 'twitter':
       return 'X'

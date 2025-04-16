@@ -13,7 +13,7 @@ const getRedirect = () => {
     case 'development':
       return 'https://dev.wordleteams.com/api/auth/callback'
     case 'local':
-      return 'http://localhost:3000/api/auth/callback'
+      return 'http://localhost:3001/api/auth/callback'
     default:
       return 'https://wordleteams.com/api/auth/callback'
   }
