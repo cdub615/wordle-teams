@@ -72,7 +72,7 @@
     "next-themes": "^0.2.1",
     "postcss": "8.4.27",
     "react": "19.0.0",
-    "react-day-picker": "^9.6.3",
+    "react-day-picker": "^9.6.7",
     "react-dom": "19.0.0",
     "react-email": "^2.1.5",
     "react-hook-form": "^7.54.2",

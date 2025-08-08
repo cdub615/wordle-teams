@@ -16,7 +16,7 @@ const url =
     ? 'https://wordleteams.com'
     : process.env.ENVIRONMENT === 'dev'
       ? 'https://dev.wordleteams.com'
-      : 'http://localhost:3001'
+      : 'http://localhost:3000'
 const redirectUrl = `${url}/me`
 
 function configureLemonSqueezy() {

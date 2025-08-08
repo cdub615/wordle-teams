@@ -13,7 +13,7 @@ const getRedirect = () => {
     case 'development':
       return 'https://dev.wordleteams.com/api/auth/callback'
     case 'local':
-      return 'http://localhost:3001/api/auth/callback'
+      return 'http://localhost:3000/api/auth/callback'
     default:
       return 'https://wordleteams.com/api/auth/callback'
   }
@@ -56,7 +56,7 @@ export default function OAuthProvider({ provider }: { provider: Provider }) {
             {provider === 'google' && <Google className='h-5 w-5' />}
             {provider === 'discord' && <Discord className='h-5 w-5' />}
             {provider === 'azure' && <Microsoft className='h-5 w-5' />}
-            {provider === 'slack_oidc' && <Slack className='h-5 w-5' />}
+            {provider === 'slack' && <Slack className='h-5 w-5' />}
             {provider === 'twitter' && <X className='h-5 w-5' />}
             <span className='sr-only'>Sign in with {providerName}</span>
           </Button>

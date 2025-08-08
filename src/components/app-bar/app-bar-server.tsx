@@ -25,7 +25,7 @@ export default async function AppBarServer() {
     if (error) {
       log.error('Failed to fetch customer in app bar server', { error })
     } else if (data && data.player_customer && data.player_customer[0]?.membership_status !== user.memberStatus) {
-      revalidatePath('/me', 'layout')
+      // revalidatePath('/me', 'layout')
       user = {
         ...user,
         memberStatus: data.player_customer[0].membership_status,
