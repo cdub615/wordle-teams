@@ -41,7 +41,7 @@ export default function ScoringSystem({ proMember, classes }: { proMember: boole
           <TableBody>
             {scores.map((score: Score) => (
               <TableRow key={score.attempts}>
-                <TableCell>{score.attempts === 7 ? 'X' : score.attempts === 0 ? 'N/A' : score.attempts}</TableCell>
+                <TableCell>{score.attempts === 7 ? 'X' : score.attempts}</TableCell>
                 <TableCell>{score.points}</TableCell>
               </TableRow>
             ))}

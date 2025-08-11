@@ -1,6 +1,6 @@
 import { Player, Team } from '@/lib/types'
 import { ColumnDef, VisibilityState } from '@tanstack/react-table'
-import { format, getDaysInMonth, getMonth, getYear, isSameDay, isSameMonth, isWeekend } from 'date-fns'
+import { format, getDaysInMonth, getMonth, getYear, isFuture, isSameDay, isSameMonth, isWeekend } from 'date-fns'
 import { MonthScoresRow } from './scores-table-types'
 
 const getData = (team: Team, month: Date): MonthScoresRow[] => {
@@ -10,13 +10,19 @@ const getData = (team: Team, month: Date): MonthScoresRow[] => {
     const daysInMonth = getDaysInMonth(month)
     const dailyAttempts = []
     for (let i = 1; i <= daysInMonth; i++) {
+      const dayInMonth = new Date(getYear(month), getMonth(month), i)
       const scoreForDay = scores.find((s) =>
-        isSameDay(new Date(s.date), new Date(getYear(month), getMonth(month), i))
+        isSameDay(new Date(s.date), dayInMonth)
       )
-      scoreForDay?.trimEmptyGuesses()
-      const attempts = scoreForDay?.attempts
 
-      if (!attempts || attempts === 0) dailyAttempts.push('')
+      if (!scoreForDay) {
+        if (!isFuture(dayInMonth)) dailyAttempts.push(0)
+        continue
+      }
+      scoreForDay.trimEmptyGuesses()
+      const attempts = scoreForDay.attempts
+
+      if ((!attempts || attempts === 0) && isFuture(new Date(scoreForDay.date))) dailyAttempts.push('')
       else if (attempts === 7) dailyAttempts.push('X')
       else dailyAttempts.push(attempts)
     }
