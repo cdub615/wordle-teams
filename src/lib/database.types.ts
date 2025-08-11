@@ -7,11 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instanciate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "12.0.2 (a4e00ff)"
-  }
   graphql_public: {
     Tables: {
       [_ in never]: never
@@ -22,10 +17,10 @@ export type Database = {
     Functions: {
       graphql: {
         Args: {
+          extensions?: Json
           operationName?: string
           query?: string
           variables?: Json
-          extensions?: Json
         }
         Returns: Json
       }
@@ -320,6 +315,7 @@ export type Database = {
           owner: string | null
           owner_id: string | null
           public: boolean | null
+          type: Database["storage"]["Enums"]["buckettype"]
           updated_at: string | null
         }
         Insert: {
@@ -332,6 +328,7 @@ export type Database = {
           owner?: string | null
           owner_id?: string | null
           public?: boolean | null
+          type: Database["storage"]["Enums"]["buckettype"]
           updated_at?: string | null
         }
         Update: {
@@ -344,9 +341,111 @@ export type Database = {
           owner?: string | null
           owner_id?: string | null
           public?: boolean | null
+          type: Database["storage"]["Enums"]["buckettype"]
           updated_at?: string | null
         }
         Relationships: []
+      }
+      buckets_analytics: {
+        Row: {
+          created_at: string
+          format: string
+          id: string
+          type: Database["storage"]["Enums"]["buckettype"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          format?: string
+          id: string
+          type?: Database["storage"]["Enums"]["buckettype"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          format?: string
+          id?: string
+          type?: Database["storage"]["Enums"]["buckettype"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      iceberg_namespaces: {
+        Row: {
+          bucket_id: string
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          bucket_id: string
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          bucket_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "iceberg_namespaces_bucket_id_fkey"
+            columns: ["bucket_id"]
+            isOneToOne: false
+            referencedRelation: "buckets_analytics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      iceberg_tables: {
+        Row: {
+          bucket_id: string
+          created_at: string
+          id: string
+          location: string
+          name: string
+          namespace_id: string
+          updated_at: string
+        }
+        Insert: {
+          bucket_id: string
+          created_at?: string
+          id?: string
+          location: string
+          name: string
+          namespace_id: string
+          updated_at?: string
+        }
+        Update: {
+          bucket_id?: string
+          created_at?: string
+          id?: string
+          location?: string
+          name?: string
+          namespace_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "iceberg_tables_bucket_id_fkey"
+            columns: ["bucket_id"]
+            isOneToOne: false
+            referencedRelation: "buckets_analytics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "iceberg_tables_namespace_id_fkey"
+            columns: ["namespace_id"]
+            isOneToOne: false
+            referencedRelation: "iceberg_namespaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       migrations: {
         Row: {
@@ -375,6 +474,7 @@ export type Database = {
           created_at: string | null
           id: string
           last_accessed_at: string | null
+          level: number | null
           metadata: Json | null
           name: string | null
           owner: string | null
@@ -389,6 +489,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           last_accessed_at?: string | null
+          level?: number | null
           metadata?: Json | null
           name?: string | null
           owner?: string | null
@@ -403,6 +504,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           last_accessed_at?: string | null
+          level?: number | null
           metadata?: Json | null
           name?: string | null
           owner?: string | null
@@ -415,6 +517,38 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "objects_bucketId_fkey"
+            columns: ["bucket_id"]
+            isOneToOne: false
+            referencedRelation: "buckets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      prefixes: {
+        Row: {
+          bucket_id: string
+          created_at: string | null
+          level: number
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          bucket_id: string
+          created_at?: string | null
+          level?: number
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          bucket_id?: string
+          created_at?: string | null
+          level?: number
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prefixes_bucketId_fkey"
             columns: ["bucket_id"]
             isOneToOne: false
             referencedRelation: "buckets"
@@ -525,9 +659,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      can_insert_object: {
-        Args: { bucketid: string; name: string; owner: string; metadata: Json }
+      add_prefixes: {
+        Args: { _bucket_id: string; _name: string }
         Returns: undefined
+      }
+      can_insert_object: {
+        Args: { bucketid: string; metadata: Json; name: string; owner: string }
+        Returns: undefined
+      }
+      delete_prefix: {
+        Args: { _bucket_id: string; _name: string }
+        Returns: boolean
       }
       extension: {
         Args: { name: string }
@@ -541,6 +683,18 @@ export type Database = {
         Args: { name: string }
         Returns: string[]
       }
+      get_level: {
+        Args: { name: string }
+        Returns: number
+      }
+      get_prefix: {
+        Args: { name: string }
+        Returns: string
+      }
+      get_prefixes: {
+        Args: { name: string }
+        Returns: string[]
+      }
       get_size_by_bucket: {
         Args: Record<PropertyKey, never>
         Returns: {
@@ -551,11 +705,11 @@ export type Database = {
       list_multipart_uploads_with_delimiter: {
         Args: {
           bucket_id: string
-          prefix_param: string
           delimiter_param: string
           max_keys?: number
           next_key_token?: string
           next_upload_token?: string
+          prefix_param: string
         }
         Returns: {
           key: string
@@ -566,11 +720,11 @@ export type Database = {
       list_objects_with_delimiter: {
         Args: {
           bucket_id: string
-          prefix_param: string
           delimiter_param: string
           max_keys?: number
-          start_after?: string
           next_token?: string
+          prefix_param: string
+          start_after?: string
         }
         Returns: {
           name: string
@@ -585,11 +739,11 @@ export type Database = {
       }
       search: {
         Args: {
-          prefix: string
           bucketname: string
-          limits?: number
           levels?: number
+          limits?: number
           offsets?: number
+          prefix: string
           search?: string
           sortcolumn?: string
           sortorder?: string
@@ -603,9 +757,66 @@ export type Database = {
           metadata: Json
         }[]
       }
+      search_legacy_v1: {
+        Args: {
+          bucketname: string
+          levels?: number
+          limits?: number
+          offsets?: number
+          prefix: string
+          search?: string
+          sortcolumn?: string
+          sortorder?: string
+        }
+        Returns: {
+          name: string
+          id: string
+          updated_at: string
+          created_at: string
+          last_accessed_at: string
+          metadata: Json
+        }[]
+      }
+      search_v1_optimised: {
+        Args: {
+          bucketname: string
+          levels?: number
+          limits?: number
+          offsets?: number
+          prefix: string
+          search?: string
+          sortcolumn?: string
+          sortorder?: string
+        }
+        Returns: {
+          name: string
+          id: string
+          updated_at: string
+          created_at: string
+          last_accessed_at: string
+          metadata: Json
+        }[]
+      }
+      search_v2: {
+        Args: {
+          bucket_name: string
+          levels?: number
+          limits?: number
+          prefix: string
+          start_after?: string
+        }
+        Returns: {
+          key: string
+          name: string
+          id: string
+          updated_at: string
+          created_at: string
+          metadata: Json
+        }[]
+      }
     }
     Enums: {
-      [_ in never]: never
+      buckettype: "STANDARD" | "ANALYTICS"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -619,116 +830,116 @@ type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+  ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
-    ? R
-    : never
+  ? R
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
-      }
-      ? R
-      : never
-    : never
+    DefaultSchema["Views"])
+  ? (DefaultSchema["Tables"] &
+    DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+      Row: infer R
+    }
+  ? R
+  : never
+  : never
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Tables"]
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
-    }
-    ? I
-    : never
+    Insert: infer I
+  }
+  ? I
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
-      }
-      ? I
-      : never
-    : never
+  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+    Insert: infer I
+  }
+  ? I
+  : never
+  : never
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Tables"]
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
-    }
-    ? U
-    : never
+    Update: infer U
+  }
+  ? U
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
-      }
-      ? U
-      : never
-    : never
+  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+    Update: infer U
+  }
+  ? U
+  : never
+  : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Enums"]
+  | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+  : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
+  ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+  : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["CompositeTypes"]
+  | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+  : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
+  ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+  : never
 
 export const Constants = {
   graphql_public: {
@@ -740,6 +951,8 @@ export const Constants = {
     },
   },
   storage: {
-    Enums: {},
+    Enums: {
+      buckettype: ["STANDARD", "ANALYTICS"],
+    },
   },
 } as const
