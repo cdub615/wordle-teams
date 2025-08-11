@@ -16,7 +16,7 @@ interface ReminderRequest {
 
 async function handler(request: NextRequest) {
   const { userId }: ReminderRequest = await request.json()
-  const supabase = createAdminClient(cookies())
+  const supabase = createAdminClient(await cookies())
   const { data: player, error } = await supabase.from('players').select('*').eq('id', userId).maybeSingle()
 
   if (error) {

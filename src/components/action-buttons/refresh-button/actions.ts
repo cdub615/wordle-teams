@@ -7,7 +7,7 @@ import { cookies } from 'next/headers'
 
 export async function refreshScores() {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     const { teams } = await getTeams(supabase)
 

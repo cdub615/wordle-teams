@@ -15,7 +15,7 @@ const destinationUrl =
 const qstash = new Client({ token: process.env.QSTASH_TOKEN! })
 
 async function handler(request: NextRequest) {
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   const supabase = createAdminClient(cookieStore)
 
   const { data, error } = await supabase.rpc('get_players_for_reminder')

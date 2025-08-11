@@ -32,7 +32,7 @@ const actionButton = (
 )
 
 export default async function Page() {
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   const supabase = createClient(cookieStore)
   const { _user, teams, hasSession } = await getTeams(supabase)
   if (!hasSession) redirect('/login')

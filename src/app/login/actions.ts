@@ -12,7 +12,7 @@ const emailRedirectTo = process.env.VERCEL_URL
 
 export async function login(formData: FormData) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const loginForm = {
@@ -50,7 +50,7 @@ export async function login(formData: FormData) {
 
 export async function signup(formData: FormData) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const signupForm = {
@@ -97,7 +97,7 @@ export async function signup(formData: FormData) {
 
 export async function verifyOtp(formData: FormData) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     const email = formData.get('email') as string
     const otp = formData.get('otp') as string
@@ -130,7 +130,7 @@ export async function verifyOtp(formData: FormData) {
 
 export async function retry() {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     cookieStore.set('awaitingVerification', 'false')
   } catch (error) {
     log.error('Unexpected error occurred in retry', { error })

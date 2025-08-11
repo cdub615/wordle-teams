@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import CurrentTeamClient from './current-team-client'
 
 export default async function CurrentTeam() {
-  const supabase = createClient(cookies())
+  const supabase = createClient(await cookies())
   const session = await getSession(supabase)
   if (!session) redirect('/login')
   const userId = session.user.id
