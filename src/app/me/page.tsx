@@ -40,7 +40,7 @@ export default async function Page() {
   if (error) {
     log.error('Failed to fetch customer', { error })
   } else if (data && data.membership_status !== user.memberStatus) {
-    revalidatePath('/me', 'layout')
+    // revalidatePath('/me', 'layout')
     user = { ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant }
   } else if (!teams || teams.length === 0)
     return (

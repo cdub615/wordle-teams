@@ -96,17 +96,17 @@ export const getSession = async (supabase: SupabaseClient<Database>) => {
 export const getUserFromSession = async (supabase: SupabaseClient<Database>) => {
   const session = await getSession(supabase)
   if (!session) return {} as User
-  const { data: player, error } = await supabase
+  const { data, error } = await supabase
     .from('players')
     .select('*, player_customer(*)')
     .eq('id', session.user.id)
-    .returns<player_with_customer>()
   if (error) {
     log.warn(`Failed to fetch user data: ${error.message}`)
   }
   let memberStatus: member_status = 'new'
   let memberVariant: number = 0
   let customerId: number | null = null
+  const player: player_with_customer | null = data ? data[0] as player_with_customer : null
 
   if (player?.player_customer && player?.player_customer?.length > 0) {
     memberStatus = player?.player_customer[0]?.membership_status ?? 'new'

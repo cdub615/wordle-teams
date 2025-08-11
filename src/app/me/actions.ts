@@ -60,7 +60,7 @@ export async function updateTeam(formData: FormData) {
     const { error } = await supabase
       .from('teams')
       .update({ name, play_weekends: playWeekends, show_letters: showLetters })
-      .eq('id', teamId)
+      .eq('id', Number.parseInt(teamId))
 
     if (error) {
       log.error('Failed to update team', { error })
@@ -81,7 +81,7 @@ export async function deleteTeam(teamId: string) {
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
-    const { error } = await supabase.from('teams').delete().eq('id', teamId)
+    const { error } = await supabase.from('teams').delete().eq('id', Number.parseInt(teamId))
 
     if (error) {
       log.error('Failed to delete team', { error })
@@ -198,7 +198,7 @@ export async function upsertBoard(formData: FormData) {
     if (!!scoreId && scoreId !== '-1') {
       if (answer.length === 0 && guesses.every((guess) => guess.length === 0)) {
         action = 'delete'
-        const { error } = await supabase.from('daily_scores').delete().eq('id', scoreId)
+        const { error } = await supabase.from('daily_scores').delete().eq('id', Number.parseInt(scoreId))
 
         if (error) {
           log.error('Failed to delete board', { error })
@@ -212,7 +212,7 @@ export async function upsertBoard(formData: FormData) {
         const { data: newScore, error } = await supabase
           .from('daily_scores')
           .update({ answer, guesses })
-          .eq('id', scoreId)
+          .eq('id', Number.parseInt(scoreId))
           .select('*')
           .returns<daily_scores[]>()
           .single()
@@ -263,7 +263,7 @@ export async function removePlayer(formData: FormData) {
     const { error } = await supabase
       .from('teams')
       .update({ player_ids: newPlayerIds })
-      .eq('id', teamId)
+      .eq('id', Number.parseInt(teamId))
       .select('*')
     if (error) {
       log.error(`Failed to remove player ${playerId} from team ${teamId}`, { error })
