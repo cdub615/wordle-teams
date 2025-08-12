@@ -36,10 +36,7 @@ export function PointsInput({ points, setPoints, index, min = -100, max = 100, i
 
   return (
     <Input
-      type="number"
-      inputMode="numeric"
-      min={min}
-      max={max}
+      type="text"
       value={value}
       name={`points[${index}]`}
       required
