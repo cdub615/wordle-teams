@@ -1,5 +1,5 @@
 import { UserMetadata } from '@supabase/supabase-js'
-import { eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, isWeekend, isFuture } from 'date-fns'
+import { eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, isWeekend, isFuture, isBefore, startOfToday } from 'date-fns'
 import { JwtPayload } from 'jwt-decode'
 import { Enums, Tables } from './database.types'
 export type players = Tables<'players'>
@@ -199,8 +199,8 @@ export class Player {
       if (scoreForDay) {
         // Day was played — use its calculated score
         return total + scoreForDay.getScore(scoringSystem)
-      } else if (!isFuture(day)) {
-        // No score for this day and it's not in the future — use the "0 attempts" score
+      } else if (isBefore(day, startOfToday())) {
+        // No score for this day and it's before today — use the "0 attempts" score
         return total + scoringSystem[0][1]
       }
 
