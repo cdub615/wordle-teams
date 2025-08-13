@@ -209,15 +209,15 @@ export async function upsertBoard(formData: FormData) {
         message = 'Successfully deleted board'
       } else {
         action = 'update'
-        const { data: newScore, error } = await supabase
+        const { data, error } = await supabase
           .from('daily_scores')
           .update({ answer, guesses })
           .eq('id', Number.parseInt(scoreId))
           .select('*')
-          .returns<daily_scores[]>()
           .single()
+        const newScore: daily_scores | null = data
 
-        if (error) {
+        if (!newScore || error) {
           log.error('Failed to add or update board', { error })
           return { success: false, action, message: 'Failed to add or update board' }
         }
@@ -226,14 +226,15 @@ export async function upsertBoard(formData: FormData) {
       }
     } else {
       action = 'create'
-      const { data: newScore, error } = await supabase
+      const { data, error } = await supabase
         .from('daily_scores')
         .insert({ answer, date: scoreDate, guesses, player_id: session.user.id })
         .select('*')
-        .returns<daily_scores[]>()
         .single()
 
-      if (error) {
+      const newScore: daily_scores | null = data
+
+      if (!newScore || error) {
         log.error('Failed to add or update board', { error })
         return { success: false, action, message: 'Failed to add or update board' }
       }
