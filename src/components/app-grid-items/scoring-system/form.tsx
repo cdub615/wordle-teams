@@ -14,6 +14,7 @@ import { ChangeEvent, FormEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { save } from './actions'
 import { Score } from './scoring-system'
+import { PointsInput } from './points-input'
 
 type FormProps = {
   scores: Score[]
@@ -85,16 +86,13 @@ export default function ScoringSystemForm({ scores, isDesktop }: FormProps) {
           <TableBody>
             {scores.map((score: Score, index: number) => (
               <TableRow key={score.attempts}>
-                <TableCell>{score.attempts === 7 ? 'X' : score.attempts === 0 ? 'N/A' : score.attempts}</TableCell>
+                <TableCell>{score.attempts === 7 ? 'X' : score.attempts}</TableCell>
                 <TableCell>
-                  <Input
-                    type='number'
-                    min={-100}
-                    max={100}
-                    value={points[index]}
-                    name={`points[${index}]`}
-                    required
-                    onChange={(e) => handleChange(e, index)}
+                  <PointsInput
+                    points={points}
+                    setPoints={setPoints}
+                    index={index}
+                    initialValue={`${points[index]}`}
                   />
                 </TableCell>
               </TableRow>

@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
-  const supabase = createClient(cookies())
+  const supabase = createClient(await cookies())
   const { _user, teams, hasSession, hasName } = await getTeams(supabase)
   if (!hasSession) redirect('/login')
   if (!hasName) redirect('/complete-profile')
@@ -36,7 +36,7 @@ export default async function Page() {
   if (error) {
     log.error('Failed to fetch customer', { error })
   } else if (data && data.membership_status !== user.memberStatus) {
-    revalidatePath('/me', 'layout')
+    // revalidatePath('/me', 'layout')
     user = { ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant }
   } else if (!teams || teams.length === 0)
     return (

@@ -11,7 +11,7 @@ export const BoardEntryReminderEmailWorkflow = workflow(
       async (controls: ControlSchema) => {
         return {
           subject: controls.subject,
-          body: renderEmail(controls, payload),
+          body: await renderEmail(controls, payload),
         }
       },
       {

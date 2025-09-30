@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
 import { getUserFromSession } from '@/lib/utils'
 import { log } from 'next-axiom'
-import { revalidatePath } from 'next/cache'
+// import { revalidatePath } from 'next/cache'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
@@ -36,7 +36,7 @@ export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
     window.LemonSqueezy.Setup({
       eventHandler: async (data) => {
         if (data.event == 'Checkout.Success') {
-          revalidatePath('/me', 'layout')
+          // revalidatePath('/me', 'layout')
           const { data, error } = await supabase.auth.refreshSession()
           if (error) {
             log.error(error.message)

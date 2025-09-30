@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 
 export async function save(formData: FormData) {
-  const supabase = createClient(cookies())
+  const supabase = createClient(await cookies())
   const session = await getSession(supabase)
   if (!session) throw new Error('Unauthorized')
 

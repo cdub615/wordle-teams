@@ -11,7 +11,7 @@ import { cookies } from 'next/headers'
 
 export async function createTeam(formData: FormData) {
   try {
-    const supabase = createClient(cookies())
+    const supabase = createClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -48,7 +48,7 @@ export async function createTeam(formData: FormData) {
 
 export async function updateTeam(formData: FormData) {
   try {
-    const supabase = createClient(cookies())
+    const supabase = createClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -60,7 +60,7 @@ export async function updateTeam(formData: FormData) {
     const { error } = await supabase
       .from('teams')
       .update({ name, play_weekends: playWeekends, show_letters: showLetters })
-      .eq('id', teamId)
+      .eq('id', Number.parseInt(teamId))
 
     if (error) {
       log.error('Failed to update team', { error })
@@ -77,11 +77,11 @@ export async function updateTeam(formData: FormData) {
 
 export async function deleteTeam(teamId: string) {
   try {
-    const supabase = createClient(cookies())
+    const supabase = createClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
-    const { error } = await supabase.from('teams').delete().eq('id', teamId)
+    const { error } = await supabase.from('teams').delete().eq('id', Number.parseInt(teamId))
 
     if (error) {
       log.error('Failed to delete team', { error })
@@ -98,7 +98,7 @@ export async function deleteTeam(teamId: string) {
 
 export async function invitePlayer(formData: FormData) {
   try {
-    const supabase = createAdminClient(cookies())
+    const supabase = createAdminClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -180,7 +180,7 @@ export async function upsertBoard(formData: FormData) {
   let action: 'create' | 'update' | 'delete' = 'create'
 
   try {
-    const supabase = createClient(cookies())
+    const supabase = createClient(await cookies())
     const session = await getSession(supabase)
     if (!session) throw new Error('Unauthorized')
 
@@ -198,7 +198,7 @@ export async function upsertBoard(formData: FormData) {
     if (!!scoreId && scoreId !== '-1') {
       if (answer.length === 0 && guesses.every((guess) => guess.length === 0)) {
         action = 'delete'
-        const { error } = await supabase.from('daily_scores').delete().eq('id', scoreId)
+        const { error } = await supabase.from('daily_scores').delete().eq('id', Number.parseInt(scoreId))
 
         if (error) {
           log.error('Failed to delete board', { error })
@@ -209,15 +209,15 @@ export async function upsertBoard(formData: FormData) {
         message = 'Successfully deleted board'
       } else {
         action = 'update'
-        const { data: newScore, error } = await supabase
+        const { data, error } = await supabase
           .from('daily_scores')
           .update({ answer, guesses })
-          .eq('id', scoreId)
+          .eq('id', Number.parseInt(scoreId))
           .select('*')
-          .returns<daily_scores[]>()
           .single()
+        const newScore: daily_scores | null = data
 
-        if (error) {
+        if (!newScore || error) {
           log.error('Failed to add or update board', { error })
           return { success: false, action, message: 'Failed to add or update board' }
         }
@@ -226,14 +226,15 @@ export async function upsertBoard(formData: FormData) {
       }
     } else {
       action = 'create'
-      const { data: newScore, error } = await supabase
+      const { data, error } = await supabase
         .from('daily_scores')
         .insert({ answer, date: scoreDate, guesses, player_id: session.user.id })
         .select('*')
-        .returns<daily_scores[]>()
         .single()
 
-      if (error) {
+      const newScore: daily_scores | null = data
+
+      if (!newScore || error) {
         log.error('Failed to add or update board', { error })
         return { success: false, action, message: 'Failed to add or update board' }
       }
@@ -252,7 +253,7 @@ export async function upsertBoard(formData: FormData) {
 
 export async function removePlayer(formData: FormData) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const playerIds = (formData.get('playerIds') as string).split(',')
@@ -263,7 +264,7 @@ export async function removePlayer(formData: FormData) {
     const { error } = await supabase
       .from('teams')
       .update({ player_ids: newPlayerIds })
-      .eq('id', teamId)
+      .eq('id', Number.parseInt(teamId))
       .select('*')
     if (error) {
       log.error(`Failed to remove player ${playerId} from team ${teamId}`, { error })
@@ -289,7 +290,7 @@ const relevantEvents = new Set([
 export async function processWebhookEvent(webhookEvent: WebhookEvent) {
   try {
     const { webhookId, body: eventBody, eventName, playerId } = webhookEvent
-    const supabase = createAdminClient(cookies())
+    const supabase = createAdminClient(await cookies())
 
     let processingError = ''
 
@@ -367,7 +368,7 @@ export async function processWebhookEvent(webhookEvent: WebhookEvent) {
 
 export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
   const { body, eventName, playerId, webhookId } = webhookEvent
-  const supabase = createAdminClient(cookies())
+  const supabase = createAdminClient(await cookies())
   const { data, error } = await supabase
     .from('webhook_events')
     .insert({

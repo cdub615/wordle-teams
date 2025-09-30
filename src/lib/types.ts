@@ -1,5 +1,5 @@
 import { UserMetadata } from '@supabase/supabase-js'
-import { isSameMonth, isWeekend } from 'date-fns'
+import { eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, isWeekend, isFuture, isBefore, startOfToday } from 'date-fns'
 import { JwtPayload } from 'jwt-decode'
 import { Enums, Tables } from './database.types'
 export type players = Tables<'players'>
@@ -179,11 +179,36 @@ export class Player {
   }
 
   public aggregateScoreByMonth(date: string, playWeekends: boolean, scoringSystem: number[][]) {
-    const scoresForMonth = this._scores.filter(
-      (s) => isSameMonth(new Date(s.date), new Date(date)) && (playWeekends || !isWeekend(new Date(s.date)))
-    )
-    const scores = scoresForMonth.map((s) => s.getScore(scoringSystem))
-    return scores.length > 0 ? scores.reduce((prev, curr) => prev + curr) : 0
+    const targetDate = new Date(date)
+
+    // Get all days in the month
+    const daysInMonth = eachDayOfInterval({
+      start: startOfMonth(targetDate),
+      end: endOfMonth(targetDate),
+    })
+
+    const totalScore = daysInMonth.reduce((total, day) => {
+      // Skip weekends if needed
+      if (!playWeekends && isWeekend(day)) {
+        return total
+      }
+
+      // Find the score for this day (if it exists)
+      const scoreForDay = this._scores.find((s) => isSameDay(new Date(s.date), day))
+
+      if (scoreForDay) {
+        // Day was played — use its calculated score
+        return total + scoreForDay.getScore(scoringSystem)
+      } else if (isBefore(day, startOfToday())) {
+        // No score for this day and it's before today — use the "0 attempts" score
+        return total + scoringSystem[0][1]
+      }
+
+      // Future day — no score added
+      return total
+    }, 0)
+
+    return totalScore
   }
 }
 

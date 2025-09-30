@@ -67,10 +67,12 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
     e.preventDefault()
     const formData: FormData = new FormData(e.currentTarget)
     const result = await upsertBoard(formData)
+
     if (result.success) {
       if (result.action !== 'delete' && result.dailyScore) {
         const newScore = DailyScore.prototype.fromDbDailyScore(result.dailyScore)
-        setTeams(Team.prototype.updatePlayerScore(teams, userId, newScore))
+        const newTeams = Team.prototype.updatePlayerScore(teams, userId, newScore)
+        setTeams(newTeams)
       }
       if (result.action === 'delete') {
         setTeams(Team.prototype.removePlayerScore(teams, userId, formData.get('scoreDate') as string))
