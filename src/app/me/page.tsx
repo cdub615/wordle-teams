@@ -18,6 +18,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import Intro from './intro'
+import MonthlyWinnerCelebration from './monthly-winner-celebration'
 import { getTeams } from './utils'
 
 export const metadata: Metadata = {
@@ -48,6 +49,7 @@ export default async function Page() {
   return (
     <div className="p-2 grid gap-2 md:grid-cols-3 md:p-12 md:gap-6 mb-12">
       <TeamsProvider initialTeams={teams} _user={user}>
+        <MonthlyWinnerCelebration />
         <ActionButtons classes={'md:col-span-3'} userId={user.id} />
         <Suspense fallback={<SkeletonTable classes={'md:col-span-3'} />}>
           <ScoresTable classes={'md:col-span-3'} />

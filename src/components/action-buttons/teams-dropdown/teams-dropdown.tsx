@@ -15,20 +15,21 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { ChevronDown, Loader2, Plus, Sparkles } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import CreateTeam from './create-team'
-import ConfettiExplosion from 'react-confetti-explosion'
+
 export default function TeamsDropdown() {
   const [loading, setLoading] = useState(false)
   const { teams, teamId, setTeamId, user } = useTeams()
   const proMember = user.memberStatus === 'pro'
   const selectedTeam = teams.find((t) => t.id === teamId)
-  const teamName = !selectedTeam?.name
+  const selectedName = selectedTeam?.name ?? null
+  const teamName = !selectedName
     ? 'No team selected'
-    : selectedTeam?.name.length > 15
-      ? `${selectedTeam?.name.slice(0, 15)}...`
-      : selectedTeam?.name
+    : selectedName.length > 15
+      ? `${selectedName.slice(0, 15)}...`
+      : selectedName
   const handleTeamChange = (t: string) => setTeamId(Number.parseInt(t))
   const handleUpgrade = async () => {
     setLoading(true)
@@ -38,10 +39,10 @@ export default function TeamsDropdown() {
     setLoading(false)
   }
 
+
   if (teams)
     return (
       <Dialog>
-        {confetti && <ConfettiExplosion />}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant='outline' className='text-xs px-2 max-w-[9.5rem] md:text-sm md:px-4 md:max-w-none'>
