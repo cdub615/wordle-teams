@@ -359,6 +359,23 @@ export class Team {
     this.showLetters = showLetters
     return this
   }
+
+  public thisMonthsCurrentWinner(thisMonth: string) {
+    const scoreMap = new Map<string, number>()
+    for (const player of this._players) {
+      const score = player.aggregateScoreByMonth(thisMonth, this.playWeekends, this.scoringSystem)
+      scoreMap.set(player.id, score)
+    }
+    let maxScore = -Infinity
+    let winnerId = ''
+    scoreMap.forEach((score, id) => {
+      if (score > maxScore) {
+        maxScore = score
+        winnerId = id
+      }
+    })
+    return winnerId
+  }
 }
 
 export type BeforeInstallPromptEvent = Event & {

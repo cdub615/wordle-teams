@@ -17,7 +17,8 @@ interface ReminderRequest {
 async function handler(request: NextRequest) {
   const { userId }: ReminderRequest = await request.json()
   const supabase = createAdminClient(await cookies())
-  const { data: player, error } = await supabase.from('players').select('*').eq('id', userId).maybeSingle()
+  const { data, error } = await supabase.from('players').select('*').eq('id', userId).maybeSingle()
+  const player = data as any
 
   if (error) {
     log.error('Error querying player:', error)
@@ -50,7 +51,7 @@ async function handler(request: NextRequest) {
   // Update last_reminder_sent
   const { error: updateError } = await supabase.rpc('update_last_board_entry_reminder', {
     player_id_param: player.id,
-  })
+  } as any)
 
   if (updateError) {
     log.error(`Error updating last_board_entry_reminder for user ${player.id}:`, updateError)

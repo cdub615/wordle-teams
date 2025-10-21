@@ -1,8 +1,9 @@
 import { Database } from '@/lib/database.types'
 import { createServerClient } from '@supabase/ssr'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
-export function createClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+export function createClient(cookieStore: Awaited<ReturnType<typeof cookies>>): SupabaseClient<Database> {
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -22,10 +23,10 @@ export function createClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
         },
       },
     }
-  )
+  ) as any
 }
 
-export function createAdminClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+export function createAdminClient(cookieStore: Awaited<ReturnType<typeof cookies>>): SupabaseClient<Database> {
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -45,5 +46,5 @@ export function createAdminClient(cookieStore: Awaited<ReturnType<typeof cookies
         },
       },
     }
-  )
+  ) as any
 }

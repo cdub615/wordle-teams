@@ -17,7 +17,7 @@ type BoardEntryRemindersProps = {
 }
 
 export default function BoardEntryReminders({ user, setUser }: BoardEntryRemindersProps) {
-  const supabase = createClient()
+  const supabase = createClient() as any
   const { id: userId, reminderDeliveryMethods, reminderDeliveryTime, hasPwa } = user
 
   const [togglingEmail, startTogglingEmail] = useTransition()

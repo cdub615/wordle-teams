@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
     const supabase = createClient(cookieStore)
 
     const { user, session, error } = code
-      ? await handleOAuthSignin(code, supabase)
-      : await handleEmailSignin(token_hash, type, supabase)
+      ? await handleOAuthSignin(code, supabase as any)
+      : await handleEmailSignin(token_hash, type, supabase as any)
 
     if (error) {
       log.error('Failed to sign in', { error })
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(redirectTo)
     }
 
-    const success = await finishSignIn(user, session, supabase)
+    const success = await finishSignIn(user, session, supabase as any)
 
     redirectTo.pathname = success ? '/me' : '/login-error'
     return NextResponse.redirect(redirectTo)

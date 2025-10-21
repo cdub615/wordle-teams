@@ -30,7 +30,7 @@ type AppBarBaseProps = {
 export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
   const [user, setUser] = useState<User | undefined>(userFromServer)
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = createClient() as any
   useEffect(() => {
     window.createLemonSqueezy()
     window.LemonSqueezy.Setup({
@@ -58,7 +58,7 @@ export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
           .from('players')
           .update({ has_pwa: true })
           .eq('id', userId)
-          .then(({ error }) => {
+          .then(({ error }: { error: any }) => {
             if (error) log.error(`Failed to set has_pwa for player ${userId}`, { error })
           })
 
