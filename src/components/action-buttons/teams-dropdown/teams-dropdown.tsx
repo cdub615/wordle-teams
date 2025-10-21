@@ -24,11 +24,12 @@ export default function TeamsDropdown() {
   const { teams, teamId, setTeamId, user } = useTeams()
   const proMember = user.memberStatus === 'pro'
   const selectedTeam = teams.find((t) => t.id === teamId)
-  const teamName = !selectedTeam?.name
+  const selectedName = selectedTeam?.name ?? null
+  const teamName = !selectedName
     ? 'No team selected'
-    : selectedTeam?.name.length > 15
-    ? `${selectedTeam?.name.slice(0, 15)}...`
-    : selectedTeam?.name
+    : selectedName.length > 15
+      ? `${selectedName.slice(0, 15)}...`
+      : selectedName
   const handleTeamChange = (t: string) => setTeamId(Number.parseInt(t))
   const handleUpgrade = async () => {
     setLoading(true)
@@ -37,6 +38,7 @@ export default function TeamsDropdown() {
     else if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
     setLoading(false)
   }
+
 
   if (teams)
     return (

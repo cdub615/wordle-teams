@@ -29,7 +29,7 @@ type UserDialogProps = {
 }
 
 export default function UserDialog({ user, setUser, defaultTab }: UserDialogProps) {
-  const supabase = createClient()
+  const supabase = createClient() as any
   const { id: userId, timeZone } = user
   const [updatingTimeZone, startTransition] = useTransition()
   const isSmallScreen = useMediaQuery('(max-width: 640px)')

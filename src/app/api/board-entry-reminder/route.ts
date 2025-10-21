@@ -25,9 +25,9 @@ async function handler(request: NextRequest) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 
-  log.info(`Users to send board entry reminders to: ${data.length}`)
+  log.info(`Users to send board entry reminders to: ${data['length']}`)
 
-  for (const user of data) {
+  for (const user of data as any) {
     try {
       await qstash.publishJSON({ url: destinationUrl, body: { userId: user.id } })
     } catch (error) {

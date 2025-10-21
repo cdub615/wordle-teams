@@ -11,7 +11,7 @@ type GetTeamsResponse = {
   hasName: boolean
 }
 
-export const getTeams = async (supabase: SupabaseClient<Database>): Promise<GetTeamsResponse> => {
+export const getTeams = async (supabase: SupabaseClient<any, "public", any>): Promise<GetTeamsResponse> => {
   try {
     const session = await getSession(supabase)
     if (!session) return { _user: undefined, teams: [], hasSession: false, hasName: false }
