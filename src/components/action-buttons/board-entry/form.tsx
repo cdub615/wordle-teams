@@ -69,6 +69,8 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
     const result = await upsertBoard(formData)
 
     if (result.success) {
+      const scoreDate = result.dailyScore ? new Date(result.dailyScore.date).toISOString() : month.toISOString()
+
       if (result.action !== 'delete' && result.dailyScore) {
         const newScore = DailyScore.prototype.fromDbDailyScore(result.dailyScore)
         const newTeams = Team.prototype.updatePlayerScore(teams, userId, newScore)
@@ -81,9 +83,9 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       // Calculate winners for each team
       const winners = teams.map(team => ({
         team_id: team.id,
-        winner_id: team.thisMonthsCurrentWinner || null,
-        year: parseInt(month.toISOString().slice(0, 4)),
-        month: parseInt(month.toISOString().slice(5, 7))
+        winner_id: team.thisMonthsCurrentWinner(scoreDate) || null,
+        year: parseInt(scoreDate.slice(0, 4)),
+        month: parseInt(scoreDate.slice(5, 7))
       }))
 
       // Update winners table via RPC
