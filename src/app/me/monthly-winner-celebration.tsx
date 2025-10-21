@@ -81,7 +81,7 @@ export default function MonthlyWinnerCelebration() {
           {!isCurrentUserWinner && <DialogTitle>{user.firstName} {user.lastName} won!</DialogTitle>}
         </DialogHeader>
         <div className='flex flex-col items-center justify-center h-full'>
-          {open && <ConfettiExplosion zIndex={1000} />}
+          {open && isCurrentUserWinner && <ConfettiExplosion zIndex={1000} />}
         </div>
         {isCurrentUserWinner && <span>You won last month for {teamName}. Nice work! 🎉</span>}
         {!isCurrentUserWinner && <span>{user.firstName} {user.lastName} won last month for {teamName}. Better luck next time!</span>}
