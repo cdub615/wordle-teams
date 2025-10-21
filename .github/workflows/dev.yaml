@@ -23,10 +23,11 @@ jobs:
           version: latest
 
       - run: supabase link --project-ref $SUPABASE_PROJECT_ID
-      - run: supabase db push
+      - run: supabase db push --include-all
 
       - name: Sync State to Novu
         uses: novuhq/actions-novu-sync@v2
         with:
           secret-key: ${{ secrets.DEV_NOVU_SECRET_KEY }}
           bridge-url: ${{ secrets.DEV_NOVU_BRIDGE_URL }}
+
