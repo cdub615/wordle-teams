@@ -19,7 +19,6 @@ export default function MonthlyWinnerCelebration() {
   const teamName = teams.find((t) => t.id === teamId)?.name
 
   useEffect(() => {
-    log.debug(`checking for monthly winner celebration... teamId: ${teamId}, userId: ${user?.id}`)
     if (!teamId || !user?.id) return
 
     const supabase = createClient()
@@ -51,7 +50,7 @@ export default function MonthlyWinnerCelebration() {
 
       if (isCurrentUserWinner && !hasSeen) {
         setOpen(true)
-        const response = await supabase
+        const response = await (supabase as any)
           .from('monthly_winners')
           .update({ has_seen_celebration: true })
           .eq('team_id', teamId)

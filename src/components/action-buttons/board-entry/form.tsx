@@ -14,8 +14,8 @@ import { FormEventHandler, KeyboardEventHandler, useEffect, useRef, useState } f
 import { toast } from 'sonner'
 import { boardIsValid, updateAnswer } from './utils'
 import WordleBoardInput from './wordle-board-input'
-import {createClient} from '../../../lib/supabase/client'
-import {log} from 'next-axiom'
+import { createClient } from '../../../lib/supabase/client'
+import { log } from 'next-axiom'
 
 export default function WordleBoardForm({ userId }: { userId: string }) {
   const { teams, teamId, setTeams, month } = useTeams()
@@ -82,12 +82,12 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       const winners = teams.map(team => ({
         team_id: team.id,
         winner_id: team.thisMonthsCurrentWinner || null,
-        year: parseInt(month.toISOString().slice(0,4)),
-        month: parseInt(month.toISOString().slice(5,7))
+        year: parseInt(month.toISOString().slice(0, 4)),
+        month: parseInt(month.toISOString().slice(5, 7))
       }))
 
       // Update winners table via RPC
-      const supabase = createClient()
+      const supabase = createClient() as any
       const { error } = await supabase.rpc('update_monthly_winners', {
         winners_data: winners  // Passing the array directly
       })
