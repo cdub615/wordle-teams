@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -16,6 +15,7 @@ import { log } from 'next-axiom'
 export default function MonthlyWinnerCelebration() {
   const { teamId, user, teams } = useTeams()
   const [open, setOpen] = useState(false)
+  const [isCurrentUserWinner, setIsCurrentUserWinner] = useState(false)
   const teamName = teams.find((t) => t.id === teamId)?.name
 
   useEffect(() => {
@@ -39,24 +39,30 @@ export default function MonthlyWinnerCelebration() {
         .eq('month', previousMonth)
         .maybeSingle()
 
-      if (error) return
+      if (error) {
+        log.error('Failed to get monthly winner', { error })
+        return
+      }
       if (!data) return
       if (cancelled) return
 
-      // @ts-ignore
-      const isCurrentUserWinner = data.player_id === user.id
-      // @ts-ignore
-      const hasSeen = data.has_seen_celebration
+      const monthWinner = data as any
+      setIsCurrentUserWinner(monthWinner.player_id === user.id)
 
-      if (isCurrentUserWinner && !hasSeen) {
+      const hasSeen = monthWinner.has_seen_celebration.includes(user.id)
+
+      if (!hasSeen) {
         setOpen(true)
-        const response = await (supabase as any)
+        const playerIds = [...monthWinner.has_seen_celebration, user.id]
+        const { error: updateError } = await (supabase as any)
           .from('monthly_winners')
-          .update({ has_seen_celebration: true })
+          .update({ has_seen_celebration: playerIds })
           .eq('team_id', teamId)
           .eq('year', previousYear)
           .eq('month', previousMonth)
           .select()
+
+        if (updateError) log.error('Failed to update monthly winner', { updateError })
       }
     }
 
@@ -71,12 +77,14 @@ export default function MonthlyWinnerCelebration() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Congratulations {user.firstName}!</DialogTitle>
+          {isCurrentUserWinner && <DialogTitle>Congratulations {user.firstName}!</DialogTitle>}
+          {!isCurrentUserWinner && <DialogTitle>{user.firstName} {user.lastName} won!</DialogTitle>}
         </DialogHeader>
         <div className='flex flex-col items-center justify-center h-full'>
           {open && <ConfettiExplosion zIndex={1000} />}
         </div>
-        You won last month for {teamName}. Nice work! 🎉
+        {isCurrentUserWinner && <span>You won last month for {teamName}. Nice work! 🎉</span>}
+        {!isCurrentUserWinner && <span>{user.firstName} {user.lastName} won last month for {teamName}. Better luck next time!</span>}
       </DialogContent>
     </Dialog>
   )
