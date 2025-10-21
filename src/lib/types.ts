@@ -360,15 +360,21 @@ export class Team {
     return this
   }
 
-  public get thisMonthsCurrentWinner() {
-    const sortedPlayers = [...this._players].sort((a, b) => {
-      const now = new Date().toISOString()
-      const aScore = a.aggregateScoreByMonth(now, this.playWeekends, this.scoringSystem)
-      const bScore = b.aggregateScoreByMonth(now, this.playWeekends, this.scoringSystem)
-
-      return bScore - aScore
+  public thisMonthsCurrentWinner(thisMonth: string) {
+    const scoreMap = new Map<string, number>()
+    for (const player of this._players) {
+      const score = player.aggregateScoreByMonth(thisMonth, this.playWeekends, this.scoringSystem)
+      scoreMap.set(player.id, score)
+    }
+    let maxScore = -Infinity
+    let winnerId = ''
+    scoreMap.forEach((score, id) => {
+      if (score > maxScore) {
+        maxScore = score
+        winnerId = id
+      }
     })
-    return sortedPlayers[0].id
+    return winnerId
   }
 }
 
