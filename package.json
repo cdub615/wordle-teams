@@ -68,7 +68,7 @@
     "logsnag": "^1.0.0",
     "lucide-react": "^0.484.0",
     "mini-svg-data-uri": "^1.4.4",
-    "next": "15.4.6",
+    "next": "15.4.10",
     "next-axiom": "1.9.1",
     "next-themes": "^0.2.1",
     "postcss": "8.4.27",
