@@ -96,6 +96,7 @@
     "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
+    "@sentry/mcp-server": "^0.26.0",
     "@types/uuid": "^9.0.8",
     "dotenv": "^16.6.1",
     "encoding": "^0.1.13",
