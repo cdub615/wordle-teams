@@ -14,6 +14,7 @@ type WordleBoardProps = {
   submitting: boolean
   submitDisabled: boolean
   scoreId: number
+  onBoardFocus?: () => void
 }
 
 export default function WordleBoardInput({
@@ -24,6 +25,7 @@ export default function WordleBoardInput({
   submitting,
   submitDisabled,
   scoreId,
+  onBoardFocus,
 }: WordleBoardProps) {
   const handleBoardKeyDown: KeyboardEventHandler = (e: KeyboardEvent<HTMLDivElement>) => {
     const key = e.key
@@ -40,6 +42,7 @@ export default function WordleBoardInput({
         onKeyDown={handleBoardKeyDown}
         onChange={(e) => e.preventDefault()}
         onInput={(e) => e.preventDefault()}
+        onFocus={onBoardFocus}
         className='flex w-full h-fit justify-center mt-4 md:my-6 rounded-lg caret-transparent select-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background'
         role='region'
         aria-label='Wordle Board'
