@@ -116,11 +116,12 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className={cn(submitting ? 'animate-pulse' : '')}>
+    <form onSubmit={handleSubmit} className={cn('flex flex-col min-h-0 flex-1', submitting ? 'animate-pulse' : '')}>
       <input hidden readOnly aria-readonly name="scoreId" value={scoreId} />
       <input hidden readOnly aria-readonly name="scoreDate" value={date?.toISOString()} />
       <input hidden readOnly aria-readonly name="guesses" value={guesses} />
       <input hidden readOnly aria-readonly name="answer" value={answer} />
+      <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="flex items-center space-x-4 md:space-x-4 w-full md:px-4 ml-2">
         <div id="wordle-board-date" className="flex flex-col w-[54%] md:w-full">
           <Label htmlFor="wordle-board-date" className="mb-2 text-xs sm:text-sm">
@@ -179,7 +180,8 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
         submitDisabled={submitDisabled}
         scoreId={scoreId}
       />
-      <SheetFooter className="pt-2 flex flex-row space-x-2 w-full md:invisible md:h-0 md:p-0">
+      </div>
+      <SheetFooter className="pt-2 flex flex-row space-x-2 w-full shrink-0 bg-background md:invisible md:h-0 md:p-0">
         <SheetClose asChild>
           <Button variant="outline" className="w-full" id="close-board-entry">
             Cancel
