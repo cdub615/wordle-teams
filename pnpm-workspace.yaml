@@ -1,0 +1,10 @@
+overrides:
+  '@types/react': 19.0.12
+  '@types/react-dom': 19.0.4
+allowBuilds:
+  '@sentry/cli': true
+  '@swc/core': true
+  '@vercel/speed-insights': true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
