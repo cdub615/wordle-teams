@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTrigger } from '@/components/ui/sheet'
 import { useMediaQuery } from '@/lib/hooks/use-media-query'
+import { useVisualViewport } from '@/lib/hooks/use-visual-viewport'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
@@ -20,6 +21,7 @@ import WordleBoardForm from './board-entry/form'
 export function BoardEntryButton({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false)
   const isDesktop = useMediaQuery('(min-width: 768px)')
+  const { height, offsetTop } = useVisualViewport()
 
   if (isDesktop) {
     return (
@@ -51,7 +53,11 @@ export function BoardEntryButton({ userId }: { userId: string }) {
           <Plus size={20} />
         </Button>
       </SheetTrigger>
-      <SheetContent side={'top'}>
+      <SheetContent
+        side={'top'}
+        className='flex flex-col gap-0 overflow-hidden'
+        style={{ maxHeight: height || undefined, top: offsetTop }}
+      >
         <SheetHeader className='mt-4 mb-4 -ml-4'>
           <SheetDescription>Enter the day&apos;s answer and then your guesses</SheetDescription>
         </SheetHeader>
