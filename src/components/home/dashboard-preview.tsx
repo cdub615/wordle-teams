@@ -14,15 +14,15 @@ export default function DashboardPreview({ redirectForPwa = true }: { redirectFo
   const router = useRouter()
 
   useEffect(() => {
-    if (window) {
-      const isStandalone =
-        (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        if (isStandalone && user && redirectForPwa) {
-          router.push('/me')
-        }
-      })
-    }
+    if (typeof window === 'undefined' || !redirectForPwa) return
+    const isStandalone =
+      (window.navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches
+    if (!isStandalone) return
+    // getSession reads the session from cookies locally (no network round-trip),
+    // so it stays reliable on a cold PWA launch where getUser() can stall or fail.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) router.replace('/me')
+    })
   }, [])
   return (
     <HeroHighlight>

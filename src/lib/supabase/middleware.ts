@@ -1,6 +1,21 @@
 import { createServerClient } from '@supabase/ssr'
-import { log } from 'next-axiom'
 import { NextResponse, type NextRequest } from 'next/server'
+
+// Routes that show the marketing / sign-in experience. A signed-in user should
+// never land here (e.g. an iOS PWA relaunch that ignores manifest start_url and
+// restores the welcome page) — bounce them into the app instead.
+const welcomePaths = ['/', '/login']
+const protectedPaths = ['/branding', '/me', '/complete-profile']
+
+// Build a redirect response that carries over any auth cookies the Supabase
+// client refreshed on `source`, so the browser and server stay in sync.
+function redirectWithCookies(url: URL, source: NextResponse) {
+  const response = NextResponse.redirect(url)
+  for (const cookie of source.cookies.getAll()) {
+    response.cookies.set(cookie)
+  }
+  return response
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -31,24 +46,25 @@ export async function updateSession(request: NextRequest) {
   // IMPORTANT: Avoid writing any logic between createServerClient and
   // supabase.auth.getUser(). A simple mistake could make it very hard to debug
   // issues with users being randomly logged out.
-
   const {
     data: { user },
-    error,
   } = await supabase.auth.getUser()
-  if (error) {
-    log.error(error.message)
-    return NextResponse.redirect('/login')
+
+  const { pathname } = request.nextUrl
+
+  // Signed-in user on a welcome/login page -> send them into the app. This is
+  // what keeps the installed PWA from opening to the welcome screen.
+  if (user && welcomePaths.includes(pathname)) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/me'
+    return redirectWithCookies(url, supabaseResponse)
   }
 
-  const pathname = request.nextUrl.pathname
-  const protectedPaths = ['/branding', '/me', '/complete-profile']
-
+  // Signed-out user on a protected page -> send them to sign in.
   if (!user && protectedPaths.some((protectedPath) => pathname.startsWith(protectedPath))) {
-    // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return redirectWithCookies(url, supabaseResponse)
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is. If you're
