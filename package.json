@@ -102,19 +102,5 @@
     "encoding": "^0.1.13",
     "serwist": "^9.1.1",
     "ts-node": "^10.9.2"
-  },
-  "pnpm": {
-    "overrides": {
-      "@types/react": "19.0.12",
-      "@types/react-dom": "19.0.4"
-    },
-    "onlyBuiltDependencies": [
-      "@sentry/cli",
-      "@swc/core",
-      "@vercel/speed-insights",
-      "esbuild",
-      "sharp",
-      "unrs-resolver"
-    ]
   }
 }
