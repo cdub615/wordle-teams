@@ -45,6 +45,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   const [submitDisabled, setSubmitDisabled] = useState(!boardIsValid(answer, guesses, scoreId))
   const [submitting, setSubmitting] = useState(false)
   const answerRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const score = scores.find((s) => isSameDay(date!, parseISO(s.date)))
@@ -115,13 +116,24 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
     }
   }
 
+  const scrollActiveRowIntoView = () => {
+    const activeIndex = guesses.findIndex((g) => g.length < 5)
+    const idx = activeIndex === -1 ? guesses.length - 1 : activeIndex
+    scrollContainerRef.current?.querySelector(`#word-${idx}`)?.scrollIntoView({ block: 'nearest' })
+  }
+
+  useEffect(() => {
+    scrollActiveRowIntoView()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guesses])
+
   return (
     <form onSubmit={handleSubmit} className={cn('flex flex-col min-h-0 flex-1', submitting ? 'animate-pulse' : '')}>
       <input hidden readOnly aria-readonly name="scoreId" value={scoreId} />
       <input hidden readOnly aria-readonly name="scoreDate" value={date?.toISOString()} />
       <input hidden readOnly aria-readonly name="guesses" value={guesses} />
       <input hidden readOnly aria-readonly name="answer" value={answer} />
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
       <div className="flex items-center space-x-4 md:space-x-4 w-full md:px-4 ml-2">
         <div id="wordle-board-date" className="flex flex-col w-[54%] md:w-full">
           <Label htmlFor="wordle-board-date" className="mb-2 text-xs sm:text-sm">
@@ -179,6 +191,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
         submitting={submitting}
         submitDisabled={submitDisabled}
         scoreId={scoreId}
+        onBoardFocus={scrollActiveRowIntoView}
       />
       </div>
       <SheetFooter className="pt-2 flex flex-row space-x-2 w-full shrink-0 bg-background md:invisible md:h-0 md:p-0">
