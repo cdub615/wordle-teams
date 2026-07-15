@@ -41,6 +41,7 @@ module.exports = async (phase) => {
 
   if (phase === PHASE_DEVELOPMENT_SERVER || phase === PHASE_PRODUCTION_BUILD) {
     const withSerwist = (await import('@serwist/next')).default({
+      disable: process.env.NODE_ENV !== "production",
       swSrc: 'src/app/sw.ts',
       swDest: 'public/sw.js',
     })
