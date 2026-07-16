@@ -133,8 +133,7 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
       <input hidden readOnly aria-readonly name="scoreDate" value={date?.toISOString()} />
       <input hidden readOnly aria-readonly name="guesses" value={guesses} />
       <input hidden readOnly aria-readonly name="answer" value={answer} />
-      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
-      <div className="flex items-center space-x-4 md:space-x-4 w-full md:px-4 ml-2">
+      <div className="flex items-center space-x-4 md:space-x-4 w-full md:px-4 ml-2 shrink-0">
         <div id="wordle-board-date" className="flex flex-col w-[54%] md:w-full">
           <Label htmlFor="wordle-board-date" className="mb-2 text-xs sm:text-sm">
             Wordle Date
@@ -183,16 +182,17 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
           </div>
         </div>
       </div>
-      <WordleBoardInput
-        guesses={guesses}
-        setGuesses={setGuesses}
-        answer={answer}
-        tabIndex={3}
-        submitting={submitting}
-        submitDisabled={submitDisabled}
-        scoreId={scoreId}
-        onBoardFocus={scrollActiveRowIntoView}
-      />
+      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
+        <WordleBoardInput
+          guesses={guesses}
+          setGuesses={setGuesses}
+          answer={answer}
+          tabIndex={3}
+          submitting={submitting}
+          submitDisabled={submitDisabled}
+          scoreId={scoreId}
+          onBoardFocus={scrollActiveRowIntoView}
+        />
       </div>
       <SheetFooter className="pt-2 flex flex-row space-x-2 w-full shrink-0 bg-background md:invisible md:h-0 md:p-0">
         <SheetClose asChild>
