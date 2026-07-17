@@ -21,6 +21,8 @@
 		"@convex-dev/better-auth": "0.12.5",
 		"@convex-dev/react-query": "^0.1.0",
 		"@convex-dev/resend": "^0.2.5",
+		"@sentry/cloudflare": "^10.66.0",
+		"@sentry/tanstackstart-react": "^10.66.0",
 		"@tailwindcss/vite": "^4.1.18",
 		"@tanstack/react-devtools": "^0.10.8",
 		"@tanstack/react-query": "^5.101.2",

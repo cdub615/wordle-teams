@@ -7,3 +7,6 @@ allowBuilds:
   workerd: true
   sharp: true
   lightningcss: true
+  # sentry-cli's postinstall downloads its binary, only needed for source-map
+  # upload — skipped in Phase 0, so keep the build script disabled.
+  '@sentry/cli': false
