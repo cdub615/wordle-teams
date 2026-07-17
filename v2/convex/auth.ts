@@ -7,6 +7,7 @@ import authConfig from './auth.config'
 import { components, internal } from './_generated/api'
 import { query } from './_generated/server'
 import { resend } from './email'
+import { isE2eEmail } from './testOtps'
 import type { GenericCtx } from '@convex-dev/better-auth'
 import type { DataModel } from './_generated/dataModel'
 
@@ -22,7 +23,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
     plugins: [
       emailOTP({
         async sendVerificationOTP({ email, otp }) {
-          if (process.env.E2E_TEST_MODE === 'true') {
+          if (process.env.E2E_TEST_MODE === 'true' && isE2eEmail(email)) {
             await requireActionCtx(ctx).runMutation(internal.testOtps.store, { email, otp })
             return // no real email in test mode
           }

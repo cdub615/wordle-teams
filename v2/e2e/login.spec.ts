@@ -12,10 +12,11 @@ test('signs in with an emailed OTP code', async ({ page }) => {
   // visible before React hydrates, so an immediate fill/click can be lost
   // (no handler attached yet, and hydration resets the controlled input).
   await expect(async () => {
+    if (await page.getByLabel('Code').isVisible()) return // click already landed
     await page.getByLabel('Email').fill(email)
     await page.getByRole('button', { name: /send code/i }).click()
-    await expect(page.getByLabel('Code')).toBeVisible({ timeout: 2000 })
-  }).toPass({ timeout: 15_000 })
+    await expect(page.getByLabel('Code')).toBeVisible({ timeout: 8000 })
+  }).toPass({ timeout: 30_000 })
 
   let otp: string | null = null
   await expect

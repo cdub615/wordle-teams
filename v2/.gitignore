@@ -16,5 +16,9 @@ todos.json
 !.dev.vars.example
 !.env.example
 
+# Playwright artifacts
+test-results/
+playwright-report/
+
 # Root .gitignore has `.env*` which cascades here; keep .env.production committable
 !.env.production
