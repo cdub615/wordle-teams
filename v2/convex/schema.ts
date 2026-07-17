@@ -5,4 +5,8 @@ export default defineSchema({
   statusMessages: defineTable({
     message: v.string(),
   }),
+  testOtps: defineTable({
+    email: v.string(),
+    otp: v.string(),
+  }).index('by_email', ['email']),
 })

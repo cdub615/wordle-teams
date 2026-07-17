@@ -12,6 +12,7 @@ import type * as auth from "../auth.js";
 import type * as email from "../email.js";
 import type * as http from "../http.js";
 import type * as status from "../status.js";
+import type * as testOtps from "../testOtps.js";
 
 import type {
   ApiFromModules,
@@ -24,6 +25,7 @@ declare const fullApi: ApiFromModules<{
   email: typeof email;
   http: typeof http;
   status: typeof status;
+  testOtps: typeof testOtps;
 }>;
 
 /**

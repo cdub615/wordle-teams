@@ -12,6 +12,7 @@
 		"preview": "pnpm run build && vite preview",
 		"test": "vitest",
 		"test:once": "vitest run",
+		"e2e": "playwright test",
 		"deploy": "pnpm run build && wrangler deploy",
 		"cf-typegen": "wrangler types"
 	},
@@ -37,6 +38,7 @@
 	},
 	"devDependencies": {
 		"@edge-runtime/vm": "^5.0.0",
+		"@playwright/test": "^1.61.1",
 		"@tailwindcss/typography": "^0.5.16",
 		"@tanstack/devtools-vite": "^0.8.1",
 		"@tanstack/router-cli": "^1.132.0",
@@ -47,6 +49,7 @@
 		"@types/react-dom": "^19.2.0",
 		"@vitejs/plugin-react": "^6.0.1",
 		"convex-test": "^0.0.54",
+		"dotenv": "^17.4.2",
 		"jsdom": "^28.1.0",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.0",

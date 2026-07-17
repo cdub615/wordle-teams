@@ -4,7 +4,7 @@ import { createClient } from '@convex-dev/better-auth'
 import { convex } from '@convex-dev/better-auth/plugins'
 import { requireActionCtx } from '@convex-dev/better-auth/utils'
 import authConfig from './auth.config'
-import { components } from './_generated/api'
+import { components, internal } from './_generated/api'
 import { query } from './_generated/server'
 import { resend } from './email'
 import type { GenericCtx } from '@convex-dev/better-auth'
@@ -22,6 +22,10 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
     plugins: [
       emailOTP({
         async sendVerificationOTP({ email, otp }) {
+          if (process.env.E2E_TEST_MODE === 'true') {
+            await requireActionCtx(ctx).runMutation(internal.testOtps.store, { email, otp })
+            return // no real email in test mode
+          }
           await resend.sendEmail(requireActionCtx(ctx), {
             from: 'Wordle Teams <auth@wordleteams.com>',
             to: email,
