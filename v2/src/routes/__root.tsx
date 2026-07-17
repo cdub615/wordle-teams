@@ -1,8 +1,12 @@
-import { HeadContent, Scripts, createRootRouteWithContext } from '@tanstack/react-router'
+import { HeadContent, Outlet, Scripts, createRootRouteWithContext } from '@tanstack/react-router'
+import { createServerFn } from '@tanstack/react-start'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
+import { ConvexBetterAuthProvider, type AuthClient } from '@convex-dev/better-auth/react'
 import type { QueryClient } from '@tanstack/react-query'
 import type { ConvexQueryClient } from '@convex-dev/react-query'
+import { authClient } from '#/lib/auth-client'
+import { getToken } from '#/lib/auth-server'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 
@@ -15,7 +19,20 @@ interface RouterContext {
   convexQueryClient: ConvexQueryClient
 }
 
+const fetchAuth = createServerFn({ method: 'GET' }).handler(async () => {
+  const token = await getToken()
+  return { isAuthenticated: !!token, token }
+})
+
 export const Route = createRootRouteWithContext<RouterContext>()({
+  beforeLoad: async (ctx) => {
+    const { isAuthenticated, token } = await fetchAuth()
+    if (token) {
+      // SSR-only: authenticate loader-time Convex queries
+      ctx.context.convexQueryClient.serverHttpClient?.setAuth(token)
+    }
+    return { isAuthenticated, token }
+  },
   head: () => ({
     meta: [
       {
@@ -37,7 +54,24 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     ],
   }),
   shellComponent: RootDocument,
+  component: RootComponent,
 })
+
+function RootComponent() {
+  const context = Route.useRouteContext()
+  return (
+    <ConvexBetterAuthProvider
+      client={context.convexQueryClient.convexClient}
+      // Cast: @convex-dev/better-auth 0.12.5 types its AuthClient against better-auth
+      // 1.6.15; our installed 1.6.23 infers a structurally compatible but nominally
+      // different client type. Runtime shape is identical.
+      authClient={authClient as unknown as AuthClient}
+      initialToken={context.token}
+    >
+      <Outlet />
+    </ConvexBetterAuthProvider>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
