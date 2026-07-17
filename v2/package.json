@@ -10,7 +10,8 @@
 		"generate-routes": "tsr generate",
 		"build": "vite build",
 		"preview": "pnpm run build && vite preview",
-		"test": "vitest run",
+		"test": "vitest",
+		"test:once": "vitest run",
 		"deploy": "pnpm run build && wrangler deploy",
 		"cf-typegen": "wrangler types"
 	},
@@ -23,12 +24,14 @@
 		"@tanstack/react-router-ssr-query": "^1.167.1",
 		"@tanstack/react-start": "^1.168.28",
 		"@tanstack/router-plugin": "^1.132.0",
+		"convex": "^1.42.2",
 		"lucide-react": "^0.545.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
 		"tailwindcss": "^4.1.18"
 	},
 	"devDependencies": {
+		"@edge-runtime/vm": "^5.0.0",
 		"@tailwindcss/typography": "^0.5.16",
 		"@tanstack/devtools-vite": "^0.8.1",
 		"@tanstack/router-cli": "^1.132.0",
@@ -38,6 +41,7 @@
 		"@types/react": "^19.2.0",
 		"@types/react-dom": "^19.2.0",
 		"@vitejs/plugin-react": "^6.0.1",
+		"convex-test": "^0.0.54",
 		"jsdom": "^28.1.0",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.0",
