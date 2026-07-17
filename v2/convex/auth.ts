@@ -10,7 +10,8 @@ import { resend } from './email'
 import type { GenericCtx } from '@convex-dev/better-auth'
 import type { DataModel } from './_generated/dataModel'
 
-const siteUrl = process.env.SITE_URL!
+const siteUrl = process.env.SITE_URL
+if (!siteUrl) throw new Error('SITE_URL is not set on this deployment')
 
 export const authComponent = createClient<DataModel>(components.betterAuth)
 
