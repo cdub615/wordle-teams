@@ -1,14 +1,13 @@
 'use server'
 
+import { authCallbackUrl } from '@/lib/auth-urls'
 import { createClient } from '@/lib/supabase/server'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import { finishSignIn } from '../../lib/utils'
 import { loginSchema, signupSchema } from './email/schemas'
 
-const emailRedirectTo = process.env.VERCEL_URL
-  ? `${process.env.VERCEL_URL}/api/auth/callback`
-  : 'http://localhost:3000/api/auth/callback'
+const emailRedirectTo = authCallbackUrl()
 
 export async function login(formData: FormData) {
   try {

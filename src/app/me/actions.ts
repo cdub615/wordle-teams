@@ -1,5 +1,6 @@
 'use server'
 
+import { authCallbackUrl } from '@/lib/auth-urls'
 import { createNewCheckout, getFreeVariantId } from '@/lib/lemonsqueezy'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
@@ -121,6 +122,7 @@ export async function invitePlayer(formData: FormData) {
           data: {
             invited: true,
           },
+          redirectTo: authCallbackUrl('/me'),
         })
         if (error) {
           log.error('Failed to send additional invite email', { error })
@@ -146,6 +148,7 @@ export async function invitePlayer(formData: FormData) {
         data: {
           invited: true,
         },
+        redirectTo: authCallbackUrl('/me'),
       })
       if (error) {
         log.error('Failed to send invite email', { error })
