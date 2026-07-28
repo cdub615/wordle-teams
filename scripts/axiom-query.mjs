@@ -61,7 +61,7 @@ function parseWindowMs(w) {
 async function runApl(apl) {
   const end = new Date()
   const start = new Date(end.getTime() - parseWindowMs(windowArg))
-  const res = await fetch(`${BASE}/v1/datasets/_apl?format=tabular`, {
+  const res = await fetch(`${BASE}/v1/datasets/_apl?format=legacy`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ apl, startTime: start.toISOString(), endTime: end.toISOString() }),
@@ -69,8 +69,13 @@ async function runApl(apl) {
   const body = await res.text()
   if (!res.ok) throw new Error(`${res.status} ${body}`)
   const data = JSON.parse(body)
-  const rows = data?.matches ?? data?.tables?.[0]?.columns ?? data
-  console.log(JSON.stringify(rows, null, 2))
+  const matches = data?.matches ?? []
+  if (matches.length) {
+    for (const m of matches) console.log(JSON.stringify({ _time: m._time ?? m.time, ...m.data }))
+    console.error(`\n(${matches.length} rows)`)
+  } else {
+    console.log(JSON.stringify(data, null, 2))
+  }
 }
 
 const DATASET = env.AXIOM_DATASET
