@@ -69,6 +69,14 @@ double_confirm_changes = false
 # If enabled, users need to confirm their email address before signing in.
 enable_confirmations = true
 
+# Team invite email. The confirmation link must route through the app's auth callback using
+# token_hash so verifyOtp establishes the session server-side (no PKCE code_verifier required).
+# The PROD equivalent must be set in the Supabase dashboard (Authentication -> Email Templates
+# -> Invite user). See docs/plans/2026-07-28-fix-team-invite-join-flow.md.
+[auth.email.template.invite]
+subject = "You've been invited to a Wordle Teams team"
+content_path = "./supabase/templates/invite.html"
+
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
 enable_signup = true
