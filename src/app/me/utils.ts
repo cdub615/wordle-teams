@@ -1,6 +1,6 @@
 import { Database } from '@/lib/database.types'
 import { User, player_with_scores, team_with_players, teams } from '@/lib/types'
-import { getSession, getUserFromSession, hasName } from '@/lib/utils'
+import { getSession, getUserFromSession } from '@/lib/utils'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { log } from 'next-axiom'
 
@@ -15,8 +15,12 @@ export const getTeams = async (supabase: SupabaseClient<any, "public", any>): Pr
   try {
     const session = await getSession(supabase)
     if (!session) return { _user: undefined, teams: [], hasSession: false, hasName: false }
-    if (!hasName(supabase)) return { _user: undefined, teams: [], hasSession: true, hasName: false }
     const user = await getUserFromSession(supabase)
+    // Route users who haven't completed their profile (e.g. a just-accepted invitee) to
+    // /complete-profile. Previously this called hasName(supabase) without awaiting it, so the
+    // guard was a no-op and nameless users fell through to the dashboard.
+    const nameComplete = (user.firstName?.length ?? 0) > 1 && (user.lastName?.length ?? 0) > 1
+    if (!nameComplete) return { _user: undefined, teams: [], hasSession: true, hasName: false }
 
     const { data: teams } = await supabase.from('teams').select('*').order('created_at').returns<teams[]>()
     const playerIds = teams?.flatMap((t) => t.player_ids) ?? []
@@ -28,7 +32,11 @@ export const getTeams = async (supabase: SupabaseClient<any, "public", any>): Pr
 
     const teamsWithPlayers =
       teams?.map((t) => {
-        const teamPlayers = players?.filter((p) => t.player_ids.includes(p.id)) ?? []
+        // Exclude players who haven't completed their profile yet (a just-accepted invitee is in
+        // player_ids but has no name). fromDbPlayer requires first/last name, so including them
+        // crashes the client render; they reappear on the roster once they finish signup.
+        const teamPlayers =
+          players?.filter((p) => t.player_ids.includes(p.id) && !!p.first_name && !!p.last_name) ?? []
         return { ...t, players: teamPlayers } as team_with_players
       }) ?? []
 
