@@ -49,3 +49,10 @@ next-env.d.ts
 .dolt/
 *.db
 .beads-credential-key
+
+# One-off production remediation scripts. These hardcode real user email
+# addresses, and this repo is public — never commit them.
+scripts/*-prod.mjs
+
+# Local build/experiment scratch
+v2/
