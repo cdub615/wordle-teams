@@ -24,7 +24,13 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     }
     return lastDay
   }
-  const [date, setDate] = useState<Date | undefined>(getDate())
+  // Starts undefined rather than getDate(). getDate() calls new Date(), and this
+  // is a 'use client' component so it also renders on the server — where "now" is
+  // UTC. For any user whose local date differs from UTC (every US evening, every
+  // Australian morning) the server and client disagree about today, and every
+  // isToday() below resolves differently. The [month] effect populates this
+  // immediately after mount, so first render is identical on both sides.
+  const [date, setDate] = useState<Date | undefined>(undefined)
 
   const getBoardsForDate = (selectedDate: Date, selectedTeam: number) => {
     const team = teams.find((t) => t.id === selectedTeam)
@@ -70,11 +76,11 @@ export default function TeamBoards({ classes }: { classes?: string }) {
     setDate(nextDay)
   }
 
-  const [boards, setBoards] = useState(getBoardsForDate(date!, teamId))
-  const [hide, setHide] = useState(shouldHide(date!))
-  const [message, setMessage] = useState(
-    hide ? `Visible after today's submission` : 'No board for player on this date'
-  )
+  // Deterministic initial state for the same reason as `date` above: these were
+  // derived from getDate()/isToday(), so they diverged between server and client.
+  const [boards, setBoards] = useState<Board[] | undefined>(undefined)
+  const [hide, setHide] = useState(false)
+  const [message, setMessage] = useState('No board for player on this date')
 
   useEffect(() => {
     if (date) {
@@ -90,7 +96,8 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   }, [month])
 
   useEffect(() => {
-    setBoards(getBoardsForDate(date!, teamId))
+    if (!date) return // on mount `date` is not resolved yet; the [date] effect covers it
+    setBoards(getBoardsForDate(date, teamId))
   }, [teams, teamId])
 
   return (
@@ -114,8 +121,8 @@ export default function TeamBoards({ classes }: { classes?: string }) {
             className='text-sm font-normal'
             variant='outline'
             onClick={setNextDay}
-            disabled={isToday(date!)}
-            aria-disabled={isToday(date!)}
+            disabled={!date || isToday(date)}
+            aria-disabled={!date || isToday(date)}
           >
             <ArrowRight className='h-4 w-4' />
             <span className='sr-only'>Next day</span>
