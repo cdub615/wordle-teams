@@ -3,14 +3,14 @@
 **Date:** 2026-07-28
 **Branch:** `fix/team-invite-join-flow` (off `dev`)
 **Beads epic:** wordle-teams-yst (bug) → see child issues
-**Reported by:** mariabaseleon@gmail.com ("MedLocations" team)
+**Reported by:** invitee-6@redacted.invalid ("team 206" team)
 
 ---
 
 ## 1. Problem & Root Cause
 
-**Symptom:** People Maria invites to her team click the invite email link but end up on
-the empty state where "all they can do is make a team" — they never see MedLocations and
+**Symptom:** People invitee-6 invites to her team click the invite email link but end up on
+the empty state where "all they can do is make a team" — they never see team 206 and
 can't enter their Wordle board.
 
 **Root cause (confirmed with prod read-only diagnostics):** The invite email link never
@@ -21,12 +21,12 @@ Evidence (prod project `dcfqzbdusxhrfgvnpwqc`, 2026-07-28):
 
 | Fact | Value |
 | --- | --- |
-| Team 206 "MedLocations" `player_ids` | `[Maria]` only |
-| Team 206 `invited[]` | `["jonathan.m.esparza@gmail.com"]` — still pending |
+| Team 206 "team 206" `player_ids` | `[invitee-6]` only |
+| Team 206 `invited[]` | `["invitee-1@redacted.invalid"]` — still pending |
 | `auth.users` jonathan | `user_metadata.invited=true`, provider `email`, **`last_sign_in_at=NULL`, email unconfirmed** |
 | `auth.users` maria | provider `google`, signed in fine |
 
-Jonathan has an account (created by the invite) but has **never successfully signed in**.
+invitee-1 has an account (created by the invite) but has **never successfully signed in**.
 If the invite link had ever worked, `last_sign_in_at` would be set and he'd be on the team.
 
 **Mechanism:**
@@ -54,15 +54,15 @@ and is *not* the bug — it simply never gets a chance to run.
 
 ## 2. Expected Behavior After Fix
 
-1. Maria invites `teammate@example.com`.
+1. invitee-6 invites `teammate@example.com`.
 2. Teammate clicks the invite email link → `/api/auth/callback?token_hash=…&type=invite&next=/me`.
 3. Callback runs `verifyOtp({ token_hash, type: 'invite' })` → session established →
    `finishSignIn` → `handleInvite` (because `user_metadata.invited === true`) →
-   `handle_invited_signup` appends them to MedLocations `player_ids`, removes them from
+   `handle_invited_signup` appends them to team 206 `player_ids`, removes them from
    `invited[]`, and sets `user_metadata.invited=false`.
 4. Because the new user has no name yet, `/me` redirects to `/complete-profile`
    (`src/app/me/page.tsx:32`); after they enter their name they land on `/me` and see
-   **MedLocations** with the daily board ready for entry.
+   **team 206** with the daily board ready for entry.
 
 ---
 
@@ -74,7 +74,7 @@ and is *not* the bug — it simply never gets a chance to run.
 - Pass a correct `redirectTo` to both `inviteUserByEmail` call sites.
 - Ensure prod Supabase Site URL + redirect allowlist include the app domain + callback.
 - Verification via Axiom logs + a manual token_hash walkthrough (+ optional e2e smoke).
-- Data remediation for Maria's existing pending invite.
+- Data remediation for invitee-6’s existing pending invite.
 
 **Out of scope (explicitly):**
 - Any change to `handle_invited_signup` or other join RPCs (they are correct).
@@ -86,7 +86,7 @@ and is *not* the bug — it simply never gets a chance to run.
 
 ## 4. Approach
 
-Two options. **Recommendation: ship Option A now as the hotfix to unblock Maria, then do
+Two options. **Recommendation: ship Option A now as the hotfix to unblock invitee-6, then do
 Option B as the durable follow-up.**
 
 ### Option A — Route the default invite template through the callback (hotfix)
@@ -117,7 +117,7 @@ need the invite link to hit it.
    `supabase/config.toml` `[auth.email.template.invite]` with a `content_path` pointing at a
    new `supabase/templates/invite.html`, so local dev and future envs match.
 
-**Pros:** minimal code, fastest path to unblock Maria. **Cons:** the prod template edit is a
+**Pros:** minimal code, fastest path to unblock invitee-6. **Cons:** the prod template edit is a
 dashboard action per environment; email styling stays on Supabase's default.
 
 ### Option B — Send a branded invite via existing email infra (durable follow-up)
@@ -164,11 +164,11 @@ path); do it after the hotfix lands.
   that the test user moved from `invited[]` into `player_ids` and `user_metadata.invited=false`.
 - **Done when:** end-to-end invite lands the test user on the team with the board visible.
 
-**A6 — Data remediation for Maria**
-- After the fix is live: resend the invite to `jonathan.m.esparza@gmail.com` (his current
-  auth user is unconfirmed / never signed in). Confirm with Maria which *other* addresses she
+**A6 — Data remediation for invitee-6**
+- After the fix is live: resend the invite to `invitee-1@redacted.invalid` (his current
+  auth user is unconfirmed / never signed in). Confirm with invitee-6 which *other* addresses she
   intended to invite (only one was ever recorded) and re-invite those.
-- **Done when:** Maria's intended invitees are either joined or hold a working pending invite.
+- **Done when:** invitee-6’s intended invitees are either joined or hold a working pending invite.
 
 **B1 (follow-up) — Branded invite via generateLink + Novu/react-email** (separate issue).
 
@@ -210,7 +210,7 @@ callback-hit line for `type=invite` = success.
 2. Apply A3–A4 (Supabase dashboard) on the **prod** project and mirror template locally.
 3. Run A5 verification against a preview/prod test invite using Axiom + prod read query.
 4. Merge to `dev` → promote per normal deploy flow.
-5. Perform A6 data remediation and reply to Maria.
+5. Perform A6 data remediation and reply to invitee-6.
 6. File B1 (+ optional e2e) as follow-ups.
 
 ## 8. Risks / Watch-outs
@@ -221,5 +221,5 @@ callback-hit line for `type=invite` = success.
   canonical URL in prod env (as it is in `.env.local`). Confirm the prod value.
 - **Existing invited users:** anyone already invited under the old flow has
   `user_metadata.invited=true` and a stale link; they need a **re-invite** with the new
-  template (old links won't route correctly). A6 covers Maria's; consider a broader re-invite
+  template (old links won't route correctly). A6 covers invitee-6’s; consider a broader re-invite
   if other teams were affected.
