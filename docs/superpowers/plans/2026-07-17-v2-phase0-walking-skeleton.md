@@ -42,6 +42,7 @@
 v2/
 ├── package.json              ← own deps, own lockfile (island rule)
 ├── pnpm-lock.yaml
+├── pnpm-workspace.yaml       ← LOAD-BEARING: stops pnpm's upward workspace search (root has a config-only pnpm-workspace.yaml that would otherwise capture v2). Never delete.
 ├── wrangler.jsonc            ← Worker config, custom domain, public vars
 ├── vite.config.ts            ← cloudflare() + tanstackStart() + react()
 ├── vitest.config.ts          ← edge-runtime env for convex-test
@@ -117,7 +118,7 @@ pnpm create cloudflare@latest v2 --framework=tanstack-start --no-deploy --git=fa
 
 Answer prompts: TypeScript yes; do not deploy. `--git=false` because we're already inside the repo.
 
-- [ ] **Step 2: Verify the island.** Confirm `v2/pnpm-lock.yaml` exists (repo root has no `pnpm-workspace.yaml`, so `v2/` is its own install root — verify with `ls /home/cdub/projects/wordle-teams/pnpm-workspace.yaml` → should not exist). Confirm `v2/.gitignore` covers `node_modules`, `.env*`, `dist`, `.wrangler`; add `.dev.vars` and `.env.local` if missing (keep `.env.production` committed by adding a `!.env.production` negation if the scaffold ignores `.env*` wholesale).
+- [ ] **Step 2: Verify the island.** Confirm `v2/pnpm-lock.yaml` exists. The repo root HAS a config-only `pnpm-workspace.yaml` (overrides incl. `@types/react` 19.0.12) that would capture a nested install — `v2/pnpm-workspace.yaml` (created by C3) is what makes `v2/` its own install root and shields it from root overrides. Verify it exists and never delete it. Confirm `v2/.gitignore` covers `node_modules`, `.env*`, `dist`, `.wrangler`; add `.dev.vars` and `.env.local` if missing (keep `.env.production` committed by adding a `!.env.production` negation if the scaffold ignores `.env*` wholesale).
 
 - [ ] **Step 3: Set the Worker name.** In `v2/wrangler.jsonc` set `"name": "wordle-teams-v2"`. Note the scaffold's `main`, `compatibility_date`, and `compatibility_flags` — expect `"main": "@tanstack/react-start/server-entry"` and `nodejs_compat`; ensure `compatibility_date` ≥ `2025-04-01` (required for automatic `process.env` population).
 
@@ -304,11 +305,20 @@ export function getRouter() {
     routeTree,
     context: { queryClient, convexQueryClient },
     scrollRestoration: true,
+    // REQUIRED (discovered in execution): without a ConvexProvider wrap,
+    // useConvexMutation crashes SSR ("Could not find Convex client!").
+    // Task 6 replaces this with ConvexBetterAuthProvider in __root — remove
+    // this Wrap at that point to avoid double-providing.
+    Wrap: ({ children }) => (
+      <ConvexProvider client={convexQueryClient.convexClient}>{children}</ConvexProvider>
+    ),
   })
   setupRouterSsrQueryIntegration({ router, queryClient })
   return router
 }
 ```
+
+(import `ConvexProvider` from `convex/react`)
 
 Update the root route's context type in `v2/src/routes/__root.tsx` to match:
 
@@ -438,7 +448,8 @@ import { resend } from './email'
 import type { GenericCtx } from '@convex-dev/better-auth'
 import type { DataModel } from './_generated/dataModel'
 
-const siteUrl = process.env.SITE_URL!
+const siteUrl = process.env.SITE_URL
+if (!siteUrl) throw new Error('SITE_URL is not set on this deployment')
 
 export const authComponent = createClient<DataModel>(components.betterAuth)
 
@@ -507,7 +518,7 @@ git commit -m "feat(v2): better auth backend on convex with email OTP via resend
 
 **Files:** Create: `v2/src/lib/auth-client.ts`, `v2/src/lib/auth-server.ts`, `v2/src/routes/api/auth/$.ts`, `v2/src/routes/login.tsx`. Modify: `v2/src/router.tsx`, `v2/src/routes/__root.tsx`, `v2/src/routes/index.tsx`
 
-Note on aliases: snippets use `~/` — substitute the scaffold's configured alias (check `tsconfig.json` `paths`).
+Note on aliases: snippets use `~/` — the scaffold configured `#/*` → `./src/*`, so substitute `#/` (e.g. `#/lib/auth-client`).
 
 - [ ] **Step 1: Auth client** at `v2/src/lib/auth-client.ts`:
 
