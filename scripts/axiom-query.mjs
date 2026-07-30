@@ -70,11 +70,19 @@ async function runApl(apl) {
   if (!res.ok) throw new Error(`${res.status} ${body}`)
   const data = JSON.parse(body)
   const matches = data?.matches ?? []
+  const totals = data?.buckets?.totals ?? []
   if (matches.length) {
     for (const m of matches) console.log(JSON.stringify({ _time: m._time ?? m.time, ...m.data }))
     console.error(`\n(${matches.length} rows)`)
+  } else if (totals.length) {
+    // Aggregation results (summarize ...) land in buckets.totals, not matches.
+    for (const t of totals) {
+      const agg = Object.fromEntries((t.aggregations ?? []).map((a) => [a.op ?? a.alias, a.value]))
+      console.log(JSON.stringify({ ...t.group, ...agg }))
+    }
+    console.error(`\n(${totals.length} groups)`)
   } else {
-    console.log(JSON.stringify(data, null, 2))
+    console.error('(no results)')
   }
 }
 
