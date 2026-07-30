@@ -105,8 +105,14 @@ export async function invitePlayer(formData: FormData) {
 
     const teamId = Number.parseInt(formData.get('teamId') as string)
     const playerIds = (formData.get('playerIds') as string).split(',')
-    const invited = (formData.get('invited') as string).split(',').filter((x) => x !== '')
-    const email = formData.get('email') as string
+    // Normalize emails to lowercase: auth/players emails are always lowercase, so storing a
+    // mixed-case address in teams.invited[] makes handle_invited_signup's case-sensitive match
+    // fail and the invitee silently never joins. See wordle-teams-5no.
+    const invited = (formData.get('invited') as string)
+      .split(',')
+      .map((x) => x.trim().toLowerCase())
+      .filter((x) => x !== '')
+    const email = (formData.get('email') as string).trim().toLowerCase()
 
     const { data: player, error } = await supabase
       .from('players')
