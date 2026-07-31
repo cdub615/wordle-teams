@@ -1,3 +1,7 @@
+// See the note in src/app/home/page.tsx — static legal copy that was still
+// costing a ~1.9s cold revalidation on 41% of requests.
+export const revalidate = 86400
+
 export default async function Page() {
   return (
     <div className='max-w-3xl mx-auto py-16 px-4 sm:px-6 lg:px-8'>
