@@ -126,8 +126,13 @@ create or replace function public.custom_access_token_hook(event jsonb) ...
 alter table public.player_customer drop column customer_id;
 alter table public.player_customer drop column membership_variant;
 
--- 3. idempotency guard for Standard Webhooks retries
-create unique index webhook_events_webhook_id_key on public.webhook_events (webhook_id);
+-- 3. webhook_id must be text before it can hold a Standard Webhooks id (see correction below)
+alter table public.webhook_events alter column webhook_id type text using webhook_id::text;
+
+-- 4. idempotency guard for Standard Webhooks retries. Partial, so legacy null rows stay exempt.
+--    Deduplicate first, preferring the processed row of any retry set.
+create unique index webhook_events_webhook_id_key
+  on public.webhook_events (webhook_id) where webhook_id is not null;
 ```
 
 If the columns are dropped while the old hook still selects them, `custom_access_token_hook`
@@ -145,7 +150,15 @@ At `/api/webhook` — the path is unchanged, since one provider means it is stil
    is `NOT NULL` with an FK to `players`, so a foreign event would fail the insert and make Polar
    retry forever on something that can never succeed.
 4. `webhookId` from the **`webhook-id` header**. Polar follows Standard Webhooks, so it is not in
-   the body as Lemon Squeezy's `meta.webhook_id` was. The column is already `text`.
+   the body as Lemon Squeezy's `meta.webhook_id` was.
+
+   **Correction (verified against a local database, 2026-07-31):** this spec originally claimed
+   the column was already `text` and needed no change. It was `uuid` — Lemon Squeezy's
+   `meta.webhook_id` happened to be a UUID, and `database.types.ts` renders `uuid` as `string`,
+   which hid it. Standard Webhooks explicitly does not require a UUID; the spec's own example id
+   is `msg_2KWPBgLlAfxdpx2AI54pPJ85f4W`, which a uuid cast rejects. Left alone, a non-UUID id
+   would throw on insert, return 500, and put Polar into an infinite retry loop against an event
+   that could never be stored. The migration converts the column to `text`.
 5. Store the event. On unique-index conflict it is a retry already handled — return 200.
 6. Apply the transition, run the RPC, mark processed.
 
