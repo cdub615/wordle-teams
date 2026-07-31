@@ -54,20 +54,6 @@ export type UserToken = JwtPayload & {
   amr: AuthenticationMethod[]
 }
 
-export class WebhookEvent {
-  playerId: string
-  eventName: string
-  webhookId: string
-  body: any
-
-  constructor(playerId: string, eventName: string, webhookId: string, body: any) {
-    this.playerId = playerId
-    this.eventName = eventName
-    this.webhookId = webhookId
-    this.body = body
-  }
-}
-
 export class DailyScore {
   id: number
   date: string
