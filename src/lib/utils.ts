@@ -56,17 +56,13 @@ export const getUser = async (supabase: SupabaseClient<Database>) => {
     error,
   } = await supabase.auth.getUser()
   if (error instanceof AuthApiError && error.message.includes('Refresh Token Not Found')) {
-    const { data, error: refreshError } = await supabase.auth.refreshSession()
-
-    if (refreshError) {
-      log.warn(`Session refresh error, logging out: ${refreshError.message}`)
-      await supabase.auth.signOut()
-      return null
-    }
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    return user
+    // No retry here on purpose. The error says the refresh token itself is gone,
+    // so refreshSession() has nothing to present and can only fail — it just adds
+    // a round trip and a second scary log line for what is an ordinary expired
+    // session. Sign the user out and let them sign in again.
+    log.info('Refresh token missing, signing out')
+    await supabase.auth.signOut()
+    return null
   }
   return user
 }
@@ -76,20 +72,18 @@ export const getSession = async (supabase: SupabaseClient<Database>) => {
     data: { session },
     error,
   } = await supabase.auth.getSession()
-  if (error) log.warn(`failed to get session, trying session refresh: ${error.message}`)
   if (error instanceof AuthApiError && error.message.includes('Refresh Token Not Found')) {
-    const { data, error: refreshError } = await supabase.auth.refreshSession()
-
-    if (refreshError) {
-      log.warn(`Session refresh error, logging out: ${refreshError.message}`)
-      const { error: signOutError } = await supabase.auth.signOut()
-      if (signOutError) {
-        log.warn(`Failed to logout failed, might already be logged out: ${signOutError.message}`)
-      }
-      return null
+    // Same as getUser above: the refresh token is gone, so there is nothing to
+    // refresh with. Expected when a session ages out, so log it at info and move
+    // on rather than reporting an expired login as an application error.
+    log.info('Refresh token missing, signing out')
+    const { error: signOutError } = await supabase.auth.signOut()
+    if (signOutError) {
+      log.warn(`Sign out failed, session may already be gone: ${signOutError.message}`)
     }
-    return data.session
+    return null
   }
+  if (error) log.warn(`Failed to get session: ${error.message}`)
   return session
 }
 

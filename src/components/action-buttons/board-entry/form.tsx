@@ -64,48 +64,69 @@ export default function WordleBoardForm({ userId }: { userId: string }) {
   }, [])
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (e) => {
-    setSubmitting(true)
     e.preventDefault()
+    setSubmitting(true)
     const formData: FormData = new FormData(e.currentTarget)
-    const result = await upsertBoard(formData)
 
-    if (result.success) {
-      const scoreDate = result.dailyScore ? new Date(result.dailyScore.date).toISOString() : month.toISOString()
+    try {
+      const result = await upsertBoard(formData)
 
-      if (result.action !== 'delete' && result.dailyScore) {
-        const newScore = DailyScore.prototype.fromDbDailyScore(result.dailyScore)
-        const newTeams = Team.prototype.updatePlayerScore(teams, userId, newScore)
-        setTeams(newTeams)
+      if (result.success) {
+        const scoreDate = result.dailyScore ? new Date(result.dailyScore.date).toISOString() : month.toISOString()
+
+        if (result.action !== 'delete' && result.dailyScore) {
+          const newScore = DailyScore.prototype.fromDbDailyScore(result.dailyScore)
+          const newTeams = Team.prototype.updatePlayerScore(teams, userId, newScore)
+          setTeams(newTeams)
+        }
+        if (result.action === 'delete') {
+          setTeams(Team.prototype.removePlayerScore(teams, userId, formData.get('scoreDate') as string))
+        }
+
+        // Calculate winners for each team
+        const winners = teams.map((team) => ({
+          team_id: team.id,
+          winner_id: team.thisMonthsCurrentWinner(scoreDate) || null,
+          year: parseInt(scoreDate.slice(0, 4)),
+          month: parseInt(scoreDate.slice(5, 7)),
+        }))
+
+        // Update winners table via RPC. The board itself is already saved at this
+        // point, so a failure here is not a failed submission — but it does leave
+        // the standings stale, and previously the user was told "success" with no
+        // hint that the leaderboard was wrong. Say so instead of logging silently.
+        const supabase = createClient() as any
+        const { error } = await supabase.rpc('update_monthly_winners', {
+          winners_data: winners, // Passing the array directly
+        })
+
+        if (error) {
+          log.error('Failed to update winners table', { error })
+          toast.warning(`${result.message}, but this month's standings could not be updated. They will recalculate on the next board entry.`)
+        } else {
+          toast.success(result.message)
+        }
+
+        // Only close on success — a failed submit used to close the sheet too,
+        // throwing away everything the user had typed.
+        document.getElementById('close-board-entry')?.click()
+      } else {
+        toast.error(result.message)
       }
-      if (result.action === 'delete') {
-        setTeams(Team.prototype.removePlayerScore(teams, userId, formData.get('scoreDate') as string))
-      }
-
-      // Calculate winners for each team
-      const winners = teams.map(team => ({
-        team_id: team.id,
-        winner_id: team.thisMonthsCurrentWinner(scoreDate) || null,
-        year: parseInt(scoreDate.slice(0, 4)),
-        month: parseInt(scoreDate.slice(5, 7))
-      }))
-
-      // Update winners table via RPC
-      const supabase = createClient() as any
-      const { error } = await supabase.rpc('update_monthly_winners', {
-        winners_data: winners  // Passing the array directly
+    } catch (error) {
+      // upsertBoard guards its own body, so reaching here means the action call
+      // itself failed: a stale tab whose server action id no longer exists after
+      // a deploy, a dropped mobile connection mid-submit, or a platform 5xx.
+      // Without this, the promise rejected, setSubmitting(false) never ran, and
+      // the form sat spinning forever with the board silently lost.
+      log.error('Board submission failed before it could be saved', {
+        message: error instanceof Error ? error.message : String(error),
       })
-
-      if (error) {
-        log.error('Failed to update winners table', { error })
-      }
-
-      toast.success(result.message)
-    } else {
-      toast.error(result.message)
+      toast.error('Could not save your board. Your entry is still here — please try again.')
+    } finally {
+      // Always runs, so the form can never be left stuck mid-submit.
+      setSubmitting(false)
     }
-    setSubmitting(false)
-
-    document.getElementById('close-board-entry')?.click()
   }
 
   const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => {
