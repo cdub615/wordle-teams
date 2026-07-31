@@ -26,9 +26,18 @@ While that is pending, everything else can proceed — sandbox needs no review.
 
 ## Before you start
 
-- [ ] Look up the current **Pro** price and billing interval in the Lemon Squeezy dashboard.
-      Whatever it is, both Polar products below must match it exactly. Note it down; the rest of
-      this doc just refers to "the Pro price".
+- [ ] Look up the current **Pro** prices in the Lemon Squeezy dashboard — both the monthly and
+      the annual figure. The Polar products below must match them exactly. Note them down; the
+      rest of this doc refers to "the monthly price" and "the annual price".
+
+> **Two products per environment, not one.** Polar has no concept of variants: "each product has
+> a single pricing model, and instead of bolting variants onto one product, you create one
+> product per pricing model." Monthly and annual are therefore two separate products, and a
+> product's billing cycle is locked at creation — it cannot be changed later, only replaced.
+>
+> This costs no application code. A Polar checkout session accepts several products at once and
+> renders them side by side on the hosted page, so the customer picks the interval there rather
+> than in the app.
 
 ---
 
@@ -39,15 +48,24 @@ and tokens. A production token will not work against it, and vice versa.
 
 - [ ] Create an account and organization at <https://sandbox.polar.sh>
 
-### A1. Pro product
+### A1. Pro products (two of them)
 
-- [ ] Create a product named **Pro**
-- [ ] Type: **recurring subscription**, at the Pro price and interval you noted above
-- [ ] Copy the **product ID** (a UUID) → this becomes `POLAR_PRO_PRODUCT_ID` for dev and local
+- [ ] Create **Pro Monthly** — recurring subscription, monthly interval, at the monthly price
+- [ ] Copy its **product ID** (a UUID) → `POLAR_PRO_MONTHLY_PRODUCT_ID` for dev and local
+- [ ] Create **Pro Annual** — recurring subscription, yearly interval, at the annual price
+- [ ] Copy its **product ID** → `POLAR_PRO_ANNUAL_PRODUCT_ID` for dev and local
+
+Names are yours to choose; only the IDs reach the code, so nothing breaks if you label them
+differently. Both must exist before checkout works, because a single session offers both.
 
 > There is deliberately **no "Free" product**. Under the new design, `free` is a database
 > default for anyone without an active paid subscription — it is never driven by a webhook. If
 > you create a Free product out of habit, the code will ignore it.
+>
+> The app also does not record *which* interval a subscriber chose. Nothing in the app branches
+> on it — every gate is simply "are they pro" — and Polar's own dashboard and customer portal
+> are the source of truth for billing details. This is the same reasoning that let the old
+> `membership_variant` column be dropped.
 
 ### A2. Access token
 
@@ -91,8 +109,10 @@ https://dev.wordleteams.com/api/webhook?x-vercel-protection-bypass=<THE_BYPASS_S
 
 Same shape as Part A, in the organization you created at the top of this doc.
 
-- [ ] **Pro** product — recurring subscription, same price and interval as sandbox
-- [ ] Copy the **product ID** → `POLAR_PRO_PRODUCT_ID` for production
+- [ ] **Pro Monthly** and **Pro Annual** — recurring subscriptions at the same prices and
+      intervals as sandbox
+- [ ] Copy both **product IDs** → `POLAR_PRO_MONTHLY_PRODUCT_ID` and
+      `POLAR_PRO_ANNUAL_PRODUCT_ID` for production
 - [ ] Organization Access Token with the same four permissions → `POLAR_ACCESS_TOKEN` for
       production
 - [ ] Webhook endpoint → `https://wordleteams.com/api/webhook`
@@ -104,16 +124,17 @@ Same shape as Part A, in the organization you created at the top of this doc.
 
 ## Part C — Vercel environment variables
 
-Three new variables, scoped by environment. `dev.wordleteams.com` deploys as a Preview, so
-sandbox values go to Preview and production values go to Production.
+Four variables, scoped by environment. `dev.wordleteams.com` deploys as a Preview, so sandbox
+values go to Preview and production values go to Production.
 
 | Variable | Production scope | Preview scope |
 |---|---|---|
 | `POLAR_ACCESS_TOKEN` | production token (B) | sandbox token (A2) |
 | `POLAR_WEBHOOK_SECRET` | production secret (B) | sandbox secret (A3) |
-| `POLAR_PRO_PRODUCT_ID` | production product UUID (B) | sandbox product UUID (A1) |
+| `POLAR_PRO_MONTHLY_PRODUCT_ID` | production monthly UUID (B) | sandbox monthly UUID (A1) |
+| `POLAR_PRO_ANNUAL_PRODUCT_ID` | production annual UUID (B) | sandbox annual UUID (A1) |
 
-- [ ] Add all six values in Vercel → Settings → Environment Variables
+- [ ] Add all eight values in Vercel → Settings → Environment Variables
 - [ ] Add the sandbox values to your local `.env.local` too, so local dev works
       (`npm run pull-edge-config` pulls from Vercel if you prefer)
 
@@ -126,8 +147,9 @@ after prod is verified.
 
 Tell me and I'll pick up Phase 3. I don't need the secret values — only confirmation that:
 
-- [ ] Both Pro products exist and their prices match the current Lemon Squeezy Pro price
-- [ ] All six Vercel env vars are set
+- [ ] All four Pro products exist (monthly + annual, in sandbox and in production) and their
+      prices match the current Lemon Squeezy ones
+- [ ] All eight Vercel env vars are set
 - [ ] Both webhook endpoints are registered with the five events, in Raw format
 - [ ] The production org's payment review is submitted (and whether it has cleared yet)
 

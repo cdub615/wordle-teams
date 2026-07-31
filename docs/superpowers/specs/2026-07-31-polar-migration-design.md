@@ -20,7 +20,7 @@ that touches billing.
 
 **Out of scope:**
 
-- `polar-migrate`. It moves products and customers, but with one Pro product and one paying
+- `polar-migrate`. It moves products and customers, but with two Pro products and one paying
   customer, creating them by hand in the dashboard is faster than operating a migration tool.
 - The three Postgres RPCs (`handle_upgrade_team_invites`, `handle_downgrade_team_removal`,
   `handle_free_team_limit`). They branch on `membership_status = 'pro'`, which is
@@ -107,11 +107,26 @@ Polar event name without either.
 
 ### Environment variables
 
-Add `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_PRO_PRODUCT_ID`.
+Add `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_PRO_MONTHLY_PRODUCT_ID`,
+`POLAR_PRO_ANNUAL_PRODUCT_ID`.
 Remove `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`.
 
 The Pro product moves from a name lookup (`listProducts` then `.find(p => p.attributes.name === 'Pro')`)
-to an env-var UUID, deleting an API round-trip per checkout and a fragile string match.
+to env-var UUIDs, deleting an API round-trip per checkout and a fragile string match.
+
+**Amended 2026-07-31, during Phase 1:** Pro is *two* products, not one. Polar has no variants —
+"each product has a single pricing model, and instead of bolting variants onto one product, you
+create one product per pricing model" — and a product's billing cycle is locked at creation. So
+monthly and annual are separate products with separate UUIDs.
+
+This costs no UI work. A checkout session accepts a `products` array and Polar renders the
+options side by side on its hosted page, in the order passed, so the customer chooses the
+interval there. All three upgrade callsites keep calling `getCheckoutUrl(user)` with no plan
+argument, and no plan-selection component is needed. Annual is passed first so it appears first.
+
+The app still does not record which interval a subscriber chose: nothing branches on it, every
+gate is simply "are they pro", and Polar's dashboard and customer portal are the source of truth
+for billing details. This is the same reasoning that dropped `membership_variant`.
 
 ### Database migration
 
@@ -209,7 +224,7 @@ that the moment they respond, the cutover is a deploy rather than a project.
 
 | # | Phase | Owner | Blocks |
 |---|---|---|---|
-| 1 | Polar dashboard setup — sandbox + production orgs, Pro product in each, tokens, webhook endpoints | Owner | 3 |
+| 1 | Polar dashboard setup — sandbox + production orgs, Pro Monthly + Pro Annual in each, tokens, webhook endpoints | Owner | 3 |
 | 2 | Code + migration on `feat/polar-migration` | Agent | 3 |
 | 3 | Deploy to dev, verify against Polar sandbox | Agent | 4 |
 | 4 | Email the subscriber; cancel their Lemon Squeezy sub at period end | Owner | 5 |
