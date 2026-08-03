@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { canonicalOrigin } from '@/lib/app-origin'
 import { Polar } from '@polar-sh/sdk'
 
 // Single source of truth for the Polar SDK client and the environment variables it needs.
@@ -63,23 +64,10 @@ export function proProductIds(): string[] {
 
 // Canonical origin for URLs Polar redirects back to.
 //
-// Deliberately NOT derived from VERCEL_URL. That is a Vercel *system* variable holding the bare
-// deployment hostname with no scheme — 'wordle-teams-abc123-....vercel.app' — so building a URL
-// from it produced a success_url Polar rejects outright ("Input should be a valid URL"), which
-// is what made every checkout on dev fail with "Failed to create checkout". Only .env.local
-// overrides it with a full URL, so this worked locally and nowhere else.
-//
-// Even with a scheme bolted on it would still be wrong: VERCEL_URL is the deployment-specific
-// hostname, which sits behind deployment protection, so a customer returning from checkout would
-// land on an SSO wall instead of the app. These are the canonical domains, mirroring the ternary
-// the Lemon Squeezy module used.
-export function appOrigin(): string {
-  return process.env.ENVIRONMENT === 'prod'
-    ? 'https://wordleteams.com'
-    : process.env.ENVIRONMENT === 'dev'
-      ? 'https://dev.wordleteams.com'
-      : 'http://localhost:3000'
-}
+// The reasoning that made this stop using VERCEL_URL — and the second production bug that the
+// same mistake caused in the email auth links — now lives with the shared implementation in
+// src/lib/app-origin.ts. Kept as a named re-export so Polar call sites still read as Polar code.
+export const appOrigin = canonicalOrigin
 
 export function polarWebhookSecret(): string {
   assertPolarEnv()
