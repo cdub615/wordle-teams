@@ -7,6 +7,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { ConvexQueryClient } from '@convex-dev/react-query'
 import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
+import { captureError } from '#/lib/sentry-capture'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 
@@ -53,6 +54,13 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       },
     ],
   }),
+  // Fires when an error bubbles to the root boundary — which is every route
+  // error that no child route handles, from loaders, beforeLoad and rendering,
+  // during SSR as well as in the browser. Without this nothing server-side was
+  // reported at all: TanStack Start turns the throw into a response, so the
+  // Sentry wrappers in server.ts never see it and the request just 404s.
+  // See wordle-teams-7qa.
+  onCatch: (error) => captureError(error, { boundary: 'root' }),
   shellComponent: RootDocument,
   component: RootComponent,
 })
