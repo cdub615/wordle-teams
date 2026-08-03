@@ -1,0 +1,79 @@
+name: Deploy v2 (beta)
+
+# Builds and deploys the v2 replatform to beta.wordleteams.com on any push that
+# touches v2/. The v1 Next.js app on Vercel is untouched by this workflow, and
+# Vercel's own auto-deploy of dev is untouched by it too — the two pipelines
+# share a repository and nothing else.
+
+on:
+  push:
+    branches: [dev, feat/v2-replatform]
+    paths:
+      - 'v2/**'
+      - '.github/workflows/deploy-v2.yml'
+  workflow_dispatch:
+
+# Two pushes in quick succession would otherwise race two `convex deploy` runs
+# at the same deployment and two `wrangler deploy` runs at the same Worker,
+# leaving whichever finished last in charge regardless of which was newer.
+# Queue them instead — and do NOT cancel in progress: a half-applied Convex
+# schema push is worse than a slightly delayed one.
+concurrency:
+  group: deploy-v2
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Must precede setup-node: `cache: pnpm` needs the pnpm binary to exist
+      # before it can resolve the store path.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: v2/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test:once
+
+      # Pushes schema + functions, then runs the client build with
+      # VITE_CONVEX_URL set to the deployment this key points at, so the bundle
+      # can never be built against the wrong Convex. The other build-time values
+      # come from the committed v2/.env.production.
+      - name: Deploy Convex and build the client
+        run: pnpm exec convex deploy --cmd 'pnpm build' --cmd-url-env-var-name VITE_CONVEX_URL
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+      # Publishes the Worker and keeps the beta.wordleteams.com custom domain
+      # binding declared in v2/wrangler.jsonc. Uploads dist/ from the build above.
+      - name: Deploy the Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: v2
+          command: deploy
+
+      - name: Smoke test beta
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://beta.wordleteams.com/login)
+          echo "beta.wordleteams.com/login -> $code"
+          test "$code" = "200"
