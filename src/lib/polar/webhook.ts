@@ -5,6 +5,7 @@ import type { Json } from '@/lib/database.types'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import { mapEventToTransition } from './events'
+import { notifyBilling } from './notify'
 
 // Persists and applies a verified Polar webhook.
 // See docs/superpowers/specs/2026-07-31-polar-migration-design.md.
@@ -72,6 +73,9 @@ export async function handlePolarEvent(event: VerifiedPolarEvent): Promise<Webho
     // unrecognized land here. The row is kept for the audit trail; membership is untouched.
     if (!transition) {
       await markProcessed(supabase, stored.id, '')
+      // subscription.canceled and past_due reach LogSnag from here — they change no membership
+      // but are the two worth knowing about while the person is still a customer.
+      await notifyBilling(eventType, playerId)
       return { kind: 'processed' }
     }
 
@@ -97,6 +101,10 @@ export async function handlePolarEvent(event: VerifiedPolarEvent): Promise<Webho
     }
 
     await markProcessed(supabase, stored.id, '')
+    // Only after the membership change actually succeeded, so a notification never announces
+    // something that did not happen. Awaited rather than fired and forgotten: a serverless
+    // instance can be frozen once the response is sent, which would drop the request.
+    await notifyBilling(eventType, playerId)
     return { kind: 'processed' }
   } catch (error) {
     log.error('Unexpected error handling Polar webhook', { error, webhookId, eventType })
