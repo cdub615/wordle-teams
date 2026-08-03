@@ -20,6 +20,11 @@ export async function createProCheckout(playerId: string, email: string, name: s
     const checkout = await polar().checkouts.create({
       products: proProductIds(),
       externalCustomerId: playerId,
+      // Belt and braces. Polar does NOT stamp external_customer_id onto a customer that already
+      // exists under this email, so the webhook's customer.external_id can come back null and the
+      // upgrade silently does nothing. Metadata travels with the checkout and costs no extra API
+      // call to read back. See resolvePlayerId in ./identity.
+      metadata: { player_id: playerId },
       customerEmail: email,
       customerName: name,
       // Landing back on /me matters: that page already reconciles player_customer against the

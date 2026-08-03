@@ -1,4 +1,5 @@
 import { polarWebhookSecret } from '@/lib/polar/client'
+import { resolvePlayerId, type SubscriptionIdentity } from '@/lib/polar/identity'
 import { handlePolarEvent } from '@/lib/polar/webhook'
 import type { Json } from '@/lib/database.types'
 import { validateEvent, WebhookVerificationError } from '@polar-sh/sdk/webhooks.js'
@@ -40,9 +41,11 @@ export async function POST(request: Request) {
     return new Response('Missing webhook-id', { status: 400 })
   }
 
-  // The only link between a Polar customer and a player. Set as external_customer_id at checkout
-  // and echoed back on every event.
-  const playerId = (event.data as { customer?: { externalId?: string | null } }).customer?.externalId
+  // Not simply customer.externalId: Polar leaves that null when the checkout matched a customer
+  // that already existed under the same email, which silently upgraded nobody on the first real
+  // dev checkout. resolvePlayerId also checks the metadata we set and, failing that, the checkout
+  // itself. See ./identity for the full account.
+  const playerId = await resolvePlayerId(event.data as SubscriptionIdentity)
 
   // 202, not 500: a foreign or malformed external_id is not a transient fault, so retrying can
   // never succeed. Returning 500 would put Polar into an endless redelivery loop over an event
