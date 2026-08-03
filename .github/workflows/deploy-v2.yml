@@ -37,9 +37,14 @@ jobs:
 
       # Must precede setup-node: `cache: pnpm` needs the pnpm binary to exist
       # before it can resolve the store path.
+      #
+      # No `version:` on purpose. `defaults.run.working-directory` applies only
+      # to `run:` steps, never to `uses:` steps, so this action reads the ROOT
+      # package.json — which pins packageManager pnpm@11.13.0. Passing a version
+      # here as well is a hard error ("Multiple versions of pnpm specified").
+      # Letting the root pin win is also what we want: it is the version that
+      # generated v2/pnpm-lock.yaml.
       - uses: pnpm/action-setup@v6
-        with:
-          version: 11
 
       - uses: actions/setup-node@v7
         with:
