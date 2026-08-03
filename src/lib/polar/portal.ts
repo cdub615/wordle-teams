@@ -31,13 +31,7 @@ export async function getCustomerPortalUrl(playerId: string): Promise<PortalResu
 
     return { url: session.customerPortalUrl }
   } catch (error) {
-    // Matched on status rather than error class. The SDK only raises its typed ResourceNotFound
-    // for responses declared in the OpenAPI spec, and customerSessions.create does not declare a
-    // 404 — it throws the generic SDKError instead. An `instanceof ResourceNotFound` check
-    // therefore never matches, and every player who has not checked out would be told to try
-    // again later, forever. Both classes extend PolarError, which carries statusCode, so this
-    // holds whichever one a future SDK version throws.
-    if (error instanceof PolarError && error.statusCode === 404) {
+    if (error instanceof PolarError && isMissingCustomer(error)) {
       log.info('No Polar customer for player; portal unavailable', { playerId })
       return { url: null, reason: 'no-customer' }
     }
@@ -45,4 +39,24 @@ export async function getCustomerPortalUrl(playerId: string): Promise<PortalResu
     log.error('Failed to create Polar customer portal session', { error, playerId })
     return { url: null, reason: 'error' }
   }
+}
+
+// Deciding whether "this player has no billing account" turned out to need three attempts, so
+// the reasoning is written down.
+//
+// Polar does NOT answer an unknown external_customer_id with a 404. It answers 422 with a
+// validation detail of "Customer does not exist." — verified against the sandbox API for a
+// non-UUID id, a well-formed-but-unknown UUID, and an empty string alike. Earlier versions of
+// this function tested `instanceof ResourceNotFound` (never raised, because the SDK only maps
+// typed errors for responses the OpenAPI spec declares) and then `statusCode === 404` (never
+// matched, because Polar does not send one). Both left every non-subscriber being told to try
+// again later, forever.
+//
+// A bare 422 is not enough either: Polar also returns 422 for ordinary validation failures such
+// as a malformed success_url, and reporting those as "no billing account" would hide real bugs.
+// So the detail has to be matched too.
+function isMissingCustomer(error: PolarError): boolean {
+  if (error.statusCode === 404) return true // not currently sent, accepted if that ever changes
+  if (error.statusCode !== 422) return false
+  return /customer does not exist/i.test(error.body ?? '')
 }

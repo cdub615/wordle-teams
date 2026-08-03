@@ -61,12 +61,24 @@ export function proProductIds(): string[] {
   return [process.env.POLAR_PRO_ANNUAL_PRODUCT_ID!, process.env.POLAR_PRO_MONTHLY_PRODUCT_ID!]
 }
 
-// Canonical origin for URLs Polar redirects back to. Mirrors the convention in
-// src/lib/auth-urls.ts, where VERCEL_URL holds a full canonical URL in this project's
-// environment, with a localhost fallback for local dev. Worth consolidating with that module if
-// a third caller ever appears.
+// Canonical origin for URLs Polar redirects back to.
+//
+// Deliberately NOT derived from VERCEL_URL. That is a Vercel *system* variable holding the bare
+// deployment hostname with no scheme — 'wordle-teams-abc123-....vercel.app' — so building a URL
+// from it produced a success_url Polar rejects outright ("Input should be a valid URL"), which
+// is what made every checkout on dev fail with "Failed to create checkout". Only .env.local
+// overrides it with a full URL, so this worked locally and nowhere else.
+//
+// Even with a scheme bolted on it would still be wrong: VERCEL_URL is the deployment-specific
+// hostname, which sits behind deployment protection, so a customer returning from checkout would
+// land on an SSO wall instead of the app. These are the canonical domains, mirroring the ternary
+// the Lemon Squeezy module used.
 export function appOrigin(): string {
-  return process.env.VERCEL_URL || 'http://localhost:3000'
+  return process.env.ENVIRONMENT === 'prod'
+    ? 'https://wordleteams.com'
+    : process.env.ENVIRONMENT === 'dev'
+      ? 'https://dev.wordleteams.com'
+      : 'http://localhost:3000'
 }
 
 export function polarWebhookSecret(): string {

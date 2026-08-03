@@ -57,7 +57,8 @@ try {
   const checkout = await polar.checkouts.create({
     products: [POLAR_PRO_ANNUAL_PRODUCT_ID, POLAR_PRO_MONTHLY_PRODUCT_ID],
     externalCustomerId: UNKNOWN_EXTERNAL_ID,
-    customerEmail: 'verify@example.com',
+    // No customerEmail: Polar validates that the domain accepts mail, and reserved test
+    // domains do not. The app always passes a real session email, so this is not a gap.
     customerName: 'Verify Script',
     successUrl: 'https://dev.wordleteams.com/me?checkout=success',
   })
@@ -75,25 +76,57 @@ try {
   )
   check(
     'the external customer id round-trips',
-    checkout.customerExternalId === UNKNOWN_EXTERNAL_ID,
-    String(checkout.customerExternalId)
+    checkout.externalCustomerId === UNKNOWN_EXTERNAL_ID,
+    String(checkout.externalCustomerId)
   )
   check('success_url points back at the app', (checkout.successUrl ?? '').includes('/me?checkout=success'))
+
+  step('A scheme-less success_url is REJECTED — regression guard for the appOrigin bug')
+  // VERCEL_URL is a Vercel system variable holding a bare hostname with no scheme. Building
+  // success_url from it made every checkout on dev fail with "Failed to create checkout".
+  // If this ever stops throwing, Polar has loosened validation and the guard is worthless.
+  try {
+    await polar.checkouts.create({
+      products: [POLAR_PRO_ANNUAL_PRODUCT_ID],
+      externalCustomerId: UNKNOWN_EXTERNAL_ID,
+      successUrl: 'wordle-teams-deployment.vercel.app/me?checkout=success',
+    })
+    fail('Polar accepted a scheme-less success_url — this check no longer protects anything')
+  } catch (error) {
+    check('Polar rejects a success_url with no scheme', error?.statusCode === 422, `statusCode=${error?.statusCode}`)
+  }
+
+  step('The success_url we actually send is absolute')
+  check(
+    'checkout success_url starts with https://',
+    /^https:\/\//.test(checkout.successUrl ?? ''),
+    String(checkout.successUrl)
+  )
 
   step('An unknown customer really does 404 — the no-customer branch depends on it')
   let status = null
   let errName = null
+  let body = ''
   try {
     await polar.customerSessions.create({ externalCustomerId: UNKNOWN_EXTERNAL_ID })
     fail('expected a 404 for a customer that does not exist, got a session')
   } catch (error) {
     status = error?.statusCode ?? null
     errName = error?.constructor?.name ?? null
+    body = String(error?.body ?? '')
     console.log(`  threw ${errName} with statusCode ${status}`)
+    // Polar answers 422 with "Customer does not exist.", NOT 404. portal.ts matches on that
+    // pair. Asserting the exact shape here so a future Polar change breaks this loudly rather
+    // than silently reclassifying every non-subscriber as a generic failure.
     check(
-      'a missing customer yields statusCode 404, which is what portal.ts matches on',
-      status === 404,
+      'a missing customer yields 422 (Polar does not send 404 here)',
+      status === 422,
       `${errName} statusCode=${status}`
+    )
+    check(
+      'the 422 detail says the customer does not exist, which is what portal.ts matches',
+      /customer does not exist/i.test(body),
+      body.slice(0, 160)
     )
   }
 
