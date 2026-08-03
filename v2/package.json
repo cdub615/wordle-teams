@@ -9,7 +9,7 @@
 	},
 	"scripts": {
 		"dev": "vite dev --port 3000",
-		"generate-routes": "tsr generate",
+		"//generate-routes": "REMOVED. `tsr generate` standalone strips the Register block from routeTree.gen.ts, including the startInstance registration that wires the Sentry global middlewares — and the vite plugin silently writes it back on the next dev/build, so the damage only shows if you commit in between. The plugin in vite.config.ts is the only generator; there is nothing to run by hand. See wt-ksh.1.15.",
 		"build": "vite build",
 		"preview": "pnpm run build && vite preview",
 		"test": "vitest",

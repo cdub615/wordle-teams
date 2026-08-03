@@ -18,9 +18,13 @@ test('signs in with an emailed OTP code', async ({ page }) => {
     await expect(page.getByLabel('Code')).toBeVisible({ timeout: 8000 })
   }).toPass({ timeout: 30_000 })
 
+  // takeFor is a mutation, not a query: it deletes the row as it returns it, so
+  // a captured code cannot outlive this read (wt-ksh.1.14). Once it yields a
+  // value the poll must stop asking, hence the ??= — a second call would return
+  // null and fail the assertion.
   let otp: string | null = null
   await expect
-    .poll(async () => (otp = await convex.query(api.testOtps.latestFor, { email })), {
+    .poll(async () => (otp ??= await convex.mutation(api.testOtps.takeFor, { email })), {
       timeout: 15_000,
     })
     .not.toBeNull()
