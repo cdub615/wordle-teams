@@ -5,6 +5,7 @@ import { ConvexQueryClient } from '@convex-dev/react-query'
 import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
 import { routeTree } from './routeTree.gen'
 import { TRACES_SAMPLE_RATE } from './lib/sentry-config'
+import { captureError } from './lib/sentry-capture'
 
 export function getRouter() {
   if (typeof window !== 'undefined') {
@@ -31,6 +32,18 @@ export function getRouter() {
     scrollRestoration: true,
     defaultPreload: 'intent',
     defaultPreloadStaleTime: 0,
+    // Every route error that reaches a boundary without its own onCatch —
+    // loaders, beforeLoad, rendering — on the server as well as in the browser.
+    //
+    // Router-level rather than an onCatch on the root route: TanStack catches
+    // an error at the boundary of the route that threw, not at the root, so a
+    // root-only handler never fires for a child route. Verified the hard way on
+    // beta — a root onCatch produced no log line at all.
+    //
+    // This is what makes server-side errors visible. TanStack Start converts a
+    // throw into a response before it leaves the fetch handler, so the Sentry
+    // wrappers in server.ts never see it. See wordle-teams-7qa.
+    defaultOnCatch: (error) => captureError(error, { boundary: 'router' }),
   })
   setupRouterSsrQueryIntegration({ router, queryClient })
 
