@@ -113,24 +113,18 @@ export type Database = {
       }
       player_customer: {
         Row: {
-          customer_id: number | null
           id: string
           membership_status: Database["public"]["Enums"]["member_status"]
-          membership_variant: number | null
           player_id: string
         }
         Insert: {
-          customer_id?: number | null
           id?: string
           membership_status: Database["public"]["Enums"]["member_status"]
-          membership_variant?: number | null
           player_id: string
         }
         Update: {
-          customer_id?: number | null
           id?: string
           membership_status?: Database["public"]["Enums"]["member_status"]
-          membership_variant?: number | null
           player_id?: string
         }
         Relationships: [

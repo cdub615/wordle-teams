@@ -1,7 +1,6 @@
 'use server'
 
 import { authCallbackUrl } from '@/lib/auth-urls'
-import { createNewCheckout } from '@/lib/lemonsqueezy'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import type { User, daily_scores, player_with_scores, teams } from '@/lib/types'
 import { getSession } from '@/lib/utils'
@@ -289,13 +288,3 @@ export async function removePlayer(formData: FormData) {
 }
 
 
-export async function getCheckoutUrl(user: User) {
-  try {
-    const checkout = await createNewCheckout(`${user.firstName} ${user.lastName}`, user.email, user.id)
-    if (checkout?.data?.attributes?.url) return { checkoutUrl: checkout?.data?.attributes?.url }
-    else return { error: 'Failed to create checkout, please try again later.' }
-  } catch (error) {
-    log.error('Unexpected error occurred in getCheckoutUrl', { error })
-    return { error: 'Failed to create checkout, please try again later.' }
-  }
-}

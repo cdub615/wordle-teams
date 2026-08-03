@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
-    "@lemonsqueezy/lemonsqueezy.js": "^2.2.0",
     "@novu/framework": "2.6.6",
     "@novu/node": "2.6.6",
     "@polar-sh/sdk": "^0.49.0",

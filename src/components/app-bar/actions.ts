@@ -1,8 +1,6 @@
 'use server'
 
-import { createNewCheckout } from '@/lib/lemonsqueezy'
 import { createClient } from '@/lib/supabase/server'
-import { User } from '@/lib/types'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -18,10 +16,4 @@ export async function logout() {
   }
 
   revalidatePath('/', 'layout')
-}
-
-export async function getCheckoutUrl(user: User) {
-  const checkout = await createNewCheckout(`${user.firstName} ${user.lastName}`, user.email, user.id)
-  if (checkout?.data?.attributes?.url) return { checkoutUrl: checkout?.data?.attributes?.url }
-  else return { error: 'Failed to create checkout, please try again later.' }
 }

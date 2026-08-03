@@ -16,7 +16,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { getCustomerPortalUrl } from '@/lib/lemonsqueezy'
 import { User } from '@/lib/types'
 import { clearAllCookies } from '@/lib/utils'
 import {
@@ -39,7 +38,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MouseEventHandler, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { getCheckoutUrl, logout } from './actions'
+import { getBillingPortalUrl, getCheckoutUrl } from '@/lib/polar/actions'
+import { logout } from './actions'
 import UserDialog from './user-dialog'
 
 export default function UserDropdown({ userFromAppBar }: { userFromAppBar: User }) {
@@ -53,6 +53,10 @@ export default function UserDropdown({ userFromAppBar }: { userFromAppBar: User 
   const [defaultTab, setDefaultTab] = useState<'notifications' | 'install'>('notifications')
 
   const proMember = user.memberStatus === 'pro'
+  // Anyone who has ever subscribed has a Polar customer record worth linking to, even once the
+  // subscription has lapsed. A lapsed player sees both entries: Billing to manage past invoices
+  // or payment details, Upgrade to start again.
+  const hasBillingAccount = ['pro', 'cancelled', 'expired'].includes(user.memberStatus)
 
   useEffect(() => {
     if (window) {
@@ -77,22 +81,22 @@ export default function UserDropdown({ userFromAppBar }: { userFromAppBar: User 
 
   const handleUpgrade = async () => {
     setLoading(true)
-    const { checkoutUrl, error } = await getCheckoutUrl(user)
+    const { checkoutUrl, error } = await getCheckoutUrl()
     if (error) toast.error(error)
-    else if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
+    // Full navigation rather than an overlay: no third-party script is loaded, and the customer
+    // picks monthly or annual on Polar's own page.
+    else if (checkoutUrl) window.location.href = checkoutUrl
     setLoading(false)
   }
 
   const sendToBillingPortal = async () => {
     setLoading(true)
-    if (!user.customerId) {
-      log.warn(`Billing link showed but no customer id for user ${user.id}`)
-      toast.error('Failed to send to billing portal, please try again later.')
-    } else {
-      const url = await getCustomerPortalUrl(user.customerId)
-      if (url) router.push(url)
-      else toast.error('Failed to send to billing portal, please try again later.')
-    }
+    // No customerId guard any more — the column is gone, and the action resolves the Polar
+    // customer from the session. It reports the "never checked out" case as its own message
+    // rather than telling the player to retry something that can never succeed.
+    const { url, error } = await getBillingPortalUrl()
+    if (url) window.location.href = url
+    else toast.error(error ?? 'Failed to open the billing portal, please try again later.')
     setLoading(false)
   }
 
@@ -161,13 +165,14 @@ export default function UserDropdown({ userFromAppBar }: { userFromAppBar: User 
               </DropdownMenuPortal>
             </DropdownMenuSub>
           </DropdownMenuGroup>
-          {proMember ? (
+          {hasBillingAccount && (
             <DropdownMenuItem onClick={sendToBillingPortal}>
               <CreditCard className='mr-2 h-4 w-4' />
               <span>Billing</span>
               {loading && <Loader2 className='ml-2 h-4 w-4 animate-spin' />}
             </DropdownMenuItem>
-          ) : (
+          )}
+          {!proMember && (
             <DropdownMenuItem onClick={handleUpgrade}>
               <Sparkles className='mr-2 h-4 w-4' />
               <span>Upgrade</span>

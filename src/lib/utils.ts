@@ -98,14 +98,10 @@ export const getUserFromSession = async (supabase: SupabaseClient<Database>) => 
     log.warn(`Failed to fetch user data: ${error.message}`)
   }
   let memberStatus: member_status = 'new'
-  let memberVariant: number = 0
-  let customerId: number | null = null
   const player: player_with_customer | null = data ? data[0] as player_with_customer : null
 
   if (player?.player_customer && player?.player_customer?.length > 0) {
     memberStatus = player?.player_customer[0]?.membership_status ?? 'new'
-    memberVariant = player?.player_customer[0]?.membership_variant ?? 0
-    customerId = player?.player_customer[0]?.customer_id ?? null
   }
 
   const token = jwtDecode<UserToken>(session.access_token)
@@ -122,8 +118,6 @@ export const getUserFromSession = async (supabase: SupabaseClient<Database>) => 
     lastName,
     initials,
     memberStatus,
-    memberVariant,
-    customerId,
     invitesPendingUpgrade: session.user?.app_metadata?.invites_pending_upgrade ?? 0,
     avatarUrl,
     hasPwa: player?.has_pwa ?? false,

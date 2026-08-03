@@ -28,8 +28,6 @@ export type User = {
   initials: string
   email: string
   memberStatus: member_status
-  memberVariant: number | null
-  customerId: number | null
   invitesPendingUpgrade: number
   avatarUrl?: string
   hasPwa: boolean
@@ -46,10 +44,8 @@ type AuthenticationMethod = {
 // TODO need to move this stuff
 export type UserToken = JwtPayload & {
   user_member_status: member_status
-  user_member_variant: number | null
   user_first_name: string
   user_last_name: string
-  user_customer_id: number | null
   user_metadata: UserMetadata
   amr: AuthenticationMethod[]
 }

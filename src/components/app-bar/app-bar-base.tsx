@@ -4,12 +4,9 @@ import ModeToggle from '@/components/mode-toggle'
 import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
-import { getUserFromSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 // import { revalidatePath } from 'next/cache'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import Script from 'next/script'
 import { useEffect, useState } from 'react'
 import UserDropdown from './user-dropdown'
 
@@ -29,36 +26,7 @@ type AppBarBaseProps = {
 
 export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
   const [user, setUser] = useState<User | undefined>(userFromServer)
-  const router = useRouter()
   const supabase = createClient() as any
-
-  // Runs from the <Script> onReady below, so it only fires once lemon.js has
-  // actually executed. Still guarded: if the script is blocked (ad blockers and
-  // corporate/school DNS filters routinely block lemonsqueezy.com) these globals
-  // are undefined, and throwing here would take down whatever page the app bar
-  // is rendered in. Checkout is a nice-to-have; signing in is not.
-  const setupLemonSqueezy = () => {
-    if (typeof window.createLemonSqueezy !== 'function') {
-      log.warn('LemonSqueezy script unavailable; checkout events will not be handled')
-      return
-    }
-    window.createLemonSqueezy()
-    window.LemonSqueezy?.Setup({
-      eventHandler: async (data) => {
-        if (data.event == 'Checkout.Success') {
-          // revalidatePath('/me', 'layout')
-          const { data, error } = await supabase.auth.refreshSession()
-          if (error) {
-            log.error(error.message)
-          }
-          if (data?.session) {
-            setUser(await getUserFromSession(supabase))
-          }
-          router.refresh()
-        }
-      },
-    })
-  }
 
   useEffect(() => {
     if (window) {
@@ -100,18 +68,6 @@ export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
   }, [])
   return (
     <header>
-      {/*
-        onReady (not onLoad) so setup also runs on remount when the script is
-        already cached. strategy is afterInteractive because beforeInteractive is
-        only honoured in the root layout — here it silently degraded, which is how
-        the effect ended up racing an unloaded script.
-      */}
-      <Script
-        src='https://app.lemonsqueezy.com/js/lemon.js'
-        strategy='afterInteractive'
-        onReady={setupLemonSqueezy}
-        onError={() => log.warn('LemonSqueezy script failed to load; checkout events will not be handled')}
-      />
       <div className='flex justify-between px-4 py-2 md:py-6 md:px-12'>
         <div className='flex justify-center items-center'>
           <Link href='/home'>
