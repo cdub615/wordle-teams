@@ -49,3 +49,20 @@ next-env.d.ts
 .dolt/
 *.db
 .beads-credential-key
+
+# One-off production remediation scripts. These hardcode real user email
+# addresses, and this repo is public — never commit them.
+scripts/*-prod.mjs
+
+# v2 replatform build output. v2/ holds tracked SOURCE on feat/v2-replatform
+# (guarded by its own v2/.gitignore), but on other branches only these
+# artifacts are left behind on disk — and v2/.gitignore isn't checked out to
+# suppress them. List the artifacts explicitly: a blanket `v2/` here would
+# silently ignore new v2 source files once that branch merges.
+v2/node_modules/
+v2/dist/
+v2/test-results/
+v2/.convex/
+v2/.tanstack/
+v2/.wrangler/
+v2/.output/

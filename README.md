@@ -33,7 +33,7 @@ Wordle Teams is an open-source multiplayer version of the popular word-guessing 
 - **Next.js**: A React framework for building server-side rendered and static web applications.
 - **Supabase**: An open-source Firebase alternative for backend services, including authentication, database, and storage.
 - **shadcn/ui**: A set of accessible and customizable React UI components for building modern user interfaces.
-- **Lemon Squeezy**: A payment processing system for handling in-app purchases and subscriptions.
+- **Polar**: A payment processing system for handling in-app purchases and subscriptions.
 
 ## Getting Started
 
@@ -70,9 +70,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 EDGE_CONFIG=your-vercel-edge-config-url
 LOGSNAG_TOKEN=your-logsnag-token
-LEMONSQUEEZY_API_KEY=your-lemonsqueezy-api-key
-LEMONSQUEEZY_STORE_ID=your-lemonsqueezy-store-id
-LEMONSQUEEZY_WEBHOOK_SECRET=your-lemonsqueezy-webhook-secret
+POLAR_ACCESS_TOKEN=your-polar-access-token
+POLAR_WEBHOOK_SECRET=your-polar-webhook-secret
+POLAR_PRO_MONTHLY_PRODUCT_ID=your-polar-pro-monthly-product-id
+POLAR_PRO_ANNUAL_PRODUCT_ID=your-polar-pro-annual-product-id
 ```
 
 5. Start the development server:
@@ -105,5 +106,5 @@ This project is licensed under the MIT License.
 - Next.js
 - Supabase
 - shadcn/ui
-- Lemon Squeezy
+- Polar
 - Wordle (the original game that inspired this project)

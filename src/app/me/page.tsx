@@ -1,4 +1,5 @@
 import ActionButtons from '@/components/action-buttons'
+import CheckoutReturn from '@/components/checkout-return'
 import {
   CurrentTeam,
   MyTeams,
@@ -38,10 +39,14 @@ export default async function Page() {
     log.error('Failed to fetch customer', { error })
   } else if (data && data.membership_status !== user.memberStatus) {
     // revalidatePath('/me', 'layout')
-    user = { ...user, memberStatus: data.membership_status, memberVariant: data.membership_variant }
+    user = { ...user, memberStatus: data.membership_status }
   } else if (!teams || teams.length === 0)
     return (
       <TeamsProvider initialTeams={teams} _user={user}>
+        {/* Also mounted on this branch: someone who upgrades before creating any team lands
+            here, and without it a slow webhook would leave them showing as free with nothing
+            to trigger a refresh. */}
+        <CheckoutReturn memberStatus={user.memberStatus} />
         <Intro />
       </TeamsProvider>
     )
@@ -49,6 +54,7 @@ export default async function Page() {
   return (
     <div className="p-2 grid gap-2 md:grid-cols-3 md:p-12 md:gap-6 mb-12">
       <TeamsProvider initialTeams={teams} _user={user}>
+        <CheckoutReturn memberStatus={user.memberStatus} />
         <MonthlyWinnerCelebration />
         <ActionButtons classes={'md:col-span-3'} userId={user.id} />
         <Suspense fallback={<SkeletonTable classes={'md:col-span-3'} />}>

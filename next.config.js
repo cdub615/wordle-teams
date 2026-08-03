@@ -44,6 +44,14 @@ module.exports = async (phase) => {
       disable: process.env.NODE_ENV !== "production",
       swSrc: 'src/app/sw.ts',
       swDest: 'public/sw.js',
+      // Serwist injects its own client-side registration by default, which ran in
+      // addition to src/components/service-worker-registration.tsx — verified in
+      // production: navigator.serviceWorker.register() was called twice on every
+      // page load, once from @serwist/window and once from our own component.
+      // Serwist's call has no rejection handler, so a failed registration surfaced
+      // as an unhandled promise rejection (Sentry 7481850095). We keep our own
+      // component, which handles the failure, and register once.
+      register: false,
     })
     return withSentryConfig(withSerwist(nextConfig), sentryOptions)
   }

@@ -1,9 +1,8 @@
 'use server'
 
-import { createNewCheckout, getFreeVariantId } from '@/lib/lemonsqueezy'
+import { authCallbackUrl } from '@/lib/auth-urls'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { webhookHasData, webhookHasMeta } from '@/lib/typeguards'
-import type { User, WebhookEvent, daily_scores, member_status, player_with_scores, teams } from '@/lib/types'
+import type { User, daily_scores, player_with_scores, teams } from '@/lib/types'
 import { getSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 import { revalidatePath } from 'next/cache'
@@ -104,8 +103,14 @@ export async function invitePlayer(formData: FormData) {
 
     const teamId = Number.parseInt(formData.get('teamId') as string)
     const playerIds = (formData.get('playerIds') as string).split(',')
-    const invited = (formData.get('invited') as string).split(',').filter((x) => x !== '')
-    const email = formData.get('email') as string
+    // Normalize emails to lowercase: auth/players emails are always lowercase, so storing a
+    // mixed-case address in teams.invited[] makes handle_invited_signup's case-sensitive match
+    // fail and the invitee silently never joins. See wordle-teams-5no.
+    const invited = (formData.get('invited') as string)
+      .split(',')
+      .map((x) => x.trim().toLowerCase())
+      .filter((x) => x !== '')
+    const email = (formData.get('email') as string).trim().toLowerCase()
 
     const { data: player, error } = await supabase
       .from('players')
@@ -121,6 +126,7 @@ export async function invitePlayer(formData: FormData) {
           data: {
             invited: true,
           },
+          redirectTo: authCallbackUrl('/me'),
         })
         if (error) {
           log.error('Failed to send additional invite email', { error })
@@ -146,6 +152,7 @@ export async function invitePlayer(formData: FormData) {
         data: {
           invited: true,
         },
+        redirectTo: authCallbackUrl('/me'),
       })
       if (error) {
         log.error('Failed to send invite email', { error })
@@ -280,120 +287,4 @@ export async function removePlayer(formData: FormData) {
   }
 }
 
-const relevantEvents = new Set([
-  'subscription_created',
-  'subscription_resumed',
-  'subscription_cancelled',
-  'subscription_expired',
-])
 
-export async function processWebhookEvent(webhookEvent: WebhookEvent) {
-  try {
-    const { webhookId, body: eventBody, eventName, playerId } = webhookEvent
-    const supabase = createAdminClient(await cookies())
-
-    let processingError = ''
-
-    if (!webhookHasMeta(eventBody)) {
-      processingError = "Event body is missing the 'meta' property."
-    } else if (webhookHasData(eventBody) && relevantEvents.has(eventName)) {
-      const attributes = eventBody.data.attributes
-      let variantId = attributes.variant_id as number | null
-      const freeVariantId = await getFreeVariantId()
-      let membershipStatus = variantId === freeVariantId ? ('free' as member_status) : ('pro' as member_status)
-
-      if (eventName.includes('cancelled')) {
-        membershipStatus = 'cancelled' as member_status
-        variantId = null
-      }
-      if (eventName.includes('expired')) {
-        membershipStatus = 'expired' as member_status
-        variantId = null
-      }
-
-      const { error } = await supabase
-        .from('player_customer')
-        .update({
-          customer_id: attributes.customer_id as number,
-          membership_status: membershipStatus,
-          membership_variant: variantId,
-        })
-        .eq('player_id', playerId)
-
-      if (error) {
-        processingError = error.message
-        log.error('Failed to update player_customer', { error })
-
-        return { success: false, message: 'Failed to update player_customer' }
-      }
-
-      if (eventName.includes('created') || eventName.includes('resumed')) {
-        const { error } = await supabase.rpc('handle_upgrade_team_invites', {
-          player_id_input: playerId,
-        })
-        if (error) {
-          processingError = error.message
-          log.error('Failure in handle_upgrade_team_invites', { error })
-          return { success: false, message: 'Failure in handle_upgrade_team_invites' }
-        }
-      }
-      if (eventName.includes('cancelled') || eventName.includes('expired')) {
-        const { error } = await supabase.rpc('handle_downgrade_team_removal', {
-          player_id_input: playerId,
-        })
-        if (error) {
-          processingError = error.message
-          log.error('Failure in handle_downgrade_team_removal', { error })
-          return { success: false, message: 'Failure in handle_downgrade_team_removal' }
-        }
-      }
-    }
-
-    const { error: updateError } = await supabase
-      .from('webhook_events')
-      .update({ processed: true, processing_error: processingError })
-      .eq('webhook_id', webhookId)
-
-    if (updateError) {
-      log.error('Failed to update webhook event', { error: updateError?.message })
-      return { success: false, message: 'Failed to process webhook event' }
-    }
-
-    return { success: true, message: 'Successfully processed webhook event' }
-  } catch (error) {
-    log.error('Unexpected error occurred in processWebhookEvent', { error })
-    return { success: false, message: 'Failed to process webhook event' }
-  }
-}
-
-export async function storeWebhookEvent(webhookEvent: WebhookEvent) {
-  const { body, eventName, playerId, webhookId } = webhookEvent
-  const supabase = createAdminClient(await cookies())
-  const { data, error } = await supabase
-    .from('webhook_events')
-    .insert({
-      event_name: eventName,
-      body,
-      player_id: playerId,
-      webhook_id: webhookId,
-    })
-    .select()
-    .single()
-
-  if (error) {
-    log.error('Failed to store webhook event', { error: error?.message })
-  }
-
-  return data?.id
-}
-
-export async function getCheckoutUrl(user: User) {
-  try {
-    const checkout = await createNewCheckout(`${user.firstName} ${user.lastName}`, user.email, user.id)
-    if (checkout?.data?.attributes?.url) return { checkoutUrl: checkout?.data?.attributes?.url }
-    else return { error: 'Failed to create checkout, please try again later.' }
-  } catch (error) {
-    log.error('Unexpected error occurred in getCheckoutUrl', { error })
-    return { error: 'Failed to create checkout, please try again later.' }
-  }
-}

@@ -1,60 +1,79 @@
-import { processWebhookEvent, storeWebhookEvent } from '@/app/me/actions'
-import { webhookHasMeta } from '@/lib/typeguards'
-import { WebhookEvent } from '@/lib/types'
+import { polarWebhookSecret } from '@/lib/polar/client'
+import { resolvePlayerId, type SubscriptionIdentity } from '@/lib/polar/identity'
+import { handlePolarEvent } from '@/lib/polar/webhook'
+import type { Json } from '@/lib/database.types'
+import { validateEvent, WebhookVerificationError } from '@polar-sh/sdk/webhooks.js'
 import { log } from 'next-axiom'
-import crypto from 'node:crypto'
 
 export const dynamic = 'force-dynamic'
 
+// Polar webhook receiver. See docs/superpowers/specs/2026-07-31-polar-migration-design.md.
+//
+// Deliberately thin: verify the signature, pull out the two identifiers, hand off. Everything
+// that touches the database lives in @/lib/polar/webhook, which is not a 'use server' module and
+// so is not reachable as a public action.
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function POST(request: Request) {
-  if (!process.env.LEMONSQUEEZY_WEBHOOK_SECRET) {
-    return new Response('Lemon Squeezy Webhook Secret not set in .env', {
-      status: 500,
-    })
-  }
-
   const rawBody = await request.text()
-  const signature = request.headers.get('X-Signature') ?? ''
+  const headers = Object.fromEntries(request.headers.entries())
 
-  if (!validSignature(signature, rawBody)) return new Response('Invalid signature', { status: 400 })
-  else {
-    const data = JSON.parse(rawBody) as unknown
-
-    // Type guard to check if the object has a 'meta' property.
-    if (webhookHasMeta(data)) {
-      const webhookEvent: WebhookEvent = {
-        playerId: data.meta.custom_data.user_id,
-        eventName: data.meta.event_name,
-        webhookId: data.meta.webhook_id,
-        body: data,
-      }
-      const webhookEventId = await storeWebhookEvent(webhookEvent)
-      if (!webhookEventId) {
-        return new Response('Failed to store webhook event', { status: 500 })
-      }
-      const { success } = await processWebhookEvent(webhookEvent)
-      if (!success) {
-        return new Response('Failed to process webhook event', { status: 500 })
-      }
-
-      return new Response('OK', { status: 200 })
+  let event
+  try {
+    // Verifies the Standard Webhooks signature and returns a typed, parsed event.
+    event = validateEvent(rawBody, headers, polarWebhookSecret())
+  } catch (error) {
+    if (error instanceof WebhookVerificationError) {
+      log.warn('Rejected Polar webhook with an invalid signature')
+      return new Response('Invalid signature', { status: 403 })
     }
 
-    return new Response('Data invalid', { status: 400 })
+    log.error('Failed to parse Polar webhook', { error })
+    return new Response('Invalid payload', { status: 400 })
   }
-}
 
-const validSignature = (signature: string, rawBody: string): boolean => {
-  try {
-    const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET!
+  // Standard Webhooks puts the delivery id in a header, unlike Lemon Squeezy which carried it in
+  // meta.webhook_id. Retries reuse the same id, which is what makes replay detection possible.
+  const webhookId = headers['webhook-id']
+  if (!webhookId) {
+    log.error('Polar webhook arrived without a webhook-id header', { eventType: event.type })
+    return new Response('Missing webhook-id', { status: 400 })
+  }
 
-    const hmac = crypto.createHmac('sha256', secret)
-    const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
-    const signatureBuffer = Buffer.from(signature, 'utf8')
+  // Not simply customer.externalId: Polar leaves that null when the checkout matched a customer
+  // that already existed under the same email, which silently upgraded nobody on the first real
+  // dev checkout. resolvePlayerId also checks the metadata we set and, failing that, the checkout
+  // itself. See ./identity for the full account.
+  const playerId = await resolvePlayerId(event.data as SubscriptionIdentity)
 
-    return crypto.timingSafeEqual(digest, signatureBuffer)
-  } catch (error: any) {
-    log.error('Failed to validate webhook signature', { error: error.message })
-    return false
+  // 202, not 500: a foreign or malformed external_id is not a transient fault, so retrying can
+  // never succeed. Returning 500 would put Polar into an endless redelivery loop over an event
+  // this app can do nothing with — for instance one belonging to a different integration on the
+  // same organization.
+  if (!playerId || !UUID.test(playerId)) {
+    log.warn('Polar webhook has no usable player external_id; acknowledging without processing', {
+      eventType: event.type,
+      webhookId,
+    })
+    return new Response('Accepted, no matching player', { status: 202 })
+  }
+
+  const outcome = await handlePolarEvent({
+    eventType: event.type,
+    playerId,
+    webhookId,
+    body: JSON.parse(rawBody) as Json,
+  })
+
+  switch (outcome.kind) {
+    case 'processed':
+    case 'duplicate':
+      return new Response('OK', { status: 200 })
+    case 'ignored':
+      return new Response(`Accepted, ${outcome.reason}`, { status: 202 })
+    case 'failed':
+      // 500 asks Polar to retry, which is correct for a genuinely transient database failure.
+      return new Response(outcome.message, { status: 500 })
   }
 }

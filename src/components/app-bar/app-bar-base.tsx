@@ -4,12 +4,9 @@ import ModeToggle from '@/components/mode-toggle'
 import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@/lib/types'
-import { getUserFromSession } from '@/lib/utils'
 import { log } from 'next-axiom'
 // import { revalidatePath } from 'next/cache'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import Script from 'next/script'
 import { useEffect, useState } from 'react'
 import UserDropdown from './user-dropdown'
 
@@ -29,26 +26,9 @@ type AppBarBaseProps = {
 
 export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
   const [user, setUser] = useState<User | undefined>(userFromServer)
-  const router = useRouter()
   const supabase = createClient() as any
-  useEffect(() => {
-    window.createLemonSqueezy()
-    window.LemonSqueezy.Setup({
-      eventHandler: async (data) => {
-        if (data.event == 'Checkout.Success') {
-          // revalidatePath('/me', 'layout')
-          const { data, error } = await supabase.auth.refreshSession()
-          if (error) {
-            log.error(error.message)
-          }
-          if (data?.session) {
-            setUser(await getUserFromSession(supabase))
-          }
-          router.refresh()
-        }
-      },
-    })
 
+  useEffect(() => {
     if (window) {
       const isStandalone =
         (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
@@ -88,7 +68,6 @@ export default function AppBarBase({ userFromServer }: AppBarBaseProps) {
   }, [])
   return (
     <header>
-      <Script src='https://app.lemonsqueezy.com/js/lemon.js' strategy='beforeInteractive'></Script>
       <div className='flex justify-between px-4 py-2 md:py-6 md:px-12'>
         <div className='flex justify-center items-center'>
           <Link href='/home'>

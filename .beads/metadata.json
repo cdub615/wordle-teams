@@ -2,6 +2,6 @@
   "database": "dolt",
   "backend": "dolt",
   "dolt_mode": "embedded",
-  "dolt_database": "wt",
-  "project_id": "4f07d0d6-eabb-4a5a-aee1-efc3a0bb6fc9"
+  "dolt_database": "wordle_teams",
+  "project_id": "3e463ad3-c2b7-44ba-8752-5e626050cacd"
 }

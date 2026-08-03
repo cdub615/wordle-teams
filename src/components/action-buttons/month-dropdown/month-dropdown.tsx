@@ -1,6 +1,6 @@
 'use client'
 
-import { getCheckoutUrl } from '@/app/me/actions'
+import { getCheckoutUrl } from '@/lib/polar/actions'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -38,9 +38,11 @@ export default function MonthDropdown() {
   const handleMonthChange = (m: string) => setMonth(parseISO(m))
   const handleUpgrade = async () => {
     setLoading(true)
-    const { checkoutUrl, error } = await getCheckoutUrl(user)
+    const { checkoutUrl, error } = await getCheckoutUrl()
     if (error) toast.error(error)
-    else if (checkoutUrl) window.LemonSqueezy.Url.Open(checkoutUrl)
+    // Full navigation rather than an overlay: no third-party script is loaded, and the customer
+    // picks monthly or annual on Polar's own page.
+    else if (checkoutUrl) window.location.href = checkoutUrl
     setLoading(false)
   }
 
