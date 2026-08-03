@@ -13,6 +13,7 @@ import { Route as SentryCheckRouteImport } from './routes/sentry-check'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiSentryCheckRouteImport } from './routes/api/sentry-check'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const SentryCheckRoute = SentryCheckRouteImport.update({
@@ -35,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSentryCheckRoute = ApiSentryCheckRouteImport.update({
+  id: '/api/sentry-check',
+  path: '/api/sentry-check',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
   '/sentry-check': typeof SentryCheckRoute
+  '/api/sentry-check': typeof ApiSentryCheckRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
   '/sentry-check': typeof SentryCheckRoute
+  '/api/sentry-check': typeof ApiSentryCheckRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -61,14 +69,34 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/login': typeof LoginRoute
   '/sentry-check': typeof SentryCheckRoute
+  '/api/sentry-check': typeof ApiSentryCheckRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/login' | '/sentry-check' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/login'
+    | '/sentry-check'
+    | '/api/sentry-check'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/login' | '/sentry-check' | '/api/auth/$'
-  id: '__root__' | '/' | '/about' | '/login' | '/sentry-check' | '/api/auth/$'
+  to:
+    | '/'
+    | '/about'
+    | '/login'
+    | '/sentry-check'
+    | '/api/sentry-check'
+    | '/api/auth/$'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/login'
+    | '/sentry-check'
+    | '/api/sentry-check'
+    | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +104,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   LoginRoute: typeof LoginRoute
   SentryCheckRoute: typeof SentryCheckRoute
+  ApiSentryCheckRoute: typeof ApiSentryCheckRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -109,6 +138,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/sentry-check': {
+      id: '/api/sentry-check'
+      path: '/api/sentry-check'
+      fullPath: '/api/sentry-check'
+      preLoaderRoute: typeof ApiSentryCheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -124,6 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   LoginRoute: LoginRoute,
   SentryCheckRoute: SentryCheckRoute,
+  ApiSentryCheckRoute: ApiSentryCheckRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
