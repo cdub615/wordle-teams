@@ -7,6 +7,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { ConvexQueryClient } from '@convex-dev/react-query'
 import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
+import { pageTitle } from '#/lib/seo'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 
@@ -43,7 +44,10 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'TanStack Start Starter',
+        // The site-wide default. Routes that had their own title in v1
+        // override it with pageTitle('...'); everything else inherits this,
+        // which is exactly how Next's title.default behaved.
+        title: pageTitle(),
       },
     ],
     links: [

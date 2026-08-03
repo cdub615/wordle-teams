@@ -1,8 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import { authClient } from '#/lib/auth-client'
+import { pageTitle } from '#/lib/seo'
 
 export const Route = createFileRoute('/login')({
+  // v1: src/app/login/layout.tsx metadata.title
+  head: () => ({ meta: [{ title: pageTitle('Login / Signup') }] }),
   beforeLoad: ({ context }) => {
     if (context.isAuthenticated) throw redirect({ to: '/' })
   },

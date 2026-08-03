@@ -4,8 +4,12 @@ import { useSuspenseQuery, useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../convex/_generated/api'
 import { authClient } from '#/lib/auth-client'
+import { pageTitle } from '#/lib/seo'
 
 export const Route = createFileRoute('/')({
+  // v1: src/app/me/page.tsx metadata.title. The signed-in landing page is /me
+  // there and / here, so the title follows the screen rather than the path.
+  head: () => ({ meta: [{ title: pageTitle('Dashboard') }] }),
   beforeLoad: ({ context }) => {
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
   },
