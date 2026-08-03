@@ -40,9 +40,17 @@ export function getRouter() {
     // root-only handler never fires for a child route. Verified the hard way on
     // beta — a root onCatch produced no log line at all.
     //
-    // This is what makes server-side errors visible. TanStack Start converts a
+    // This is what makes route errors visible at all. TanStack Start converts a
     // throw into a response before it leaves the fetch handler, so the Sentry
     // wrappers in server.ts never see it. See wordle-teams-7qa.
+    //
+    // KNOWN LIMIT, measured not assumed: this fires in the BROWSER, including
+    // for errors that originated during SSR — React does not run
+    // componentDidCatch while server rendering, so the boundary only catches
+    // once the client hydrates. A real visitor's SSR loader error is therefore
+    // reported (confirmed on beta); the same request made by curl or a crawler,
+    // which never hydrates, is not. Server route handlers are not affected —
+    // they report without a browser via withErrorCapture.
     defaultOnCatch: (error) => captureError(error, { boundary: 'router' }),
   })
   setupRouterSsrQueryIntegration({ router, queryClient })
