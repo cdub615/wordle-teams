@@ -2,6 +2,8 @@
 	"name": "wordle-teams-v2",
 	"private": true,
 	"type": "module",
+	"//packageManager": "v2 pins its own pnpm rather than inheriting the root's, per the island rule in the v2 design: no shared lockfile, no root tooling changes. The root pins 11.13.0, which pnpm has since marked a BROKEN RELEASE — its @pnpm/exe build shipped without a binary, so CI's self-installer refuses it outright (ERR_PNPM_BROKEN_PNPM_RELEASE).",
+	"packageManager": "pnpm@11.20.0",
 	"imports": {
 		"#/*": "./src/*"
 	},

@@ -38,13 +38,19 @@ jobs:
       # Must precede setup-node: `cache: pnpm` needs the pnpm binary to exist
       # before it can resolve the store path.
       #
-      # No `version:` on purpose. `defaults.run.working-directory` applies only
-      # to `run:` steps, never to `uses:` steps, so this action reads the ROOT
-      # package.json — which pins packageManager pnpm@11.13.0. Passing a version
-      # here as well is a hard error ("Multiple versions of pnpm specified").
-      # Letting the root pin win is also what we want: it is the version that
-      # generated v2/pnpm-lock.yaml.
+      # No `version:` on purpose — the version comes from packageManager in
+      # v2/package.json, and passing both is a hard error ("Multiple versions
+      # of pnpm specified").
+      #
+      # package_json_file must be spelled out because
+      # `defaults.run.working-directory` applies only to `run:` steps, never to
+      # `uses:` steps. Left at its default this action reads the ROOT
+      # package.json, which pins pnpm@11.13.0 — a release pnpm has since marked
+      # broken, and which CI's self-installer refuses outright. Pointing at v2's
+      # own manifest also honours the island rule: v2 owns its toolchain.
       - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: v2/package.json
 
       - uses: actions/setup-node@v7
         with:
