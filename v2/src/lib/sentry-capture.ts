@@ -1,4 +1,4 @@
-import { captureException, withScope } from '@sentry/core'
+import { captureException, withScope, getClient } from '@sentry/core'
 
 // Isomorphic error reporting.
 //
@@ -27,9 +27,15 @@ export function captureError(error: unknown, context?: ErrorContext) {
   // Never let reporting an error become an error. A throw here would surface as
   // a second, misleading failure on top of the one being reported.
   try {
+    // TEMPORARY diagnostic for wordle-teams-7qa — remove once verified.
+    const client = getClient()
+    console.log(
+      `[sentry-capture] called. client bound: ${!!client}. dsn: ${client?.getOptions()?.dsn ? 'set' : 'MISSING'}. context: ${JSON.stringify(context)}`,
+    )
     withScope((scope) => {
       if (context) scope.setContext('wordle-teams', context)
-      captureException(error)
+      const id = captureException(error)
+      console.log(`[sentry-capture] captureException returned event id: ${id}`)
     })
   } catch {
     // Intentionally silent.
