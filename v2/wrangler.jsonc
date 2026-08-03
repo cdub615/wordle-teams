@@ -14,6 +14,22 @@
 		"enabled": true
 	},
 	"upload_source_maps": true,
+	/**
+	 * Custom Domain, not a Route: Cloudflare provisions the DNS record and the
+	 * TLS certificate itself and sends the whole hostname to this Worker.
+	 *
+	 * A wildcard *.wordleteams.com A record points at Vercel, which is why
+	 * beta.wordleteams.com already answered with a Vercel 404 before this
+	 * existed. An explicit record outranks a wildcard, so the custom domain
+	 * takes the name — but if beta ever serves Vercel again, suspect that
+	 * wildcard first rather than the Worker. (wt-ksh.1.9)
+	 */
+	"routes": [
+		{
+			"pattern": "beta.wordleteams.com",
+			"custom_domain": true
+		}
+	],
 	"vars": {
 		/**
 		 * Read by the worker at runtime in src/server.ts. Declared here rather
@@ -26,7 +42,27 @@
 		 * not redundancy: vars reach the worker at runtime, while the client
 		 * bundle inlines import.meta.env at build time and never sees them.
 		 */
-		"SENTRY_DSN": "https://b709a5bb4e96c621ab3267a5efc1dbfa@o177762.ingest.us.sentry.io/4511848703918080"
+		"SENTRY_DSN": "https://b709a5bb4e96c621ab3267a5efc1dbfa@o177762.ingest.us.sentry.io/4511848703918080",
+
+		/**
+		 * Read at RUNTIME by src/lib/auth-server.ts, which prefers process.env
+		 * over import.meta.env. Also in .env.production, because the client
+		 * bundle inlines them at build time and never sees a wrangler var. Two
+		 * mechanisms, not redundancy — but they must agree, so change together.
+		 */
+		"VITE_CONVEX_URL": "https://fabulous-goldfish-949.convex.cloud",
+		"VITE_CONVEX_SITE_URL": "https://fabulous-goldfish-949.convex.site",
+
+		/**
+		 * Carried because Task 9 specifies it, but NOTHING READS IT TODAY — no
+		 * reference exists in src/, convex/ or e2e/. The value that actually
+		 * drives auth callbacks is SITE_URL set on the Convex deployment
+		 * itself (convex/auth.ts:14), which is a different variable. Kept
+		 * because Better Auth callback config is likely to want it in Phase 1;
+		 * delete it if that never materialises rather than letting it look
+		 * load-bearing.
+		 */
+		"VITE_SITE_URL": "https://beta.wordleteams.com"
 	}
 	/**
 	 * Smart Placement
