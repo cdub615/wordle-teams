@@ -34,7 +34,7 @@ that touches billing.
 |---|---|---|
 | Cutover style | Hard cutover — Lemon Squeezy removed entirely in one release | Dual-run (two providers writing `player_customer` means `customer_id` must hold both an int and a UUID); hard cutover with manual grandfathering |
 | Free tier | No Polar product. `free` is a DB default, never webhook-driven | Recreating a $0 "Free" product to mirror today's structure |
-| Identity | `external_customer_id` = Supabase `player_id`; Polar's customer UUID is never stored | Retyping both columns to `text`; dropping only `membership_variant` |
+| Identity | `external_customer_id` = Supabase `player_id`; Polar's customer UUID is never stored. **Amended:** the webhook cannot rely on it alone — see the correction below | Retyping both columns to `text`; dropping only `membership_variant` |
 | Cancel semantics | Downgrade on `subscription.revoked` only | A `canceling` enum value; downgrading on `canceled` as today does |
 | Checkout UX | Hosted redirect, no third-party script | Embedded overlay via `@polar-sh/checkout`; the `@polar-sh/nextjs` route adapter |
 | Existing subscriber | Email them once dev is verified, then deploy on their response | Emailing before the work starts; shipping first and emailing after |
@@ -56,6 +56,26 @@ Neither column earns that cost:
 
 Dropping both columns therefore removes the type migration, two JWT claims, and a dead field in a
 single move.
+
+**Correction (proven on dev, 2026-08-03).** The premise above — that `external_customer_id` set
+at checkout always comes back on the customer — is FALSE. Polar matches a checkout to an existing
+customer by email when one exists, and does not stamp `external_customer_id` onto it. The value
+stays on the checkout while the customer keeps its own, usually null, external id.
+
+The first real sandbox checkout hit exactly this: payment succeeded, the subscription went active,
+Polar delivered the webhook and logged `succeeded=true http=202`, and nobody was upgraded. The
+checkout carried the right id; the customer it resolved to had been created months earlier with
+`external_id` null. Silent, because 202 is not an error.
+
+This is not a sandbox quirk — in production it affects anyone who already exists as a Polar
+customer under that email, which includes every customer `polar-migrate` imports.
+
+The conclusion about the *columns* still holds: nothing needs to be stored locally. But reading
+identity off the webhook needs `src/lib/polar/identity.ts`, which checks the customer's external
+id, then `metadata.player_id` (set on every checkout), then the checkout itself via
+`subscription.checkoutId` — and stamps the external id back onto the customer so later events take
+the fast path. Verified end to end: a redelivery of the failing event returned `http=200`, wrote
+the `webhook_events` row, set `membership_status` to `pro`, and repaired the customer.
 
 ### Why cancel and revoke must not be conflated
 
@@ -100,6 +120,7 @@ Replacing `src/lib/lemonsqueezy/`:
 | `src/lib/polar/checkout.ts` | `createProCheckout(playerId, email, name)` → checkout URL |
 | `src/lib/polar/portal.ts` | `getCustomerPortalUrl(playerId)` via customer session on `external_customer_id` |
 | `src/lib/polar/events.ts` | Pure, no I/O: `mapEventToTransition(eventType)` → `{ status, rpc } \| null` |
+| `src/lib/polar/identity.ts` | `resolvePlayerId(data)` — customer external id, then checkout metadata, then the checkout itself |
 
 The event mapping is isolated as a pure function because it holds the only real logic in the
 integration and has no reason to touch Supabase or the network. It can be exercised over every
