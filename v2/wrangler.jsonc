@@ -13,7 +13,21 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	"vars": {
+		/**
+		 * Read by the worker at runtime in src/server.ts. Declared here rather
+		 * than pushed with `wrangler secret put` because a Sentry DSN is not a
+		 * secret — it is public in every client bundle by design and only
+		 * permits event ingestion. A var is reproducible; a secret is a manual
+		 * step someone has to remember on every new environment. (wt-3yb)
+		 *
+		 * The same DSN is ALSO in .env.production as VITE_SENTRY_DSN. That is
+		 * not redundancy: vars reach the worker at runtime, while the client
+		 * bundle inlines import.meta.env at build time and never sees them.
+		 */
+		"SENTRY_DSN": "https://b709a5bb4e96c621ab3267a5efc1dbfa@o177762.ingest.us.sentry.io/4511848703918080"
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

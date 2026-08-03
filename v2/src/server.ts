@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/cloudflare'
 import { wrapFetchWithSentry } from '@sentry/tanstackstart-react'
 import handler from '@tanstack/react-start/server-entry'
+import { TRACES_SAMPLE_RATE } from './lib/sentry-config'
 
 // @ts-expect-error handler type mismatch between TanStack Start and the Sentry
 // SDK's ServerEntry (Start's fetch opts are typed, Sentry's are unknown) —
@@ -37,7 +38,7 @@ const withNoStoreOnDocuments = {
 export default Sentry.withSentry(
   (env: { SENTRY_DSN?: string }) => ({
     dsn: env.SENTRY_DSN,
-    tracesSampleRate: 0.2,
+    tracesSampleRate: TRACES_SAMPLE_RATE,
   }),
   withNoStoreOnDocuments,
 )
