@@ -44,6 +44,7 @@
 	"devDependencies": {
 		"@edge-runtime/vm": "^5.0.0",
 		"@playwright/test": "^1.61.1",
+		"@supabase/supabase-js": "^2.112.2",
 		"@tailwindcss/typography": "^0.5.16",
 		"@tanstack/devtools-vite": "^0.8.1",
 		"@tanstack/router-cli": "^1.132.0",
