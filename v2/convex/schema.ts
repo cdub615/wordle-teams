@@ -10,9 +10,8 @@ import { v } from 'convex/values'
 // audit for everyone, and once more inside the cutover window.
 //
 // Timestamps are stored as epoch milliseconds rather than strings so they sort
-// and compare without parsing. `date` on a daily score is the exception: it is a
-// calendar day ('2026-08-11'), not an instant, and lower-casing it to a
-// timestamp would invent a timezone the original never had.
+// and compare without parsing — including dailyScores.date, which despite its
+// name is a `timestamp with time zone` in Supabase rather than a calendar day.
 
 // Mirrors the Postgres member_status enum exactly. 'cancelled' survives for
 // pre-existing rows even though nothing writes it any more — the Polar
@@ -77,11 +76,26 @@ export default defineSchema({
   dailyScores: defineTable({
     legacyId: v.number(),
     playerId: v.id('players'),
-    date: v.string(), // calendar day, 'YYYY-MM-DD'
+
+    // AN INSTANT, NOT A CALENDAR DAY. Supabase types this `timestamp with time
+    // zone` and v1 writes whatever the client sends as `scoreDate`, so the
+    // stored time-of-day is inconsistent across production: some rows sit at
+    // 06:00Z (US Central midnight), others at the moment of submission. Which
+    // calendar day a row belongs to therefore has to be derived in the player's
+    // own timezone. Phase 2 owns that; the copy stores the instant unchanged.
+    date: v.number(),
+
     guesses: v.array(v.string()),
     answer: v.optional(v.string()),
     createdAt: v.optional(v.number()),
   })
+    // Keyed on legacyId like every other table. NOT on player+date: v1 has no
+    // uniqueness constraint on that pair and actively creates duplicates —
+    // upsertBoard inserts a fresh row whenever the client has no scoreId yet, so
+    // a double submit makes two. Production holds 5 such pairs. Deduplicating
+    // during the copy would silently drop rows and make the parity check lie.
+    // See wordle-teams-rac.
+    .index('by_legacyId', ['legacyId'])
     .index('by_player_and_date', ['playerId', 'date'])
     .index('by_date', ['date']),
 

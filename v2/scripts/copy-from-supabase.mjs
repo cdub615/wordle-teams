@@ -12,8 +12,14 @@
  * Required environment:
  *   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY   (or PROD_URL / PROD_KEY)
  *   CONVEX_URL                                             the target deployment
- *   CONVEX_DEPLOY_KEY                                      admin auth for internal mutations
+ *   CONVEX_MIGRATION_KEY                                   admin auth for internal functions
  *   ME_EMAIL                                               only for --scope=mine
+ *
+ * The migration key is deliberately NOT the everyday deploy key. It needs
+ * deployment:functions:runInternalMutations and :runInternalQueries — the power
+ * to rewrite every table — which the day-to-day key has no business carrying.
+ * Keep it until cutover, since this script runs again at the Phase 7 parity
+ * audit and inside the cutover window, then revoke it in Phase 9.
  *
  * Scope:
  *   --scope=mine  (default) teams ME_EMAIL belongs to, and everyone in them.
@@ -38,7 +44,7 @@ if (!['mine', 'all'].includes(scope)) {
 const SUPABASE_URL = process.env.PROD_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_KEY = process.env.PROD_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
 const CONVEX_URL = process.env.CONVEX_URL
-const CONVEX_DEPLOY_KEY = process.env.CONVEX_DEPLOY_KEY
+const CONVEX_MIGRATION_KEY = process.env.CONVEX_MIGRATION_KEY
 const ME = (process.env.ME_EMAIL || '').toLowerCase()
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -56,8 +62,8 @@ if (scope === 'mine' && !ME) {
   console.error('Set ME_EMAIL for --scope=mine. Kept out of source: this repo is public.')
   process.exit(1)
 }
-if (!dryRun && (!CONVEX_URL || !CONVEX_DEPLOY_KEY)) {
-  console.error('Set CONVEX_URL and CONVEX_DEPLOY_KEY, or pass --dry-run.')
+if (!dryRun && (!CONVEX_URL || !CONVEX_MIGRATION_KEY)) {
+  console.error('Set CONVEX_URL and CONVEX_MIGRATION_KEY, or pass --dry-run.')
   process.exit(1)
 }
 
@@ -168,7 +174,7 @@ const teamRows = scopedTeams.map((t) => ({
 const scoreRows = scopedScores.map((s) => ({
   legacyId: s.id,
   playerLegacyId: s.player_id,
-  date: s.date,
+  date: ms(s.date),
   guesses: s.guesses || [],
   answer: opt(s.answer),
   createdAt: ms(s.created_at),
@@ -208,7 +214,7 @@ if (dryRun) {
 // --- writing -----------------------------------------------------------------
 
 const convex = new ConvexHttpClient(CONVEX_URL)
-convex.setAdminAuth(CONVEX_DEPLOY_KEY)
+convex.setAdminAuth(CONVEX_MIGRATION_KEY)
 
 // Convex bounds how much a single mutation may write, so batch. Small enough to
 // stay well inside the limit even for the widest rows (webhook bodies).

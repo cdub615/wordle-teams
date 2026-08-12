@@ -19,7 +19,7 @@ import type { MutationCtx } from './_generated/server'
 const chunkNote = 'Batched by the caller; Convex bounds how much one mutation may write.'
 
 /** Find an existing doc by its Supabase primary key. */
-async function byLegacyId<T extends 'players' | 'teams' | 'playerMembership'>(
+async function byLegacyId<T extends 'players' | 'teams' | 'playerMembership' | 'dailyScores'>(
   ctx: MutationCtx,
   table: T,
   legacyId: string | number,
@@ -150,7 +150,7 @@ export const upsertDailyScores = internalMutation({
       v.object({
         legacyId: v.number(),
         playerLegacyId: v.string(),
-        date: v.string(),
+        date: v.number(),
         guesses: v.array(v.string()),
         answer: v.optional(v.string()),
         createdAt: v.optional(v.number()),
@@ -168,14 +168,14 @@ export const upsertDailyScores = internalMutation({
         continue
       }
       const doc = { ...rest, playerId: player._id }
-      // Keyed on the player+date pair rather than legacyId: that is the pair the
-      // app treats as unique, and it is what a re-run must not duplicate.
-      const existing = await ctx.db
-        .query('dailyScores')
-        .withIndex('by_player_and_date', (q) =>
-          q.eq('playerId', player._id).eq('date', rest.date),
-        )
-        .unique()
+      // Keyed on legacyId, NOT on player+date. v1 has no uniqueness constraint
+      // on that pair — upsertBoard inserts a fresh row whenever the client has
+      // no scoreId yet, so a double submit produces two rows, and production
+      // holds 5 of them. Keying on the pair would silently collapse those and
+      // make the Phase 7 parity check report a difference it could not explain.
+      // Copy faithfully; fix the duplicates as their own decision
+      // (wordle-teams-rac).
+      const existing = await byLegacyId(ctx, 'dailyScores', rest.legacyId)
       if (existing) {
         await ctx.db.patch(existing._id, doc)
         updated++
@@ -332,6 +332,54 @@ export const upsertWebhookEvents = internalMutation({
       }
     }
     return { inserted, updated, skipped }
+  },
+})
+
+// --- purge -------------------------------------------------------------------
+
+/**
+ * Deletes every copied row. Internal-only, and deliberately requires an explicit
+ * confirm argument so it cannot be triggered by a mistyped function name.
+ *
+ * Needed because the copy's shape can change while the copy is being built —
+ * changing dailyScores.date from a string to a number, for instance, leaves rows
+ * the new schema will not validate. Also the honest way to re-run a copy from
+ * scratch rather than trusting upserts to have converged.
+ *
+ * Never point this at a deployment holding data that was not copied. It does not
+ * touch the Better Auth component's tables, so it cannot sign anyone out.
+ */
+export const purgeCopiedData = internalMutation({
+  args: {
+    confirm: v.literal('yes-delete-all-copied-data'),
+    // Convex caps a single function execution at 4096 reads, and the copied
+    // scope alone is ~7000 daily scores. So this deletes a bounded slice per
+    // call and reports whether more remains; the caller loops until done.
+    batch: v.optional(v.number()),
+  },
+  handler: async (ctx, { batch = 800 }) => {
+    const deleted: Record<string, number> = {}
+    let remaining = false
+
+    // Children before parents, so an interrupted purge never leaves a score
+    // pointing at a player that no longer exists.
+    for (const table of [
+      'dailyScores',
+      'monthlyWinners',
+      'webhookEvents',
+      'playerMembership',
+      'teams',
+      'players',
+    ] as const) {
+      const rows = await ctx.db.query(table).take(batch)
+      for (const row of rows) await ctx.db.delete(row._id)
+      deleted[table] = rows.length
+      if (rows.length === batch) {
+        remaining = true
+        break // stay well inside the read limit; the next call continues here
+      }
+    }
+    return { deleted, remaining }
   },
 })
 

@@ -97,14 +97,14 @@ describe('dailyScores', () => {
       await ctx.db.insert('dailyScores', {
         legacyId: 1,
         playerId,
-        date: '2026-08-11',
+        date: Date.parse('2026-08-11T06:00:00Z'),
         guesses: ['crane', 'slate', 'tests'],
         answer: 'tests',
       })
 
       const found = await ctx.db
         .query('dailyScores')
-        .withIndex('by_player_and_date', (q) => q.eq('playerId', playerId).eq('date', '2026-08-11'))
+        .withIndex('by_player_and_date', (q) => q.eq('playerId', playerId).eq('date', Date.parse('2026-08-11T06:00:00Z')))
         .unique()
       expect(found?.guesses).toHaveLength(3)
       expect(found?.answer).toBe('tests')
@@ -118,7 +118,7 @@ describe('dailyScores', () => {
       const id = await ctx.db.insert('dailyScores', {
         legacyId: 2,
         playerId,
-        date: '2026-08-10',
+        date: Date.parse('2026-08-10T06:00:00Z'),
         guesses: [],
       })
       expect((await ctx.db.get(id))?.answer).toBeUndefined()
