@@ -115,7 +115,16 @@ export default defineSchema({
     // way to group by an instant across 57 timezones, so the wrong thing is left
     // hard to do.
     .index('by_player_and_puzzleDay', ['playerId', 'puzzleDay'])
-    .index('by_puzzleDay', ['puzzleDay']),
+    .index('by_puzzleDay', ['puzzleDay'])
+
+    // DO NOT USE EITHER OF THE TWO BELOW. They index the raw instant, and
+    // grouping by an instant across 57 player timezones is precisely the v1 bug
+    // that puzzleDay exists to fix. They are still here only because DROPPING an
+    // index requires deployment:data:view, which neither the CI key nor the
+    // local key carries — adding indexes is permitted, removing them is not.
+    // Tracked for removal once a key has that permission.
+    .index('by_player_and_date', ['playerId', 'date'])
+    .index('by_date', ['date']),
 
   monthlyWinners: defineTable({
     legacyId: v.number(),
