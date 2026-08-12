@@ -393,6 +393,81 @@ export const purgeCopiedData = internalMutation({
  * ~171 teams — and will need revisiting only if that changes by an order of
  * magnitude.
  */
+/**
+ * Everything the parity check needs from the small tables in one call.
+ * Deliberately excludes daily scores: there are ~7000 of them in the scoped copy
+ * alone, and Convex bounds reads per execution. Those go through
+ * playerScoreFingerprint, one player at a time.
+ */
+export const parityProbe = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const teams = await ctx.db.query('teams').collect()
+    const winners = await ctx.db.query('monthlyWinners').collect()
+    const memberships = await ctx.db.query('playerMembership').collect()
+    const players = await ctx.db.query('players').collect()
+
+    const playerLegacyById = new Map(players.map((p) => [p._id, p.legacyId]))
+    const teamLegacyById = new Map(teams.map((t) => [t._id, t.legacyId]))
+
+    return {
+      players: players.map((p) => ({ legacyId: p.legacyId, email: p.email })),
+      teams: teams.map((t) => ({
+        legacyId: t.legacyId,
+        name: t.name,
+        playerCount: t.playerIds.length,
+        invited: t.invited,
+      })),
+      // The design's named example of a known aggregate: a specific month's
+      // winner. Compared as a whole set rather than one sample.
+      winners: winners.map((w) => ({
+        teamLegacyId: teamLegacyById.get(w.teamId) ?? null,
+        year: w.year,
+        month: w.month,
+        winnerLegacyId: playerLegacyById.get(w.playerId) ?? null,
+      })),
+      memberships: memberships.map((m) => ({
+        legacyId: m.legacyId,
+        playerLegacyId: playerLegacyById.get(m.playerId) ?? null,
+        membershipStatus: m.membershipStatus,
+      })),
+    }
+  },
+})
+
+/**
+ * Per-player daily-score fingerprint. One player at a time so a big copy cannot
+ * blow the per-execution read limit — production's heaviest player has a few
+ * hundred boards, and the scoped set as a whole has ~7000.
+ *
+ * Returns a puzzleDay histogram rather than raw rows: it is small, it catches a
+ * board landing on the wrong day (which is the whole point of puzzleDay), and it
+ * catches duplicates, which a bare count would hide.
+ */
+export const playerScoreFingerprint = internalQuery({
+  args: { playerLegacyId: v.string() },
+  handler: async (ctx, { playerLegacyId }) => {
+    const player = await ctx.db
+      .query('players')
+      .withIndex('by_legacyId', (q) => q.eq('legacyId', playerLegacyId))
+      .unique()
+    if (!player) return null
+
+    const scores = await ctx.db
+      .query('dailyScores')
+      .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))
+      .collect()
+
+    const byDay: Record<string, number> = {}
+    let totalGuesses = 0
+    for (const s of scores) {
+      byDay[s.puzzleDay] = (byDay[s.puzzleDay] ?? 0) + 1
+      totalGuesses += s.guesses.length
+    }
+    return { count: scores.length, totalGuesses, byDay }
+  },
+})
+
 export const counts = internalQuery({
   args: {},
   handler: async (ctx) => ({

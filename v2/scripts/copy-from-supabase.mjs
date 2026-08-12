@@ -27,9 +27,9 @@
  *
  * PRINTS COUNTS, NEVER ADDRESSES. This repository is public.
  */
-import { createClient } from '@supabase/supabase-js'
 import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
+import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
 
 const args = process.argv.slice(2)
 const has = (flag) => args.includes(flag)
@@ -41,23 +41,10 @@ if (!['mine', 'all'].includes(scope)) {
   process.exit(1)
 }
 
-const SUPABASE_URL = process.env.PROD_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
-const SUPABASE_KEY = process.env.PROD_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
 const CONVEX_URL = process.env.CONVEX_URL
 const CONVEX_MIGRATION_KEY = process.env.CONVEX_MIGRATION_KEY
 const ME = (process.env.ME_EMAIL || '').toLowerCase()
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error('Set PROD_URL/PROD_KEY, or pass --env-file=../.env.production.local')
-  process.exit(1)
-}
-// Same guard the other prod scripts carry: refuse to run against anything but
-// the known production project, so a stale env file cannot point this somewhere
-// unexpected.
-if (!SUPABASE_URL.includes('dcfqzbdusxhrfgvnpwqc')) {
-  console.error(`Refusing to run: ${SUPABASE_URL} is not the prod project.`)
-  process.exit(1)
-}
 if (scope === 'mine' && !ME) {
   console.error('Set ME_EMAIL for --scope=mine. Kept out of source: this repo is public.')
   process.exit(1)
@@ -67,113 +54,30 @@ if (!dryRun && (!CONVEX_URL || !CONVEX_MIGRATION_KEY)) {
   process.exit(1)
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
-
-async function readAll(table, select = '*') {
-  const rows = []
-  const size = 1000
-  for (let from = 0; ; from += size) {
-    const { data, error } = await supabase.from(table).select(select).range(from, from + size - 1)
-    if (error) throw new Error(`${table}: ${error.message}`)
-    rows.push(...data)
-    if (data.length < size) break
-  }
-  return rows
-}
+const supabase = connect()
 
 const ms = (t) => (t ? new Date(t).getTime() : undefined)
 const opt = (s) => (s === null || s === undefined || s === '' ? undefined : s)
 
-// Backfill rule for puzzleDay, decided with the owner on 2026-08-12.
-//
-// v1 never stored which day a board belonged to — only the instant — and each
-// viewer re-derived the day in their own timezone, so travellers and
-// cross-timezone teams disagreed. v2 stores the day explicitly, which means the
-// historical rows need one assigned.
-//
-// The rule is the PLAYER'S OWN recorded timezone: the row means "the day it was
-// for the person entering it", which is exactly the semantic v2 uses going
-// forward. Measured across production, this moves 581 of 7468 rows relative to
-// resolving in UTC, and 160 relative to resolving in the app's home zone.
-//
-// Known imperfection, accepted: players.time_zone is their CURRENT zone, not the
-// one they were in at entry time, so a board entered while travelling gets their
-// home day. There is no better signal in the data, and it is a one-time backfill
-// of history rather than the rule for new entries.
-const HOME_TZ = 'America/Chicago' // fallback for the 8 players with no timezone
-
-const dayFormatters = new Map()
-function puzzleDayFor(instantIso, timeZone) {
-  const tz = timeZone || HOME_TZ
-  if (!dayFormatters.has(tz)) {
-    try {
-      dayFormatters.set(
-        tz,
-        // 'en-CA' formats as YYYY-MM-DD, which is the shape we want to store.
-        new Intl.DateTimeFormat('en-CA', {
-          timeZone: tz,
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-        }),
-      )
-    } catch {
-      dayFormatters.set(tz, null) // unknown zone name; fall back below
-    }
-  }
-  const fmt = dayFormatters.get(tz)
-  if (fmt) return fmt.format(new Date(instantIso))
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: HOME_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(instantIso))
-}
-
 console.log(`Reading Supabase (scope=${scope})...`)
-const [players, teams, scores, winners, memberships, webhooks] = await Promise.all([
-  readAll('players'),
-  readAll('teams'),
-  readAll('daily_scores'),
-  readAll('monthly_winners'),
-  readAll('player_customer'),
-  readAll('webhook_events'),
-])
-
-// --- scope resolution --------------------------------------------------------
-
-let scopedTeams = teams
-let scopedPlayerIds = new Set(players.map((p) => p.id))
-
-if (scope === 'mine') {
-  const me = players.find((p) => (p.email || '').toLowerCase() === ME)
-  if (!me) {
-    console.error('ME_EMAIL does not match any player in production.')
-    process.exit(1)
-  }
-  scopedTeams = teams.filter((t) => (t.player_ids || []).includes(me.id) || t.creator === me.id)
-  // Everyone in those teams, so scoreboards have real opponents rather than a
-  // single player talking to themselves.
-  scopedPlayerIds = new Set([me.id, ...scopedTeams.flatMap((t) => t.player_ids || [])])
-}
-
-const scopedTeamIds = new Set(scopedTeams.map((t) => t.id))
-const scopedPlayers = players.filter((p) => scopedPlayerIds.has(p.id))
-const scopedScores = scores.filter((s) => scopedPlayerIds.has(s.player_id))
-const scopedWinners = winners.filter((w) => scopedTeamIds.has(w.team_id))
-const scopedMemberships = memberships.filter((m) => scopedPlayerIds.has(m.player_id))
-const scopedWebhooks = webhooks.filter((w) => scopedPlayerIds.has(w.player_id))
+const src = await readScoped(supabase, scope, ME)
+const {
+  players: scopedPlayers,
+  teams: scopedTeams,
+  scores: scopedScores,
+  winners: scopedWinners,
+  memberships: scopedMemberships,
+  webhooks: scopedWebhooks,
+  totals,
+} = src
 
 console.log('\nIn scope:')
-console.log(`  players          ${scopedPlayers.length} of ${players.length}`)
-console.log(`  teams            ${scopedTeams.length} of ${teams.length}`)
-console.log(`  dailyScores      ${scopedScores.length} of ${scores.length}`)
-console.log(`  monthlyWinners   ${scopedWinners.length} of ${winners.length}`)
-console.log(`  playerMembership ${scopedMemberships.length} of ${memberships.length}`)
-console.log(`  webhookEvents    ${scopedWebhooks.length} of ${webhooks.length}`)
+console.log(`  players          ${scopedPlayers.length} of ${totals.players}`)
+console.log(`  teams            ${scopedTeams.length} of ${totals.teams}`)
+console.log(`  dailyScores      ${scopedScores.length} of ${totals.dailyScores}`)
+console.log(`  monthlyWinners   ${scopedWinners.length} of ${totals.monthlyWinners}`)
+console.log(`  playerMembership ${scopedMemberships.length} of ${totals.playerMembership}`)
+console.log(`  webhookEvents    ${scopedWebhooks.length} of ${totals.webhookEvents}`)
 
 // How many invited addresses production stores in a form that would never have
 // matched. Reported because it quantifies the v1 bug this copy silently repairs.
@@ -287,16 +191,18 @@ convex.setAdminAuth(CONVEX_MIGRATION_KEY)
 // stay well inside the limit even for the widest rows (webhook bodies).
 const CHUNK = 200
 async function writeAll(label, fn, rows) {
-  const totals = {}
+  // Named `tallies`, not `totals`: `totals` is already the Supabase row counts
+  // destructured above, and shadowing it here would be quietly confusing.
+  const tallies = {}
   for (let i = 0; i < rows.length; i += CHUNK) {
     const res = await convex.mutation(fn, { rows: rows.slice(i, i + CHUNK) })
-    for (const [k, v] of Object.entries(res)) totals[k] = (totals[k] ?? 0) + v
+    for (const [k, v] of Object.entries(res)) tallies[k] = (tallies[k] ?? 0) + v
   }
-  const summary = Object.entries(totals)
+  const summary = Object.entries(tallies)
     .map(([k, v]) => `${k}=${v}`)
     .join(' ')
   console.log(`  ${label.padEnd(17)} ${summary || '(nothing to do)'}`)
-  return totals
+  return tallies
 }
 
 console.log('\nWriting to Convex...')
