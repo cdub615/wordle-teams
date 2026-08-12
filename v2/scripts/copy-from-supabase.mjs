@@ -86,6 +86,53 @@ async function readAll(table, select = '*') {
 const ms = (t) => (t ? new Date(t).getTime() : undefined)
 const opt = (s) => (s === null || s === undefined || s === '' ? undefined : s)
 
+// Backfill rule for puzzleDay, decided with the owner on 2026-08-12.
+//
+// v1 never stored which day a board belonged to — only the instant — and each
+// viewer re-derived the day in their own timezone, so travellers and
+// cross-timezone teams disagreed. v2 stores the day explicitly, which means the
+// historical rows need one assigned.
+//
+// The rule is the PLAYER'S OWN recorded timezone: the row means "the day it was
+// for the person entering it", which is exactly the semantic v2 uses going
+// forward. Measured across production, this moves 581 of 7468 rows relative to
+// resolving in UTC, and 160 relative to resolving in the app's home zone.
+//
+// Known imperfection, accepted: players.time_zone is their CURRENT zone, not the
+// one they were in at entry time, so a board entered while travelling gets their
+// home day. There is no better signal in the data, and it is a one-time backfill
+// of history rather than the rule for new entries.
+const HOME_TZ = 'America/Chicago' // fallback for the 8 players with no timezone
+
+const dayFormatters = new Map()
+function puzzleDayFor(instantIso, timeZone) {
+  const tz = timeZone || HOME_TZ
+  if (!dayFormatters.has(tz)) {
+    try {
+      dayFormatters.set(
+        tz,
+        // 'en-CA' formats as YYYY-MM-DD, which is the shape we want to store.
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: tz,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }),
+      )
+    } catch {
+      dayFormatters.set(tz, null) // unknown zone name; fall back below
+    }
+  }
+  const fmt = dayFormatters.get(tz)
+  if (fmt) return fmt.format(new Date(instantIso))
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: HOME_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(instantIso))
+}
+
 console.log(`Reading Supabase (scope=${scope})...`)
 const [players, teams, scores, winners, memberships, webhooks] = await Promise.all([
   readAll('players'),
@@ -171,14 +218,34 @@ const teamRows = scopedTeams.map((t) => ({
   createdAt: ms(t.created_at),
 }))
 
+const tzByPlayerId = new Map(scopedPlayers.map((p) => [p.id, p.time_zone]))
+
 const scoreRows = scopedScores.map((s) => ({
   legacyId: s.id,
   playerLegacyId: s.player_id,
+  puzzleDay: puzzleDayFor(s.date, tzByPlayerId.get(s.player_id)),
   date: ms(s.date),
   guesses: s.guesses || [],
   answer: opt(s.answer),
   createdAt: ms(s.created_at),
 }))
+
+// How many rows the backfill rule places on a different day than a naive UTC
+// read would. Reported because it is the size of the bug being repaired, and
+// because a sudden change in this number means the rule or the data moved.
+const utcDay = (iso) =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(iso))
+const movedByBackfill = scopedScores.filter(
+  (s) => puzzleDayFor(s.date, tzByPlayerId.get(s.player_id)) !== utcDay(s.date),
+).length
+console.log(
+  `\n  puzzleDay backfill: ${movedByBackfill} of ${scopedScores.length} rows resolve to a different day in the player's own timezone than in UTC.`,
+)
 
 const winnerRows = scopedWinners.map((w) => ({
   legacyId: w.id,

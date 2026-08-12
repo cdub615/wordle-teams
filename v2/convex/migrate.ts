@@ -150,6 +150,7 @@ export const upsertDailyScores = internalMutation({
       v.object({
         legacyId: v.number(),
         playerLegacyId: v.string(),
+        puzzleDay: v.string(),
         date: v.number(),
         guesses: v.array(v.string()),
         answer: v.optional(v.string()),

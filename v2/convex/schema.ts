@@ -77,12 +77,27 @@ export default defineSchema({
     legacyId: v.number(),
     playerId: v.id('players'),
 
-    // AN INSTANT, NOT A CALENDAR DAY. Supabase types this `timestamp with time
-    // zone` and v1 writes whatever the client sends as `scoreDate`, so the
-    // stored time-of-day is inconsistent across production: some rows sit at
-    // 06:00Z (US Central midnight), others at the moment of submission. Which
-    // calendar day a row belongs to therefore has to be derived in the player's
-    // own timezone. Phase 2 owns that; the copy stores the instant unchanged.
+    // THE PUZZLE DAY, 'YYYY-MM-DD'. This is the field everything groups and
+    // compares by, and storing it is the fix for v1's cross-timezone bug.
+    //
+    // v1 never stored a day at all — only the instant below — and decided which
+    // day a board belonged to with isSameDay(new Date(s.date), day)
+    // (src/lib/types.ts:179), which resolves that instant in whatever timezone
+    // the VIEWER happens to be in. So a board entered while travelling showed up
+    // on a different day for a teammate than for the person who entered it.
+    // Measured across production: 733 of 7468 rows land on a different calendar
+    // day in UTC than in America/Chicago, and 581 differ from the player's own
+    // zone, across 57 distinct player timezones.
+    //
+    // Wordle has one global puzzle per day, so a board belongs to a PUZZLE, not
+    // to a moment. Recording the day the player was living in when they entered
+    // it makes every viewer agree, everywhere, forever. Never re-derive this
+    // from `date`.
+    puzzleDay: v.string(),
+
+    // The original Supabase instant, kept for audit and so the backfill rule can
+    // be revisited without another trip to Postgres. NOT for grouping — that is
+    // exactly the mistake above.
     date: v.number(),
 
     guesses: v.array(v.string()),
@@ -96,8 +111,11 @@ export default defineSchema({
     // during the copy would silently drop rows and make the parity check lie.
     // See wordle-teams-rac.
     .index('by_legacyId', ['legacyId'])
-    .index('by_player_and_date', ['playerId', 'date'])
-    .index('by_date', ['date']),
+    // Deliberately indexed on puzzleDay and NOT on `date`: there is no correct
+    // way to group by an instant across 57 timezones, so the wrong thing is left
+    // hard to do.
+    .index('by_player_and_puzzleDay', ['playerId', 'puzzleDay'])
+    .index('by_puzzleDay', ['puzzleDay']),
 
   monthlyWinners: defineTable({
     legacyId: v.number(),

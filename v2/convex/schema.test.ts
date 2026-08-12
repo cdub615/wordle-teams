@@ -90,13 +90,14 @@ describe('teams', () => {
 })
 
 describe('dailyScores', () => {
-  test('round-trips and is reachable by player and date', async () => {
+  test('round-trips and is reachable by player and puzzle day', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       await ctx.db.insert('dailyScores', {
         legacyId: 1,
         playerId,
+        puzzleDay: '2026-08-11',
         date: Date.parse('2026-08-11T06:00:00Z'),
         guesses: ['crane', 'slate', 'tests'],
         answer: 'tests',
@@ -104,10 +105,49 @@ describe('dailyScores', () => {
 
       const found = await ctx.db
         .query('dailyScores')
-        .withIndex('by_player_and_date', (q) => q.eq('playerId', playerId).eq('date', Date.parse('2026-08-11T06:00:00Z')))
+        .withIndex('by_player_and_puzzleDay', (q) =>
+          q.eq('playerId', playerId).eq('puzzleDay', '2026-08-11'),
+        )
         .unique()
       expect(found?.guesses).toHaveLength(3)
       expect(found?.answer).toBe('tests')
+    })
+  })
+
+  test('a board is found by its puzzle day regardless of the viewer, which is the v1 bug', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+
+      // A traveller in Auckland (UTC+13) enters the 12 August puzzle at 09:00
+      // local — which is 2026-08-11T20:00Z, still the 11th in UTC and the 11th
+      // in the US. v1 stored only that instant and each viewer re-derived the
+      // day locally, so a teammate in Chicago looked for the 12th and found
+      // nothing. Here the day is a stored fact, so the lookup is viewer-independent.
+      await ctx.db.insert('dailyScores', {
+        legacyId: 3,
+        playerId,
+        puzzleDay: '2026-08-12',
+        date: Date.parse('2026-08-11T20:00:00Z'),
+        guesses: ['crane'],
+      })
+
+      const asTeammateSees = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) =>
+          q.eq('playerId', playerId).eq('puzzleDay', '2026-08-12'),
+        )
+        .unique()
+      expect(asTeammateSees).not.toBeNull()
+
+      // And it must NOT appear on the day a naive UTC read of the instant gives.
+      const naiveUtcDay = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) =>
+          q.eq('playerId', playerId).eq('puzzleDay', '2026-08-11'),
+        )
+        .unique()
+      expect(naiveUtcDay).toBeNull()
     })
   })
 
@@ -118,6 +158,7 @@ describe('dailyScores', () => {
       const id = await ctx.db.insert('dailyScores', {
         legacyId: 2,
         playerId,
+        puzzleDay: '2026-08-10',
         date: Date.parse('2026-08-10T06:00:00Z'),
         guesses: [],
       })
