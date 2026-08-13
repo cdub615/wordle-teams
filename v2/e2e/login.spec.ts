@@ -8,15 +8,17 @@ test('signs in with an emailed OTP code', async ({ page }) => {
 
   await page.goto('/login')
 
-  // Retry the whole interaction until the UI advances: with SSR the page is
-  // visible before React hydrates, so an immediate fill/click can be lost
-  // (no handler attached yet, and hydration resets the controlled input).
-  await expect(async () => {
-    if (await page.getByLabel('Code').isVisible()) return // click already landed
-    await page.getByLabel('Email').fill(email)
-    await page.getByRole('button', { name: /send code/i }).click()
-    await expect(page.getByLabel('Code')).toBeVisible({ timeout: 8000 })
-  }).toPass({ timeout: 30_000 })
+  // No retry-until-hydrated loop any more, and its absence is the regression
+  // test for wt-ksh.2.2. This used to need one: the SSR form rendered
+  // interactive before hydration, so a click submitted natively and the
+  // controlled input wiped what had been typed. The submit button is now
+  // disabled until hydrated and the inputs are uncontrolled, so waiting for the
+  // button to be enabled is sufficient — and if either regresses, this fails.
+  await expect(page.getByRole('button', { name: /send code/i })).toBeEnabled()
+
+  await page.getByLabel('Email').fill(email)
+  await page.getByRole('button', { name: /send code/i }).click()
+  await expect(page.getByLabel('Code')).toBeVisible({ timeout: 8000 })
 
   // takeFor is a mutation, not a query: it deletes the row as it returns it, so
   // a captured code cannot outlive this read (wt-ksh.1.14). Once it yields a
@@ -33,4 +35,22 @@ test('signs in with an emailed OTP code', async ({ page }) => {
   await page.getByRole('button', { name: /verify/i }).click()
 
   await expect(page.getByTestId('signed-in-email')).toContainText(email)
+})
+
+// javaScriptEnabled is a context OPTION, so it has to be declared for the block
+// rather than toggled inside a test.
+test.describe('without JavaScript', () => {
+  test.use({ javaScriptEnabled: false })
+
+  test('the form cannot be submitted before it is interactive', async ({ page }) => {
+    // Directly asserts the wt-ksh.2.2 guarantee rather than inferring it. With
+    // JavaScript off the page still renders — it is server-rendered — which is
+    // exactly the state a real user sees for the moments before hydration. The
+    // submit button must never be clickable then, because a click would fire a
+    // native GET that carries nothing and reads as a broken app.
+    await page.goto('/login')
+
+    await expect(page.getByRole('heading', { name: /sign in/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /send code/i })).toBeDisabled()
+  })
 })

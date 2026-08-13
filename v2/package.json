@@ -34,7 +34,7 @@
 		"@tanstack/react-router-ssr-query": "^1.167.1",
 		"@tanstack/react-start": "^1.168.28",
 		"@tanstack/router-plugin": "^1.132.0",
-		"better-auth": "~1.6.23",
+		"better-auth": "1.6.23",
 		"convex": "^1.42.2",
 		"lucide-react": "^0.545.0",
 		"react": "^19.2.0",
