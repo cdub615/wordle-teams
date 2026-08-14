@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { log } from 'next-axiom'
 import { cookies } from 'next/headers'
 import { finishSignIn } from '../../lib/utils'
-import { loginSchema, signupSchema } from './email/schemas'
+import { loginSchema, otpSchema, signupSchema } from './email/schemas'
 
 const emailRedirectTo = authCallbackUrl()
 
@@ -98,8 +98,17 @@ export async function verifyOtp(formData: FormData) {
   try {
     const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
-    const email = formData.get('email') as string
-    const otp = formData.get('otp') as string
+    // A server action is a public endpoint, so the form's guard is not enough on
+    // its own. Validating here also means a missing code is reported as such
+    // instead of reaching Supabase and returning 'Verify requires either a token
+    // or a token hash', which the caller then flattened into the generic
+    // 'Verification failed' — accurate for a wrong code, useless for a blank one.
+    const parsed = await otpSchema.safeParseAsync({
+      email: formData.get('email'),
+      otp: formData.get('otp'),
+    })
+    if (!parsed.success) return { error: parsed.error.issues[0].message }
+    const { email, otp } = parsed.data
 
     const {
       data: { user, session },
