@@ -50,6 +50,39 @@ Slack has zero users, so dropping it costs nothing and saves a registration.
 Nobody loses the button they already use. The extra cost over the design's list
 is one OAuth app registration, in two environments.
 
+> **Amended 2026-08-17 — X/Twitter is dropped too. Four providers, not five.**
+>
+> The "costs nothing extra" reasoning above assumed X was free and its app
+> already existed. Both premises failed on contact with the registration step:
+>
+> - **The v1 app is unusable by v2 regardless.** v1 reaches X through Supabase's
+>   *legacy* Twitter provider, which is OAuth 1.0a (API Key + API Secret). Better
+>   Auth's `twitter` provider is OAuth 2.0 with PKCE and `authentication: 'basic'`
+>   on the token exchange (`@better-auth/core@1.6.23`,
+>   `src/social-providers/twitter.ts`). It needs an OAuth 2.0 Client ID/Secret the
+>   legacy app does not have, so this was a fresh registration either way — not
+>   the credential copy it looked like.
+> - **X is no longer free.** X retired its free tier in February 2026; existing
+>   users moved to pay-per-use credits. Better Auth calls `GET /2/users/me`
+>   **twice per sign-in** — once for the profile, once for `confirmed_email`. So
+>   every X login is now metered spend. *(Sourced from secondary reporting; the
+>   official pricing page 404s and the dev forum blocks fetches. Treat the exact
+>   date as unconfirmed — the direction is not in doubt.)*
+> - **The portal moved** to `console.x.com`, and legacy standalone apps are
+>   reported missing or `client-not-enrolled` for some accounts.
+>
+> Weighed against **two** users. The blocker was checked before deciding, not
+> assumed: `scripts/prod-twitter-users-fallback.mjs` confirms both X users hold
+> **confirmed** email addresses, so both reach the same account via OTP. Nobody
+> is stranded.
+>
+> This does take away a button two people use — the one thing §2.1 set out to
+> avoid — accepted deliberately in exchange for removing a metered vendor
+> dependency and a fifth callback surface from the replatform.
+>
+> **T4 and T5 below are four providers: google, azure, github, discord.**
+> Tracked as `wordle-teams-aw3`.
+
 ### 2.2 Beta gets the owner's teams only, not all 530 users
 
 `beta.wordleteams.com` is publicly reachable with no auth wall, and Phases 2–6
