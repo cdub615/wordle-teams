@@ -18,9 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # Pinned for the same reason as ci.yaml, and with more at stake. This job runs
+      # `supabase db push --include-all` against a real database, so `version: latest`
+      # meant the tool applying migrations was whatever Supabase had released most
+      # recently, chosen at run time and never reviewed. A types check going red is
+      # noisy and obvious; a migration push behaving differently is quiet. 2.114.0
+      # shipping on 2026-08-12 changed enough to break the types check, and nobody
+      # looked at what else it changed. Bump all three workflows together.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.114.0
 
       - run: supabase link --project-ref $SUPABASE_PROJECT_ID
       - run: supabase db push --include-all
