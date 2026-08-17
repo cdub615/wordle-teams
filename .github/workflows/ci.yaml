@@ -11,9 +11,20 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # Pinned deliberately. With `version: latest` this job installs whatever the
+      # Supabase CLI released most recently, and `supabase start` below then builds a
+      # local stack at that version — including Supabase's own internal `storage`
+      # schema. When they change it, the regenerated types stop matching the committed
+      # file and the check below fails on every open PR, on commits that touch nothing
+      # relevant. That is what happened when 2.114.0 shipped on 2026-08-12: `buckettype`
+      # gained VECTOR, the storage functions renamed their params to p_*, and PRs went
+      # red for reasons no author could act on.
+      #
+      # Bumping this is now a deliberate PR whose types diff is reviewable, which is
+      # what the check below was there to enforce in the first place.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.114.0
 
       - name: Start Supabase local development setup
         run: supabase start
