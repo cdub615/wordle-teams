@@ -19,13 +19,41 @@
  * WHAT THIS DOES NOT PROVE: that a sign-in completes. It stops at the consent
  * screen, because going further needs real credentials. Account linking still
  * has to be checked by hand — see wt-ksh.2.7's acceptance criteria.
+ *
+ * AND A SHARPER LIMIT, learned on 2026-08-17 when this script was wrong:
+ * providers differ in WHEN they validate redirect_uri.
+ *
+ *   - Google validates BEFORE authenticating. A bad callback shows up here as
+ *     "Error 400: redirect_uri_mismatch", and this script caught it.
+ *   - Microsoft and GitHub authenticate FIRST and only then check the callback.
+ *     This script reported both as passing; a human then signed in and both
+ *     rejected the redirect_uri. A pass for those two means only "the app
+ *     exists and the client id is known" — it says NOTHING about the callback.
+ *
+ * So a PASS is conclusive only for pre-login validators. Everything else needs
+ * a real sign-in. The verdicts below say which is which rather than implying a
+ * confidence the check cannot deliver.
  */
 import { chromium } from '@playwright/test'
 
 const BASE = process.argv[2] ?? 'https://beta.wordleteams.com'
 
-// Button labels as rendered on /login, in SOCIAL_PROVIDERS order.
-const PROVIDERS = ['Google', 'Microsoft', 'GitHub', 'Discord']
+/**
+ * Button labels as rendered on /login, with when each provider validates the
+ * redirect_uri. `preLogin: true` means a clean run here actually proves the
+ * callback is registered; `false` means validation happens after the user
+ * authenticates, so this script cannot see it either way.
+ *
+ * All observed directly against beta on 2026-08-17, not taken from docs.
+ */
+const PROVIDERS = [
+  { label: 'Google', preLogin: true },
+  { label: 'Microsoft', preLogin: false },
+  { label: 'GitHub', preLogin: false },
+  // Never observed either way — no completed Discord sign-in yet. Treated as
+  // unproven, which is the safe default.
+  { label: 'Discord', preLogin: false },
+]
 
 // Signatures meaning the app registration rejected us — almost always a
 // callback URL that does not match, or a client id the provider does not know.
@@ -46,7 +74,7 @@ const origin = new URL(BASE).host
 const browser = await chromium.launch()
 const results = []
 
-for (const label of PROVIDERS) {
+for (const { label, preLogin } of PROVIDERS) {
   const page = await browser.newPage()
   try {
     await page.goto(`${BASE}/login`, { waitUntil: 'networkidle', timeout: 30_000 })
@@ -102,8 +130,22 @@ for (const label of PROVIDERS) {
         why: 'never left the app',
         detail: alert?.trim() ?? '(no alert shown)',
       })
+    } else if (preLogin) {
+      results.push({
+        label,
+        ok: true,
+        conclusive: true,
+        host: url.host,
+        why: 'callback accepted (validated pre-login)',
+      })
     } else {
-      results.push({ label, ok: true, host: url.host, why: 'login/consent screen' })
+      results.push({
+        label,
+        ok: true,
+        conclusive: false,
+        host: url.host,
+        why: 'reached provider — callback UNVERIFIED',
+      })
     }
   } catch (e) {
     results.push({ label, ok: false, host: '-', why: `threw: ${String(e).slice(0, 120)}` })
@@ -115,14 +157,29 @@ await browser.close()
 
 console.log(`\nOAuth callback check against ${BASE}\n`)
 for (const r of results) {
-  console.log(`  ${r.ok ? '✓' : '✗'} ${r.label.padEnd(10)} ${r.why.padEnd(32)} ${r.host}`)
+  const mark = !r.ok ? '✗' : r.conclusive ? '✓' : '?'
+  console.log(`  ${mark} ${r.label.padEnd(10)} ${r.why.padEnd(40)} ${r.host}`)
   if (r.detail) console.log(`      ${r.detail}`)
 }
 
 const failed = results.filter((r) => !r.ok)
-console.log(
-  failed.length === 0
-    ? '\nAll providers accepted the authorize request.\n'
-    : `\n${failed.length} provider(s) failed: ${failed.map((f) => f.label).join(', ')}\n`,
-)
+const unverified = results.filter((r) => r.ok && !r.conclusive)
+
+if (failed.length) {
+  console.log(`\n✗ ${failed.length} provider(s) FAILED: ${failed.map((f) => f.label).join(', ')}`)
+}
+if (unverified.length) {
+  console.log(
+    `\n? ${unverified.length} provider(s) UNVERIFIED: ${unverified.map((u) => u.label).join(', ')}` +
+      '\n  These authenticate before checking redirect_uri, so a clean run here does' +
+      '\n  NOT mean the callback is registered. Only a real sign-in settles it.',
+  )
+}
+if (!failed.length && !unverified.length) {
+  console.log('\n✓ Every provider validated its callback before login, and all passed.')
+}
+console.log('')
+
+// Unverified is not failure — it is absence of evidence, and the caller should
+// not treat it as a green light. Only outright rejection exits non-zero.
 process.exit(failed.length === 0 ? 0 : 1)
