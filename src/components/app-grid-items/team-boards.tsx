@@ -7,7 +7,8 @@ import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious
 import WordleBoard from '@/components/wordle-board'
 import { useTeams } from '@/lib/contexts/teams-context'
 import { cn } from '@/lib/utils'
-import { isSameDay, isSameMonth, isToday, isWeekend, lastDayOfMonth } from 'date-fns'
+import { getDate as dayOfMonth, getMonth, getYear, isSameDay, isSameMonth, isToday, isWeekend, lastDayOfMonth } from 'date-fns'
+import { dayKeyOf, dayKeyOfParts } from '@/lib/score-day'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -35,7 +36,10 @@ export default function TeamBoards({ classes }: { classes?: string }) {
   const getBoardsForDate = (selectedDate: Date, selectedTeam: number) => {
     const team = teams.find((t) => t.id === selectedTeam)
     const boards = team?.players.map((p) => {
-      const score = p.scores.find((s) => isSameDay(new Date(s.date), selectedDate))
+      // Matched on the calendar day in the score owner's zone, so this agrees with
+      // the grid and with the teammate who entered it. See lib/score-day.ts.
+      const selectedKey = dayKeyOfParts(getYear(selectedDate), getMonth(selectedDate), dayOfMonth(selectedDate))
+      const score = p.scores.find((s) => dayKeyOf(s.date, p.timeZone) === selectedKey)
       const board: Board = {
         id: score ? score.id.toString() : p.id,
         exists: !!score,

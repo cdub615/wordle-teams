@@ -1,7 +1,20 @@
 import { UserMetadata } from '@supabase/supabase-js'
-import { eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, isWeekend, isFuture, isBefore, startOfToday } from 'date-fns'
+import {
+  eachDayOfInterval,
+  startOfMonth,
+  endOfMonth,
+  isSameDay,
+  isWeekend,
+  isFuture,
+  isBefore,
+  startOfToday,
+  getYear,
+  getMonth,
+  getDate,
+} from 'date-fns'
 import { JwtPayload } from 'jwt-decode'
 import { Enums, Tables } from './database.types'
+import { dayKeyOf, dayKeyOfParts, todayKeyIn } from './score-day'
 export type players = Tables<'players'>
 export type player_customer = Tables<'player_customer'>
 export type daily_scores = Tables<'daily_scores'>
@@ -105,32 +118,49 @@ export class Player {
   firstName: string
   lastName: string
   email: string
+  // The player's own zone, from players.time_zone. Carried on the object because a
+  // board belongs to the day it was for the person who played it, and that has to be
+  // decided from data rather than from whichever runtime is rendering — see
+  // lib/score-day.ts. Null when the player has never had one recorded.
+  timeZone: string | null
   private _scores: DailyScore[] = []
 
-  constructor(id: string, firstName: string, lastName: string, email: string, scores?: DailyScore[]) {
+  constructor(
+    id: string,
+    firstName: string,
+    lastName: string,
+    email: string,
+    scores?: DailyScore[],
+    timeZone: string | null = null
+  ) {
     this.id = id
     this.firstName = firstName
     this.lastName = lastName
     this.email = email
+    this.timeZone = timeZone
     if (scores) this._scores = scores
   }
 
   public fromDbPlayer(player: players, daily_scores?: daily_scores[]) {
-    const { id, first_name: firstName, last_name: lastName, email } = player
+    const { id, first_name: firstName, last_name: lastName, email, time_zone: timeZone } = player
     if (!firstName) throw new Error('First name required for Players')
     if (!lastName) throw new Error('Last name required for Players')
     const scores = daily_scores?.map((s) => DailyScore.prototype.fromDbDailyScore(s))
-    return new Player(id, firstName, lastName, email, scores)
+    return new Player(id, firstName, lastName, email, scores, timeZone)
   }
 
   public hydrate(player: Player): Player {
-    const { id, firstName, lastName, email, _scores } = player
+    const { id, firstName, lastName, email, timeZone, _scores } = player
+    // timeZone must survive rehydration. If it were dropped here the client would
+    // bucket scores against the fallback zone while the server used the real one,
+    // which is precisely the mismatch this is meant to remove.
     return new Player(
       id,
       firstName,
       lastName,
       email,
-      _scores.map((s) => DailyScore.prototype.hydrate(s))
+      _scores.map((s) => DailyScore.prototype.hydrate(s)),
+      timeZone ?? null
     )
   }
 
@@ -160,7 +190,14 @@ export class Player {
     return this._scores
   }
 
-  public aggregateScoreByMonth(date: string, playWeekends: boolean, scoringSystem: number[][]) {
+  // viewerTimeZone decides only what counts as "already past" for an unplayed day.
+  // Which day a played board belongs to comes from this.timeZone, the player's own.
+  public aggregateScoreByMonth(
+    date: string,
+    playWeekends: boolean,
+    scoringSystem: number[][],
+    viewerTimeZone: string | null = null
+  ) {
     const targetDate = new Date(date)
 
     // Get all days in the month
@@ -175,13 +212,17 @@ export class Player {
         return total
       }
 
-      // Find the score for this day (if it exists)
-      const scoreForDay = this._scores.find((s) => isSameDay(new Date(s.date), day))
+      // Find the score for this day (if it exists). Matched on the calendar day in the
+      // player's own zone rather than isSameDay on two Dates, which resolved the stored
+      // instant in whatever zone was executing — so this total could differ between the
+      // server and the browser, and between two teammates. See lib/score-day.ts.
+      const dayKey = dayKeyOfParts(getYear(day), getMonth(day), getDate(day))
+      const scoreForDay = this._scores.find((s) => dayKeyOf(s.date, this.timeZone) === dayKey)
 
       if (scoreForDay) {
         // Day was played — use its calculated score
         return total + scoreForDay.getScore(scoringSystem)
-      } else if (isBefore(day, startOfToday())) {
+      } else if (dayKey < todayKeyIn(viewerTimeZone)) {
         // No score for this day and it's before today — use the "0 attempts" score
         return total + scoringSystem[0][1]
       }
