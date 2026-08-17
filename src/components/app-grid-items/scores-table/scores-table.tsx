@@ -24,12 +24,12 @@ import { getColumns, getData, getDayVisibility, getHeaderClass, getRowClass } fr
 
 const ScoresTable = ({ classes }: { classes?: string }) => {
   const [loading, setLoading] = useState(true)
-  const { teams, teamId, month } = useTeams()
+  const { teams, teamId, month, user } = useTeams()
   const team = teams?.find((t) => t.id === teamId)
   const [columns, setColumns] = useState<ColumnDef<MonthScoresRow>[]>(
     getColumns(month, team?.playWeekends ?? false, team?.players ?? [])
   )
-  const [data, setData] = useState<MonthScoresRow[]>(team ? getData(team, month) : [])
+  const [data, setData] = useState<MonthScoresRow[]>(team ? getData(team, month, user?.timeZone ?? null) : [])
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({})
@@ -40,11 +40,11 @@ const ScoresTable = ({ classes }: { classes?: string }) => {
     const team = teams?.find((t) => t.id === teamId)
     if (team) {
       setColumns(getColumns(month, team.playWeekends ?? false, team.players))
-      setData(getData(team, month))
+      setData(getData(team, month, user?.timeZone ?? null))
       setColumnVisibility(getDayVisibility(month))
     }
     setLoading(false)
-  }, [month, teamId, teams])
+  }, [month, teamId, teams, user?.timeZone])
 
   const table = useReactTable({
     data,
