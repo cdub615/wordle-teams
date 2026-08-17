@@ -9,7 +9,11 @@ import { loginSchema, otpSchema, signupSchema } from './email/schemas'
 
 const emailRedirectTo = authCallbackUrl()
 
-export async function login(formData: FormData) {
+// Spelled out rather than inferred so the caller can read `needsSignup` on every
+// branch instead of narrowing a union of differently-shaped object literals.
+type LoginResult = { error: string | null | undefined; needsSignup?: boolean }
+
+export async function login(formData: FormData): Promise<LoginResult> {
   try {
     const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
@@ -31,11 +35,21 @@ export async function login(formData: FormData) {
     })
 
     if (error) {
-      log.error(error.message)
-      if (error?.message === 'Signups not allowed for otp') {
-        return { error: `Login failed. If you haven't yet signed up, please try the Sign Up form.` }
+      // Not a failure: a first-time visitor lands on the Log In tab by default, so
+      // this is the single most likely thing for a new user to do. Supabase reports
+      // it as an error because shouldCreateUser is false, but for us it just means
+      // 'send them to Sign Up'. Logged at info because it was filling the
+      // production error feed with ordinary signups.
+      //
+      // Branch on the code rather than the message — 'Signups not allowed for otp'
+      // is prose that Supabase can reword, otp_disabled is the contract. The
+      // message check stays as a fallback for older gotrue versions.
+      if (error.code === 'otp_disabled' || error.message === 'Signups not allowed for otp') {
+        log.info('login: no account for that address, routing to signup')
+        return { error: null, needsSignup: true }
       }
 
+      log.error(error.message)
       return { error: 'Login failed. Please try again.' }
     }
 
