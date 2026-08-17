@@ -13,16 +13,26 @@ import { login } from '../actions'
 type LoginFormProps = {
   backToOauth: () => void
   setAwaitingVerification: Dispatch<SetStateAction<boolean>>
+  onNeedsSignup: (email: string) => void
 }
 
-export default function LoginForm({ backToOauth, setAwaitingVerification }: LoginFormProps) {
+export default function LoginForm({ backToOauth, setAwaitingVerification, onNeedsSignup }: LoginFormProps) {
   const [pending, setPending] = useState(false)
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setPending(true)
     const formData: FormData = new FormData(e.currentTarget)
-    setCookie('email', formData.get('email') as string)
+    const email = formData.get('email') as string
+    setCookie('email', email)
     const result = await login(formData)
+    // No account for this address. Hand off to Sign Up with the address carried
+    // over rather than showing a failure — trying to log in is the natural first
+    // move for someone who has never been here, and the Log In tab is the default.
+    if (result.needsSignup) {
+      setPending(false)
+      onNeedsSignup(email)
+      return
+    }
     if (result.error) {
       toast.error(result.error)
       setPending(false)

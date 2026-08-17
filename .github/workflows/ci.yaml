@@ -11,16 +11,35 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # Pinned deliberately. With `version: latest` this job installs whatever the
+      # Supabase CLI released most recently, and `supabase start` below then builds a
+      # local stack at that version — including Supabase's own internal `storage`
+      # schema. When they change it, the regenerated types stop matching the committed
+      # file and the check below fails on every open PR, on commits that touch nothing
+      # relevant. That is what happened when 2.114.0 shipped on 2026-08-12: `buckettype`
+      # gained VECTOR, the storage functions renamed their params to p_*, and PRs went
+      # red for reasons no author could act on.
+      #
+      # Bumping this is now a deliberate PR whose types diff is reviewable, which is
+      # what the check below was there to enforce in the first place.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.114.0
 
       - name: Start Supabase local development setup
         run: supabase start
 
+      # --schema public is what stops this check breaking on things we do not own.
+      # Without it the generated file also carries Supabase's internal `storage` and
+      # `graphql_public` schemas, which move on their own release schedule, so their
+      # churn showed up as a red check on unrelated PRs. Nothing in src/ references
+      # Database["storage"] or graphql_public — the app only ever uses `public`.
+      #
+      # Must stay in step with the `gen-types` script in package.json. If they drift,
+      # anyone running `pnpm gen-types` regenerates a file this check then rejects.
       - name: Verify generated types are checked in
         run: |
-          supabase gen types typescript --local > src/lib/database.types.ts
+          supabase gen types typescript --local --schema public > src/lib/database.types.ts
           if ! git diff --ignore-space-at-eol --exit-code --quiet src/lib/database.types.ts; then
             echo "Detected uncommitted changes after build. See status below:"
             git diff

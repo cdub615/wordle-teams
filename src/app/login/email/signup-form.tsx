@@ -13,9 +13,13 @@ import { signup } from '../actions'
 type SignupFormProps = {
   backToOauth: () => void
   setAwaitingVerification: Dispatch<SetStateAction<boolean>>
+  // Set when a login attempt found no account for this address and handed the user
+  // here. Empty when they opened the tab themselves.
+  initialEmail?: string
 }
 
-export default function SignupForm({ backToOauth, setAwaitingVerification }: SignupFormProps) {
+export default function SignupForm({ backToOauth, setAwaitingVerification, initialEmail }: SignupFormProps) {
+  const handedOff = !!initialEmail
   const [pending, setPending] = useState(false)
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -33,7 +37,11 @@ export default function SignupForm({ backToOauth, setAwaitingVerification }: Sig
     <form onSubmit={handleSubmit}>
       <CardHeader>
         <CardTitle>Sign Up</CardTitle>
-        <CardDescription>Sign up with name and email</CardDescription>
+        <CardDescription>
+          {handedOff
+            ? "Looks like you're new here — add your name and we'll send your code."
+            : 'Sign up with name and email'}
+        </CardDescription>
       </CardHeader>
       <CardContent className='space-y-2'>
         <>
@@ -49,7 +57,17 @@ export default function SignupForm({ backToOauth, setAwaitingVerification }: Sig
           </div>
           <div className='flex flex-col space-y-2'>
             <Label htmlFor='email'>Email</Label>
-            <Input className='col-span-3' type='email' name='email' required />
+            {/* Keyed on the carried address so the field re-mounts and picks up a new
+                defaultValue if this component is still mounted when the hand-off
+                happens. Keeps the input uncontrolled, like the two beside it. */}
+            <Input
+              key={initialEmail}
+              className='col-span-3'
+              type='email'
+              name='email'
+              defaultValue={initialEmail}
+              required
+            />
           </div>
         </>
       </CardContent>

@@ -255,15 +255,18 @@ export const finishSignIn = async (user: SupabaseUser, session: Session, supabas
 const createNovuSubscriber = async (user: SupabaseUser, firstName: string, lastName: string) => {
   const { id, email, last_sign_in_at, created_at } = user
   if (!last_sign_in_at || isFirstSignIn(created_at, last_sign_in_at)) {
-    const novu = new Novu(process.env.NOVU_API_KEY!)
     try {
+      // Construction is inside the try because it reads NOVU_API_KEY with a non-null
+      // assertion; outside it, a missing or malformed key threw straight past this
+      // handler and failed the sign-in that called it.
+      const novu = new Novu(process.env.NOVU_API_KEY!)
       await novu.subscribers.identify(id, {
         email,
         firstName,
         lastName,
       })
     } catch (error) {
-      log.error('Failed to create novu subscriber', { error })
+      log.warn('Failed to create novu subscriber', { error })
     }
   }
 }
@@ -310,21 +313,34 @@ export const handleLogsnagEvent = async (user: SupabaseUser, firstName: string, 
   if (invited === true) event = 'Invited User Signup'
 
   if (event) {
-    const logsnag = logsnagClient()
-    await logsnag.track({
-      channel: 'users',
-      event,
-      user_id: email,
-      icon: '🧑‍💻',
-      notify: true,
-      tags: {
-        email: email!,
-        firstname: firstName,
-        lastname: lastName,
-        env: process.env.ENVIRONMENT!,
-        provider: providerName.length > 0 ? providerName : 'Email',
-      },
-    })
+    // Never throws, for the same reason notifyBilling does not (see lib/polar/notify.ts).
+    // finishSignIn awaits this, and both its callers — the OAuth callback route and
+    // verifyOtp — treat any throw as a failed sign-in and send the user to
+    // /login-error. Their credentials verified and their session cookies are already
+    // set at that point, so an analytics outage would leave them authenticated but
+    // told they had failed. A missed signup notification is the cheaper loss.
+    //
+    // logsnagClient() is inside the try on purpose: it reads LOGSNAG_TOKEN with a
+    // non-null assertion, so a missing token throws here rather than at the call.
+    try {
+      const logsnag = logsnagClient()
+      await logsnag.track({
+        channel: 'users',
+        event,
+        user_id: email,
+        icon: '🧑‍💻',
+        notify: true,
+        tags: {
+          email: email!,
+          firstname: firstName,
+          lastname: lastName,
+          env: process.env.ENVIRONMENT!,
+          provider: providerName.length > 0 ? providerName : 'Email',
+        },
+      })
+    } catch (error) {
+      log.warn('Failed to publish signup event to LogSnag', { error, event })
+    }
   }
 }
 
