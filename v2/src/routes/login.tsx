@@ -31,12 +31,41 @@ export const Route = createFileRoute('/login')({
  * The e2e suite used to work around this with a retry-until-hydrated loop; that
  * workaround is gone, and its absence is now part of the regression test.
  */
+/**
+ * Provider id (Better Auth's, and the callback URL's last segment) to button
+ * label. `microsoft` is Entra ID — v1 and Supabase called the same thing
+ * 'azure', so the ids do not match across the two codebases.
+ *
+ * Rendered unconditionally rather than from server state: the credentials live
+ * on the Convex deployment and the browser cannot see them, and a button that
+ * errors is more useful than one that quietly never appears while a callback is
+ * still misconfigured.
+ */
+const SOCIAL_PROVIDERS = [
+  { id: 'google', label: 'Google' },
+  { id: 'microsoft', label: 'Microsoft' },
+  { id: 'github', label: 'GitHub' },
+  { id: 'discord', label: 'Discord' },
+] as const
+
 function LoginPage() {
   const hydrated = useHydrated()
   const [step, setStep] = useState<'email' | 'code'>('email')
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+
+  async function signInWith(provider: (typeof SOCIAL_PROVIDERS)[number]['id']) {
+    setPending(true)
+    setError(null)
+    // No full-page reload afterwards, unlike the OTP path: this hands off to the
+    // provider and comes back through /api/auth/callback/<provider>, which lands
+    // as a fresh document load anyway.
+    const { error } = await authClient.signIn.social({ provider, callbackURL: '/' })
+    // Only reached if the redirect never happened.
+    setPending(false)
+    if (error) setError(error.message ?? `Could not sign in with ${provider}`)
+  }
 
   async function sendCode(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -107,6 +136,26 @@ function LoginPage() {
           {error}
         </p>
       )}
+
+      {/* Disabled until hydrated for the same reason as the OTP buttons above
+          (wt-ksh.2.2): before React attaches, a click is a native GET that
+          navigates nowhere useful. */}
+      <section aria-labelledby="social-heading" style={{ marginTop: 24 }}>
+        <h2 id="social-heading" style={{ fontSize: '1rem' }}>
+          Or continue with
+        </h2>
+        {SOCIAL_PROVIDERS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => void signInWith(id)}
+            disabled={!hydrated || pending}
+            style={{ display: 'block', width: '100%', marginTop: 8, padding: 8 }}
+          >
+            {label}
+          </button>
+        ))}
+      </section>
     </main>
   )
 }
