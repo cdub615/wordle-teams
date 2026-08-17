@@ -3,6 +3,7 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { isReactStreamingBootstrapNoise } from "@/lib/sentry-filters";
 
 Sentry.init({
   dsn: "https://2060afdb1de7755e74e2f6b05d8be1d6@o177762.ingest.us.sentry.io/4505704199684096",
@@ -30,4 +31,9 @@ Sentry.init({
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
+
+  beforeSend(event) {
+    if (isReactStreamingBootstrapNoise(event)) return null;
+    return event;
+  },
 });
