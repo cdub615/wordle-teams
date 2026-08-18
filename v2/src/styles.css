@@ -1,13 +1,17 @@
 
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
+/* DESIGN_SYSTEM.md section 3: Inter for all UI, Geist for marketing display.
+ * v1 applied Geist per-element via className on individual headings; drift #5.
+ * Here both are real tokens, so display-vs-UI is `font-display` / `font-sans`. */
 @theme {
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 /* ---------------------------------------------------------------------------
@@ -205,7 +209,8 @@
  * The teal sea/lagoon/palm token set that shipped with the TanStack starter is
  * gone, along with 25 unused .demo-* classes from that template. Five classes
  * were actually referenced and are kept here, re-expressed in design-system
- * tokens: page-wrap, display-title, island-kicker, island-shell, nav-link.
+ * tokens: page-wrap, island-kicker, island-shell, nav-link. (display-title was
+ * folded into the font-display token in wt-ksh.12.5.)
  *
  * The starter's layered radial-gradient body background is also gone. The
  * design system is "neutral plus one accent" with a greyscale chrome, so the
@@ -261,13 +266,6 @@
 .page-wrap {
   width: min(1080px, calc(100% - 2rem));
   margin-inline: auto;
-}
-
-/* Display face is still the starter's Fraunces. DESIGN_SYSTEM.md section 3
- * specifies Geist for marketing display and Inter for UI; making font a real
- * token is wt-ksh.12.5 item 5, so this stays put for one more task. */
-.display-title {
-  font-family: "Fraunces", Georgia, serif;
 }
 
 .island-kicker {
