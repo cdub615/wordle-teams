@@ -17,21 +17,33 @@ import { withErrorCapture } from '#/lib/server-handler'
  * request; failures go to Sentry instead.
  */
 
-const noContent = () => new Response(null, { status: 204 })
+/**
+ * Always 204. The `x-funnel` header reports what happened WITHOUT changing the
+ * beacon contract — clients ignore it, but it makes the one silent failure mode
+ * observable: if LOGSNAG_TOKEN is unset on the Worker, delivery is skipped and
+ * nothing is reported anywhere, so a 204 alone cannot tell "delivered" from
+ * "quietly dropped". curl -sI the endpoint to check a deployment.
+ *   sent    — LogSnag accepted it
+ *   skipped — no token configured, or LogSnag rejected it (that case also
+ *             reports to Sentry)
+ *   dropped — unknown event name or malformed body
+ */
+const noContent = (state: 'sent' | 'skipped' | 'dropped') =>
+  new Response(null, { status: 204, headers: { 'x-funnel': state } })
 
 async function handle(request: Request): Promise<Response> {
   let body: unknown
   try {
     body = await request.json()
   } catch {
-    return noContent() // malformed: drop it silently, it is a beacon
+    return noContent('dropped') // malformed: it is a beacon, not an API
   }
 
   const payload = toLogSnagPayload(body, process.env.ENVIRONMENT ?? 'beta')
-  if (!payload) return noContent() // unknown event or junk: dropped
+  if (!payload) return noContent('dropped')
 
-  await sendToLogSnag(payload)
-  return noContent()
+  const delivered = await sendToLogSnag(payload)
+  return noContent(delivered ? 'sent' : 'skipped')
 }
 
 export const Route = createFileRoute('/api/funnel')({
