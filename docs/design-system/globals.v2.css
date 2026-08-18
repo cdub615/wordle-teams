@@ -1,0 +1,146 @@
+/*
+ * Wordle Teams — v2 token set
+ * Drop-in replacement for src/app/globals.css
+ *
+ * Layer 1: primitives (raw ramps) — never referenced by a component
+ * Layer 2: semantics — what a color means
+ * Layer 3: shadcn aliases — existing token names, repointed at layer 2,
+ *          so everything in src/components/ui/* compiles unchanged.
+ *
+ * All values are bare HSL triplets, matching the app's hsl(var(--token)) convention.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ---- Layer 1: primitives ------------------------------------------- */
+    --neutral-0:    0 0% 100%;
+    --neutral-50:   0 0% 98%;
+    --neutral-100:  240 5% 96%;
+    --neutral-200:  240 6% 90%;
+    --neutral-300:  240 5% 80%;
+    --neutral-500:  240 4% 46%;
+    --neutral-600:  240 4% 64%;
+    --neutral-900:  240 6% 10%;
+    --neutral-950:  240 10% 4%;
+
+    --green-300: 142 77% 73%;
+    --green-500: 142 71% 45%;
+    --green-600: 142 76% 37%;
+    --green-700: 142 72% 29%;
+    --green-950: 145 80% 10%;
+
+    --yellow-400: 48 96% 53%;
+    --yellow-500: 45 93% 47%;
+
+    --red-500: 0 84% 60%;
+    --red-600: 0 72% 51%;
+
+    /* ---- Layer 2: semantics ------------------------------------------- */
+    --background:      0 0% 98%;
+    --surface:         0 0% 100%;
+    --surface-sunken:  240 5% 96%;
+    --surface-inverse: 240 6% 10%;
+
+    --text:        240 10% 4%;
+    --text-muted:  240 4% 46%;
+    --text-subtle: 240 5% 65%;
+
+    --border-subtle: 240 6% 90%;
+    --border-strong: 240 5% 80%;
+
+    --brand-from: 142 76% 37%;
+    --brand-via:  142 71% 45%;
+    --brand-to:   48 96% 53%;
+
+    --accent-solid:      142 76% 37%;
+    --accent-foreground: 0 0% 100%;
+
+    --success:            142 76% 37%;
+    --success-foreground: 0 0% 100%;
+    --warning:            48 96% 53%;
+    --warning-foreground: 240 6% 7%;
+    --danger:             0 72% 51%;
+    --danger-foreground:  0 0% 100%;
+
+    --wordle-correct:     142 76% 37%;
+    --wordle-present:     48 96% 53%;
+    --wordle-absent:      240 5% 96%;
+    --wordle-tile-border: 240 5% 80%;
+
+    --radius: 0.5rem;
+
+    /* ---- Layer 3: shadcn compatibility aliases -------------------------
+     * Keep these until every consumer is migrated. Do not add new usages.
+     */
+    --foreground:             var(--text);
+    --card:                   var(--surface);
+    --card-foreground:        var(--text);
+    --popover:                var(--surface);
+    --popover-foreground:     var(--text);
+    --muted:                  var(--surface-sunken);
+    --muted-foreground:       var(--text-muted);
+    --secondary:              var(--surface-sunken);
+    --secondary-foreground:   var(--text);
+    --accent:                 var(--surface-sunken);
+    --accent-foreground:      var(--text);
+    --border:                 var(--border-subtle);
+    --input:                  var(--border-strong);
+    --primary:                var(--text);
+    --primary-foreground:     var(--background);
+    --destructive:            var(--danger);
+    --destructive-foreground: var(--danger-foreground);
+    --ring:                   var(--accent-solid);
+
+    /* Legacy names kept so the icon gradient keeps working. Prefer --brand-*. */
+    --color-stop-1: var(--brand-from);
+    --color-stop-2: 119 65% 75%;
+    --color-stop-3: var(--brand-to);
+  }
+
+  .dark {
+    --background:      0 0% 3.9%;
+    --surface:         0 0% 7%;
+    --surface-sunken:  0 0% 11%;
+    --surface-inverse: 0 0% 98%;
+
+    --text:        0 0% 98%;
+    --text-muted:  0 0% 64%;
+    --text-subtle: 0 0% 45%;
+
+    --border-subtle: 0 0% 16%;
+    --border-strong: 0 0% 26%;
+
+    --brand-via: 142 77% 73%;
+
+    --accent-solid:      142 71% 45%;
+    --accent-foreground: 145 80% 10%;
+
+    --success:            142 72% 29%;
+    --success-foreground: 138 76% 97%;
+    --warning:            45 93% 47%;
+    --warning-foreground: 240 6% 7%;
+    --danger:             0 84% 60%;
+    --danger-foreground:  0 0% 100%;
+
+    --wordle-correct:     142 72% 29%;
+    --wordle-present:     45 93% 47%;
+    --wordle-absent:      0 0% 11%;
+    --wordle-tile-border: 0 0% 26%;
+
+    /* Aliases inherit from :root via var() — only the two that invert are restated. */
+    --primary:            var(--text);
+    --primary-foreground: 0 0% 9%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
