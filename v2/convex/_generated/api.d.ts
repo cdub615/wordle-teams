@@ -12,6 +12,7 @@ import type * as auth from "../auth.js";
 import type * as authEmails from "../authEmails.js";
 import type * as email from "../email.js";
 import type * as http from "../http.js";
+import type * as me from "../me.js";
 import type * as migrate from "../migrate.js";
 import type * as status from "../status.js";
 import type * as testOtps from "../testOtps.js";
@@ -27,6 +28,7 @@ declare const fullApi: ApiFromModules<{
   authEmails: typeof authEmails;
   email: typeof email;
   http: typeof http;
+  me: typeof me;
   migrate: typeof migrate;
   status: typeof status;
   testOtps: typeof testOtps;

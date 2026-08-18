@@ -35,6 +35,15 @@ test('signs in with an emailed OTP code', async ({ page }) => {
   await page.getByRole('button', { name: /verify/i }).click()
 
   await expect(page.getByTestId('signed-in-email')).toContainText(email)
+
+  // The copied-data panel must RENDER, because that is what makes Phase 1's
+  // done-when observable. This test account has no copied player, so the
+  // expected outcome is the explicit "no match" branch rather than teams —
+  // asserting the panel exists still catches the failure that actually
+  // happened: a missing me:myData function took the whole signed-in page down
+  // with a server error, and nothing else in this test noticed.
+  await expect(page.getByTestId('copied-data')).toBeVisible()
+  await expect(page.getByTestId('no-player')).toBeVisible()
 })
 
 // javaScriptEnabled is a context OPTION, so it has to be declared for the block
