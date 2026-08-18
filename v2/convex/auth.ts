@@ -36,6 +36,35 @@ const PROVIDER_ENV = {
 } as const
 
 /**
+ * Extra per-provider options merged over the credentials.
+ *
+ * MICROSOFT: ask for less than Better Auth's default.
+ *
+ * The default scope list is `openid profile email User.Read offline_access`.
+ * `User.Read` is a Microsoft GRAPH permission, and tenants that restrict user
+ * consent to Graph make it an admin-approval gate — sign-in stops at "approval
+ * required" and asks for a business justification. v1 never hit that because
+ * Supabase requested only `email offline_access` against this very same app
+ * registration, so the scopes are the only thing that changed for the 15
+ * work/school users.
+ *
+ * Nothing here needs Graph. Every claim Better Auth reads — email,
+ * email_verified, name, sub — is decoded from the ID token, which the plain
+ * OIDC scopes already provide. `User.Read` buys exactly one thing: the profile
+ * photo. That is not worth an admin-consent prompt standing between a returning
+ * user and their teams.
+ *
+ * `openid` is not optional: getUserInfo returns null without an ID token.
+ */
+const PROVIDER_OPTIONS: Record<string, Record<string, unknown>> = {
+  microsoft: {
+    disableDefaultScope: true,
+    scope: ['openid', 'profile', 'email', 'offline_access'],
+    disableProfilePhoto: true,
+  },
+}
+
+/**
  * A provider is wired only when BOTH of its variables are present.
  *
  * Deliberately not fail-fast, which is the opposite of the SITE_URL check above.
@@ -57,7 +86,7 @@ const socialProviders = Object.fromEntries(
         )
         return null
       }
-      return [id, { clientId, clientSecret }] as const
+      return [id, { clientId, clientSecret, ...(PROVIDER_OPTIONS[id] ?? {}) }] as const
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
 )
