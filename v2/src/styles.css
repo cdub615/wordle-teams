@@ -31,6 +31,34 @@
  * written to fix, and MIGRATION.md claims 4.6:1 for it. Renamed here to
  * --accent-solid-foreground so both survive.
  *
+ * FOUR VALUES DEVIATE FROM tokens.json ON PURPOSE. Do not "restore" them.
+ * MIGRATION.md's contrast table does not match the bundle's own hex values —
+ * 5 of 7 pairs are wrong in light, 6 of 7 in dark — and three pairs missed
+ * WCAG AA for the text sizes they are actually used at. Measured, then fixed:
+ *
+ *   --success        light  #16a34a -> #15803d   3.30 -> 5.02 on white
+ *   --accent-solid   light  #16a34a -> #15803d   3.30 -> 5.02 on white
+ *   --text-subtle    light  #9f9fa8 -> #767680   2.52 -> 4.31
+ *   --danger         dark   #ef4444 -> #dc2626   3.76 -> 4.83 on white
+ *
+ * Six of the seven reference pairs now clear AA (4.5:1) in BOTH themes.
+ * text-subtle is the exception at 4.31 light / 4.18 dark: it cannot reach 4.5
+ * and still read as a rank below text-muted, which is itself only 4.63. Treat
+ * it as large-text/decorative. Anything normal-sized that must be legible —
+ * N/A cells, timestamps — should use text-muted, despite what tokens.json's
+ * usage note says.
+ *
+ * #16a34a IS DELIBERATELY STILL HERE as --brand-from, the wordmark gradient
+ * and --wordle-correct (light). Those carry only large text; white on it is
+ * 3.30, which clears the 3:1 large-text bar. It is the game's green and the
+ * board is the signature component — only the small-text fills moved.
+ *
+ * A related correction, because it inverts a task downstream: DESIGN_SYSTEM.md
+ * section 10 calls v1's success badge unreadable at "~2.1:1". That pair is
+ * near-black #111113 on #16a34a, which is actually 5.72:1 and PASSES. The
+ * prescribed replacement (white on #16a34a) is 3.30:1 and FAILS. v1's badge
+ * was never broken; applying MIGRATION.md phase 2 verbatim would break it.
+ *
  * Rules from tokens.json -> v2.rules:
  *   1. No Tailwind colour utility in a component. A raw green-600 outside this
  *      file is a missing token.
@@ -101,15 +129,15 @@
   --surface-inverse: #18181b;
   --text: #0a0a0b;
   --text-muted: #71717a;
-  --text-subtle: #9f9fa8;
+  --text-subtle: #767680;
   --border-subtle: #e4e4e7;
   --border-strong: #c9c9cf;
   --brand-from: #16a34a;
   --brand-via: #22c55e;
   --brand-to: #facc15;
-  --accent-solid: #16a34a;
+  --accent-solid: #15803d;
   --accent-solid-foreground: #ffffff;
-  --success: #16a34a;
+  --success: #15803d;
   --success-foreground: #ffffff;
   --warning: #facc15;
   --warning-foreground: #111113;
@@ -161,7 +189,7 @@
   --success-foreground: #f0fdf4;
   --warning: #eab308;
   --warning-foreground: #111113;
-  --danger: #ef4444;
+  --danger: #dc2626;
   --danger-foreground: #ffffff;
   --wordle-correct: #15803d;
   --wordle-present: #eab308;
