@@ -11,20 +11,37 @@
 }
 
 /* ---------------------------------------------------------------------------
- * shadcn/ui token contract (wt-ksh.12.2)
+ * Design system tokens (wt-ksh.12.3)
  *
- * The @theme inline block maps Tailwind utility colors onto the CSS variables
- * below, so `bg-primary` and friends resolve. This mapping is PERMANENT — in v2
- * these names are what every shadcn component reads, not a legacy alias layer
- * to be deleted (contrast MIGRATION.md phase 4, which targets v1).
+ * Values generated from docs/design-system/tokens.json -> v2. That file is the
+ * source of truth; docs/design-system/globals.v2.css is NOT — it is Tailwind 3
+ * and targets v1's src/app/globals.css. See docs/design-system/V2-ADDENDUM.md.
  *
- * The VALUES in :root and .dark are the stock neutral baseline that
- * `shadcn init` would have written. They are a placeholder. wt-ksh.12.3
- * replaces them with the design system's set from docs/design-system/tokens.json,
- * keeping this structure intact.
+ * Two layers, both permanent:
+ *   Layer 2  semantic names — what a colour MEANS. Authored below.
+ *   Layer 3  the shadcn contract — repointed at layer 2. NOT a legacy alias
+ *            layer to delete (contrast MIGRATION.md phase 4, which targets v1
+ *            where these names were being retired).
+ *
+ * ONE DELIBERATE RENAME. The bundle calls the brand accent pair
+ * --accent-solid / --accent-foreground, but --accent-foreground is also a
+ * shadcn name meaning "text on the hover surface". globals.v2.css declares it
+ * twice in one :root, so the shadcn value wins and the brand pair silently
+ * resolves to near-black on green (~2.2:1) — the same failure the bundle was
+ * written to fix, and MIGRATION.md claims 4.6:1 for it. Renamed here to
+ * --accent-solid-foreground so both survive.
+ *
+ * Rules from tokens.json -> v2.rules:
+ *   1. No Tailwind colour utility in a component. A raw green-600 outside this
+ *      file is a missing token.
+ *   2. Background and foreground travel together — never one without the other
+ *      from the same pair.
+ *   3. One accent per surface. Green earns attention, yellow means close,
+ *      nothing else is saturated.
  * ------------------------------------------------------------------------ */
 
 @theme inline {
+  /* --- shadcn contract. Every ui/* component reads these. Permanent. ------ */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -44,6 +61,30 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /* --- design-system names with no shadcn equivalent ---------------------- */
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-inverse: var(--surface-inverse);
+  --color-text-subtle: var(--text-subtle);
+  --color-line-subtle: var(--border-subtle);
+  --color-line-strong: var(--border-strong);
+  --color-brand-from: var(--brand-from);
+  --color-brand-via: var(--brand-via);
+  --color-brand-to: var(--brand-to);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-foreground: var(--accent-solid-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-wordle-correct: var(--wordle-correct);
+  --color-wordle-present: var(--wordle-present);
+  --color-wordle-absent: var(--wordle-absent);
+  --color-wordle-tile-border: var(--wordle-tile-border);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -52,47 +93,82 @@
 
 :root {
   --radius: 0.5rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+
+  /* --- Layer 2: semantics (light) ---------------------------------------- */
+  --background: #fafafa;
+  --surface: #ffffff;
+  --surface-sunken: #f4f4f5;
+  --surface-inverse: #18181b;
+  --text: #0a0a0b;
+  --text-muted: #71717a;
+  --text-subtle: #9f9fa8;
+  --border-subtle: #e4e4e7;
+  --border-strong: #c9c9cf;
+  --brand-from: #16a34a;
+  --brand-via: #22c55e;
+  --brand-to: #facc15;
+  --accent-solid: #16a34a;
+  --accent-solid-foreground: #ffffff;
+  --success: #16a34a;
+  --success-foreground: #ffffff;
+  --warning: #facc15;
+  --warning-foreground: #111113;
+  --danger: #dc2626;
+  --danger-foreground: #ffffff;
+  --wordle-correct: #16a34a;
+  --wordle-present: #facc15;
+  --wordle-absent: #f4f4f5;
+  --wordle-tile-border: #c9c9cf;
+
+  /* --- Layer 3: shadcn contract ------------------------------------------ */
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --muted: var(--surface-sunken);
+  --muted-foreground: var(--text-muted);
+  --secondary: var(--surface-sunken);
+  --secondary-foreground: var(--text);
+  --accent: var(--surface-sunken);
+  --accent-foreground: var(--text);
+  --border: var(--border-subtle);
+  --input: var(--border-strong);
+  --primary: var(--text);
+  --primary-foreground: var(--background);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger-foreground);
+  --ring: var(--accent-solid);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  /* --- Layer 2: semantics (dark) ----------------------------------------- */
+  --background: #0a0a0a;
+  --surface: #121212;
+  --surface-sunken: #1c1c1c;
+  --surface-inverse: #fafafa;
+  --text: #fafafa;
+  --text-muted: #a3a3a3;
+  --text-subtle: #737373;
+  --border-subtle: #292929;
+  --border-strong: #424242;
+  --brand-from: #16a34a;
+  --brand-via: #86efac;
+  --brand-to: #facc15;
+  --accent-solid: #22c55e;
+  --accent-solid-foreground: #052e16;
+  --success: #15803d;
+  --success-foreground: #f0fdf4;
+  --warning: #eab308;
+  --warning-foreground: #111113;
+  --danger: #ef4444;
+  --danger-foreground: #ffffff;
+  --wordle-correct: #15803d;
+  --wordle-present: #eab308;
+  --wordle-absent: #1c1c1c;
+  --wordle-tile-border: #424242;
+
+  /* Layer 3 inherits from :root through var() — nothing to restate. */
 }
 
 :root {
