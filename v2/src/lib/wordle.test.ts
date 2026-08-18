@@ -28,15 +28,52 @@ describe('tileStates', () => {
     expect(s('LEMON', 'EEMON')).toBe('-GGGG')
   })
 
-  test('KNOWN v1 DIVERGENCE FROM REAL WORDLE: over-demotion (wt-ksh.12.10)', () => {
+  test('surplus duplicates are greyed from the RIGHT, matching real Wordle', () => {
+    // This is wt-ksh.12.10, the bug v1 has and v2 no longer does.
     // Answer SPEED has two E's; guess GEESE has three.
-    // Real Wordle: green at column 2, yellow at column 1, grey at column 4
-    //   -> '-YGY-'  (two E's shown, matching the two in the answer)
-    // v1 and therefore this port: '--GY-'  (only ONE E shown)
-    // Pass 2 demotes the EARLIER present rather than the later surplus one, so
-    // a legitimate yellow is lost. Pinned here because Phase 1.5 is a parity
-    // port; filed as wt-ksh.12.10 to fix deliberately rather than by accident.
-    expect(s('SPEED', 'GEESE')).toBe('--GY-')
+    //   green at column 2, yellow at column 1, grey at column 4 — two E's lit,
+    //   matching the two in the answer.
+    // v1 returned '--GY-', lighting only ONE E, because its second pass demoted
+    // the earlier present instead of the later surplus one.
+    expect(s('SPEED', 'GEESE')).toBe('-YGY-')
+  })
+
+  test('an exact match wins its column even when duplicates surround it', () => {
+    // ALLOY has two L's. BALLS puts one at column 2, where ALLOY also has one,
+    // so that column is exact and only one L is left in the pool for column 3.
+    expect(s('ALLOY', 'BALLS')).toBe('-YGY-')
+  })
+
+  test('greens consume the answer letters before any yellow can', () => {
+    // ABBEY has exactly two B's and both are already exact at columns 1 and 2,
+    // so the third B in the guess has nothing left to claim.
+    expect(s('ABBEY', 'BBBEY')).toBe('-GGGG')
+  })
+
+  test('never lights more tiles for a letter than the answer contains', () => {
+    const cases = [
+      ['SPEED', 'GEESE'],
+      ['ALLOY', 'LLLLL'],
+      ['ABBEY', 'BBBBB'],
+      ['ROBOT', 'OOOOO'],
+      ['CRANE', 'EEEEE'],
+    ] as const
+    for (const [answer, guess] of cases) {
+      const states = tileStates(answer, guess)
+      // Count lit tiles PER LETTER — the invariant is per letter, not overall.
+      const lit = new Map<string, number>()
+      states.forEach((state, i) => {
+        if (state !== 'correct' && state !== 'present') return
+        lit.set(guess[i], (lit.get(guess[i]) ?? 0) + 1)
+      })
+      for (const [letter, count] of lit) {
+        const inAnswer = answer.split('').filter((c) => c === letter).length
+        expect(
+          count,
+          `${guess} vs ${answer}: lit ${count} "${letter}" tiles but the answer has ${inAnswer}`,
+        ).toBeLessThanOrEqual(inAnswer)
+      }
+    }
   })
 
   test('a partial guess leaves the remaining columns empty', () => {

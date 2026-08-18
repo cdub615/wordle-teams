@@ -8,62 +8,63 @@
 
 export type TileState = 'correct' | 'present' | 'absent' | 'empty'
 
-const countLetters = (str: string, letter: string) =>
-  str?.split('')?.filter((c) => c === letter)?.length ?? 0
-
 /**
  * Tile state for each of the five columns of one guess.
  *
- * Faithful port of v1's getLetterColorsForWord, including its two-pass
- * duplicate handling, which is the subtle part:
+ * The standard two-phase Wordle algorithm: exact matches are claimed first,
+ * then the remaining answer letters form a pool that the non-exact columns
+ * consume left to right. A letter is 'present' only while the pool still has
+ * one to give, so the number of lit tiles for a letter can never exceed the
+ * number in the answer.
  *
- *   Pass 1 — exact matches claim the letter and count it. A letter that exists
- *   elsewhere in the answer is 'present' only while the running count for that
- *   letter has not exceeded how many times it appears in the answer; past that
- *   it degrades to 'absent'.
+ * REPLACES v1'S ALGORITHM, DELIBERATELY (wt-ksh.12.10). v1 ran a different two
+ * passes and its second pass demoted the EARLIER duplicate 'present' rather
+ * than the later surplus one, losing a legitimate yellow: answer SPEED with
+ * guess GEESE showed one E where the answer has two, telling the player a
+ * correct letter was wrong. Patching that pass would have preserved a shape
+ * that is hard to reason about; this is the algorithm real Wordle uses and it
+ * makes the invariant obvious.
  *
- *   Pass 2 — a 'present' tile is demoted to 'absent' if the running count has
- *   overshot AND a LATER column scored 'correct' for the same letter. Without
- *   this, "EERIE" against an answer with one E would light two tiles.
+ * This is a KNOWN, INTENTIONAL divergence from v1 during the parallel run. It
+ * is a correctness fix on the signature component, not a redesign. Phase 7's
+ * parity audit should expect the board to differ from prod on duplicate-letter
+ * guesses, and only there.
  *
- * An empty or absent answer yields all-'empty', matching v1, which renders the
- * bare grid until an answer exists.
+ * An empty or too-short answer yields all-'empty', matching v1, which renders
+ * the bare grid until an answer exists.
  */
 export function tileStates(answer: string, guess: string): Array<TileState> {
   const states: Array<TileState> = ['empty', 'empty', 'empty', 'empty', 'empty']
   if (!guess) return states
   if (!answer || answer.length !== 5) return states
 
-  const seen = new Map<string, number>()
-
+  // Phase 1: exact matches. Every answer letter NOT claimed by one goes into
+  // the pool that phase 2 draws from.
+  const pool = new Map<string, number>()
   for (let i = 0; i < 5; i++) {
     const letter = guess[i]
-    if (!letter) {
-      states[i] = 'empty'
-      continue
-    }
-    if (letter === answer[i]) {
-      seen.set(letter, (seen.get(letter) ?? 0) + 1)
+    if (letter && letter === answer[i]) {
       states[i] = 'correct'
-      continue
+    } else {
+      pool.set(answer[i], (pool.get(answer[i]) ?? 0) + 1)
     }
-    if (answer.includes(letter)) {
-      seen.set(letter, (seen.get(letter) ?? 0) + 1)
-      states[i] =
-        (seen.get(letter) ?? 0) <= countLetters(answer, letter) ? 'present' : 'absent'
-      continue
-    }
-    states[i] = 'absent'
   }
 
+  // Phase 2: everything else, left to right, consuming the pool.
   for (let i = 0; i < 5; i++) {
-    if (states[i] !== 'present') continue
+    if (states[i] === 'correct') continue
     const letter = guess[i]
-    const overshot = (seen.get(letter) ?? 0) > countLetters(answer, letter)
-    const laterGreenSameLetter = states
-      .slice(i + 1)
-      .some((s, offset) => s === 'correct' && guess[i + 1 + offset] === letter)
-    if (overshot && laterGreenSameLetter) states[i] = 'absent'
+    if (!letter) {
+      states[i] = 'empty' // partial guess: the row is still being typed
+      continue
+    }
+    const available = pool.get(letter) ?? 0
+    if (available > 0) {
+      pool.set(letter, available - 1)
+      states[i] = 'present'
+    } else {
+      states[i] = 'absent'
+    }
   }
 
   return states

@@ -166,19 +166,33 @@ class of bug.
 
 ---
 
-## 7. A v1 bug found while porting the board
+## 7. A v1 bug found while porting the board — fixed in v2, still live in v1
 
-Filed as `wt-ksh.12.10`, reproduced faithfully in v2 rather than fixed, because
-the board is inside the strict-parity scope.
-
-v1's `getLetterColorsForWord` runs two passes; pass 2 demotes the **earlier**
-duplicate `present` tile rather than the later surplus one, so a legitimate
-yellow is lost. Answer `SPEED`, guess `GEESE`: real Wordle shows `- Y G Y -`
-(two E's, matching the answer), v1 and the v2 port show `- - G Y -` (one). The
+`wt-ksh.12.10`. v1's `getLetterColorsForWord` runs two passes; pass 2 demotes
+the **earlier** duplicate `present` tile rather than the later surplus one, so a
+legitimate yellow is lost. Answer `SPEED`, guess `GEESE`: real Wordle shows
+`- Y G Y -` (two E's, matching the answer), v1 shows `- - G Y -` (one). The
 player is told a correct letter is wrong, on the signature component.
 
-Pinned by a deliberately-named test in `v2/src/lib/wordle.test.ts` so it cannot
-change by accident.
+**v2 no longer does this.** `tileStates` was rewritten to the standard
+two-phase algorithm — exact matches claim their letters, the remaining answer
+letters form a pool, and non-exact columns consume it left to right — which
+makes the invariant structural rather than something a corrective pass has to
+restore. Patching v1's pass 2 would have kept a shape that is hard to reason
+about.
+
+**This is a deliberate, known divergence from v1 during the parallel run.**
+It is a correctness fix on the signature component, not a redesign, and it is
+the only place the board differs from prod. Phase 7's parity audit should
+expect a difference on duplicate-letter guesses and only there.
+
+**v1 is still affected in production.** It was not fixed here because this
+branch treats `src/` as untouched until cutover (design doc, Repo Layout) — a
+v1 fix would need its own branch off `dev` and its own release, and v1 retires
+at cutover. That call is the owner's.
+
+Covered by `v2/src/lib/wordle.test.ts`, including a per-letter invariant test
+asserting that no letter is ever lit more times than it appears in the answer.
 
 ---
 
