@@ -1,0 +1,199 @@
+# V2 Addendum — read this before following anything else in this folder
+
+**Date:** 2026-08-18 · **Applies to:** Phase 1.5 (`wt-ksh.12`) of the v2 re-platform
+
+The rest of this bundle is the export from Claude Design, left byte-for-byte as
+it arrived so future revisions can be diffed against it. **Do not edit those
+files.** This addendum records what was actually done, and the places where
+following the bundle literally would have made things worse.
+
+---
+
+## 1. The bundle targets v1, not v2
+
+Its README says it proposes a token set "for the v2 replatform." That is
+misleading. `v1 → v2` in this bundle means *token-set version 1 → version 2*,
+applied in place to the existing Next.js app on `main`. Every concrete artifact
+points at v1:
+
+| Artifact | Why it is v1-targeted |
+| --- | --- |
+| `globals.v2.css` | Described as a drop-in for `src/app/globals.css`; Tailwind **3** syntax (`@tailwind base`, `@layer base`, `@apply border-border`) |
+| `tailwind.tokens.ts` | Expects a `tailwind.config.ts` with `theme.extend.colors` consuming `hsl(var(--token))`. v2 has no such file — it is Tailwind **4** via `@tailwindcss/vite` |
+| The Layer 3 alias block | Exists so v1's `src/components/ui/*` compiles unchanged |
+| `MIGRATION.md` phases 2–4 | Name only v1 files: `wordle-board.tsx`, `ui/badge.tsx`, `app-bar-base.tsx`, `home/feature-cards.tsx`, `magicui/border-beam.tsx` |
+| `tokens.json` → `meta` | `stack: "Next.js + Tailwind + shadcn/ui"`, `themeMechanism: ".dark class via next-themes"`, `branch: main` |
+
+**`MIGRATION.md` was not run and must not be run against v2.** What was used:
+`DESIGN_SYSTEM.md` §1–11 as the spec, and `tokens.json` → `v2` as the value
+source, translated by hand to Tailwind 4.
+
+This is not a criticism of the capture. `DESIGN_SYSTEM.md` is source-derived and
+accurate about v1, which makes it an unusually good input for a parity port —
+adopting it *encodes* parity rather than violating it.
+
+---
+
+## 2. Its contrast numbers are wrong. Recompute before trusting any of them.
+
+`MIGRATION.md`'s reference table does not match the bundle's own hex values.
+Measured with a checker validated against six published WCAG reference pairs
+(`#000/#fff = 21.00`, `#767676/#fff = 4.54`, `#595959/#fff = 7.00`, …):
+**5 of 7 pairs disagree in light, 6 of 7 in dark.**
+
+The most consequential error inverts a prescribed fix. `DESIGN_SYSTEM.md` §10
+calls v1's success badge unreadable at "~2.1:1":
+
+- v1's actual pair — near-black `#111113` on green-600 `#16a34a` — is **5.72:1
+  and passes AA**.
+- The bundle's prescribed replacement — white on `#16a34a` — is **3.30:1 and
+  fails**.
+
+Applying `MIGRATION.md` phase 2 verbatim would have made the badge *worse*.
+v1's badge was never broken.
+
+**Four token values therefore deviate from `tokens.json` on purpose.** They are
+documented inline in `v2/src/styles.css`; do not "restore" them:
+
+| Token | Bundle | v2 | Contrast |
+| --- | --- | --- | --- |
+| `--success` (light) | `#16a34a` | `#15803d` | 3.30 → 5.02 |
+| `--accent-solid` (light) | `#16a34a` | `#15803d` | 3.30 → 5.02 |
+| `--text-subtle` (light) | `#9f9fa8` | `#767680` | 2.52 → 4.31 |
+| `--danger` (dark) | `#ef4444` | `#dc2626` | 3.76 → 4.83 |
+
+Six of the seven reference pairs now clear AA in **both** themes. `text-subtle`
+is the exception (4.31 light / 4.18 dark) and cannot reach 4.5 while remaining a
+rank below `text-muted`, which is itself only 4.63 — three text ranks do not fit
+above the AA line. Treat it as large-text/decorative and use `text-muted` for
+anything normal-sized that must be legible, including the N/A cells that
+`tokens.json` assigns to it.
+
+`#16a34a` deliberately survives as `--brand-from`, the wordmark gradient and
+`--wordle-correct` (light). Those carry only large text, where 3.30 clears the
+3:1 bar, and it is the game's green.
+
+---
+
+## 3. One token was renamed to fix a latent bug
+
+`globals.v2.css` declares `--accent-foreground` **twice inside the same
+`:root`** — once in Layer 2 as the brand pair (white on green) and again in
+Layer 3 as the shadcn name (text on the hover surface). Last declaration wins,
+so the brand pair silently resolves to near-black on green, ~2.2:1 — the very
+failure the bundle exists to fix. `tailwind.tokens.ts` sidesteps the same
+collision by omitting the brand accent from the utility set entirely.
+
+In v2 the brand pair is **`--accent-solid` / `--accent-solid-foreground`**, so
+both survive.
+
+---
+
+## 4. How the token set is actually structured in v2
+
+All of it lives in `v2/src/styles.css`, generated from `tokens.json` → `v2`
+rather than hand-transcribed.
+
+- **Layer 2 — semantics.** The 24 design-system names, light and dark.
+- **Layer 3 — the shadcn contract**, repointed at Layer 2.
+
+**Layer 3 is permanent in v2.** `MIGRATION.md` phase 4 says to delete the alias
+layer once nothing references the old names. That is correct for v1, where those
+names were being retired. In v2 it is backwards: shadcn components *are* the
+consumers of `--background`, `--primary`, `--ring` and friends, so Layer 3 is
+the contract, not scaffolding.
+
+An `@theme inline` block maps both layers onto Tailwind 4 utilities. Names with
+no shadcn equivalent are exposed directly (`bg-surface`, `bg-accent-solid`,
+`bg-wordle-correct`, `border-line-strong`, …); the bundle's `line-*` naming is
+kept to avoid colliding with shadcn's `border`.
+
+Theming is the `.dark` class, which `ThemeToggle` sets in all three modes
+(light / dark / auto). No CSS keys off `data-theme` any more; that attribute is
+now informational only.
+
+---
+
+## 5. Decisions taken
+
+- **The design system supersedes v2's teal palette.** v2 shipped with an
+  unrelated sea/lagoon/palm set from the TanStack starter. It is gone. Removing
+  it also fixed a live bug: the teal block redefined `--surface` *after* the
+  design-system `:root`, so `--surface` resolved to a translucent `#ffffffbd` in
+  light, and in dark `:root[data-theme="dark"]` beat `.dark` on specificity. The
+  surface token was never actually in effect, which is why cards had no step off
+  the page.
+- **v2 adopts shadcn/ui**, `style: "default"` — the same style v1 uses.
+- **Fonts are Inter (UI) + Geist (display)** per §3, with `--font-display` as a
+  real token rather than v1's per-element `className` (drift #5).
+
+### The style choice has a trap in it
+
+v2 initially used `style: "radix-nova"`, on the reasoning that Radix matches
+v1's component vocabulary. **That registry variant is broken upstream:** it
+imports Radix primitives but styles on Base UI data attributes. Radix emits
+`data-state="checked"` and `data-orientation="horizontal"`; the components style
+on `data-checked:` and `data-horizontal:`. Roughly 80 dead selectors across
+dialog, dropdown-menu, select, separator, sheet, switch, tabs and table.
+
+`vite build`, `tsc --noEmit` and the full test suite were **all green** while
+this was broken — Tailwind simply never emits a rule for a selector that cannot
+match. It was caught only in a screenshot, as an invisible Switch (transparent
+track under a white thumb on a near-white page) and a zero-height Separator.
+
+`default` is Radix-native, internally consistent, and matches `DESIGN_SYSTEM.md`
+§7 metrics out of the box: badge `rounded-full px-2.5 py-0.5 text-xs
+font-semibold`, switch 44×24 with a 20px thumb, solid destructive. Do not move
+to a `radix-*` preset style without re-checking this.
+
+**Screenshot UI work before calling it done.** The toolchain cannot see this
+class of bug.
+
+---
+
+## 6. Things the bundle does not cover
+
+- **The login/onboarding surface.** `DESIGN_SYSTEM.md` documents the OTP input
+  and nothing else about it. Amendment A7 made login a sanctioned exception to
+  strict parity, and that work (labelled provider buttons, funnel events) is
+  additive. Note v2 never inherited v1's icon-only tooltip grid in the first
+  place.
+- **`CardTitle` renders a plain `<div>`.** A page using Card as its main region
+  silently has no `<h1>`. v2 added Slot-based `asChild` to it.
+- **`sonner` imports `useTheme` from `next-themes`,** which v2 does not use.
+  Replaced with `lib/use-resolved-theme.ts`, reading the authoritative `.dark`
+  class.
+
+---
+
+## 7. A v1 bug found while porting the board
+
+Filed as `wt-ksh.12.10`, reproduced faithfully in v2 rather than fixed, because
+the board is inside the strict-parity scope.
+
+v1's `getLetterColorsForWord` runs two passes; pass 2 demotes the **earlier**
+duplicate `present` tile rather than the later surplus one, so a legitimate
+yellow is lost. Answer `SPEED`, guess `GEESE`: real Wordle shows `- Y G Y -`
+(two E's, matching the answer), v1 and the v2 port show `- - G Y -` (one). The
+player is told a correct letter is wrong, on the signature component.
+
+Pinned by a deliberately-named test in `v2/src/lib/wordle.test.ts` so it cannot
+change by accident.
+
+---
+
+## 8. Where things live
+
+| What | Where |
+| --- | --- |
+| Tokens, base layer, helper classes | `v2/src/styles.css` |
+| shadcn config | `v2/components.json` (`style: "default"`, aliases on `#/`) |
+| Components | `v2/src/components/ui/` |
+| Board + score cell | `v2/src/components/wordle-board.tsx`, `score-cell.tsx` |
+| Board logic + tests | `v2/src/lib/wordle.ts`, `wordle.test.ts` |
+| Funnel events | `v2/src/lib/funnel.ts` (no destination yet — `wt-ksh.12.11`) |
+| Theme hook | `v2/src/lib/use-resolved-theme.ts` |
+
+Note v2's import alias is `#/`, not shadcn's default `@/`, and the shadcn CLI
+must be run from inside `v2/` — from the repo root it misdetects the project as
+v1 and resolves the Tailwind CSS file to `docs/design-system/globals.v2.css`.
