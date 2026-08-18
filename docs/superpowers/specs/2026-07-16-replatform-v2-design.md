@@ -413,3 +413,73 @@ decision.
   (`wt-ksh.1.12`). Creating the `wordle-teams-v2` Sentry project (`wt-3yb`) is a second manual
   unblock, independent of DNS. Phase 0's done-when — OTP login on `beta.wordleteams.com` —
   cannot be met until DNS moves. **The whole of v2 is blocked behind one owner action.**
+
+---
+
+# Amendments (2026-08-18)
+
+Phase 1 closed on 2026-08-18. These two amendments settle the sequencing question A5 left
+open and insert one new phase. Where they contradict anything above, they win.
+
+## A7. Sequencing decision — interleave funnel work with the port
+
+A5 handed the owner three options and `wordle-teams-dts` carried the decision. **The owner
+has chosen (b): interleave funnel work with the port.** `wordle-teams-dts` is closed.
+
+Two pieces of evidence sharpened the choice after A5 was written:
+
+- **A5's own first caveat has been tested and did not hold.** A5 argued the ~7% login
+  conversion "probably has a mechanical cause that is now fixed" — the Lemon Squeezy error
+  loop (`wordle-teams-jvt`). Lemon Squeezy is gone, and `wordle-teams-390` was re-measured on
+  2026-08-17 over the following 30 days: `/login` GET went from 163 unique non-bot IPs to
+  **203**, and `/api/auth/callback` from 8 to **16**. Traffic went up; conversion did not move
+  (~7% → ~8%). The leak is real and it is not Lemon Squeezy. It remains a *pre-fix* baseline
+  for a second, smaller reason: prod is still `f476605` (the 08-03 release), so `wt-odh`,
+  `wt-3io` and `wt-4ov` are merged to `dev` only and have never been in front of a user.
+- **The measurement is now the bigger leak.** 93% abandon at login versus 87% at activation,
+  with zero server-side auth failures in either window. This is friction and trust, not a bug.
+
+**What (b) changes in practice:**
+
+1. **Cost is demoted from lead driver to secondary benefit,** as A5 recommended. DX/architecture
+   fit and vendor reduction (~10 → ~6) carry the project. This is a settled edit to
+   "Context & Drivers", not an open question.
+2. **The strict-1:1 parity rule gains a third sanctioned exception: the login and onboarding
+   surface.** Reactivity and passkeys were already carved out. Login/onboarding joins them.
+   The justification is narrow and specific — `wordle-teams-390`'s acceptance criteria is
+   *"labeled provider buttons (visible text, not tooltip-only)"* plus client-side funnel
+   events, which is login UI work; v2's login screen already exists on beta with all providers
+   verified; and porting v1's icon-only 3×2 tooltip grid faithfully would reproduce the single
+   largest known leak in the product. **Fixing it once, in v2, costs less than fixing it twice.**
+   Parity elsewhere is unchanged and still strict.
+3. **Funnel instrumentation is a v2 deliverable, not a post-cutover backlog item.** The events
+   `wordle-teams-390` asks for (login-page view, provider-button click, callback arrival) get
+   built into v2 rather than retrofitted to v1.
+
+**What (b) explicitly does not license:** a general redesign. Every screen outside
+login/onboarding still ports 1:1, and A3 still governs *which* version it ports against.
+
+## A8. New phase — design system foundation, before Phase 2
+
+The owner has built a design system in Claude Design, derived from v1's look and then improved
+on it. It lands as **CSS/Tailwind theme tokens plus static HTML/CSS mockups** — no React
+components, so translation to TSX is part of the work.
+
+**It is inserted as a new phase between Phase 1 and Phase 2**, for a timing reason that
+expires quickly: `v2/src/components` currently holds exactly three files (`Header`, `Footer`,
+`ThemeToggle`), there is no shadcn install and no `components.json`, and the whole visual
+system is a hand-rolled 464-line `v2/src/styles.css` (the sea/lagoon/palm/sand token set,
+light + dark + `prefers-color-scheme`). **Phase 2 is the first phase that builds substantial
+UI** — board entry, scoreboard, month navigation. Landing the design system after Phase 2
+means restyling the board and scoreboard; landing it before means building them once.
+
+This phase pairs with A7: the login/onboarding exception is the one place the design system is
+allowed to change behaviour rather than just appearance.
+
+**Open questions to resolve when the export lands** (the task breakdown is not final until
+then): whether the Claude Design tokens supersede or extend the existing `styles.css` palette;
+whether v2 adopts shadcn to match v1's component vocabulary or stays hand-rolled; and how much
+of the mockups' component surface Phase 2 actually needs versus what can wait for the phase
+that consumes it.
+
+Tracked as `wt-ksh.12`. Phase 2 (`wt-ksh.3`) is blocked on it.
