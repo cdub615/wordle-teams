@@ -61,6 +61,62 @@ const PROVIDER_OPTIONS: Record<string, Record<string, unknown>> = {
     disableDefaultScope: true,
     scope: ['openid', 'profile', 'email', 'offline_access'],
     disableProfilePhoto: true,
+
+    /**
+     * Decide `emailVerified` ourselves, because Better Auth's default says
+     * false whenever Microsoft omits the claim — and a false here does NOT
+     * produce a duplicate account, it REFUSES the sign-in with
+     * `account_not_linked`. A personal Microsoft account hit exactly that.
+     *
+     * Better Auth checks `email_verified`, then the
+     * verified_primary_email/verified_secondary_email arrays. Microsoft does
+     * not reliably emit any of those: `email_verified` is not a standard v2.0
+     * claim, and the verified_* arrays are optional claims that Microsoft's own
+     * guidance says "are not always set" even once enabled.
+     *
+     * Two additions, in decreasing order of authority:
+     *
+     * `xms_edov` — "email domain owner verified". This is Microsoft's OWN
+     * recommended signal for exactly this decision: it asserts the token issuer
+     * owns the email's domain, which is what stops a tenant admin stamping an
+     * arbitrary address on a user and having it linked into someone else's
+     * account.
+     *
+     * The consumer tenant — every personal Microsoft account carries this fixed
+     * tid. For consumer accounts Microsoft owns the namespace and verifies
+     * ownership when the address is added, so the address is as verified as
+     * Microsoft can make it. Narrow and deliberate: it applies ONLY to that one
+     * fixed tenant id, never to a work/school tenant, where an admin could set
+     * an address the user does not control.
+     *
+     * Everything still falls through to false. This widens what counts as
+     * proof; it does not remove the requirement for proof.
+     */
+    mapProfileToUser: (profile: Record<string, unknown>) => {
+      const CONSUMER_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad'
+      const email = typeof profile.email === 'string' ? profile.email : undefined
+
+      // Keys only, never values: this lands in deployment logs and the claims
+      // carry real addresses and names.
+      console.log(
+        `[auth] microsoft id_token claims: ${Object.keys(profile).sort().join(',')}` +
+          ` | email_verified=${String(profile.email_verified)}` +
+          ` | xms_edov=${String(profile.xms_edov)}` +
+          ` | consumer=${profile.tid === CONSUMER_TENANT}`,
+      )
+
+      const verifiedArrays =
+        !!email &&
+        ((profile.verified_primary_email as string[] | undefined)?.includes(email) ||
+          (profile.verified_secondary_email as string[] | undefined)?.includes(email))
+
+      const emailVerified =
+        typeof profile.email_verified === 'boolean'
+          ? profile.email_verified
+          : verifiedArrays || profile.xms_edov === true || profile.tid === CONSUMER_TENANT
+
+      return { emailVerified }
+    },
   },
 }
 
