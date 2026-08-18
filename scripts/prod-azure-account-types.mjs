@@ -75,6 +75,12 @@ let personal = 0
 let work = 0
 let unknown = 0
 const claimKeys = new Set()
+// How many DISTINCT work/school tenants are represented. This decides whether
+// one admin's consent covers everyone: consent granted in a directory applies
+// only to that directory, so a multi-tenant spread means each org's admin (or
+// each user, where the tenant permits self-consent) has to consent separately.
+// Counted, never printed — a tenant id identifies a real organisation.
+const workTenants = new Set()
 
 for (const id of azureIdentities) {
   const d = id.identity_data ?? {}
@@ -96,12 +102,15 @@ for (const id of azureIdentities) {
       typeof d.iss === 'string' ? (() => { try { return new URL(d.iss).host } catch { return '(unparseable)' } })() : '(no iss)'
     console.log(`  [indeterminate] iss host=${issHost} keys=${Object.keys(d).sort().join(',') || '(empty)'}`)
   } else if (tid === CONSUMER_TENANT) personal++
-  else work++
+  else {
+    work++
+    workTenants.add(tid)
+  }
 }
 
 console.log(`azure identities            : ${azureIdentities.length}`)
 console.log(`  personal Microsoft account: ${personal}`)
-console.log(`  work/school account       : ${work}`)
+console.log(`  work/school account       : ${work}  (across ${workTenants.size} distinct tenant(s))`)
 console.log(`  indeterminate             : ${unknown}`)
 console.log(`\nclaim keys present on azure identities (names only):`)
 console.log(`  ${[...claimKeys].sort().join(', ') || '(none)'}`)
