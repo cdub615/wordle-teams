@@ -7,10 +7,13 @@
  * only prove nothing errored. Attributing where people leave needs client-side
  * events, which is what this module provides.
  *
- * DESTINATION IS NOT YET DECIDED — see wt-ksh.12.11. v2 currently has no
- * analytics dependency at all. Everything below is deliberately
- * destination-agnostic: wiring one up is a change to `send` and nothing else,
- * and every call site stays as it is.
+ * DESTINATION: LogSnag, project `wordle-teams`, channel `login-funnel`
+ * (wt-ksh.12.11). v1 already reports signups to the same project, which is what
+ * makes the v1 and v2 funnels directly comparable — the reason that number is
+ * worth collecting at all.
+ *
+ * The token is a SECRET and never reaches the browser. This module posts to our
+ * own /api/funnel route; the Worker holds the token and forwards to LogSnag.
  *
  * TWO RULES THIS MODULE MUST NEVER BREAK:
  *   1. Never block or fail auth. wordle-teams-4ov is exactly this bug in v1 —
@@ -28,17 +31,30 @@ export type FunnelEvent =
   | { name: 'login_callback_arrived'; method: 'oauth' | 'otp' }
 
 /**
- * THE INTEGRATION POINT. Replace the body to ship events somewhere.
+ * Ship one event to /api/funnel, which forwards it to LogSnag.
  *
- * Keep it synchronous-looking and non-throwing: callers must never await it.
- * If the destination is network-backed, fire the request and discard the
- * promise (`void fetch(...).catch(() => {})`) rather than returning it.
+ * FIRE AND FORGET. The promise is deliberately discarded — nothing on the
+ * sign-in path may wait for analytics (wordle-teams-4ov).
+ *
+ * keepalive MATTERS HERE. login_provider_click fires immediately before
+ * authClient.signIn.social() navigates the document away to the provider.
+ * A normal fetch is cancelled when the page tears down, so precisely the event
+ * that tells us someone chose a provider would be the one most likely to be
+ * lost. keepalive lets the browser finish the request after navigation.
  */
 function send(event: FunnelEvent): void {
   if (import.meta.env.DEV) {
     // eslint-disable-next-line no-console
     console.debug('[funnel]', event.name, event)
   }
+  void fetch('/api/funnel', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(event),
+    keepalive: true,
+  }).catch(() => {
+    // Swallowed. An unreachable endpoint must not surface to someone signing in.
+  })
 }
 
 /**
