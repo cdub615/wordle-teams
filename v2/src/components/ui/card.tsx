@@ -1,4 +1,5 @@
 import * as React from "react"
+import { Slot } from "radix-ui"
 
 import { cn } from "#/lib/utils.ts"
 
@@ -29,11 +30,22 @@ const CardHeader = React.forwardRef<
 ))
 CardHeader.displayName = "CardHeader"
 
+/**
+ * asChild added on top of stock shadcn (wt-ksh.12.7).
+ *
+ * CardTitle renders a plain <div>, so a Card used as a page's main region
+ * silently leaves that page with no <h1>. That is an accessibility defect, not
+ * just a testing inconvenience — it broke the e2e assertion on /login that
+ * looks for a heading role. asChild lets the caller supply the correct heading
+ * level while keeping the typographic styling.
+ */
 const CardTitle = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
+  React.HTMLAttributes<HTMLDivElement> & { asChild?: boolean }
+>(({ className, asChild = false, ...props }, ref) => {
+  const Comp = asChild ? Slot.Root : "div"
+  return (
+  <Comp
     ref={ref}
     className={cn(
       "text-2xl font-semibold leading-none tracking-tight",
@@ -41,7 +53,8 @@ const CardTitle = React.forwardRef<
     )}
     {...props}
   />
-))
+  )
+})
 CardTitle.displayName = "CardTitle"
 
 const CardDescription = React.forwardRef<

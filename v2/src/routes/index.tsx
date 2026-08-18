@@ -1,10 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useSuspenseQuery, useMutation } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../../convex/_generated/api'
 import { authClient } from '#/lib/auth-client'
 import { pageTitle } from '#/lib/seo'
+import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 
 export const Route = createFileRoute('/')({
   // v1: src/app/me/page.tsx metadata.title. The signed-in landing page is /me
@@ -27,6 +28,19 @@ function Home() {
   const { data: mine } = useSuspenseQuery(convexQuery(api.me.myData, {}))
   const [draft, setDraft] = useState('')
   const setMessage = useMutation({ mutationFn: useConvexMutation(api.status.set) })
+
+  // Bottom of the login funnel (wt-ksh.12.7). Reaching here authenticated is the
+  // only reliable "they made it" signal: the OAuth round-trip finishes as a fresh
+  // document load, so nothing on /login survives to observe it. The marker is
+  // stripped from the URL immediately so a refresh or a share cannot double-count.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const method = url.searchParams.get(SIGNIN_PARAM)
+    if (method !== 'oauth' && method !== 'otp') return
+    trackFunnel({ name: 'login_callback_arrived', method })
+    url.searchParams.delete(SIGNIN_PARAM)
+    window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+  }, [])
 
   return (
     <main style={{ padding: 24, fontFamily: 'sans-serif' }}>
