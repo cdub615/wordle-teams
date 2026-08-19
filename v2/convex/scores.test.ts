@@ -293,7 +293,7 @@ describe('upsertBoardFor', () => {
           // teammate's total and write the result to the shared monthlyWinners row.
           today: '2027-08-18',
         }),
-      ).rejects.toMatchObject({ data: { code: 'INVALID_BOARD' } })
+      ).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
     })
   })
 

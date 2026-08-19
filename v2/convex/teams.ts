@@ -3,7 +3,7 @@ import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, isProFor, requirePlayer, requireTeamCreatorFor } from './access'
 import { hasCompleteProfile } from './lib/player.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
-import { addDays, toPuzzleDay } from './lib/puzzleDay.ts'
+import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader } from 'convex/server'
@@ -106,21 +106,15 @@ export const amIPro = query({
 /**
  * The submitter's own local today, bounded server-side.
  *
- * Lifted from upsertBoardFor's guard and shared, because it is needed for the
- * same reason: `today` is client-supplied, the server has no viewer whose
- * midnight it could ask for, and the value is NOT confined to the caller — it
- * decides which missed days are due for every member of the team, and the
- * result is written to monthlyWinners, which the whole team reads. An unbounded
- * value is shared-state corruption, not a personal view quirk.
- *
- * ±1 day of the server's date. Convex runs UTC, and UTC-12..UTC+14 spans 26
- * hours, so a legitimate client anywhere on earth is always within one calendar
- * day of it. See wordle-teams-04r: that Convex's clock is UTC is currently an
- * inference, and confirming it is a pre-cutover task.
+ * The bound itself — isPlausibleToday — is shared with upsertBoardFor in
+ * scores.ts, which needs it for the identical reason: see the doc comment on
+ * isPlausibleToday in lib/puzzleDay.ts. See wordle-teams-04r: that Convex's
+ * clock is UTC is currently an inference, and confirming it is a pre-cutover
+ * task.
  */
 function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
   const serverToday = toPuzzleDay(new Date())
-  if (today < addDays(serverToday, -1) || today > addDays(serverToday, 1)) {
+  if (!isPlausibleToday(today, serverToday)) {
     // NOT INVALID_TEAM. A clock this far off is not a naming problem, and
     // telling the user "a team needs a name" would be actively wrong. See the
     // code split in Task 4.

@@ -4,6 +4,7 @@ import {
   addMonths,
   daysOfMonth,
   fromPuzzleDay,
+  isPlausibleToday,
   isWeekendDay,
   monthOf,
   monthRange,
@@ -92,5 +93,21 @@ describe('addMonths', () => {
 
   test('walks forwards', () => {
     expect(addMonths('2026-11', 2)).toBe('2027-01')
+  })
+})
+
+describe('isPlausibleToday', () => {
+  test('accepts an exact match with the server date', () => {
+    expect(isPlausibleToday('2026-06-08', '2026-06-08')).toBe(true)
+  })
+
+  test('accepts one day either side of the server date', () => {
+    expect(isPlausibleToday('2026-06-07', '2026-06-08')).toBe(true)
+    expect(isPlausibleToday('2026-06-09', '2026-06-08')).toBe(true)
+  })
+
+  test('rejects two days either side of the server date', () => {
+    expect(isPlausibleToday('2026-06-06', '2026-06-08')).toBe(false)
+    expect(isPlausibleToday('2026-06-10', '2026-06-08')).toBe(false)
   })
 })

@@ -75,3 +75,26 @@ export function addMonths(month: PuzzleMonth, delta: number): PuzzleMonth {
   const shifted = new Date(year, monthNum - 1 + delta, 1)
   return `${shifted.getFullYear()}-${pad(shifted.getMonth() + 1)}`
 }
+
+/**
+ * Whether a client-supplied `today` is close enough to the server's clock to
+ * trust.
+ *
+ * `today` is client-supplied, and the server has no viewer whose midnight it
+ * could ask for instead. But the value is NOT confined to the caller: both
+ * upsertBoard and updateTeam feed it to winner recomputation, which decides
+ * which missed days are already due for every member of a team and writes the
+ * result to `monthlyWinners` — a row the whole team reads. An unbounded value
+ * is therefore shared-state corruption, not a personal view quirk.
+ *
+ * ±1 day of the server's date. Convex runs UTC, and UTC-12..UTC+14 spans 26
+ * hours, so a legitimate client anywhere on earth is always within one
+ * calendar day of it. Anything further is broken or hostile.
+ *
+ * Takes `serverToday` as a PARAMETER rather than reading the clock itself, so
+ * this stays a pure function of its inputs and is directly testable — callers
+ * compute it once via `toPuzzleDay(new Date())` and pass it in.
+ */
+export function isPlausibleToday(today: PuzzleDay, serverToday: PuzzleDay): boolean {
+  return today >= addDays(serverToday, -1) && today <= addDays(serverToday, 1)
+}

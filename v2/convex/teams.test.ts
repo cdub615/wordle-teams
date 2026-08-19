@@ -201,6 +201,54 @@ describe('updateTeamFor', () => {
     })
   })
 
+  test('does not recompute when playWeekends is unchanged, even with a stale winner row', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [ada, bob], creator: ada, playWeekends: true }),
+      )
+      // Bob has a decisive win; Ada has no scores at all this month. A fresh
+      // recompute would name Bob. The stored row deliberately names Ada
+      // instead, so an accidental recompute is observable as the row changing
+      // — the rename test alone can't tell "correctly skipped" from "there was
+      // nothing to recompute", because it never seeds a winner row at all.
+      await ctx.db.insert('dailyScores', {
+        playerId: bob,
+        puzzleDay: '2026-06-08',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 6,
+        hasSeenCelebration: [],
+      })
+
+      // Only the name changes; playWeekends stays true.
+      await updateTeamFor(ctx, ada, {
+        teamId,
+        name: 'Renamed Again',
+        playWeekends: true,
+        showLetters: true,
+        today,
+      })
+
+      const row = await ctx.db
+        .query('monthlyWinners')
+        .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId).eq('year', 2026).eq('month', 6))
+        .first()
+      // Still Ada — wrong per a fresh compute, but untouched, which is the
+      // proof no recompute ran.
+      expect(row?.playerId).toBe(ada)
+    })
+  })
+
   test('refuses a member who is not the creator', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -311,6 +359,18 @@ describe('deleteTeamFor', () => {
       // A board belongs to a player and is shared across all their teams, so it
       // survives — exactly as in Postgres, where daily_scores has no team fkey.
       expect(await ctx.db.get(scoreId)).not.toBeNull()
+    })
+  })
+
+  test('deletes a team with no winners and no scoring versions — the two collect-and-loop cascades are no-ops', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+
+      await deleteTeamFor(ctx, ada, teamId)
+
+      expect(await ctx.db.get(teamId)).toBeNull()
     })
   })
 

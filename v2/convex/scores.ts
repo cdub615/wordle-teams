@@ -3,7 +3,7 @@ import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, requirePlayer, requireTeamMemberFor } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
 import { hasCompleteProfile } from './lib/player.ts'
-import { addDays, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
+import { isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { recomputePlayerMonth } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
@@ -179,18 +179,17 @@ export async function upsertBoardFor(
   // disables submit on this same predicate — v1 had no server-side check at all.
   if (!boardIsValid(answer, guesses, existing !== null)) throw accessError('INVALID_BOARD')
 
-  // `today` is client-supplied, and the server has no viewer whose midnight it
-  // could ask for instead. But it is NOT confined to the caller: recomputePlayerMonth
-  // applies it to every member of every team they are on, and writes the result
-  // to monthlyWinners, which the whole team reads. An unbounded value is
-  // therefore shared-state corruption, not a personal view quirk.
+  // The bound itself — isPlausibleToday — is shared with updateTeamFor in
+  // teams.ts, which needs it for the identical reason: see the doc comment on
+  // isPlausibleToday in lib/puzzleDay.ts.
   //
-  // ±1 day of the server's date. Convex runs UTC, and UTC-12..UTC+14 spans 26
-  // hours, so a legitimate client anywhere on earth is always within one
-  // calendar day of it. Anything further is broken or hostile.
+  // INVALID_DATE, NOT INVALID_BOARD: a clock this far off is not a board-shape
+  // problem, and boardErrorMessage's "That board is not complete. Check the
+  // answer and your guesses." would be actively wrong here — the board can be
+  // perfectly valid and the device's clock is what's off.
   const serverToday = toPuzzleDay(new Date())
-  if (today < addDays(serverToday, -1) || today > addDays(serverToday, 1)) {
-    throw accessError('INVALID_BOARD')
+  if (!isPlausibleToday(today, serverToday)) {
+    throw accessError('INVALID_DATE')
   }
 
   const played = normalizeGuesses(guesses)
