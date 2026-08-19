@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Loader2, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '../../../convex/_generated/api'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
-import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover.tsx'
+import { ConfirmPopover } from '#/components/confirm-popover.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -81,38 +81,20 @@ export function MyTeamsCard({
                     ))}
                   </ul>
                   {team.isCreator && (
-                    <Popover
+                    <ConfirmPopover
                       open={openId === team.id}
                       onOpenChange={(next) => setOpenId(next ? team.id : null)}
-                    >
-                      <PopoverTrigger asChild>
+                      trigger={
                         <Button variant="ghost" aria-label={`Delete ${team.name}`}>
                           <Trash2 size={16} className="text-danger" />
                         </Button>
-                      </PopoverTrigger>
-                      {/* max-w caps this to the viewport, not just the trigger: a
-                          long team name (the same string the truncated row above
-                          exists to handle) otherwise renders on one un-wrapped
-                          line and runs the confirmation and its Delete button off
-                          the right edge of the screen — Radix repositions the
-                          popover on collision but cannot shrink text that has
-                          nowhere to wrap. */}
-                      <PopoverContent className="w-auto max-w-[min(20rem,calc(100vw-2rem))]">
-                        <div className="flex flex-col space-y-4">
-                          <span className="break-words">Delete {team.name}?</span>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            disabled={pendingId === team.id}
-                            aria-disabled={pendingId === team.id}
-                            onClick={() => handleDelete(team.id)}
-                          >
-                            {pendingId === team.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Delete
-                          </Button>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                      }
+                      message={`Delete ${team.name}?`}
+                      confirmLabel="Delete"
+                      confirmSize="sm"
+                      pending={pendingId === team.id}
+                      onConfirm={() => handleDelete(team.id)}
+                    />
                   )}
                 </div>
               </div>

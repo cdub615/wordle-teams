@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Loader2, Settings, Trash2 } from 'lucide-react'
+import { Settings, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '../../../convex/_generated/api'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
-import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover.tsx'
+import { ConfirmPopover } from '#/components/confirm-popover.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
@@ -89,30 +89,19 @@ export function CurrentTeamCard({
                   {member.firstName} {member.lastName}
                 </span>
                 {isCreator && (
-                  <Popover
+                  <ConfirmPopover
                     open={openId === member.id}
                     onOpenChange={(next) => setOpenId(next ? member.id : null)}
-                  >
-                    <PopoverTrigger asChild>
+                    trigger={
                       <Button variant="ghost" aria-label={`Remove ${member.firstName}`}>
                         <Trash2 size={16} className="text-danger" />
                       </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto">
-                      <div className="flex flex-col space-y-4">
-                        <span>Remove player from {name}?</span>
-                        <Button
-                          variant="destructive"
-                          disabled={pendingId === member.id}
-                          aria-disabled={pendingId === member.id}
-                          onClick={() => handleRemove(member.id)}
-                        >
-                          {pendingId === member.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                          Remove
-                        </Button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                    }
+                    message={`Remove player from ${name}?`}
+                    confirmLabel="Remove"
+                    pending={pendingId === member.id}
+                    onConfirm={() => handleRemove(member.id)}
+                  />
                 )}
               </div>
               {index < members.length - 1 && <Separator className="mt-2" />}

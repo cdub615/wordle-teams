@@ -115,9 +115,7 @@ function Dashboard() {
     // card's own CurrentTeamCard heading, or MyTeamsCard's row below) then
     // grows that one column, and every sibling on the page along with it,
     // producing a page-wide horizontal scrollbar with everything below the
-    // header pushed edge-to-edge. Caught only by screenshotting the long-name
-    // case at a phone viewport, per V2-ADDENDUM.md §5 — tsc/build/vitest are
-    // all blind to it, same as every other bug that section documents.
+    // header pushed edge-to-edge.
     <main className="mb-12 grid grid-cols-1 gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
       <CreateTeamDialog
         open={createOpen}
