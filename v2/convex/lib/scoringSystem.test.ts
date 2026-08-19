@@ -55,11 +55,14 @@ describe('systemFor', () => {
     expect(systemFor(base, shuffled, '2026-07').oneGuess).toBe(10)
   })
 
-  // Convex has no unique constraints, and Task 8's setScoringSystem upserts by
-  // (teamId, effectiveFrom) with a read-then-write, so two rows sharing an
-  // effectiveFrom are reachable under a race. Array.prototype.sort is stable,
-  // so on a tie the LATER element of the input array wins — this pins that as
-  // a documented contract a future refactor can't silently change.
+  // Not a reachable race — see systemFor's doc comment, which used to claim it
+  // was. setScoringSystemFor's read-then-write upsert is the same shape as
+  // upsertBoardFor's, and Convex's OCC prevents the duplicate in both (unproven
+  // here either way: convex-test does not simulate OCC retries). This is pinned
+  // because the comparator has to be a TOTAL order regardless — an inconsistent
+  // one makes Array.prototype.sort implementation-defined whether or not ties
+  // occur — and because a future second writer to this table would make ties
+  // real. sort is stable, so on a tie the LATER element of the input wins.
   test('on a duplicate effectiveFrom, the later element of the input array wins', () => {
     const tied = [
       { effectiveFrom: '2026-06', ...values(10) },

@@ -47,6 +47,10 @@ export async function getTeamMonthFor(
   // fields are the original, used until the first edit; every edit since writes
   // a scoringSystems row. Reading the team's live values here would compute a
   // past month's totals under today's rules — wordle-teams-1j3.
+  //
+  // Queried here rather than through winners.ts's loadTeamMonthSystem, which
+  // does the same read: this needs the raw `versions` array a second time, for
+  // effectiveFromOf below. The duplication is deliberate, not an oversight.
   const versions = await ctx.db
     .query('scoringSystems')
     .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', teamId))

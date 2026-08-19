@@ -507,12 +507,22 @@ describe('monthly winners', () => {
     // MEASURED: this fixture reads exactly 35 documents — 5 (the whole teams
     // table) + 9 (3 members x 3 teams, via ctx.db.get) + 21 (in-month
     // dailyScores across those 9 member-team pairs, including the board this
-    // call itself just wrote) + 0 (no monthlyWinners rows exist yet). Found by
-    // bisecting `transactionLimits.documentsRead` until the call stopped
-    // throwing. The assertion below is that READ COUNT, not the returned
-    // board or any monthlyWinners row — same reasoning as the read-path guard:
-    // an implementation that reads more but returns identical results must
-    // still trip this.
+    // call itself just wrote) + 0 (no monthlyWinners rows exist yet) + 0
+    // (scoringSystems: recomputeTeamMonth resolves the month's scoring version
+    // via loadTeamMonthSystem, one indexed query per team, and this fixture has
+    // no version rows for any of them). Found by bisecting
+    // `transactionLimits.documentsRead` until the call stopped throwing.
+    //
+    // That last term is the one to watch. It is 0 only because version-less
+    // teams are the common case, NOT because the query is free: a team carries
+    // one row per month its scoring was edited in, and every one of them is
+    // read on every board submission by that team's members. The headroom
+    // below absorbs that; a team with a long edit history is what would eat it.
+    //
+    // The assertion below is that READ COUNT, not the returned board or any
+    // monthlyWinners row — same reasoning as the read-path guard: an
+    // implementation that reads more but returns identical results must still
+    // trip this.
     const t = convexTest({
       schema,
       modules,

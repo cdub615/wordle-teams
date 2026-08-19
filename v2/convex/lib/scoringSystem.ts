@@ -52,12 +52,29 @@ export const DEFAULT_SYSTEM = {
  * 'YYYY-MM' sorts lexicographically, so this is a string comparison. The input
  * is sorted defensively rather than trusting a caller's index order.
  *
- * Two versions can share an `effectiveFrom`: Convex has no unique
- * constraints, and Task 8's setScoringSystem upserts by (teamId,
- * effectiveFrom) with a read-then-write, so a race is reachable. On a tie,
- * the later element of the INPUT ARRAY wins — see the comparator below and
- * the "duplicate effectiveFrom" test, which pins this as a documented
- * contract rather than an accident of engine behaviour.
+ * TIES ARE DEFINED, NOT EXPECTED. On a duplicate `effectiveFrom` the later
+ * element of the INPUT ARRAY wins — see the comparator below and the
+ * "duplicate effectiveFrom" test.
+ *
+ * That is a correctness property first: `Array.prototype.sort` with a
+ * comparator that is not a total order is implementation-defined behaviour
+ * whether or not two rows ever actually tie, so the comparator has to be total
+ * regardless, and pinning what it does on a tie is what stops a refactor
+ * changing it silently.
+ *
+ * It is NOT justified by a reachable race, and an earlier version of this
+ * comment wrongly said it was. setScoringSystemFor upserts by (teamId,
+ * effectiveFrom) with a read-then-write, but that is the same shape as
+ * upsertBoardFor's (playerId, puzzleDay) upsert in scores.ts, and Convex's OCC
+ * covers both: an indexed read puts the RANGE IT SCANNED into the
+ * transaction's read set, including when that range is empty, so a concurrent
+ * insert into it invalidates the loser and Convex retries — at which point the
+ * retry finds the row and patches instead of inserting. Two rows sharing an
+ * effectiveFrom should therefore not be reachable through the mutation, which
+ * is currently the only writer of this table. LIKE upsertBoardFor's CLAIM,
+ * THESE TESTS DO NOT PROVE IT: convex-test runs a single transaction and does
+ * not simulate OCC retries. Defence-in-depth against a future second writer,
+ * then, not a race we can point at.
  */
 export function systemFor(
   base: ScoringSystem,

@@ -651,6 +651,29 @@ describe('setScoringSystemFor', () => {
     })
   })
 
+  test('accepts the bounds themselves — 100 and -100', async () => {
+    // The rejection cases above pass just as happily if the range check is
+    // off by one (`<`/`>` for `<=`/`>=`), which would refuse the two values a
+    // user is most likely to reach for at the extremes. Only asserting the
+    // ACCEPTED edge catches that.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+
+      await setScoringSystemFor(ctx, ada, {
+        teamId,
+        values: { ...newValues, oneGuess: 100, failed: -100 },
+        today,
+      })
+
+      const versions = await ctx.db.query('scoringSystems').collect()
+      expect(versions).toHaveLength(1)
+      expect(versions[0].oneGuess).toBe(100)
+      expect(versions[0].failed).toBe(-100)
+    })
+  })
+
   test('THE POINT OF THE WHOLE FEATURE: an edit leaves a past month’s winner and totals alone', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -764,9 +787,13 @@ describe('setScoringSystemFor — the running month', () => {
         )
         .collect()
 
-      // One row, not two: the edited month is recomputed once even though it is
-      // both `effectiveFrom` and (after the first recompute) a month with a
-      // winner row.
+      // Sanity only. This does NOT prove the month is recomputed just once:
+      // recomputeTeamMonth upserts through by_team_year_month, so it could not
+      // write a second row however many times it ran, and this assertion still
+      // passes if the `> effectiveFrom` filter is loosened to `>=`. The
+      // recompute count is not observable from the stored rows, and is not
+      // worth contorting the code to expose — recomputeTeamMonth is idempotent,
+      // so a repeat is wasted reads rather than a wrong answer.
       expect(rows).toHaveLength(1)
       // Under the new values failing beats solving in one, so Bob now leads.
       expect(rows[0].playerId).toBe(bob)

@@ -43,14 +43,21 @@ import type { GenericDatabaseWriter } from 'convex/server'
 export type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
 
 /**
- * The scoring system that governed one month for one team.
+ * Load the scoring system that governed one month for one team.
  *
  * Reads every version row for the team — a team accumulates one per month it
  * was edited in, which is a handful — and resolves with the pure systemFor. The
  * team doc's own eight fields are the fallback, which is what makes existing
  * teams need no backfill.
+ *
+ * NAMED `load...`, NOT `systemForTeamMonth`. The `...For` suffix means one
+ * specific thing everywhere else here — the plain helper behind an exported
+ * Convex function, taking explicit ids (createTeamFor, getTeamMonthFor) — and
+ * this is not that. Sitting next to the pure `systemFor` it also read as
+ * differing by month-scope, when the real difference is that this one hits the
+ * database.
  */
-export async function systemForTeamMonth(
+export async function loadTeamMonthSystem(
   ctx: WriterCtx,
   team: Doc<'teams'>,
   month: PuzzleMonth,
@@ -79,7 +86,7 @@ export async function recomputeTeamMonth(
   // Resolved INSIDE this function, so recomputeTeamMonths — which loops over
   // months — resolves each month against its own version rather than hoisting
   // one system out of the loop.
-  const system = await systemForTeamMonth(ctx, team, month)
+  const system = await loadTeamMonthSystem(ctx, team, month)
 
   const totals = []
   for (const memberId of team.playerIds) {
