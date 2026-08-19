@@ -1,3 +1,4 @@
+import { hasCompleteProfile } from './lib/player.ts'
 import { monthRange } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
@@ -58,9 +59,9 @@ export async function recomputeTeamMonth(
   const totals = []
   for (const memberId of team.playerIds) {
     const member = await ctx.db.get(memberId)
-    // Same exclusion as getTeamMonthFor: a profile-incomplete invitee is not
-    // shown on the table and must not be able to win the month either.
-    if (!member || !member.firstName || !member.lastName) continue
+    // See lib/player.ts's hasCompleteProfile: a profile-incomplete invitee is
+    // not shown on the table and must not be able to win the month either.
+    if (!member || !hasCompleteProfile(member)) continue
 
     const scores = await ctx.db
       .query('dailyScores')
@@ -147,7 +148,7 @@ export async function monthsWithWinners(
  *
  * What upsertBoard calls, and the behaviour that existed before the extraction.
  *
- * Same "Convex can't index array membership" constraint as scores.ts's
+ * Same "Convex can't index array membership" constraint as teams.ts's
  * getMyTeams, but paid on the WRITE path instead of an amortised read: this
  * runs on every board submission, the single most frequent write in the app.
  * Cost is roughly O(all teams) — this collect — plus O(teams the player is on
@@ -159,7 +160,7 @@ export async function monthsWithWinners(
  * concurrent write to ANY team forces Convex to retry the mutation via OCC even
  * though the retry's outcome never depended on that other team. Phase 3 raises
  * team-write frequency (settings edits, creation, deletion, scoring edits),
- * which is the condition scores.ts flagged as the trigger to revisit this.
+ * which is the condition teams.ts flagged as the trigger to revisit this.
  * Acceptable at 171 teams and ~40 DAU; revisit if either number moves.
  */
 export async function recomputePlayerMonth(

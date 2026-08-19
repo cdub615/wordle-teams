@@ -50,7 +50,7 @@ export const ensureTeamFor = mutation({
       }))
 
     // No index for "teams containing player X" — same collect-and-filter as
-    // scores.ts's getMyTeams, and just as fine at e2e scale.
+    // teams.ts's getMyTeams, and just as fine at e2e scale.
     const teams = await ctx.db.query('teams').collect()
     const existingTeam = teams.find((team) => team.playerIds.includes(playerId))
     if (existingTeam) return existingTeam._id

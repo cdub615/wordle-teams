@@ -50,6 +50,34 @@ describe('getMyTeamsFor', () => {
     })
   })
 
+  test('isCreator is false when the team is a scoped copy with no creator', async () => {
+    // A scoped copy may omit `creator` entirely — see access.ts's
+    // requireTeamCreatorFor and its "refuses everyone when the creator was
+    // not copied" test. isCreator is a UI-trust boolean shipped to every
+    // client and gates the team-management buttons, so this is pinned rather
+    // than left to fall out of `undefined === playerId` by accident.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: undefined }))
+
+      const [team] = await getMyTeamsFor(ctx, ada)
+      expect(team.isCreator).toBe(false)
+    })
+  })
+
+  test('returns an empty array for a player on no teams', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: bob }))
+
+      const teams = await getMyTeamsFor(ctx, ada)
+      expect(teams).toEqual([])
+    })
+  })
+
   test('excludes profile-incomplete members, as the scores table does', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

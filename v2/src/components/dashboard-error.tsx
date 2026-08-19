@@ -27,9 +27,10 @@ import { Button } from '#/components/ui/button.tsx'
  *
  * It also clears `localStorage.selectedTeam` before navigating. Without that,
  * useDashboardSearchSync (src/lib/use-dashboard-search-sync.ts) can repopulate
- * `?team=` from localStorage with the very team that just threw: `getMyTeams`
- * is a live subscription, and in the window before it catches up to a
- * just-revoked membership, the stale id still passes resolveDashboardSearch's
+ * `?team=` from localStorage with the very team that just threw:
+ * `convex/teams.ts`'s `getMyTeams` is a live subscription, and in the window
+ * before it catches up to a just-revoked membership, the stale id still
+ * passes resolveDashboardSearch's
  * `teams.some(...)` validity check, sending the user right back into the same
  * throw with no escape hatch on this screen. This does NOT make termination
  * unconditional — it removes the one input (a stale localStorage entry) that

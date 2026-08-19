@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, requirePlayer, requireTeamMemberFor } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
+import { hasCompleteProfile } from './lib/player.ts'
 import { addDays, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { recomputePlayerMonth } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
@@ -51,10 +52,9 @@ export async function getTeamMonthFor(
     team.playerIds.map(async (memberId) => {
       const member = await ctx.db.get(memberId)
       if (!member) return null
-      // v1's getTeams excludes players without a completed profile: a
-      // just-accepted invitee sits in player_ids with no name, and v1's
-      // fromDbPlayer throws on one, crashing the client render.
-      if (!member.firstName || !member.lastName) return null
+      // See lib/player.ts's hasCompleteProfile for why this exclusion exists
+      // and why it must agree with recomputeTeamMonth and getMyTeamsFor.
+      if (!hasCompleteProfile(member)) return null
 
       const scores = await ctx.db
         .query('dailyScores')

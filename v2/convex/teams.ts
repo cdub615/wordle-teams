@@ -1,5 +1,6 @@
 import { query } from './_generated/server'
 import { currentPlayer, isProFor } from './access'
+import { hasCompleteProfile } from './lib/player.ts'
 import type { Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader } from 'convex/server'
 
@@ -49,10 +50,10 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
         team.playerIds.map(async (memberId) => {
           const member = await ctx.db.get(memberId)
           if (!member) return null
-          // Same exclusion as getTeamMonthFor and the winner recomputation: a
-          // just-accepted invitee sits in playerIds with no name, and v1's
-          // fromDbPlayer throws on one, crashing the client render.
-          if (!member.firstName || !member.lastName) return null
+          // See lib/player.ts's hasCompleteProfile for why this exclusion
+          // exists and why it must agree with getTeamMonthFor and
+          // recomputeTeamMonth.
+          if (!hasCompleteProfile(member)) return null
           return { id: member._id, firstName: member.firstName, lastName: member.lastName }
         }),
       )
