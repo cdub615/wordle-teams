@@ -2891,7 +2891,11 @@ export function CreateTeamDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* w-11/12 rounded-lg matches v1. shadcn's DialogContent default is
+          `w-full max-w-lg ... sm:rounded-lg`, so below 640px it is
+          edge-to-edge AND square-cornered. Both of v1's team dialogs
+          override it the same way. Caught on a phone screenshot. */}
+      <DialogContent className="w-11/12 rounded-lg">
         <DialogHeader>
           <DialogTitle>Create Team</DialogTitle>
           <DialogDescription>
@@ -3336,7 +3340,11 @@ export function UpdateTeamDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* w-11/12 rounded-lg matches v1. shadcn's DialogContent default is
+          `w-full max-w-lg ... sm:rounded-lg`, so below 640px it is
+          edge-to-edge AND square-cornered. Both of v1's team dialogs
+          override it the same way. Caught on a phone screenshot. */}
+      <DialogContent className="w-11/12 rounded-lg">
         <DialogHeader>
           <DialogTitle>Update Team</DialogTitle>
           <DialogDescription>
