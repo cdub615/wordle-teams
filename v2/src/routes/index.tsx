@@ -8,10 +8,12 @@ import { pageTitle } from '#/lib/seo'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
+import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
 import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { CurrentTeamCard } from '#/components/teams/current-team-card.tsx'
+import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
@@ -104,7 +106,19 @@ function Dashboard() {
   const selectedTeam = teams.find((team) => team.id === teamParam)
 
   return (
-    <main className="mb-12 grid gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
+    // grid-cols-1 (mobile) is load-bearing, not decorative: Tailwind's
+    // grid-cols-N emits `repeat(N, minmax(0,1fr))`, which caps a track's max
+    // sizing at the AVAILABLE space. Without any grid-cols-* at the base
+    // breakpoint, the single implicit column falls back to `auto`, whose max
+    // sizing function is max-content — and max-content for wrapped OR nowrap
+    // text is the same single-line width either way. A long team name (this
+    // card's own CurrentTeamCard heading, or MyTeamsCard's row below) then
+    // grows that one column, and every sibling on the page along with it,
+    // producing a page-wide horizontal scrollbar with everything below the
+    // header pushed edge-to-edge. Caught only by screenshotting the long-name
+    // case at a phone viewport, per V2-ADDENDUM.md §5 — tsc/build/vitest are
+    // all blind to it, same as every other bug that section documents.
+    <main className="mb-12 grid grid-cols-1 gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
       <CreateTeamDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -151,6 +165,18 @@ function Dashboard() {
           <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />
         </>
       )}
+      {/* Deleting the team you were looking at leaves ?team= pointing at a gone
+          id. onDeleted clears both the param and the remembered team so the
+          sync hook picks the first remaining team instead of the error
+          boundary. */}
+      <MyTeamsCard
+        teams={teams}
+        onDeleted={(deleted) => {
+          if (deleted !== teamParam) return
+          localStorage.removeItem(STORAGE_KEY)
+          void navigate({ to: '/', search: {}, replace: true })
+        }}
+      />
     </main>
   )
 }
