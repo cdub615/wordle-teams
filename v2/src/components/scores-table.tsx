@@ -113,10 +113,21 @@ export function ScoresTable({
               </TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody
+            // Bottom corner radius belongs to the LAST row only — applying it
+            // inside rows.map (as this used to) put it on every row's pinned
+            // cells, since each one now paints its own border-b under
+            // border-separate (wt-ksh.3.16). Targeted the same way TableBody
+            // already cancels the last row's border in ui/table.tsx
+            // ([&_tr:last-child>td]:border-b-0), rather than computed from the
+            // row index in the map, so the two last-row rules stay adjacent
+            // and consistent. Radius must match the frame's own rounded-md or
+            // the corner reads as a double curve (wt-ksh.3.17).
+            className="[&_tr:last-child>td:first-child]:rounded-bl-md [&_tr:last-child>td:last-child]:rounded-br-md"
+          >
             {rows.map((row) => (
               <TableRow key={row.id}>
-                <TableCell className={cn(pinnedLeft, 'rounded-bl-md')}>
+                <TableCell className={pinnedLeft}>
                   <div className="invisible h-0 w-0 md:visible md:h-fit md:w-max md:pr-px">
                     {duplicateFirstNames.has(row.firstName)
                       ? `${row.firstName} ${row.lastName[0]}`
@@ -147,7 +158,7 @@ export function ScoresTable({
                     </TableCell>
                   )
                 })}
-                <TableCell className={cn(pinnedRight, 'rounded-br-md')}>
+                <TableCell className={pinnedRight}>
                   <div className="text-right font-bold">{row.total}</div>
                 </TableCell>
               </TableRow>

@@ -234,6 +234,18 @@ class of bug.
   present; it was caught only by looking at a screenshot, which is the same
   lesson as §5.
 
+  **`wt-ksh.3.17`, the corner radius:** `border-separate` (above) means every
+  cell paints its own `border-b`, and the original fix put `rounded-bl-md` /
+  `rounded-br-md` on the pinned cells *inside* `rows.map`, so every row's
+  bottom border curved, not just the last row's. Fixed by moving the radius
+  off the per-row cells and onto `TableBody`'s `className` in
+  `scores-table.tsx`, targeted the same way `ui/table.tsx` already cancels
+  the last row's border (`[&_tr:last-child>td]:border-b-0`):
+  `[&_tr:last-child>td:first-child]:rounded-bl-md` /
+  `[&_tr:last-child>td:last-child]:rounded-br-md`. Kept local to
+  `scores-table.tsx` rather than folded into the shared primitive — nothing
+  else using `Table` wants rounded row corners.
+
 ---
 
 ## 7. A v1 bug found while porting the board — fixed in v2, still live in v1
