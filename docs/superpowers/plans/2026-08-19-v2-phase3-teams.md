@@ -1405,7 +1405,7 @@ and add three cases to `typedCodeMessage`, before the `default`:
     case 'INVALID_TEAM':
       return 'A team needs a name.'
     case 'INVALID_DATE':
-      return "Your device's clock looks off. Refresh the page and try again."
+      return "Your device's clock looks off. Check your date and time settings and try again."
     case 'CREATOR_NOT_REMOVABLE':
       return "The person who created this team can't be removed as a member."
     case 'INVALID_SYSTEM':
