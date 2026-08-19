@@ -120,3 +120,26 @@ test('native input paths cannot corrupt the board, but typing still can', async 
   await page.keyboard.type('CRANE')
   await expect(firstTile).toHaveText('C')
 })
+
+test('the mobile sheet has an accessible name', async ({ page }) => {
+  // Phase-close review: the desktop Dialog branch renders a DialogTitle, but
+  // the mobile Sheet branch (button.tsx) had only a SheetDescription — no
+  // Title at all. Both are built on @radix-ui/react-dialog, which requires a
+  // Title descendant of Content; without one the sheet has NO accessible name
+  // for screen-reader users, on the primary mobile entry point for the whole
+  // feature this phase exists to deliver. Unlike the rendering bugs earlier
+  // in this phase, a screenshot cannot catch this — a missing accessible name
+  // looks pixel-identical to a present one. getByRole('dialog', { name }) is
+  // the direct assertion; it fails the same way a screen reader user would
+  // experience the bug (no name to announce), not just "some Title exists".
+  //
+  // The fix keeps the title out of the painted layout (radix-ui's
+  // VisuallyHidden) rather than showing it like the desktop Dialog does: the
+  // mobile sheet is compact and every pixel of vertical space is contested
+  // with the keyboard — see use-visual-viewport.ts.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await signInWithTeam(page)
+
+  await page.getByRole('button', { name: 'Board Entry' }).click()
+  await expect(page.getByRole('dialog', { name: 'Add or Update Board' })).toBeVisible()
+})

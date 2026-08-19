@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
+import { VisuallyHidden } from 'radix-ui'
 import { Button } from '#/components/ui/button.tsx'
 import {
   Dialog,
@@ -9,7 +10,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '#/components/ui/dialog.tsx'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTrigger } from '#/components/ui/sheet.tsx'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '#/components/ui/sheet.tsx'
 import { useMediaQuery } from '#/lib/use-media-query.ts'
 import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
 import { BoardEntryForm } from './form.tsx'
@@ -62,6 +70,20 @@ export function BoardEntryButton({ teamId, month }: { teamId: Id<'teams'>; month
         style={{ maxHeight: height || undefined, top: offsetTop }}
       >
         <SheetHeader className="-ml-4 mb-4 mt-4">
+          {/*
+            Radix requires a Title descendant of Content — without one it logs
+            a console warning and the sheet has no accessible name at all for
+            screen-reader users, on the primary mobile entry point for the
+            feature. Kept out of the painted layout (VisuallyHidden, already a
+            dependency via the `radix-ui` umbrella package — see ui/card.tsx
+            for the same import pattern) rather than shown like the desktop
+            Dialog's title: the mobile sheet is compact and every pixel of
+            vertical space here is contested with the keyboard, which is the
+            whole reason this component binds to the visual viewport at all.
+          */}
+          <VisuallyHidden.Root>
+            <SheetTitle>Add or Update Board</SheetTitle>
+          </VisuallyHidden.Root>
           <SheetDescription>Enter the day&apos;s answer and then your guesses</SheetDescription>
         </SheetHeader>
         <BoardEntryForm teamId={teamId} month={month} onSuccess={() => setOpen(false)} />
