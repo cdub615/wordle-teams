@@ -17,6 +17,8 @@ import type { GenericDatabaseReader } from 'convex/server'
  * the harness. requireTeamMember is the thin wrapper the functions actually call.
  */
 
+// If you add a member here, src/lib/convex-error.ts's boardErrorMessage switch
+// must grow a case too — it is exhaustive against this type on purpose.
 export type AccessCode = 'UNAUTHENTICATED' | 'NO_PLAYER' | 'NOT_A_MEMBER' | 'INVALID_BOARD'
 
 /**

@@ -24,9 +24,17 @@ export function convexErrorCode(error: unknown): AccessCode | null {
   return null
 }
 
-/** What to tell the user, per the spec's error table. */
+/**
+ * What to tell the user, per the spec's error table.
+ *
+ * Exhaustive over AccessCode | null on purpose: if access.ts's AccessCode ever
+ * grows a member, the `default` branch's `never` assignment stops compiling
+ * instead of silently routing the new code to the generic message below. See
+ * the comment on AccessCode itself.
+ */
 export function boardErrorMessage(error: unknown): string {
-  switch (convexErrorCode(error)) {
+  const code = convexErrorCode(error)
+  switch (code) {
     case 'UNAUTHENTICATED':
     case 'NO_PLAYER':
       return 'Your session expired. Please sign in again.'
@@ -34,9 +42,13 @@ export function boardErrorMessage(error: unknown): string {
       return 'You are not on that team any more.'
     case 'INVALID_BOARD':
       return 'That board is not complete. Check the answer and your guesses.'
-    default:
+    case null:
       // The a335ae8 message, verbatim: the entry is still on screen and the user
       // needs to know that before anything else.
       return 'Could not save your board. Your entry is still here — please try again.'
+    default: {
+      const _exhaustive: never = code
+      return _exhaustive
+    }
   }
 }
