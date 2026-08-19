@@ -164,13 +164,27 @@ class of bug.
   Replaced with `lib/use-resolved-theme.ts`, reading the authoritative `.dark`
   class.
 - **`Table` hides its own scroll container.** The primitive wraps `<table>` in
-  a `div.relative.w-full.overflow-auto` that callers cannot reach. Because that
-  div is `w-full` and bounded by its parent, *it* — not any wrapper a caller
-  adds — is the element the table actually overflows, so it is the real scroll
-  region. A horizontally scrolling data table has to make that region a
+  a `div.relative.w-full.overflow-x-auto` that callers cannot reach. Because
+  that div is `w-full` and bounded by its parent, *it* — not any wrapper a
+  caller adds — is the element the table actually overflows, so it is the real
+  scroll region. A horizontally scrolling data table has to make that region a
   keyboard focus target, which was impossible from outside. v2 added a
   `wrapperProps` pass-through (Phase 2, `wt-ksh.3.9`); the scores table uses it
   for `tabIndex` and an `aria-label`.
+
+  **Phase 2 also fixed the axis (`wt-ksh.3.13`).** The wrapper originally
+  defaulted to `overflow-auto` (both axes). `scores-table.tsx` additionally
+  wrapped the whole `Table` in its *own* `overflow-x-auto` div, which was
+  bounded by — and therefore never smaller than — the primitive's own
+  wrapper, so it never engaged; the primitive's div was always the real (and
+  only live) scroller, and because it was `overflow-auto` the table could
+  scroll vertically inside its own box instead of the page scrolling. Fixed
+  by changing the primitive's default to `overflow-x-auto` and deleting the
+  scores table's redundant outer scroller — one scroll container, x-axis
+  only. If a future caller needs the wrapper to scroll vertically too, add
+  that explicitly via `wrapperProps.className`; don't restore a bare
+  `overflow-auto` default here, and don't wrap `<Table>` in another
+  `overflow-*` div — that's exactly the nested-container shape this fixed.
 
   Related, and worth knowing before writing another table: the primitive also
   hardcodes `w-full` on the `<table>` itself. Under `table-layout: auto` that

@@ -219,6 +219,18 @@
  * ------------------------------------------------------------------------ */
 
 @layer base {
+  /* Tailwind v4 changed the default `border` colour from gray-200 to
+   * currentColor. Without this rule every bare `border` utility (Card,
+   * Dialog, Popover, Dropdown, Badge, the scores table, ...) inherits the
+   * surrounding text colour instead of the design-system border token —
+   * near-white on dark text, near-black on light. --color-border already
+   * maps to --border -> --border-subtle, so this just restores the v3-era
+   * default. DO NOT delete this as redundant; it is load-bearing app-wide.
+   * (wt-ksh.3.12) */
+  * {
+    border-color: var(--color-border);
+  }
+
   * {
     box-sizing: border-box;
   }

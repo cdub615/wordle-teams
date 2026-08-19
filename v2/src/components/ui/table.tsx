@@ -6,15 +6,25 @@ const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement> & {
     // This div, not any wrapper a caller adds around <Table>, is what
-    // actually scrolls: it's the innermost `overflow-auto` ancestor of
-    // <table>. A caller that needs the scroll region to be a keyboard focus
-    // target (e.g. tabIndex, aria-label) has to reach it through here.
+    // actually scrolls: it's the innermost overflow ancestor of <table>. A
+    // caller that needs the scroll region to be a keyboard focus target
+    // (e.g. tabIndex, aria-label) has to reach it through here.
+    //
+    // x-axis only (wt-ksh.3.13): this used to be `overflow-auto`, which
+    // scrolls both axes. A caller wrapping <Table> in its own overflow-x-auto
+    // div gets a NESTED scroll container out of that — this div is bounded
+    // by the caller's and so is always first to overflow, making it the real
+    // (and only live) scroller, while also letting the table scroll
+    // vertically inside its own box instead of the page scrolling. Don't
+    // reintroduce a second overflow wrapper around <Table>; if a future
+    // caller needs vertical scrolling too, add it explicitly via
+    // wrapperProps.className rather than restoring `overflow-auto` here.
     wrapperProps?: React.HTMLAttributes<HTMLDivElement>
   }
 >(({ className, wrapperProps, ...props }, ref) => (
   <div
     {...wrapperProps}
-    className={cn("relative w-full overflow-auto", wrapperProps?.className)}
+    className={cn("relative w-full overflow-x-auto", wrapperProps?.className)}
   >
     <table
       ref={ref}

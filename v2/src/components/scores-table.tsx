@@ -74,15 +74,14 @@ export function ScoresTable({
 
   return (
     <div className={className}>
-      <div className="max-w-[96vw] overflow-x-auto rounded-md border text-xs md:text-base">
-        {/* This div's own overflow-x-auto never actually engages: its only
-            child is the Table primitive's own wrapper div (`w-full
-            overflow-auto`), which is exactly as wide as this one and so is
-            always the first to overflow. THAT inner div — reached below via
-            wrapperProps, since Table doesn't otherwise expose it — is the
-            real scroll container, and is where the keyboard focus target
-            below lives. Sticky positioning and the width fix are unaffected
-            either way; this comment is just about which element scrolls. */}
+      {/* This div is a static bordered/rounded frame with no overflow of its
+          own — it does NOT scroll. The Table primitive's own wrapper div is
+          the single, x-axis-only scroll container (wt-ksh.3.13); the
+          keyboard focus target below (tabIndex, aria-label) lives on that
+          inner div via wrapperProps, since Table doesn't otherwise expose
+          it. Do not add overflow back here — two nested overflow containers
+          is exactly the bug this was fixed from. */}
+      <div className="max-w-[96vw] rounded-md border text-xs md:text-base">
         {/* w-max min-w-full overrides the primitive's own `w-full`: at 100%
             width, `table-layout: auto` treats that as a CAP and compresses
             every column to fit — with 28-31 day columns that means each

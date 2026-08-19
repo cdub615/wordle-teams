@@ -91,6 +91,20 @@ describe('monthTotal', () => {
     expect(total).toBe(-2)
   })
 
+  test('N/A must never score: a weekend contributes nothing even when the team\'s nA is non-zero', () => {
+    const total = monthTotal({
+      month: '2026-08',
+      scores: [],
+      system: { ...system, nA: -999 },
+      playWeekends: false,
+      today: '2026-08-02',
+    })
+    // The only day before today is 2026-08-01, a Saturday. monthTotal must
+    // skip it outright rather than falling through to the "missed day"
+    // branch and consulting nA — if it ever did, this would be -999, not 0.
+    expect(total).toBe(0)
+  })
+
   test('a failed board scores the failure value', () => {
     const total = monthTotal({
       month: '2026-08',
