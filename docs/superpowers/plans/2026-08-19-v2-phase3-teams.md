@@ -34,9 +34,16 @@ pnpm e2e           # NOT part of the other three — run it yourself
 
 **Do not commit while a subagent is running.** A subagent's `--amend` swallows any commit that lands mid-flight.
 
-**Never run `convex deploy` during a task.** `beta` is the deployment that *becomes production* at cutover (parent design, "Repo Layout & Environments"), so `convex deploy` writes the schema and functions real users will land on. Schema changes are pushed to your personal **dev** deployment with `pnpm exec convex dev --once`, which is what every task in this plan does. The single deploy to beta is Task 14 Step 4, and it is an **owner action** — not a subagent's, and not without the owner authorizing it in that session.
+**No task pushes a schema anywhere.** `convex-test` runs every test against the real
+schema validator, so a bad schema fails `pnpm test:once` — that is the gate. Local dev
+uses an *anonymous local sqlite backend* (`CONVEX_DEPLOYMENT=anonymous:anonymous-v2`), and
+if a `convex dev` watcher is running it applies schema edits on save by itself; running
+`convex dev --once` alongside it just fails on a held port. Pushing to that local backend
+proves nothing about beta either way.
 
-**Existing test fixtures.** `v2/convex/scores.test.ts` exports `aPlayer()` and `aTeam()`. Import them rather than redefining. Note `aTeam()` currently sets `legacyId: 206`; Task 0 makes that field optional but does not remove it from the fixture.
+**Never run `convex deploy` during a task.** `beta` is the deployment that *becomes production* at cutover (parent design, "Repo Layout & Environments"), so `convex deploy` writes the schema and functions real users will land on. No task deploys anywhere. The single deploy to beta is Task 14 Step 4, and it is an **owner action** — not a subagent's, and not without the owner authorizing it in that session.
+
+**Existing test fixtures.** `v2/convex/fixtures.ts` exports `aPlayer()` and `aTeam()`. Import them from **there** — never from a `.test.ts` file. Importing a test module re-executes its `describe` blocks, so its whole suite runs again inside yours; that happened once already and cost a review round. `aTeam()` sets `legacyId: 206` by default, so `aTeam({ legacyId: undefined })` is the natively-created team (Convex strips `undefined`-valued keys before validating, so the field arrives genuinely absent).
 
 ---
 
@@ -141,15 +148,7 @@ cd v2 && pnpm test:once schema.test.ts
 
 Expected: PASS, both tests.
 
-- [ ] **Step 5: Push the schema to your DEV deployment**
-
-```bash
-cd v2 && pnpm exec convex dev --once
-```
-
-Expected: succeeds. Widening a required field to optional is a permissive change and needs no data migration.
-
-- [ ] **Step 6: Full gates, then commit**
+- [ ] **Step 5: Full gates, then commit**
 
 ```bash
 cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build
@@ -1104,7 +1103,7 @@ function resolve(
 cd v2 && pnpm test:once scoringSystem.test.ts
 ```
 
-Expected: PASS, all eleven.
+Expected: PASS, all ten.
 
 - [ ] **Step 5: Add the table to the schema**
 
@@ -1136,15 +1135,7 @@ In `v2/convex/schema.ts`, insert after the `teams` table definition and before `
   }).index('by_team_and_effectiveFrom', ['teamId', 'effectiveFrom']),
 ```
 
-- [ ] **Step 6: Push the schema to your DEV deployment**
-
-```bash
-cd v2 && pnpm exec convex dev --once
-```
-
-Expected: succeeds.
-
-- [ ] **Step 7: Full gates, then commit**
+- [ ] **Step 6: Full gates, then commit**
 
 ```bash
 cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build
@@ -1666,11 +1657,10 @@ to:
 
 `TeamPicker` still takes `{ id, name }` and the widened objects satisfy that structurally, so it needs no change yet — Task 9 rewrites it.
 
-- [ ] **Step 6: Push to dev, run everything including e2e**
+- [ ] **Step 6: Run everything including e2e**
 
 ```bash
-cd v2 && pnpm exec convex dev --once
-pnpm test:once && pnpm exec tsc --noEmit && pnpm build && pnpm e2e
+cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build && pnpm e2e
 ```
 
 Expected: all PASS. `pnpm e2e` because the dashboard route's loader changed.
@@ -2118,11 +2108,10 @@ cd v2 && pnpm test:once teams.test.ts
 
 Expected: PASS, all of them.
 
-- [ ] **Step 5: Push to dev and run the gates**
+- [ ] **Step 5: Run the gates**
 
 ```bash
-cd v2 && pnpm exec convex dev --once
-pnpm test:once && pnpm exec tsc --noEmit && pnpm build
+cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build
 ```
 
 Expected: all PASS.
@@ -2311,11 +2300,10 @@ cd v2 && pnpm test:once teams.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Push to dev and run the gates**
+- [ ] **Step 5: Run the gates**
 
 ```bash
-cd v2 && pnpm exec convex dev --once
-pnpm test:once && pnpm exec tsc --noEmit && pnpm build
+cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build
 ```
 
 Expected: all PASS.
@@ -2740,8 +2728,7 @@ Expected: PASS, everything. The `scores.test.ts` test asserting `result.team.sys
 - [ ] **Step 7: Deploy and run the gates**
 
 ```bash
-cd v2 && pnpm exec convex dev --once
-pnpm test:once && pnpm exec tsc --noEmit && pnpm build
+cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build
 ```
 
 Expected: all PASS. `src/components/scores-table.tsx` reads `data.team.system` and needs no change — it was already parameterised.
@@ -4119,10 +4106,10 @@ Add below the table, alongside the existing "not divergences" notes:
 **STOP. Do not run this as a subagent, and do not run it without the owner
 saying so in this session.** `beta` is the deployment that *becomes production*
 at cutover (parent design, "Repo Layout & Environments"), so a `convex deploy`
-here writes the schema and functions that real users will land on. Every other
-schema push in this plan goes to your personal **dev** deployment via
-`convex dev --once`; this is the only step that leaves it, and it is the owner's
-call, made once, deliberately.
+here writes the schema and functions that real users will land on. No other step
+in this plan deploys anything — schema correctness is proven by `convex-test`,
+which runs every test against the real validator. This is the only step that
+leaves the local machine, and it is the owner's call, made once, deliberately.
 
 ```bash
 cd v2 && pnpm exec convex deploy && pnpm run deploy
