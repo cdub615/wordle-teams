@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-18-v2-phase2-core-loop-design.md`
 
+**Issues:** `wt-ksh.3.2` … `wt-ksh.3.11` under the phase epic `wt-ksh.3`, in the same order as the tasks below. The blocking graph is already wired, so `bd ready` will only ever offer you work whose prerequisites are done. Claim with `bd update <id> --claim` before starting and `bd close <id>` when its done-when is met.
+
 ---
 
 ## Before You Start
@@ -151,7 +153,7 @@ Expected: PASS, including the pre-existing schema tests.
 
 ```bash
 git add v2/convex/schema.ts v2/convex/schema.test.ts
-git commit -m "feat(v2): allow natively-created scores and winners to omit legacyId (wt-ksh.3.1)"
+git commit -m "feat(v2): allow natively-created scores and winners to omit legacyId (wt-ksh.3.2)"
 ```
 
 ---
@@ -778,7 +780,7 @@ Expected: no output.
 
 ```bash
 git add v2/convex/lib v2/src/lib/wordle.ts
-git commit -m "feat(v2): pure day-string, board and scoring core shared by client and server (wt-ksh.3.2)"
+git commit -m "feat(v2): pure day-string, board and scoring core shared by client and server (wt-ksh.3.3)"
 ```
 
 ---
@@ -1010,7 +1012,7 @@ Expected: PASS, 5 tests.
 
 ```bash
 git add v2/convex/access.ts v2/convex/access.test.ts
-git commit -m "feat(v2): access-check helpers replacing the RLS policies (wt-ksh.3.3)"
+git commit -m "feat(v2): access-check helpers replacing the RLS policies (wt-ksh.3.4)"
 ```
 
 ---
@@ -1292,7 +1294,7 @@ Expected: PASS, 4 tests.
 
 ```bash
 git add v2/convex/scores.ts v2/convex/scores.test.ts
-git commit -m "feat(v2): team-and-month scoped read queries (wt-ksh.3.4)"
+git commit -m "feat(v2): team-and-month scoped read queries (wt-ksh.3.5)"
 ```
 
 ---
@@ -1546,7 +1548,7 @@ Expected: PASS, 9 tests.
 
 ```bash
 git add v2/convex/scores.ts v2/convex/scores.test.ts
-git commit -m "feat(v2): upsertBoard keyed on (player, puzzleDay) so duplicates cannot recur (wt-ksh.3.5)"
+git commit -m "feat(v2): upsertBoard keyed on (player, puzzleDay) so duplicates cannot recur (wt-ksh.3.6)"
 ```
 
 ---
@@ -1836,7 +1838,7 @@ Expected: no output.
 
 ```bash
 git add v2/convex/scores.ts v2/convex/scores.test.ts
-git commit -m "feat(v2): recompute monthly winners inside the score mutation (wt-ksh.3.6)"
+git commit -m "feat(v2): recompute monthly winners inside the score mutation (wt-ksh.3.7)"
 ```
 
 ---
@@ -2251,7 +2253,7 @@ function Dashboard() {
 git add v2/src/lib/format-day.ts v2/src/lib/format-day.test.ts \
         v2/src/lib/convex-error.ts \
         v2/src/components/team-picker.tsx v2/src/components/month-picker.tsx
-git commit -m "feat(v2): day formatting, error mapping, team and month pickers (wt-ksh.3.7)"
+git commit -m "feat(v2): day formatting, error mapping, team and month pickers (wt-ksh.3.8)"
 ```
 
 Hold `src/routes/index.tsx` back and commit it with Task 8, when its imports resolve.
@@ -2417,7 +2419,7 @@ Expected: errors only from `src/routes/index.tsx` about the missing `board-entry
 
 ```bash
 git add v2/src/components/scores-table.tsx
-git commit -m "feat(v2): the month scores table (wt-ksh.3.8)"
+git commit -m "feat(v2): the month scores table (wt-ksh.3.9)"
 ```
 
 ---
@@ -3080,7 +3082,7 @@ git add v2/src/lib/use-media-query.ts v2/src/lib/use-visual-viewport.ts \
         v2/src/lib/use-visual-viewport.test.ts v2/src/components/date-picker.tsx \
         v2/src/components/board-entry v2/src/components/ui/popover.tsx \
         v2/src/components/ui/calendar.tsx v2/src/routes/index.tsx v2/package.json v2/pnpm-lock.yaml
-git commit -m "feat(v2): board entry with the keyboard-aware mobile sheet (wt-ksh.3.9)"
+git commit -m "feat(v2): board entry with the keyboard-aware mobile sheet (wt-ksh.3.10)"
 ```
 
 ---
@@ -3145,7 +3147,7 @@ All three clean. **Report the actual output** — if anything fails, say so rath
 
 ```bash
 git add v2/e2e
-git commit -m "test(v2): e2e smoke for the core loop (wt-ksh.3.10)"
+git commit -m "test(v2): e2e smoke for the core loop (wt-ksh.3.11)"
 git pull --rebase
 bd dolt push
 git push
@@ -3167,8 +3169,8 @@ The GitHub Action deploys on `v2/`-touching pushes. Once it lands, on `beta.word
 - [ ] **Step 7: Close the phase**
 
 ```bash
-bd close wt-ksh.3.1 wt-ksh.3.2 wt-ksh.3.3 wt-ksh.3.4 wt-ksh.3.5
-bd close wt-ksh.3.6 wt-ksh.3.7 wt-ksh.3.8 wt-ksh.3.9 wt-ksh.3.10
+bd close wt-ksh.3.2 wt-ksh.3.3 wt-ksh.3.4 wt-ksh.3.5 wt-ksh.3.6
+bd close wt-ksh.3.7 wt-ksh.3.8 wt-ksh.3.9 wt-ksh.3.10 wt-ksh.3.11
 bd close wt-ksh.3
 ```
 
