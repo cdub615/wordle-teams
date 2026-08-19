@@ -2,7 +2,7 @@ import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, isProFor, requirePlayer, requireTeamCreatorFor } from './access'
 import { hasCompleteProfile } from './lib/player.ts'
-import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
+import { DEFAULT_SYSTEM, SYSTEM_FIELDS, SYSTEM_VALUE_MAX, SYSTEM_VALUE_MIN } from './lib/scoringSystem.ts'
 import { isPlausibleToday, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
@@ -303,31 +303,18 @@ export const removeMember = mutation({
 })
 
 /**
- * The fields requireValues checks, DERIVED rather than hand-listed.
+ * Whole numbers only, in the range v1's PointsInput clamps to.
  *
- * A literal tuple of the eight names would compile perfectly after a ninth
- * field was added to ScoringSystem, and would simply never validate it — a
- * validation hole that ships silently, in the one function whose entire job is
- * validation.
- *
- * DEFAULT_SYSTEM is `as const satisfies ScoringSystem` (lib/scoringSystem.ts),
- * so `satisfies` already forces it to carry every field of the type and no
- * others. Reading the key list off it therefore makes the drift a COMPILE
- * ERROR at the source: add a field to ScoringSystem and DEFAULT_SYSTEM stops
- * compiling until it is added there too, at which point this list picks it up
- * with no edit to teams.ts at all.
- *
- * Chosen over iterating `Object.keys(values)` because that validates only the
- * keys that happen to arrive: it would pass an object missing a field rather
- * than rejecting it, which is the wrong direction for a validator.
+ * SYSTEM_FIELDS (lib/scoringSystem.ts) is what makes this exhaustive rather
+ * than hand-listed — see that constant's comment. Chosen over iterating
+ * `Object.keys(values)` because that validates only the keys that happen to
+ * arrive: it would pass an object missing a field rather than rejecting it,
+ * which is the wrong direction for a validator.
  */
-const SYSTEM_FIELDS = Object.keys(DEFAULT_SYSTEM) as Array<keyof ScoringSystem>
-
-/** Whole numbers only, in the range v1's PointsInput clamps to. */
 function requireValues(values: ScoringSystem): ScoringSystem {
   for (const field of SYSTEM_FIELDS) {
     const value = values[field]
-    if (!Number.isInteger(value) || value < -100 || value > 100) {
+    if (!Number.isInteger(value) || value < SYSTEM_VALUE_MIN || value > SYSTEM_VALUE_MAX) {
       throw accessError('INVALID_SYSTEM')
     }
   }

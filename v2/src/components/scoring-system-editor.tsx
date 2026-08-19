@@ -20,6 +20,12 @@ import { useMediaQuery } from '#/lib/use-media-query.ts'
 import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import {
+  SYSTEM_FIELD_LABELS,
+  SYSTEM_FIELDS,
+  SYSTEM_VALUE_MAX,
+  SYSTEM_VALUE_MIN,
+} from '../../convex/lib/scoringSystem.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 import type { ScoringSystem } from '../../convex/lib/scoring.ts'
 
@@ -40,19 +46,9 @@ import type { ScoringSystem } from '../../convex/lib/scoring.ts'
  * area with Save unreachable. Binding maxHeight/top and letting the content
  * scroll is what keeps Save reachable.
  */
-const FIELDS: Array<{ label: string; field: keyof ScoringSystem }> = [
-  { label: '1', field: 'oneGuess' },
-  { label: '2', field: 'twoGuesses' },
-  { label: '3', field: 'threeGuesses' },
-  { label: '4', field: 'fourGuesses' },
-  { label: '5', field: 'fiveGuesses' },
-  { label: '6', field: 'sixGuesses' },
-  { label: 'X', field: 'failed' },
-  { label: 'Missed day', field: 'nA' },
-]
+const FIELDS = SYSTEM_FIELDS.map((field) => ({ field, label: SYSTEM_FIELD_LABELS[field] }))
 
-const MIN = -100
-const MAX = 100
+const ERROR_ID = 'scoring-system-error'
 
 export function ScoringSystemEditor({
   open,
@@ -82,22 +78,34 @@ export function ScoringSystemEditor({
   }, [open, system])
 
   const parsed = FIELDS.map(({ field }) => Number(draft[field]))
-  const valid = parsed.every(
-    (value, index) =>
+  // Per-row validity, not just a single boolean: aria-invalid needs to mark
+  // the SPECIFIC offending inputs (fix wt-ksh.4.29 #4), not merely disable
+  // Save with no way for a screen-reader user to tell which of the eight
+  // fields is the problem.
+  const fieldValid = FIELDS.map(
+    (_, index) =>
       draft[FIELDS[index].field].trim() !== '' &&
-      Number.isInteger(value) &&
-      value >= MIN &&
-      value <= MAX,
+      Number.isInteger(parsed[index]) &&
+      parsed[index] >= SYSTEM_VALUE_MIN &&
+      parsed[index] <= SYSTEM_VALUE_MAX,
   )
+  const valid = fieldValid.every(Boolean)
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault()
     if (!valid) return
     setSubmitting(true)
     try {
-      const values = Object.fromEntries(
-        FIELDS.map(({ field }, index) => [field, parsed[index]]),
-      ) as unknown as ScoringSystem
+      // Seeded with `{ ...system }` — already a real ScoringSystem, since
+      // `system` is one — and every field overwritten from FIELDS below, so
+      // this needs no `as unknown as ScoringSystem` cast: FIELDS is derived
+      // from SYSTEM_FIELDS (lib/scoringSystem.ts), which `satisfies` makes
+      // exhaustive over ScoringSystem's keys, so every field the type expects
+      // really does get overwritten by the loop.
+      const values = FIELDS.reduce<ScoringSystem>((acc, { field }, index) => {
+        acc[field] = parsed[index]
+        return acc
+      }, { ...system })
       await save.mutateAsync({ teamId, values, today: toPuzzleDay(new Date()) })
       toast.success('Successfully saved scoring system')
       onOpenChange(false)
@@ -111,19 +119,35 @@ export function ScoringSystemEditor({
   const body = (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="flex flex-col space-y-3">
-        {FIELDS.map(({ label, field }) => (
+        {FIELDS.map(({ label, field }, index) => (
           <div key={field} className="flex items-center justify-between gap-4">
             <Label htmlFor={`points-${field}`}>{label}</Label>
             <Input
               id={`points-${field}`}
-              inputMode="numeric"
-              className="w-24 text-right tabular-nums"
+              // NOT inputMode="numeric". That renders a digits-only keypad on
+              // iOS Safari with no minus sign, and negative values are the
+              // entire point of this feature (the default system alone has
+              // sixGuesses: -1 and failed: -3) — a phone user could not enter
+              // one or flip an existing field's sign. v1's PointsInput
+              // (src/components/app-grid-items/scoring-system/points-input.tsx)
+              // uses plain type="text" with no inputMode for the same reason.
+              // inputMode="numeric" looks like an obvious mobile improvement;
+              // it is not one here. Do not re-add it.
+              type="text"
+              className="w-24 text-right tabular-nums aria-invalid:border-destructive aria-invalid:ring-destructive"
               value={draft[field]}
               onChange={(event) => setDraft({ ...draft, [field]: event.target.value })}
+              aria-invalid={!fieldValid[index]}
+              aria-describedby={fieldValid[index] ? undefined : ERROR_ID}
             />
           </div>
         ))}
       </div>
+      {!valid && (
+        <p id={ERROR_ID} className="text-sm text-destructive" role="alert">
+          Every value must be a whole number from {SYSTEM_VALUE_MIN} to {SYSTEM_VALUE_MAX}.
+        </p>
+      )}
       {/* text-muted-foreground, not text-subtle: this is content that says the
           edit will not rewrite history, and --text-subtle is only 4.31:1 in
           light (V2-ADDENDUM.md §2) — the same reasoning score-cell.tsx uses

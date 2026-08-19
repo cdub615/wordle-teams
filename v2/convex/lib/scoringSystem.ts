@@ -42,6 +42,58 @@ export const DEFAULT_SYSTEM = {
 } as const satisfies ScoringSystem
 
 /**
+ * The eight field keys of ScoringSystem, in the canonical display/validate
+ * order, DERIVED rather than hand-listed.
+ *
+ * A literal tuple of the eight names would compile perfectly after a ninth
+ * field was added to ScoringSystem, and would simply never surface it — a gap
+ * that ships silently in whatever reads this list. DEFAULT_SYSTEM is `as const
+ * satisfies ScoringSystem` above, so `satisfies` already forces it to carry
+ * every field of the type and no others (object literals get excess-property
+ * checking under `satisfies` too). Reading the key list off it therefore makes
+ * drift a COMPILE ERROR at the source: add a field to ScoringSystem and
+ * DEFAULT_SYSTEM stops compiling until it is added there too, at which point
+ * this list — and SYSTEM_FIELD_LABELS below — pick it up with no edit here.
+ *
+ * teams.ts's requireValues uses this for validation; scoring-system-card.tsx
+ * and scoring-system-editor.tsx both use it (with SYSTEM_FIELD_LABELS) for row
+ * order, replacing what used to be two independently hand-written arrays.
+ */
+export const SYSTEM_FIELDS = Object.keys(DEFAULT_SYSTEM) as Array<keyof ScoringSystem>
+
+/**
+ * Human labels for each field, keyed by field name rather than listed
+ * positionally: a `Record<keyof ScoringSystem, string>` makes a missing label
+ * a compile error the same way `satisfies` makes a missing default a compile
+ * error on DEFAULT_SYSTEM above — TypeScript requires every key of
+ * ScoringSystem to be present.
+ *
+ * NOT "0" for nA, and not "N/A", as v1 labels it. The schema field is nA,
+ * which is a misnomer: it is what an unplayed day before today scores, and has
+ * nothing to do with the N/A shown for weekends on a no-weekends team.
+ */
+export const SYSTEM_FIELD_LABELS: Record<keyof ScoringSystem, string> = {
+  oneGuess: '1',
+  twoGuesses: '2',
+  threeGuesses: '3',
+  fourGuesses: '4',
+  fiveGuesses: '5',
+  sixGuesses: '6',
+  failed: 'X',
+  nA: 'Missed day',
+}
+
+/**
+ * The valid range for a single scoring value, shared the same way
+ * FREE_TEAM_LIMIT is (lib/teamLimits.ts): one constant imported by the
+ * client-side editor AND the server-side check, so the two cannot drift
+ * apart. teams.ts's requireValues throws INVALID_SYSTEM outside this range;
+ * scoring-system-editor.tsx disables Save outside it.
+ */
+export const SYSTEM_VALUE_MIN = -100
+export const SYSTEM_VALUE_MAX = 100
+
+/**
  * The version that governed `month`: the one with the greatest `effectiveFrom`
  * not after it.
  *

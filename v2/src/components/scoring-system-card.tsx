@@ -10,8 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#
 import { ScoringSystemEditor } from '#/components/scoring-system-editor.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
+import { SYSTEM_FIELDS, SYSTEM_FIELD_LABELS } from '../../convex/lib/scoringSystem.ts'
 import type { Id } from '../../convex/_generated/dataModel'
-import type { ScoringSystem } from '../../convex/lib/scoring.ts'
 
 /**
  * Points awarded by attempts, FOR THE MONTH CURRENTLY BEING VIEWED.
@@ -25,20 +25,14 @@ import type { ScoringSystem } from '../../convex/lib/scoring.ts'
  * past month's rules are settled), when the viewer is not pro, and when they
  * did not create the team. The first is a correctness rule; the other two are
  * v1's gates, and like v1's they are UI-only.
+ *
+ * Row order and labels come from SYSTEM_FIELDS / SYSTEM_FIELD_LABELS
+ * (lib/scoringSystem.ts) rather than a hand-written array here, so a ninth
+ * scoring field cannot be added to the schema and silently missing from this
+ * table — see that file's comment. scoring-system-editor.tsx derives its rows
+ * from the same source.
  */
-const ROWS: Array<{ label: string; field: keyof ScoringSystem }> = [
-  { label: '1', field: 'oneGuess' },
-  { label: '2', field: 'twoGuesses' },
-  { label: '3', field: 'threeGuesses' },
-  { label: '4', field: 'fourGuesses' },
-  { label: '5', field: 'fiveGuesses' },
-  { label: '6', field: 'sixGuesses' },
-  { label: 'X', field: 'failed' },
-  // NOT "0" as v1 labels it, and not "N/A". The schema field is nA, which is a
-  // misnomer: it is what an unplayed day before today scores, and has nothing
-  // to do with the N/A shown for weekends on a no-weekends team.
-  { label: 'Missed day', field: 'nA' },
-]
+const ROWS = SYSTEM_FIELDS.map((field) => ({ field, label: SYSTEM_FIELD_LABELS[field] }))
 
 function formatEffectiveFrom(month: string): string {
   const [year, monthNum] = month.split('-').map(Number)
