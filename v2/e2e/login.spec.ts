@@ -1,49 +1,23 @@
 import { test, expect } from '@playwright/test'
-import { ConvexHttpClient } from 'convex/browser'
-import { api } from '../convex/_generated/api'
+import { signIn } from './sign-in'
 
 test('signs in with an emailed OTP code', async ({ page }) => {
-  const email = `e2e+${Date.now()}@wordleteams.com`
-  const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+  await signIn(page)
 
-  await page.goto('/login')
-
-  // No retry-until-hydrated loop any more, and its absence is the regression
-  // test for wt-ksh.2.2. This used to need one: the SSR form rendered
-  // interactive before hydration, so a click submitted natively and the
-  // controlled input wiped what had been typed. The submit button is now
-  // disabled until hydrated and the inputs are uncontrolled, so waiting for the
-  // button to be enabled is sufficient — and if either regresses, this fails.
-  await expect(page.getByRole('button', { name: /send code/i })).toBeEnabled()
-
-  await page.getByLabel('Email').fill(email)
-  await page.getByRole('button', { name: /send code/i }).click()
-  await expect(page.getByLabel('Code')).toBeVisible({ timeout: 8000 })
-
-  // takeFor is a mutation, not a query: it deletes the row as it returns it, so
-  // a captured code cannot outlive this read (wt-ksh.1.14). Once it yields a
-  // value the poll must stop asking, hence the ??= — a second call would return
-  // null and fail the assertion.
-  let otp: string | null = null
-  await expect
-    .poll(async () => (otp ??= await convex.mutation(api.testOtps.takeFor, { email })), {
-      timeout: 15_000,
-    })
-    .not.toBeNull()
-
-  await page.getByLabel('Code').fill(otp!)
-  await page.getByRole('button', { name: /verify/i }).click()
-
-  await expect(page.getByTestId('signed-in-email')).toContainText(email)
-
-  // The copied-data panel must RENDER, because that is what makes Phase 1's
-  // done-when observable. This test account has no copied player, so the
-  // expected outcome is the explicit "no match" branch rather than teams —
-  // asserting the panel exists still catches the failure that actually
-  // happened: a missing me:myData function took the whole signed-in page down
-  // with a server error, and nothing else in this test noticed.
-  await expect(page.getByTestId('copied-data')).toBeVisible()
-  await expect(page.getByTestId('no-player')).toBeVisible()
+  // The Phase 1 debug view this used to assert against (getByTestId
+  // 'signed-in-email' / 'copied-data' / 'no-player') was replaced by the real
+  // dashboard when Task 6 rewrote routes/index.tsx (2df6872) — nothing here
+  // touches that; the same UI is gone for every caller, and this drifted out
+  // of sync because no e2e run caught it at the time. '/' is guarded by
+  // __root's beforeLoad, which bounces an unauthenticated visitor to
+  // /login — reaching it at all is now the observable "the OTP round-trip
+  // worked" signal. This account is freshly minted and was never given a
+  // team, so the dashboard's empty state is the current analogue of the old
+  // "no-player" assertion: it proves the signed-in page rendered all the way
+  // through rather than dying on a server error, exactly what the old
+  // copied-data assertion was guarding against.
+  await expect(page).toHaveURL('/')
+  await expect(page.getByText('You are not on a team yet')).toBeVisible()
 })
 
 // javaScriptEnabled is a context OPTION, so it has to be declared for the block
