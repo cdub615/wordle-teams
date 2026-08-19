@@ -2408,8 +2408,50 @@ Hold `src/routes/index.tsx` back and commit it with Task 8, when its imports res
 
 **Files:**
 - Create: `v2/src/components/scores-table.tsx`
+- Modify: `v2/src/routes/index.tsx` (still uncommitted from Task 6; Task 8 commits it)
 
 No unit test: the spec's testing section rules out a component-test suite for a 1:1 port, and the display rules underneath it (`scoreCell`) are already covered by `src/lib/wordle.test.ts`. **Verification is a screenshot in both themes**, which is the only thing that catches the failure mode V2-ADDENDUM §5 documents.
+
+### Amendment (added after Task 6's review, before this task was built)
+
+`ScoresTable` is the **first thing in the app that runs a Convex query which can
+legitimately throw at a user**. `getTeamMonth` calls `requireTeamMember`, which
+throws `NOT_A_MEMBER` for a team you are not on — reachable from a bookmarked or
+shared URL carrying a stale `?team=`.
+
+The parent design specifies "TanStack Router error boundaries per route section
++ root boundary → Sentry". **None exist yet.** Without one, a `useSuspenseQuery`
+rejection is an uncaught render error, not the toast `convex-error.ts` was built
+to produce — so the error copy written in Task 6 would never actually be shown.
+
+Task 6 added client-side validation of `?team=` against the caller's team list,
+which closes the common case. The boundary is the backstop for everything else:
+a team deleted between render and query, a revoked membership, a Convex outage.
+
+- [ ] **Step 0: Add a route error boundary**
+
+Give the dashboard route an `errorComponent`. It should use `convexErrorCode` /
+`boardErrorMessage` from `#/lib/convex-error.ts` to show the mapped copy for a
+recognised code and the generic message otherwise, offer a way back (a button
+that resets the boundary or navigates to `/` with no search params, clearing a
+bad `?team=`), and follow `DESIGN_SYSTEM.md` §7's "Error state": `text-lg`
+headline, muted body, single primary retry button.
+
+Add it to the `Route` definition in `v2/src/routes/index.tsx`:
+
+```tsx
+export const Route = createFileRoute('/')({
+  // ...existing head, validateSearch, beforeLoad, loader...
+  errorComponent: DashboardError,
+  component: Dashboard,
+})
+```
+
+Verify it actually catches. Temporarily make `getTeamMonth` throw
+`accessError('NOT_A_MEMBER')` unconditionally, load the page, confirm the
+boundary renders the mapped copy rather than a blank screen or a stack trace,
+then revert. **Screenshot that state** — it is a real screen users will see, and
+it is the only way to know it is styled rather than merely present.
 
 - [ ] **Step 1: Write the component**
 
