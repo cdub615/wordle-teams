@@ -331,7 +331,7 @@ export function addMonths(month: PuzzleMonth, delta: number): PuzzleMonth {
 - [ ] **Step 4: Run it and confirm it passes**
 
 Run: `pnpm test:once convex/lib/puzzleDay.test.ts`
-Expected: PASS, 9 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Write the failing board test**
 
