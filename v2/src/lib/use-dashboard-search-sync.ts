@@ -1,9 +1,7 @@
 import { useEffect } from 'react'
 import { useHydrated } from '#/lib/use-hydrated.ts'
-import { resolveDashboardSearch } from '#/lib/dashboard-search.ts'
+import { resolveDashboardSearch, STORAGE_KEY } from '#/lib/dashboard-search.ts'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
-
-const STORAGE_KEY = 'selectedTeam'
 
 /**
  * Keeps `?team=` and `?month=` filled in, and remembers the team.

@@ -9,6 +9,16 @@
  * must return null.
  */
 
+/**
+ * The localStorage key that remembers the caller's last-selected team.
+ *
+ * Single source of truth — import this rather than repeating the string.
+ * Read and written by useDashboardSearchSync (fills `?team=` from it, then
+ * keeps it in sync with the URL); cleared by DashboardError's retry button
+ * (so a stale team can't immediately repopulate the URL after a throw).
+ */
+export const STORAGE_KEY = 'selectedTeam'
+
 export type DashboardSearchInput = {
   /** `?team=` as it stands, or undefined. */
   teamParam: string | undefined
@@ -23,8 +33,10 @@ export type DashboardSearchInput = {
 }
 
 /**
- * The search params to navigate to, or null when the URL is already correct
- * (or when there is no team to select and nothing sensible to say).
+ * The search params to navigate to, or null when there is nothing to do —
+ * which covers two distinct cases the caller doesn't currently need to tell
+ * apart: the URL is already correct, OR there is no team to select at all
+ * (`teams` is empty and `storedTeam` doesn't help).
  */
 export function resolveDashboardSearch({
   teamParam,

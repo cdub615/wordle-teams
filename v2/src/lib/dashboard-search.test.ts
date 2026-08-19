@@ -84,6 +84,7 @@ describe('resolveDashboardSearch', () => {
       storedTeam: null,
       currentMonth: '2026-08',
     })!
+    expect(first).toEqual({ team: 'a', month: '2026-08' })
     expect(
       resolveDashboardSearch({
         teamParam: first.team,

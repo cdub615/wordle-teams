@@ -1,5 +1,6 @@
 import { useNavigate, type ErrorComponentProps } from '@tanstack/react-router'
 import { dashboardErrorMessage } from '#/lib/convex-error.ts'
+import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
 import { Button } from '#/components/ui/button.tsx'
 
 /**
@@ -25,15 +26,15 @@ import { Button } from '#/components/ui/button.tsx'
  * re-run the same query with the same bad `?team=` and throw again.
  *
  * It also clears `localStorage.selectedTeam` before navigating. Without that,
- * the redirect effect in routes/index.tsx can repopulate `?team=` from
- * localStorage with the very team that just threw: `getMyTeams` is a live
- * subscription, and in the window before it catches up to a just-revoked
- * membership, the stale id still passes the effect's `teams.some(...)`
- * validity check, sending the user right back into the same throw with no
- * escape hatch on this screen. This does NOT make termination unconditional —
- * it removes the one input (a stale localStorage entry) that could otherwise
- * re-select the bad team; the effect still self-heals once `teams` catches up
- * even without this.
+ * useDashboardSearchSync (src/lib/use-dashboard-search-sync.ts) can repopulate
+ * `?team=` from localStorage with the very team that just threw: `getMyTeams`
+ * is a live subscription, and in the window before it catches up to a
+ * just-revoked membership, the stale id still passes resolveDashboardSearch's
+ * `teams.some(...)` validity check, sending the user right back into the same
+ * throw with no escape hatch on this screen. This does NOT make termination
+ * unconditional — it removes the one input (a stale localStorage entry) that
+ * could otherwise re-select the bad team; the sync still self-heals once
+ * `teams` catches up even without this.
  */
 export function DashboardError({ error, reset }: ErrorComponentProps) {
   const navigate = useNavigate()
@@ -44,7 +45,7 @@ export function DashboardError({ error, reset }: ErrorComponentProps) {
         <p className="text-muted-foreground">{dashboardErrorMessage(error)}</p>
         <Button
           onClick={() => {
-            localStorage.removeItem('selectedTeam')
+            localStorage.removeItem(STORAGE_KEY)
             reset()
             void navigate({ to: '/', search: {} })
           }}
