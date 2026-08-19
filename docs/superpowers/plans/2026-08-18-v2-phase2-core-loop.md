@@ -1558,8 +1558,134 @@ git commit -m "feat(v2): upsertBoard keyed on (player, puzzleDay) so duplicates 
 **Depends on Tasks 0 and 4.** This is the relocation of the `update_monthly_winners` Postgres trigger.
 
 **Files:**
-- Modify: `v2/convex/scores.ts`
-- Test: `v2/convex/scores.test.ts`
+- Modify: `v2/convex/lib/puzzleDay.ts`, `v2/convex/scores.ts`
+- Test: `v2/convex/lib/puzzleDay.test.ts`, `v2/convex/scores.test.ts`
+
+### Amendment (added after Task 4's review, before this task was built)
+
+The design decision "the client sends its own local `today`" was taken on the
+reasoning that a wrong value only shifts *the submitter's own* provisional
+standings by a day. **That reasoning was wrong**, and Task 4's code review
+caught it before this code existed.
+
+`recomputeWinners` applies the single client-supplied `today` to **every member
+of every team the submitter belongs to**, because `monthTotal` uses it to decide
+which past days with no board count as a miss. So a manipulated `today` does not
+distort one person's view — it rewrites `monthlyWinners`, a row every teammate
+reads, and can reset `hasSeenCelebration` for all of them. That is shared stored
+state, not a personal one.
+
+The decision stands; the trust does not. `today` is now **bounded server-side to
+±1 day of the server's own date** before it reaches any computation. That window
+is deliberately wide enough to cover every real timezone — UTC-12 to UTC+14 spans
+26 hours, so a legitimate client is always within one calendar day of UTC — while
+capping the blast radius of a hostile or broken one at a single day.
+
+- [ ] **Step 0a: Add `addDays` to `puzzleDay.ts`**
+
+Append to `v2/convex/lib/puzzleDay.ts`:
+
+```ts
+export function addDays(day: PuzzleDay, delta: number): PuzzleDay {
+  const date = fromPuzzleDay(day)
+  date.setDate(date.getDate() + delta)
+  return toPuzzleDay(date)
+}
+```
+
+Append to `v2/convex/lib/puzzleDay.test.ts`:
+
+```ts
+describe('addDays', () => {
+  test('walks forwards and backwards across a month boundary', () => {
+    expect(addDays('2026-08-31', 1)).toBe('2026-09-01')
+    expect(addDays('2026-09-01', -1)).toBe('2026-08-31')
+  })
+
+  test('handles a leap day', () => {
+    expect(addDays('2024-02-28', 1)).toBe('2024-02-29')
+    expect(addDays('2024-03-01', -1)).toBe('2024-02-29')
+  })
+
+  test('crosses a year boundary', () => {
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01')
+  })
+})
+```
+
+Add `addDays` to the existing import in that test file. Run
+`pnpm test:once convex/lib/puzzleDay.test.ts` and confirm the three new tests
+fail before the implementation and pass after.
+
+- [ ] **Step 0b: Bound `today` in `upsertBoardFor`**
+
+In `v2/convex/scores.ts`, extend the `puzzleDay` import to include `addDays` and
+`toPuzzleDay`, then insert this immediately after the `boardIsValid` check and
+before the write branches:
+
+```ts
+  // `today` is client-supplied, and the server has no viewer whose midnight it
+  // could ask for instead. But it is NOT confined to the caller: recomputeWinners
+  // applies it to every member of every team they are on, and writes the result
+  // to monthlyWinners, which the whole team reads. An unbounded value is
+  // therefore shared-state corruption, not a personal view quirk.
+  //
+  // ±1 day of the server's date. Convex runs UTC, and UTC-12..UTC+14 spans 26
+  // hours, so a legitimate client anywhere on earth is always within one
+  // calendar day of it. Anything further is broken or hostile.
+  const serverToday = toPuzzleDay(new Date())
+  if (today < addDays(serverToday, -1) || today > addDays(serverToday, 1)) {
+    throw accessError('INVALID_BOARD')
+  }
+```
+
+Add to the `describe('upsertBoardFor', ...)` block in `v2/convex/scores.test.ts`:
+
+```ts
+  test('rejects a today far from the server clock — it is not the caller\'s alone', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await expect(
+        upsertBoardFor(ctx, playerId, {
+          puzzleDay: '2026-08-18',
+          answer: 'SPEED',
+          guesses: ['SPEED', '', '', '', '', ''],
+          // A year out. recomputeWinners would apply this to every teammate's
+          // total and write the result to the shared monthlyWinners row.
+          today: '2027-08-18',
+        }),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_BOARD' } })
+    })
+  })
+
+  test('accepts a today one day either side of the server date', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      const serverToday = toPuzzleDay(new Date())
+      // Both extremes of the legitimate timezone spread must pass.
+      for (const today of [addDays(serverToday, -1), addDays(serverToday, 1)]) {
+        const result = await upsertBoardFor(ctx, playerId, {
+          puzzleDay: serverToday,
+          answer: 'SPEED',
+          guesses: ['SPEED', '', '', '', '', ''],
+          today,
+        })
+        expect(result.action).toBeDefined()
+      }
+    })
+  })
+```
+
+Import `addDays` and `toPuzzleDay` in the test file. **The existing tests use
+hardcoded `today` values like `'2026-08-18'`, which are outside ±1 day of the
+real server date and will now fail.** Rewrite those tests to derive their days
+from `toPuzzleDay(new Date())` and `addDays(...)` rather than hardcoding — the
+board's `puzzleDay` can stay fixed, but `today` must be near the server clock.
+Do not widen the bound to keep the old literals working.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1824,6 +1950,23 @@ async function recomputeWinners(
 }
 ```
 
+- [ ] **Step 3b: Two housekeeping items from Task 4's review**
+
+`scores.ts`'s section header comment reads "The core loop's reads". The file has
+owned the write since Task 4 and now owns winner recomputation too. Reword it to
+describe what the module actually is.
+
+Add a line to `upsertBoardFor`'s docstring recording what the tests do **not**
+cover, so nobody mistakes a green suite for a proven guarantee:
+
+```
+ * Duplicate prevention also holds under concurrency — two simultaneous calls
+ * for the same (player, day) land in the same index range, so OCC invalidates
+ * the loser's read set and Convex retries it, at which point it finds the row
+ * and updates. THE TESTS DO NOT PROVE THIS; they exercise the sequential path
+ * only, inside a single transaction. convex-test does not simulate OCC retries.
+```
+
 - [ ] **Step 4: Run the suite and confirm it passes**
 
 Run: `pnpm test:once`
@@ -1837,7 +1980,8 @@ Expected: no output.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add v2/convex/scores.ts v2/convex/scores.test.ts
+git add v2/convex/lib/puzzleDay.ts v2/convex/lib/puzzleDay.test.ts \
+        v2/convex/scores.ts v2/convex/scores.test.ts
 git commit -m "feat(v2): recompute monthly winners inside the score mutation (wt-ksh.3.7)"
 ```
 
