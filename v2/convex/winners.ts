@@ -30,6 +30,13 @@ import type { GenericDatabaseWriter } from 'convex/server'
  * Anything with a `db` writer — a mutation, or a convex-test `ctx.run` callback.
  * Mirrors scores.ts's WriterCtx for the same reason: nothing here touches
  * anything but `ctx.db`, so convex-test's callback ctx satisfies it with no cast.
+ *
+ * Exported, unlike scores.ts's private copy: Phase 3 tasks 6, 7 and 8 add
+ * mutations to convex/teams.ts (removeMember, updateTeam, setScoringSystem)
+ * that call into this module and need the type to declare their own ctx
+ * parameters. The asymmetry with scores.ts is deliberate, not a drift risk —
+ * scores.ts's WriterCtx has no cross-module caller and has no reason to be
+ * exported.
  */
 export type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
 
@@ -139,6 +146,14 @@ export async function monthsWithWinners(
  * Recompute the month for every team the player belongs to.
  *
  * What upsertBoard calls, and the behaviour that existed before the extraction.
+ *
+ * Same "Convex can't index array membership" constraint as scores.ts's
+ * getMyTeams, but paid on the WRITE path instead of an amortised read: this
+ * runs on every board submission, the single most frequent write in the app.
+ * Cost is roughly O(all teams) — this collect — plus O(teams the player is on
+ * x members x days in the month) for the loop inside recomputeTeamMonth. See
+ * the write-path bandwidth guard in scores.test.ts for a measured figure on a
+ * realistic fixture.
  *
  * Because the WHOLE teams table lands in this transaction's read set, a
  * concurrent write to ANY team forces Convex to retry the mutation via OCC even

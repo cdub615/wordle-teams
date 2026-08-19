@@ -2,6 +2,7 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { addDays, addMonths, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
+import { aPlayer, aTeam } from './fixtures.ts'
 import { getTeamMonthFor, upsertBoardFor } from './scores'
 
 // `today` is now bounded server-side to ±1 day of the real clock (Step 0b), so
@@ -11,35 +12,6 @@ import { getTeamMonthFor, upsertBoardFor } from './scores'
 const today = toPuzzleDay(new Date())
 
 const modules = import.meta.glob('./**/*.ts')
-
-export const aPlayer = (over: Record<string, unknown> = {}) => ({
-  legacyId: '11111111-1111-4111-8111-111111111111',
-  email: 'member@example.com',
-  firstName: 'Ada',
-  lastName: 'Lovelace',
-  hasPwa: false,
-  reminderDeliveryMethods: ['email'],
-  reminderDeliveryTime: '18:00:00',
-  ...over,
-})
-
-export const aTeam = (over: Record<string, unknown> = {}) => ({
-  legacyId: 206,
-  name: 'team 206',
-  playerIds: [],
-  invited: [],
-  oneGuess: 5,
-  twoGuesses: 3,
-  threeGuesses: 2,
-  fourGuesses: 1,
-  fiveGuesses: 0,
-  sixGuesses: -1,
-  failed: -3,
-  nA: 0,
-  playWeekends: true,
-  showLetters: true,
-  ...over,
-})
 
 describe('getTeamMonthFor', () => {
   test('returns only the requested month', async () => {
@@ -317,8 +289,8 @@ describe('upsertBoardFor', () => {
           puzzleDay: '2026-08-18',
           answer: 'SPEED',
           guesses: ['SPEED', '', '', '', '', ''],
-          // A year out. recomputeWinners would apply this to every teammate's
-          // total and write the result to the shared monthlyWinners row.
+          // A year out. recomputePlayerMonth would apply this to every
+          // teammate's total and write the result to the shared monthlyWinners row.
           today: '2027-08-18',
         }),
       ).rejects.toMatchObject({ data: { code: 'INVALID_BOARD' } })
@@ -515,11 +487,11 @@ describe('monthly winners', () => {
   })
 
   test('recomputeWinners reads a bounded number of documents — a write-path bandwidth regression guard', async () => {
-    // recomputeWinners runs on EVERY board submission — the single most
-    // frequent write in the app — and its cost shape is structurally worse
-    // than the read-path guard's above: it opens with
+    // recomputePlayerMonth (convex/winners.ts) runs on EVERY board submission
+    // — the single most frequent write in the app — and its cost shape is
+    // structurally worse than the read-path guard's above: it opens with
     // `ctx.db.query('teams').collect()`, the WHOLE teams table (see the
-    // comment on that line in recomputeWinners), then for every team the
+    // comment on that line in recomputePlayerMonth), then for every team the
     // submitter belongs to reads every member plus that member's in-month
     // scores. Nothing here is a bug — the winner genuinely can't be found
     // without every member's total, and Convex can't index array membership

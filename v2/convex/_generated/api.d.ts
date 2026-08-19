@@ -13,6 +13,7 @@ import type * as auth from "../auth.js";
 import type * as authEmails from "../authEmails.js";
 import type * as e2eSeed from "../e2eSeed.js";
 import type * as email from "../email.js";
+import type * as fixtures from "../fixtures.js";
 import type * as http from "../http.js";
 import type * as lib_board from "../lib/board.js";
 import type * as lib_puzzleDay from "../lib/puzzleDay.js";
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   authEmails: typeof authEmails;
   e2eSeed: typeof e2eSeed;
   email: typeof email;
+  fixtures: typeof fixtures;
   http: typeof http;
   "lib/board": typeof lib_board;
   "lib/puzzleDay": typeof lib_puzzleDay;

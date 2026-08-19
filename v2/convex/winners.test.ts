@@ -2,7 +2,7 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
-import { aPlayer, aTeam } from './scores.test.ts'
+import { aPlayer, aTeam } from './fixtures.ts'
 import { monthsWithWinners, recomputeTeamMonth, recomputeTeamMonths } from './winners.ts'
 
 const today = toPuzzleDay(new Date())
@@ -36,6 +36,9 @@ describe('recomputeTeamMonth', () => {
         .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId).eq('year', 2026).eq('month', 8))
         .first()
       expect(row?.playerId).toBe(ada)
+      // The whole reason this diverges from the SQL — see the module doc —
+      // is what happens to hasSeenCelebration. A fresh row must start empty.
+      expect(row?.hasSeenCelebration).toEqual([])
     })
   })
 
@@ -81,6 +84,25 @@ describe('recomputeTeamMonth', () => {
         .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId).eq('year', 2026).eq('month', 8))
         .first()
       expect(row).toBeNull()
+    })
+  })
+
+  test('is a pure no-op when there is no winner and no existing row', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      // No prior monthlyWinners row this time — unlike the "deletes the row"
+      // case above, there is nothing for the `!winnerId` branch to delete.
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [] }))
+
+      const team = (await ctx.db.get(teamId))!
+      await recomputeTeamMonth(ctx, team, '2026-08', today)
+
+      const row = await ctx.db
+        .query('monthlyWinners')
+        .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId).eq('year', 2026).eq('month', 8))
+        .first()
+      expect(row).toBeNull()
+      expect(await ctx.db.query('monthlyWinners').collect()).toHaveLength(0)
     })
   })
 
