@@ -3278,6 +3278,42 @@ git commit -m "feat(v2): board entry with the keyboard-aware mobile sheet (wt-ks
 **Files:**
 - Modify: `v2/e2e/login.spec.ts` or create `v2/e2e/board-entry.spec.ts`
 
+### Amendment (added after Task 8's review)
+
+Task 8 fixed a **Critical** bug: the board's `contentEditable` fields intercepted
+`keydown` only, so mobile swipe-typing, predictive text, voice dictation and
+paste — all of which insert via `beforeinput` with no `keydown` at all — reached
+the DOM without React's state knowing, risking a board that disagrees with what
+gets submitted or a reconciliation crash.
+
+The fix (`onBeforeInput` + `onPaste` with `preventDefault()` on both fields) was
+verified with Playwright at the time, but that spec was scratch work and was
+deleted, so **the repo carries no reproducible proof of it**. That was my
+instruction, and it was the wrong call for a fix of this severity: the guard is a
+single line on each field, and nothing in the suite would notice if someone
+removed it.
+
+Step 2b below makes it permanent. Note that unit tests cannot cover this — it is
+specifically about what native browser events do to the DOM, which needs a real
+browser.
+
+- [ ] **Step 2b: Assert the native-input guards, permanently**
+
+In `v2/e2e/board-entry.spec.ts`, after the board is open, assert that neither
+contentEditable field accepts text through a non-`keydown` path:
+
+- **Paste:** put text on the clipboard and paste into the answer field and the
+  board. Assert neither changed.
+- **`insertText`:** use Playwright's `page.keyboard.insertText(...)`, which
+  dispatches `beforeinput`/`input` **without** `keydown` — the same event shape
+  as predictive text and swipe-typing. Assert neither field changed.
+- Then type normally with real key events and assert that *does* work, so the
+  test proves the guard is selective rather than the field being inert.
+
+Keep it to one focused test alongside the smoke test. Name it so its purpose
+survives: it exists because a fix here is one deletable line, and the failure it
+prevents is silent.
+
 - [ ] **Step 1: Extract the sign-in helper**
 
 Run: `cat v2/e2e/login.spec.ts`
