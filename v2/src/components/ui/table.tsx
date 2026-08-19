@@ -37,7 +37,14 @@ const Table = React.forwardRef<
     // instead of scrolling, which is still correct here (nothing should
     // scroll vertically) but means a tall table would need its own vertical
     // scroller above this one, added explicitly via wrapperProps.className.
-    wrapperProps?: React.HTMLAttributes<HTMLDivElement>
+    //
+    // Typed as ComponentPropsWithRef, not HTMLAttributes, so a caller can also
+    // reach this div with a ref (wt-ksh.3.18 needs one to measure/scroll it
+    // for the auto-centre-on-landing feature). Spreading `{...wrapperProps}`
+    // onto the div below still forwards a `ref` key correctly — React's JSX
+    // runtime extracts `ref` from the final merged props object regardless of
+    // whether it arrived via spread or as a literal JSX attribute.
+    wrapperProps?: React.ComponentPropsWithRef<"div">
   }
 >(({ className, wrapperProps, ...props }, ref) => (
   <div

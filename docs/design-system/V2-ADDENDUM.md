@@ -246,6 +246,26 @@ class of bug.
   `scores-table.tsx` rather than folded into the shared primitive — nothing
   else using `Table` wants rounded row corners.
 
+  **`wt-ksh.3.18`, `wrapperProps` also carries a ref now:** the primitive's
+  `wrapperProps` was typed `React.HTMLAttributes<HTMLDivElement>`, which does
+  not include `ref` (TypeScript's excess-property check on the object
+  literal rejects it). Widened to `React.ComponentPropsWithRef<"div">` so a
+  caller can reach the actual scroll container with a ref, not just
+  `tabIndex`/`aria-label` — `scores-table.tsx` uses it to measure and set
+  `scrollLeft` for the auto-centre-on-landing feature below. `{...wrapperProps}`
+  spread onto the div still forwards `ref` correctly regardless of typing;
+  the type only needed widening for `tsc`, not for the ref to actually work.
+
+  Centring itself lives entirely in `scores-table.tsx`, in a
+  `useLayoutEffect` keyed on `[hydrated, teamId, month]` — deliberately NOT
+  on the live score data, so a teammate's board submission (which re-renders
+  this component through the Convex subscription) never re-triggers it.
+  Guarded by: only after `hydrated`; only when the viewed month's `monthOf`
+  matches today's; only when the wrapper's `scrollLeft` is still `0` (nothing
+  has scrolled it yet); and clamped to `[0, scrollWidth - clientWidth]`. The
+  target `data-day` cell (added in `wt-ksh.3.11`) is queried directly rather
+  than computed positionally.
+
 ---
 
 ## 7. A v1 bug found while porting the board — fixed in v2, still live in v1

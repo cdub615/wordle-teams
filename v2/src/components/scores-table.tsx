@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
@@ -7,7 +8,7 @@ import { formatDayHeader } from '#/lib/format-day.ts'
 import { cn } from '#/lib/utils.ts'
 import { attemptsFor } from '../../convex/lib/board.ts'
 import { monthTotal } from '../../convex/lib/scoring.ts'
-import { daysOfMonth, isWeekendDay, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import { daysOfMonth, isWeekendDay, monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -41,6 +42,51 @@ export function ScoresTable({
   // blanks rather than wrong values.
   const today = hydrated ? toPuzzleDay(new Date()) : `${month}-01`
   const days = daysOfMonth(month)
+
+  // Centre today's column on landing (wt-ksh.3.18). The effect deps are
+  // deliberately [hydrated, teamId, month] — NOT the score data, which
+  // changes on every teammate's board submission via the live Convex
+  // subscription. Excluding it means a live update simply doesn't re-run this
+  // effect at all (React skips an effect whose deps are unchanged), so a
+  // teammate submitting a board can never yank the view out from under
+  // someone mid-read. Landing on a new team or month (including landing on a
+  // month you've already visited earlier in the session) is a fresh
+  // dependency change and centres again, which is the intended "once per
+  // landing" behaviour.
+  //
+  // useLayoutEffect, not useEffect: it runs before the browser paints the
+  // post-hydration commit, so the jump from the SSR-rendered natural position
+  // to the centred one happens in one paint rather than flashing the natural
+  // position first.
+  const scrollWrapperRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    // "Today" comes from the browser clock — only meaningful after hydration
+    // (see the `today` comment above; reading it during the SSR-matching
+    // render is the hydration-mismatch class this phase has already hit).
+    if (!hydrated) return
+
+    const todayNow = toPuzzleDay(new Date())
+    // Only when the viewed month actually contains today. A past (or future)
+    // month has no current-day column — leave it at its natural position.
+    if (monthOf(todayNow) !== month) return
+
+    const wrapper = scrollWrapperRef.current
+    if (!wrapper) return
+    // Don't fight the user: a nonzero scrollLeft means something (the user,
+    // most likely, since native overflow-x scrolling needs no JS handlers and
+    // can happen before hydration finishes) already moved the view away from
+    // its natural starting position.
+    if (wrapper.scrollLeft !== 0) return
+
+    const cell = wrapper.querySelector<HTMLElement>(`[data-day="${todayNow}"]`)
+    if (!cell) return
+
+    const target = cell.offsetLeft + cell.offsetWidth / 2 - wrapper.clientWidth / 2
+    // Clamp to the scroll bounds so early- and late-month days don't leave a
+    // gap at either end.
+    wrapper.scrollLeft = Math.max(0, Math.min(target, wrapper.scrollWidth - wrapper.clientWidth))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately excludes score data; see comment above
+  }, [hydrated, teamId, month])
 
   const rows = players
     .map((player) => {
@@ -96,7 +142,7 @@ export function ScoresTable({
             Caught by the screenshot verification this task requires. */}
         <Table
           className="relative w-max min-w-full"
-          wrapperProps={{ tabIndex: 0, 'aria-label': 'Scores, scrollable by day' }}
+          wrapperProps={{ ref: scrollWrapperRef, tabIndex: 0, 'aria-label': 'Scores, scrollable by day' }}
         >
           <TableHeader>
             <TableRow>
