@@ -20,6 +20,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'INVALID_BOARD' ||
     code === 'NOT_TEAM_CREATOR' ||
     code === 'INVALID_TEAM' ||
+    code === 'INVALID_DATE' ||
+    code === 'CREATOR_NOT_REMOVABLE' ||
     code === 'INVALID_SYSTEM'
   ) {
     return code
@@ -53,6 +55,14 @@ function typedCodeMessage(code: AccessCode): string {
       return 'Only the person who created this team can change it.'
     case 'INVALID_TEAM':
       return 'A team needs a name.'
+    case 'INVALID_DATE':
+      // Fires when the client's `today` is more than a day off the server
+      // clock — a wrong device clock or a hostile client, never a timezone
+      // difference. "Refresh and try again" would not fix a genuinely wrong
+      // clock, so this points at the actual cause instead.
+      return "Your device's clock looks off. Check your date and time settings and try again."
+    case 'CREATOR_NOT_REMOVABLE':
+      return "The person who created this team can't be removed as a member."
     case 'INVALID_SYSTEM':
       return 'Points must be whole numbers between -100 and 100.'
     default: {

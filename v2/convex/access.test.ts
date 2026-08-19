@@ -3,37 +3,9 @@ import { ConvexError } from 'convex/values'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { isProFor, playerForEmail, requireTeamCreatorFor, requireTeamMemberFor } from './access'
+import { aPlayer, aTeam } from './fixtures.ts'
 
 const modules = import.meta.glob('./**/*.ts')
-
-const aPlayer = (over: Record<string, unknown> = {}) => ({
-  legacyId: '11111111-1111-4111-8111-111111111111',
-  email: 'member@example.com',
-  firstName: 'Ada',
-  lastName: 'Lovelace',
-  hasPwa: false,
-  reminderDeliveryMethods: ['email'],
-  reminderDeliveryTime: '18:00:00',
-  ...over,
-})
-
-const aTeam = (over: Record<string, unknown> = {}) => ({
-  legacyId: 206,
-  name: 'team 206',
-  playerIds: [],
-  invited: [],
-  oneGuess: 5,
-  twoGuesses: 3,
-  threeGuesses: 2,
-  fourGuesses: 1,
-  fiveGuesses: 0,
-  sixGuesses: -1,
-  failed: -3,
-  nA: 0,
-  playWeekends: true,
-  showLetters: true,
-  ...over,
-})
 
 describe('playerForEmail', () => {
   test('matches case-insensitively', async () => {
@@ -115,7 +87,9 @@ describe('requireTeamCreatorFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
-      await expect(requireTeamCreatorFor(ctx, bob, teamId)).rejects.toThrow(/NOT_TEAM_CREATOR/)
+      await expect(requireTeamCreatorFor(ctx, bob, teamId)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_CREATOR' },
+      })
     })
   })
 
@@ -125,7 +99,9 @@ describe('requireTeamCreatorFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
       const outsider = await ctx.db.insert('players', aPlayer({ email: 'out@example.com' }))
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
-      await expect(requireTeamCreatorFor(ctx, outsider, teamId)).rejects.toThrow(/NOT_A_MEMBER/)
+      await expect(requireTeamCreatorFor(ctx, outsider, teamId)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
     })
   })
 
@@ -137,7 +113,9 @@ describe('requireTeamCreatorFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: undefined }))
-      await expect(requireTeamCreatorFor(ctx, ada, teamId)).rejects.toThrow(/NOT_TEAM_CREATOR/)
+      await expect(requireTeamCreatorFor(ctx, ada, teamId)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_CREATOR' },
+      })
     })
   })
 })

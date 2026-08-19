@@ -19,6 +19,10 @@ import type { GenericDatabaseReader } from 'convex/server'
 
 // If you add a member here, src/lib/convex-error.ts's boardErrorMessage switch
 // must grow a case too — it is exhaustive against this type on purpose.
+// INVALID_DATE and CREATOR_NOT_REMOVABLE are not thrown anywhere yet — Tasks 6
+// and 7 do that. Added now, alongside INVALID_TEAM, because the union and the
+// exhaustive switch in convex-error.ts are already open for INVALID_TEAM's
+// split; adding them later would mean reopening both files a second time.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -26,6 +30,8 @@ export type AccessCode =
   | 'INVALID_BOARD'
   | 'NOT_TEAM_CREATOR'
   | 'INVALID_TEAM'
+  | 'INVALID_DATE'
+  | 'CREATOR_NOT_REMOVABLE'
   | 'INVALID_SYSTEM'
 
 /**
