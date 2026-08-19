@@ -70,10 +70,10 @@ export function tileStates(answer: string, guess: string): Array<TileState> {
   return states
 }
 
-/** Pad a guess list out to the board's six rows. Non-mutating, unlike v1's padArray. */
-export function toRows(guesses: Array<string>, rows = 6): Array<string> {
-  return Array.from({ length: rows }, (_, i) => guesses[i] ?? '')
-}
+// toRows lives in convex/lib/board.ts so the mutation and the browser agree on
+// what a board's six rows are. Re-exported here because this module is the
+// board components' entry point.
+export { toRows } from '../../convex/lib/board.ts'
 
 export type ScoreCell = number | 'X' | ''
 
