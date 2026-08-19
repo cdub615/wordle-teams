@@ -1044,7 +1044,7 @@ export type ScoringSystemVersion = ScoringSystem & { effectiveFrom: PuzzleMonth 
  * v1's `defaultSystem` (src/lib/types.ts), value for value. What createTeam
  * writes onto a new team.
  */
-export const DEFAULT_SYSTEM: ScoringSystem = {
+export const DEFAULT_SYSTEM = {
   oneGuess: 5,
   twoGuesses: 3,
   threeGuesses: 2,
@@ -1053,7 +1053,7 @@ export const DEFAULT_SYSTEM: ScoringSystem = {
   sixGuesses: -1,
   failed: -3,
   nA: 0,
-}
+} as const satisfies ScoringSystem
 
 /**
  * The version that governed `month`: the one with the greatest `effectiveFrom`
@@ -1092,7 +1092,16 @@ function resolve(
 ): ScoringSystemVersion | undefined {
   return versions
     .filter((version) => version.effectiveFrom <= month)
-    .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1))
+    // A TOTAL comparator — it must return 0 for equal months. The obvious
+    // `a < b ? -1 : 1` claims "a > b" in BOTH directions on a tie, which
+    // violates the sort contract and makes the outcome implementation-defined.
+    // Ties are reachable: Convex has no unique constraints and
+    // setScoringSystem upserts by (teamId, effectiveFrom) with a read-then-
+    // write, so a race can leave two rows for one month — and which one wins
+    // decides a team's points, and therefore who won that month. With a total
+    // comparator the sort is stable, so the LAST equal element in the input
+    // wins, which is a specified outcome rather than an accident.
+    .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : a.effectiveFrom > b.effectiveFrom ? 1 : 0))
     .at(-1)
 }
 ```
