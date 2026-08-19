@@ -127,7 +127,7 @@ for the oldest team in production.
 - `isPro(ctx, playerId)` → reads `playerMembership` `by_player`; true when
   `membershipStatus === 'pro'`.
 
-`AccessCode` gains `NOT_TEAM_CREATOR`, `INVALID_TEAM` and `INVALID_SYSTEM`. The exhaustive
+`AccessCode` gains `NOT_TEAM_CREATOR`, `INVALID_TEAM`, `INVALID_DATE`, `CREATOR_NOT_REMOVABLE` and `INVALID_SYSTEM`. The exhaustive
 switch in `src/lib/convex-error.ts` stops compiling until each has copy — that check is
 deliberate and is doing its job.
 
@@ -202,6 +202,8 @@ is a misnomer — v1's own card files it under "0 attempts", and it has nothing 
 |---|---|---|
 | `NOT_TEAM_CREATOR` | A member tried to edit, remove or delete | Error toast; the dialog stays open |
 | `INVALID_TEAM` | Empty or whitespace-only team name | Error toast; the dialog stays open |
+| `INVALID_DATE` | The client's `today` is more than a day off the server clock | Error toast; the dialog stays open |
+| `CREATOR_NOT_REMOVABLE` | Refusing to remove a team's creator | Error toast; the popover stays open |
 | `INVALID_SYSTEM` | A point value that is not an integer in −100…100 | Error toast; the editor stays open with the typed values |
 
 `NOT_A_MEMBER` keeps its Phase 2 treatment: on the read path it is the route error boundary,

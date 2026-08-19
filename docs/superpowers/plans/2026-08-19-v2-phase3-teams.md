@@ -176,7 +176,7 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
-import { aPlayer, aTeam } from './scores.test.ts'
+import { aPlayer, aTeam } from './fixtures.ts'
 import { monthsWithWinners, recomputeTeamMonth, recomputeTeamMonths } from './winners.ts'
 
 const today = toPuzzleDay(new Date())
@@ -1183,7 +1183,7 @@ describe('requireTeamCreatorFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
-      await expect(requireTeamCreatorFor(ctx, bob, teamId)).rejects.toThrow(/NOT_TEAM_CREATOR/)
+      await expect(requireTeamCreatorFor(ctx, bob, teamId)).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
     })
   })
 
@@ -1193,7 +1193,7 @@ describe('requireTeamCreatorFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
       const outsider = await ctx.db.insert('players', aPlayer({ email: 'out@example.com' }))
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
-      await expect(requireTeamCreatorFor(ctx, outsider, teamId)).rejects.toThrow(/NOT_A_MEMBER/)
+      await expect(requireTeamCreatorFor(ctx, outsider, teamId)).rejects.toMatchObject({ data: { code: 'NOT_A_MEMBER' } })
     })
   })
 
@@ -1205,7 +1205,7 @@ describe('requireTeamCreatorFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: undefined }))
-      await expect(requireTeamCreatorFor(ctx, ada, teamId)).rejects.toThrow(/NOT_TEAM_CREATOR/)
+      await expect(requireTeamCreatorFor(ctx, ada, teamId)).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
     })
   })
 })
@@ -1249,11 +1249,14 @@ Extend the existing import at the top of `access.test.ts` to pull in the two new
 import { isProFor, requireTeamCreatorFor } from './access'
 ```
 
-(keep whatever it already imports alongside them), and import the fixtures if the file does not already have them:
+(keep whatever it already imports alongside them). For fixtures, import from the shared
+module — **never** from a `.test.ts` file, which would re-run that file's whole suite:
 
 ```ts
-import { aPlayer, aTeam } from './scores.test.ts'
+import { aPlayer, aTeam } from './fixtures.ts'
 ```
+
+If the file still has its own local `aPlayer`/`aTeam`, delete them and import instead.
 
 - [ ] **Step 2: Run it and confirm it fails**
 
@@ -1281,6 +1284,8 @@ export type AccessCode =
   | 'INVALID_BOARD'
   | 'NOT_TEAM_CREATOR'
   | 'INVALID_TEAM'
+  | 'INVALID_DATE'
+  | 'CREATOR_NOT_REMOVABLE'
   | 'INVALID_SYSTEM'
 ```
 
@@ -1384,6 +1389,8 @@ becomes:
     code === 'INVALID_BOARD' ||
     code === 'NOT_TEAM_CREATOR' ||
     code === 'INVALID_TEAM' ||
+    code === 'INVALID_DATE' ||
+    code === 'CREATOR_NOT_REMOVABLE' ||
     code === 'INVALID_SYSTEM'
   ) {
     return code
@@ -1397,6 +1404,10 @@ and add three cases to `typedCodeMessage`, before the `default`:
       return 'Only the person who created this team can change it.'
     case 'INVALID_TEAM':
       return 'A team needs a name.'
+    case 'INVALID_DATE':
+      return "Your device's clock looks off. Refresh the page and try again."
+    case 'CREATOR_NOT_REMOVABLE':
+      return "The person who created this team can't be removed as a member."
     case 'INVALID_SYSTEM':
       return 'Points must be whole numbers between -100 and 100.'
 ```
@@ -1436,7 +1447,7 @@ Create `v2/convex/teams.test.ts`:
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
-import { aPlayer, aTeam } from './scores.test.ts'
+import { aPlayer, aTeam } from './fixtures.ts'
 import { getMyTeamsFor } from './teams.ts'
 
 const modules = import.meta.glob('./**/*.ts')
@@ -1737,7 +1748,7 @@ describe('createTeamFor', () => {
 
       await expect(
         createTeamFor(ctx, ada, { name: '   ', playWeekends: true, showLetters: true }),
-      ).rejects.toThrow(/INVALID_TEAM/)
+      ).rejects.toMatchObject({ data: { code: 'INVALID_TEAM' } })
     })
   })
 
@@ -1789,7 +1800,7 @@ describe('updateTeamFor', () => {
           showLetters: true,
           today,
         }),
-      ).rejects.toThrow(/NOT_TEAM_CREATOR/)
+      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
     })
   })
 
@@ -1893,7 +1904,7 @@ describe('deleteTeamFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
-      await expect(deleteTeamFor(ctx, bob, teamId)).rejects.toThrow(/NOT_TEAM_CREATOR/)
+      await expect(deleteTeamFor(ctx, bob, teamId)).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
       expect(await ctx.db.get(teamId)).not.toBeNull()
     })
   })
@@ -1972,7 +1983,10 @@ Then append:
 function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
   const serverToday = toPuzzleDay(new Date())
   if (today < addDays(serverToday, -1) || today > addDays(serverToday, 1)) {
-    throw accessError('INVALID_TEAM')
+    // NOT INVALID_TEAM. A clock this far off is not a naming problem, and
+    // telling the user "a team needs a name" would be actively wrong. See the
+    // code split in Task 4.
+    throw accessError('INVALID_DATE')
   }
   return today
 }
@@ -2205,7 +2219,7 @@ describe('removeMemberFor', () => {
 
       await expect(
         removeMemberFor(ctx, ada, { teamId, playerId: ada, today }),
-      ).rejects.toThrow(/INVALID_TEAM/)
+      ).rejects.toMatchObject({ data: { code: 'CREATOR_NOT_REMOVABLE' } })
       expect((await ctx.db.get(teamId))!.playerIds).toEqual([ada, bob])
     })
   })
@@ -2220,7 +2234,7 @@ describe('removeMemberFor', () => {
 
       await expect(
         removeMemberFor(ctx, bob, { teamId, playerId: carol, today }),
-      ).rejects.toThrow(/NOT_TEAM_CREATOR/)
+      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
     })
   })
 
@@ -2282,7 +2296,7 @@ export async function removeMemberFor(
 ): Promise<void> {
   const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
   const today = requirePlausibleToday(args.today)
-  if (args.playerId === team.creator) throw accessError('INVALID_TEAM')
+  if (args.playerId === team.creator) throw accessError('CREATOR_NOT_REMOVABLE')
 
   await ctx.db.patch(team._id, {
     playerIds: team.playerIds.filter((memberId) => memberId !== args.playerId),
@@ -2444,7 +2458,7 @@ describe('setScoringSystemFor', () => {
 
       await expect(
         setScoringSystemFor(ctx, bob, { teamId, values: newValues, today }),
-      ).rejects.toThrow(/NOT_TEAM_CREATOR/)
+      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
     })
   })
 
@@ -2456,13 +2470,13 @@ describe('setScoringSystemFor', () => {
 
       await expect(
         setScoringSystemFor(ctx, ada, { teamId, values: { ...newValues, oneGuess: 1.5 }, today }),
-      ).rejects.toThrow(/INVALID_SYSTEM/)
+      ).rejects.toMatchObject({ data: { code: 'INVALID_SYSTEM' } })
       await expect(
         setScoringSystemFor(ctx, ada, { teamId, values: { ...newValues, oneGuess: 101 }, today }),
-      ).rejects.toThrow(/INVALID_SYSTEM/)
+      ).rejects.toMatchObject({ data: { code: 'INVALID_SYSTEM' } })
       await expect(
         setScoringSystemFor(ctx, ada, { teamId, values: { ...newValues, nA: -101 }, today }),
-      ).rejects.toThrow(/INVALID_SYSTEM/)
+      ).rejects.toMatchObject({ data: { code: 'INVALID_SYSTEM' } })
     })
   })
 
