@@ -22,6 +22,7 @@ import type * as migrate from "../migrate.js";
 import type * as scores from "../scores.js";
 import type * as status from "../status.js";
 import type * as testOtps from "../testOtps.js";
+import type * as winners from "../winners.js";
 
 import type {
   ApiFromModules,
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   scores: typeof scores;
   status: typeof status;
   testOtps: typeof testOtps;
+  winners: typeof winners;
 }>;
 
 /**

@@ -3,7 +3,7 @@ import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, requirePlayer, requireTeamMemberFor } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
 import { addDays, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
-import { monthTotal, winnerOf } from './lib/scoring.ts'
+import { recomputePlayerMonth } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
 
@@ -172,106 +172,6 @@ export type BoardInput = {
 }
 
 /**
- * Recompute the month's winner for every team the player belongs to.
- *
- * This is v1's update_monthly_winners trigger, relocated. Two differences from
- * the SQL, both deliberate:
- *
- * 1. The SQL DELETEs the row and re-INSERTs it, which silently wipes
- *    hasSeenCelebration every time anyone enters a board dated in that month —
- *    re-firing the confetti at someone who already dismissed it. Here the array
- *    survives an unchanged winner and resets only when the winner really changes.
- * 2. v1 computed this on the CLIENT for every team it had loaded and passed the
- *    result to the RPC. Here it is derived server-side inside the same
- *    transaction as the board write, so it cannot be stale or forged.
- */
-async function recomputeWinners(
-  ctx: WriterCtx,
-  playerId: Id<'players'>,
-  month: string,
-  today: string,
-): Promise<void> {
-  const [year, monthNum] = month.split('-').map(Number)
-  const { start, end } = monthRange(month)
-
-  // Same "Convex can't index array membership" constraint as getMyTeams above,
-  // but paid on the WRITE path instead of an amortised read: this runs on
-  // every board submission, the single most frequent write in the app. Cost is
-  // roughly O(all teams) — this collect — plus O(teams the player is on x
-  // members x days in the month) for the loop below. See the write-path
-  // bandwidth guard in scores.test.ts for a measured figure on a realistic
-  // fixture.
-  //
-  // Because the WHOLE teams table lands in this transaction's read set, a
-  // concurrent write to ANY team (not just one of the player's own) forces
-  // Convex to retry this mutation via OCC, even though the retry's outcome
-  // never depended on that other team. Acceptable today because team writes
-  // are rare — team settings edits and the invite flow are still Phase 3. It
-  // stops being acceptable if either of those raises team-write frequency
-  // enough to make the OCC retries visible, or if team count grows enough that
-  // the collect itself becomes the dominant cost regardless of write rate.
-  const allTeams = await ctx.db.query('teams').collect()
-  const teams = allTeams.filter((team) => team.playerIds.includes(playerId))
-
-  for (const team of teams) {
-    const totals = []
-    for (const memberId of team.playerIds) {
-      const member = await ctx.db.get(memberId)
-      // Same exclusion as getTeamMonthFor: a profile-incomplete invitee is not
-      // shown on the table and must not be able to win the month either.
-      if (!member || !member.firstName || !member.lastName) continue
-
-      const scores = await ctx.db
-        .query('dailyScores')
-        .withIndex('by_player_and_puzzleDay', (q) =>
-          q.eq('playerId', memberId).gte('puzzleDay', start).lte('puzzleDay', end),
-        )
-        .collect()
-
-      totals.push({
-        playerId: memberId,
-        total: monthTotal({
-          month,
-          scores,
-          // A `teams` doc structurally satisfies ScoringSystem.
-          system: team,
-          playWeekends: team.playWeekends,
-          today,
-        }),
-      })
-    }
-
-    const winnerId = winnerOf(totals) as Id<'players'> | null
-    const existing = await ctx.db
-      .query('monthlyWinners')
-      .withIndex('by_team_year_month', (q) =>
-        q.eq('teamId', team._id).eq('year', year).eq('month', monthNum),
-      )
-      .first()
-
-    if (!winnerId) {
-      // Matches the SQL, which deletes unconditionally and re-inserts only where
-      // winner_id is not null.
-      if (existing) await ctx.db.delete(existing._id)
-      continue
-    }
-    if (!existing) {
-      await ctx.db.insert('monthlyWinners', {
-        playerId: winnerId,
-        teamId: team._id,
-        year,
-        month: monthNum,
-        hasSeenCelebration: [],
-      })
-      continue
-    }
-    // Unchanged winner: leave the row, and the seen-list, alone.
-    if (existing.playerId === winnerId) continue
-    await ctx.db.patch(existing._id, { playerId: winnerId, hasSeenCelebration: [] })
-  }
-}
-
-/**
  * Create, update or delete one board, then recompute the standings it affects.
  *
  * KEYED ON (playerId, puzzleDay), which is what makes a duplicate row
@@ -310,7 +210,7 @@ export async function upsertBoardFor(
   if (!boardIsValid(answer, guesses, existing !== null)) throw accessError('INVALID_BOARD')
 
   // `today` is client-supplied, and the server has no viewer whose midnight it
-  // could ask for instead. But it is NOT confined to the caller: recomputeWinners
+  // could ask for instead. But it is NOT confined to the caller: recomputePlayerMonth
   // applies it to every member of every team they are on, and writes the result
   // to monthlyWinners, which the whole team reads. An unbounded value is
   // therefore shared-state corruption, not a personal view quirk.
@@ -345,7 +245,7 @@ export async function upsertBoardFor(
     action = 'create'
   }
 
-  await recomputeWinners(ctx, playerId, monthOf(puzzleDay), today)
+  await recomputePlayerMonth(ctx, playerId, monthOf(puzzleDay), today)
   return { action }
 }
 
