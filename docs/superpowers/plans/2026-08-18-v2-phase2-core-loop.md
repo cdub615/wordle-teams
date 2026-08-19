@@ -2095,7 +2095,7 @@ export function formatMonthLabel(month: PuzzleMonth): string {
 - [ ] **Step 4: Run it and confirm it passes**
 
 Run: `pnpm test:once src/lib/format-day.test.ts`
-Expected: PASS, 6 tests.
+Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Write the Convex error helper**
 
