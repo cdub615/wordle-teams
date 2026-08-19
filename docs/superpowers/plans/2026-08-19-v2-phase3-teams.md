@@ -2198,15 +2198,27 @@ describe('removeMemberFor', () => {
           teamId,
           year,
           month,
-          hasSeenCelebration: [],
+          hasSeenCelebration: [bob],
         })
       }
 
       await removeMemberFor(ctx, ada, { teamId, playerId: bob, today })
 
-      // Ada has no scores at all, so with Bob gone nobody can win: prod would
-      // have left Bob named as the winner of two months he is no longer in.
-      expect(await ctx.db.query('monthlyWinners').collect()).toEqual([])
+      // BOTH months flip from Bob to Ada. Prod would have left Bob named as the
+      // winner of two months he is no longer in, because its trigger fires on
+      // daily_scores and this write touches teams.
+      //
+      // NOT "nobody can win". winnerOf returns null only for an EMPTY candidate
+      // list — a non-empty list where every total is 0 still has a winner. Ada
+      // has no scores but is still a candidate, so she wins both months at 0.
+      // Seeding hasSeenCelebration as [bob] rather than [] is what makes the
+      // reset observable; with [] you could not tell a recompute from a no-op.
+      const rows = await ctx.db.query('monthlyWinners').collect()
+      expect(rows.map((r) => ({ month: r.month, playerId: r.playerId }))).toEqual([
+        { month: 6, playerId: ada },
+        { month: 7, playerId: ada },
+      ])
+      expect(rows.every((r) => r.hasSeenCelebration.length === 0)).toBe(true)
     })
   })
 
