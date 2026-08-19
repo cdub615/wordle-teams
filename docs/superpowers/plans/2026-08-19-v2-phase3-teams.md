@@ -3897,7 +3897,12 @@ export function ScoringSystemEditor({
           </div>
         ))}
       </div>
-      <p className="text-text-subtle text-sm">
+      {/* text-muted-foreground, NOT text-subtle. V2-ADDENDUM §2: --text-subtle
+          is 4.31:1 in light and 4.18:1 in dark, fails AA, and is explicitly
+          reserved for large-text/decorative use — "use text-muted for anything
+          normal-sized that must be legible". This line is the one that tells
+          the user the edit will not rewrite history. */}
+      <p className="text-sm text-muted-foreground">
         Applies from this month onward. Past months keep the points they were played under.
       </p>
       <div className="flex gap-2">
@@ -3920,7 +3925,9 @@ export function ScoringSystemEditor({
   if (isDesktop) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent>
+        {/* w-11/12 rounded-lg, like the other two dialogs — shadcn's default is
+            edge-to-edge and square-cornered below 640px. */}
+        <DialogContent className="w-11/12 rounded-lg">
           <DialogHeader className="pb-4">
             <DialogTitle className="text-2xl">Scoring System</DialogTitle>
             <DialogDescription>Points awarded by number of attempts</DialogDescription>
