@@ -111,9 +111,11 @@ function Dashboard() {
           isPro={isPro}
           onChange={(team) => navigate({ to: '/', search: { team, month: monthParam } })}
           onCreate={() => setCreateOpen(true)}
-          // Checkout is Phase 5. Until then, say so rather than doing nothing:
-          // a dead menu item is indistinguishable from a broken one.
-          onUpgrade={() => toast.info('Upgrading arrives with payments, in a later phase.')}
+          // Checkout is Phase 5. Until then, say so rather than doing nothing —
+          // a dead menu item is indistinguishable from a broken one — but in
+          // product terms, not roadmap terms: nothing here should read like an
+          // internal comment that leaked into the UI.
+          onUpgrade={() => toast.info('More teams need a paid plan. Coming soon.')}
         />
         <MonthPicker
           currentMonth={currentMonth}

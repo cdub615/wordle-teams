@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu.tsx'
+import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 
 /**
  * Team selection, and the entry point for creating one.
@@ -23,8 +24,6 @@ import {
  * enforce a cap and neither does v1's server action.
  */
 export type TeamOption = { id: string; name: string }
-
-const FREE_TEAM_LIMIT = 2
 
 export function TeamPicker({
   teams,
@@ -53,7 +52,12 @@ export function TeamPicker({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          aria-label="Team"
+          // A static aria-label overrides the button's text content for the
+          // accessibility tree, so a plain "Team" would hide which team is
+          // actually selected. Use the FULL name here, not the truncated
+          // `label` below — truncation is a visual affordance for the trigger,
+          // not something a screen-reader user should have to sit through.
+          aria-label={`Team: ${name}`}
           className="max-w-[9.5rem] px-2 text-xs md:max-w-none md:px-4 md:text-sm"
         >
           {label}
