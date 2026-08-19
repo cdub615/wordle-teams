@@ -191,6 +191,45 @@ class of bug.
   acts as a **cap**, not a minimum, so a wide table compresses its columns
   instead of overflowing — with 31 day columns the headers wrapped to one
   character per line. `scores-table.tsx` overrides it with `w-max min-w-full`.
+
+  **Phase 2 also had to revisit this twice more (`wt-ksh.3.15` / `wt-ksh.3.16`),
+  and both times the earlier fix's own reasoning was the trap:**
+
+  - `overflow-x-auto` on the wrapper forces its *computed* `overflow-y` from
+    `visible` to `auto` — CSS refuses to pair a non-visible axis with a
+    visible one. The `wt-ksh.3.13` comment argued that was inert because
+    nothing constrains the wrapper's height, which is true for layout but not
+    for touch: a real mobile drag inside the table still scrolled the table,
+    not the page, because a computed `overflow-y: auto` is still a touch
+    scroll target regardless of whether it ever has anything to scroll.
+    Fixed by setting `overflow-y-hidden` explicitly instead of leaving the
+    coercion to land wherever it lands. Verified with an actual CDP-dispatched
+    touch drag against a touch-emulating context, not by reading the computed
+    style — that computed value is exactly what misled the first fix.
+  - The table was still Tailwind preflight's default `border-collapse`, and
+    `position: sticky` on a `<td>`/`<th>` under `border-collapse: collapse` is
+    long-broken across browsers: a collapsed border belongs to the table's
+    grid rather than to the cell, so a sticky cell repaints outside the
+    normal flow and its border escapes the collapsed model. That produced
+    both the pinned Player/Score columns drifting into place after a
+    horizontal scroll gesture ended (rather than staying put throughout it)
+    and a row border doubled on top of the collapsed grid line. Fixed by
+    switching the table to `border-separate border-spacing-0`, which also
+    means every border that used to live on `<tr>`/`<thead>`/`<tbody>` had to
+    move onto the actual cells (`TableHead`/`TableCell`) — a border on a row
+    or section element is simply never painted once the table stops being
+    `border-collapse`, so it would otherwise vanish silently rather than
+    error. The pinned cells also picked up an explicit `z-10` in
+    `scores-table.tsx`, since a sticky cell with `z-index: auto` has no
+    guaranteed paint order over the scrolling cells beside it.
+
+    Verified by sampling the pinned columns' bounding boxes on every
+    `touchmove` step of a real CDP touch drag (not just before/after — "lands
+    in the right place eventually" was the bug), and by decoding screenshot
+    pixels through an in-page `<canvas>` to compare the row-boundary line's
+    device-pixel thickness against the frame's own outer border at DPR 1/2/3
+    in both themes, rather than trusting computed border widths — the same
+    lesson wt-ksh.3.12 already put in this document once.
   `vite build`, `tsc --noEmit` and all 115 tests were green with that bug
   present; it was caught only by looking at a screenshot, which is the same
   lesson as §5.

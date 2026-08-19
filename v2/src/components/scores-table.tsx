@@ -69,8 +69,12 @@ export function ScoresTable({
       .filter((name, i, all) => all.indexOf(name) !== i),
   )
 
-  const pinnedLeft = 'sticky left-0 bg-background'
-  const pinnedRight = 'sticky right-0 bg-background'
+  // z-10: sticky cells have no z-index of their own, so nothing guarantees
+  // they paint above the scrolling day columns beneath them (wt-ksh.3.16).
+  // bg-background must stay opaque and paired with it — z-index alone
+  // reorders painting, it doesn't stop the day columns showing through.
+  const pinnedLeft = 'sticky left-0 z-10 bg-background'
+  const pinnedRight = 'sticky right-0 z-10 bg-background'
 
   return (
     <div className={className}>
