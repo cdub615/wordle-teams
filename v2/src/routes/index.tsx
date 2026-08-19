@@ -6,6 +6,7 @@ import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
+import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
@@ -57,41 +58,12 @@ function Dashboard() {
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
   }, [])
 
-  // Fill in whatever the URL did not specify, AFTER hydration.
-  //
-  // The current month has to come from the browser's local clock, and reading it
-  // during render would make the server (UTC) and the client (local) disagree on
-  // the last and first days of a month — the hydration-mismatch class that
-  // 45e3cd6 fixed in v1 and that wordle-teams-uc5 was. The URL is the source of
-  // truth; localStorage only supplies the default.
-  useEffect(() => {
-    if (!hydrated) return
-
-    // A teamParam that isn't one of the caller's teams is treated the same as
-    // a missing one — e.g. a bookmarked or shared URL for a team you've since
-    // left. Falling through unvalidated would hand that id straight to the
-    // pickers and, once Tasks 7/8 land, to real Convex calls.
-    const teamValid = teamParam !== undefined && teams.some((t) => t.id === teamParam)
-    if (teamValid && monthParam) return
-
-    const storedTeam = localStorage.getItem('selectedTeam')
-    const team =
-      (teamValid ? teamParam : undefined) ??
-      (storedTeam && teams.some((t) => t.id === storedTeam) ? storedTeam : teams[0]?.id)
-    const month = monthParam ?? monthOf(toPuzzleDay(new Date()))
-    if (!team) return
-
-    // Terminates: this redirect only fires once. It replaces the URL with a
-    // team that IS in `teams` (either the validated teamParam, a validated
-    // storedTeam, or teams[0]), so the render this triggers has teamValid
-    // true and monthParam set, and the guard above short-circuits on the very
-    // next run of this effect — no second navigate.
-    void navigate({ to: '/', search: { team, month }, replace: true })
-  }, [hydrated, teamParam, monthParam, teams, navigate])
-
-  useEffect(() => {
-    if (teamParam) localStorage.setItem('selectedTeam', teamParam)
-  }, [teamParam])
+  useDashboardSearchSync({
+    teamParam,
+    monthParam,
+    teams,
+    navigate: (search) => void navigate({ to: '/', search, replace: true }),
+  })
 
   if (teams.length === 0) {
     return (
