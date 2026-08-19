@@ -9,10 +9,11 @@ import { Button } from '#/components/ui/button.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { DatePicker } from '#/components/date-picker.tsx'
 import { BoardInput } from './board-input.tsx'
+import { pickDefaultDay } from './pick-default-day.ts'
 import { boardErrorMessage } from '#/lib/convex-error.ts'
 import { cn } from '#/lib/utils.ts'
 import { boardIsValid, toRows } from '../../../convex/lib/board.ts'
-import { daysOfMonth, isWeekendDay, monthOf, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 const EMPTY_ROWS = ['', '', '', '', '', '']
@@ -60,17 +61,15 @@ export function BoardEntryForm({
   // default day calls new Date(), and this component also renders on the server,
   // where "now" is UTC. Same reasoning as v1's team-boards.tsx.
   useEffect(() => {
-    const today = toPuzzleDay(new Date())
-    if (monthOf(today) === month) {
-      setDay(today)
-      return
-    }
-    // A past month: the first unplayed, playable day, falling back to its last day.
     const played = new Set(myScores.map((score) => score.puzzleDay))
-    const candidates = daysOfMonth(month).filter(
-      (d) => !played.has(d) && (data.team.playWeekends || !isWeekendDay(d)),
+    setDay(
+      pickDefaultDay({
+        month,
+        today: toPuzzleDay(new Date()),
+        playedDays: played,
+        playWeekends: data.team.playWeekends,
+      }),
     )
-    setDay(candidates[0] ?? daysOfMonth(month).at(-1))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month])
 
@@ -104,7 +103,10 @@ export function BoardEntryForm({
 
   const handleAnswerKeyDown: KeyboardEventHandler = (event: KeyboardEvent<HTMLDivElement>) => {
     const key = event.key
-    if (key === 'Tab') return
+    // See board-input.tsx's handleKeyDown: Ctrl/Cmd combos (paste, copy,
+    // select-all, ...) must not be swallowed as plain letters — Ctrl+V's
+    // keydown carries event.key === 'v' with no modifier check otherwise.
+    if (key === 'Tab' || event.ctrlKey || event.metaKey) return
     event.preventDefault()
     if (key === 'Backspace') {
       setAnswer((current) => current.slice(0, -1))
@@ -117,6 +119,11 @@ export function BoardEntryForm({
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault()
     if (!day) return
+    // The `disabled` attribute alone is not a re-entrancy guard — it only
+    // takes effect once React commits the re-render, and a fast double-tap
+    // can land both clicks inside that window and fire two concurrent
+    // upsertBoard mutations. This check is synchronous, before any `await`.
+    if (submitting) return
     setSubmitting(true)
 
     try {
@@ -172,6 +179,12 @@ export function BoardEntryForm({
             suppressContentEditableWarning
             tabIndex={2}
             onKeyDown={handleAnswerKeyDown}
+            // See board-input.tsx's comment: keydown alone misses paste, IME
+            // commits, and mobile swipe-typing/predictive-text/dictation,
+            // which insert via beforeinput with no keydown at all.
+            // beforeinput (unlike input) IS cancelable.
+            onBeforeInput={(event) => event.preventDefault()}
+            onPaste={(event) => event.preventDefault()}
             className="flex h-10 w-full rounded-md border border-input bg-background px-2 py-2 text-base uppercase caret-transparent ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 md:px-3"
           >
             {answer}
