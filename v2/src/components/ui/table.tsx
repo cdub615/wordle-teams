@@ -19,6 +19,14 @@ const Table = React.forwardRef<
     // reintroduce a second overflow wrapper around <Table>; if a future
     // caller needs vertical scrolling too, add it explicitly via
     // wrapperProps.className rather than restoring `overflow-auto` here.
+    //
+    // CAVEAT, and it is an assumption rather than a guarantee: CSS refuses to
+    // pair a non-visible overflow-x with a visible overflow-y, so this div's
+    // COMPUTED overflow-y is `auto`, not `visible`. That is inert only while
+    // no ancestor constrains its height — true of every call site today. Put a
+    // Table inside a Sheet, a modal, or anything with max-h-*/overflow-y-auto
+    // and it will quietly start scrolling vertically again, which is the exact
+    // behaviour wt-ksh.3.13 removed. Check that before nesting one.
     wrapperProps?: React.HTMLAttributes<HTMLDivElement>
   }
 >(({ className, wrapperProps, ...props }, ref) => (
