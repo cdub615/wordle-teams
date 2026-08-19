@@ -4,7 +4,7 @@ import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { getMyTeamsFor } from './teams.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
-import { createTeamFor, deleteTeamFor, updateTeamFor } from './teams.ts'
+import { createTeamFor, deleteTeamFor, removeMemberFor, updateTeamFor } from './teams.ts'
 
 const modules = import.meta.glob('./**/*.ts')
 const today = toPuzzleDay(new Date())
@@ -410,6 +410,118 @@ describe('deleteTeamFor', () => {
 
       const remaining = await ctx.db.query('monthlyWinners').collect()
       expect(remaining.map((row) => row.teamId)).toEqual([kept])
+    })
+  })
+})
+
+describe('removeMemberFor', () => {
+  test('removes the member from playerIds', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+
+      await removeMemberFor(ctx, ada, { teamId, playerId: bob, today })
+
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([ada])
+    })
+  })
+
+  test('recomputes EVERY month the team has a winner row for', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      // Bob won both June and July outright.
+      for (const puzzleDay of ['2026-06-08', '2026-07-08']) {
+        await ctx.db.insert('dailyScores', {
+          playerId: bob,
+          puzzleDay,
+          date: 1_755_500_000_000,
+          answer: 'SPEED',
+          guesses: ['SPEED'],
+        })
+      }
+      for (const [year, month] of [
+        [2026, 6],
+        [2026, 7],
+      ] as const) {
+        await ctx.db.insert('monthlyWinners', {
+          playerId: bob,
+          teamId,
+          year,
+          month,
+          hasSeenCelebration: [bob],
+        })
+      }
+
+      await removeMemberFor(ctx, ada, { teamId, playerId: bob, today })
+
+      // Ada has no scores at all, so a fresh compute gives her a total of 0 for
+      // both months — but winnerOf (see its doc comment in lib/scoring.ts)
+      // returns null only when the CANDIDATE LIST is empty, not when every
+      // candidate scored zero. With Bob gone she is the only remaining
+      // eligible member, so she wins both months outright. That is what this
+      // test actually proves recomputed: if only June had been recomputed and
+      // not July, July would still show Bob.
+      const rows = await ctx.db.query('monthlyWinners').collect()
+      expect(rows.map((row) => ({ month: row.month, playerId: row.playerId }))).toEqual([
+        { month: 6, playerId: ada },
+        { month: 7, playerId: ada },
+      ])
+      // The winner changed on both rows, so the celebration flag resets —
+      // proof this is a genuine recompute, not the old rows left untouched.
+      expect(rows.every((row) => row.hasSeenCelebration.length === 0)).toBe(true)
+    })
+  })
+
+  test('refuses to remove the creator', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+
+      await expect(
+        removeMemberFor(ctx, ada, { teamId, playerId: ada, today }),
+      ).rejects.toMatchObject({ data: { code: 'CREATOR_NOT_REMOVABLE' } })
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([ada, bob])
+    })
+  })
+
+  test('refuses a member who is not the creator', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const carol = await ctx.db.insert('players', aPlayer({ email: 'carol@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob, carol], creator: ada }))
+
+      await expect(
+        removeMemberFor(ctx, bob, { teamId, playerId: carol, today }),
+      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
+    })
+  })
+
+  test('leaves the removed player’s boards intact', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const scoreId = await ctx.db.insert('dailyScores', {
+        playerId: bob,
+        puzzleDay: '2026-06-08',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      await removeMemberFor(ctx, ada, { teamId, playerId: bob, today })
+
+      expect(await ctx.db.get(scoreId)).not.toBeNull()
     })
   })
 })

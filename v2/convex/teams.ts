@@ -251,3 +251,42 @@ export const deleteTeam = mutation({
     await deleteTeamFor(ctx, player._id, teamId)
   },
 })
+
+/**
+ * Take a member off a team.
+ *
+ * RECOMPUTES EVERY MONTH WITH A WINNER ROW. This is divergence 5 in
+ * V2-ADDENDUM 7a: v1's update_monthly_winners is a trigger on daily_scores, and
+ * removing a player touches `teams`, so it never fires — a removed player stays
+ * named as the winner of months they are no longer in, and production is
+ * carrying stale rows today.
+ *
+ * The creator cannot be removed, matching v1's UI, which hides the remove
+ * button on your own row. Since only the creator can reach this at all, that
+ * makes "remove yourself" unreachable rather than merely hidden — v1 has no
+ * leave-team affordance and neither does this.
+ */
+export async function removeMemberFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  args: { teamId: Id<'teams'>; playerId: Id<'players'>; today: PuzzleDay },
+): Promise<void> {
+  const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
+  const today = requirePlausibleToday(args.today)
+  if (args.playerId === team.creator) throw accessError('CREATOR_NOT_REMOVABLE')
+
+  await ctx.db.patch(team._id, {
+    playerIds: team.playerIds.filter((memberId) => memberId !== args.playerId),
+  })
+
+  const updated = (await ctx.db.get(team._id))!
+  await recomputeTeamMonths(ctx, updated, await monthsWithWinners(ctx, team._id), today)
+}
+
+export const removeMember = mutation({
+  args: { teamId: v.id('teams'), playerId: v.id('players'), today: v.string() },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    await removeMemberFor(ctx, player._id, args)
+  },
+})
