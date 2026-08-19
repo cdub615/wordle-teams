@@ -4,9 +4,18 @@ import { cn } from "#/lib/utils.ts"
 
 const Table = React.forwardRef<
   HTMLTableElement,
-  React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
+  React.HTMLAttributes<HTMLTableElement> & {
+    // This div, not any wrapper a caller adds around <Table>, is what
+    // actually scrolls: it's the innermost `overflow-auto` ancestor of
+    // <table>. A caller that needs the scroll region to be a keyboard focus
+    // target (e.g. tabIndex, aria-label) has to reach it through here.
+    wrapperProps?: React.HTMLAttributes<HTMLDivElement>
+  }
+>(({ className, wrapperProps, ...props }, ref) => (
+  <div
+    {...wrapperProps}
+    className={cn("relative w-full overflow-auto", wrapperProps?.className)}
+  >
     <table
       ref={ref}
       className={cn("w-full caption-bottom text-sm", className)}
