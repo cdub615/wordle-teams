@@ -97,6 +97,16 @@ export type PlayerTotal = { playerId: string; total: number }
 /**
  * The month's winner, or null when there is nobody to win.
  *
+ * "Nobody to win" means an EMPTY CANDIDATE LIST, and only that. A non-empty
+ * list where every total is 0 — or negative — still produces a winner: the
+ * first player at the maximum, whatever that maximum is. This is not an
+ * incidental quirk of the loop below; it matches v1's
+ * `thisMonthsCurrentWinner` (src/lib/types.ts), which seeds its running max at
+ * `-Infinity` and its running winner at `''` before walking the same map, so
+ * any real score — including 0 — beats the seed and claims the win. Callers
+ * that need "did anyone actually play" have to check that separately; this
+ * function does not encode it.
+ *
  * Strict `>` while walking the list in order, so THE FIRST PLAYER AT THE MAXIMUM
  * WINS A TIE. That is v1's behaviour and callers rely on it being stable.
  *

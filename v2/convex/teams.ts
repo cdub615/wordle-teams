@@ -275,6 +275,16 @@ export async function removeMemberFor(
   const today = requirePlausibleToday(args.today)
   if (args.playerId === team.creator) throw accessError('CREATOR_NOT_REMOVABLE')
 
+  // Idempotent no-op, not an error: the postcondition ("that player is not on
+  // this team") already holds. A throw here would surface a confusing error
+  // toast for an action that already achieved its goal — the realistic trigger
+  // is two tabs, or a double-click racing the reactive update that removes the
+  // member's row from the UI. Returning early also skips the recompute and the
+  // team write, which matters because ANY team write invalidates getMyTeams for
+  // EVERY connected client (see this file's module comment) — paying that
+  // broadcast for a change that never happened would be pure waste.
+  if (!team.playerIds.includes(args.playerId)) return
+
   await ctx.db.patch(team._id, {
     playerIds: team.playerIds.filter((memberId) => memberId !== args.playerId),
   })

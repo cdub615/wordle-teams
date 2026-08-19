@@ -149,4 +149,12 @@ describe('winnerOf', () => {
   test('returns null when there is nobody to win', () => {
     expect(winnerOf([])).toBeNull()
   })
+
+  test('a non-empty list where everyone totals 0 still has a winner', () => {
+    // Null means an EMPTY candidate list, not "everyone scored zero" — see the
+    // doc comment above. This is what removeMemberFor's recompute test in
+    // teams.test.ts relies on: the sole remaining member wins at 0 rather than
+    // the row being deleted.
+    expect(winnerOf([{ playerId: 'a', total: 0 }, { playerId: 'b', total: 0 }])).toBe('a')
+  })
 })

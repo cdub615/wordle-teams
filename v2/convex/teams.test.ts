@@ -505,6 +505,44 @@ describe('removeMemberFor', () => {
     })
   })
 
+  test('no-ops when the target player is not on the team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const carol = await ctx.db.insert('players', aPlayer({ email: 'carol@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      // Deliberately stale — a fresh recompute would change this, since ada
+      // has no scores and bob does. Left alone, it proves the recompute was
+      // skipped rather than having run and coincidentally landed on the same
+      // value.
+      await ctx.db.insert('dailyScores', {
+        playerId: bob,
+        puzzleDay: '2026-06-08',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 6,
+        hasSeenCelebration: [],
+      })
+
+      // carol is not on this team.
+      await removeMemberFor(ctx, ada, { teamId, playerId: carol, today })
+
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([ada, bob])
+      const row = await ctx.db
+        .query('monthlyWinners')
+        .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId).eq('year', 2026).eq('month', 6))
+        .first()
+      expect(row?.playerId).toBe(ada)
+    })
+  })
+
   test('leaves the removed player’s boards intact', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
