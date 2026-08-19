@@ -57,9 +57,61 @@ export function ScoresTable({
   // useLayoutEffect, not useEffect: it runs before the browser paints the
   // post-hydration commit, so the jump from the SSR-rendered natural position
   // to the centred one happens in one paint rather than flashing the natural
-  // position first.
+  // position first. This does mean React logs "useLayoutEffect does nothing
+  // on the server" in dev when this component renders during SSR (only
+  // reachable via a URL that already carries ?team=&month=, e.g. a bookmark
+  // or shared link) — dev-console noise only, not a runtime issue, and worth
+  // keeping over trading away the single-paint jump.
   const scrollWrapperRef = useRef<HTMLDivElement>(null)
+  // The (team, month) key this effect last EVALUATED, updated on every run
+  // regardless of whether it actually centred — not just the key it last
+  // centred. This is what makes "leftover scrollLeft" distinguishable from
+  // "the user scrolled here": scrollLeft lives on the wrapper DOM node, which
+  // persists across re-renders, so it survives a month change untouched. Only
+  // trust a nonzero scrollLeft as user intent when this effect is running for
+  // the SAME key it evaluated last time — i.e. nothing else was rendered into
+  // this wrapper in between. The moment the key changes (a real navigation:
+  // team switch, or month switch, even to a month this effect returned early
+  // on) any scrollLeft still sitting on the wrapper belongs to whatever was
+  // last shown there, not to this landing, and must not block centring.
+  const lastEvaluatedKeyRef = useRef<string | null>(null)
   useLayoutEffect(() => {
+    const key = `${teamId}:${month}`
+    const previousKey = lastEvaluatedKeyRef.current
+    lastEvaluatedKeyRef.current = key
+
+    const wrapper = scrollWrapperRef.current
+    // `data-scroll-restoration-id`, set unconditionally (before any of the
+    // early returns below) and keyed the same as the ref above: TanStack
+    // Router's own `scrollRestoration: true` (router.tsx) is a SECOND,
+    // independent thing that tries to manage this exact element's
+    // scrollLeft, and it will undo everything above if left alone. Measured
+    // directly (not assumed): on every client-side navigation — the
+    // MonthPicker/TeamPicker case, not a full page load — the router's
+    // `onRendered` handler fires ~100-200ms after this effect runs and
+    // force-sets `wrapper.scrollLeft` from ITS OWN sessionStorage cache,
+    // keyed by a structural DOM-path selector of this element (see
+    // `@tanstack/router-core`'s scroll-restoration.ts:
+    // `getScrollRestorationSelector`). Because this wrapper is the SAME DOM
+    // node across a month/team switch (confirmed: an attribute stamped on it
+    // survives the navigation), the router's selector resolves to the same
+    // element on every landing, and it explicitly CARRIES FORWARD the
+    // previous location's cached scroll entry for that selector into the
+    // new location's cache when the new location doesn't have its own entry
+    // yet (`toElementEntries[selector] ??= fromElementEntries[selector]`) —
+    // so it reliably overwrites whatever this effect just computed with
+    // whatever scrollLeft this element had on the PREVIOUS (team, month), a
+    // few hundred ms later, regardless of this component's own logic.
+    // `data-scroll-restoration-id` is the router's own documented escape
+    // hatch: `getScrollRestorationSelector` uses it verbatim as the element's
+    // identity instead of computing a structural path, so giving it a value
+    // that changes with (teamId, month) makes the element look like a
+    // DIFFERENT scroll target on every landing. The router's cache lookup
+    // then misses (no entry under the new id) and its `document.querySelector`
+    // for the stale id no longer matches this element, so it has nothing to
+    // restore and leaves `scrollLeft` alone.
+    if (wrapper) wrapper.dataset.scrollRestorationId = `scores-table-${key}`
+
     // "Today" comes from the browser clock — only meaningful after hydration
     // (see the `today` comment above; reading it during the SSR-matching
     // render is the hydration-mismatch class this phase has already hit).
@@ -68,15 +120,17 @@ export function ScoresTable({
     const todayNow = toPuzzleDay(new Date())
     // Only when the viewed month actually contains today. A past (or future)
     // month has no current-day column — leave it at its natural position.
+    // (The key above was still updated, so a later return TO this month sees
+    // that something else was viewed in between.)
     if (monthOf(todayNow) !== month) return
 
-    const wrapper = scrollWrapperRef.current
     if (!wrapper) return
-    // Don't fight the user: a nonzero scrollLeft means something (the user,
-    // most likely, since native overflow-x scrolling needs no JS handlers and
-    // can happen before hydration finishes) already moved the view away from
-    // its natural starting position.
-    if (wrapper.scrollLeft !== 0) return
+    // Don't fight the user: a nonzero scrollLeft on a landing we've already
+    // evaluated means the user (most likely — native overflow-x scrolling
+    // needs no JS handlers and can happen before hydration finishes) moved
+    // the view away from where we put it. Only respected when `key` matches
+    // what this effect last evaluated; see the ref comment above.
+    if (previousKey === key && wrapper.scrollLeft !== 0) return
 
     const cell = wrapper.querySelector<HTMLElement>(`[data-day="${todayNow}"]`)
     if (!cell) return
