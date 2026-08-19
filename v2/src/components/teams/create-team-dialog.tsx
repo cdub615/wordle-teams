@@ -73,7 +73,16 @@ export function CreateTeamDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/*
+        shadcn's default DialogContent is `w-full max-w-lg`, which is
+        edge-to-edge with square corners below the `sm` (640px) breakpoint —
+        `sm:rounded-lg` never applies. v1 explicitly overrides this on both
+        its team dialogs (create-team.tsx, update-team.tsx) with
+        `w-11/12 rounded-lg`, so the dialog is inset with visible side
+        margins and rounded corners even on a phone. This is parity with
+        that shape, not a v2 stylistic choice.
+      */}
+      <DialogContent className="w-11/12 rounded-lg">
         <DialogHeader>
           <DialogTitle>Create Team</DialogTitle>
           <DialogDescription>
