@@ -34,6 +34,8 @@ pnpm e2e           # NOT part of the other three — run it yourself
 
 **Do not commit while a subagent is running.** A subagent's `--amend` swallows any commit that lands mid-flight.
 
+**Never run `convex deploy` during a task.** `beta` is the deployment that *becomes production* at cutover (parent design, "Repo Layout & Environments"), so `convex deploy` writes the schema and functions real users will land on. Schema changes are pushed to your personal **dev** deployment with `pnpm exec convex dev --once`, which is what every task in this plan does. The single deploy to beta is Task 14 Step 4, and it is an **owner action** — not a subagent's, and not without the owner authorizing it in that session.
+
 **Existing test fixtures.** `v2/convex/scores.test.ts` exports `aPlayer()` and `aTeam()`. Import them rather than redefining. Note `aTeam()` currently sets `legacyId: 206`; Task 0 makes that field optional but does not remove it from the fixture.
 
 ---
@@ -139,10 +141,10 @@ cd v2 && pnpm test:once schema.test.ts
 
 Expected: PASS, both tests.
 
-- [ ] **Step 5: Deploy the schema and confirm Convex accepts it**
+- [ ] **Step 5: Push the schema to your DEV deployment**
 
 ```bash
-cd v2 && pnpm exec convex deploy --yes
+cd v2 && pnpm exec convex dev --once
 ```
 
 Expected: succeeds. Widening a required field to optional is a permissive change and needs no data migration.
@@ -152,7 +154,7 @@ Expected: succeeds. Widening a required field to optional is a permissive change
 ```bash
 cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build
 cd .. && git add v2/convex/schema.ts v2/convex/schema.test.ts
-git commit -m "feat(v2): teams.legacyId is optional so a native team can be created (wt-ksh.4.2)"
+git commit -m "feat(v2): teams.legacyId is optional so a native team can be created (wt-ksh.4.17)"
 ```
 
 ---
@@ -1134,10 +1136,10 @@ In `v2/convex/schema.ts`, insert after the `teams` table definition and before `
   }).index('by_team_and_effectiveFrom', ['teamId', 'effectiveFrom']),
 ```
 
-- [ ] **Step 6: Deploy the schema**
+- [ ] **Step 6: Push the schema to your DEV deployment**
 
 ```bash
-cd v2 && pnpm exec convex deploy --yes
+cd v2 && pnpm exec convex dev --once
 ```
 
 Expected: succeeds.
@@ -1411,7 +1413,7 @@ Expected: all PASS.
 
 ```bash
 cd .. && git add v2/convex/access.ts v2/convex/access.test.ts v2/src/lib/convex-error.ts
-git commit -m "feat(v2): creator-only access helper, pro read, and three typed error codes (wt-ksh.4.6)"
+git commit -m "feat(v2): creator-only access helper, pro read, and three typed error codes (wt-ksh.4.21)"
 ```
 
 ---
@@ -1664,10 +1666,10 @@ to:
 
 `TeamPicker` still takes `{ id, name }` and the widened objects satisfy that structurally, so it needs no change yet — Task 9 rewrites it.
 
-- [ ] **Step 6: Deploy, run everything including e2e**
+- [ ] **Step 6: Push to dev, run everything including e2e**
 
 ```bash
-cd v2 && pnpm exec convex deploy --yes
+cd v2 && pnpm exec convex dev --once
 pnpm test:once && pnpm exec tsc --noEmit && pnpm build && pnpm e2e
 ```
 
@@ -1677,7 +1679,7 @@ Expected: all PASS. `pnpm e2e` because the dashboard route's loader changed.
 
 ```bash
 cd .. && git add v2/convex/teams.ts v2/convex/teams.test.ts v2/convex/scores.ts v2/src/routes/index.tsx
-git commit -m "feat(v2): convex/teams.ts — one widened getMyTeams carrying members and settings (wt-ksh.4.7)"
+git commit -m "feat(v2): convex/teams.ts — one widened getMyTeams carrying members and settings (wt-ksh.4.22)"
 ```
 
 ---
@@ -2116,10 +2118,10 @@ cd v2 && pnpm test:once teams.test.ts
 
 Expected: PASS, all of them.
 
-- [ ] **Step 5: Deploy and run the gates**
+- [ ] **Step 5: Push to dev and run the gates**
 
 ```bash
-cd v2 && pnpm exec convex deploy --yes
+cd v2 && pnpm exec convex dev --once
 pnpm test:once && pnpm exec tsc --noEmit && pnpm build
 ```
 
@@ -2129,7 +2131,7 @@ Expected: all PASS.
 
 ```bash
 cd .. && git add v2/convex/teams.ts v2/convex/teams.test.ts
-git commit -m "feat(v2): createTeam, updateTeam and deleteTeam with a hand-written cascade (wt-ksh.4.8)"
+git commit -m "feat(v2): createTeam, updateTeam and deleteTeam with a hand-written cascade (wt-ksh.4.23)"
 ```
 
 ---
@@ -2309,10 +2311,10 @@ cd v2 && pnpm test:once teams.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Deploy and run the gates**
+- [ ] **Step 5: Push to dev and run the gates**
 
 ```bash
-cd v2 && pnpm exec convex deploy --yes
+cd v2 && pnpm exec convex dev --once
 pnpm test:once && pnpm exec tsc --noEmit && pnpm build
 ```
 
@@ -2322,7 +2324,7 @@ Expected: all PASS.
 
 ```bash
 cd .. && git add v2/convex/teams.ts v2/convex/teams.test.ts
-git commit -m "feat(v2): removeMember recomputes every affected month's winner (wt-ksh.4.9)"
+git commit -m "feat(v2): removeMember recomputes every affected month's winner (wt-ksh.4.24)"
 ```
 
 ---
@@ -2738,7 +2740,7 @@ Expected: PASS, everything. The `scores.test.ts` test asserting `result.team.sys
 - [ ] **Step 7: Deploy and run the gates**
 
 ```bash
-cd v2 && pnpm exec convex deploy --yes
+cd v2 && pnpm exec convex dev --once
 pnpm test:once && pnpm exec tsc --noEmit && pnpm build
 ```
 
@@ -3072,7 +3074,7 @@ Open the dropdown and capture it. Confirm: the trigger truncates a long name at 
 ```bash
 cd .. && git add v2/src/components/team-picker.tsx v2/src/components/teams/create-team-dialog.tsx \
   v2/src/lib/convex-error.ts v2/src/routes/index.tsx
-git commit -m "feat(v2): team dropdown with create-team, and the free-tier upgrade swap (wt-ksh.4.11)"
+git commit -m "feat(v2): team dropdown with create-team, and the free-tier upgrade swap (wt-ksh.4.26)"
 ```
 
 ---
@@ -3399,7 +3401,7 @@ Confirm: the Separator between members is **visible** (a zero-height separator i
 ```bash
 cd .. && git add v2/src/components/teams/current-team-card.tsx \
   v2/src/components/teams/update-team-dialog.tsx v2/src/routes/index.tsx
-git commit -m "feat(v2): CurrentTeam card, creator-only member removal, team settings dialog (wt-ksh.4.12)"
+git commit -m "feat(v2): CurrentTeam card, creator-only member removal, team settings dialog (wt-ksh.4.27)"
 ```
 
 ---
@@ -3563,7 +3565,7 @@ Confirm: long team names truncate rather than pushing the member list off-screen
 
 ```bash
 cd .. && git add v2/src/components/teams/my-teams-card.tsx v2/src/routes/index.tsx
-git commit -m "feat(v2): MyTeams card with creator-only team deletion (wt-ksh.4.13)"
+git commit -m "feat(v2): MyTeams card with creator-only team deletion (wt-ksh.4.28)"
 ```
 
 ---
@@ -4028,7 +4030,7 @@ Sign in as an account on no teams (or temporarily remove yourself from all of th
 
 ```bash
 cd .. && git add v2/src/components/teams/empty-state.tsx v2/src/routes/index.tsx
-git commit -m "feat(v2): focused create-team empty state, replacing the Phase 2 placeholder (wt-ksh.4.15)"
+git commit -m "feat(v2): focused create-team empty state, replacing the Phase 2 placeholder (wt-ksh.4.30)"
 ```
 
 ---
@@ -4101,10 +4103,18 @@ Add below the table, alongside the existing "not divergences" notes:
   of the scoped copy, not of the permission rule.
 ```
 
-- [ ] **Step 4: Deploy to beta**
+- [ ] **Step 4: Deploy to beta — OWNER ACTION, NOT A SUBAGENT'S**
+
+**STOP. Do not run this as a subagent, and do not run it without the owner
+saying so in this session.** `beta` is the deployment that *becomes production*
+at cutover (parent design, "Repo Layout & Environments"), so a `convex deploy`
+here writes the schema and functions that real users will land on. Every other
+schema push in this plan goes to your personal **dev** deployment via
+`convex dev --once`; this is the only step that leaves it, and it is the owner's
+call, made once, deliberately.
 
 ```bash
-cd v2 && pnpm exec convex deploy --yes && pnpm run deploy
+cd v2 && pnpm exec convex deploy && pnpm run deploy
 ```
 
 Expected: both succeed. Confirm the beta URL loads and you are signed in.
@@ -4137,7 +4147,7 @@ This proves the subscription pushes to other connected clients, which the Phase 
 
 ```bash
 cd .. && git add v2/e2e/teams.spec.ts docs/design-system/V2-ADDENDUM.md
-git commit -m "test(v2): team-creation e2e, and record divergences 4 and 5 (wt-ksh.4.16)"
+git commit -m "test(v2): team-creation e2e, and record divergences 4 and 5 (wt-ksh.4.31)"
 
 bd close wt-ksh.4.1 wordle-teams-4gj wordle-teams-lb9 wordle-teams-1j3
 bd close wt-ksh.4
@@ -4155,5 +4165,19 @@ git pull --rebase && bd dolt push && git push && git status
 1. **Task 8.** It touches the read path and the write path in one commit, and getting only half of it right produces a system that looks correct until someone views a past month. The end-to-end test in Step 1 — invert the scoring system, assert last month's winner is unchanged — is the one that actually proves the feature. Do not let it be weakened into a shallower assertion.
 2. **Task 11's delete-the-selected-team path.** No automated test covers it, and the failure mode is the route error boundary rather than a toast, because `?team=` still points at a deleted id. Step 5 exercises it by hand for that reason.
 3. **Every UI task.** `vite build`, `tsc --noEmit` and the full suite were all green in Phase 2 while ~80 component selectors were dead, and again while the pinned columns drifted under a real touch drag. Tailwind emits nothing for a selector that cannot match, and no part of the toolchain looks at a rendered pixel. **Screenshot, in both themes, on a touch-emulating viewport, before calling any UI task done.**
+
+**Plan task number → Beads issue.** The commit messages already carry these; this
+is the lookup if you need `bd show`.
+
+| Plan task | Beads | Plan task | Beads |
+|---|---|---|---|
+| Task 0 | `wt-ksh.4.17` | Task 8 | `wt-ksh.4.25` |
+| Task 1 | `wt-ksh.4.18` | Task 9 | `wt-ksh.4.26` |
+| Task 2 | `wt-ksh.4.19` | Task 10 | `wt-ksh.4.27` |
+| Task 3 | `wt-ksh.4.20` | Task 11 | `wt-ksh.4.28` |
+| Task 4 | `wt-ksh.4.21` | Task 12 | `wt-ksh.4.29` |
+| Task 5 | `wt-ksh.4.22` | Task 13 | `wt-ksh.4.30` |
+| Task 6 | `wt-ksh.4.23` | Task 14 | `wt-ksh.4.31` |
+| Task 7 | `wt-ksh.4.24` | | |
 
 **If `pnpm e2e` fails on a task that did not touch routes,** it is more likely a stale dev server on port 3001 than a regression — `lsof -ti :3000` and kill strays first.
