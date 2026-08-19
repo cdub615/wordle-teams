@@ -2813,7 +2813,7 @@ export function mutationErrorMessage(error: unknown, fallback: string): string {
 Create `v2/src/components/teams/create-team-dialog.tsx`:
 
 ```tsx
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useConvexMutation } from '@convex-dev/react-query'
@@ -2852,10 +2852,27 @@ export function CreateTeamDialog({
   onCreated: (teamId: string) => void
 }) {
   const create = useMutation({ mutationFn: useConvexMutation(api.teams.createTeam) })
+  // Both switches default on, as v1's create-team.tsx does.
   const [name, setName] = useState('')
   const [playWeekends, setPlayWeekends] = useState(true)
   const [showLetters, setShowLetters] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+
+  // RESET ON OPEN, not on close. This component is mounted unconditionally —
+  // only Radix's Dialog.Content toggles — so its state survives every close,
+  // and a cancelled draft would come back on the next open looking like a
+  // default. v1 didn't have this because its form was uncontrolled and its
+  // content unmounted.
+  //
+  // On OPEN specifically, because a failed submit must keep what was typed
+  // (the a335ae8 behaviour above) and a failed submit leaves `open` true, so
+  // this never fires on that path.
+  useEffect(() => {
+    if (!open) return
+    setName('')
+    setPlayWeekends(true)
+    setShowLetters(true)
+  }, [open])
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault()
@@ -2863,9 +2880,6 @@ export function CreateTeamDialog({
     try {
       const teamId = await create.mutateAsync({ name, playWeekends, showLetters })
       toast.success('Successfully created team')
-      setName('')
-      setPlayWeekends(true)
-      setShowLetters(true)
       onOpenChange(false)
       onCreated(teamId)
     } catch (error) {
@@ -2978,6 +2992,11 @@ export function TeamPicker({
 
   const selected = teams.find((team) => team.id === value)
   const name = selected?.name ?? 'No team selected'
+  // `label` is truncated for layout; `name` is what the trigger ANNOUNCES.
+  // A static aria-label ("Team") would override the button's text entirely, so
+  // a screen reader would say "Team, button" and never which team is selected —
+  // worse than v1, which has no aria-label here and so announces the visible
+  // name. The truncation is a visual affordance; don't inflict it on a reader.
   const label = name.length > 15 ? `${name.slice(0, 15)}...` : name
   const atFreeLimit = !isPro && teams.length >= FREE_TEAM_LIMIT
 
@@ -2986,7 +3005,7 @@ export function TeamPicker({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          aria-label="Team"
+          aria-label={`Team: ${name}`}
           className="max-w-[9.5rem] px-2 text-xs md:max-w-none md:px-4 md:text-sm"
         >
           {label}
@@ -3047,9 +3066,7 @@ Replace the `<TeamPicker .../>` element with:
           isPro={isPro}
           onChange={(team) => navigate({ to: '/', search: { team, month: monthParam } })}
           onCreate={() => setCreateOpen(true)}
-          // Checkout is Phase 5. Until then, say so rather than doing nothing:
-          // a dead menu item is indistinguishable from a broken one.
-          onUpgrade={() => toast.info('Upgrading arrives with payments, in a later phase.')}
+          onUpgrade={() => toast.info('More teams need a paid plan. Coming soon.')}
         />
 ```
 
@@ -3283,13 +3300,19 @@ export function UpdateTeamDialog({
   const [showLetters, setShowLetters] = useState(team.showLetters)
   const [submitting, setSubmitting] = useState(false)
 
-  // Re-seed when the selected team changes underneath an open dialog, and when
-  // a live update changes the team's settings from another browser.
+  // Re-seed on OPEN, when the selected team changes underneath an open dialog,
+  // and when a live update changes the settings from another browser.
+  //
+  // `open` is in the deps for the same reason CreateTeamDialog resets on open:
+  // this component is mounted unconditionally — only Radix's Dialog.Content
+  // toggles — so a cancelled edit would otherwise survive and come back on the
+  // next open looking like the team's real settings. Without `open`, none of
+  // the other deps change on a cancel-then-reopen, so nothing would re-seed.
   useEffect(() => {
     setName(team.name)
     setPlayWeekends(team.playWeekends)
     setShowLetters(team.showLetters)
-  }, [team.id, team.name, team.playWeekends, team.showLetters])
+  }, [open, team.id, team.name, team.playWeekends, team.showLetters])
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault()
@@ -3390,11 +3413,13 @@ Then render both below the scores table:
 ```tsx
       {selectedTeam && (
         <>
+          {/* `members` is filtered at the CALL SITE: the creator cannot be
+              removed — removeMember refuses it server-side — so the control is
+              not offered against their own row, as in v1. The card itself needs
+              no knowledge of who the creator is. */}
           <CurrentTeamCard
             teamId={selectedTeam.id}
             name={selectedTeam.name}
-            // The creator cannot be removed — removeMember refuses it — so the
-            // control is not offered against their own row, as in v1.
             members={selectedTeam.members.filter(
               (member) => !selectedTeam.isCreator || member.id !== myPlayerId,
             )}
@@ -3561,11 +3586,12 @@ import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
 and render after the `CurrentTeamCard` fragment:
 
 ```tsx
+      {/* Deleting the team you were looking at leaves ?team= pointing at a gone
+          id. onDeleted clears both the param and the remembered team so the
+          sync hook picks the first remaining team instead of the error
+          boundary. */}
       <MyTeamsCard
         teams={teams}
-        // Deleting the team you were looking at leaves ?team= pointing at a
-        // gone id. Clear both the param and the remembered team so the sync
-        // hook picks the first remaining team instead of the error boundary.
         onDeleted={(deleted) => {
           if (deleted !== teamParam) return
           // STORAGE_KEY, imported from #/lib/dashboard-search.ts — NOT the raw
