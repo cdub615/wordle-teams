@@ -99,6 +99,12 @@ export type PlayerTotal = { playerId: string; total: number }
  *
  * Strict `>` while walking the list in order, so THE FIRST PLAYER AT THE MAXIMUM
  * WINS A TIE. That is v1's behaviour and callers rely on it being stable.
+ *
+ * Returns a plain string, not an Id<'players'>: importing the branded type
+ * would couple this module to the generated Convex data model and cost it the
+ * dependency-free property that lets the browser import it. Callers writing the
+ * result back to the database cast it, and that cast is deliberate rather than
+ * an oversight.
  */
 export function winnerOf(players: Array<PlayerTotal>): string | null {
   let best: PlayerTotal | null = null

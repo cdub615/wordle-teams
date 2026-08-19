@@ -24,6 +24,12 @@ export function normalizeGuesses(guesses: Array<string>): Array<string> {
  * upsertBoard appends a '' sentinel to a failed six-guess board, so COPIED ROWS
  * CAN HOLD SEVEN ENTRIES. Counting them raw would report 7 guesses on a board
  * that had 6.
+ *
+ * The `>=` mirrors v1's DailyScore.attempts exactly. It reads more defensive
+ * than it is: seven REAL guesses would be mis-scored, since the check reads
+ * played[5] rather than the actual last guess. That shape cannot occur through
+ * this app's own writes — boardIsValid and toRows both cap the board at six
+ * rows — so the condition is a faithful port rather than a guard.
  */
 export function attemptsFor(guesses: Array<string>, answer: string): number {
   const played = normalizeGuesses(guesses)
