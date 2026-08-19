@@ -23,8 +23,14 @@ export type ScoringSystemVersion = ScoringSystem & { effectiveFrom: PuzzleMonth 
 /**
  * v1's `defaultSystem` (src/lib/types.ts), value for value. What createTeam
  * writes onto a new team.
+ *
+ * `as const satisfies ScoringSystem`: still checked against the type, but
+ * frozen at the value level too, so `DEFAULT_SYSTEM.oneGuess = x` is a type
+ * error rather than a mutation that corrupts every team createTeam writes for
+ * the rest of the module's life. Callers spread it (`{...DEFAULT_SYSTEM}`)
+ * into whatever they need to mutate.
  */
-export const DEFAULT_SYSTEM: ScoringSystem = {
+export const DEFAULT_SYSTEM = {
   oneGuess: 5,
   twoGuesses: 3,
   threeGuesses: 2,
@@ -33,7 +39,7 @@ export const DEFAULT_SYSTEM: ScoringSystem = {
   sixGuesses: -1,
   failed: -3,
   nA: 0,
-}
+} as const satisfies ScoringSystem
 
 /**
  * The version that governed `month`: the one with the greatest `effectiveFrom`
@@ -45,6 +51,13 @@ export const DEFAULT_SYSTEM: ScoringSystem = {
  *
  * 'YYYY-MM' sorts lexicographically, so this is a string comparison. The input
  * is sorted defensively rather than trusting a caller's index order.
+ *
+ * Two versions can share an `effectiveFrom`: Convex has no unique
+ * constraints, and Task 8's setScoringSystem upserts by (teamId,
+ * effectiveFrom) with a read-then-write, so a race is reachable. On a tie,
+ * the later element of the INPUT ARRAY wins — see the comparator below and
+ * the "duplicate effectiveFrom" test, which pins this as a documented
+ * contract rather than an accident of engine behaviour.
  */
 export function systemFor(
   base: ScoringSystem,
@@ -72,6 +85,6 @@ function resolve(
 ): ScoringSystemVersion | undefined {
   return versions
     .filter((version) => version.effectiveFrom <= month)
-    .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1))
+    .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : a.effectiveFrom > b.effectiveFrom ? 1 : 0))
     .at(-1)
 }

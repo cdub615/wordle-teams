@@ -54,6 +54,19 @@ describe('systemFor', () => {
     const shuffled = [versions[1], versions[0]]
     expect(systemFor(base, shuffled, '2026-07').oneGuess).toBe(10)
   })
+
+  // Convex has no unique constraints, and Task 8's setScoringSystem upserts by
+  // (teamId, effectiveFrom) with a read-then-write, so two rows sharing an
+  // effectiveFrom are reachable under a race. Array.prototype.sort is stable,
+  // so on a tie the LATER element of the input array wins — this pins that as
+  // a documented contract a future refactor can't silently change.
+  test('on a duplicate effectiveFrom, the later element of the input array wins', () => {
+    const tied = [
+      { effectiveFrom: '2026-06', ...values(10) },
+      { effectiveFrom: '2026-06', ...values(30) },
+    ]
+    expect(systemFor(base, tied, '2026-06').oneGuess).toBe(30)
+  })
 })
 
 describe('effectiveFromOf', () => {
