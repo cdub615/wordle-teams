@@ -3529,7 +3529,14 @@ export function MyTeamsCard({
 
 - [ ] **Step 2: Wire it into the dashboard**
 
-In `v2/src/routes/index.tsx`, add the import and render after the `CurrentTeamCard` fragment:
+In `v2/src/routes/index.tsx`, add the imports — including `STORAGE_KEY`:
+
+```ts
+import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
+import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
+```
+
+and render after the `CurrentTeamCard` fragment:
 
 ```tsx
       <MyTeamsCard
@@ -3539,7 +3546,11 @@ In `v2/src/routes/index.tsx`, add the import and render after the `CurrentTeamCa
         // hook picks the first remaining team instead of the error boundary.
         onDeleted={(deleted) => {
           if (deleted !== teamParam) return
-          localStorage.removeItem('selectedTeam')
+          // STORAGE_KEY, imported from #/lib/dashboard-search.ts — NOT the raw
+          // string. Task 2 made that constant the single source of truth after a
+          // review found the literal copy-pasted across three sites; this would
+          // have been the fourth. A typo'd localStorage key fails silently.
+          localStorage.removeItem(STORAGE_KEY)
           void navigate({ to: '/', search: {}, replace: true })
         }}
       />
