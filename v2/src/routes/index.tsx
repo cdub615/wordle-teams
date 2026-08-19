@@ -11,6 +11,8 @@ import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
+import { CurrentTeamCard } from '#/components/teams/current-team-card.tsx'
+import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
 import { DashboardError } from '#/components/dashboard-error.tsx'
@@ -37,6 +39,7 @@ export const Route = createFileRoute('/')({
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(convexQuery(api.teams.getMyTeams, {}))
     await context.queryClient.ensureQueryData(convexQuery(api.teams.amIPro, {}))
+    await context.queryClient.ensureQueryData(convexQuery(api.scores.getMyPlayerId, {}))
   },
   errorComponent: DashboardError,
   component: Dashboard,
@@ -48,7 +51,9 @@ function Dashboard() {
   const hydrated = useHydrated()
   const { data: teams } = useSuspenseQuery(convexQuery(api.teams.getMyTeams, {}))
   const { data: isPro } = useSuspenseQuery(convexQuery(api.teams.amIPro, {}))
+  const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const [createOpen, setCreateOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Bottom of the login funnel (wt-ksh.12.7). Reaching here authenticated is the
   // only reliable "they made it" signal: the OAuth round-trip finishes as a fresh
@@ -96,6 +101,7 @@ function Dashboard() {
   // branch is unreachable until a client-only re-render, by which point nothing
   // is being compared against server output any more.
   const currentMonth = hydrated ? monthOf(toPuzzleDay(new Date())) : monthParam
+  const selectedTeam = teams.find((team) => team.id === teamParam)
 
   return (
     <main className="mb-12 grid gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
@@ -127,6 +133,24 @@ function Dashboard() {
         </div>
       </div>
       <ScoresTable teamId={teamParam as Id<'teams'>} month={monthParam} className="md:col-span-3" />
+      {selectedTeam && (
+        <>
+          {/* `members` is filtered at the CALL SITE: the creator cannot be
+              removed — removeMember refuses it server-side — so the control is
+              not offered against their own row, as in v1. The card itself needs
+              no knowledge of who the creator is. */}
+          <CurrentTeamCard
+            teamId={selectedTeam.id}
+            name={selectedTeam.name}
+            members={selectedTeam.members.filter(
+              (member) => !selectedTeam.isCreator || member.id !== myPlayerId,
+            )}
+            isCreator={selectedTeam.isCreator}
+            onEditSettings={() => setSettingsOpen(true)}
+          />
+          <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />
+        </>
+      )}
     </main>
   )
 }
