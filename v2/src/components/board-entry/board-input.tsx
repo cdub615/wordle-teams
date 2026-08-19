@@ -29,8 +29,16 @@ export function applyLetter(key: string, answer: string, guesses: Array<string>)
   // v1 stops here: once a row equals the answer the board is finished, and
   // typing past it would start a seventh guess.
   if (current === answer) return rows
+  // A full, six-row board (every row length 5): there is no row left with
+  // room for another letter, so `current` falls back to '', which no row
+  // actually contains. board-input.tsx never reaches this — it gates every
+  // letter key on `toRows(guesses)[5].length < 5` first — but this is an
+  // exported pure function and that guard is a caller's responsibility to
+  // replicate, not this one's to assume.
+  const index = rows.indexOf(current)
+  if (index === -1) return rows
   const next = [...rows]
-  next[rows.indexOf(current)] = current + key.toUpperCase()
+  next[index] = current + key.toUpperCase()
   return next
 }
 

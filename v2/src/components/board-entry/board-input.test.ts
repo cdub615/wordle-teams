@@ -20,17 +20,16 @@ describe('applyLetter', () => {
     expect(toRows(result)).toEqual(['CRANX', '', '', '', '', ''])
   })
 
-  test('typing into a finished (all six rows full) board is a no-op', () => {
-    // Read through toRows, exactly as the component does (BoardInput passes
-    // toRows(guesses) to WordleBoard): applyLetter's `rows.indexOf(current)`
-    // is -1 here (no row is '' — every row is full), which sets a stray
-    // non-index "-1" property on the returned array rather than throwing.
-    // That is invisible to every real consumer (toRows only ever reads
-    // indices 0..5) but DOES fail a naive `toEqual` against the plain input
-    // array, which is why this asserts through toRows rather than directly.
+  test('typing into a finished (all six rows full) board is a clean no-op', () => {
+    // No row is '' (every row is full), so `current` falls back to '' and
+    // `rows.indexOf(current)` is -1 — a caller-replicated-guard edge that
+    // applyLetter now handles itself with an early return, rather than
+    // writing to index -1 on the array. Asserted directly (not through
+    // toRows): a real early return equals the plain input, no stray
+    // property involved.
     const full = ['CRANE', 'SLATE', 'TRAIN', 'HOUSE', 'MOUSE', 'PIVOT']
     const result = applyLetter('X', 'CRANE', full)
-    expect(toRows(result)).toEqual(full)
+    expect(result).toEqual(full)
   })
 
   test('the current-equals-answer guard is a no-op only when both are empty', () => {
