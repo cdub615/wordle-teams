@@ -334,21 +334,15 @@ describe('teams.legacyId', () => {
   test('accepts a team created natively in v2, with no legacyId', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const id = await ctx.db.insert('teams', {
-        name: 'Born in v2',
-        playerIds: [],
-        invited: [],
-        oneGuess: 5,
-        twoGuesses: 3,
-        threeGuesses: 2,
-        fourGuesses: 1,
-        fiveGuesses: 0,
-        sixGuesses: -1,
-        failed: -3,
-        nA: 0,
-        playWeekends: true,
-        showLetters: true,
-      })
+      // aTeam()'s spread merge (`...defaults, ...over`) means `legacyId:
+      // undefined` here overwrites the default 206 with an explicit
+      // `undefined` VALUE — the key is still present on the object. Convex
+      // strips keys whose value is `undefined` before validating (the same
+      // way `JSON.stringify` drops them), so this reaches the validator as a
+      // genuinely absent field, exactly like a caller who omitted it. Proven
+      // below: reverting legacyId to required makes this test fail with
+      // "Missing required field", not a type-mismatch error.
+      const id = await ctx.db.insert('teams', aTeam({ legacyId: undefined }))
       const team = await ctx.db.get(id)
       expect(team?.legacyId).toBeUndefined()
     })
@@ -357,22 +351,8 @@ describe('teams.legacyId', () => {
   test('still accepts a copied team carrying its Supabase primary key', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const id = await ctx.db.insert('teams', {
-        legacyId: 206,
-        name: 'Copied',
-        playerIds: [],
-        invited: [],
-        oneGuess: 5,
-        twoGuesses: 3,
-        threeGuesses: 2,
-        fourGuesses: 1,
-        fiveGuesses: 0,
-        sixGuesses: -1,
-        failed: -3,
-        nA: 0,
-        playWeekends: true,
-        showLetters: true,
-      })
+      // aTeam()'s default IS a copied team: legacyId: 206.
+      const id = await ctx.db.insert('teams', aTeam())
       expect((await ctx.db.get(id))?.legacyId).toBe(206)
     })
   })
