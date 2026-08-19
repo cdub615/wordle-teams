@@ -150,7 +150,9 @@ by an order of magnitude. Phase 3 does not change team count, but it does raise 
 frequency, which is the *other* axis `scores.ts` flagged. Recorded, not acted on: at 171
 teams and ~40 DAU the re-push is small. Revisit if either number moves.
 
-`getMyMembership` returns the caller's membership status for the UI gate.
+`amIPro` returns a boolean for the two UI gates. A boolean rather than the raw
+`membershipStatus`: every gate in v1 is "are they pro", and nothing has ever branched on
+which non-pro status someone holds.
 
 Mutations — all `requireTeamCreator` except `createTeam`, which is `requirePlayer`:
 
@@ -302,7 +304,7 @@ Fifteen issues under `wt-ksh.4`, in dependency order.
 | 2 | Extract `use-dashboard-search-sync` (`wordle-teams-lb9`) | `index.tsx` holds the route and layout; the sync lives in its own tested hook. **Blocks 9–13** |
 | 3 | `scoringSystems` table + `convex/lib/scoringSystem.ts` | Resolution, fallback and boundary cases green; the table deploys. **Blocks 6** (which writes `DEFAULT_SYSTEM`) **and 8** |
 | 4 | `requireTeamCreator`, `isPro`, the three new error codes | A non-creator member is refused and an uncopied-creator team is refused to everyone, both by test; `convex-error.ts` compiles again. **Blocks 6, 7, 8** |
-| 5 | Widened `getMyTeams` + `getMyMembership` | One query returns members, creator and settings for the caller's teams only; a non-member's team is absent |
+| 5 | Widened `getMyTeams` + `amIPro` | One query returns members, creator and settings for the caller's teams only; a non-member's team is absent |
 | 6 | `createTeam` / `updateTeam` / `deleteTeam` + manual cascade | Create/update/delete proven; delete removes `monthlyWinners` and `scoringSystems` and leaves `dailyScores`; `playWeekends` flip recomputes |
 | 7 | `removeMember` + recompute | The member is gone, the creator cannot be removed, and every affected month's winner row is recomputed |
 | 8 | `getTeamMonth` version resolution + `setScoringSystem` + forward recompute | Edit in August; July's totals and winner byte-identical, August recomputed |
