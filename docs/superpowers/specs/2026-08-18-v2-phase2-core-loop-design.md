@@ -252,12 +252,45 @@ the parent design.
 |---|---|---|
 | `UNAUTHENTICATED` | No session | Redirect to `/login` |
 | `NO_PLAYER` | Session with no matching copied player | The existing `me.ts` explanatory copy |
-| `NOT_A_MEMBER` | Team read by a non-member | Error toast; team selector falls back to the first team |
+| `NOT_A_MEMBER` | Team read by a non-member | See the amendment below |
 | `INVALID_BOARD` | Server-side validation rejected the board | Error toast; the form stays open and populated |
 
 Anything else reaching the form's `catch` is treated as v1 treats it: an error toast
 reading "Could not save your board. Your entry is still here — please try again", the
 sheet left open, and `setSubmitting(false)` guaranteed by `finally`.
+
+### Amendment — `NOT_A_MEMBER` is a route error boundary, not a toast
+
+**This table originally promised "error toast; team selector falls back to the first
+team" for `NOT_A_MEMBER`. What was built is materially different, and the table above
+is corrected rather than the code.**
+
+The toast plan assumed the failure surfaces somewhere a toast can sit on top of. It
+does not. `NOT_A_MEMBER` is thrown by `getTeamMonth`, which the dashboard reads through
+`useSuspenseQuery` — so the rejection happens *during render*, and there is no rendered
+dashboard left to float a toast over. Without a boundary it is an uncaught render error.
+
+So the read path gets a route `errorComponent` (`src/components/dashboard-error.tsx`)
+which replaces the dashboard with a `DESIGN_SYSTEM.md` §7 error state, and a "Try again"
+button that clears `localStorage.selectedTeam` and navigates to `/` with no search
+params — which is what actually delivers the "falls back to the first team" outcome the
+original row wanted, just by a different route. Clearing localStorage matters: without
+it the redirect effect repopulates `?team=` from the same bad value.
+
+Two consequences worth recording:
+
+- **The mutation path and the read path need different copy.** `boardErrorMessage`'s
+  generic branch is v1's verbatim "Could not save your board. Your entry is still here"
+  — correct when a submission failed, actively wrong on a page that failed to load and
+  never attempted a save. `dashboardErrorMessage` is the read-path sibling.
+- **No toast is shown for `NOT_A_MEMBER` at all.** The mapped copy renders as page text.
+  Phase 7's parity audit works from this document, so it should expect a full error
+  screen here, not a toast.
+
+Task 6 additionally validates `?team=` against the caller's own team list client-side,
+so the common case — a stale bookmark — is corrected by a silent redirect before the
+boundary is ever reached. The boundary is the backstop for what that cannot catch: a
+membership revoked mid-session, a team deleted between render and query, an outage.
 
 ## Testing
 

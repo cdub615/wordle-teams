@@ -200,8 +200,11 @@ about.
 
 **This is a deliberate, known divergence from v1 during the parallel run.**
 It is a correctness fix on the signature component, not a redesign, and it is
-the only place the board differs from prod. Phase 7's parity audit should
-expect a difference on duplicate-letter guesses and only there.
+the only place *the board* differs from prod.
+
+**Phase 2 added two more, so the audit should now expect three in total.** See
+§7a below — the "and only there" that used to end this section is no longer
+true, and the audit must not treat the other two as bugs.
 
 **v1 is still affected in production.** It was not fixed here because this
 branch treats `src/` as untouched until cutover (design doc, Repo Layout) — a
@@ -210,6 +213,33 @@ at cutover. That call is the owner's.
 
 Covered by `v2/src/lib/wordle.test.ts`, including a per-letter invariant test
 asserting that no letter is ever lit more times than it appears in the answer.
+
+---
+
+## 7a. The full divergence list for Phase 7's parity audit
+
+**Three known differences from production, all deliberate. Anything else the
+audit finds is a bug.**
+
+| # | Divergence | Added | Why |
+| --- | --- | --- | --- |
+| 1 | Duplicate-letter tile colouring | Phase 1.5 (`wt-ksh.12.10`) | §7 above. v1 loses a legitimate yellow; v2 uses the standard algorithm |
+| 2 | A double submit cannot create a duplicate score row | Phase 2 (`wt-ksh.3.6`) | v1 keys the upsert on a client-held score id and inserts when the client lacks one, so a double submit makes two rows — it has already done so 5 times in production (`wordle-teams-rac`). v2 keys on `(playerId, puzzleDay)`, which makes it structurally impossible. **The 5 existing copied pairs are left untouched** and read first-wins, exactly as v1 renders them |
+| 3 | `hasSeenCelebration` survives a winner rewrite | Phase 2 (`wt-ksh.3.7`) | v1's `update_monthly_winners` deletes the row and re-inserts it, wiping the seen-list every time anyone enters a board dated in that month — which can re-fire the celebration at someone who already dismissed it. v2 preserves the array when the winner is unchanged and resets it only when the winner actually changes |
+
+Both Phase 2 divergences are on the **write** path, so they are invisible in a
+static route-by-route comparison. Exercising them takes a deliberate double
+submit and a winner rewrite within one month.
+
+Not divergences from v1, but recorded because they look like ones:
+
+- **`NOT_A_MEMBER` renders a full error screen, not a toast.** That differs from
+  the Phase 2 *design doc's* original error table, not from v1 — v1 has no
+  equivalent state at all. The design doc carries the amendment explaining why.
+- **The month picker offers a fixed three-month window to everyone.** v1 widens
+  it for pro accounts. Phase 2 deliberately deferred the pro gate, so v2
+  currently shows a pro user *less* history than prod. Nobody sees more than v1
+  would allow, which is the safe direction, but the audit will notice it.
 
 ---
 
