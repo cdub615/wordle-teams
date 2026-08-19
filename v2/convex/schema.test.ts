@@ -293,3 +293,39 @@ describe('webhookEvents', () => {
     })
   })
 })
+
+describe('natively-created rows', () => {
+  test('a board entered in v2 needs no legacyId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      // No legacyId: this row was born in v2, not copied from Supabase.
+      const id = await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2026-08-18',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['GEESE', 'SPEED'],
+      })
+      const row = await ctx.db.get(id)
+      expect(row?.legacyId).toBeUndefined()
+    })
+  })
+
+  test('a winner row computed in v2 needs no legacyId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      const id = await ctx.db.insert('monthlyWinners', {
+        playerId,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+      const row = await ctx.db.get(id)
+      expect(row?.legacyId).toBeUndefined()
+    })
+  })
+})

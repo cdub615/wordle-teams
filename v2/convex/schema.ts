@@ -4,10 +4,11 @@ import { v } from 'convex/values'
 // The six tables ported from Supabase. See
 // docs/superpowers/plans/2026-08-11-v2-phase1-auth-and-data-copy.md §4.
 //
-// EVERY TABLE CARRIES legacyId — its Supabase primary key. That is what makes
-// the copy idempotent and re-runnable, which matters because the copy runs at
-// least three times: now for the owner's teams, again at the Phase 7 parity
-// audit for everyone, and once more inside the cutover window.
+// EVERY COPIED ROW CARRIES legacyId — its Supabase primary key. That is what
+// makes the copy idempotent and re-runnable, which matters because the copy runs
+// at least three times: now for the owner's teams, again at the Phase 7 parity
+// audit for everyone, and once more inside the cutover window. Rows created
+// natively in v2 (Phase 2 onward) have no legacyId; see dailyScores.
 //
 // Timestamps are stored as epoch milliseconds rather than strings so they sort
 // and compare without parsing — including dailyScores.date, which despite its
@@ -74,7 +75,13 @@ export default defineSchema({
   // that count changes by an order of magnitude.
 
   dailyScores: defineTable({
-    legacyId: v.number(),
+    // OPTIONAL SINCE PHASE 2. Copied rows carry their Supabase pk; rows created
+    // natively in v2 have no Supabase identity to carry, and inventing a
+    // sentinel would fake one. Absence is meaningful: `legacyId === undefined`
+    // means "born in v2, not copied", which is exactly the distinction Phase 7's
+    // row-count reconciliation against Supabase needs. The copy is unaffected —
+    // it matches on by_legacyId, and native rows correctly never match.
+    legacyId: v.optional(v.number()),
     playerId: v.id('players'),
 
     // THE PUZZLE DAY, 'YYYY-MM-DD'. This is the field everything groups and
@@ -127,7 +134,7 @@ export default defineSchema({
     .index('by_date', ['date']),
 
   monthlyWinners: defineTable({
-    legacyId: v.number(),
+    legacyId: v.optional(v.number()), // see the note on dailyScores.legacyId
     playerId: v.id('players'),
     teamId: v.id('teams'),
     year: v.number(),
