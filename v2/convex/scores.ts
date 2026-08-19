@@ -1,9 +1,10 @@
 import { v } from 'convex/values'
-import { query } from './_generated/server'
-import { currentPlayer, requirePlayer, requireTeamMemberFor } from './access'
-import { monthRange } from './lib/puzzleDay.ts'
+import { mutation, query } from './_generated/server'
+import { accessError, currentPlayer, requirePlayer, requireTeamMemberFor } from './access'
+import { boardIsValid, normalizeGuesses } from './lib/board.ts'
+import { monthOf, monthRange } from './lib/puzzleDay.ts'
 import type { Id, DataModel } from './_generated/dataModel'
-import type { GenericDatabaseReader } from 'convex/server'
+import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
 
 /**
  * Anything with a `db` reader — a query, mutation, or a convex-test `ctx.run`.
@@ -149,5 +150,102 @@ export const getMyPlayerId = query({
   handler: async (ctx) => {
     const player = await currentPlayer(ctx)
     return player?._id ?? null
+  },
+})
+
+/**
+ * Anything with a `db` writer — a mutation, or a convex-test `ctx.run` callback
+ * passed to a write. Mirrors ReaderCtx above for the same reason: upsertBoardFor
+ * only ever touches `ctx.db`, and keeping the parameter type to just that lets
+ * convex-test's `t.run` callback ctx (a real GenericMutationCtx, which
+ * structurally has a `db: GenericDatabaseWriter`) satisfy it with no cast.
+ */
+type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
+
+export type BoardInput = {
+  puzzleDay: string
+  answer: string
+  guesses: Array<string>
+  today: string
+}
+
+// Replaced in Task 5. Declared here so upsertBoardFor is testable on its own.
+async function recomputeWinners(
+  _ctx: WriterCtx,
+  _playerId: Id<'players'>,
+  _month: string,
+  _today: string,
+): Promise<void> {}
+
+/**
+ * Create, update or delete one board, then recompute the standings it affects.
+ *
+ * KEYED ON (playerId, puzzleDay), which is what makes a duplicate row
+ * impossible. v1 keyed on a client-held score id and inserted whenever the
+ * client did not have one, so a double submit created a second row for the same
+ * day — it has already done so 5 times in production (wordle-teams-rac). The 5
+ * copied pairs are left exactly as they are; readers take the first, as v1 does.
+ *
+ * The winner recomputation runs in this same transaction, which is the whole
+ * point: v1 saved the board and then made a separate RPC that could fail, so the
+ * board landed while the standings went stale and the user was told "success".
+ * Here both land or neither does.
+ */
+export async function upsertBoardFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  input: BoardInput,
+): Promise<{ action: 'create' | 'update' | 'delete' }> {
+  const { puzzleDay, answer, guesses, today } = input
+
+  const existing = await ctx.db
+    .query('dailyScores')
+    .withIndex('by_player_and_puzzleDay', (q) =>
+      q.eq('playerId', playerId).eq('puzzleDay', puzzleDay),
+    )
+    .first()
+
+  // The server does not trust the client. Unreachable through the UI, which
+  // disables submit on this same predicate — v1 had no server-side check at all.
+  if (!boardIsValid(answer, guesses, existing !== null)) throw accessError('INVALID_BOARD')
+
+  const played = normalizeGuesses(guesses)
+  let action: 'create' | 'update' | 'delete'
+
+  if (played.length === 0 && answer.length === 0) {
+    // boardIsValid already guaranteed `existing` here.
+    await ctx.db.delete(existing!._id)
+    action = 'delete'
+  } else if (existing) {
+    await ctx.db.patch(existing._id, { answer, guesses: played })
+    action = 'update'
+  } else {
+    await ctx.db.insert('dailyScores', {
+      playerId,
+      puzzleDay,
+      // The audit instant. NOT for grouping — that is what puzzleDay is for.
+      date: Date.now(),
+      answer,
+      guesses: played,
+    })
+    action = 'create'
+  }
+
+  await recomputeWinners(ctx, playerId, monthOf(puzzleDay), today)
+  return { action }
+}
+
+export const upsertBoard = mutation({
+  args: {
+    puzzleDay: v.string(),
+    answer: v.string(),
+    guesses: v.array(v.string()),
+    // The submitter's own local today. The server has no viewer and no correct
+    // timezone to guess; see the design's "today" decision.
+    today: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    return await upsertBoardFor(ctx, player._id, args)
   },
 })

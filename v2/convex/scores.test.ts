@@ -1,7 +1,7 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
-import { getTeamMonthFor } from './scores'
+import { getTeamMonthFor, upsertBoardFor } from './scores'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -192,6 +192,111 @@ describe('getTeamMonthFor', () => {
       await expect(getTeamMonthFor(ctx, outsiderId, teamId, '2026-08')).rejects.toMatchObject({
         data: { code: 'NOT_A_MEMBER' },
       })
+    })
+  })
+})
+
+describe('upsertBoardFor', () => {
+  test('creates a board', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      const result = await upsertBoardFor(ctx, playerId, {
+        puzzleDay: '2026-08-18',
+        answer: 'SPEED',
+        guesses: ['CRANE', 'SPEED', '', '', '', ''],
+        today: '2026-08-18',
+      })
+      expect(result.action).toBe('create')
+
+      const rows = await ctx.db.query('dailyScores').collect()
+      expect(rows).toHaveLength(1)
+      // Empty rows are dropped on write; v1's DailyScore does the same on read.
+      expect(rows[0].guesses).toEqual(['CRANE', 'SPEED'])
+      expect(rows[0].puzzleDay).toBe('2026-08-18')
+      expect(rows[0].legacyId).toBeUndefined()
+    })
+  })
+
+  test('a second submit for the same day updates rather than duplicating', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      const board = {
+        puzzleDay: '2026-08-18',
+        answer: 'SPEED',
+        guesses: ['CRANE', 'SPEED', '', '', '', ''],
+        today: '2026-08-18',
+      }
+      await upsertBoardFor(ctx, playerId, board)
+      const second = await upsertBoardFor(ctx, playerId, {
+        ...board,
+        guesses: ['CRANE', 'SLATE', 'SPEED', '', '', ''],
+      })
+
+      expect(second.action).toBe('update')
+      // v1 inserted a fresh row whenever the client had no scoreId, so a double
+      // submit made two. Production holds 5 such pairs (wordle-teams-rac).
+      const rows = await ctx.db.query('dailyScores').collect()
+      expect(rows).toHaveLength(1)
+      expect(rows[0].guesses).toEqual(['CRANE', 'SLATE', 'SPEED'])
+    })
+  })
+
+  test('an emptied board deletes the score', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await upsertBoardFor(ctx, playerId, {
+        puzzleDay: '2026-08-18',
+        answer: 'SPEED',
+        guesses: ['SPEED', '', '', '', '', ''],
+        today: '2026-08-18',
+      })
+      const result = await upsertBoardFor(ctx, playerId, {
+        puzzleDay: '2026-08-18',
+        answer: '',
+        guesses: ['', '', '', '', '', ''],
+        today: '2026-08-18',
+      })
+
+      expect(result.action).toBe('delete')
+      expect(await ctx.db.query('dailyScores').collect()).toHaveLength(0)
+    })
+  })
+
+  test('rejects an incomplete board even though the UI would not send one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await expect(
+        upsertBoardFor(ctx, playerId, {
+          puzzleDay: '2026-08-18',
+          answer: 'SPEED',
+          guesses: ['CRA', '', '', '', '', ''],
+          today: '2026-08-18',
+        }),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_BOARD' } })
+    })
+  })
+
+  test('rejects emptying a day that has no score', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await expect(
+        upsertBoardFor(ctx, playerId, {
+          puzzleDay: '2026-08-18',
+          answer: '',
+          guesses: ['', '', '', '', '', ''],
+          today: '2026-08-18',
+        }),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_BOARD' } })
     })
   })
 })
