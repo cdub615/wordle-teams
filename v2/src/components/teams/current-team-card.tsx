@@ -41,6 +41,13 @@ export function CurrentTeamCard({
 }) {
   const remove = useMutation({ mutationFn: useConvexMutation(api.teams.removeMember) })
   const [pendingId, setPendingId] = useState<string | null>(null)
+  // Which member's popover is open, if any. Controlled so a successful remove
+  // can close it explicitly (see handleRemove below) instead of relying on
+  // the member's <li> unmounting once the Convex subscription re-pushes the
+  // team without them — that unmount is a second, independent async hop, and
+  // in the gap the popover would otherwise sit open over a member the server
+  // already removed.
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const handleRemove = async (playerId: string) => {
     setPendingId(playerId)
@@ -51,6 +58,7 @@ export function CurrentTeamCard({
         today: toPuzzleDay(new Date()),
       })
       toast.success('Successfully removed player')
+      setOpenId(null)
     } catch (error) {
       toast.error(mutationErrorMessage(error, 'Failed to remove player'))
     } finally {
@@ -81,7 +89,10 @@ export function CurrentTeamCard({
                   {member.firstName} {member.lastName}
                 </span>
                 {isCreator && (
-                  <Popover>
+                  <Popover
+                    open={openId === member.id}
+                    onOpenChange={(next) => setOpenId(next ? member.id : null)}
+                  >
                     <PopoverTrigger asChild>
                       <Button variant="ghost" aria-label={`Remove ${member.firstName}`}>
                         <Trash2 size={16} className="text-danger" />

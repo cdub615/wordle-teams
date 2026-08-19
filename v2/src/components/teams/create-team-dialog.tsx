@@ -14,10 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '#/components/ui/dialog.tsx'
-import { Input } from '#/components/ui/input.tsx'
-import { Label } from '#/components/ui/label.tsx'
-import { Switch } from '#/components/ui/switch.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { TeamFields } from './team-fields.tsx'
 
 /**
  * Create a team. Ports v1's create-team.tsx: name, Play Weekends, Show Letters,
@@ -90,34 +88,15 @@ export function CreateTeamDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="w-full space-y-6">
-          <div className="flex flex-col space-y-4 py-4">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="team-name">Team Name</Label>
-              <Input
-                id="team-name"
-                required
-                className="w-48 md:w-80"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="create-play-weekends">Play Weekends</Label>
-              <Switch
-                id="create-play-weekends"
-                checked={playWeekends}
-                onCheckedChange={setPlayWeekends}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="create-show-letters">Show Letters in Completed Boards</Label>
-              <Switch
-                id="create-show-letters"
-                checked={showLetters}
-                onCheckedChange={setShowLetters}
-              />
-            </div>
-          </div>
+          <TeamFields
+            idPrefix="create"
+            name={name}
+            onNameChange={setName}
+            playWeekends={playWeekends}
+            onPlayWeekendsChange={setPlayWeekends}
+            showLetters={showLetters}
+            onShowLettersChange={setShowLetters}
+          />
           <DialogFooter>
             <Button type="submit" variant="secondary" disabled={submitting} aria-disabled={submitting}>
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
