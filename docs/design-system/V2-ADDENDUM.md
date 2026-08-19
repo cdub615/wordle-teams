@@ -163,6 +163,23 @@ class of bug.
 - **`sonner` imports `useTheme` from `next-themes`,** which v2 does not use.
   Replaced with `lib/use-resolved-theme.ts`, reading the authoritative `.dark`
   class.
+- **`Table` hides its own scroll container.** The primitive wraps `<table>` in
+  a `div.relative.w-full.overflow-auto` that callers cannot reach. Because that
+  div is `w-full` and bounded by its parent, *it* — not any wrapper a caller
+  adds — is the element the table actually overflows, so it is the real scroll
+  region. A horizontally scrolling data table has to make that region a
+  keyboard focus target, which was impossible from outside. v2 added a
+  `wrapperProps` pass-through (Phase 2, `wt-ksh.3.9`); the scores table uses it
+  for `tabIndex` and an `aria-label`.
+
+  Related, and worth knowing before writing another table: the primitive also
+  hardcodes `w-full` on the `<table>` itself. Under `table-layout: auto` that
+  acts as a **cap**, not a minimum, so a wide table compresses its columns
+  instead of overflowing — with 31 day columns the headers wrapped to one
+  character per line. `scores-table.tsx` overrides it with `w-max min-w-full`.
+  `vite build`, `tsc --noEmit` and all 115 tests were green with that bug
+  present; it was caught only by looking at a screenshot, which is the same
+  lesson as §5.
 
 ---
 
