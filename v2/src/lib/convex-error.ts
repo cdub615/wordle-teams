@@ -104,3 +104,16 @@ export function dashboardErrorMessage(error: unknown): string {
   }
   return typedCodeMessage(code)
 }
+
+/**
+ * What to tell the user after a failed TEAM mutation.
+ *
+ * A third sibling of boardErrorMessage and dashboardErrorMessage, and it exists
+ * for the same reason they are separate: the typed cases read identically, but
+ * the fallback has to say something true about what just failed. `fallback` is
+ * the caller's own wording for "this specific thing did not work".
+ */
+export function mutationErrorMessage(error: unknown, fallback: string): string {
+  const code = convexErrorCode(error)
+  return code ? typedCodeMessage(code) : fallback
+}

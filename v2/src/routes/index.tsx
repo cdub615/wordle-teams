@@ -1,7 +1,8 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { convexQuery } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
@@ -9,6 +10,7 @@ import { useHydrated } from '#/lib/use-hydrated.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
+import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
 import { DashboardError } from '#/components/dashboard-error.tsx'
@@ -34,6 +36,7 @@ export const Route = createFileRoute('/')({
   },
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(convexQuery(api.teams.getMyTeams, {}))
+    await context.queryClient.ensureQueryData(convexQuery(api.teams.amIPro, {}))
   },
   errorComponent: DashboardError,
   component: Dashboard,
@@ -44,6 +47,8 @@ function Dashboard() {
   const navigate = useNavigate({ from: Route.fullPath })
   const hydrated = useHydrated()
   const { data: teams } = useSuspenseQuery(convexQuery(api.teams.getMyTeams, {}))
+  const { data: isPro } = useSuspenseQuery(convexQuery(api.teams.amIPro, {}))
+  const [createOpen, setCreateOpen] = useState(false)
 
   // Bottom of the login funnel (wt-ksh.12.7). Reaching here authenticated is the
   // only reliable "they made it" signal: the OAuth round-trip finishes as a fresh
@@ -94,11 +99,21 @@ function Dashboard() {
 
   return (
     <main className="mb-12 grid gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
+      <CreateTeamDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(team) => navigate({ to: '/', search: { team, month: monthParam } })}
+      />
       <div className="flex items-center gap-2 md:col-span-3">
         <TeamPicker
           teams={teams}
           value={teamParam}
+          isPro={isPro}
           onChange={(team) => navigate({ to: '/', search: { team, month: monthParam } })}
+          onCreate={() => setCreateOpen(true)}
+          // Checkout is Phase 5. Until then, say so rather than doing nothing:
+          // a dead menu item is indistinguishable from a broken one.
+          onUpgrade={() => toast.info('Upgrading arrives with payments, in a later phase.')}
         />
         <MonthPicker
           currentMonth={currentMonth}

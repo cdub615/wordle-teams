@@ -1,35 +1,89 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select.tsx'
+import { ChevronDown, Plus, Sparkles } from 'lucide-react'
+import { Button } from '#/components/ui/button.tsx'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu.tsx'
 
 /**
- * Read-only team selection. Creating, renaming and managing teams is Phase 3;
- * this exists because a scoreboard needs to know which team it is showing.
+ * Team selection, and the entry point for creating one.
+ *
+ * A DropdownMenu rather than a Select because that is where "New Team" and
+ * "Upgrade for more" live in v1 — a Select would need a second button beside
+ * it, which is a shape prod does not have.
+ *
+ * THE UPGRADE SWAP IS UI-ONLY, exactly as in v1: past two teams a free account
+ * is shown "Upgrade for more" instead of "New Team", but createTeam does not
+ * enforce a cap and neither does v1's server action.
  */
 export type TeamOption = { id: string; name: string }
+
+const FREE_TEAM_LIMIT = 2
 
 export function TeamPicker({
   teams,
   value,
+  isPro,
   onChange,
+  onCreate,
+  onUpgrade,
 }: {
   teams: Array<TeamOption>
   value: string
+  isPro: boolean
   onChange: (teamId: string) => void
+  onCreate: () => void
+  onUpgrade: () => void
 }) {
   if (teams.length === 0) return null
 
+  const selected = teams.find((team) => team.id === value)
+  const name = selected?.name ?? 'No team selected'
+  const label = name.length > 15 ? `${name.slice(0, 15)}...` : name
+  const atFreeLimit = !isPro && teams.length >= FREE_TEAM_LIMIT
+
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-44" aria-label="Team">
-        <SelectValue placeholder="Pick a team" />
-      </SelectTrigger>
-      <SelectContent>
-        {teams.map((team) => (
-          <SelectItem key={team.id} value={team.id}>
-            {team.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          aria-label="Team"
+          className="max-w-[9.5rem] px-2 text-xs md:max-w-none md:px-4 md:text-sm"
+        >
+          {label}
+          <ChevronDown className="ml-1 h-4 w-4 md:ml-2" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuLabel>Change Team</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
+          {teams.map((team) => (
+            <DropdownMenuRadioItem key={team.id} value={team.id}>
+              {team.name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        {atFreeLimit ? (
+          <DropdownMenuItem onSelect={onUpgrade}>
+            <Sparkles size={18} />
+            <span>Upgrade for more</span>
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onSelect={onCreate}>
+            <Plus size={18} />
+            <span>New Team</span>
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
