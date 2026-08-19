@@ -10,6 +10,7 @@ import { getToken } from '#/lib/auth-server'
 import { pageTitle } from '#/lib/seo'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
+import { Toaster } from '#/components/ui/sonner.tsx'
 
 import appCss from '../styles.css?url'
 
@@ -88,6 +89,16 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <Header />
         {children}
         <Footer />
+        {/*
+          Was defined (ui/sonner.tsx, fully themed and iconed) but never
+          mounted anywhere, which made every toast.success/error/warning call
+          in the app — including all three of board entry's — a silent no-op.
+          Caught while verifying Task 8's forced-failure path: the console
+          showed the catch block running and calling toast.error, but nothing
+          ever appeared on screen. Root-level, once, like any portal-based
+          toaster.
+        */}
+        <Toaster />
         <TanStackDevtools
           config={{
             position: 'bottom-right',
