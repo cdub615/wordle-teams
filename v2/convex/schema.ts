@@ -81,6 +81,30 @@ export default defineSchema({
   // collect and filter without it being worth a join table. Revisit only if
   // that count changes by an order of magnitude.
 
+  // Versioned scoring systems (wordle-teams-1j3). A team's `teams` doc still
+  // carries eight point values; those are now THE ORIGINAL SYSTEM, and the
+  // editor never writes them again. Resolution for a month is "the row with the
+  // greatest effectiveFrom <= month, else the team doc's own fields" — see
+  // lib/scoringSystem.ts.
+  //
+  // NO legacyId, and that is not an oversight: this table has no Supabase
+  // counterpart, so nothing is ever copied into it. The fallback to the team
+  // doc is what lets that be true — existing teams need no backfill, and the
+  // copy script needs no change, because "no version rows" already means "it
+  // has always been this".
+  scoringSystems: defineTable({
+    teamId: v.id('teams'),
+    effectiveFrom: v.string(), // 'YYYY-MM'
+    oneGuess: v.number(),
+    twoGuesses: v.number(),
+    threeGuesses: v.number(),
+    fourGuesses: v.number(),
+    fiveGuesses: v.number(),
+    sixGuesses: v.number(),
+    failed: v.number(),
+    nA: v.number(),
+  }).index('by_team_and_effectiveFrom', ['teamId', 'effectiveFrom']),
+
   dailyScores: defineTable({
     // OPTIONAL SINCE PHASE 2. Copied rows carry their Supabase pk; rows created
     // natively in v2 have no Supabase identity to carry, and inventing a

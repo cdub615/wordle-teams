@@ -18,6 +18,7 @@ import type * as http from "../http.js";
 import type * as lib_board from "../lib/board.js";
 import type * as lib_puzzleDay from "../lib/puzzleDay.js";
 import type * as lib_scoring from "../lib/scoring.js";
+import type * as lib_scoringSystem from "../lib/scoringSystem.js";
 import type * as me from "../me.js";
 import type * as migrate from "../migrate.js";
 import type * as scores from "../scores.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   "lib/board": typeof lib_board;
   "lib/puzzleDay": typeof lib_puzzleDay;
   "lib/scoring": typeof lib_scoring;
+  "lib/scoringSystem": typeof lib_scoringSystem;
   me: typeof me;
   migrate: typeof migrate;
   scores: typeof scores;
