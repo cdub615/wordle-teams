@@ -329,3 +329,51 @@ describe('natively-created rows', () => {
     })
   })
 })
+
+describe('teams.legacyId', () => {
+  test('accepts a team created natively in v2, with no legacyId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await ctx.db.insert('teams', {
+        name: 'Born in v2',
+        playerIds: [],
+        invited: [],
+        oneGuess: 5,
+        twoGuesses: 3,
+        threeGuesses: 2,
+        fourGuesses: 1,
+        fiveGuesses: 0,
+        sixGuesses: -1,
+        failed: -3,
+        nA: 0,
+        playWeekends: true,
+        showLetters: true,
+      })
+      const team = await ctx.db.get(id)
+      expect(team?.legacyId).toBeUndefined()
+    })
+  })
+
+  test('still accepts a copied team carrying its Supabase primary key', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await ctx.db.insert('teams', {
+        legacyId: 206,
+        name: 'Copied',
+        playerIds: [],
+        invited: [],
+        oneGuess: 5,
+        twoGuesses: 3,
+        threeGuesses: 2,
+        fourGuesses: 1,
+        fiveGuesses: 0,
+        sixGuesses: -1,
+        failed: -3,
+        nA: 0,
+        playWeekends: true,
+        showLetters: true,
+      })
+      expect((await ctx.db.get(id))?.legacyId).toBe(206)
+    })
+  })
+})

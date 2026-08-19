@@ -42,7 +42,14 @@ export default defineSchema({
     .index('by_email', ['email']),
 
   teams: defineTable({
-    legacyId: v.number(),
+    // OPTIONAL SINCE PHASE 3, for the reason dailyScores.legacyId is optional
+    // since Phase 2: a team created natively in v2 has no Supabase identity to
+    // carry, and inventing a sentinel would fake one. Absence is meaningful —
+    // `legacyId === undefined` means "born in v2, not copied", which is what
+    // Phase 7's row-count reconciliation against Supabase needs. The copy is
+    // unaffected: it matches on by_legacyId, and native rows correctly never
+    // match, because the copy must not adopt them.
+    legacyId: v.optional(v.number()),
     name: v.string(),
     creator: v.optional(v.id('players')), // optional: the creator may be outside a scoped copy
     playerIds: v.array(v.id('players')),
