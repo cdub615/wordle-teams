@@ -2,7 +2,8 @@ import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, requirePlayer, requireTeamMemberFor } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
-import { monthOf, monthRange } from './lib/puzzleDay.ts'
+import { addDays, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
+import { monthTotal, winnerOf } from './lib/scoring.ts'
 import type { Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
 
@@ -16,7 +17,8 @@ import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server
 type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
 
 /**
- * The core loop's reads.
+ * The core loop: reading a team's month, and writing a board plus the winner
+ * recomputation it triggers.
  *
  * SCOPED TO ONE TEAM AND ONE MONTH, deliberately. v1 loaded every team, every
  * player and every score ever into a client context and computed from there.
@@ -169,13 +171,105 @@ export type BoardInput = {
   today: string
 }
 
-// Replaced in Task 5. Declared here so upsertBoardFor is testable on its own.
+/**
+ * Recompute the month's winner for every team the player belongs to.
+ *
+ * This is v1's update_monthly_winners trigger, relocated. Two differences from
+ * the SQL, both deliberate:
+ *
+ * 1. The SQL DELETEs the row and re-INSERTs it, which silently wipes
+ *    hasSeenCelebration every time anyone enters a board dated in that month —
+ *    re-firing the confetti at someone who already dismissed it. Here the array
+ *    survives an unchanged winner and resets only when the winner really changes.
+ * 2. v1 computed this on the CLIENT for every team it had loaded and passed the
+ *    result to the RPC. Here it is derived server-side inside the same
+ *    transaction as the board write, so it cannot be stale or forged.
+ */
 async function recomputeWinners(
-  _ctx: WriterCtx,
-  _playerId: Id<'players'>,
-  _month: string,
-  _today: string,
-): Promise<void> {}
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  month: string,
+  today: string,
+): Promise<void> {
+  const [year, monthNum] = month.split('-').map(Number)
+  const { start, end } = monthRange(month)
+
+  // Same "Convex can't index array membership" constraint as getMyTeams above,
+  // but paid on the WRITE path instead of an amortised read: this runs on
+  // every board submission, the single most frequent write in the app. Cost is
+  // roughly O(all teams) — this collect — plus O(teams the player is on x
+  // members x days in the month) for the loop below. See the write-path
+  // bandwidth guard in scores.test.ts for a measured figure on a realistic
+  // fixture.
+  //
+  // Because the WHOLE teams table lands in this transaction's read set, a
+  // concurrent write to ANY team (not just one of the player's own) forces
+  // Convex to retry this mutation via OCC, even though the retry's outcome
+  // never depended on that other team. Acceptable today because team writes
+  // are rare — team settings edits and the invite flow are still Phase 3. It
+  // stops being acceptable if either of those raises team-write frequency
+  // enough to make the OCC retries visible, or if team count grows enough that
+  // the collect itself becomes the dominant cost regardless of write rate.
+  const allTeams = await ctx.db.query('teams').collect()
+  const teams = allTeams.filter((team) => team.playerIds.includes(playerId))
+
+  for (const team of teams) {
+    const totals = []
+    for (const memberId of team.playerIds) {
+      const member = await ctx.db.get(memberId)
+      // Same exclusion as getTeamMonthFor: a profile-incomplete invitee is not
+      // shown on the table and must not be able to win the month either.
+      if (!member || !member.firstName || !member.lastName) continue
+
+      const scores = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) =>
+          q.eq('playerId', memberId).gte('puzzleDay', start).lte('puzzleDay', end),
+        )
+        .collect()
+
+      totals.push({
+        playerId: memberId,
+        total: monthTotal({
+          month,
+          scores,
+          // A `teams` doc structurally satisfies ScoringSystem.
+          system: team,
+          playWeekends: team.playWeekends,
+          today,
+        }),
+      })
+    }
+
+    const winnerId = winnerOf(totals) as Id<'players'> | null
+    const existing = await ctx.db
+      .query('monthlyWinners')
+      .withIndex('by_team_year_month', (q) =>
+        q.eq('teamId', team._id).eq('year', year).eq('month', monthNum),
+      )
+      .first()
+
+    if (!winnerId) {
+      // Matches the SQL, which deletes unconditionally and re-inserts only where
+      // winner_id is not null.
+      if (existing) await ctx.db.delete(existing._id)
+      continue
+    }
+    if (!existing) {
+      await ctx.db.insert('monthlyWinners', {
+        playerId: winnerId,
+        teamId: team._id,
+        year,
+        month: monthNum,
+        hasSeenCelebration: [],
+      })
+      continue
+    }
+    // Unchanged winner: leave the row, and the seen-list, alone.
+    if (existing.playerId === winnerId) continue
+    await ctx.db.patch(existing._id, { playerId: winnerId, hasSeenCelebration: [] })
+  }
+}
 
 /**
  * Create, update or delete one board, then recompute the standings it affects.
@@ -190,6 +284,12 @@ async function recomputeWinners(
  * point: v1 saved the board and then made a separate RPC that could fail, so the
  * board landed while the standings went stale and the user was told "success".
  * Here both land or neither does.
+ *
+ * Duplicate prevention also holds under concurrency — two simultaneous calls
+ * for the same (player, day) land in the same index range, so OCC invalidates
+ * the loser's read set and Convex retries it, at which point it finds the row
+ * and updates. THE TESTS DO NOT PROVE THIS; they exercise the sequential path
+ * only, inside a single transaction. convex-test does not simulate OCC retries.
  */
 export async function upsertBoardFor(
   ctx: WriterCtx,
@@ -208,6 +308,20 @@ export async function upsertBoardFor(
   // The server does not trust the client. Unreachable through the UI, which
   // disables submit on this same predicate — v1 had no server-side check at all.
   if (!boardIsValid(answer, guesses, existing !== null)) throw accessError('INVALID_BOARD')
+
+  // `today` is client-supplied, and the server has no viewer whose midnight it
+  // could ask for instead. But it is NOT confined to the caller: recomputeWinners
+  // applies it to every member of every team they are on, and writes the result
+  // to monthlyWinners, which the whole team reads. An unbounded value is
+  // therefore shared-state corruption, not a personal view quirk.
+  //
+  // ±1 day of the server's date. Convex runs UTC, and UTC-12..UTC+14 spans 26
+  // hours, so a legitimate client anywhere on earth is always within one
+  // calendar day of it. Anything further is broken or hostile.
+  const serverToday = toPuzzleDay(new Date())
+  if (today < addDays(serverToday, -1) || today > addDays(serverToday, 1)) {
+    throw accessError('INVALID_BOARD')
+  }
 
   const played = normalizeGuesses(guesses)
   let action: 'create' | 'update' | 'delete'

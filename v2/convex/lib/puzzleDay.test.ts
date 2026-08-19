@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'vitest'
-import { addMonths, daysOfMonth, fromPuzzleDay, isWeekendDay, monthOf, monthRange, toPuzzleDay } from './puzzleDay'
+import {
+  addDays,
+  addMonths,
+  daysOfMonth,
+  fromPuzzleDay,
+  isWeekendDay,
+  monthOf,
+  monthRange,
+  toPuzzleDay,
+} from './puzzleDay'
 
 describe('toPuzzleDay', () => {
   test('uses local calendar fields, not UTC', () => {
@@ -56,6 +65,22 @@ describe('isWeekendDay', () => {
     expect(isWeekendDay('2026-08-15')).toBe(true) // Saturday
     expect(isWeekendDay('2026-08-16')).toBe(true) // Sunday
     expect(isWeekendDay('2026-08-17')).toBe(false) // Monday
+  })
+})
+
+describe('addDays', () => {
+  test('walks forwards and backwards across a month boundary', () => {
+    expect(addDays('2026-08-31', 1)).toBe('2026-09-01')
+    expect(addDays('2026-09-01', -1)).toBe('2026-08-31')
+  })
+
+  test('handles a leap day', () => {
+    expect(addDays('2024-02-28', 1)).toBe('2024-02-29')
+    expect(addDays('2024-03-01', -1)).toBe('2024-02-29')
+  })
+
+  test('crosses a year boundary', () => {
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01')
   })
 })
 

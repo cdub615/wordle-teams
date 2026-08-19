@@ -64,6 +64,12 @@ export function isWeekendDay(day: PuzzleDay): boolean {
   return dayOfWeek === 0 || dayOfWeek === 6
 }
 
+export function addDays(day: PuzzleDay, delta: number): PuzzleDay {
+  const date = fromPuzzleDay(day)
+  date.setDate(date.getDate() + delta)
+  return toPuzzleDay(date)
+}
+
 export function addMonths(month: PuzzleMonth, delta: number): PuzzleMonth {
   const [year, monthNum] = month.split('-').map(Number)
   const shifted = new Date(year, monthNum - 1 + delta, 1)
