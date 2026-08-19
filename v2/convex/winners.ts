@@ -1,6 +1,7 @@
 import { hasCompleteProfile } from './lib/player.ts'
 import { monthRange } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
+import { systemFor } from './lib/scoringSystem.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { GenericDatabaseWriter } from 'convex/server'
@@ -42,6 +43,26 @@ import type { GenericDatabaseWriter } from 'convex/server'
 export type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
 
 /**
+ * The scoring system that governed one month for one team.
+ *
+ * Reads every version row for the team — a team accumulates one per month it
+ * was edited in, which is a handful — and resolves with the pure systemFor. The
+ * team doc's own eight fields are the fallback, which is what makes existing
+ * teams need no backfill.
+ */
+export async function systemForTeamMonth(
+  ctx: WriterCtx,
+  team: Doc<'teams'>,
+  month: PuzzleMonth,
+) {
+  const versions = await ctx.db
+    .query('scoringSystems')
+    .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', team._id))
+    .collect()
+  return systemFor(team, versions, month)
+}
+
+/**
  * Recompute one team's winner for one month.
  *
  * `today` decides which missed days are already due and therefore score the
@@ -55,6 +76,10 @@ export async function recomputeTeamMonth(
 ): Promise<void> {
   const [year, monthNum] = month.split('-').map(Number)
   const { start, end } = monthRange(month)
+  // Resolved INSIDE this function, so recomputeTeamMonths — which loops over
+  // months — resolves each month against its own version rather than hoisting
+  // one system out of the loop.
+  const system = await systemForTeamMonth(ctx, team, month)
 
   const totals = []
   for (const memberId of team.playerIds) {
@@ -75,8 +100,10 @@ export async function recomputeTeamMonth(
       total: monthTotal({
         month,
         scores,
-        // A `teams` doc structurally satisfies ScoringSystem.
-        system: team,
+        // The version that governed THIS month, not the team's current values.
+        // Without this a scoring edit would rewrite every past month's winner,
+        // which is the bug wordle-teams-1j3 exists to prevent.
+        system,
         playWeekends: team.playWeekends,
         today,
       }),

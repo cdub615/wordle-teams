@@ -4,6 +4,7 @@ import { accessError, currentPlayer, requirePlayer, requireTeamMemberFor } from 
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
 import { hasCompleteProfile } from './lib/player.ts'
 import { isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
+import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
 import { recomputePlayerMonth } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
@@ -41,6 +42,16 @@ export async function getTeamMonthFor(
 ) {
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
   const { start, end } = monthRange(month)
+
+  // The system that governed the month being VIEWED. The team doc's own eight
+  // fields are the original, used until the first edit; every edit since writes
+  // a scoringSystems row. Reading the team's live values here would compute a
+  // past month's totals under today's rules — wordle-teams-1j3.
+  const versions = await ctx.db
+    .query('scoringSystems')
+    .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', teamId))
+    .collect()
+  const system = systemFor(team, versions, month)
 
   // Convex functions run inside a single snapshot-isolated transaction, so
   // concurrent reads across members don't compete or change correctness —
@@ -84,18 +95,23 @@ export async function getTeamMonthFor(
       name: team.name,
       playWeekends: team.playWeekends,
       showLetters: team.showLetters,
-      // A `teams` doc structurally satisfies ScoringSystem, but pick the fields
-      // explicitly so the wire payload does not carry the invite list.
+      // Resolved above, not read off the team doc. `systemFor` returns either a
+      // stored version row or the team doc itself as the fallback, so pick the
+      // eight fields explicitly — that is what keeps the invite list (and a
+      // version row's _id) off the wire.
       system: {
-        oneGuess: team.oneGuess,
-        twoGuesses: team.twoGuesses,
-        threeGuesses: team.threeGuesses,
-        fourGuesses: team.fourGuesses,
-        fiveGuesses: team.fiveGuesses,
-        sixGuesses: team.sixGuesses,
-        failed: team.failed,
-        nA: team.nA,
+        oneGuess: system.oneGuess,
+        twoGuesses: system.twoGuesses,
+        threeGuesses: system.threeGuesses,
+        fourGuesses: system.fourGuesses,
+        fiveGuesses: system.fiveGuesses,
+        sixGuesses: system.sixGuesses,
+        failed: system.failed,
+        nA: system.nA,
       },
+      // null when the month resolved to the team's original values — that is
+      // what tells the Scoring System card there is no "historical" badge.
+      systemEffectiveFrom: effectiveFromOf(versions, month),
     },
     players,
   }

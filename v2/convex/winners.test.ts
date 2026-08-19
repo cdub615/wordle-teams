@@ -243,3 +243,81 @@ describe('recomputeTeamMonths', () => {
     })
   })
 })
+
+describe('recomputeTeamMonth — scoring version resolution', () => {
+  // The write half of wordle-teams-1j3. recomputeTeamMonth used to pass the
+  // team doc straight to monthTotal, so a scoring edit rewrote the stored
+  // winner for every month it recomputed — including months that were played
+  // under a different system. These pin the resolution, and they FAIL if the
+  // `system` argument is reverted to `team`.
+  const failedSix = ['CRANE', 'SLATE', 'SPELL', 'SPILL', 'STEEL', 'SPEND']
+
+  /** Inverts the default: failing beats solving in one. */
+  const inverted = (teamId: string, effectiveFrom: string) => ({
+    teamId: teamId as never,
+    effectiveFrom,
+    oneGuess: -50,
+    twoGuesses: 3,
+    threeGuesses: 2,
+    fourGuesses: 1,
+    fiveGuesses: 0,
+    sixGuesses: -1,
+    failed: 50,
+    nA: 0,
+  })
+
+  test('each month in one recompute resolves its OWN version', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob] }))
+      // Identical play in both months: Ada solves in one, Bob fails.
+      for (const day of ['2026-06-03', '2026-07-03']) {
+        await ctx.db.insert('dailyScores', aScore(ada, day, ['SPEED']))
+        await ctx.db.insert('dailyScores', aScore(bob, day, failedSix))
+      }
+      // The inversion takes effect in July only.
+      await ctx.db.insert('scoringSystems', inverted(teamId, '2026-07'))
+
+      const team = (await ctx.db.get(teamId))!
+      await recomputeTeamMonths(ctx, team, ['2026-06', '2026-07'], today)
+
+      const winnerFor = async (month: number) =>
+        (
+          await ctx.db
+            .query('monthlyWinners')
+            .withIndex('by_team_year_month', (q) =>
+              q.eq('teamId', teamId).eq('year', 2026).eq('month', month),
+            )
+            .first()
+        )?.playerId
+
+      // June predates the version and keeps the team's original values.
+      expect(await winnerFor(6)).toBe(ada)
+      // July is governed by the version, under which failing wins.
+      expect(await winnerFor(7)).toBe(bob)
+    })
+  })
+
+  test('a version does not reach back past its effectiveFrom', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob] }))
+      await ctx.db.insert('dailyScores', aScore(ada, '2026-06-03', ['SPEED']))
+      await ctx.db.insert('dailyScores', aScore(bob, '2026-06-03', failedSix))
+      await ctx.db.insert('scoringSystems', inverted(teamId, '2026-07'))
+
+      const team = (await ctx.db.get(teamId))!
+      await recomputeTeamMonth(ctx, team, '2026-06', today)
+
+      const row = await ctx.db
+        .query('monthlyWinners')
+        .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId).eq('year', 2026).eq('month', 6))
+        .first()
+      expect(row?.playerId).toBe(ada)
+    })
+  })
+})

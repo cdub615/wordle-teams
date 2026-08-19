@@ -567,3 +567,44 @@ describe('monthly winners', () => {
     })
   })
 })
+
+describe('getTeamMonthFor — scoring version resolution', () => {
+  test('returns the team’s own values when there are no versions', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      const result = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
+      expect(result.team.system.oneGuess).toBe(5)
+      expect(result.team.systemEffectiveFrom).toBeNull()
+    })
+  })
+
+  test('a past month resolves to the version that governed it, not the current one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await ctx.db.insert('scoringSystems', {
+        teamId,
+        effectiveFrom: '2026-08',
+        oneGuess: 20,
+        twoGuesses: 3,
+        threeGuesses: 2,
+        fourGuesses: 1,
+        fiveGuesses: 0,
+        sixGuesses: -1,
+        failed: -3,
+        nA: 0,
+      })
+
+      const july = await getTeamMonthFor(ctx, playerId, teamId, '2026-07')
+      expect(july.team.system.oneGuess).toBe(5)
+      expect(july.team.systemEffectiveFrom).toBeNull()
+
+      const august = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
+      expect(august.team.system.oneGuess).toBe(20)
+      expect(august.team.systemEffectiveFrom).toBe('2026-08')
+    })
+  })
+})
