@@ -127,7 +127,13 @@ export function ScoresTable({
                 {days.map((day) => {
                   const score = row.byDay.get(day)
                   return (
-                    <TableCell key={day}>
+                    // data-day exists purely for e2e/board-entry.spec.ts: the
+                    // day headers render as e.g. "Sun 2nd", so a plain
+                    // toContainText('2') matches the 2nd of the month on
+                    // every load whether or not a board was ever entered.
+                    // This makes the specific (player, day) cell addressable
+                    // without relying on column position.
+                    <TableCell key={day} data-day={day}>
                       <ScoreCell
                         attempts={score ? attemptsFor(score.guesses, score.answer) : undefined}
                         hasScore={score !== undefined}

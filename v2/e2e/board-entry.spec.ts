@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
+import { toPuzzleDay } from '../convex/lib/puzzleDay.ts'
 import type { Page } from '@playwright/test'
 
 /**
@@ -26,6 +27,12 @@ async function signInWithTeam(page: Page): Promise<string> {
 test('enter a board and see the score land', async ({ page }) => {
   await signInWithTeam(page)
 
+  // The board opens to "today" by default — pick-default-day.ts's fast path
+  // for a playWeekends:true team with nothing entered yet. Derived the same
+  // way the app derives it, not hardcoded, so this holds on whatever day the
+  // suite happens to run.
+  const day = toPuzzleDay(new Date())
+
   await page.getByRole('button', { name: 'Board Entry' }).click()
   const board = page.getByRole('region', { name: 'Wordle Board' })
   await board.waitFor()
@@ -37,17 +44,20 @@ test('enter a board and see the score land', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Submit' }).click()
 
-  // The dialog closes only on success, so its disappearance IS the assertion
-  // that the write landed.
+  // The dialog closes only on success, so its disappearance is one proof the
+  // write landed — the mutation succeeded.
   await expect(board).toBeHidden()
 
-  // Today's cell shows its attempt count (src/lib/wordle.ts's scoreCell) —
-  // this board took 2 guesses, so '2' appearing in the table is proof the
-  // write reached the exact score the table reads, not just that the dialog
-  // closed. The seeded team plays every day of the week and the board was
-  // just entered for "today" (pick-default-day.ts's fast path), so this holds
-  // for whatever day the suite happens to run on rather than a fixed date.
-  await expect(page.getByRole('table')).toContainText('2')
+  // ...but that doesn't prove the TABLE shows it, which is the actual point
+  // of "see the score land". A bare toContainText('2') on the whole table is
+  // NOT that proof: format-day.ts renders day headers as e.g. "Sun 2nd", so
+  // the character '2' sits in the table on every load — the 2nd of every
+  // month — whether or not any board was ever submitted. scores-table.tsx's
+  // data-day attribute makes the one cell that matters (this player, this
+  // puzzleDay) addressable, so the assertion is scoped to exactly the write
+  // this test just made rather than to a column header that was always there.
+  const row = page.getByRole('table').locator('tr').filter({ hasText: 'E2E' })
+  await expect(row.locator(`[data-day="${day}"]`)).toHaveText('2')
 })
 
 test('native input paths cannot corrupt the board, but typing still can', async ({
