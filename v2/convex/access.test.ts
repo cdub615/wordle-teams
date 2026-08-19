@@ -2,7 +2,7 @@ import { convexTest } from 'convex-test'
 import { ConvexError } from 'convex/values'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
-import { playerForEmail, requireTeamMemberFor } from './access'
+import { isProFor, playerForEmail, requireTeamCreatorFor, requireTeamMemberFor } from './access'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -95,5 +95,81 @@ describe('requireTeamMemberFor', () => {
         data: { code: 'NOT_A_MEMBER' },
       })
     })
+  })
+})
+
+describe('requireTeamCreatorFor', () => {
+  test('returns the team for its creator', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const team = await requireTeamCreatorFor(ctx, ada, teamId)
+      expect(team._id).toBe(teamId)
+    })
+  })
+
+  test('refuses a member who is not the creator, with NOT_TEAM_CREATOR', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      await expect(requireTeamCreatorFor(ctx, bob, teamId)).rejects.toThrow(/NOT_TEAM_CREATOR/)
+    })
+  })
+
+  test('refuses a non-member with NOT_A_MEMBER, so a probe cannot tell the two apart', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const outsider = await ctx.db.insert('players', aPlayer({ email: 'out@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      await expect(requireTeamCreatorFor(ctx, outsider, teamId)).rejects.toThrow(/NOT_A_MEMBER/)
+    })
+  })
+
+  test('refuses everyone when the creator was not copied', async () => {
+    // A scoped copy may not include the team's creator, so `creator` is
+    // optional. Such a team has nobody who can edit it. Honest, but it looks
+    // like a bug on beta unless it is asserted somewhere.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: undefined }))
+      await expect(requireTeamCreatorFor(ctx, ada, teamId)).rejects.toThrow(/NOT_TEAM_CREATOR/)
+    })
+  })
+})
+
+describe('isProFor', () => {
+  test('is true only for membershipStatus pro', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      expect(await isProFor(ctx, ada)).toBe(false)
+
+      await ctx.db.insert('playerMembership', {
+        legacyId: 'lm-1',
+        playerId: ada,
+        membershipStatus: 'pro',
+      })
+      expect(await isProFor(ctx, ada)).toBe(true)
+    })
+  })
+
+  test('is false for every non-pro status', async () => {
+    const t = convexTest(schema, modules)
+    for (const status of ['new', 'free', 'cancelled', 'expired'] as const) {
+      await t.run(async (ctx) => {
+        const ada = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('playerMembership', {
+          legacyId: `lm-${status}`,
+          playerId: ada,
+          membershipStatus: status,
+        })
+        expect(await isProFor(ctx, ada)).toBe(false)
+      })
+    }
   })
 })

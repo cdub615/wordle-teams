@@ -19,7 +19,14 @@ import type { GenericDatabaseReader } from 'convex/server'
 
 // If you add a member here, src/lib/convex-error.ts's boardErrorMessage switch
 // must grow a case too — it is exhaustive against this type on purpose.
-export type AccessCode = 'UNAUTHENTICATED' | 'NO_PLAYER' | 'NOT_A_MEMBER' | 'INVALID_BOARD'
+export type AccessCode =
+  | 'UNAUTHENTICATED'
+  | 'NO_PLAYER'
+  | 'NOT_A_MEMBER'
+  | 'INVALID_BOARD'
+  | 'NOT_TEAM_CREATOR'
+  | 'INVALID_TEAM'
+  | 'INVALID_SYSTEM'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
@@ -123,4 +130,61 @@ export async function requireTeamMember(
   const player = await requirePlayer(ctx)
   const team = await requireTeamMemberFor(ctx, player._id, teamId)
   return { player, team }
+}
+
+/**
+ * The team, if that player created it.
+ *
+ * WHY CREATOR-ONLY, AND WHY SERVER-SIDE. v1's UI offers Settings, Invite and
+ * Delete only to the creator, but its RLS policy permits UPDATE to the creator
+ * OR any member — including writes to player_ids, so any member can remove any
+ * other member through the API. v2 makes the UI's rule the real one. No user
+ * sees a behaviour change; the rule simply stops being cosmetic. Recorded as
+ * divergence 4 in V2-ADDENDUM 7a.
+ *
+ * A non-member gets NOT_A_MEMBER rather than NOT_TEAM_CREATOR, matching
+ * requireTeamMemberFor: a probe must not be able to distinguish "no such team"
+ * from "not yours" from "yours but not yours to edit".
+ *
+ * `creator` is optional because a scoped copy may not include it. Such a team
+ * has NOBODY who can edit it. That is honest — you are not the creator — and it
+ * is asserted in the tests so it is a known property rather than a beta
+ * surprise.
+ */
+export async function requireTeamCreatorFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<Doc<'teams'>> {
+  const team = await requireTeamMemberFor(ctx, playerId, teamId)
+  if (team.creator !== playerId) throw accessError('NOT_TEAM_CREATOR')
+  return team
+}
+
+/** The signed-in player and a team they created. */
+export async function requireTeamCreator(
+  ctx: AuthCtx,
+  teamId: Id<'teams'>,
+): Promise<{ player: Doc<'players'>; team: Doc<'teams'> }> {
+  const player = await requirePlayer(ctx)
+  const team = await requireTeamCreatorFor(ctx, player._id, teamId)
+  return { player, team }
+}
+
+/**
+ * Whether this player is on the pro plan.
+ *
+ * READ ONLY, AND NOT ENFORCED. Phase 3 uses this to hide the scoring editor and
+ * to swap "New Team" for "Upgrade for more" past two teams — the same two gates
+ * v1 has. v1's gates are UI-only too: its `save` action does not check pro, and
+ * nothing stops a free account creating five teams through the API. Enforcing
+ * here would be a behaviour change rather than a port. Phase 5 owns whether
+ * that changes.
+ */
+export async function isProFor(ctx: ReaderCtx, playerId: Id<'players'>): Promise<boolean> {
+  const membership = await ctx.db
+    .query('playerMembership')
+    .withIndex('by_player', (q) => q.eq('playerId', playerId))
+    .first()
+  return membership?.membershipStatus === 'pro'
 }

@@ -17,7 +17,10 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'UNAUTHENTICATED' ||
     code === 'NO_PLAYER' ||
     code === 'NOT_A_MEMBER' ||
-    code === 'INVALID_BOARD'
+    code === 'INVALID_BOARD' ||
+    code === 'NOT_TEAM_CREATOR' ||
+    code === 'INVALID_TEAM' ||
+    code === 'INVALID_SYSTEM'
   ) {
     return code
   }
@@ -25,7 +28,7 @@ export function convexErrorCode(error: unknown): AccessCode | null {
 }
 
 /**
- * Copy for the four typed codes, shared by every screen that surfaces a
+ * Copy for the typed codes, shared by every screen that surfaces a
  * ConvexError. `boardErrorMessage` and `dashboardErrorMessage` below differ
  * only in what they say when `error` is NOT one of these — that fallback
  * depends on whether the user was submitting something or just loading a
@@ -46,6 +49,12 @@ function typedCodeMessage(code: AccessCode): string {
       return 'You are not on that team any more.'
     case 'INVALID_BOARD':
       return 'That board is not complete. Check the answer and your guesses.'
+    case 'NOT_TEAM_CREATOR':
+      return 'Only the person who created this team can change it.'
+    case 'INVALID_TEAM':
+      return 'A team needs a name.'
+    case 'INVALID_SYSTEM':
+      return 'Points must be whole numbers between -100 and 100.'
     default: {
       const _exhaustive: never = code
       return _exhaustive
@@ -73,7 +82,7 @@ export function boardErrorMessage(error: unknown): string {
  * ScoresTable's useSuspenseQuery).
  *
  * The null case here is NOT an edge case — it's everything that isn't one of
- * our four typed codes, which in practice means a dropped connection or a
+ * our typed codes, which in practice means a dropped connection or a
  * platform 5xx, and it is the single most likely real failure. Unlike
  * boardErrorMessage, nothing was submitted and there is no board to reassure
  * anyone about, so that copy would be actively wrong here.
