@@ -23,6 +23,7 @@ import type * as me from "../me.js";
 import type * as migrate from "../migrate.js";
 import type * as scores from "../scores.js";
 import type * as status from "../status.js";
+import type * as teams from "../teams.js";
 import type * as testOtps from "../testOtps.js";
 import type * as winners from "../winners.js";
 
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   migrate: typeof migrate;
   scores: typeof scores;
   status: typeof status;
+  teams: typeof teams;
   testOtps: typeof testOtps;
   winners: typeof winners;
 }>;

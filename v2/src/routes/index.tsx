@@ -33,7 +33,7 @@ export const Route = createFileRoute('/')({
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
   },
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(convexQuery(api.scores.getMyTeams, {}))
+    await context.queryClient.ensureQueryData(convexQuery(api.teams.getMyTeams, {}))
   },
   errorComponent: DashboardError,
   component: Dashboard,
@@ -43,7 +43,7 @@ function Dashboard() {
   const { team: teamParam, month: monthParam } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const hydrated = useHydrated()
-  const { data: teams } = useSuspenseQuery(convexQuery(api.scores.getMyTeams, {}))
+  const { data: teams } = useSuspenseQuery(convexQuery(api.teams.getMyTeams, {}))
 
   // Bottom of the login funnel (wt-ksh.12.7). Reaching here authenticated is the
   // only reliable "they made it" signal: the OAuth round-trip finishes as a fresh

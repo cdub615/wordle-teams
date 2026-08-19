@@ -110,36 +110,6 @@ export const getTeamMonth = query({
 })
 
 /**
- * Just enough to drive the team selector. Real team management is Phase 3.
- *
- * Collect-and-filter is the sanctioned approach for "teams containing player X":
- * Convex cannot index array membership. See the schema comment on `teams`.
- *
- * The cost this incurs is NOT about team count — it's about Convex's reactive
- * re-push. This query's read-set is the ENTIRE teams table, so a write to ANY
- * team invalidates the subscription for EVERY client currently subscribed to
- * getMyTeams, and each of them re-reads all rows on the next push. Bandwidth
- * cost scales with (writes to the teams table) x (concurrent subscribers), not
- * with how many teams exist or how many a given player is on — so "171 teams
- * today" says nothing about when this stops being fine. Revisit if that
- * product grows large: e.g. team-settings edits or the Phase 4 invite flow
- * becoming frequent while many clients have this query open, not simply
- * because the table grows past today's row count.
- */
-export const getMyTeams = query({
-  args: {},
-  handler: async (ctx) => {
-    const player = await currentPlayer(ctx)
-    if (!player) return []
-    const teams = await ctx.db.query('teams').collect()
-    return teams
-      .filter((team) => team.playerIds.includes(player._id))
-      .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
-      .map((team) => ({ id: team._id, name: team.name }))
-  },
-})
-
-/**
  * The caller's own player id.
  *
  * Board entry needs to know which row of getTeamMonth is "you" so it can load
