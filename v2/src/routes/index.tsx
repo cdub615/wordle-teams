@@ -14,6 +14,7 @@ import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { CurrentTeamCard } from '#/components/teams/current-team-card.tsx'
 import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
+import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
@@ -161,6 +162,12 @@ function Dashboard() {
             onEditSettings={() => setSettingsOpen(true)}
           />
           <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />
+          <ScoringSystemCard
+            teamId={teamParam as Id<'teams'>}
+            month={monthParam}
+            isPro={isPro}
+            isCreator={selectedTeam.isCreator}
+          />
         </>
       )}
       {/* Deleting the team you were looking at leaves ?team= pointing at a gone
