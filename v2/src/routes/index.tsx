@@ -152,17 +152,17 @@ function Dashboard() {
       <ScoresTable teamId={teamParam as Id<'teams'>} month={monthParam} className="md:col-span-3" />
       {selectedTeam && (
         <>
-          {/* `members` is filtered at the CALL SITE: the creator cannot be
-              removed — removeMember refuses it server-side — so the control is
-              not offered against their own row, as in v1. The card itself needs
-              no knowledge of who the creator is. */}
+          {/* Every member renders, including the caller's own row — see
+              current-team-card.tsx's doc comment. The creator cannot be
+              removed — removeMember refuses it server-side — so the card
+              gates the remove control on `isCreator && member.id !==
+              myPlayerId` rather than filtering the row out. */}
           <CurrentTeamCard
             teamId={selectedTeam.id}
             name={selectedTeam.name}
-            members={selectedTeam.members.filter(
-              (member) => !selectedTeam.isCreator || member.id !== myPlayerId,
-            )}
+            members={selectedTeam.members}
             isCreator={selectedTeam.isCreator}
+            myPlayerId={myPlayerId}
             onEditSettings={() => setSettingsOpen(true)}
           />
           <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />

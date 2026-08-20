@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
 import { TeamFields } from './team-fields.tsx'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -36,6 +37,7 @@ export function UpdateTeamDialog({
   team: { id: string; name: string; playWeekends: boolean; showLetters: boolean }
 }) {
   const update = useMutation({ mutationFn: useConvexMutation(api.teams.updateTeam) })
+  const { height, offsetTop } = useVisualViewport()
   const [name, setName] = useState(team.name)
   const [playWeekends, setPlayWeekends] = useState(team.playWeekends)
   const [showLetters, setShowLetters] = useState(team.showLetters)
@@ -81,7 +83,21 @@ export function UpdateTeamDialog({
           `w-full max-w-lg ... sm:rounded-lg`, so below 640px it is
           edge-to-edge AND square-cornered. Both of v1's team dialogs
           override it the same way. Caught on a phone screenshot. */}
-      <DialogContent className="w-11/12 rounded-lg">
+      {/*
+        Same keyboard-aware centering as create-team-dialog.tsx: this Dialog
+        is centered at every width via `top-[50%] translate-y-[-50%]`, not a
+        top Sheet, so binding useVisualViewport means re-anchoring `top` to
+        the VISIBLE viewport's own midpoint (offsetTop + height / 2) rather
+        than repositioning to the viewport's top edge the way board-entry's
+        and the scoring editor's mobile Sheets do. Without it, iOS Safari's
+        unshrunk layout viewport leaves the dialog centered against the
+        pre-keyboard height, and the footer's Update button can end up under
+        the keyboard.
+      */}
+      <DialogContent
+        className="w-11/12 rounded-lg overflow-y-auto"
+        style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
+      >
         <DialogHeader>
           <DialogTitle>Update Team</DialogTitle>
           <DialogDescription>

@@ -58,6 +58,7 @@ export const ensureTeamFor = mutation({
     return await ctx.db.insert('teams', {
       legacyId: Date.now(),
       name: 'E2E Team',
+      creator: playerId,
       playerIds: [playerId],
       invited: [],
       oneGuess: 5,

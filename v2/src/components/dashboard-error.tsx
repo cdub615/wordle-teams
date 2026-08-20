@@ -11,10 +11,11 @@ import { Button } from '#/components/ui/button.tsx'
  * keeps that growth from compounding on top of it.
  *
  * `ScoresTable` is the first thing in the app that runs a Convex query that
- * can legitimately throw at a user: `getTeamMonth` calls `requireTeamMember`,
- * which throws `NOT_A_MEMBER` for a bookmarked or shared URL carrying a stale
- * `?team=`. Task 6's client-side validation of `?team=` against the caller's
- * own team list closes the common case, but not a team deleted between render
+ * can legitimately throw at a user: `getTeamMonth` calls `requirePlayer` and
+ * `requireTeamMemberFor`, which throw `NOT_A_MEMBER` for a bookmarked or
+ * shared URL carrying a stale `?team=`. Task 6's client-side validation of
+ * `?team=` against the caller's own team list closes the common case, but not
+ * a team deleted between render
  * and query, a revoked membership mid-session, or a Convex outage — this is
  * the backstop for those. Without a boundary here, a `useSuspenseQuery`
  * rejection is an uncaught render error, not the toast copy convex-error.ts

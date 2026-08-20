@@ -1,4 +1,5 @@
 import { ConvexError } from 'convex/values'
+import { SYSTEM_VALUE_MAX, SYSTEM_VALUE_MIN } from '../../convex/lib/scoringSystem.ts'
 import type { AccessCode } from '../../convex/access'
 
 /**
@@ -64,7 +65,7 @@ function typedCodeMessage(code: AccessCode): string {
     case 'CREATOR_NOT_REMOVABLE':
       return "The person who created this team can't be removed as a member."
     case 'INVALID_SYSTEM':
-      return 'Points must be whole numbers between -100 and 100.'
+      return `Points must be whole numbers between ${SYSTEM_VALUE_MIN} and ${SYSTEM_VALUE_MAX}.`
     default: {
       const _exhaustive: never = code
       return _exhaustive

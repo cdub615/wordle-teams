@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
 import { TeamFields } from './team-fields.tsx'
 
 /**
@@ -36,6 +37,7 @@ export function CreateTeamDialog({
   onCreated: (teamId: string) => void
 }) {
   const create = useMutation({ mutationFn: useConvexMutation(api.teams.createTeam) })
+  const { height, offsetTop } = useVisualViewport()
   const [name, setName] = useState('')
   const [playWeekends, setPlayWeekends] = useState(true)
   const [showLetters, setShowLetters] = useState(true)
@@ -80,7 +82,26 @@ export function CreateTeamDialog({
         margins and rounded corners even on a phone. This is parity with
         that shape, not a v2 stylistic choice.
       */}
-      <DialogContent className="w-11/12 rounded-lg">
+      {/*
+        The Team Name input autofocuses on open (Radix's default), which pulls
+        up the keyboard on a phone. Unlike the top Sheet board entry and the
+        scoring editor bind their mobile Sheet to, this Dialog is CENTERED at
+        every width via shadcn's `top-[50%] translate-y-[-50%]` — so the
+        keyboard-aware fix here is not "reposition to top-of-viewport" but
+        "keep the centering math anchored to the VISIBLE viewport instead of
+        the full layout viewport". iOS Safari does not shrink the layout
+        viewport when the keyboard opens, so `top: 50%` centers against the
+        pre-keyboard height; with the keyboard open that midpoint can sit
+        below the visible area, pushing the footer's Create button under the
+        keyboard. Setting `top` to the visible viewport's own midpoint
+        (offsetTop + height / 2) keeps `translate-y-[-50%]` centering the
+        dialog within what's actually on screen, and `maxHeight` + scroll
+        keeps a tall keyboard from clipping the footer outright.
+      */}
+      <DialogContent
+        className="w-11/12 rounded-lg overflow-y-auto"
+        style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
+      >
         <DialogHeader>
           <DialogTitle>Create Team</DialogTitle>
           <DialogDescription>

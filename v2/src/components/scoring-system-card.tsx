@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#
 import { ScoringSystemEditor } from '#/components/scoring-system-editor.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
+import { formatMonthLabel } from '#/lib/format-day.ts'
 import { SYSTEM_FIELDS, SYSTEM_FIELD_LABELS } from '../../convex/lib/scoringSystem.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -33,13 +34,6 @@ import type { Id } from '../../convex/_generated/dataModel'
  * from the same source.
  */
 const ROWS = SYSTEM_FIELDS.map((field) => ({ field, label: SYSTEM_FIELD_LABELS[field] }))
-
-function formatEffectiveFrom(month: string): string {
-  const [year, monthNum] = month.split('-').map(Number)
-  return new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' }).format(
-    new Date(year, monthNum - 1, 1),
-  )
-}
 
 export function ScoringSystemCard({
   teamId,
@@ -85,7 +79,7 @@ export function ScoringSystemCard({
         </CardTitle>
         <CardDescription>Points awarded by number of attempts</CardDescription>
         {systemEffectiveFrom && (
-          <Badge variant="secondary">In effect from {formatEffectiveFrom(systemEffectiveFrom)}</Badge>
+          <Badge variant="secondary">In effect from {formatMonthLabel(systemEffectiveFrom)}</Badge>
         )}
       </CardHeader>
       <CardContent>

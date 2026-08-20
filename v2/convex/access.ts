@@ -11,18 +11,16 @@ import type { GenericDatabaseReader } from 'convex/server'
  * and mutation calls one of these FIRST. See the parent design's Postgres logic
  * relocation table.
  *
- * The membership check comes in two forms on purpose. requireTeamMemberFor takes
- * an explicit playerId and is what the tests exercise, so the negative cases can
- * be proven against real documents without standing up a Better Auth session in
- * the harness. requireTeamMember is the thin wrapper the functions actually call.
+ * The membership check takes an explicit playerId (requireTeamMemberFor) so
+ * the negative cases can be proven against real documents without standing up
+ * a Better Auth session in the harness. The functions call it directly with
+ * their own `requirePlayer(ctx)` result rather than through a ctx-only
+ * wrapper — see requireTeamCreatorFor below for the creator-checking sibling.
  */
 
-// If you add a member here, src/lib/convex-error.ts's boardErrorMessage switch
+// If you add a member here, src/lib/convex-error.ts's typedCodeMessage switch
 // must grow a case too — it is exhaustive against this type on purpose.
-// INVALID_DATE and CREATOR_NOT_REMOVABLE are not thrown anywhere yet — Tasks 6
-// and 7 do that. Added now, alongside INVALID_TEAM, because the union and the
-// exhaustive switch in convex-error.ts are already open for INVALID_TEAM's
-// split; adding them later would mean reopening both files a second time.
+// INVALID_DATE and CREATOR_NOT_REMOVABLE are both thrown now (teams.ts).
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -128,16 +126,6 @@ export async function requireTeamMemberFor(
   return team
 }
 
-/** The signed-in player and a team they belong to. */
-export async function requireTeamMember(
-  ctx: AuthCtx,
-  teamId: Id<'teams'>,
-): Promise<{ player: Doc<'players'>; team: Doc<'teams'> }> {
-  const player = await requirePlayer(ctx)
-  const team = await requireTeamMemberFor(ctx, player._id, teamId)
-  return { player, team }
-}
-
 /**
  * The team, if that player created it.
  *
@@ -165,16 +153,6 @@ export async function requireTeamCreatorFor(
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
   if (team.creator !== playerId) throw accessError('NOT_TEAM_CREATOR')
   return team
-}
-
-/** The signed-in player and a team they created. */
-export async function requireTeamCreator(
-  ctx: AuthCtx,
-  teamId: Id<'teams'>,
-): Promise<{ player: Doc<'players'>; team: Doc<'teams'> }> {
-  const player = await requirePlayer(ctx)
-  const team = await requireTeamCreatorFor(ctx, player._id, teamId)
-  return { player, team }
 }
 
 /**

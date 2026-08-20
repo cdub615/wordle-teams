@@ -21,14 +21,21 @@ export type TeamMember = { id: string; firstName: string; lastName: string }
  * Phase 4. Settings and the per-member remove are creator-only, matching v1's
  * UI; unlike v1 that is now also true of the mutation (divergence 4).
  *
- * The creator has no remove control on their own row: removeMember refuses it
- * server-side, and v1 hides it the same way.
+ * ALL members render, including the caller's own row — v1 maps every player
+ * and gates only the remove control (`canInvite && player.id !== userId`),
+ * never the row itself. The creator has no remove control on their own row:
+ * removeMember refuses it server-side, and this gates on `isCreator &&
+ * member.id !== myPlayerId` the same way. Filtering `members` itself (an
+ * earlier version of this component did, at the call site) instead hid the
+ * creator from their own Current Team card, disagreeing with My Teams and the
+ * scores table on the same screen.
  */
 export function CurrentTeamCard({
   teamId,
   name,
   members,
   isCreator,
+  myPlayerId,
   onEditSettings,
   className,
 }: {
@@ -36,6 +43,12 @@ export function CurrentTeamCard({
   name: string
   members: Array<TeamMember>
   isCreator: boolean
+  // Nullable because getMyPlayerId (convex/scores.ts) is: a player record
+  // linked purely by email, same as every other access check, and can come
+  // back null. `member.id !== myPlayerId` degrades safely when it does —
+  // null matches no member, so the gate simply never identifies "your own
+  // row", same as before this prop existed.
+  myPlayerId: string | null
   onEditSettings: () => void
   className?: string
 }) {
@@ -67,11 +80,17 @@ export function CurrentTeamCard({
   }
 
   return (
-    <Card className={className}>
+    // role="region" + aria-label give this card a landmark distinct from
+    // MyTeamsCard's "My Teams" — both list team names/members, and the
+    // selected team's own name is also a heading here, so without this a
+    // test (or a screen-reader user) has no reliable way to scope "the
+    // Current Team card" apart from "any card mentioning this team". Same
+    // pattern as board-input.tsx's `role="region" aria-label="Wordle Board"`.
+    <Card className={className} role="region" aria-label="Current Team">
       <CardHeader>
         <CardTitle asChild>
-          <div className="flex items-center justify-between">
-            <h2>{name}</h2>
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <h2 className="min-w-0 truncate">{name}</h2>
             {isCreator && (
               <Button size="icon" variant="outline" aria-label="Team settings" onClick={onEditSettings}>
                 <Settings size={22} />
@@ -83,12 +102,12 @@ export function CurrentTeamCard({
       <CardContent>
         <ul className="flex flex-col space-y-2">
           {members.map((member, index) => (
-            <li key={member.id}>
-              <div className="flex w-full items-center justify-between">
-                <span>
+            <li key={member.id} className="min-w-0">
+              <div className="flex w-full min-w-0 items-center justify-between gap-2">
+                <span className="min-w-0 truncate">
                   {member.firstName} {member.lastName}
                 </span>
-                {isCreator && (
+                {isCreator && member.id !== myPlayerId && (
                   <ConfirmPopover
                     open={openId === member.id}
                     onOpenChange={(next) => setOpenId(next ? member.id : null)}
