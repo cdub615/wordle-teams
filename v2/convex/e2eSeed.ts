@@ -73,3 +73,87 @@ export const ensureTeamFor = mutation({
     })
   },
 })
+
+/**
+ * Two e2e accounts, both profile-complete, on one shared team.
+ *
+ * wt-ksh.4.1 — the deferred Phase 2 acceptance criterion — needs two
+ * authenticated sessions on the same team to prove a board entered by one
+ * player pushes to another connected client's scores table with no refresh
+ * (e2e/teams.spec.ts). ensureTeamFor above cannot seed this: it is called by
+ * the same account that then signs in, so calling it twice — once per email —
+ * creates two separate single-player teams with nothing joining them.
+ *
+ * Both players get firstName AND lastName up front. hasCompleteProfile
+ * (lib/player.ts) filters an incomplete profile out of getTeamMonthFor
+ * (scores.ts) the same way it filters getMyTeamsFor — a member missing either
+ * name would never appear in the scores table this test reads, which would
+ * make the live-update assertion pass for the wrong reason (nothing to see
+ * updating, rather than proof it updates).
+ *
+ * Idempotent the same way ensureTeamFor is: found-or-created player rows, and
+ * an existing team reused if one already holds both players, so repeated
+ * local runs do not pile up teams.
+ */
+export const ensureSharedTeamFor = mutation({
+  args: { emailA: v.string(), emailB: v.string() },
+  handler: async (ctx, { emailA, emailB }) => {
+    if (
+      process.env.E2E_TEST_MODE !== 'true' ||
+      !isE2eEmail(emailA) ||
+      !isE2eEmail(emailB)
+    ) {
+      throw new Error(
+        'e2eSeed.ensureSharedTeamFor is only available in E2E test mode for e2e+* addresses',
+      )
+    }
+
+    const ensurePlayer = async (email: string, firstName: string) => {
+      const lower = email.toLowerCase()
+      const existing = await ctx.db
+        .query('players')
+        .withIndex('by_email', (q) => q.eq('email', lower))
+        .first()
+      if (existing) return existing._id
+      return await ctx.db.insert('players', {
+        legacyId: `e2e-${lower}`,
+        email: lower,
+        firstName,
+        lastName: 'E2E',
+        hasPwa: false,
+        reminderDeliveryMethods: [],
+        reminderDeliveryTime: '18:00:00',
+      })
+    }
+
+    const playerA = await ensurePlayer(emailA, 'PlayerA')
+    const playerB = await ensurePlayer(emailB, 'PlayerB')
+
+    // No index for "teams containing player X" — same collect-and-filter as
+    // ensureTeamFor above and teams.ts's getMyTeams, and just as fine at e2e
+    // scale.
+    const teams = await ctx.db.query('teams').collect()
+    const existing = teams.find(
+      (team) => team.playerIds.includes(playerA) && team.playerIds.includes(playerB),
+    )
+    if (existing) return existing._id
+
+    return await ctx.db.insert('teams', {
+      legacyId: Date.now(),
+      name: 'E2E Live Update Team',
+      creator: playerA,
+      playerIds: [playerA, playerB],
+      invited: [],
+      oneGuess: 5,
+      twoGuesses: 3,
+      threeGuesses: 2,
+      fourGuesses: 1,
+      fiveGuesses: 0,
+      sixGuesses: -1,
+      failed: -3,
+      nA: 0,
+      playWeekends: true,
+      showLetters: true,
+    })
+  },
+})

@@ -303,7 +303,7 @@ asserting that no letter is ever lit more times than it appears in the answer.
 
 ## 7a. The full divergence list for Phase 7's parity audit
 
-**Three known differences from production, all deliberate. Anything else the
+**Five known differences from production, all deliberate. Anything else the
 audit finds is a bug.**
 
 | # | Divergence | Added | Why |
@@ -311,6 +311,8 @@ audit finds is a bug.**
 | 1 | Duplicate-letter tile colouring | Phase 1.5 (`wt-ksh.12.10`) | §7 above. v1 loses a legitimate yellow; v2 uses the standard algorithm |
 | 2 | A double submit cannot create a duplicate score row | Phase 2 (`wt-ksh.3.6`) | v1 keys the upsert on a client-held score id and inserts when the client lacks one, so a double submit makes two rows — it has already done so 5 times in production (`wordle-teams-rac`). v2 keys on `(playerId, puzzleDay)`, which makes it structurally impossible. **The 5 existing copied pairs are left untouched** and read first-wins, exactly as v1 renders them |
 | 3 | `hasSeenCelebration` survives a winner rewrite | Phase 2 (`wt-ksh.3.7`) | v1's `update_monthly_winners` deletes the row and re-inserts it, wiping the seen-list every time anyone enters a board dated in that month — which can re-fire the celebration at someone who already dismissed it. v2 preserves the array when the winner is unchanged and resets it only when the winner actually changes |
+| 4 | Team mutations are creator-only, enforced server-side | Phase 3 (`wt-ksh.4.21`) | v1's UI offers Settings and Delete only to the creator, but its RLS policy permits `UPDATE` to the creator **or any member** — including writes to `player_ids`, so any member can remove any other member through the API. v2 makes the UI's rule the real one via `requireTeamCreator`. No user sees a behaviour change; the rule stops being cosmetic |
+| 5 | Membership and scoring changes recompute past winner rows | Phase 3 (`wt-ksh.4.24`, `wt-ksh.4.25`) | v1's `update_monthly_winners` is a trigger on `daily_scores`, so removing a player never fires it and they stay named as the winner of months they are no longer in. **Production is carrying stale rows today.** v2 recomputes every month the team has a winner row for |
 
 Both Phase 2 divergences are on the **write** path, so they are invisible in a
 static route-by-route comparison. Exercising them takes a deliberate double
@@ -325,6 +327,17 @@ Not divergences from v1, but recorded because they look like ones:
   it for pro accounts. Phase 2 deliberately deferred the pro gate, so v2
   currently shows a pro user *less* history than prod. Nobody sees more than v1
   would allow, which is the safe direction, but the audit will notice it.
+- **The scoring system is versioned by effective-from month.** Not a divergence:
+  v2 had no reachable editor before Phase 3, so no v2 user has ever had a system
+  rewritten in place. See `2026-08-19-v2-phase3-teams-design.md`.
+- **The missed-day row is labelled "Missed day", not `0`.** `n_a` is a misnomer —
+  v1's own card files it under "0 attempts" and it has nothing to do with the
+  `N/A` shown for weekends. The schema field name is unchanged.
+- **A team whose creator was not copied cannot be edited by anyone.**
+  `teams.creator` is optional because a scoped copy may omit it. A property of
+  the copy, not of the permission rule.
+- **The zero-teams empty state is a focused create-team card, not v1's
+  marketing `Intro`.** Sanctioned by amendment A7.
 
 ---
 
