@@ -19,7 +19,7 @@ export function TeamsEmptyState({ onCreate }: { onCreate: () => void }) {
           <h1>You&apos;re not on a team yet</h1>
         </CardTitle>
         <CardDescription>
-          Create one to start tracking your Wordle scores. You can invite people once it exists.
+          Create one to start tracking your Wordle scores.
         </CardDescription>
       </CardHeader>
       <CardContent>
