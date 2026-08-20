@@ -55,7 +55,7 @@ export const DEFAULT_SYSTEM = {
  * DEFAULT_SYSTEM stops compiling until it is added there too, at which point
  * this list — and SYSTEM_FIELD_LABELS below — pick it up with no edit here.
  *
- * teams.ts's requireValues uses this for validation; scoring-system-card.tsx
+ * scoringSystems.ts's requireValues uses this for validation; scoring-system-card.tsx
  * and scoring-system-editor.tsx both use it (with SYSTEM_FIELD_LABELS) for row
  * order, replacing what used to be two independently hand-written arrays.
  */
@@ -87,8 +87,8 @@ export const SYSTEM_FIELD_LABELS: Record<keyof ScoringSystem, string> = {
  * The valid range for a single scoring value, shared the same way
  * FREE_TEAM_LIMIT is (lib/teamLimits.ts): one constant imported by the
  * client-side editor AND the server-side check, so the two cannot drift
- * apart. teams.ts's requireValues throws INVALID_SYSTEM outside this range;
- * scoring-system-editor.tsx disables Save outside it.
+ * apart. scoringSystems.ts's requireValues throws INVALID_SYSTEM outside this
+ * range; scoring-system-editor.tsx disables Save outside it.
  */
 export const SYSTEM_VALUE_MIN = -100
 export const SYSTEM_VALUE_MAX = 100

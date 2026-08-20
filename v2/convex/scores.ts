@@ -1,9 +1,9 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { accessError, currentPlayer, requirePlayer, requireTeamMemberFor } from './access'
+import { accessError, currentPlayer, requirePlausibleToday, requirePlayer, requireTeamMemberFor } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
 import { hasCompleteProfile } from './lib/player.ts'
-import { isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
+import { monthOf, monthRange } from './lib/puzzleDay.ts'
 import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
 import { recomputePlayerMonth } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
@@ -199,18 +199,16 @@ export async function upsertBoardFor(
   // disables submit on this same predicate — v1 had no server-side check at all.
   if (!boardIsValid(answer, guesses, existing !== null)) throw accessError('INVALID_BOARD')
 
-  // The bound itself — isPlausibleToday — is shared with updateTeamFor in
-  // teams.ts, which needs it for the identical reason: see the doc comment on
+  // The bound itself — requirePlausibleToday — is shared with updateTeamFor and
+  // removeMemberFor in teams.ts and setScoringSystemFor in scoringSystems.ts,
+  // which need it for the identical reason: see the doc comment on
   // isPlausibleToday in lib/puzzleDay.ts.
   //
   // INVALID_DATE, NOT INVALID_BOARD: a clock this far off is not a board-shape
   // problem, and boardErrorMessage's "That board is not complete. Check the
   // answer and your guesses." would be actively wrong here — the board can be
   // perfectly valid and the device's clock is what's off.
-  const serverToday = toPuzzleDay(new Date())
-  if (!isPlausibleToday(today, serverToday)) {
-    throw accessError('INVALID_DATE')
-  }
+  requirePlausibleToday(today)
 
   const played = normalizeGuesses(guesses)
   let action: 'create' | 'update' | 'delete'

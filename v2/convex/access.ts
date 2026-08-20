@@ -1,8 +1,10 @@
 import { ConvexError } from 'convex/values'
 import { authComponent } from './auth'
+import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { GenericDatabaseReader } from 'convex/server'
+import type { PuzzleDay } from './lib/puzzleDay.ts'
 
 /**
  * The access checks that replace Supabase's RLS policies.
@@ -20,7 +22,8 @@ import type { GenericDatabaseReader } from 'convex/server'
 
 // If you add a member here, src/lib/convex-error.ts's typedCodeMessage switch
 // must grow a case too — it is exhaustive against this type on purpose.
-// INVALID_DATE and CREATOR_NOT_REMOVABLE are both thrown now (teams.ts).
+// INVALID_DATE is thrown here (requirePlausibleToday); CREATOR_NOT_REMOVABLE
+// is thrown in teams.ts.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -153,6 +156,29 @@ export async function requireTeamCreatorFor(
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
   if (team.creator !== playerId) throw accessError('NOT_TEAM_CREATOR')
   return team
+}
+
+/**
+ * The submitter's own local today, bounded server-side.
+ *
+ * The bound itself — isPlausibleToday — is shared across every mutation that
+ * feeds a client-supplied `today` into winner recomputation: updateTeam and
+ * removeMember in teams.ts, setScoringSystem in scoringSystems.ts, and
+ * upsertBoard in scores.ts. All four need it for the identical reason: see
+ * the doc comment on isPlausibleToday in lib/puzzleDay.ts. See wordle-teams-04r:
+ * that Convex's clock is UTC is currently an inference, and confirming it is a
+ * pre-cutover task.
+ */
+export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
+  const serverToday = toPuzzleDay(new Date())
+  if (!isPlausibleToday(today, serverToday)) {
+    // NOT INVALID_TEAM and NOT INVALID_BOARD. A clock this far off is not a
+    // naming problem or a board-shape problem, and either module's usual error
+    // message would be actively wrong here — the input can be perfectly valid
+    // and the device's clock is what's off. See the code split in Task 4.
+    throw accessError('INVALID_DATE')
+  }
+  return today
 }
 
 /**

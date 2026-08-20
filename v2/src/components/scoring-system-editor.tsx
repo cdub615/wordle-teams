@@ -63,7 +63,7 @@ export function ScoringSystemEditor({
 }) {
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const { height, offsetTop } = useVisualViewport()
-  const save = useMutation({ mutationFn: useConvexMutation(api.teams.setScoringSystem) })
+  const save = useMutation({ mutationFn: useConvexMutation(api.scoringSystems.setScoringSystem) })
   // Held as strings so a half-typed '-' or an empty box does not become 0 and
   // silently rewrite a value the user was in the middle of changing.
   const [draft, setDraft] = useState<Record<string, string>>(() => asDraft(system))

@@ -22,7 +22,8 @@ import type { GenericDatabaseWriter } from 'convex/server'
  *
  * It lives in its own module because Phase 3 calls it from three mutations that
  * have nothing to do with board entry — removeMember, updateTeam when
- * playWeekends flips, and setScoringSystem. Before the extraction the only way
+ * playWeekends flips (both teams.ts), and setScoringSystem (scoringSystems.ts,
+ * split out of teams.ts in wt-ksh.4.32). Before the extraction the only way
  * to reach it was to construct a valid board submission and pass it through the
  * whole upsert machinery, which is also why its five behaviours had no direct
  * tests.
@@ -33,12 +34,13 @@ import type { GenericDatabaseWriter } from 'convex/server'
  * Mirrors scores.ts's WriterCtx for the same reason: nothing here touches
  * anything but `ctx.db`, so convex-test's callback ctx satisfies it with no cast.
  *
- * Exported, unlike scores.ts's private copy: Phase 3 tasks 6, 7 and 8 add
- * mutations to convex/teams.ts (removeMember, updateTeam, setScoringSystem)
- * that call into this module and need the type to declare their own ctx
- * parameters. The asymmetry with scores.ts is deliberate, not a drift risk —
- * scores.ts's WriterCtx has no cross-module caller and has no reason to be
- * exported.
+ * Exported, unlike scores.ts's private copy: Phase 3 tasks 6, 7 and 8 added
+ * mutations to convex/teams.ts (removeMember, updateTeam) and
+ * convex/scoringSystems.ts (setScoringSystem, split out of teams.ts in
+ * wt-ksh.4.32) that call into this module and need the type to declare their
+ * own ctx parameters. The asymmetry with scores.ts is deliberate, not a drift
+ * risk — scores.ts's WriterCtx has no cross-module caller and has no reason to
+ * be exported.
  */
 export type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
 
