@@ -15,9 +15,11 @@ test('signs in with an emailed OTP code', async ({ page }) => {
   // team, so the dashboard's empty state is the current analogue of the old
   // "no-player" assertion: it proves the signed-in page rendered all the way
   // through rather than dying on a server error, exactly what the old
-  // copied-data assertion was guarding against.
+  // copied-data assertion was guarding against. Task 13 (wt-ksh.4.30) replaced
+  // the placeholder paragraph with TeamsEmptyState, whose heading is a real
+  // <h1> rather than text alone.
   await expect(page).toHaveURL('/')
-  await expect(page.getByText('You are not on a team yet')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
 })
 
 // javaScriptEnabled is a context OPTION, so it has to be declared for the block

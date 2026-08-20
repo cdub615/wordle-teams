@@ -12,6 +12,7 @@ import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
 import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
+import { TeamsEmptyState } from '#/components/teams/empty-state.tsx'
 import { CurrentTeamCard } from '#/components/teams/current-team-card.tsx'
 import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
 import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
@@ -81,9 +82,12 @@ function Dashboard() {
   if (teams.length === 0) {
     return (
       <main className="p-2 md:p-12">
-        <p className="text-muted-foreground">
-          You are not on a team yet. Creating and joining teams arrives in Phase 3.
-        </p>
+        <TeamsEmptyState onCreate={() => setCreateOpen(true)} />
+        <CreateTeamDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={(team) => navigate({ to: '/', search: { team }, replace: true })}
+        />
       </main>
     )
   }
