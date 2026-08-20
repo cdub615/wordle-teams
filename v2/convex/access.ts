@@ -172,9 +172,10 @@ export async function requireTeamCreatorFor(
 export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
   const serverToday = toPuzzleDay(new Date())
   if (!isPlausibleToday(today, serverToday)) {
-    // NOT INVALID_TEAM and NOT INVALID_BOARD. A clock this far off is not a
-    // naming problem or a board-shape problem, and either module's usual error
-    // message would be actively wrong here — the input can be perfectly valid
+    // NOT INVALID_TEAM, NOT INVALID_BOARD, NOT INVALID_SYSTEM — one per calling
+    // module. A clock this far off is not a naming problem, a board-shape
+    // problem or an out-of-range points problem, and every one of those
+    // messages would be actively wrong here: the input can be perfectly valid
     // and the device's clock is what's off. See the code split in Task 4.
     throw accessError('INVALID_DATE')
   }

@@ -19,6 +19,12 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 /**
  * Team management. Phase 3 (wt-ksh.4).
  *
+ * THIS MODULE OWNS TEAM IDENTITY AND MEMBERSHIP — name, playerIds, creator,
+ * playWeekends, showLetters — and nothing else. A team's scoring system lives
+ * in scoringSystems.ts, which touches the scoringSystems table exclusively and
+ * never these fields (wt-ksh.4.32). Invites belong HERE when they land: adding
+ * and removing people is membership, and removeMember is their nearest sibling.
+ *
  * getMyTeams moved here from scores.ts and grew members, creator and settings,
  * so that ONE subscription drives the picker, the CurrentTeam card and the
  * MyTeams card.
