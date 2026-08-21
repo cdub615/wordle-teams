@@ -95,6 +95,19 @@ points at them; deletes teams left with zero members; and only then deletes the 
 `dailyScores` and `monthlyWinners` need no handling — measured at 0 for every nameless player,
 and the mutation asserts that rather than trusting it.
 
+**Outcome, 2026-08-21: the dry run reported `namelessPlayers: 0`.** Beta held the `--scope=mine`
+copy plus `e2eSeed` rows, and `e2eSeed` always writes both names, so step 2 was a confirmed
+no-op rather than a skipped one. The deployment was verified to hold real data (18 players, 7
+teams, 6950 daily scores) before the zero was trusted — a zero against an empty database would
+have been meaningless.
+
+**And the scaffolding is then deleted.** Once the schema narrows, a nameless player is
+unrepresentable, so `deleteNamelessPlayers` can never find one again *and can never be tested
+again* — its fixtures cannot be constructed. Keeping it would mean permanently untested live
+code that cannot do anything. It and `cleanup-nameless-players.mjs` come out in Task 0d; the
+copy-script filter is what keeps nameless rows from returning, and it is testable
+(`scripts/lib/copy-filters.mjs`) precisely because it is the durable half of this pair.
+
 Step 2 is operational and runs through `v2/scripts/cleanup-nameless-players.mjs`, mirroring
 `copy-from-supabase.mjs`: `ConvexHttpClient` + `setAdminAuth`, `--dry-run` by default,
 idempotent, **counts only, never addresses**. It is not the CLI path — `npx convex run` demands

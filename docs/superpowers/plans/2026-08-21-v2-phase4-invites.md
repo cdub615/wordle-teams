@@ -619,10 +619,28 @@ git commit -m "feat(v2)!: players.legacyId optional, firstName/lastName required
 
 ---
 
-## Task 0d: Delete `hasCompleteProfile` and its three call sites
+## Task 0d: Delete `hasCompleteProfile` and its three call sites — and retire the cleanup
+
+**Also delete the Task 0a scaffolding.** This was not in the original plan; Task 0c's
+implementer surfaced it. `deleteNamelessPlayers` **can never be tested again**, because its
+only input — a nameless player — is unrepresentable once the schema narrows, so all six of
+`migrate.test.ts`'s tests for it fail to construct their fixtures. Leaving it would mean
+permanently untested live code.
+
+It is also permanently unnecessary. It was a one-shot pre-narrowing migration: it ran against
+beta on 2026-08-21 and reported `namelessPlayers: 0`, and the copy-script filter added in Task
+0c stops nameless rows coming back that way. It can never find anything again.
+
+So delete `deleteNamelessPlayers` from `migrate.ts`, delete `v2/convex/migrate.test.ts`'s
+`deleteNamelessPlayers` suite, and delete `v2/scripts/cleanup-nameless-players.mjs`. Git history
+and the design doc are the record of what it did. **Keep** `migrate.test.ts` itself if it has
+other suites; delete the file only if that suite was all of it.
 
 **Files:**
 - Delete: `v2/convex/lib/player.ts`
+- Delete: `v2/scripts/cleanup-nameless-players.mjs`
+- Modify: `v2/convex/migrate.ts` (remove `deleteNamelessPlayers`)
+- Modify or delete: `v2/convex/migrate.test.ts`
 - Modify: `v2/convex/scores.ts:5,70-72`
 - Modify: `v2/convex/winners.ts:1,96-98`
 - Modify: `v2/convex/teams.ts:11,71-74`
