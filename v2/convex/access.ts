@@ -23,7 +23,12 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // If you add a member here, src/lib/convex-error.ts's typedCodeMessage switch
 // must grow a case too — it is exhaustive against this type on purpose.
 // INVALID_DATE is thrown here (requirePlausibleToday); CREATOR_NOT_REMOVABLE
-// is thrown in teams.ts.
+// is thrown in teams.ts; INVALID_NAME is thrown in players.ts.
+//
+// INVALID_EMAIL HAS NO THROWER. It is reserved for address validation on the
+// invite path and declared now so the exhaustive switch and its copy are dealt
+// with in one edit rather than two. An unthrown code is inert: convexErrorCode
+// only ever returns a code a server actually threw.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -34,6 +39,8 @@ export type AccessCode =
   | 'INVALID_DATE'
   | 'CREATOR_NOT_REMOVABLE'
   | 'INVALID_SYSTEM'
+  | 'INVALID_EMAIL'
+  | 'INVALID_NAME'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

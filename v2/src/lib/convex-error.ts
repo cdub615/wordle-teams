@@ -23,7 +23,9 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'INVALID_TEAM' ||
     code === 'INVALID_DATE' ||
     code === 'CREATOR_NOT_REMOVABLE' ||
-    code === 'INVALID_SYSTEM'
+    code === 'INVALID_SYSTEM' ||
+    code === 'INVALID_EMAIL' ||
+    code === 'INVALID_NAME'
   ) {
     return code
   }
@@ -46,8 +48,15 @@ export function convexErrorCode(error: unknown): AccessCode | null {
 function typedCodeMessage(code: AccessCode): string {
   switch (code) {
     case 'UNAUTHENTICATED':
-    case 'NO_PLAYER':
       return 'Your session expired. Please sign in again.'
+    case 'NO_PLAYER':
+      // NOT "your session expired", which is what this shared a case with until
+      // Phase 4. Their session is fine — they simply have no player record yet,
+      // and signing in again does not help. Before Phase 4 that was a dead end
+      // in the literal sense: a cold signup reached the dashboard, pressed the
+      // only call to action, and got a message describing the wrong problem,
+      // because nothing in v2 could create a player at all (wt-ksh.5.1).
+      return 'Finish setting up your profile to continue.'
     case 'NOT_A_MEMBER':
       return 'You are not on that team any more.'
     case 'INVALID_BOARD':
@@ -66,6 +75,14 @@ function typedCodeMessage(code: AccessCode): string {
       return "The person who created this team can't be removed as a member."
     case 'INVALID_SYSTEM':
       return `Points must be whole numbers between ${SYSTEM_VALUE_MIN} and ${SYSTEM_VALUE_MAX}.`
+    case 'INVALID_EMAIL':
+      // No server function throws this — see the note on AccessCode. The copy is
+      // here so the switch stays exhaustive in one edit rather than two.
+      return 'That does not look like an email address.'
+    case 'INVALID_NAME':
+      // Says "both" because that is the only way to fail it: completeProfile
+      // trims each name and rejects when either side is empty.
+      return 'Enter both a first and a last name.'
     default: {
       const _exhaustive: never = code
       return _exhaustive
