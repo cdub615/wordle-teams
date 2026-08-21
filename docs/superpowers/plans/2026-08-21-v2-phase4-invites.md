@@ -1636,65 +1636,224 @@ git commit -m "feat(v2): invitePlayer with four reported outcomes (A2)"
 **Files:**
 - Modify: `v2/convex/teams.ts`
 - Modify: `v2/convex/teams.test.ts`
+- Modify: `v2/convex/access.ts` (comment only — INVALID_EMAIL gains a second thrower)
+- Modify: `v2/src/lib/convex-error.ts` (comment only — the twin of the above)
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `v2/convex/teams.test.ts`:
 
 ```ts
+/**
+ * A ctx whose `db.patch` calls are recorded, for the assertions that a helper
+ * wrote NOTHING.
+ *
+ * Needed because "no write happened" is otherwise unobservable: a patch that
+ * rewrites a field to an identical value leaves the document equal to what it
+ * was, and Convex documents carry no update timestamp to tell the two apart.
+ *
+ * Works because WriterCtx is the structural type `{ db }` — the same choice
+ * that lets convex-test's callback ctx satisfy these helpers with no cast lets
+ * a wrapper stand in for it. Methods are bound to the real db so `this` inside
+ * convex-test is never the proxy.
+ */
+const spyOnPatch = (ctx: TestCtx) => {
+  const patches: Array<unknown> = []
+  const db = new Proxy(ctx.db, {
+    get: (target, prop) => {
+      const value = Reflect.get(target, prop) as unknown
+      if (typeof value !== 'function') return value
+      const bound = (value as (...args: Array<unknown>) => unknown).bind(target)
+      if (prop !== 'patch') return bound
+      return (...args: Array<unknown>) => {
+        patches.push(args[0])
+        return bound(...args)
+      }
+    },
+  })
+  return { ctx: { db }, patches }
+}
+
 describe('cancelInviteFor / getTeamInvitesFor', () => {
-  test('the creator sees pending invites', async () => {
+  test('the creator sees pending invites EXACTLY as they are stored', async () => {
+    // STRANGER_AS_TYPED is padded, and it comes back padded. Task 7 renders
+    // these strings verbatim, and recognising a bad entry — telling a typo from
+    // a slow responder, which is the whole point of divergence 6 — means seeing
+    // the odd shape rather than a tidied copy of it. Seeded with one normal
+    // entry and one odd one so a `.map(normalise)` on the way out is visible.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
-      const team = await ctx.db.insert('teams', aTeam({ playerIds: [creator], creator, invited: ['a@example.test'] }))
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, {
+        invited: [ADA, STRANGER_AS_TYPED],
+      })
 
-      expect(await getTeamInvitesFor(ctx, creator, team)).toEqual(['a@example.test'])
+      expect(await getTeamInvitesFor(ctx, creator, teamId)).toEqual([ADA, STRANGER_AS_TYPED])
     })
   })
 
   test('a member who is not the creator is refused by the QUERY', async () => {
-    // Not merely a hidden button: these are real email addresses.
+    // NOT MERELY A HIDDEN BUTTON. These are real email addresses, so the refusal
+    // has to be the read itself — divergence 6 exists to give the creator a
+    // surface v1 lacks, not to give every member a roster of who else was asked.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const team = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator, invited: ['a@example.test'] }))
+      await ctx.db.patch(teamId, { playerIds: [creator, bob] })
 
-      await expect(getTeamInvitesFor(ctx, bob, team)).rejects.toThrow()
+      await expect(getTeamInvitesFor(ctx, bob, teamId)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_CREATOR' },
+      })
     })
   })
 
   test('cancel removes the address, case-insensitively', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
-      const team = await ctx.db.insert('teams', aTeam({
-        playerIds: [creator], creator, invited: ['Keep@example.test', 'drop@example.test'],
-      }))
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA, STRANGER] })
 
-      await cancelInviteFor(ctx, creator, { teamId: team, email: 'DROP@Example.TEST' })
+      await cancelInviteFor(ctx, creator, { teamId, email: STRANGER_AS_TYPED })
 
-      expect((await ctx.db.get(team))!.invited).toEqual(['Keep@example.test'])
+      expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
+    })
+  })
+
+  test('cancels an entry parked in a shape no write gate would strip', async () => {
+    // THE TRIM HALF OF THE READ-SIDE NORMALISE, which is the half nothing else
+    // guards. Both copy gates lowercase and neither trims — they map
+    // `e.toLowerCase()` and nothing more — so a padded v1 address survives the
+    // copy intact and reaches this filter as ' New.Person@Example.TEST '.
+    // Compare the raw stored string and that invite can never be cancelled.
+    //
+    // The lowercase half is defence in depth rather than a live hazard, for the
+    // reasons completeProfileFor sets out for this same field; the fixture is
+    // mixed-case as well because it costs nothing and pins both.
+    //
+    // Note what the previous test does NOT prove: there the SUBMITTED address is
+    // the odd one and normaliseInviteEmail has already flattened it before the
+    // comparison, so a filter written `entry !== email` passes it. This fixture
+    // puts the oddness on the STORED side, where only the read-side normalise
+    // can reach it.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, {
+        invited: [ADA, STRANGER_AS_TYPED],
+      })
+
+      await cancelInviteFor(ctx, creator, { teamId, email: STRANGER })
+
+      expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
+    })
+  })
+
+  test('cancels EVERY entry for the address, not just the first', async () => {
+    // A team can carry one address twice in two shapes: parked once before v1's
+    // wordle-teams-5no fix and once after. Cancelling the first and leaving the
+    // second makes the button look broken.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, {
+        invited: [STRANGER_AS_TYPED, ADA, STRANGER],
+      })
+      const spy = spyOnPatch(ctx)
+
+      await cancelInviteFor(spy.ctx, creator, { teamId, email: STRANGER })
+
+      expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
+      // Doing the work in ONE patch, and — read with the next test — proof that
+      // the spy sees a write when there is one to see. A spy that recorded
+      // nothing either way would make the next test pass against any code at
+      // all, so the two assertions are a matched pair.
+      expect(spy.patches).toEqual([teamId])
+    })
+  })
+
+  test('writes NOTHING when the address is not parked', async () => {
+    // The mirror of removeMemberFor's early return, and for the reason that one
+    // gives: any team write invalidates getMyTeams for EVERY connected client,
+    // so paying that broadcast for a change that never happened is pure waste.
+    // Reachable without a UI bug — cancelInvite is a public mutation and a
+    // creator can submit any string — and by a double-click on a row the
+    // reactive update has already removed.
+    //
+    // COUNTS PATCHES RATHER THAN COMPARING THE DOCUMENT, because comparing it
+    // proves nothing here: the unguarded version rewrites `invited` to an
+    // identical array, and Convex has no update timestamp, so the before and
+    // after documents are equal whether or not a write happened. The call is
+    // the only observable difference. The test above is what proves the spy is
+    // not simply blind.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+      const spy = spyOnPatch(ctx)
+
+      await cancelInviteFor(spy.ctx, creator, { teamId, email: STRANGER })
+
+      expect(spy.patches).toEqual([])
+      expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
+    })
+  })
+
+  test('refuses an address that is not a usable one, and cancels nothing', async () => {
+    // normaliseInviteEmail returns null rather than throwing, so without this
+    // guard the filter would compare every entry against null and match
+    // nothing. The early return then swallows it completely: no write, no
+    // error, and a caller told its cancel succeeded when nothing happened.
+    // The two guards have to be read together — the early return is what turns
+    // a missing INVALID_EMAIL from a wasted write into a silent lie.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+
+      await expect(
+        cancelInviteFor(ctx, creator, { teamId, email: '   ' }),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_EMAIL' } })
+
+      expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
     })
   })
 
   test('a member who is not the creator cannot cancel', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const team = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator, invited: ['a@example.test'] }))
+      await ctx.db.patch(teamId, { playerIds: [creator, bob] })
 
-      await expect(
-        cancelInviteFor(ctx, bob, { teamId: team, email: 'a@example.test' }),
-      ).rejects.toThrow()
+      await expect(cancelInviteFor(ctx, bob, { teamId, email: ADA })).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_CREATOR' },
+      })
+
+      expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
     })
   })
 })
 ```
 
-Add `cancelInviteFor` and `getTeamInvitesFor` to the `./teams.ts` import.
+Add `cancelInviteFor` and `getTeamInvitesFor` to the `./teams.ts` import. The block
+reuses the invite fixtures Task 3 already added above it — `ADA`, `STRANGER`,
+`STRANGER_AS_TYPED` and `aTeamOwnedByCara` — rather than re-inserting documents inline,
+and asserts the ConvexError `code` (`.rejects.toMatchObject({ data: { code: ... } })`)
+like every other negative test in the file, so `NOT_TEAM_CREATOR` is distinguishable
+from `NOT_A_MEMBER` and a bare `toThrow()` cannot pass on the wrong refusal.
+
+**Three of these tests are load-bearing against mutants the obvious pair misses.**
+
+- A filter written `entry !== email` is killed by the two tests that put an oddly-shaped
+  address on the STORED side — `cancels an entry parked in a shape no write gate would
+  strip` and `cancels EVERY entry for the address, not just the first`, whose fixture
+  carries one too. It is NOT killed by `cancel removes the address, case-insensitively`:
+  there the odd address is the SUBMITTED one, and `normaliseInviteEmail` has already
+  flattened it before the comparison, so a raw compare passes. (Measured by running that
+  mutant and reading which tests failed, not reasoned about.)
+- The EVERY-entry test is the only one that kills a first-match-only removal.
+- `writes NOTHING when the address is not parked` is the only one that kills a deleted
+  early-return guard, and it can only do so by COUNTING `db.patch` CALLS. Comparing the
+  document before and after proves nothing: the unguarded version rewrites `invited` to
+  an identical array, and Convex documents carry no update timestamp, so the two
+  documents are equal either way. `spyOnPatch` above the block does the counting, and the
+  EVERY-entry test asserts `spy.patches` too so that a blind spy cannot make the
+  write-nothing test vacuous.
 
 - [ ] **Step 2: Run it to make sure it fails**
 
@@ -1706,7 +1865,12 @@ Expected: FAIL — not exported.
 
 - [ ] **Step 3: Implement**
 
-Append to `v2/convex/teams.ts`:
+Append to `v2/convex/teams.ts` — which puts it directly after `invitePlayer`, where
+invites belong, beside `removeMember`. Also widen the TWO twinned comments that name
+`invitePlayerFor` as INVALID_EMAIL's only thrower in `teams.ts` — `access.ts`'s
+`AccessCode` block and its counterpart in `src/lib/convex-error.ts`, which `access.ts`
+explicitly points at as the file that must stay in sync — and retire the four now-stale
+forward references to "Task 4" inside `invitePlayerFor` and its tests.
 
 ```ts
 /**
@@ -1715,7 +1879,14 @@ Append to `v2/convex/teams.ts`:
  * Deliberately NOT folded into getMyTeams. That query picks its fields
  * explicitly so `invited` cannot reach the wire (see getMyTeamsFor), it is
  * fetched by every connected client, and these are real email addresses. This
- * is a separate, creator-scoped read of one team.
+ * is a separate, creator-scoped read of ONE team.
+ *
+ * RETURNS THE STORED ENTRIES AS THEY ARE STORED, unnormalised, and Task 7
+ * renders these strings verbatim. The creator is being shown what is actually
+ * parked on their team: a copied row can carry padding no gate ever stripped
+ * (see cancelInviteFor), and telling a typo from a slow responder — the whole
+ * point of divergence 6 — means being able to SEE the odd entry rather than
+ * being handed a tidied copy of it.
  *
  * v1 exposes this nowhere — a creator cannot see who they invited, tell a typo
  * from a slow responder, or cancel. Divergence 6.
@@ -1740,10 +1911,36 @@ export const getTeamInvites = query({
 /**
  * Withdraw a pending invite. Creator-only.
  *
- * Compared case-insensitively for the same reason completeProfileFor is: copied
- * rows predate v1's own case fix, so a stored address cannot be assumed
- * lowercase, and an invite that cannot be cancelled is exactly the trap this
+ * NORMALISED ON READ — trim().toLowerCase(), mirroring normaliseInviteEmail on
+ * write — exactly as invitePlayerFor's two scans and completeProfileFor's do.
+ * THE TWO HALVES ARE NOT THE SAME STRENGTH, and it is worth being precise:
+ *
+ * - toLowerCase() is DEFENCE IN DEPTH, not a claim that abnormal rows exist —
+ *   the framing completeProfileFor uses at length for this same field. Both
+ *   copy gates lowercase (scripts/copy-from-supabase.mjs and again migrate.ts,
+ *   "the last gate before the data lands"), all 44 pending production invites
+ *   were measured lowercase, and schema.ts says the table cannot hold a
+ *   mixed-case invite. It stays for the reason players.ts gives: the cost of
+ *   one future writer forgetting is silent and asymmetric.
+ * - trim() is NOT covered by any of that. Neither copy gate trims — both map
+ *   `e.toLowerCase()` and nothing more — so a padded v1 address survives the
+ *   copy intact.
+ *
+ * Either way the failure this prevents is the same: an entry the filter cannot
+ * match is an invite that cannot be cancelled, which is precisely the trap this
  * surface exists to remove.
+ *
+ * REMOVES EVERY MATCHING ENTRY, not the first. One address can be parked twice
+ * in two shapes, so leaving the duplicate behind would make cancelling look
+ * broken.
+ *
+ * EARLY-RETURNS WHEN NOTHING MATCHED, like removeMemberFor, and for the reason
+ * that one gives: any team write invalidates getMyTeams for EVERY connected
+ * client (see this file's module comment), and paying that broadcast for a
+ * change that never happened is pure waste. This is a public mutation — an
+ * authenticated creator can submit any string, so it is not reachable only by
+ * pressing a button for a row they can see — and a double-click on a row that
+ * is already gone is the same trigger removeMemberFor cites.
  */
 export async function cancelInviteFor(
   ctx: WriterCtx,
@@ -1754,9 +1951,14 @@ export async function cancelInviteFor(
   const email = normaliseInviteEmail(args.email)
   if (!email) throw accessError('INVALID_EMAIL')
 
-  await ctx.db.patch(team._id, {
-    invited: team.invited.filter((entry) => entry.toLowerCase() !== email),
-  })
+  // One filter does both jobs: it computes the new array AND, by its length,
+  // decides whether anything actually changed. completeProfileFor pairs a
+  // `some` guard with the same filter; here the filter's own result is the
+  // cheaper answer to the identical question.
+  const remaining = team.invited.filter((entry) => entry.trim().toLowerCase() !== email)
+  if (remaining.length === team.invited.length) return
+
+  await ctx.db.patch(team._id, { invited: remaining })
 }
 
 export const cancelInvite = mutation({
@@ -1780,8 +1982,9 @@ Expected: PASS.
 
 ```bash
 cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build
-git add v2/convex/teams.ts v2/convex/teams.test.ts
-git commit -m "feat(v2): pending invites are visible and cancellable by the creator (wt-ksh.5.3)"
+git add v2/convex/teams.ts v2/convex/teams.test.ts v2/convex/access.ts \
+  v2/src/lib/convex-error.ts
+git commit -m "feat(v2): pending invites are visible and cancellable by the creator (wt-ksh.5.16)"
 ```
 
 ---

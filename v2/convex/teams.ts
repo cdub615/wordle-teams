@@ -388,9 +388,9 @@ export async function invitePlayerFor(
     // brings over, since v1 never removed an invite it could not match — but
     // repairing it here would pay a team write, and therefore a getMyTeams
     // broadcast to every connected client, on the path whose whole point is that
-    // nothing happened. Task 4's cancelInvite will be the remedy for a row
-    // already in that state; the branch below is what stops this function
-    // creating new ones.
+    // nothing happened. cancelInviteFor, below, is the remedy for a row already
+    // in that state; the branch below is what stops this function creating new
+    // ones.
     if (team.playerIds.includes(existing._id)) return { status: 'already_member' }
 
     // ONE PATCH, TWO FIELDS. The address must leave `invited` in the same write
@@ -399,7 +399,7 @@ export async function invitePlayerFor(
     // retired, and a copied v1 player never reaches that one, because
     // needsProfile is a row-existence check and they already have a row. So for
     // the entire copied user base this is the only exit — which matters because
-    // Task 4's pending-invite list is `team.invited` itself, and the person
+    // getTeamInvitesFor's pending list is `team.invited` itself, and the person
     // would read as a member AND as pending at the same time.
     //
     // The filter mirrors normaliseInviteEmail's trim().toLowerCase() on write,
@@ -498,5 +498,101 @@ export const invitePlayer = mutation({
     }
 
     return outcome
+  },
+})
+
+/**
+ * The addresses invited to a team but not yet joined. CREATOR-ONLY.
+ *
+ * Deliberately NOT folded into getMyTeams. That query picks its fields
+ * explicitly so `invited` cannot reach the wire (see getMyTeamsFor), it is
+ * fetched by every connected client, and these are real email addresses. This
+ * is a separate, creator-scoped read of ONE team.
+ *
+ * RETURNS THE STORED ENTRIES AS THEY ARE STORED, unnormalised, and Task 7
+ * renders these strings verbatim. The creator is being shown what is actually
+ * parked on their team: a copied row can carry padding no gate ever stripped
+ * (see cancelInviteFor), and telling a typo from a slow responder — the whole
+ * point of divergence 6 — means being able to SEE the odd entry rather than
+ * being handed a tidied copy of it.
+ *
+ * v1 exposes this nowhere — a creator cannot see who they invited, tell a typo
+ * from a slow responder, or cancel. Divergence 6.
+ */
+export async function getTeamInvitesFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<Array<string>> {
+  const team = await requireTeamCreatorFor(ctx, playerId, teamId)
+  return team.invited
+}
+
+export const getTeamInvites = query({
+  args: { teamId: v.id('teams') },
+  handler: async (ctx, { teamId }) => {
+    const player = await requirePlayer(ctx)
+    return await getTeamInvitesFor(ctx, player._id, teamId)
+  },
+})
+
+/**
+ * Withdraw a pending invite. Creator-only.
+ *
+ * NORMALISED ON READ — trim().toLowerCase(), mirroring normaliseInviteEmail on
+ * write — exactly as invitePlayerFor's two scans and completeProfileFor's do.
+ * THE TWO HALVES ARE NOT THE SAME STRENGTH, and it is worth being precise:
+ *
+ * - toLowerCase() is DEFENCE IN DEPTH, not a claim that abnormal rows exist —
+ *   the framing completeProfileFor uses at length for this same field. Both
+ *   copy gates lowercase (scripts/copy-from-supabase.mjs and again migrate.ts,
+ *   "the last gate before the data lands"), all 44 pending production invites
+ *   were measured lowercase, and schema.ts says the table cannot hold a
+ *   mixed-case invite. It stays for the reason players.ts gives: the cost of
+ *   one future writer forgetting is silent and asymmetric.
+ * - trim() is NOT covered by any of that. Neither copy gate trims — both map
+ *   `e.toLowerCase()` and nothing more — so a padded v1 address survives the
+ *   copy intact.
+ *
+ * Either way the failure this prevents is the same: an entry the filter cannot
+ * match is an invite that cannot be cancelled, which is precisely the trap this
+ * surface exists to remove.
+ *
+ * REMOVES EVERY MATCHING ENTRY, not the first. One address can be parked twice
+ * in two shapes, so leaving the duplicate behind would make cancelling look
+ * broken.
+ *
+ * EARLY-RETURNS WHEN NOTHING MATCHED, like removeMemberFor, and for the reason
+ * that one gives: any team write invalidates getMyTeams for EVERY connected
+ * client (see this file's module comment), and paying that broadcast for a
+ * change that never happened is pure waste. This is a public mutation — an
+ * authenticated creator can submit any string, so it is not reachable only by
+ * pressing a button for a row they can see — and a double-click on a row that
+ * is already gone is the same trigger removeMemberFor cites.
+ */
+export async function cancelInviteFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  args: { teamId: Id<'teams'>; email: string },
+): Promise<void> {
+  const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
+  const email = normaliseInviteEmail(args.email)
+  if (!email) throw accessError('INVALID_EMAIL')
+
+  // One filter does both jobs: it computes the new array AND, by its length,
+  // decides whether anything actually changed. completeProfileFor pairs a
+  // `some` guard with the same filter; here the filter's own result is the
+  // cheaper answer to the identical question.
+  const remaining = team.invited.filter((entry) => entry.trim().toLowerCase() !== email)
+  if (remaining.length === team.invited.length) return
+
+  await ctx.db.patch(team._id, { invited: remaining })
+}
+
+export const cancelInvite = mutation({
+  args: { teamId: v.id('teams'), email: v.string() },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    await cancelInviteFor(ctx, player._id, args)
   },
 })

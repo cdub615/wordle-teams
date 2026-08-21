@@ -24,8 +24,8 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // must grow a case too — it is exhaustive against this type on purpose.
 // INVALID_DATE is thrown here (requirePlausibleToday); CREATOR_NOT_REMOVABLE
 // is thrown in teams.ts; INVALID_NAME is thrown in players.ts. INVALID_EMAIL is
-// thrown in teams.ts too, by invitePlayerFor, when normaliseInviteEmail rejects
-// the submitted address.
+// thrown in teams.ts too, by invitePlayerFor and cancelInviteFor, when
+// normaliseInviteEmail rejects the submitted address.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
