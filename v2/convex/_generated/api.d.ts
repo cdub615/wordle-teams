@@ -23,6 +23,7 @@ import type * as lib_scoringSystem from "../lib/scoringSystem.js";
 import type * as lib_teamLimits from "../lib/teamLimits.js";
 import type * as me from "../me.js";
 import type * as migrate from "../migrate.js";
+import type * as players from "../players.js";
 import type * as scores from "../scores.js";
 import type * as scoringSystems from "../scoringSystems.js";
 import type * as status from "../status.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   "lib/teamLimits": typeof lib_teamLimits;
   me: typeof me;
   migrate: typeof migrate;
+  players: typeof players;
   scores: typeof scores;
   scoringSystems: typeof scoringSystems;
   status: typeof status;
