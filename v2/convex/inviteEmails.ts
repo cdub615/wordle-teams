@@ -1,0 +1,100 @@
+// The team-invite email. Kept out of teams.ts so the copy can be read and
+// changed without picking through mutation logic — the same split authEmails.ts
+// makes for the sign-in code.
+//
+// Hand-written HTML rather than react-email, matching authEmails.ts. The design
+// named react-email for this phase; it is deferred to Phase 6, where reminders
+// add a third and fourth email and actually make the case for a component
+// library. Two emails written the same way beats two email systems.
+
+/**
+ * Escape the five characters that can break out of HTML text or an attribute
+ * value.
+ *
+ * NOT DECORATION. `teamName` is whatever the creator typed into the team form
+ * and `inviterName` is whatever they typed into the profile form — both reach
+ * this template unfiltered, and both land inside a document that is delivered to
+ * somebody else's inbox. A team named `</h1><a href="...">` would otherwise be
+ * markup rather than text in every recipient's mail client.
+ *
+ * Applied ONLY to the HTML part below. The subject and the plain-text part are
+ * not markup, and escaping them would show a reader the literal `&amp;` in a
+ * team name containing an ampersand.
+ */
+function escapeHtml(value: string): string {
+  return value
+    // First, or it would re-escape the ampersands the other four introduce.
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * @param teamName   the team they are being invited to
+ * @param inviterName the inviter's first name — v1's Supabase template was
+ *                    anonymous, and "Ada invited you" is far more legible than
+ *                    "You have been invited"
+ * @param signInUrl  where to go. There is no token: the invite lives in
+ *                   teams.invited, and completing a profile at that address is
+ *                   what claims it. Same model as v1, minus the Supabase magic
+ *                   link whose PKCE round-trip was one of the three causes of
+ *                   v1's invite->join failure (amendment A2). Server-built from
+ *                   SITE_URL by the caller, so unlike the two names it is not
+ *                   user-controlled — it is escaped anyway, which is also just
+ *                   the correct way to write a URL into an href.
+ */
+export function teamInviteEmail({
+  teamName,
+  inviterName,
+  signInUrl,
+}: {
+  teamName: string
+  inviterName: string
+  signInUrl: string
+}) {
+  const subject = `${inviterName} invited you to ${teamName} on Wordle Teams`
+
+  // A plain-text part is not optional politeness: some clients render it by
+  // preference, and a mail with no text alternative scores worse with spam
+  // filters.
+  const text = [
+    `${inviterName} invited you to join ${teamName} on Wordle Teams.`,
+    '',
+    `Sign in with this email address to join: ${signInUrl}`,
+    '',
+    "If you don't know who that is, you can ignore this email.",
+    '',
+    'Wordle Teams',
+    'https://wordleteams.com',
+  ].join('\n')
+
+  const team = escapeHtml(teamName)
+  const inviter = escapeHtml(inviterName)
+  const href = escapeHtml(signInUrl)
+
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c2024;">
+    <table role="presentation" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;">
+      <tr>
+        <td>
+          <p style="margin:0 0 8px;font-size:14px;color:#6b7280;">Wordle Teams</p>
+          <h1 style="margin:0 0 24px;font-size:20px;font-weight:600;">You&rsquo;ve been invited to ${team}</h1>
+          <p style="margin:0 0 24px;font-size:15px;line-height:1.6;">${inviter} invited you to join <strong>${team}</strong> on Wordle Teams.</p>
+          <p style="margin:0 0 24px;">
+            <a href="${href}" style="display:inline-block;background:#1c2024;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:15px;font-weight:600;">Join the team</a>
+          </p>
+          <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#6b7280;">Sign in with this email address and the team will be waiting for you.</p>
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">
+            If you don&rsquo;t know who that is, you can ignore this email.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+
+  return { subject, text, html }
+}

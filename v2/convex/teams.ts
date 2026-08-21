@@ -4,10 +4,14 @@ import {
   accessError,
   currentPlayer,
   isProFor,
+  playerForEmail,
   requirePlausibleToday,
   requirePlayer,
   requireTeamCreatorFor,
 } from './access'
+import { resend } from './email'
+import { teamInviteEmail } from './inviteEmails.ts'
+import { normaliseInviteEmail } from './lib/invite.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
@@ -21,8 +25,10 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
  * THIS MODULE OWNS TEAM IDENTITY AND MEMBERSHIP — name, playerIds, creator,
  * playWeekends, showLetters — and nothing else. A team's scoring system lives
  * in scoringSystems.ts, which touches the scoringSystems table exclusively and
- * never these fields (wt-ksh.4.32). Invites belong HERE when they land: adding
- * and removing people is membership, and removeMember is their nearest sibling.
+ * never these fields (wt-ksh.4.32). Invites landed HERE in Phase 4, where this
+ * comment said they would: adding and removing people is membership, and
+ * removeMember is invitePlayer's nearest sibling. The invite COPY lives in
+ * inviteEmails.ts, mirroring the authEmails.ts split.
  *
  * getMyTeams moved here from scores.ts and grew members, creator and settings,
  * so that ONE subscription drives the picker, the CurrentTeam card and the
@@ -301,5 +307,161 @@ export const removeMember = mutation({
   handler: async (ctx, args) => {
     const player = await requirePlayer(ctx)
     await removeMemberFor(ctx, player._id, args)
+  },
+})
+
+/**
+ * What an invite actually did.
+ *
+ * A DISCRIMINATED RESULT RATHER THAN void, because four different things can
+ * happen and v1 reports all of them as "Successfully invited player" — including
+ * the case where nothing happened at all, which is an outright lie. Divergence 9
+ * in V2-ADDENDUM 7a.
+ *
+ * `added` carries firstName because it confirms the address matched a real
+ * account, which is the most useful thing to learn after inviting by email.
+ * `invited` and `resent` carry what the mutation wrapper needs to compose the
+ * mail; `already_member` and `added` send nothing, so they carry nothing.
+ */
+export type InviteOutcome =
+  | { status: 'already_member' }
+  | { status: 'added'; firstName: string }
+  | { status: 'invited'; email: string; teamName: string; inviterName: string }
+  | { status: 'resent'; email: string; teamName: string; inviterName: string }
+
+/**
+ * Invite someone to a team by email address. Creator-only.
+ *
+ * Ports v1's invitePlayer (src/app/me/actions.ts). Its three branches are kept;
+ * its reporting is replaced by InviteOutcome above.
+ *
+ * EVERY RULE LIVES HERE, NOT IN THE WRAPPER, matching completeProfileFor,
+ * updateTeamFor and removeMemberFor — the exported Convex function resolves the
+ * caller's identity, sends the mail, and nothing else. That is not only
+ * consistency: no test in this repo can drive a `mutation` wrapper, because
+ * doing so needs a real Better Auth session in the harness, so a rule stated in
+ * the wrapper would be a rule nothing could prove.
+ *
+ * THE SEND IS THE ONE THING THAT CANNOT LIVE HERE. resend.sendEmail needs a real
+ * MutationCtx, and this helper is typed against the narrow WriterCtx (`{ db }`)
+ * precisely so convex-test's `t.run` callback satisfies it with no cast. So the
+ * DB work and the outcome happen here, and the wrapper composes the mail from
+ * what it returns. That split is deliberate.
+ *
+ * NO EMAIL IS SENT WHEN AN EXISTING PLAYER IS ADDED DIRECTLY. That is v1's
+ * behaviour — they simply find themselves on the team next time they look — and
+ * it is kept deliberately as parity rather than being quietly improved.
+ */
+export async function invitePlayerFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  args: { teamId: Id<'teams'>; email: string; today: PuzzleDay },
+): Promise<InviteOutcome> {
+  const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
+  const today = requirePlausibleToday(args.today)
+  // NORMALISED ON THE WAY IN, once, and every comparison and write below uses
+  // the result rather than args.email. Lowercasing is the fix for a real v1 bug
+  // — see lib/invite.ts and amendment A2 — and trimming is what makes a pasted
+  // address with a trailing space find the account it names.
+  const email = normaliseInviteEmail(args.email)
+  if (!email) throw accessError('INVALID_EMAIL')
+
+  // playerForEmail lowercases for itself; `email` is already normalised.
+  const existing = await playerForEmail(ctx, email)
+  if (existing) {
+    // Idempotent no-op, and reported as one. v1 logged this branch and then told
+    // the creator the invite succeeded.
+    if (team.playerIds.includes(existing._id)) return { status: 'already_member' }
+
+    await ctx.db.patch(team._id, { playerIds: [...team.playerIds, existing._id] })
+
+    // THE NEW MEMBER IS IMMEDIATELY ELIGIBLE TO HAVE WON PAST MONTHS, and they
+    // bring their whole board history with them, so every month this team
+    // already has a winner row for can now be wrong. The exact mirror of
+    // removeMember's recompute, and divergence 5 for the same reason: v1's
+    // update_monthly_winners is a trigger on daily_scores, and a membership
+    // change never fires it.
+    //
+    // Against the POST-PATCH document: recomputeTeamMonth reads playerIds off
+    // the doc it is handed, and `team` is the pre-patch snapshot, which does not
+    // have the new member on it.
+    const updated = (await ctx.db.get(team._id))!
+    await recomputeTeamMonths(ctx, updated, await monthsWithWinners(ctx, team._id), today)
+    return { status: 'added', firstName: existing.firstName }
+  }
+
+  // NORMALISED ON READ, MIRRORING normaliseInviteEmail'S trim().toLowerCase() ON
+  // WRITE — the same defence in depth completeProfileFor applies when it scans
+  // for invites to claim, and for the same reason. Every write path lowercases
+  // today, so this is not a claim that abnormal rows exist; it is that the cost
+  // of one future writer forgetting is a duplicate invite row that can never be
+  // claimed and that nobody sees an error for.
+  const alreadyInvited = team.invited.some((entry) => entry.trim().toLowerCase() === email)
+  // A resend writes NOTHING. The address is already parked, and re-parking it
+  // would either duplicate the entry or pay a team write — which invalidates
+  // getMyTeams for every connected client (see this file's module comment) — for
+  // a change that never happened.
+  if (!alreadyInvited) {
+    await ctx.db.patch(team._id, { invited: [...team.invited, email] })
+  }
+
+  // The inviter's own row, for the "Ada invited you" line — read only on the two
+  // branches that actually mail. `?? 'Someone'` is not dead:
+  // requireTeamCreatorFor only proves this id is in playerIds and equals
+  // `creator`, and a roster entry can outlive the player row it names (Convex
+  // ids are not foreign keys — the same state getMyTeamsFor and
+  // recomputeTeamMonth both guard). An anonymous invite beats a crashed one, and
+  // v1's Supabase template was anonymous anyway.
+  const inviter = await ctx.db.get(playerId)
+
+  return {
+    status: alreadyInvited ? 'resent' : 'invited',
+    email,
+    teamName: team.name,
+    inviterName: inviter?.firstName ?? 'Someone',
+  }
+}
+
+/**
+ * Invite someone to a team, and mail them if there is anybody to mail.
+ *
+ * `today` is client-supplied and bounded server-side by requirePlausibleToday
+ * inside the helper, for the reason every other mutation that feeds one into
+ * winner recomputation bounds it: the value decides which missed days are
+ * already due and is written into a monthlyWinners row the whole team reads.
+ */
+export const invitePlayer = mutation({
+  args: { teamId: v.id('teams'), email: v.string(), today: v.string() },
+  handler: async (ctx, args): Promise<InviteOutcome> => {
+    const player = await requirePlayer(ctx)
+    const outcome = await invitePlayerFor(ctx, player._id, args)
+
+    if (outcome.status === 'invited' || outcome.status === 'resent') {
+      // Read here rather than at module scope, but checked with the same reflex
+      // auth.ts uses: a missing SITE_URL must fail loudly, not silently mail
+      // somebody a link to 'undefined/login'.
+      const siteUrl = process.env.SITE_URL
+      if (!siteUrl) throw new Error('SITE_URL is not set on this deployment')
+      const { subject, text, html } = teamInviteEmail({
+        teamName: outcome.teamName,
+        inviterName: outcome.inviterName,
+        // NO TOKEN. The invite is the row in teams.invited, and completing a
+        // profile at that address is what claims it — see completeProfileFor.
+        signInUrl: `${siteUrl}/login`,
+      })
+      // resend.sendEmail accepts a MutationCtx, so this enqueues inside the same
+      // transaction as the `invited` write — no action hop, and the write and
+      // the send commit together: an address cannot be parked without its invite
+      // going out, and no mail can go out for a write that rolled back.
+      await resend.sendEmail(ctx, {
+        from: 'Wordle Teams <invites@wordleteams.com>',
+        to: outcome.email,
+        subject,
+        text,
+        html,
+      })
+    }
+
+    return outcome
   },
 })
