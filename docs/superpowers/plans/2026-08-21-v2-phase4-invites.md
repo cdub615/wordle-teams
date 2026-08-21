@@ -130,7 +130,7 @@ describe('deleteNamelessPlayers', () => {
       const nameless = await ctx.db.insert('players', aPlayer({ email: 'x@a.test', firstName: undefined, lastName: undefined }))
       const team = await ctx.db.insert('teams', aTeam({ playerIds: [nameless], creator: nameless }))
       await ctx.db.insert('monthlyWinners', {
-        playerId: nameless, teamId: team, year: 2026, month: 7, hasSeenCelebration: [],
+        playerId: nameless, teamId: team, year: 2025, month: 6, hasSeenCelebration: [],
       })
     })
 
@@ -197,7 +197,7 @@ describe('deleteNamelessPlayers', () => {
       const team = await ctx.db.insert('teams', aTeam({
         playerIds: [nameless], creator: nameless, invited: ['rostered@a.test'],
       }))
-      await ctx.db.insert('monthlyWinners', { playerId: rostered, teamId: team, year: 2026, month: 7, hasSeenCelebration: [rostered] })
+      await ctx.db.insert('monthlyWinners', { playerId: rostered, teamId: team, year: 2025, month: 6, hasSeenCelebration: [rostered] })
       await ctx.db.insert('scoringSystems', {
         teamId: team, effectiveFrom: '2026-07',
         oneGuess: 5, twoGuesses: 3, threeGuesses: 2, fourGuesses: 1, fiveGuesses: 0, sixGuesses: -1, failed: -3, nA: 0,
@@ -1059,20 +1059,20 @@ describe('completeProfileFor', () => {
       )
       // The creator has one mediocre board in July; the joiner has a better one.
       await ctx.db.insert('dailyScores', {
-        playerId: creator, puzzleDay: '2026-07-02', date: 0, guesses: ['aaaaa', 'aaaaa', 'aaaaa', 'aaaaa', 'crane'], answer: 'crane',
+        playerId: creator, puzzleDay: '2025-06-02', date: 0, guesses: ['aaaaa', 'aaaaa', 'aaaaa', 'aaaaa', 'crane'], answer: 'crane',
       })
       const stale = await ctx.db.insert('monthlyWinners', {
-        playerId: creator, teamId: team, year: 2026, month: 7, hasSeenCelebration: [],
+        playerId: creator, teamId: team, year: 2025, month: 6, hasSeenCelebration: [],
       })
 
       const adaEmail = 'ada@example.test'
       const ada = await ctx.db.insert('players', aPlayer({ email: adaEmail, firstName: 'Ada', lastName: 'L' }))
       await ctx.db.insert('dailyScores', {
-        playerId: ada, puzzleDay: '2026-07-02', date: 0, guesses: ['crane'], answer: 'crane',
+        playerId: ada, puzzleDay: '2025-06-02', date: 0, guesses: ['crane'], answer: 'crane',
       })
       await ctx.db.delete(ada)
 
-      await completeProfileFor(ctx, adaEmail, { firstName: 'Ada', lastName: 'L' }, '2026-07-31')
+      await completeProfileFor(ctx, adaEmail, { firstName: 'Ada', lastName: 'L' }, today)
 
       const row = (await ctx.db.get(stale))!
       expect(row.playerId).not.toBe(creator)
@@ -1471,19 +1471,19 @@ describe('invitePlayerFor', () => {
     await t.run(async (ctx) => {
       const { creator, team } = await setup(ctx)
       await ctx.db.insert('dailyScores', {
-        playerId: creator, puzzleDay: '2026-07-02', date: 0,
+        playerId: creator, puzzleDay: '2025-06-02', date: 0,
         guesses: ['aaaaa', 'aaaaa', 'aaaaa', 'aaaaa', 'crane'], answer: 'crane',
       })
       const stale = await ctx.db.insert('monthlyWinners', {
-        playerId: creator, teamId: team, year: 2026, month: 7, hasSeenCelebration: [],
+        playerId: creator, teamId: team, year: 2025, month: 6, hasSeenCelebration: [],
       })
 
       const ada = await ctx.db.insert('players', aPlayer({ email: 'ada@example.test' }))
       await ctx.db.insert('dailyScores', {
-        playerId: ada, puzzleDay: '2026-07-02', date: 0, guesses: ['crane'], answer: 'crane',
+        playerId: ada, puzzleDay: '2025-06-02', date: 0, guesses: ['crane'], answer: 'crane',
       })
 
-      await invitePlayerFor(ctx, creator, { teamId: team, email: 'ada@example.test', today: '2026-07-31' })
+      await invitePlayerFor(ctx, creator, { teamId: team, email: 'ada@example.test', today })
 
       expect((await ctx.db.get(stale))!.playerId).toBe(ada)
     })
@@ -1844,17 +1844,17 @@ describe('leaveTeamFor', () => {
       const team = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
 
       await ctx.db.insert('dailyScores', {
-        playerId: bob, puzzleDay: '2026-07-02', date: 0, guesses: ['crane'], answer: 'crane',
+        playerId: bob, puzzleDay: '2025-06-02', date: 0, guesses: ['crane'], answer: 'crane',
       })
       await ctx.db.insert('dailyScores', {
-        playerId: creator, puzzleDay: '2026-07-02', date: 0,
+        playerId: creator, puzzleDay: '2025-06-02', date: 0,
         guesses: ['aaaaa', 'aaaaa', 'aaaaa', 'aaaaa', 'crane'], answer: 'crane',
       })
       const row = await ctx.db.insert('monthlyWinners', {
-        playerId: bob, teamId: team, year: 2026, month: 7, hasSeenCelebration: [],
+        playerId: bob, teamId: team, year: 2025, month: 6, hasSeenCelebration: [],
       })
 
-      await leaveTeamFor(ctx, bob, { teamId: team, today: '2026-07-31' })
+      await leaveTeamFor(ctx, bob, { teamId: team, today })
 
       // Bob was the winner and is gone; the row must now name the creator.
       expect((await ctx.db.get(row))!.playerId).toBe(creator)
@@ -1869,14 +1869,14 @@ describe('leaveTeamFor', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
       const team = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: undefined }))
       await ctx.db.insert('monthlyWinners', {
-        playerId: bob, teamId: team, year: 2026, month: 7, hasSeenCelebration: [],
+        playerId: bob, teamId: team, year: 2025, month: 6, hasSeenCelebration: [],
       })
       await ctx.db.insert('scoringSystems', {
         teamId: team, effectiveFrom: '2026-07',
         oneGuess: 5, twoGuesses: 3, threeGuesses: 2, fourGuesses: 1, fiveGuesses: 0, sixGuesses: -1, failed: -3, nA: 0,
       })
       const score = await ctx.db.insert('dailyScores', {
-        playerId: bob, puzzleDay: '2026-07-02', date: 0, guesses: ['crane'], answer: 'crane',
+        playerId: bob, puzzleDay: '2025-06-02', date: 0, guesses: ['crane'], answer: 'crane',
       })
 
       await leaveTeamFor(ctx, bob, { teamId: team, today })
