@@ -17,7 +17,6 @@ import type * as fixtures from "../fixtures.js";
 import type * as http from "../http.js";
 import type * as lib_board from "../lib/board.js";
 import type * as lib_invite from "../lib/invite.js";
-import type * as lib_player from "../lib/player.js";
 import type * as lib_puzzleDay from "../lib/puzzleDay.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_scoringSystem from "../lib/scoringSystem.js";
@@ -47,7 +46,6 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/board": typeof lib_board;
   "lib/invite": typeof lib_invite;
-  "lib/player": typeof lib_player;
   "lib/puzzleDay": typeof lib_puzzleDay;
   "lib/scoring": typeof lib_scoring;
   "lib/scoringSystem": typeof lib_scoringSystem;

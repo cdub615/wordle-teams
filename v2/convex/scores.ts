@@ -2,7 +2,6 @@ import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, requirePlausibleToday, requirePlayer, requireTeamMemberFor } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
-import { hasCompleteProfile } from './lib/player.ts'
 import { monthOf, monthRange } from './lib/puzzleDay.ts'
 import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
 import { recomputePlayerMonth } from './winners.ts'
@@ -66,10 +65,19 @@ export async function getTeamMonthFor(
   const resolved = await Promise.all(
     team.playerIds.map(async (memberId) => {
       const member = await ctx.db.get(memberId)
+      // A ROSTER ENTRY WITH NO PLAYER ROW. Convex ids are not foreign keys and
+      // the schema enforces no referential integrity, so nothing at the database
+      // level guarantees that every id in `team.playerIds` still resolves.
+      // Without this the read would throw on `member.firstName` and take the
+      // whole scoreboard down for everyone else on the team; omitting the one
+      // unresolvable row is the degradation worth having.
+      //
+      // NOT THE SAME CHECK as the profile-completeness filter that used to sit
+      // beside it. That one is gone, because players.firstName/lastName became
+      // required in Phase 4 and a nameless player is now unrepresentable. A
+      // missing DOCUMENT is a different state and is still representable — do
+      // not read the deletion of the one as evidence the other is dead too.
       if (!member) return null
-      // See lib/player.ts's hasCompleteProfile for why this exclusion exists
-      // and why it must agree with recomputeTeamMonth and getMyTeamsFor.
-      if (!hasCompleteProfile(member)) return null
 
       const scores = await ctx.db
         .query('dailyScores')

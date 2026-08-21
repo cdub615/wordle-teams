@@ -97,9 +97,8 @@ console.log(`  webhookEvents    ${scopedWebhooks.length} of ${totals.webhookEven
 // lib/copy-filters.mjs for both rules and the evidence they are safe to apply.
 //
 // Reported unconditionally, zero included: a zero is the statement that the
-// filters ran and found nothing, which is what makes it a cross-check against
-// migrate.ts's deleteNamelessPlayers rather than silence. Counts only — this
-// repository is public.
+// filters ran and found nothing, rather than silence that could equally mean
+// they never ran. Counts only — this repository is public.
 //
 // Only players and teams are narrowed here. Scores, winners, memberships and
 // webhooks belonging to a skipped player or team need no filter of their own:

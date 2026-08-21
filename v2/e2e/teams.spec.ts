@@ -107,11 +107,9 @@ test('a board entered by one player updates a teammate’s table with no reload'
   // ensureSharedTeamFor (convex/e2eSeed.ts), not two ensureTeamFor calls: each
   // of those seeds its OWN team for its OWN caller, so two calls would produce
   // two disjoint teams rather than one shared one. Both players come back
-  // profile-complete (firstName AND lastName) because hasCompleteProfile
-  // (lib/player.ts) filters an incomplete profile out of the scores table
-  // exactly like it filters the team card — a player missing either name would
-  // never show up as a row here, which would make the assertions below pass
-  // trivially rather than prove anything.
+  // profile-complete (firstName AND lastName), which as of Phase 4 the schema
+  // guarantees rather than the seed merely being careful: players.firstName and
+  // lastName are v.string(), so a nameless player cannot be inserted at all.
   await convex.mutation(api.e2eSeed.ensureSharedTeamFor, { emailA, emailB })
 
   const contextA = await browser.newContext()

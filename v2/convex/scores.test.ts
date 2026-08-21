@@ -132,22 +132,27 @@ describe('getTeamMonthFor', () => {
     })
   })
 
-  test('omits players who have not completed their profile', async () => {
+  test('omits a roster entry whose player document is gone', async () => {
+    // Convex ids are not foreign keys, so a `playerIds` entry can outlive the
+    // row it names. The whole scoreboard is one read: without the guard in
+    // getTeamMonthFor, one unresolvable member throws on `member.firstName` and
+    // every OTHER member's scores go with it. Constructed by deleting the row
+    // out from under a live roster, which is the only way to reach the state
+    // now that a nameless player is unrepresentable — this test replaces the
+    // profile-completeness one that Phase 4's schema narrowing made impossible
+    // to write.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const namedId = await ctx.db.insert('players', aPlayer())
-      // A just-accepted invitee is in player_ids but has no name yet. v1's
-      // getTeams filters these out because fromDbPlayer throws without names.
-      const namelessId = await ctx.db.insert(
+      const ghostId = await ctx.db.insert(
         'players',
         aPlayer({
           legacyId: '33333333-3333-4333-8333-333333333333',
-          email: 'invited@example.com',
-          firstName: undefined,
-          lastName: undefined,
+          email: 'ghost@example.com',
         }),
       )
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [namedId, namelessId] }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [namedId, ghostId] }))
+      await ctx.db.delete(ghostId)
 
       const result = await getTeamMonthFor(ctx, namedId, teamId, '2026-08')
       expect(result.players).toHaveLength(1)

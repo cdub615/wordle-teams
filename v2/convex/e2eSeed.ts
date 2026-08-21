@@ -18,12 +18,17 @@ import { isE2eEmail } from './testOtps'
  * the e2e+*@wordleteams.com pattern, so this can never create data outside a
  * throwaway test run.
  *
- * legacyId is a synthetic value here on purpose. Real players/teams always
- * carry their Supabase primary key (see schema.ts's header comment), but an
- * e2e-only account has no Supabase row to point at, and this phase left
- * `players.legacyId` / `teams.legacyId` required rather than widening them
- * the way dailyScores/monthlyWinners were in Task 0 — inventing a value here
- * is the least invasive way to satisfy that without touching the schema.
+ * legacyId is a synthetic value here on purpose, and the schema is no longer
+ * what forces it: `players.legacyId` (Phase 4) and `teams.legacyId` (Phase 3)
+ * are both optional now, so omitting it would type-check. It is set anyway,
+ * because ABSENCE ACQUIRED A MEANING when they were widened — schema.ts defines
+ * `legacyId === undefined` as "born in v2, not copied", which is the bucket
+ * Phase 7's row-count reconciliation against Supabase leans on. A seeded e2e
+ * row is not a real v2 signup, so letting it fall into that bucket would
+ * quietly inflate the count. A synthetic value marks the row as test data on
+ * sight instead, and cannot be adopted by the copy: `e2e-<email>` is not a
+ * Supabase uuid, and the teams' `Date.now()` is far outside v1's team-id range,
+ * so by_legacyId can never match either one to a real Supabase row.
  */
 export const ensureTeamFor = mutation({
   args: { email: v.string() },
@@ -85,12 +90,10 @@ export const ensureTeamFor = mutation({
  * the same account that then signs in, so calling it twice — once per email —
  * creates two separate single-player teams with nothing joining them.
  *
- * Both players get firstName AND lastName up front. hasCompleteProfile
- * (lib/player.ts) filters an incomplete profile out of getTeamMonthFor
- * (scores.ts) the same way it filters getMyTeamsFor — a member missing either
- * name would never appear in the scores table this test reads, which would
- * make the live-update assertion pass for the wrong reason (nothing to see
- * updating, rather than proof it updates).
+ * Both players get firstName AND lastName up front, which as of Phase 4 the
+ * schema requires anyway — players.firstName/lastName are v.string(), so a
+ * nameless seed would be refused at insert rather than quietly producing a
+ * team whose members never reach the scores table.
  *
  * Idempotent the same way ensureTeamFor is: found-or-created player rows, and
  * an existing team reused if one already holds both players, so repeated

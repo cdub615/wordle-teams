@@ -1,4 +1,3 @@
-import { hasCompleteProfile } from './lib/player.ts'
 import { monthRange } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { systemFor } from './lib/scoringSystem.ts'
@@ -93,9 +92,24 @@ export async function recomputeTeamMonth(
   const totals = []
   for (const memberId of team.playerIds) {
     const member = await ctx.db.get(memberId)
-    // See lib/player.ts's hasCompleteProfile: a profile-incomplete invitee is
-    // not shown on the table and must not be able to win the month either.
-    if (!member || !hasCompleteProfile(member)) continue
+    // A ROSTER ENTRY WITH NO PLAYER ROW MUST NOT BE A CANDIDATE. Convex ids are
+    // not foreign keys and the schema enforces no referential integrity, so
+    // nothing at the database level guarantees that every id in
+    // `team.playerIds` still resolves. Unlike getTeamMonthFor and getMyTeamsFor,
+    // nothing below actually dereferences `member` — the loop only ever uses
+    // `memberId` — so dropping this guard would not throw. It would silently do
+    // something worse: a ghost id owns no dailyScores, monthTotal therefore
+    // scores it purely on the team's N/A value for elapsed days, and winnerOf
+    // takes the first entry at the maximum with a strict `>`. A nonexistent
+    // player would beat every real member who is behind on their boards, and
+    // beat them from the front of `playerIds` on a tie.
+    //
+    // NOT THE SAME CHECK as the profile-completeness filter that used to sit
+    // beside it. That one is gone, because players.firstName/lastName became
+    // required in Phase 4 and a nameless player is now unrepresentable. A
+    // missing DOCUMENT is a different state and is still representable — do not
+    // read the deletion of the one as evidence the other is dead too.
+    if (!member) continue
 
     const scores = await ctx.db
       .query('dailyScores')

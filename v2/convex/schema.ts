@@ -47,18 +47,24 @@ export default defineSchema({
     // the name in later at /complete-profile — so 151 of production's 533
     // players have no name (measured 2026-08-20). Not one of them has ever
     // entered a board or won a month, and all 29 teams they created are dead, so
-    // nothing of value is refused: the copy skips them outright (see
-    // copy-from-supabase.mjs), and migrate.ts's deleteNamelessPlayers clears any
-    // a deployment is already holding — which it must, because Convex validates
-    // this schema against every existing document on push and rejects a
-    // narrowing that any row violates.
+    // nothing of value is refused. Narrowing this field meant clearing the way
+    // first, because Convex validates this schema against every existing
+    // document on push and rejects a narrowing that any row violates: a one-off
+    // mutation emptied the deployments that were already holding such rows (run
+    // against beta 2026-08-21, which reported zero), and the copy's
+    // `isNamed` filter (scripts/lib/copy-filters.mjs) is what stops the next
+    // copy putting them back. That filter is the durable half and stays; the
+    // mutation was deleted once this narrowing made its input unrepresentable
+    // and therefore untestable.
     //
-    // This is what makes lib/player.ts's hasCompleteProfile dead weight. Its own
-    // doc comment warns that its three call sites — the scoreboard, the team card
-    // and the winner computation — have to agree or the three views of "who is on
-    // this team" would disagree. They cannot drift if the state cannot exist. The
-    // predicate and those call sites are still present as of this commit and come
-    // out next; this field is the reason they can.
+    // This is also what retired lib/player.ts's hasCompleteProfile predicate.
+    // Its three call sites — the scoreboard (scores.ts), the team card
+    // (teams.ts) and the winner computation (winners.ts) — had to agree or the
+    // three views of "who is on this team" would disagree, and three copies of
+    // one boolean kept in sync by comment were one edit from drifting. They
+    // cannot drift if the state cannot exist. All three now guard only against a
+    // roster id whose player DOCUMENT is missing, which is a different condition
+    // and still representable.
     firstName: v.string(),
     lastName: v.string(),
     hasPwa: v.boolean(),

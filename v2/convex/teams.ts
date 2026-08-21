@@ -8,7 +8,6 @@ import {
   requirePlayer,
   requireTeamCreatorFor,
 } from './access'
-import { hasCompleteProfile } from './lib/player.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
@@ -67,11 +66,20 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
       const resolved = await Promise.all(
         team.playerIds.map(async (memberId) => {
           const member = await ctx.db.get(memberId)
+          // A ROSTER ENTRY WITH NO PLAYER ROW. Convex ids are not foreign keys
+          // and the schema enforces no referential integrity, so nothing at the
+          // database level guarantees that every id in `team.playerIds` still
+          // resolves. Without this the read would throw on `member.firstName`
+          // and take the whole team list down — every team the caller is on,
+          // not just this one.
+          //
+          // NOT THE SAME CHECK as the profile-completeness filter that used to
+          // sit beside it. That one is gone, because players.firstName/lastName
+          // became required in Phase 4 and a nameless player is now
+          // unrepresentable. A missing DOCUMENT is a different state and is
+          // still representable — do not read the deletion of the one as
+          // evidence the other is dead too.
           if (!member) return null
-          // See lib/player.ts's hasCompleteProfile for why this exclusion
-          // exists and why it must agree with getTeamMonthFor and
-          // recomputeTeamMonth.
-          if (!hasCompleteProfile(member)) return null
           return { id: member._id, firstName: member.firstName, lastName: member.lastName }
         }),
       )

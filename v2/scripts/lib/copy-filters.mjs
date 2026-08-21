@@ -18,13 +18,17 @@
 /**
  * A player is copyable only if they have BOTH names.
  *
- * Falsy, not `!= null`, so an EMPTY STRING counts as nameless — deliberately the
- * same semantics as migrate.ts's deleteNamelessPlayers, which deletes on the same
- * test. The two must agree: that mutation clears the deployment so
- * players.firstName/lastName can be narrowed to required, and this filter keeps
- * the copy from putting the same rows straight back. A player who is nameless to
- * one and named to the other would be copied and then immediately rejected by the
- * schema.
+ * Falsy, not `!= null`, so an EMPTY STRING counts as nameless. That is the whole
+ * point rather than sloppiness: players.firstName/lastName are `v.string()` as of
+ * Phase 4, and `v.string()` accepts '' forever, so `!= null` here would let the
+ * copy write a row that satisfies the schema and still has no name — precisely
+ * the state the narrowing exists to make impossible.
+ *
+ * THIS IS NOW THE ONLY GATE. A one-off mutation cleared the nameless rows the
+ * deployments were already holding so the narrowing could be pushed, and was
+ * deleted with the state it operated on; this filter is what keeps the copy from
+ * putting them back, and the copy runs again at the Phase 7 parity audit and once
+ * more inside the cutover window.
  *
  * Safe to drop them: measured against production 2026-08-20, 151 of 533 players
  * are nameless and not one of them owns a dailyScore or a monthlyWinners row.
@@ -42,8 +46,8 @@ export const isNamed = (player) => Boolean(player.first_name && player.last_name
  * teams, all of them dead.
  *
  * A team whose `player_ids` was ALREADY empty in Supabase is skipped too — it has
- * no member to survive, so it cannot pass the test. Same reading as
- * deleteNamelessPlayers takes: a team with nobody on it is not a team.
+ * no member to survive, so it cannot pass the test. That is the intended reading:
+ * a team with nobody on it is not a team.
  *
  * Rosters need no cleaning here. upsertTeams resolves each member uuid and drops
  * the ones with no matching player, counting them into `droppedMembers`, so a

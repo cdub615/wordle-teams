@@ -28,10 +28,10 @@ describe('isNamed', () => {
     expect(isNamed(player('a', { first_name: undefined, last_name: undefined }))).toBe(false)
   })
 
-  test('treats an empty string as nameless, matching deleteNamelessPlayers', () => {
-    // The two MUST agree. That mutation deletes on falsiness so the narrowing can
-    // be pushed; if this filter used `!= null` instead, the copy would put an
-    // empty-string name straight back and the schema would reject the row.
+  test('treats an empty string as nameless', () => {
+    // `v.string()` accepts '' forever, so the schema narrowing cannot catch this
+    // one for us: if this filter used `!= null` instead, the copy would write a
+    // player who satisfies players.firstName/lastName and still has no name.
     expect(isNamed(player('a', { first_name: '' }))).toBe(false)
     expect(isNamed(player('a', { last_name: '' }))).toBe(false)
   })
@@ -69,8 +69,8 @@ describe('selectCopyable', () => {
   })
 
   test('skips a team that was already empty in Supabase', () => {
-    // No member can survive a filter it never entered. Same reading
-    // deleteNamelessPlayers takes: a team with nobody on it is not a team.
+    // No member can survive a filter it never entered, and the intended reading
+    // agrees: a team with nobody on it is not a team.
     const got = selectCopyable([player('named')], [team(1, [])])
     expect(got.teams).toEqual([])
     expect(got.skippedTeams).toBe(1)

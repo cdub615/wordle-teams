@@ -81,18 +81,25 @@ describe('getMyTeamsFor', () => {
     })
   })
 
-  test('excludes profile-incomplete members, as the scores table does', async () => {
+  test('omits a roster entry whose player document is gone, as the scores table does', async () => {
+    // Convex ids are not foreign keys, so a `playerIds` entry can outlive the
+    // row it names. getMyTeamsFor answers for EVERY team the caller is on in a
+    // single read, so without the guard one unresolvable member on one team
+    // throws on `member.firstName` and empties the caller's whole dashboard.
+    // Constructed by deleting the row out from under a live roster, which is
+    // the only way to reach the state now that a nameless player is
+    // unrepresentable — this test replaces the profile-completeness one that
+    // Phase 4's schema narrowing made impossible to write.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const invitee = await ctx.db.insert(
-        'players',
-        aPlayer({ email: 'new@example.com', firstName: undefined, lastName: undefined }),
-      )
-      await ctx.db.insert('teams', aTeam({ playerIds: [ada, invitee], creator: ada }))
+      const ghost = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada, ghost], creator: ada }))
+      await ctx.db.delete(ghost)
 
       const [team] = await getMyTeamsFor(ctx, ada)
       expect(team.members).toHaveLength(1)
+      expect(team.members[0].id).toBe(ada)
     })
   })
 
