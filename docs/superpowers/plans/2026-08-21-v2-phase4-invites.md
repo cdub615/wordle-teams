@@ -23,6 +23,7 @@
 - **This repository is public.** No real email addresses in code, tests, script output or commit messages.
 - **Mutation-test your own work.** Before calling a task done, revert your implementation to its previous behaviour and confirm the task's headline test *fails*. Phase 3 shipped a test labelled "the point of the whole feature" that passed against the buggy implementation.
 - **Throw `ConvexError`, never a plain `Error`, from anything whose message a human is meant to read.** Convex delivers `ConvexError.data` to clients verbatim but replaces a plain `Error`'s message with a generic `[Request ID: …] Server Error`, keeping the real text only in deployment logs. **`convex-test` runs in-process and never redacts**, so a test asserting on the message passes either way — the divergence is invisible to the suite and only appears in production, at the moment the error was supposed to explain itself. `access.ts`'s `accessError` is the established shape for UI-facing codes; for operator-facing messages, `new ConvexError('...')` keeps `.message` identical to the plain-`Error` form, so it is a drop-in.
+- **Every mutation-testing run needs a CONTROL and a SANITY case, and verdicts must come from exit codes.** A Task 1 reviewer's first harness reported all five required mutations as SURVIVED — a false result: it passed `vitest --reporter=basic`, which does not exist in vitest 4, so the run crashed and its grep found no failures. "No failures detected" and "the tests did not run" look identical to a grep. Two guards, and you need both: a **SANITY** mutant you know must die (catches "the runner never fails"), and a **CONTROL** run with no mutation at all that must pass (catches the opposite — a runner that always fails, which is otherwise indistinguishable from every mutant being killed). A mutation report you cannot trust is worse than none, because it manufactures confidence.
 - **Mutation-test each guard separately, not just the headline behaviour.** Task 0a's review found that a test asserting "the dry run wrote nothing" pinned only one of three write sites — the other two could be unguarded with every test still green, and one of them deletes a team and cascades away its whole scoring history. If a function has N conditional write paths, break N of them, one at a time.
 - **If you find a defect in this plan, fix the plan file too**, not just your code. Most Phase 3 defects were in the plan.
 
@@ -413,7 +414,9 @@ git commit -m "feat(v2): deleteNamelessPlayers + cleanup runner (wt-ksh.5.1)"
 
 ## Task 0b: Run the cleanup (OPERATIONAL — controller only)
 
-**This task writes to a live deployment. A subagent must not perform it.** The controller runs it between Task 0a's commit and Task 0c's schema change.
+**This task writes to a live deployment. A subagent must not perform it.**
+
+**The three-step sequence is a DEPLOY ordering constraint, not a development one.** Convex only validates the narrowed schema against existing rows when the schema is *pushed*; `convex-test` validates against its own fixtures, in-process. So Tasks 0c, 0d and everything after them can be written, tested and committed locally with 0b outstanding — what must never happen is **pushing** the narrowed schema before this task has run. Treat 0b as a gate on the first push, not a gate on writing code.
 
 - [ ] **Step 1: Push so the mutation exists on beta**
 
@@ -764,8 +767,13 @@ describe('isCompleteName', () => {
   test('accepts a ONE-CHARACTER name', () => {
     // v1 saves any non-empty name but guards the redirect on length > 1, so a
     // one-character name saves and then redirects to /complete-profile forever.
-    // The guard and the validation share this function precisely so that the
-    // loop cannot exist. Do not "tighten" this to length > 1.
+    // v2 cannot have that bug at all: needsProfile checks whether a player ROW
+    // exists and never re-reads the name, so there is no second opinion to
+    // disagree with the save.
+    //
+    // Do not "tighten" this to length > 1. completeProfile's validation and the
+    // form's canSubmit predicate both call this, so tightening locks the same
+    // people out of both at once.
     expect(isCompleteName('X', 'Y')).toBe(true)
   })
 
@@ -824,10 +832,27 @@ export function normaliseInviteEmail(raw: string): string | null {
 /**
  * Whether a submitted profile name is complete.
  *
- * ONE function, used by BOTH completeProfile's validation and the needsProfile
- * route guard. If they ever disagree, a name that saves does not clear the
- * guard and the user is redirected to /complete-profile forever. v1 has exactly
- * that latent bug — it accepts any non-empty name but guards on `length > 1`.
+ * TWO consumers, neither of which exists yet: completeProfile's server-side
+ * validation (Task 2), and the profile form's canSubmit predicate (Task 6).
+ * The form judges RAW, UNTRIMMED React state, which is why padded input has to
+ * count as complete rather than being rejected.
+ *
+ * NOT the route guard. needsProfile is a row-existence check and never reads a
+ * name back — the redirect loop is closed by the schema instead, since
+ * firstName/lastName are required and completeProfile validates before it
+ * inserts, so a row cannot exist without a valid name. That is strictly
+ * stronger than re-checking stored names: no names on the wire, and no
+ * sensitivity to stored whitespace.
+ *
+ * RETURNS A VERDICT, NOT A VALUE. A caller that persists must trim for itself —
+ * see completeProfile, whose outer .trim() is load-bearing for what gets STORED
+ * even though this function trims internally to judge. The two are
+ * complementary, not redundant; deleting the outer one stores ' Ada ' and no
+ * test here would notice.
+ *
+ * v1 saves any non-empty name but guards its redirect on `length > 1`, so a
+ * one-character name saves and then redirects forever. v2 has no second opinion
+ * to disagree with.
  */
 export function isCompleteName(firstName: string, lastName: string): boolean {
   return firstName.trim().length > 0 && lastName.trim().length > 0
@@ -1168,6 +1193,11 @@ export const completeProfile = mutation({
     if (!user?.email) throw accessError('UNAUTHENTICATED')
 
     const today = requirePlausibleToday(args.today)
+    // THIS TRIM IS NOT REDUNDANT with isCompleteName's internal one, however
+    // much it looks it. That one trims to JUDGE raw client state; this one
+    // decides what gets STORED. Delete it and the row holds ' Ada ', which is
+    // v1's behaviour and renders padded — and no test in lib/invite would
+    // notice, because isCompleteName is unaffected either way.
     const firstName = args.firstName.trim()
     const lastName = args.lastName.trim()
     if (!isCompleteName(firstName, lastName)) throw accessError('INVALID_NAME')

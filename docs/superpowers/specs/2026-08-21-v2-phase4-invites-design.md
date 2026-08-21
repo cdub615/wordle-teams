@@ -134,10 +134,24 @@ itself stays; it is a useful marker that a row is test data.
 | `normaliseInviteEmail(raw)` | Trimmed and lowercased, or `null` when empty or not shaped like an address. **A2's fix, at the write boundary** |
 | `isCompleteName(first, last)` | Both non-empty after trimming |
 
-`isCompleteName` is one export used by **both** `completeProfile`'s validation and the
-`needsProfile` route guard. They must agree or a name that saves does not clear the guard and
-the user redirects forever. v1 has exactly that latent bug: it accepts any non-empty name but
-guards on `length > 1`, so a one-character name loops.
+**What actually closes the redirect loop, corrected 2026-08-21.** An earlier draft of this
+section said `isCompleteName` is shared by `completeProfile`'s validation and the `needsProfile`
+route guard, and that the two "must agree". That is not how the guard is built and it would be
+a worse guard if it were: `needsProfile` is a **row-existence check** — it asks whether a player
+document exists for the session's email, and never reads a name back.
+
+The loop is closed one layer down, by the schema. `players.firstName`/`lastName` are required
+(Task 0c), and `completeProfile` validates before it inserts, so **a row cannot exist without a
+valid name**. Row-existence is therefore strictly stronger than re-checking stored names: it
+puts no names on the wire and is immune to whatever whitespace happens to be stored.
+
+`isCompleteName`'s two real consumers are `completeProfile`'s server-side validation and the
+client's `canSubmit` predicate on the profile form, which judges **raw, untrimmed React state**.
+That is why padded input must count as complete.
+
+v1's bug is still the reason this function exists at all: v1 saves any non-empty name but guards
+its redirect on `length > 1`, so a one-character name saves and then redirects forever. v2 has
+no such second opinion to disagree with.
 
 ### Layer 2 — Convex functions
 
