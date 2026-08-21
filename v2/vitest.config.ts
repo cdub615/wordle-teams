@@ -3,7 +3,11 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'edge-runtime',
-    include: ['convex/**/*.test.ts', 'src/**/*.test.ts'],
+    // scripts/ is in here since Phase 4 so the copy's exclusion rules can be
+    // pinned. The scripts themselves are untestable — they do their work at
+    // module scope against production — so anything worth asserting is lifted
+    // into scripts/lib/*.mjs, and only those get a suite.
+    include: ['convex/**/*.test.ts', 'src/**/*.test.ts', 'scripts/**/*.test.mjs'],
     server: { deps: { inline: ['convex-test'] } },
     // auth.ts fails fast at module scope when SITE_URL is unset — a deliberate
     // guard against the scheme-less-origin bug. Tests import it transitively

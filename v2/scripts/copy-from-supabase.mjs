@@ -25,11 +25,21 @@
  *   --scope=mine  (default) teams ME_EMAIL belongs to, and everyone in them.
  *   --scope=all             every team and player.
  *
+ * NOT EVERY ROW IN SCOPE IS COPIED, since Phase 4. Nameless players and teams
+ * left with no members are skipped — see lib/copy-filters.mjs for both rules and
+ * why they are safe. The run summary reports both counts.
+ *
+ * A CONSEQUENCE FOR verify-parity.mjs: it still compares every scoped Supabase
+ * row against Convex, so as soon as either count above is non-zero it will report
+ * a players/teams shortfall. That is the verifier not knowing about these rules
+ * yet, not the copy losing data. Teach it before the Phase 7 parity audit.
+ *
  * PRINTS COUNTS, NEVER ADDRESSES. This repository is public.
  */
 import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
+import { selectCopyable } from './lib/copy-filters.mjs'
 
 const args = process.argv.slice(2)
 const has = (flag) => args.includes(flag)
@@ -79,9 +89,35 @@ console.log(`  monthlyWinners   ${scopedWinners.length} of ${totals.monthlyWinne
 console.log(`  playerMembership ${scopedMemberships.length} of ${totals.playerMembership}`)
 console.log(`  webhookEvents    ${scopedWebhooks.length} of ${totals.webhookEvents}`)
 
+// --- exclusions ---------------------------------------------------------------
+
+// SINCE PHASE 4, NOT EVERY SCOPED ROW IS COPIED. players.firstName/lastName are
+// required now, so a nameless player is a row the schema cannot hold, and a team
+// left with none of its members is a row nobody could reach. See
+// lib/copy-filters.mjs for both rules and the evidence they are safe to apply.
+//
+// Reported unconditionally, zero included: a zero is the statement that the
+// filters ran and found nothing, which is what makes it a cross-check against
+// migrate.ts's deleteNamelessPlayers rather than silence. Counts only — this
+// repository is public.
+//
+// Only players and teams are narrowed here. Scores, winners, memberships and
+// webhooks belonging to a skipped player or team need no filter of their own:
+// each upsert mutation resolves its parent by legacyId first and counts the row
+// into its `skipped` tally when the parent is not there. Deliberately left to
+// them, so that one mechanism reports every orphan — including the ones a scoped
+// copy produces, which have nothing to do with these two rules.
+const copyable = selectCopyable(scopedPlayers, scopedTeams)
+console.log('\nSkipped (not copied):')
+console.log(`  nameless players ${copyable.skippedPlayers} of ${scopedPlayers.length} in scope`)
+console.log(`  memberless teams ${copyable.skippedTeams} of ${scopedTeams.length} in scope`)
+
 // How many invited addresses production stores in a form that would never have
 // matched. Reported because it quantifies the v1 bug this copy silently repairs.
-const mixedCaseInvites = scopedTeams
+// Counted over the teams that will actually be written, not every scoped team —
+// an invite on a team the copy is skipping is not going to be normalised, and
+// claiming otherwise would overstate the repair.
+const mixedCaseInvites = copyable.teams
   .flatMap((t) => t.invited || [])
   .filter((e) => e !== e.toLowerCase()).length
 if (mixedCaseInvites > 0) {
@@ -90,9 +126,15 @@ if (mixedCaseInvites > 0) {
 
 // --- shaping -----------------------------------------------------------------
 
-const playerRows = scopedPlayers.map((p) => ({
+const playerRows = copyable.players.map((p) => ({
   legacyId: p.id,
   email: (p.email || '').toLowerCase(),
+  // Still through opt(), even though selectCopyable has already guaranteed both
+  // are truthy. opt('') is undefined, which migrate.ts's now-required firstName
+  // rejects by name; a bare `p.first_name` would hand an empty string to a
+  // v.string() that accepts it, and an empty-string name is exactly the state
+  // this whole change exists to make unrepresentable. If the filter ever
+  // regresses, this is what makes it fail loudly instead of quietly.
   firstName: opt(p.first_name),
   lastName: opt(p.last_name),
   hasPwa: !!p.has_pwa,
@@ -103,7 +145,7 @@ const playerRows = scopedPlayers.map((p) => ({
   createdAt: ms(p.created_at),
 }))
 
-const teamRows = scopedTeams.map((t) => ({
+const teamRows = copyable.teams.map((t) => ({
   legacyId: t.id,
   name: t.name,
   creatorLegacyId: opt(t.creator),

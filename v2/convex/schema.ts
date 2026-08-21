@@ -27,10 +27,40 @@ const membershipStatus = v.union(
 
 export default defineSchema({
   players: defineTable({
-    legacyId: v.string(), // Supabase auth user uuid — also the players.id pk
+    // OPTIONAL SINCE PHASE 4, for the reason teams.legacyId is optional since
+    // Phase 3 and dailyScores.legacyId since Phase 2: a player who signs up in
+    // v2 has no Supabase identity to carry, and inventing a sentinel would fake
+    // one. Absence is meaningful — `legacyId === undefined` means "born in v2,
+    // not copied", which is what Phase 7's row-count reconciliation needs. The
+    // copy is unaffected: it matches on by_legacyId, and native rows correctly
+    // never match.
+    //
+    // Before this, v2 could not create a person AT ALL — the only writers were
+    // the Supabase copy and e2eSeed, so both cold signup and the invite flow
+    // dead-ended. See wt-ksh.5.1.
+    legacyId: v.optional(v.string()),
     email: v.string(), // always lowercase; auth stores it that way
-    firstName: v.optional(v.string()),
-    lastName: v.optional(v.string()),
+
+    // REQUIRED SINCE PHASE 4. A player cannot exist unnamed.
+    //
+    // v1 created the row at signup from a Postgres trigger, nameless, and filled
+    // the name in later at /complete-profile — so 151 of production's 533
+    // players have no name (measured 2026-08-20). Not one of them has ever
+    // entered a board or won a month, and all 29 teams they created are dead, so
+    // nothing of value is refused: the copy skips them outright (see
+    // copy-from-supabase.mjs), and migrate.ts's deleteNamelessPlayers clears any
+    // a deployment is already holding — which it must, because Convex validates
+    // this schema against every existing document on push and rejects a
+    // narrowing that any row violates.
+    //
+    // This is what makes lib/player.ts's hasCompleteProfile dead weight. Its own
+    // doc comment warns that its three call sites — the scoreboard, the team card
+    // and the winner computation — have to agree or the three views of "who is on
+    // this team" would disagree. They cannot drift if the state cannot exist. The
+    // predicate and those call sites are still present as of this commit and come
+    // out next; this field is the reason they can.
+    firstName: v.string(),
+    lastName: v.string(),
     hasPwa: v.boolean(),
     timeZone: v.optional(v.string()),
     reminderDeliveryMethods: v.array(v.string()),

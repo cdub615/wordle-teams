@@ -33,10 +33,37 @@ async function byLegacyId<T extends 'players' | 'teams' | 'playerMembership' | '
 // --- players -----------------------------------------------------------------
 
 const playerInput = v.object({
+  // Still REQUIRED here even though players.legacyId became optional in Phase 4.
+  // Every row reaching this mutation came out of Supabase by definition, so it
+  // has a Supabase primary key; and byLegacyId below is the entire upsert key —
+  // a row arriving without one could only ever insert a duplicate. The schema is
+  // wider than this validator on purpose: the table must also hold players born
+  // in v2, and none of those come through here.
   legacyId: v.string(),
   email: v.string(),
-  firstName: v.optional(v.string()),
-  lastName: v.optional(v.string()),
+
+  // THE SECOND GATE ON THE NAME REQUIREMENT, AND IT CHANGES NO OUTCOME — say so
+  // plainly, because it is easy to read more into it. copy-from-supabase.mjs
+  // filters nameless players out before shaping rows for this mutation, and the
+  // schema rejects them anyway if the filter ever regresses. Narrowing here moves
+  // the refusal from the ctx.db.insert below up to argument validation, so the
+  // handler never runs; it does not change what lands, and cannot, since a Convex
+  // mutation that throws writes nothing either way.
+  //
+  // Measured, not assumed: with these widened back to v.optional, upsertPlayers
+  // given a nameless row still throws, with the same error name, the same message
+  // ('Validator error: Missing required field `firstName` in object') and the same
+  // empty table. NO TEST CAN TELL THE TWO APART — see migrate.test.ts's
+  // upsertPlayers block, which pins the behaviour and says which part of it this
+  // line is not responsible for.
+  //
+  // What it is for, then: this validator is the copy's contract in one readable
+  // place. Anyone reading playerInput to find out what the script must supply
+  // learns that a name is not optional, and the diagnostic on a regression names
+  // the argument rather than pointing at an insert inside a loop over a chunk of
+  // 200.
+  firstName: v.string(),
+  lastName: v.string(),
   hasPwa: v.boolean(),
   timeZone: v.optional(v.string()),
   reminderDeliveryMethods: v.array(v.string()),

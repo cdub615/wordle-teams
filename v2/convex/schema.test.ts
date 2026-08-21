@@ -12,6 +12,11 @@ const modules = import.meta.glob('./**/*.ts')
 const aPlayer = (over: Partial<Record<string, unknown>> = {}) => ({
   legacyId: '11111111-1111-4111-8111-111111111111',
   email: 'player@example.com',
+  // Named by default since Phase 4 — see schema.ts's note on players.firstName.
+  // A nameless player is no longer a state the table can hold, so a factory that
+  // produced one could not be inserted anywhere.
+  firstName: 'Ada',
+  lastName: 'Lovelace',
   hasPwa: false,
   reminderDeliveryMethods: ['email'],
   reminderDeliveryTime: '18:00:00',
@@ -40,7 +45,7 @@ describe('players', () => {
   test('round-trips and is reachable by legacyId and by email', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const id = await ctx.db.insert('players', aPlayer({ firstName: 'Ada' }))
+      const id = await ctx.db.insert('players', aPlayer())
 
       const byLegacy = await ctx.db
         .query('players')
@@ -48,9 +53,7 @@ describe('players', () => {
         .unique()
       expect(byLegacy?._id).toBe(id)
       expect(byLegacy?.firstName).toBe('Ada')
-      // Optional in the port because Supabase allows null: a player invited but
-      // not yet through complete-profile has no name at all.
-      expect(byLegacy?.lastName).toBeUndefined()
+      expect(byLegacy?.lastName).toBe('Lovelace')
 
       const byEmail = await ctx.db
         .query('players')
@@ -354,6 +357,57 @@ describe('teams.legacyId', () => {
       // aTeam()'s default IS a copied team: legacyId: 206.
       const id = await ctx.db.insert('teams', aTeam())
       expect((await ctx.db.get(id))?.legacyId).toBe(206)
+    })
+  })
+})
+
+describe('players name requirement', () => {
+  test('rejects an insert with no firstName', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        await ctx.db.insert('players', {
+          email: 'x@a.test',
+          lastName: 'Lovelace',
+          hasPwa: false,
+          reminderDeliveryMethods: ['email'],
+          reminderDeliveryTime: '10:00:00',
+        } as never)
+      }),
+    ).rejects.toThrow()
+  })
+
+  // The symmetric case. Not redundant: mutation testing found that narrowing
+  // firstName alone left lastName free to go back to v.optional() with every
+  // test still green, because the case above supplies a lastName. Both fields
+  // were narrowed, so both are pinned.
+  test('rejects an insert with no lastName', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        await ctx.db.insert('players', {
+          email: 'x@a.test',
+          firstName: 'Ada',
+          hasPwa: false,
+          reminderDeliveryMethods: ['email'],
+          reminderDeliveryTime: '10:00:00',
+        } as never)
+      }),
+    ).rejects.toThrow()
+  })
+
+  test('accepts an insert with no legacyId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', {
+        email: 'x@a.test',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        hasPwa: false,
+        reminderDeliveryMethods: ['email'],
+        reminderDeliveryTime: '10:00:00',
+      })
+      expect((await ctx.db.get(id))!.legacyId).toBeUndefined()
     })
   })
 })
