@@ -23,6 +23,7 @@
 - **This repository is public.** No real email addresses in code, tests, script output or commit messages.
 - **Mutation-test your own work.** Before calling a task done, revert your implementation to its previous behaviour and confirm the task's headline test *fails*. Phase 3 shipped a test labelled "the point of the whole feature" that passed against the buggy implementation.
 - **Throw `ConvexError`, never a plain `Error`, from anything whose message a human is meant to read.** Convex delivers `ConvexError.data` to clients verbatim but replaces a plain `Error`'s message with a generic `[Request ID: …] Server Error`, keeping the real text only in deployment logs. **`convex-test` runs in-process and never redacts**, so a test asserting on the message passes either way — the divergence is invisible to the suite and only appears in production, at the moment the error was supposed to explain itself. `access.ts`'s `accessError` is the established shape for UI-facing codes; for operator-facing messages, `new ConvexError('...')` keeps `.message` identical to the plain-`Error` form, so it is a drop-in.
+- **Put every rule in the `...For` helper, never in the `query`/`mutation` wrapper.** `convex-test` cannot stand up a Better Auth session, so `authComponent.getAuthUser` never resolves under test and **the body of every authed wrapper is unreachable by the unit suite**. Task 2's draft in this plan put validation, trimming and the `today` bound in the wrapper; a rule placed there is not merely untested, it is *untestable*, and the mutation testing that would have caught it silently has nothing to bite on. Leave only `getAuthUser`, the `!user?.email` guard, and argument forwarding above the helper. This is the same reasoning `access.ts` already encodes by giving its checks an explicit-playerId shape. Tracked as `wordle-teams-obw`.
 - **Every mutation-testing run needs a CONTROL and a SANITY case, and verdicts must come from exit codes.** A Task 1 reviewer's first harness reported all five required mutations as SURVIVED — a false result: it passed `vitest --reporter=basic`, which does not exist in vitest 4, so the run crashed and its grep found no failures. "No failures detected" and "the tests did not run" look identical to a grep. Two guards, and you need both: a **SANITY** mutant you know must die (catches "the runner never fails"), and a **CONTROL** run with no mutation at all that must pass (catches the opposite — a runner that always fails, which is otherwise indistinguishable from every mutant being killed). A mutation report you cannot trust is worse than none, because it manufactures confidence.
 - **Mutation-test each guard separately, not just the headline behaviour.** Task 0a's review found that a test asserting "the dry run wrote nothing" pinned only one of three write sites — the other two could be unguarded with every test still green, and one of them deletes a team and cascades away its whole scoring history. If a function has N conditional write paths, break N of them, one at a time.
 - **If you find a defect in this plan, fix the plan file too**, not just your code. Most Phase 3 defects were in the plan.
@@ -1154,16 +1155,26 @@ const NEW_PLAYER_DEFAULTS = {
  */
 export async function completeProfileFor(
   ctx: WriterCtx,
-  email: string,
+  rawEmail: string,
   names: { firstName: string; lastName: string },
-  today: PuzzleDay,
+  rawToday: PuzzleDay,
 ): Promise<Id<'players'>> {
+  // Every rule lives HERE, not in the mutation wrapper, because the wrapper is
+  // unreachable by convex-test. Lowercasing here too, so the module has one rule
+  // rather than a precondition on its callers.
+  const email = rawEmail.toLowerCase()
+  const today = requirePlausibleToday(rawToday)
+  const firstName = names.firstName.trim()
+  const lastName = names.lastName.trim()
+  if (!isCompleteName(firstName, lastName)) throw accessError('INVALID_NAME')
+
   const existing = await playerForEmail(ctx, email)
   const playerId = existing
-    ? (await ctx.db.patch(existing._id, names), existing._id)
+    ? (await ctx.db.patch(existing._id, { firstName, lastName }), existing._id)
     : await ctx.db.insert('players', {
         email,
-        ...names,
+        firstName,
+        lastName,
         ...NEW_PLAYER_DEFAULTS,
         createdAt: Date.now(),
         // No legacyId. Absence means "born in v2, not copied" — see schema.ts.
@@ -1207,25 +1218,14 @@ export const completeProfile = mutation({
   args: { firstName: v.string(), lastName: v.string(), today: v.string() },
   handler: async (ctx, args) => {
     // NOT requirePlayer: there is no player yet, which is the entire point.
+    //
+    // NOTHING ELSE BELONGS HERE. An earlier draft of this plan validated,
+    // trimmed and bounded `today` in this wrapper — where convex-test can never
+    // reach it, because it cannot stand up a Better Auth session. Every one of
+    // those rules lives in completeProfileFor instead. See the ground rules.
     const user = await authComponent.getAuthUser(ctx)
     if (!user?.email) throw accessError('UNAUTHENTICATED')
-
-    const today = requirePlausibleToday(args.today)
-    // THIS TRIM IS NOT REDUNDANT with isCompleteName's internal one, however
-    // much it looks it. That one trims to JUDGE raw client state; this one
-    // decides what gets STORED. Delete it and the row holds ' Ada ', which is
-    // v1's behaviour and renders padded — and no test in lib/invite would
-    // notice, because isCompleteName is unaffected either way.
-    const firstName = args.firstName.trim()
-    const lastName = args.lastName.trim()
-    if (!isCompleteName(firstName, lastName)) throw accessError('INVALID_NAME')
-
-    return await completeProfileFor(
-      ctx,
-      user.email.toLowerCase(),
-      { firstName, lastName },
-      today,
-    )
+    return await completeProfileFor(ctx, user.email, args)
   },
 })
 
