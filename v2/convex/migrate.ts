@@ -488,6 +488,13 @@ export const counts = internalQuery({
  * narrowing that any row violates. See the Phase 4 design's "Prerequisite"
  * section for the three-step sequence this is step 1 of.
  *
+ * "Nameless" means falsy, so an EMPTY STRING counts as nameless and the player
+ * is deleted — deliberately, and matching the filter Task 0c adds to the copy
+ * script. An unnamed player is unnamed whether the field is missing or blank,
+ * and `v.string()` would happily accept '' forever. One consequence worth
+ * watching at run time: a dry-run count above the expected figure means
+ * empty-string names exist in the data, since only missing ones were counted.
+ *
  * Measured against production 2026-08-20: 151 of 533 players are nameless, and
  * NOT ONE of them owns a dailyScore or a monthlyWinners row. This mutation
  * ASSERTS that rather than trusting it — if the assumption is ever false the
@@ -564,6 +571,11 @@ export const deleteNamelessPlayers = internalMutation({
       for (const player of nameless) await ctx.db.delete(player._id)
     }
 
+    // THE FOUR COUNTS DO NOT SUM TO ANYTHING. A team is counted in exactly one
+    // of them: an emptied team short-circuits on `continue`, so a team that was
+    // both emptied AND had a nameless creator is teamsEmptied only, never also
+    // creatorsCleared.
+    //
     // Counts only. This output is pasted into design docs and issues, and the
     // repository is public.
     return {

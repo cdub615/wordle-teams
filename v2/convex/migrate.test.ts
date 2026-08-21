@@ -9,20 +9,52 @@ const modules = import.meta.glob('./**/*.ts')
 describe('deleteNamelessPlayers', () => {
   test('dry run reports counts and writes nothing', async () => {
     const t = convexTest(schema, modules)
-    const ada = await t.run(async (ctx) => {
+    // Both branches of the team loop are represented, because a dry run has to
+    // skip BOTH writes: `team` would be deleted outright, `shared` would be
+    // patched. One emptied team alone would leave the patch unguarded and
+    // unnoticed.
+    const { ada, live, team, shared } = await t.run(async (ctx) => {
       const nameless = await ctx.db.insert(
         'players',
         aPlayer({ email: 'x@a.test', firstName: undefined, lastName: undefined }),
       )
-      await ctx.db.insert('teams', aTeam({ playerIds: [nameless], creator: nameless }))
-      return nameless
+      const live = await ctx.db.insert('players', aPlayer({ email: 'live@a.test' }))
+      const team = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [nameless], creator: nameless }),
+      )
+      const shared = await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 999, playerIds: [live, nameless], creator: nameless }),
+      )
+      return { ada: nameless, live, team, shared }
     })
 
     const report = await t.mutation(internal.migrate.deleteNamelessPlayers, { dryRun: true })
-    expect(report).toMatchObject({ namelessPlayers: 1, teamsEmptied: 1 })
+    expect(report).toEqual({
+      dryRun: true,
+      namelessPlayers: 1,
+      teamsEmptied: 1,
+      rostersCleaned: 1,
+      creatorsCleared: 1,
+    })
 
+    // Every write the commit path would perform is asserted absent, not just the
+    // player delete. A dry run that emptied this team would ALSO cascade away
+    // its monthlyWinners and scoringSystems, and Task 0b runs this against a
+    // live deployment on the strength of the dry-run output alone — so "wrote
+    // nothing" has to be pinned write-for-write.
     await t.run(async (ctx) => {
       expect(await ctx.db.get(ada)).not.toBeNull()
+
+      const untouched = await ctx.db.get(team)
+      expect(untouched).not.toBeNull()
+      expect(untouched!.playerIds).toEqual([ada])
+      expect(untouched!.creator).toEqual(ada)
+
+      const unpatched = (await ctx.db.get(shared))!
+      expect(unpatched.playerIds).toEqual([live, ada])
+      expect(unpatched.creator).toEqual(ada)
     })
   })
 
@@ -76,49 +108,118 @@ describe('deleteNamelessPlayers', () => {
     ).rejects.toThrow(/owns dailyScores/)
   })
 
-  test("deletes an emptied team's monthlyWinners and scoringSystems but not dailyScores", async () => {
+  // The second half of the same guard. Both tables are asserted rather than
+  // trusted, so both refusals need a test — production says no nameless player
+  // owns either, and the whole point is to find out if that ever stops being
+  // true rather than to delete somebody's history on the assumption it holds.
+  test('refuses to run when a nameless player owns a monthlyWinners row', async () => {
     const t = convexTest(schema, modules)
-    const { score } = await t.run(async (ctx) => {
+    await t.run(async (ctx) => {
       const nameless = await ctx.db.insert(
         'players',
         aPlayer({ email: 'x@a.test', firstName: undefined, lastName: undefined }),
       )
-      const live = await ctx.db.insert('players', aPlayer({ email: 'live@a.test' }))
-      const team = await ctx.db.insert('teams', aTeam({ playerIds: [nameless], creator: nameless }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [nameless] }))
       await ctx.db.insert('monthlyWinners', {
-        playerId: live,
+        playerId: nameless,
         teamId: team,
         year: 2026,
         month: 7,
         hasSeenCelebration: [],
       })
-      await ctx.db.insert('scoringSystems', {
-        teamId: team,
-        effectiveFrom: '2026-07',
-        oneGuess: 5,
-        twoGuesses: 3,
-        threeGuesses: 2,
-        fourGuesses: 1,
-        fiveGuesses: 0,
-        sixGuesses: -1,
-        failed: -3,
-        nA: 0,
-      })
-      const score = await ctx.db.insert('dailyScores', {
-        playerId: live,
-        puzzleDay: '2026-07-01',
-        date: 0,
-        guesses: [],
-      })
-      return { live, score }
     })
+
+    await expect(
+      t.mutation(internal.migrate.deleteNamelessPlayers, { dryRun: false }),
+    ).rejects.toThrow(/owns monthlyWinners/)
+  })
+
+  // The cascade is scoped to rows that belong to the TEAM. dailyScores belong to
+  // players and must survive it — there is no teamId on a dailyScore, so the only
+  // way to write a score-deleting cascade is to reach through the team to some
+  // player, and every such route is pinned here.
+  //
+  // No live player can be ON an emptied team's roster: a team is emptied exactly
+  // when every id in playerIds is nameless, and a nameless player owning a score
+  // is refused outright above. So the two ways a SURVIVING score-owner can hang
+  // off an emptied team are as its monthlyWinners winner (`live`) and as its
+  // creator (`founder`), and both are represented. `live` is additionally a real
+  // member of a surviving team, which covers a cascade that reached through
+  // rosters the migration merely touched.
+  test("deletes an emptied team's monthlyWinners and scoringSystems, and no dailyScores at all", async () => {
+    const t = convexTest(schema, modules)
+    const { live, liveScore, founderScore, deadTeam, foundedTeam, keptTeam } = await t.run(
+      async (ctx) => {
+        const nameless = await ctx.db.insert(
+          'players',
+          aPlayer({ email: 'x@a.test', firstName: undefined, lastName: undefined }),
+        )
+        const live = await ctx.db.insert('players', aPlayer({ email: 'live@a.test' }))
+        const founder = await ctx.db.insert('players', aPlayer({ email: 'founder@a.test' }))
+
+        const deadTeam = await ctx.db.insert(
+          'teams',
+          aTeam({ playerIds: [nameless], creator: nameless }),
+        )
+        // Emptied even though its creator survives — nothing on its roster does.
+        const foundedTeam = await ctx.db.insert(
+          'teams',
+          aTeam({ legacyId: 998, playerIds: [nameless], creator: founder }),
+        )
+        const keptTeam = await ctx.db.insert(
+          'teams',
+          aTeam({ legacyId: 999, playerIds: [live, nameless], creator: live }),
+        )
+
+        await ctx.db.insert('monthlyWinners', {
+          playerId: live,
+          teamId: deadTeam,
+          year: 2026,
+          month: 7,
+          hasSeenCelebration: [],
+        })
+        await ctx.db.insert('scoringSystems', {
+          teamId: deadTeam,
+          effectiveFrom: '2026-07',
+          oneGuess: 5,
+          twoGuesses: 3,
+          threeGuesses: 2,
+          fourGuesses: 1,
+          fiveGuesses: 0,
+          sixGuesses: -1,
+          failed: -3,
+          nA: 0,
+        })
+
+        const liveScore = await ctx.db.insert('dailyScores', {
+          playerId: live,
+          puzzleDay: '2026-07-01',
+          date: 0,
+          guesses: [],
+        })
+        const founderScore = await ctx.db.insert('dailyScores', {
+          playerId: founder,
+          puzzleDay: '2026-07-02',
+          date: 0,
+          guesses: [],
+        })
+        return { live, liveScore, founderScore, deadTeam, foundedTeam, keptTeam }
+      },
+    )
 
     await t.mutation(internal.migrate.deleteNamelessPlayers, { dryRun: false })
 
     await t.run(async (ctx) => {
       expect(await ctx.db.query('monthlyWinners').collect()).toEqual([])
       expect(await ctx.db.query('scoringSystems').collect()).toEqual([])
-      expect(await ctx.db.get(score)).not.toBeNull()
+      expect(await ctx.db.get(deadTeam)).toBeNull()
+      expect(await ctx.db.get(foundedTeam)).toBeNull()
+
+      // The winner's score, the surviving creator's score, and the roster of the
+      // team that was only patched.
+      expect(await ctx.db.get(liveScore)).not.toBeNull()
+      expect(await ctx.db.get(founderScore)).not.toBeNull()
+      expect((await ctx.db.get(keptTeam))!.playerIds).toEqual([live])
     })
   })
 })
