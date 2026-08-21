@@ -22,6 +22,7 @@
 - **Never import `convex/fixtures.ts` from a `.test.ts` file's suite** — import it from `./fixtures.ts` only, never from another test file, or that file's whole suite re-runs.
 - **This repository is public.** No real email addresses in code, tests, script output or commit messages.
 - **Mutation-test your own work.** Before calling a task done, revert your implementation to its previous behaviour and confirm the task's headline test *fails*. Phase 3 shipped a test labelled "the point of the whole feature" that passed against the buggy implementation.
+- **Throw `ConvexError`, never a plain `Error`, from anything whose message a human is meant to read.** Convex delivers `ConvexError.data` to clients verbatim but replaces a plain `Error`'s message with a generic `[Request ID: …] Server Error`, keeping the real text only in deployment logs. **`convex-test` runs in-process and never redacts**, so a test asserting on the message passes either way — the divergence is invisible to the suite and only appears in production, at the moment the error was supposed to explain itself. `access.ts`'s `accessError` is the established shape for UI-facing codes; for operator-facing messages, `new ConvexError('...')` keeps `.message` identical to the plain-`Error` form, so it is a drop-in.
 - **Mutation-test each guard separately, not just the headline behaviour.** Task 0a's review found that a test asserting "the dry run wrote nothing" pinned only one of three write sites — the other two could be unguarded with every test still green, and one of them deletes a team and cascades away its whole scoring history. If a function has N conditional write paths, break N of them, one at a time.
 - **If you find a defect in this plan, fix the plan file too**, not just your code. Most Phase 3 defects were in the plan.
 
@@ -182,8 +183,18 @@ describe('deleteNamelessPlayers', () => {
       const rostered = await ctx.db.insert('players', aPlayer({ email: 'rostered@a.test' }))
       // The nameless player is the only one whose absence empties the roster,
       // so `rostered` leaves via the team's deletion, not via the filter.
-      const team = await ctx.db.insert('teams', aTeam({ playerIds: [nameless], creator: nameless }))
-      await ctx.db.insert('monthlyWinners', { playerId: rostered, teamId: team, year: 2026, month: 7, hasSeenCelebration: [] })
+      // EVERY FIELD THAT NAMES A PLAYER MUST BE NON-EMPTY IN THIS FIXTURE, or the
+      // route it represents is unpinned and a cascade that reached through it
+      // would pass unnoticed. The schema has five: teams.creator, teams.playerIds,
+      // teams.invited, monthlyWinners.playerId, monthlyWinners.hasSeenCelebration.
+      // `invited` counts even though it holds an address rather than an id —
+      // players is indexed by_email, so it resolves to a player as easily as
+      // creator does. aTeam defaults both `invited` and `hasSeenCelebration` to
+      // [], which is exactly how both routes went unpinned the first time.
+      const team = await ctx.db.insert('teams', aTeam({
+        playerIds: [nameless], creator: nameless, invited: ['rostered@a.test'],
+      }))
+      await ctx.db.insert('monthlyWinners', { playerId: rostered, teamId: team, year: 2026, month: 7, hasSeenCelebration: [rostered] })
       await ctx.db.insert('scoringSystems', {
         teamId: team, effectiveFrom: '2026-07',
         oneGuess: 5, twoGuesses: 3, threeGuesses: 2, fourGuesses: 1, fiveGuesses: 0, sixGuesses: -1, failed: -3, nA: 0,
@@ -411,10 +422,12 @@ The GitHub Action deploys on push. This is the sanctioned deploy path.
 - [ ] **Step 2: Dry run against beta**
 
 ```bash
-cd v2 && (set -a; . <(sed -n 's/^#[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*=.*\)/\1/p' ../.env.local); set +a; node scripts/cleanup-nameless-players.mjs)
+cd v2 && (set -a; . <(sed -n 's/^#[[:space:]]*\(CONVEX_URL=.*\|CONVEX_MIGRATION_KEY=.*\)/\1/p' ../.env.local); set +a; node scripts/cleanup-nameless-players.mjs)
 ```
 
 Expected: `namelessPlayers: 0`. Beta holds 18 players / 7 teams, made of the `--scope=mine` copy plus `e2eSeed` rows, and `e2eSeed` always writes both names.
+
+**The `sed` names the two variables explicitly, and must keep doing so.** An earlier version uncommented every commented `KEY=value` line in `.env.local`. That block is not only Convex — it also carries Polar, Novu, and three Supabase variables that each appear **twice**, so sourcing it wholesale silently retargets Supabase to whichever duplicate happens to come last. Harmless for this script, which reads only the two Convex values, but the recipe gets copied. Name what you need.
 
 - [ ] **Step 3: If the count is non-zero, stop and report**
 
@@ -423,7 +436,7 @@ A non-zero count is a finding, not a routine step — it means beta holds namele
 - [ ] **Step 4: If non-zero and understood, apply**
 
 ```bash
-cd v2 && (set -a; . <(sed -n 's/^#[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*=.*\)/\1/p' ../.env.local); set +a; node scripts/cleanup-nameless-players.mjs --commit)
+cd v2 && (set -a; . <(sed -n 's/^#[[:space:]]*\(CONVEX_URL=.*\|CONVEX_MIGRATION_KEY=.*\)/\1/p' ../.env.local); set +a; node scripts/cleanup-nameless-players.mjs --commit)
 ```
 
 ---
@@ -1875,6 +1888,12 @@ Then replace `deleteTeamFor`'s body below its `requireTeamCreatorFor` call with:
 ```
 
 and shorten its own doc comment to point at `cascadeDeleteTeam` for the cascade reasoning.
+
+**Two comment corrections belong in this step, both surfaced by Task 0a's review.**
+
+First, `scoringSystems.ts`'s header claims that module "owns the `scoringSystems` table exclusively", and `teams.ts` restates it from the other side. That was already inaccurate — `deleteTeamFor` writes it — and Task 0a's `deleteNamelessPlayers` made a third writer. Add the carve-out to both headers: the scoring-system *editor* is exclusive to `scoringSystems.ts`; deletion cascades are not, and there are now three.
+
+Second, `migrate.ts`'s `deleteNamelessPlayers` carries a note saying its hand-rolled cascade must move here once this function exists. Make it call `cascadeDeleteTeam` — or, if the `WriterCtx` types don't line up cleanly, leave the duplication and update that note to say why. Do not leave the note pointing at a function that now exists.
 
 - [ ] **Step 4: Implement `leaveTeamFor`**
 

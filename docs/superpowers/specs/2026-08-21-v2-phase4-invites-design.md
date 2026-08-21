@@ -399,8 +399,13 @@ runs against the `anonymous:anonymous-v2` deployment instead, so the cloud dev o
 Beta runs on the **prod** set. Reach it by de-commenting that block into the environment:
 
 ```sh
-set -a; . <(sed -n 's/^#[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*=.*\)/\1/p' ../.env.local); set +a
+set -a; . <(sed -n 's/^#[[:space:]]*\(CONVEX_URL=.*\|CONVEX_MIGRATION_KEY=.*\)/\1/p' ../.env.local); set +a
 ```
+
+**Name the variables you need; do not uncomment the block wholesale.** It is not
+only Convex — it also carries Polar, Novu, and three Supabase variables that each
+appear **twice**, so sourcing all of it silently retargets Supabase to whichever
+duplicate comes last.
 
 `v2/.env.production`'s `VITE_CONVEX_URL` is **not** authoritative for this — CI derives that
 value from `secrets.CONVEX_DEPLOY_KEY` at build time (`deploy-v2.yml`), so the checked-in file
