@@ -135,17 +135,27 @@ describe('deleteNamelessPlayers', () => {
   })
 
   // The cascade is scoped to rows that belong to the TEAM. dailyScores belong to
-  // players and must survive it — there is no teamId on a dailyScore, so the only
-  // way to write a score-deleting cascade is to reach through the team to some
-  // player, and every such route is pinned here.
+  // players and must survive it — a dailyScore has no teamId, so a cascade can
+  // only reach one by going through a field that NAMES a player. Enumerated from
+  // the schema, those fields are: on the team doc, creator, playerIds and invited
+  // (an address, but players are indexed by_email); on the rows this cascade
+  // collects, monthlyWinners.playerId and monthlyWinners.hasSeenCelebration.
+  // scoringSystems names no player. That list is the whole reachable surface as
+  // the schema stands today — if a field naming a player is added to teams or to
+  // either collected table, this test stops being exhaustive and a route opens
+  // that nothing here would catch.
   //
-  // No live player can be ON an emptied team's roster: a team is emptied exactly
-  // when every id in playerIds is nameless, and a nameless player owning a score
-  // is refused outright above. So the two ways a SURVIVING score-owner can hang
-  // off an emptied team are as its monthlyWinners winner (`live`) and as its
-  // creator (`founder`), and both are represented. `live` is additionally a real
-  // member of a surviving team, which covers a cascade that reached through
-  // rosters the migration merely touched.
+  // Every one of those five is represented below by a player who owns a score,
+  // except playerIds, where it is impossible: a team is emptied exactly when
+  // every id in playerIds is nameless, and a nameless player owning a score is
+  // refused outright above, so an emptied team's roster provably never holds a
+  // score-owner. That route is covered in its patched form instead — `live` is a
+  // real member of keptTeam, which the migration edits rather than deletes.
+  //
+  // Concretely: `founder` is the emptied foundedTeam's surviving creator, and
+  // `live` is deadTeam's monthlyWinners winner, is named in that row's
+  // hasSeenCelebration, sits on deadTeam's invited list, and is a member of
+  // keptTeam. Both own a dailyScore, and both scores must still be there after.
   test("deletes an emptied team's monthlyWinners and scoringSystems, and no dailyScores at all", async () => {
     const t = convexTest(schema, modules)
     const { live, liveScore, founderScore, deadTeam, foundedTeam, keptTeam } = await t.run(
@@ -159,7 +169,10 @@ describe('deleteNamelessPlayers', () => {
 
         const deadTeam = await ctx.db.insert(
           'teams',
-          aTeam({ playerIds: [nameless], creator: nameless }),
+          // `invited` is the one player reference on a team that is an ADDRESS
+          // rather than an id, and players are indexed by_email, so it resolves
+          // to a player as easily as the id fields do.
+          aTeam({ playerIds: [nameless], creator: nameless, invited: ['live@a.test'] }),
         )
         // Emptied even though its creator survives — nothing on its roster does.
         const foundedTeam = await ctx.db.insert(
@@ -174,9 +187,13 @@ describe('deleteNamelessPlayers', () => {
         await ctx.db.insert('monthlyWinners', {
           playerId: live,
           teamId: deadTeam,
+          // NOT empty: this array names players on a row the cascade already
+          // collects, so it is the closest player reference to hand for anyone
+          // editing that block. An empty one silently excuses a cascade that
+          // walks it.
+          hasSeenCelebration: [live],
           year: 2026,
           month: 7,
-          hasSeenCelebration: [],
         })
         await ctx.db.insert('scoringSystems', {
           teamId: deadTeam,
