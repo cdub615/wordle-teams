@@ -76,8 +76,10 @@ function typedCodeMessage(code: AccessCode): string {
     case 'INVALID_SYSTEM':
       return `Points must be whole numbers between ${SYSTEM_VALUE_MIN} and ${SYSTEM_VALUE_MAX}.`
     case 'INVALID_EMAIL':
-      // No server function throws this — see the note on AccessCode. The copy is
-      // here so the switch stays exhaustive in one edit rather than two.
+      // Thrown by invitePlayerFor (convex/teams.ts) when normaliseInviteEmail
+      // rejects the submitted address. Deliberately permissive on the server —
+      // see EMAIL_SHAPE in convex/lib/invite.ts — so this fires on a typo, not
+      // on an unusual but valid address.
       return 'That does not look like an email address.'
     case 'INVALID_NAME':
       // Says "both" because that is the only way to fail it: completeProfile

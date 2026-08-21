@@ -662,10 +662,78 @@ describe('invitePlayerFor', () => {
     })
   })
 
+  test('adding an existing player also retires their pending invite', async () => {
+    // THE ORDINARY SEQUENCE, not a corner case: park an invite for someone with
+    // no account, they sign up, invite them again. Without the cleanup they are
+    // a member AND permanently pending — Task 4's pending-invite list is
+    // `team.invited` itself, so the creator would see them in both places, with
+    // cancelInvite the only remedy and nothing telling them to press it.
+    //
+    // Reachable for the whole copied user base, not just for people who joined
+    // in that order: completeProfileFor is the only other place an invite is
+    // retired, and a copied v1 player never reaches it, because needsProfile is
+    // a row-existence check and they already have a row. Production carries 44
+    // pending invites across 33 teams.
+    //
+    // THIS ALSO PINS v2'S BRANCH PRECEDENCE. The fixture is the one case where
+    // v1 and v2 genuinely disagree — an existing account that is ALSO on the
+    // invite list — and v1 takes the resend branch there (divergence 11). Every
+    // other test in this suite passes unchanged if the two conditions are
+    // reordered to v1's precedence, so this is the only thing standing between
+    // `added` and a silent regression to the branch that stranded the invitee.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+
+      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+
+      expect(outcome).toEqual({ status: 'added', firstName: 'Ada' })
+      const team = (await ctx.db.get(teamId))!
+      expect(team.playerIds).toEqual([creator, ada])
+      expect(team.invited).toEqual([])
+    })
+  })
+
+  test('retires a pending invite parked in a shape the write rule would not produce', async () => {
+    // The cleanup filter has to mirror normaliseInviteEmail on read for the same
+    // reason the resend scan does: an entry it fails to match is one that nothing
+    // can ever clear, since this branch and completeProfileFor are the only two
+    // places an invite is retired and both compare the same way.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA_AS_TYPED] })
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+
+      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+
+      expect(outcome).toEqual({ status: 'added', firstName: 'Ada' })
+      const team = (await ctx.db.get(teamId))!
+      expect(team.playerIds).toEqual([creator, ada])
+      expect(team.invited).toEqual([])
+    })
+  })
+
+  test('leaves OTHER pending invites alone when a player is added', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [STRANGER, ADA] })
+      await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+
+      await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+
+      // Only Ada's entry goes. Filtering to [] would cancel everybody else's
+      // outstanding invite as a side effect of one person joining.
+      expect((await ctx.db.get(teamId))!.invited).toEqual([STRANGER])
+    })
+  })
+
   test('reports already_member and changes nothing', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      // Ada is on the roster AND still listed as invited — the state a copied v1
+      // team arrives in, since v1 never removed an invite it could not match.
+      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
       await ctx.db.patch(teamId, { playerIds: [creator, ada] })
 
@@ -678,7 +746,11 @@ describe('invitePlayerFor', () => {
       // Not appended a second time, which would show Ada twice on the team card
       // and enter her twice in the month's candidate list.
       expect(team.playerIds).toEqual([creator, ada])
-      expect(team.invited).toEqual([])
+      // AND NOT REPAIRED EITHER. This branch is documented as writing nothing,
+      // because a write here costs a getMyTeams broadcast to every connected
+      // client on the path whose whole point is that nothing happened. Task 4's
+      // cancelInvite is the remedy for a row already stuck like this.
+      expect(team.invited).toEqual([ADA])
     })
   })
 

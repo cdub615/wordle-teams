@@ -20,6 +20,13 @@
  * Applied ONLY to the HTML part below. The subject and the plain-text part are
  * not markup, and escaping them would show a reader the literal `&amp;` in a
  * team name containing an ampersand.
+ *
+ * NOT A HEADER SANITISER. `teamName` reaches `subject` raw, newlines included —
+ * requireName (teams.ts) only trims, so an interior CRLF survives. That is
+ * accepted rather than overlooked: Resend takes these as JSON fields over HTTPS
+ * rather than assembling a header block from them, and the header that would
+ * actually matter for injection, `to:`, cannot carry a newline at all, because
+ * EMAIL_SHAPE's `[^\s@]+` segments reject whitespace (lib/invite.ts).
  */
 function escapeHtml(value: string): string {
   return value
@@ -40,10 +47,19 @@ function escapeHtml(value: string): string {
  *                   teams.invited, and completing a profile at that address is
  *                   what claims it. Same model as v1, minus the Supabase magic
  *                   link whose PKCE round-trip was one of the three causes of
- *                   v1's invite->join failure (amendment A2). Server-built from
- *                   SITE_URL by the caller, so unlike the two names it is not
- *                   user-controlled — it is escaped anyway, which is also just
- *                   the correct way to write a URL into an href.
+ *                   v1's invite->join failure (amendment A2).
+ *
+ *                   ESCAPED, BUT ITS SCHEME IS NOT CHECKED. Escaping stops the
+ *                   value breaking OUT of the attribute; it does nothing about
+ *                   what the attribute then means, so a `javascript:` URL would
+ *                   emerge intact. That is acceptable only because this argument
+ *                   is server-built from SITE_URL by the single caller
+ *                   (invitePlayer in teams.ts) and never carries user input —
+ *                   not because escaping addressed it. A scheme check is
+ *                   deliberately not added here: it could only throw, and a throw
+ *                   in the mail template rolls back the invite transaction that
+ *                   already succeeded. If this ever takes a caller-supplied URL,
+ *                   validate it at that caller.
  */
 export function teamInviteEmail({
   teamName,

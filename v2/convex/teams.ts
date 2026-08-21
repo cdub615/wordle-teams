@@ -332,8 +332,19 @@ export type InviteOutcome =
 /**
  * Invite someone to a team by email address. Creator-only.
  *
- * Ports v1's invitePlayer (src/app/me/actions.ts). Its three branches are kept;
- * its reporting is replaced by InviteOutcome above.
+ * Ports v1's invitePlayer (src/app/me/actions.ts), which nests FOUR branches,
+ * not three: player-on-team, player-not-on-team-but-already-invited,
+ * player-not-on-team, and no-player. Three are kept and their reporting is
+ * replaced by InviteOutcome above.
+ *
+ * THE FOURTH IS DELIBERATELY REPLACED, and that is divergence 11. v1 answered
+ * "already has an account AND an outstanding invite" by resending the invite and
+ * NOT adding them — but its resend went through Supabase's inviteUserByEmail,
+ * which does nothing for an address that already has an account. So v1 mailed
+ * nobody, added nobody, and told the creator it had succeeded; the invitee stayed
+ * off the team indefinitely. v2 routes that case into `added` instead, which is
+ * the outcome v1 was trying and failing to reach. Reproducing it faithfully would
+ * mean reproducing a dead end.
  *
  * EVERY RULE LIVES HERE, NOT IN THE WRAPPER, matching completeProfileFor,
  * updateTeamFor and removeMemberFor — the exported Convex function resolves the
@@ -371,9 +382,33 @@ export async function invitePlayerFor(
   if (existing) {
     // Idempotent no-op, and reported as one. v1 logged this branch and then told
     // the creator the invite succeeded.
+    //
+    // WRITES NOTHING, INCLUDING NO INVITE CLEANUP. A team that lists this person
+    // in BOTH playerIds and invited is reachable — it is exactly what the copy
+    // brings over, since v1 never removed an invite it could not match — but
+    // repairing it here would pay a team write, and therefore a getMyTeams
+    // broadcast to every connected client, on the path whose whole point is that
+    // nothing happened. Task 4's cancelInvite will be the remedy for a row
+    // already in that state; the branch below is what stops this function
+    // creating new ones.
     if (team.playerIds.includes(existing._id)) return { status: 'already_member' }
 
-    await ctx.db.patch(team._id, { playerIds: [...team.playerIds, existing._id] })
+    // ONE PATCH, TWO FIELDS. The address must leave `invited` in the same write
+    // that puts the player on the roster, or the entry survives forever: this
+    // branch and completeProfileFor are the only two places an invite is ever
+    // retired, and a copied v1 player never reaches that one, because
+    // needsProfile is a row-existence check and they already have a row. So for
+    // the entire copied user base this is the only exit — which matters because
+    // Task 4's pending-invite list is `team.invited` itself, and the person
+    // would read as a member AND as pending at the same time.
+    //
+    // The filter mirrors normaliseInviteEmail's trim().toLowerCase() on write,
+    // for the same reason the resend scan below does: an entry this fails to
+    // match is one nothing can ever clear.
+    await ctx.db.patch(team._id, {
+      playerIds: [...team.playerIds, existing._id],
+      invited: team.invited.filter((entry) => entry.trim().toLowerCase() !== email),
+    })
 
     // THE NEW MEMBER IS IMMEDIATELY ELIGIBLE TO HAVE WON PAST MONTHS, and they
     // bring their whole board history with them, so every month this team

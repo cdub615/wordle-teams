@@ -1,10 +1,12 @@
 // Sign-in code email. Kept out of auth.ts so the copy can be read and changed
 // without picking through plugin configuration.
 //
-// Deliberately hand-written HTML rather than react-email for now: this is one
-// transactional email with no branding assets yet, and the design puts the
-// react-email work in Phases 4 and 6 where invites and reminders live. When
-// those arrive this should move over with them.
+// Deliberately hand-written HTML rather than react-email. The design put the
+// react-email work in Phases 4 and 6, and Phase 4 declined it: inviteEmails.ts
+// is written the same way, on the argument that two emails written the same way
+// beats two email systems. Phase 6 is where reminders add a third and a fourth
+// and the case is worth making again; see the note at the top of inviteEmails.ts,
+// which is the live version of this decision.
 
 /**
  * How long a code is valid. ONE constant, used both to configure the plugin and
