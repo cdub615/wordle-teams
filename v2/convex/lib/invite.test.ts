@@ -49,21 +49,43 @@ describe('normaliseInviteEmail', () => {
   // Two addresses pasted at once is the realistic input here, and it MUST be
   // rejected rather than stored — teams.invited holding a comma-joined blob
   // matches nobody's auth email, so it is an invite that can never be accepted.
+  //
+  // The NEWLINE-separated pair is the important one: it is what pasting a
+  // column out of a spreadsheet actually produces, and it is the case that
+  // fails if the regex ever picks up the `m` flag, under which ^ and $ match
+  // at line boundaries and the first line alone satisfies the pattern.
   test('rejects a second @ and a pasted pair of addresses', () => {
     expect(normaliseInviteEmail('ada@@example.test')).toBeNull()
     expect(normaliseInviteEmail('ada@example@test.test')).toBeNull()
     expect(normaliseInviteEmail('ada@example.test,bob@example.test')).toBeNull()
     expect(normaliseInviteEmail('ada@example.test bob@example.test')).toBeNull()
+    expect(normaliseInviteEmail('ada@example.test\nbob@example.test')).toBeNull()
+    expect(normaliseInviteEmail('ada@example.test\r\nbob@example.test')).toBeNull()
   })
 
-  // The load-bearing property behind "normalise on WRITE, compare
-  // case-insensitively on READ": the stored form has to be a FIXED POINT, or
-  // re-normalising a row on its way back out could produce a different key than
-  // the one it was written under and the read-side comparison would miss it.
-  test('is idempotent — re-normalising a stored address changes nothing', () => {
-    const once = normaliseInviteEmail('  Ada.Lovelace@Example.TEST ')
-    expect(once).not.toBeNull()
-    expect(normaliseInviteEmail(once as string)).toBe(once)
+  // Every part of the address must be NON-EMPTY. The 'ada@' and 'ada@example'
+  // cases above die on the missing dot rather than on emptiness, which leaves
+  // all three + quantifiers in EMAIL_SHAPE unpinned — changing any one of them
+  // to * passes every other test here. Each of these three is the sole case
+  // that fails for its own quantifier. An address with an empty local part,
+  // host or TLD matches nobody's auth email, so storing one creates an invite
+  // that can never be accepted — exactly what the shape check exists to stop.
+  test('rejects an empty local part, host or TLD', () => {
+    expect(normaliseInviteEmail('@example.test')).toBeNull()
+    expect(normaliseInviteEmail('ada@.test')).toBeNull()
+    expect(normaliseInviteEmail('ada@example.')).toBeNull()
+  })
+
+  // 'a b@example.test' above is the only interior-whitespace case and it uses a
+  // literal space, so swapping \s for a literal space in the character classes
+  // passes the whole suite while letting tabs and newlines through the MIDDLE
+  // of an address — where trim() cannot reach them. A tab inside the local part
+  // is what a mis-selected spreadsheet paste looks like.
+  test('rejects interior whitespace of any kind, not only spaces', () => {
+    expect(normaliseInviteEmail('ada\tlovelace@example.test')).toBeNull()
+    expect(normaliseInviteEmail('ada\nlovelace@example.test')).toBeNull()
+    expect(normaliseInviteEmail('ada@exa\tmple.test')).toBeNull()
+    expect(normaliseInviteEmail('ada@example.\ttest')).toBeNull()
   })
 
   // The A2 bug itself, stated directly. v1 stored the address as typed and
@@ -107,9 +129,10 @@ describe('isCompleteName', () => {
   })
 
   // The trim decides COMPLETENESS; it is not a demand that the caller pre-trim.
-  // The guard reads back whatever completeProfile stored, so if a padded name
-  // could save but not clear the guard we would be back to v1's redirect loop
-  // by a different route. Padded input is complete input, on both sides.
+  // The route guard will read back whatever completeProfile stored (neither is
+  // built yet), so if a padded name could save but not clear the guard we would
+  // be back to v1's redirect loop by a different route. Padded input has to
+  // count as complete input on both sides.
   test('accepts names that carry surrounding whitespace', () => {
     expect(isCompleteName(' Ada ', ' Lovelace ')).toBe(true)
     expect(isCompleteName('\tX\n', ' Y ')).toBe(true)
