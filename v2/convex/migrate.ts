@@ -505,6 +505,40 @@ export const counts = internalQuery({
  * roster, clear `creator` where it pointed at them, and delete a team left with
  * no members at all (cascading its monthlyWinners and scoringSystems the way
  * deleteTeamFor does; dailyScores belong to players and survive).
+ *
+ * DANGLING REFERENCES ARE LEFT BEHIND, KNOWINGLY. teams.playerIds and
+ * teams.creator are the only ones cleaned. Deliberately not cleaned:
+ *   - playerMembership.playerId and webhookEvents.playerId, for every deleted
+ *     player. Both tables are only ever reached by an index lookup keyed on a
+ *     LIVE player's id, so no read path can load an orphan or break on one. It
+ *     is not invisible, though: parityProbe below maps an orphaned membership to
+ *     `playerLegacyId: null`, so Phase 7's parity comparison will report it as a
+ *     diff. Expect it there rather than treating it as a copy failure.
+ *   - monthlyWinners.hasSeenCelebration on SURVIVING rows. The guard above
+ *     refuses when a nameless player OWNS a winner row, not when they merely
+ *     appear in someone else's array, so a deleted id can still sit in one. That
+ *     field is a membership test, never a fetch.
+ * All of it belongs to the deleted player and is inert. Cleaning it would be
+ * more deletion for no reduction in risk.
+ *
+ * AN ALREADY-EMPTY TEAM WITH A NAMELESS CREATOR IS DELETED TOO, along with its
+ * scoring history: `playerIds: []` makes remaining.length === 0, which is the
+ * emptied branch, even though no nameless member was ever removed from it. That
+ * is the intended reading — a team with nobody on it whose creator is being
+ * deleted is not a team — but it is a wider blast radius than "cleans up after
+ * nameless players" suggests, so it is stated rather than left to be discovered.
+ * Production has zero such rows (measured 2026-08-20).
+ *
+ * SINGLE TRANSACTION, AND THE ONE WRITE PATH HERE THAT CARRIES NO
+ * {@link chunkNote}. Do not "fix" that by batching it. The refusals above are
+ * only worth anything if they can still abort EVERYTHING — a chunked version
+ * could delete two hundred players, hit an unexpected score in a later chunk,
+ * and leave the data in a state that is neither before nor after, with no
+ * refusal to act on. At production's 2026-08-20 size this reads roughly a
+ * thousand documents (533 players + 171 teams + two indexed lookups per nameless
+ * player) and writes a few hundred, comfortably inside Convex's per-transaction
+ * limits. Revisit only if those counts change by an order of magnitude, and
+ * then by scoping the run, not by giving up atomicity.
  */
 export const deleteNamelessPlayers = internalMutation({
   args: { dryRun: v.boolean() },
@@ -518,19 +552,21 @@ export const deleteNamelessPlayers = internalMutation({
         .query('dailyScores')
         .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))
         .first()
-      if (score) throw new Error(`Refusing: a nameless player owns dailyScores`)
+      if (score) throw new Error('Refusing: a nameless player owns dailyScores')
 
       const winner = await ctx.db
         .query('monthlyWinners')
         .withIndex('by_player', (q) => q.eq('playerId', player._id))
         .first()
-      if (winner) throw new Error(`Refusing: a nameless player owns monthlyWinners`)
+      if (winner) throw new Error('Refusing: a nameless player owns monthlyWinners')
     }
 
     const teams = await ctx.db.query('teams').collect()
     let teamsEmptied = 0
     let rostersCleaned = 0
     let creatorsCleared = 0
+    let winnersDeleted = 0
+    let systemsDeleted = 0
 
     for (const team of teams) {
       const remaining = team.playerIds.filter((id) => !namelessIds.has(id))
@@ -539,19 +575,33 @@ export const deleteNamelessPlayers = internalMutation({
 
       if (remaining.length === 0) {
         teamsEmptied++
+
+        // COLLECTED IN BOTH MODES, ON PURPOSE. Task 0b decides whether to commit
+        // from the dry-run output alone, and "teamsEmptied: N" says nothing about
+        // how much scoring history N teams are carrying with them. Counting these
+        // only on the commit path would mean the number arrives exactly one step
+        // too late to inform the decision. Costs two indexed reads per emptied
+        // team in a dry run, and makes the dry run a faithful rehearsal of the
+        // real one's reads as a side benefit.
+        //
+        // TODO(Task 5): this block is teams.ts's deleteTeamFor cascade, verbatim.
+        // Task 5 extracts that into `cascadeDeleteTeam` in teams.ts — move this
+        // to the shared helper then, or the two copies will drift and only one
+        // will learn about the next team-scoped table.
+        const winners = await ctx.db
+          .query('monthlyWinners')
+          .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id))
+          .collect()
+        const systems = await ctx.db
+          .query('scoringSystems')
+          .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', team._id))
+          .collect()
+        winnersDeleted += winners.length
+        systemsDeleted += systems.length
+
         if (!dryRun) {
-          const winners = await ctx.db
-            .query('monthlyWinners')
-            .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id))
-            .collect()
           for (const row of winners) await ctx.db.delete(row._id)
-
-          const systems = await ctx.db
-            .query('scoringSystems')
-            .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', team._id))
-            .collect()
           for (const row of systems) await ctx.db.delete(row._id)
-
           await ctx.db.delete(team._id)
         }
         continue
@@ -571,10 +621,20 @@ export const deleteNamelessPlayers = internalMutation({
       for (const player of nameless) await ctx.db.delete(player._id)
     }
 
-    // THE FOUR COUNTS DO NOT SUM TO ANYTHING. A team is counted in exactly one
-    // of them: an emptied team short-circuits on `continue`, so a team that was
-    // both emptied AND had a nameless creator is teamsEmptied only, never also
-    // creatorsCleared.
+    // THE TEAM COUNTS DO NOT SUM TO A NUMBER OF TEAMS. Read them like this:
+    //   - teamsEmptied is EXCLUSIVE of the other two. An emptied team hits
+    //     `continue` before either is incremented, so a team that was emptied and
+    //     also had a nameless creator is teamsEmptied only.
+    //   - rostersCleaned and creatorsCleared OVERLAP FREELY. They are two
+    //     independent `if`s over the same surviving team, and a team that lost a
+    //     member and had a nameless creator increments both — the common case,
+    //     since a creator is normally on their own roster.
+    // So teams touched = teamsEmptied + (teams counted in rostersCleaned and/or
+    // creatorsCleared), which those two counts alone cannot tell you.
+    //
+    // winnersDeleted/systemsDeleted are row counts from the emptied teams only,
+    // and are reported in a dry run too — that is the blast radius the operator
+    // is actually deciding about.
     //
     // Counts only. This output is pasted into design docs and issues, and the
     // repository is public.
@@ -584,6 +644,8 @@ export const deleteNamelessPlayers = internalMutation({
       teamsEmptied,
       rostersCleaned,
       creatorsCleared,
+      winnersDeleted,
+      systemsDeleted,
     }
   },
 })
