@@ -70,6 +70,7 @@ capping anything. A faithful port would port a fault.
 | Invite email tooling | **Hand-written HTML**, the shape `authEmails.ts` already uses | react-email now — a new dependency and a rendering toolchain to prove on Convex, for one email. Phase 6 adds reminders and actually makes the case |
 | Profile step location | **Its own `/complete-profile` route**, as v1 | A blocking dialog on the dashboard — a second rendering path through `index.tsx`, the file Phase 3 flagged as highest-risk. Folding into login — social sign-in returns as a fresh document load, so it needs a route anyway, giving two implementations |
 | "Already a member" feedback | **Info toast, dialog stays open** | v1's behaviour — it returns *"Successfully invited player"*, which is an outright lie, and closes the dialog the user most likely wants to reuse |
+| Leaving a team | **Any member may remove themselves; the creator may not** | Letting the creator leave — needs either creator reassignment (v1 only does this in its delete-user trigger) or a team that nobody can administer. Deleting the team instead is the creator's existing, honest option. Keeping Phase 3's "no such affordance" — that was a parity argument, and the owner has now sanctioned the feature |
 
 ## Prerequisite: the schema, and a three-step deploy
 
@@ -181,6 +182,21 @@ membership, and `removeMember` is their nearest sibling."*
 The add-directly branch recomputes because the new member is immediately eligible to have won
 past months — the same reasoning `removeMember` carries in reverse.
 
+`leaveTeam({ teamId, today })` — the mirror of `removeMember`, and the one team mutation that is
+**not** creator-only. `requireTeamMemberFor` with the caller as the target: you may remove
+yourself and nobody else, which is the inverse of `removeMember`'s "you may remove anybody but
+yourself".
+
+- **The creator cannot leave**, reusing `CREATOR_NOT_REMOVABLE`. Their exit is `deleteTeam`.
+  This keeps the Phase 3 invariant that a team always has an administrator, and means no team
+  can be emptied by leaving.
+- **Except a creator-less team** — the scoped-copy case Phase 3 recorded, where `creator` is
+  `undefined` and nobody is refused. If the last member leaves one, the team is deleted with the
+  same manual cascade `deleteTeamFor` uses (`monthlyWinners` and `scoringSystems` go,
+  `dailyScores` stay), rather than being left as an unreachable orphan.
+- **Recomputes every month with a winner row**, for exactly the reason `removeMember` does
+  (divergence 5): the leaver stops being eligible to have won them.
+
 `cancelInvite({ teamId, email })` — creator-only, removes the address.
 
 `getTeamInvites({ teamId })` — creator-only **query**, the selected team only. Deliberately
@@ -210,7 +226,17 @@ signing in and completing the form.
 | `src/routes/complete-profile.tsx` | First/last name, porting v1's copy. `beforeLoad`: unauthenticated → `/login`; player exists → `/` |
 | `src/routes/index.tsx` | `beforeLoad` gains: authenticated with no player → `/complete-profile`. The only change to the highest-risk file in the Phase 2 UI |
 | `src/components/teams/invite-player-dialog.tsx` | Ports v1's `InvitePlayer` |
-| `src/components/teams/current-team-card.tsx` | Creator-only Invite button beside Settings (`UserPlus2`, as v1), plus a **Pending** section with per-address cancel popovers |
+| `src/components/teams/current-team-card.tsx` | Creator-only Invite button beside Settings (`UserPlus2`, as v1), plus a **Pending** section with per-address cancel popovers, plus a **Leave** control on your own row when you are not the creator |
+
+The two per-row controls are **complements, never both**: the card already gates remove on
+`isCreator && member.id !== myPlayerId`, and Leave is `!isCreator && member.id === myPlayerId`.
+A creator sees remove on everyone else's row and nothing on their own; a member sees Leave on
+their own row and nothing on anyone else's.
+
+Leaving the team you are currently viewing leaves `?team=` pointing at a team you are no longer
+on — the same broken-param problem deleting a team already has. It reuses `index.tsx`'s existing
+`onDeleted` handler, which clears the param and the remembered team so the sync hook falls
+through to the first remaining team rather than the error boundary.
 
 Mutation forms follow the `a335ae8` shape Phase 2 ported: `try`/`catch`, `setSubmitting(false)`
 in `finally`, and the dialog closes **only on success** — with the deliberate exception below.
@@ -222,6 +248,7 @@ in `finally`, and the dialog closes **only on success** — with the deliberate 
 | `INVALID_EMAIL` | Empty, or not shaped like an address | Error toast; the dialog stays open |
 | `INVALID_NAME` | Empty first or last name after trimming | Error toast; the form stays |
 | `NOT_TEAM_CREATOR` | A member tried to invite or cancel | Error toast |
+| `CREATOR_NOT_REMOVABLE` | The creator tried to leave their own team | Error toast; the popover stays open |
 | `NOT_A_MEMBER` | Unchanged Phase 2 treatment | Route error boundary on reads |
 
 Invite outcomes are **not** errors, and each gets its own toast:
@@ -238,9 +265,9 @@ action is correcting the address, so closing would force them to reopen. `added`
 `firstName` because it confirms the address matched a real account — the single most useful
 thing to learn after inviting someone by email.
 
-## Divergences from v1 — the list goes from five to nine
+## Divergences from v1 — the list goes from five to ten
 
-All four must be added to `V2-ADDENDUM.md` §7a so Phase 7's audit does not treat them as bugs.
+All five must be added to `V2-ADDENDUM.md` §7a so Phase 7's audit does not treat them as bugs.
 
 | # | Divergence | Why |
 |---|---|---|
@@ -248,10 +275,11 @@ All four must be added to `V2-ADDENDUM.md` §7a so Phase 7's audit does not trea
 | 7 | **A player cannot exist without a name** | Schema-enforced. 151 nameless production players and the 29 dead teams they created are not copied. Measured: those players own 0 boards and 0 winner rows, so nothing but `player_ids`/`creator` refers to them |
 | 8 | **No 2-team cap on invitees until Phase 5** | v1 caps a non-pro invitee at two teams in `handle_invited_signup`. v2 is **more permissive than prod** until Polar lands. The retrofit hazard is real and is filed: enforcing it later means removing people from teams they already joined |
 | 9 | **Inviting someone already on the team says so** | v1 returns *"Successfully invited player"* and closes the dialog. v2 tells the truth and keeps the dialog open |
+| 10 | **A member can leave a team** | v1 has no such affordance at any layer — the UI hides remove on your own row and the only exit is asking the creator. Owner-sanctioned new behaviour. The creator still cannot leave, so every team keeps an administrator |
 
-Divergences 6 and 9 are on surfaces v1 has; 7 and 8 are invisible in a route-by-route
+Divergences 6, 9 and 10 are on surfaces v1 has; 7 and 8 are invisible in a route-by-route
 comparison. Exercising them takes an invite to an existing member, an invite to a third team,
-and a look at the copied row counts.
+a member leaving a team, and a look at the copied row counts.
 
 Not divergences, but recorded because they look like ones:
 
@@ -269,9 +297,12 @@ Not divergences, but recorded because they look like ones:
   account** (A2's hard acceptance criterion, and the shape `scripts/verify-case-fix-dev.mjs`
   proves in v1); and **recomputes winners for every claimed team**, asserted against a team
   that already has winner rows for past months.
-- **`convex/teams.test.ts`** grows the four `invitePlayer` branches, `cancelInvite`, and
-  `getTeamInvites`; negatives: a member who is not the creator is refused by the **mutation and
-  the query**, not merely by a hidden button.
+- **`convex/teams.test.ts`** grows the four `invitePlayer` branches, `cancelInvite`,
+  `getTeamInvites` and `leaveTeam`; negatives: a member who is not the creator is refused by the
+  **mutation and the query**, not merely by a hidden button; the creator is refused by
+  `leaveTeam`; a non-member is refused; and `leaveTeam` recomputes every month with a winner
+  row. The creator-less edge case gets its own test: the last member leaving deletes the team
+  and cascades, and `dailyScores` survive.
 - **`convex/schema.test.ts`** — an insert without `firstName` is rejected.
 - **Playwright** — invite an address, sign in as it, complete the profile, land on the team.
   `pnpm e2e` is **not** part of `test`/`tsc`/`build` and runs after every task touching routes
@@ -289,7 +320,9 @@ Not divergences, but recorded because they look like ones:
 - **react-email.** Phase 6, where reminders make the case.
 - **TeamBoards carousel**, **monthly-winner celebration dialog**, **`CheckoutReturn`** — still
   no owning phase, filed separately.
-- **Self-removal ("leave team")** — v1 has no such affordance; Phase 3 already ruled it out.
+- **Creator reassignment.** The creator cannot leave and cannot hand the team to someone else;
+  they delete it. v1 reassigns a creator only inside its delete-user trigger, and a transfer-
+  ownership affordance is a feature in its own right.
 - **Reminder preferences.** The new player row takes v1's defaults; editing them is Phase 6.
 
 ## Acceptance Criteria
@@ -301,7 +334,9 @@ Not divergences, but recorded because they look like ones:
 4. Setting a player's name recomputes every month their teams have a winner row for.
    (`wt-ksh.5.2`.)
 5. A creator can see and cancel a pending invite. (`wt-ksh.5.3`, in its surviving form.)
-6. `wt-ksh.5.4` — two real accounts on one team on beta, reached through the real invite path:
+6. A member can leave a team and stops appearing on it; the creator is refused by the
+   **mutation**, not merely by a hidden button.
+7. `wt-ksh.5.4` — two real accounts on one team on beta, reached through the real invite path:
    a board entered by one appears in the other's browser with no refresh.
 
 ## Task Breakdown
@@ -315,12 +350,13 @@ In dependency order. Task 0 blocks everything that writes a player.
 | 0c | Narrow `firstName`/`lastName`, widen `legacyId`; copy-script filter | The schema deploys; an insert without a name is rejected by test |
 | 0d | Delete `lib/player.ts` and its three call sites | `tsc` clean; `scores`, `winners` and `teams` tests still green |
 | 1 | `lib/invite.ts` + tests | Normalisation and `isCompleteName` green, including the one-character case |
-| 2 | `completeProfile` + `needsProfile` | A row is created with no `legacyId`; invites claimed case-insensitively; winners recomputed. **Blocks 5, 6** |
+| 2 | `completeProfile` + `needsProfile` | A row is created with no `legacyId`; invites claimed case-insensitively; winners recomputed. **Blocks 6, 7** |
 | 3 | `invitePlayer` (four branches) + `inviteEmails.ts` | Each branch proven; a non-creator is refused by the mutation |
 | 4 | `cancelInvite` + `getTeamInvites` | Creator-only on both; a member is refused by the query |
-| 5 | `/complete-profile` route + dashboard guard | A cold signup reaches the form and lands on the dashboard; no redirect loop on a one-character name |
-| 6 | Invite dialog + Pending section on CurrentTeamCard | Four toasts correct; `already_member` keeps the dialog open; screenshotted light and dark |
-| 7 | e2e, screenshots, `§7a` update, beta deploy, `wt-ksh.5.4`, phase close | The real invite path works on beta end to end |
+| 5 | `leaveTeam` | A member leaves and the months recompute; the creator is refused; a non-member is refused; the last member of a creator-less team deletes it and cascades |
+| 6 | `/complete-profile` route + dashboard guard | A cold signup reaches the form and lands on the dashboard; no redirect loop on a one-character name |
+| 7 | Invite dialog + Pending section + Leave control on CurrentTeamCard | Four toasts correct; `already_member` keeps the dialog open; Leave and remove never both render on one row; leaving the selected team lands on another rather than the error boundary; screenshotted light and dark |
+| 8 | e2e, screenshots, `§7a` update, beta deploy, `wt-ksh.5.4`, phase close | The real invite path works on beta end to end |
 
 ## Gotchas Carried Into This Phase
 
