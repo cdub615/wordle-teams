@@ -8,7 +8,7 @@
 2026-08-03) and **A7** (login/onboarding is a sanctioned exception to strict parity).
 **Builds on:** `2026-08-19-v2-phase3-teams-design.md`.
 **Read before touching UI:** `docs/design-system/V2-ADDENDUM.md` — §5 and §6 for the
-rendering-bug failure modes, §7a for the divergence list this phase extends from five to nine.
+rendering-bug failure modes, §7a for the divergence list this phase extends from five to eleven.
 
 ## Summary
 
@@ -292,9 +292,9 @@ action is correcting the address, so closing would force them to reopen. `added`
 `firstName` because it confirms the address matched a real account — the single most useful
 thing to learn after inviting someone by email.
 
-## Divergences from v1 — the list goes from five to ten
+## Divergences from v1 — the list goes from five to eleven
 
-All five must be added to `V2-ADDENDUM.md` §7a so Phase 7's audit does not treat them as bugs.
+All six must be added to `V2-ADDENDUM.md` §7a so Phase 7's audit does not treat them as bugs.
 
 | # | Divergence | Why |
 |---|---|---|
@@ -303,8 +303,9 @@ All five must be added to `V2-ADDENDUM.md` §7a so Phase 7's audit does not trea
 | 8 | **No 2-team cap on invitees until Phase 5** | v1 caps a non-pro invitee at two teams in `handle_invited_signup`. v2 is **more permissive than prod** until Polar lands. The retrofit hazard is real and is filed: enforcing it later means removing people from teams they already joined |
 | 9 | **Inviting someone already on the team says so** | v1 returns *"Successfully invited player"* and closes the dialog. v2 tells the truth and keeps the dialog open |
 | 10 | **A member can leave a team** | v1 has no such affordance at any layer — the UI hides remove on your own row and the only exit is asking the creator. Owner-sanctioned new behaviour. The creator still cannot leave, so every team keeps an administrator |
+| 11 | **Inviting an existing player who is also already in `invited` adds them, rather than re-sending** | **v1 has FOUR branches, not the three this design first counted.** Its middle case — the player exists AND the address is already in `invited` — re-sends the Supabase invite and does **not** add them to the team. That does nothing useful for someone who already has an account: `inviteUserByEmail` cannot help them, so they stay off the team indefinitely, however many times the creator tries. v2 adds them and clears the `invited` entry in the same write. Found by Task 3's review; the design's own spec table had inherited the mis-count |
 
-Divergences 6, 9 and 10 are on surfaces v1 has; 7 and 8 are invisible in a route-by-route
+Divergences 6, 9, 10 and 11 are on surfaces v1 has; 7 and 8 are invisible in a route-by-route
 comparison. Exercising them takes an invite to an existing member, an invite to a third team,
 a member leaving a team, and a look at the copied row counts.
 
