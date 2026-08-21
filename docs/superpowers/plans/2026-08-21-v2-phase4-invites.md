@@ -23,6 +23,7 @@
 - **This repository is public.** No real email addresses in code, tests, script output or commit messages.
 - **Mutation-test your own work.** Before calling a task done, revert your implementation to its previous behaviour and confirm the task's headline test *fails*. Phase 3 shipped a test labelled "the point of the whole feature" that passed against the buggy implementation.
 - **Throw `ConvexError`, never a plain `Error`, from anything whose message a human is meant to read.** Convex delivers `ConvexError.data` to clients verbatim but replaces a plain `Error`'s message with a generic `[Request ID: …] Server Error`, keeping the real text only in deployment logs. **`convex-test` runs in-process and never redacts**, so a test asserting on the message passes either way — the divergence is invisible to the suite and only appears in production, at the moment the error was supposed to explain itself. `access.ts`'s `accessError` is the established shape for UI-facing codes; for operator-facing messages, `new ConvexError('...')` keeps `.message` identical to the plain-`Error` form, so it is a drop-in.
+- **Never date a "past month" fixture in the current month.** Task 2's `wt-ksh.5.2` test dated its scores and stale winner rows in the then-current month, so a mutant that ignored `monthsWithWinners` entirely and recomputed only the current month passed every test — which is precisely the bug that issue exists to prevent. Worse, the test would have *become* a real past-month test on its own after the month rolled over, so its strength changed silently with the wall clock. Use a fixed month in the past (`2025-06`), never one derived from `new Date()`.
 - **Put every rule in the `...For` helper, never in the `query`/`mutation` wrapper.** `convex-test` cannot stand up a Better Auth session, so `authComponent.getAuthUser` never resolves under test and **the body of every authed wrapper is unreachable by the unit suite**. Task 2's draft in this plan put validation, trimming and the `today` bound in the wrapper; a rule placed there is not merely untested, it is *untestable*, and the mutation testing that would have caught it silently has nothing to bite on. Leave only `getAuthUser`, the `!user?.email` guard, and argument forwarding above the helper. This is the same reasoning `access.ts` already encodes by giving its checks an explicit-playerId shape. Tracked as `wordle-teams-obw`.
 - **Every mutation-testing run needs a CONTROL and a SANITY case, and verdicts must come from exit codes.** A Task 1 reviewer's first harness reported all five required mutations as SURVIVED — a false result: it passed `vitest --reporter=basic`, which does not exist in vitest 4, so the run crashed and its grep found no failures. "No failures detected" and "the tests did not run" look identical to a grep. Two guards, and you need both: a **SANITY** mutant you know must die (catches "the runner never fails"), and a **CONTROL** run with no mutation at all that must pass (catches the opposite — a runner that always fails, which is otherwise indistinguishable from every mutant being killed). A mutation report you cannot trust is worse than none, because it manufactures confidence.
 - **Mutation-test each guard separately, not just the headline behaviour.** Task 0a's review found that a test asserting "the dry run wrote nothing" pinned only one of three write sites — the other two could be unguarded with every test still green, and one of them deletes a team and cascades away its whole scoring history. If a function has N conditional write paths, break N of them, one at a time.
@@ -1225,7 +1226,12 @@ export const completeProfile = mutation({
     // those rules lives in completeProfileFor instead. See the ground rules.
     const user = await authComponent.getAuthUser(ctx)
     if (!user?.email) throw accessError('UNAUTHENTICATED')
-    return await completeProfileFor(ctx, user.email, args)
+    return await completeProfileFor(
+      ctx,
+      user.email,
+      { firstName: args.firstName, lastName: args.lastName },
+      args.today,
+    )
   },
 })
 
@@ -2173,6 +2179,10 @@ cd v2 && pnpm exec tsc --noEmit && pnpm build
 ```
 
 Expected: PASS. `routeTree.gen.ts` picks up the new route via the vite plugin — do not run `tsr generate` by hand (see the note in `package.json`).
+
+- [ ] **Step 3b: Decide what a wrong device clock should do here**
+
+`completeProfile` inherits `requirePlausibleToday`, so a device clock more than a day off now blocks **account creation**, not merely an action. That is a harder failure than the same bound has anywhere else — the user cannot create a player at all, and is locked out of the whole app rather than out of one mutation. `INVALID_DATE`'s copy is at least actionable ("Your device's clock looks off…"), so the current behaviour is defensible, but it should be a deliberate choice rather than an inherited one. Surfaced by Task 2's review. If you keep it, say so in the route's doc comment; if you don't, the bound has to move.
 
 - [ ] **Step 4: Drive it in the browser**
 
