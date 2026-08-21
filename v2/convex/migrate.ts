@@ -1,5 +1,5 @@
 import { internalMutation, internalQuery } from './_generated/server'
-import { v } from 'convex/values'
+import { ConvexError, v } from 'convex/values'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -509,11 +509,17 @@ export const counts = internalQuery({
  * DANGLING REFERENCES ARE LEFT BEHIND, KNOWINGLY. teams.playerIds and
  * teams.creator are the only ones cleaned. Deliberately not cleaned:
  *   - playerMembership.playerId and webhookEvents.playerId, for every deleted
- *     player. Both tables are only ever reached by an index lookup keyed on a
- *     LIVE player's id, so no read path can load an orphan or break on one. It
- *     is not invisible, though: parityProbe below maps an orphaned membership to
- *     `playerLegacyId: null`, so Phase 7's parity comparison will report it as a
- *     diff. Expect it there rather than treating it as a copy failure.
+ *     player. Orphans here are LOADED but never DEREFERENCED, which is the
+ *     property that makes them safe. Both tables get full-table scanned (counts
+ *     and purgeCopiedData below, plus parityProbe for memberships) and are also
+ *     reached by legacyId and by_webhookId, so "nothing sees them" would be
+ *     false — what is true is that no read path takes an orphan's playerId and
+ *     fetches the player. isProFor (access.ts) is keyed on a LIVE player's id
+ *     and so can never load one, and upsertMemberships resolves the player first
+ *     and skips the row when it is gone. The visible consequence is parityProbe:
+ *     it maps an orphaned membership to `playerLegacyId: null`, so Phase 7's
+ *     parity comparison reports it as a diff. Expect it there rather than
+ *     treating it as a copy failure.
  *   - monthlyWinners.hasSeenCelebration on SURVIVING rows. The guard above
  *     refuses when a nameless player OWNS a winner row, not when they merely
  *     appear in someone else's array, so a deleted id can still sit in one. That
@@ -536,8 +542,9 @@ export const counts = internalQuery({
  * and leave the data in a state that is neither before nor after, with no
  * refusal to act on. At production's 2026-08-20 size this reads roughly a
  * thousand documents (533 players + 171 teams + two indexed lookups per nameless
- * player) and writes a few hundred, comfortably inside Convex's per-transaction
- * limits. Revisit only if those counts change by an order of magnitude, and
+ * player + a monthlyWinners and a scoringSystems collect per emptied team, in
+ * BOTH modes since those were hoisted out of the dryRun guard) and writes a few
+ * hundred, comfortably inside Convex's per-transaction limits. Revisit only if those counts change by an order of magnitude, and
  * then by scoping the run, not by giving up atomicity.
  */
 export const deleteNamelessPlayers = internalMutation({
@@ -547,18 +554,33 @@ export const deleteNamelessPlayers = internalMutation({
     const nameless = players.filter((p) => !p.firstName || !p.lastName)
     const namelessIds = new Set(nameless.map((p) => p._id))
 
+    // ConvexError, NOT Error, AND THE TESTS CANNOT SHOW YOU WHY. Convex sends a
+    // ConvexError's payload to the client verbatim, but replaces the message of
+    // any other uncaught exception with a generic '[Request ID: …] Server Error',
+    // keeping the real text only in the deployment logs. A plain Error here would
+    // therefore reach the operator as a request id at precisely the moment this
+    // guard exists to tell them WHICH assumption broke. convex-test runs
+    // in-process and never redacts, so `.rejects.toThrow(/owns dailyScores/)`
+    // passes either way — the divergence is invisible from the test suite and
+    // only appears against a real deployment. Do not "simplify" these back.
+    //
+    // Deliberately NOT an AccessCode: that union is UI copy for signed-in users
+    // (see src/lib/convex-error.ts), and these are operator-facing sentences
+    // about the state of the data. A string payload keeps `.message` identical
+    // for both callers, since ConvexError's constructor passes a string straight
+    // to super().
     for (const player of nameless) {
       const score = await ctx.db
         .query('dailyScores')
         .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))
         .first()
-      if (score) throw new Error('Refusing: a nameless player owns dailyScores')
+      if (score) throw new ConvexError('Refusing: a nameless player owns dailyScores')
 
       const winner = await ctx.db
         .query('monthlyWinners')
         .withIndex('by_player', (q) => q.eq('playerId', player._id))
         .first()
-      if (winner) throw new Error('Refusing: a nameless player owns monthlyWinners')
+      if (winner) throw new ConvexError('Refusing: a nameless player owns monthlyWinners')
     }
 
     const teams = await ctx.db.query('teams').collect()

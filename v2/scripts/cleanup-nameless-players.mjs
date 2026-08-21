@@ -26,6 +26,7 @@
  */
 import { createInterface } from 'node:readline/promises'
 import { ConvexHttpClient } from 'convex/browser'
+import { ConvexError } from 'convex/values'
 import { internal } from '../convex/_generated/api.js'
 
 const commit = process.argv.includes('--commit')
@@ -74,12 +75,32 @@ try {
     dryRun: !commit,
   })
 } catch (err) {
-  // A REFUSAL IS AN EXPECTED OUTCOME, NOT A CRASH. The mutation throws when a
-  // nameless player turns out to own a dailyScore or a monthlyWinners row, and
-  // that aborts the whole transaction — so this path means nothing was written,
-  // which is worth saying out loud rather than leaving as an unhandled rejection
-  // stack that reads like the script broke.
-  console.error(`\nREFUSED — nothing was written.\n  ${err instanceof Error ? err.message : err}`)
+  // TWO DIFFERENT FAILURES, AND ONLY ONE OF THEM IS SAFE TO REASSURE ANYONE
+  // ABOUT. A ConvexError is the mutation's own refusal: it ran, it found a
+  // nameless player owning history, and it aborted the transaction — nothing was
+  // written, and saying so is the whole point of the guard.
+  //
+  // Anything else is transport. The request may have reached the backend and
+  // committed with only the RESPONSE lost, so "nothing was written" would be a
+  // claim this side cannot possibly verify, and the operator most likely to read
+  // it is the one who just had a run time out mid-delete. Say what is actually
+  // known — one transaction, so all or nothing — and point at the dry run, which
+  // answers the question directly by counting what is still there.
+  if (err instanceof ConvexError) {
+    console.error(`\nREFUSED — nothing was written.\n  ${err.message}`)
+  } else if (commit) {
+    console.error(
+      `\nFAILED — the mutation did not complete, and this side cannot tell whether it\n` +
+        `ran: the request may have reached ${host} and committed with only the reply\n` +
+        `lost. It is a single transaction, so it either committed entirely or not at\n` +
+        `all. Re-run without --commit to find out which:\n` +
+        `  node scripts/cleanup-nameless-players.mjs\n` +
+        `  ${err}`,
+    )
+  } else {
+    // A dry run only reads, so this one CAN be stated flatly.
+    console.error(`\nFAILED — could not complete the dry run. It writes nothing either way.\n  ${err}`)
+  }
   process.exit(1)
 }
 

@@ -348,20 +348,32 @@ describe('deleteNamelessPlayers', () => {
         deadTeam,
         foundedTeam,
         keptTeam,
-      keptWinner,
+        keptWinner,
         keptSystem,
       }
     })
 
-    await t.mutation(internal.migrate.deleteNamelessPlayers, { dryRun: false })
+    // TWO teams are emptied here, so this also pins that the blast-radius counts
+    // ACCUMULATE rather than reporting the last team to be processed — and that
+    // they are right on the commit path, not just in the dry run. deadTeam owns
+    // the one winner and the one system; foundedTeam owns none, and contributes
+    // only to teamsEmptied.
+    const report = await t.mutation(internal.migrate.deleteNamelessPlayers, { dryRun: false })
+    expect(report).toMatchObject({
+      dryRun: false,
+      teamsEmptied: 2,
+      winnersDeleted: 1,
+      systemsDeleted: 1,
+    })
 
     await t.run(async (ctx) => {
       // Exactly keptTeam's rows are left — not "the tables are empty", which a
-      // cascade that forgot to scope by teamId would also satisfy.
+      // cascade that forgot to scope by teamId would also satisfy. Sorted, so a
+      // second survivor later cannot make this fail on row order alone.
       const winners = await ctx.db.query('monthlyWinners').collect()
-      expect(winners.map((w) => w._id)).toEqual([keptWinner])
+      expect(winners.map((w) => w._id).sort()).toEqual([keptWinner].sort())
       const systems = await ctx.db.query('scoringSystems').collect()
-      expect(systems.map((s) => s._id)).toEqual([keptSystem])
+      expect(systems.map((s) => s._id).sort()).toEqual([keptSystem].sort())
 
       expect(await ctx.db.get(deadTeam)).toBeNull()
       expect(await ctx.db.get(foundedTeam)).toBeNull()
