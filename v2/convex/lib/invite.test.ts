@@ -112,8 +112,12 @@ describe('isCompleteName', () => {
   test('accepts a ONE-CHARACTER name', () => {
     // v1 saves any non-empty name but guards the redirect on length > 1, so a
     // one-character name saves and then redirects to /complete-profile forever.
-    // The guard and the validation share this function precisely so that the
-    // loop cannot exist. Do not "tighten" this to length > 1.
+    // A one-character name is a real name — an initial, or simply a short one —
+    // and v1's threshold was the bug, not the save. v2 cannot loop here at all
+    // (needsProfile checks for a ROW, never re-reads the name), so the only job
+    // left is to not reject legitimate input. Do not "tighten" this to
+    // length > 1: completeProfile and the form's canSubmit both call this, so
+    // tightening it would lock the same people out of both at once.
     expect(isCompleteName('X', 'Y')).toBe(true)
   })
 
@@ -129,10 +133,13 @@ describe('isCompleteName', () => {
   })
 
   // The trim decides COMPLETENESS; it is not a demand that the caller pre-trim.
-  // The route guard will read back whatever completeProfile stored (neither is
-  // built yet), so if a padded name could save but not clear the guard we would
-  // be back to v1's redirect loop by a different route. Padded input has to
-  // count as complete input on both sides.
+  // This matters for the profile form's canSubmit predicate, which will judge
+  // RAW, UNTRIMMED React state: a user who types ' Ada ' has entered a complete
+  // name and the submit button has to be live. Rejecting padded input here
+  // would disable the button on input that saves perfectly well.
+  //
+  // Note this says nothing about what gets STORED — the function returns a
+  // verdict, not a value, and completeProfile trims separately before writing.
   test('accepts names that carry surrounding whitespace', () => {
     expect(isCompleteName(' Ada ', ' Lovelace ')).toBe(true)
     expect(isCompleteName('\tX\n', ' Y ')).toBe(true)
