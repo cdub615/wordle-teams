@@ -49,14 +49,29 @@ describe('completeProfileFor', () => {
     })
   })
 
-  test('lowercases the address it stores', async () => {
+  test('normalises the address it stores, and matches invites against it', async () => {
     // players.email is always lowercase (schema), and the invite scan compares
     // against this value — so a mixed-case address arriving from a provider
     // must not create a row that by_email can never find again.
+    //
+    // Padded as well as mixed-case, because the reduction here has to be the
+    // same one normaliseInviteEmail applies on the write side — trim() included.
+    // Asserting the STORED email alone would not pin the trim, since a padded
+    // address still lowercases to something by_email can find; it is the invite
+    // match that actually depends on both halves.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const playerId = await completeProfileFor(ctx, ADA_AS_TYPED, NAMES, today)
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [bob], creator: bob, invited: [ADA] }),
+      )
+
+      const playerId = await completeProfileFor(ctx, `  ${ADA_AS_TYPED}  `, NAMES, today)
+
       expect((await ctx.db.get(playerId))!.email).toBe(ADA)
+      expect((await ctx.db.get(teamId))!.playerIds).toContain(playerId)
+      expect((await ctx.db.get(teamId))!.invited).toEqual([])
     })
   })
 
@@ -102,15 +117,42 @@ describe('completeProfileFor', () => {
     // AMENDMENT A2's ACCEPTANCE CRITERION, and the single most important case
     // here. v1 stored `invited` exactly as typed and matched it
     // case-sensitively while auth lowercased addresses, so anyone invited at a
-    // mixed-case address silently never joined. Copied teams still hold such
-    // rows, so the match has to be case-insensitive on READ even though every
-    // v2 write lowercases.
+    // mixed-case address silently never joined.
+    //
+    // NO COPIED TEAM CAN ACTUALLY HOLD THIS ROW TODAY — both copy gates
+    // lowercase `invited`, and production's 44 pending invites were measured
+    // clean. The fixture is deliberately unrepresentable data: it pins the
+    // read-side normalisation so that a future writer which forgets to
+    // normalise cannot silently resurrect the v1 bug, whose whole character is
+    // that it produces no error, just an invite nobody can ever claim.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
       const teamId = await ctx.db.insert(
         'teams',
         aTeam({ playerIds: [bob], creator: bob, invited: [ADA_AS_TYPED] }),
+      )
+
+      const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
+
+      const team = (await ctx.db.get(teamId))!
+      expect(team.playerIds).toEqual([bob, playerId])
+      expect(team.invited).toEqual([])
+    })
+  })
+
+  test('claims an invite stored with surrounding whitespace', async () => {
+    // The other half of mirroring normaliseInviteEmail on read. It trims AND
+    // lowercases on write; neither copy gate trims, so a padded address is the
+    // one abnormal shape that could genuinely reach the table. Matching on case
+    // alone would leave it silently unclaimable — the same failure mode as the
+    // mixed-case case above, reached by a different route.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [bob], creator: bob, invited: [`  ${ADA_AS_TYPED}  `] }),
       )
 
       const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
@@ -201,9 +243,16 @@ describe('completeProfileFor', () => {
 
   test('recomputes a claimed teams existing winner rows (wt-ksh.5.2)', async () => {
     // The bug this closes: v1's update_monthly_winners is a trigger on
-    // daily_scores, so a membership change never fires it, and in v2 only a
-    // board entry in the CURRENT month recomputes anything. Without the
-    // recompute here, every month the joiner could have won stays wrong forever.
+    // daily_scores, so a membership change never fires it, and in v2 a board
+    // entry only recomputes the month it is dated in. Without the recompute
+    // here, every month the joiner could have won stays wrong forever.
+    //
+    // EVERYTHING IS DATED IN A FIXED PAST MONTH — 2025-06, never today's. That
+    // is the whole point of the fixture, not a detail. Dated in the current
+    // month, an implementation that ignored monthsWithWinners and only ever
+    // recomputed today's month would pass, which is precisely the behaviour
+    // wt-ksh.5.2 exists to forbid. A hard-coded past month also keeps the test's
+    // strength constant instead of letting it change with the wall clock.
     //
     // Ada is a COPIED player — she has a row and a history, and completing her
     // profile patches rather than inserts. That is what makes the case
@@ -229,9 +278,9 @@ describe('completeProfileFor', () => {
       // Bob solved in four (1 point); Ada solved in one (5). Every other day of
       // the month scores the team's nA, which is 0 for both of them, so the
       // month is decided by these two boards alone whatever date this runs on.
-      await ctx.db.insert('dailyScores', aScore(bob, '2026-08-03', ['CRANE', 'SLATE', 'SPELL', 'SPEED']))
-      await ctx.db.insert('dailyScores', aScore(ada, '2026-08-03', ['SPEED']))
-      // The stale rows: Bob won August on both teams because Ada was not on
+      await ctx.db.insert('dailyScores', aScore(bob, '2025-06-03', ['CRANE', 'SLATE', 'SPELL', 'SPEED']))
+      await ctx.db.insert('dailyScores', aScore(ada, '2025-06-03', ['SPEED']))
+      // The stale rows: Bob won June 2025 on both teams because Ada was not on
       // either roster when they were computed, and he has already dismissed the
       // confetti.
       const staleRows = []
@@ -240,8 +289,8 @@ describe('completeProfileFor', () => {
           await ctx.db.insert('monthlyWinners', {
             playerId: bob,
             teamId,
-            year: 2026,
-            month: 8,
+            year: 2025,
+            month: 6,
             hasSeenCelebration: [bob],
           }),
         )
@@ -271,14 +320,16 @@ describe('completeProfileFor', () => {
         'teams',
         aTeam({ playerIds: [bob, charles], creator: bob, invited: [] }),
       )
-      await ctx.db.insert('dailyScores', aScore(charles, '2026-08-03', ['SPEED']))
+      // Same fixed past month as the test above, for the same reason: nothing
+      // here should depend on when it runs.
+      await ctx.db.insert('dailyScores', aScore(charles, '2025-06-03', ['SPEED']))
       // Deliberately wrong: Charles would win a recompute. Nothing here should
       // run one.
       const winnerRow = await ctx.db.insert('monthlyWinners', {
         playerId: bob,
         teamId,
-        year: 2026,
-        month: 8,
+        year: 2025,
+        month: 6,
         hasSeenCelebration: [bob],
       })
 

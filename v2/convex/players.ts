@@ -71,8 +71,9 @@ const newPlayerDefaults = () => ({
  * `mutation` wrapper, because doing so needs a real Better Auth session in the
  * harness — that is exactly why access.ts's module comment gives
  * requireTeamMemberFor an explicit-playerId shape. Rules stated in the wrapper
- * would be rules nothing could prove: a mutant planted in either wrapper below
- * survives the suite, and one planted in here does not.
+ * would be rules nothing could prove: every mutant planted in the two wrappers
+ * below survives the suite, and moving these four rules in here turned four such
+ * mutants into killed ones.
  *
  * isCompleteName IS LOAD-BEARING, and is the whole reason a blank name cannot
  * reach the database. players.firstName/lastName are required as of Phase 4, so
@@ -103,10 +104,12 @@ export async function completeProfileFor(
   names: { firstName: string; lastName: string },
   rawToday: PuzzleDay,
 ): Promise<Id<'players'>> {
-  // Lowercased HERE rather than at the call site so the module has one rule
+  // Normalised HERE rather than at the call site so the module has one rule
   // instead of a precondition. players.email is always lowercase (schema), and
-  // the invite scan below compares against this value.
-  const email = rawEmail.toLowerCase()
+  // the invite scan below compares against this value — so it has to be reduced
+  // by exactly the same rule lib/invite.ts's normaliseInviteEmail applies on the
+  // write side, trim() included, or the two sides can disagree.
+  const email = rawEmail.trim().toLowerCase()
   const today = requirePlausibleToday(rawToday)
   const firstName = names.firstName.trim()
   const lastName = names.lastName.trim()
@@ -143,16 +146,25 @@ export async function completeProfileFor(
   const claimed = []
 
   for (const team of allTeams) {
-    // CASE-INSENSITIVE ON READ even though `invited` is lowercase on write.
-    // This is the read half of amendment A2. Teams copied out of v1 predate v1's
-    // own case fix and can hold an address exactly as it was typed, so a stored
-    // value cannot be assumed normal — matching it case-sensitively is precisely
-    // the v1 bug where anyone invited at a mixed-case address silently never
-    // joined their team. `email` is lowercase by construction above.
-    if (!team.invited.some((entry) => entry.toLowerCase() === email)) continue
+    // NORMALISED ON READ, MIRRORING normaliseInviteEmail'S trim().toLowerCase()
+    // ON WRITE. This is the read half of amendment A2, and it is DEFENCE IN
+    // DEPTH, not a claim that abnormal rows exist: every write path already
+    // lowercases — the copy at scripts/copy-from-supabase.mjs and again at
+    // migrate.ts, "the last gate before the data lands" — and all 44 pending
+    // invites in production were measured lowercase. schema.ts says the table
+    // cannot hold a mixed-case invite, and that is true today.
+    //
+    // It stays because the cost of being wrong is asymmetric and silent. A
+    // stored value this fails to match is not an error anybody sees: the invite
+    // simply sits there and the person never joins, which is exactly the v1 bug
+    // A2 exists to kill. One future writer that forgets to normalise reintroduces
+    // it. Do not delete this on the grounds that the data is currently clean.
+    //
+    // `email` is trimmed and lowercased by construction above.
+    if (!team.invited.some((entry) => entry.trim().toLowerCase() === email)) continue
 
     await ctx.db.patch(team._id, {
-      invited: team.invited.filter((entry) => entry.toLowerCase() !== email),
+      invited: team.invited.filter((entry) => entry.trim().toLowerCase() !== email),
       // A COPIED TEAM CAN LIST BOTH — the address in `invited` AND the player in
       // `playerIds` — because v1 never removed an invite it could not match.
       // Appending unconditionally would put the same id in the roster twice,
@@ -170,13 +182,23 @@ export async function completeProfileFor(
   // wt-ksh.5.2. THE JOINER IS NOW ELIGIBLE FOR EVERY MONTH THESE TEAMS ALREADY
   // HAVE A WINNER ROW FOR, and without this each one stays wrong forever: v1's
   // update_monthly_winners is a trigger on daily_scores, so a membership change
-  // never fires it, and in v2 only a board entry in the CURRENT month would
-  // recompute anything. A copied player claiming an invite brings their whole
-  // history with them, so the months at stake are not hypothetical.
+  // never fires it, and in v2 only a board entry recomputes anything, and only
+  // for the month it is dated in (upsertBoardFor passes monthOf(puzzleDay), not
+  // the current month). A copied player claiming an invite brings their whole
+  // history with them, so the months at stake are not hypothetical — and NOT
+  // reachable later by the joiner entering a board, since that would only ever
+  // fix the one month they backdated it to.
   //
   // monthsWithWinners does not solve this on its own — it returns the months
   // that already HAVE a row, and the joiner was excluded from every computation
   // that produced them. It is the bound on the work, not the fix.
+  //
+  // WHAT THAT BOUND LEAVES OUT, deliberately: a month the team has NO winner row
+  // for is not created here, even when the joiner's boards would have won it. So
+  // a joiner who played that month on some other team does not retroactively win
+  // it on this one. Phase 3's removeMember and setScoringSystem carry the
+  // identical bound, and nothing in src/ reads monthlyWinners today, so widening
+  // it is a product decision rather than a bug fix.
   for (const team of claimed) {
     await recomputeTeamMonths(ctx, team, await monthsWithWinners(ctx, team._id), today)
   }
