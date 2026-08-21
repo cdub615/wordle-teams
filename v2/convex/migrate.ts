@@ -479,3 +479,99 @@ export const counts = internalQuery({
     webhookEvents: (await ctx.db.query('webhookEvents').collect()).length,
   }),
 })
+
+/**
+ * Delete every player with no first or last name, and clean up after them.
+ *
+ * ONE-OFF, run before players.firstName/lastName are narrowed to required —
+ * Convex validates the schema against existing documents on push and rejects a
+ * narrowing that any row violates. See the Phase 4 design's "Prerequisite"
+ * section for the three-step sequence this is step 1 of.
+ *
+ * Measured against production 2026-08-20: 151 of 533 players are nameless, and
+ * NOT ONE of them owns a dailyScore or a monthlyWinners row. This mutation
+ * ASSERTS that rather than trusting it — if the assumption is ever false the
+ * right outcome is a refusal, not a silent deletion of somebody's history.
+ *
+ * Deleting a player doc does NOT touch the Id<'players'> values already sitting
+ * in teams.playerIds, so this cleans those explicitly: drop them from every
+ * roster, clear `creator` where it pointed at them, and delete a team left with
+ * no members at all (cascading its monthlyWinners and scoringSystems the way
+ * deleteTeamFor does; dailyScores belong to players and survive).
+ */
+export const deleteNamelessPlayers = internalMutation({
+  args: { dryRun: v.boolean() },
+  handler: async (ctx, { dryRun }) => {
+    const players = await ctx.db.query('players').collect()
+    const nameless = players.filter((p) => !p.firstName || !p.lastName)
+    const namelessIds = new Set(nameless.map((p) => p._id))
+
+    for (const player of nameless) {
+      const score = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))
+        .first()
+      if (score) throw new Error(`Refusing: a nameless player owns dailyScores`)
+
+      const winner = await ctx.db
+        .query('monthlyWinners')
+        .withIndex('by_player', (q) => q.eq('playerId', player._id))
+        .first()
+      if (winner) throw new Error(`Refusing: a nameless player owns monthlyWinners`)
+    }
+
+    const teams = await ctx.db.query('teams').collect()
+    let teamsEmptied = 0
+    let rostersCleaned = 0
+    let creatorsCleared = 0
+
+    for (const team of teams) {
+      const remaining = team.playerIds.filter((id) => !namelessIds.has(id))
+      const creatorGone = team.creator !== undefined && namelessIds.has(team.creator)
+      if (remaining.length === team.playerIds.length && !creatorGone) continue
+
+      if (remaining.length === 0) {
+        teamsEmptied++
+        if (!dryRun) {
+          const winners = await ctx.db
+            .query('monthlyWinners')
+            .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id))
+            .collect()
+          for (const row of winners) await ctx.db.delete(row._id)
+
+          const systems = await ctx.db
+            .query('scoringSystems')
+            .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', team._id))
+            .collect()
+          for (const row of systems) await ctx.db.delete(row._id)
+
+          await ctx.db.delete(team._id)
+        }
+        continue
+      }
+
+      if (remaining.length !== team.playerIds.length) rostersCleaned++
+      if (creatorGone) creatorsCleared++
+      if (!dryRun) {
+        await ctx.db.patch(team._id, {
+          playerIds: remaining,
+          ...(creatorGone ? { creator: undefined } : {}),
+        })
+      }
+    }
+
+    if (!dryRun) {
+      for (const player of nameless) await ctx.db.delete(player._id)
+    }
+
+    // Counts only. This output is pasted into design docs and issues, and the
+    // repository is public.
+    return {
+      dryRun,
+      namelessPlayers: nameless.length,
+      teamsEmptied,
+      rostersCleaned,
+      creatorsCleared,
+    }
+  },
+})
