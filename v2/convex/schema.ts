@@ -41,21 +41,29 @@ export default defineSchema({
     legacyId: v.optional(v.string()),
     email: v.string(), // always lowercase; auth stores it that way
 
-    // REQUIRED SINCE PHASE 4. A player cannot exist unnamed.
+    // REQUIRED SINCE PHASE 4, so a name can never be ABSENT.
+    //
+    // IT CAN STILL BE EMPTY. v.string() accepts '' and Convex has no minLength,
+    // so the schema cannot express "non-empty" — the writers do: isCompleteName
+    // (lib/invite.ts) trims and rejects, and isNamed (scripts/lib/copy-filters.mjs)
+    // treats '' as nameless. Do not read "required" as "non-empty"; a '' name
+    // would reach the scoreboard, the team card AND the winner computation,
+    // where it can win a month, and scores-table.tsx renders lastName[0], which
+    // is undefined for ''. Every writer must go through one of those two guards.
     //
     // v1 created the row at signup from a Postgres trigger, nameless, and filled
     // the name in later at /complete-profile — so 151 of production's 533
     // players have no name (measured 2026-08-20). Not one of them has ever
     // entered a board or won a month, and all 29 teams they created are dead, so
-    // nothing of value is refused. Narrowing this field meant clearing the way
-    // first, because Convex validates this schema against every existing
-    // document on push and rejects a narrowing that any row violates: a one-off
-    // mutation emptied the deployments that were already holding such rows (run
-    // against beta 2026-08-21, which reported zero), and the copy's
-    // `isNamed` filter (scripts/lib/copy-filters.mjs) is what stops the next
-    // copy putting them back. That filter is the durable half and stays; the
-    // mutation was deleted once this narrowing made its input unrepresentable
-    // and therefore untestable.
+    // nothing of value is refused. Narrowing this field still meant clearing the
+    // way first, because Convex validates this schema against every existing
+    // document on push and rejects a narrowing that any row violates. A one-off
+    // mutation existed to clear any deployment already holding such rows; run
+    // against beta on 2026-08-21 it reported zero, so none needed clearing, and
+    // it was deleted afterwards — this narrowing made its input unconstructible,
+    // so it could never be tested again either. The copy's `isNamed` filter
+    // (scripts/lib/copy-filters.mjs) is what stops the next copy putting such
+    // rows back, and is the durable half of that pair.
     //
     // This is also what retired lib/player.ts's hasCompleteProfile predicate.
     // Its three call sites — the scoreboard (scores.ts), the team card

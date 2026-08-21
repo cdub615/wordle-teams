@@ -246,6 +246,24 @@ async function writeAll(label, fn, rows) {
   return tallies
 }
 
+// THE TEAM FILTER HAS NO SECOND GATE, so it gets one here.
+//
+// A nameless PLAYER that slipped past selectCopyable would still be refused at
+// the boundary — migrate.ts's playerInput requires firstName/lastName, so the
+// run fails loudly. A memberless TEAM has no such backstop: `playerIds: []` is a
+// perfectly valid teams document, so a regression that shaped these rows from
+// the unscoped list would silently copy 29 dead teams, at cutover, with nobody
+// watching a diff. Reverting either `.map` below to scopedPlayers/scopedTeams
+// passes every test, tsc and build — this assertion is what makes that visible.
+if (teamRows.length !== copyable.teams.length || playerRows.length !== copyable.players.length) {
+  console.error(
+    `\nRefusing: shaped ${playerRows.length} players / ${teamRows.length} teams, but the ` +
+      `filter selected ${copyable.players.length} / ${copyable.teams.length}. ` +
+      `The rows being written are not the rows that were selected.`,
+  )
+  process.exit(1)
+}
+
 console.log('\nWriting to Convex...')
 // Order matters: teams reference players, and everything else references both.
 await writeAll('players', internal.migrate.upsertPlayers, playerRows)

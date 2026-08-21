@@ -75,10 +75,13 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
           //
           // NOT THE SAME CHECK as the profile-completeness filter that used to
           // sit beside it. That one is gone, because players.firstName/lastName
-          // became required in Phase 4 and a nameless player is now
-          // unrepresentable. A missing DOCUMENT is a different state and is
-          // still representable — do not read the deletion of the one as
-          // evidence the other is dead too.
+          // became required in Phase 4, so a name can no longer be ABSENT. It
+          // can still be EMPTY — v.string() accepts '' — so "unnamed" is kept
+          // out by the writers (isCompleteName in lib/invite.ts, isNamed in
+          // scripts/lib/copy-filters.mjs), not by the schema. A missing
+          // DOCUMENT is a third state again, and is still representable via a
+          // scoped copy — do not read the deletion of the name filter as
+          // evidence this null check is dead too.
           if (!member) return null
           return { id: member._id, firstName: member.firstName, lastName: member.lastName }
         }),

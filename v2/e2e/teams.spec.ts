@@ -107,9 +107,10 @@ test('a board entered by one player updates a teammate’s table with no reload'
   // ensureSharedTeamFor (convex/e2eSeed.ts), not two ensureTeamFor calls: each
   // of those seeds its OWN team for its OWN caller, so two calls would produce
   // two disjoint teams rather than one shared one. Both players come back
-  // profile-complete (firstName AND lastName), which as of Phase 4 the schema
-  // guarantees rather than the seed merely being careful: players.firstName and
-  // lastName are v.string(), so a nameless player cannot be inserted at all.
+  // profile-complete (firstName AND lastName). As of Phase 4 the schema requires
+  // both fields to be PRESENT, but v.string() accepts '', so it is still the
+  // seed writing real names that makes these rows render — not the schema. A
+  // blank-named player would appear in the table and could even win the month.
   await convex.mutation(api.e2eSeed.ensureSharedTeamFor, { emailA, emailB })
 
   const contextA = await browser.newContext()

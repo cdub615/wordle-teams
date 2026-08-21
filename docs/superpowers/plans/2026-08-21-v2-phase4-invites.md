@@ -1939,9 +1939,9 @@ and shorten its own doc comment to point at `cascadeDeleteTeam` for the cascade 
 
 **Two comment corrections belong in this step, both surfaced by Task 0a's review.**
 
-First, `scoringSystems.ts`'s header claims that module "owns the `scoringSystems` table exclusively", and `teams.ts` restates it from the other side. That was already inaccurate — `deleteTeamFor` writes it — and Task 0a's `deleteNamelessPlayers` made a third writer. Add the carve-out to both headers: the scoring-system *editor* is exclusive to `scoringSystems.ts`; deletion cascades are not, and there are now three.
+`scoringSystems.ts`'s header claims that module "owns the `scoringSystems` table exclusively", and `teams.ts` restates it from the other side. That was already inaccurate — `deleteTeamFor` writes it too. Add the carve-out to both headers: the scoring-system *editor* is exclusive to `scoringSystems.ts`; deletion cascades are not, and after this task there are **two** (`deleteTeamFor` and `leaveTeamFor`, both via `cascadeDeleteTeam`).
 
-Second, `migrate.ts`'s `deleteNamelessPlayers` carries a note saying its hand-rolled cascade must move here once this function exists. Make it call `cascadeDeleteTeam` — or, if the `WriterCtx` types don't line up cleanly, leave the duplication and update that note to say why. Do not leave the note pointing at a function that now exists.
+**Corrected 2026-08-21.** An earlier version of this step said `deleteNamelessPlayers` was a third writer and told you to make its hand-rolled cascade call `cascadeDeleteTeam`. That mutation, its tests and its runner were all deleted in Task 0d — its input became unconstructible once the schema narrowed, so it could never be tested again. There is nothing there to rewire; do not go looking for it.
 
 - [ ] **Step 4: Implement `leaveTeamFor`**
 
