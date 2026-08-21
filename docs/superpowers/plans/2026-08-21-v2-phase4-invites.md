@@ -22,6 +22,7 @@
 - **Never import `convex/fixtures.ts` from a `.test.ts` file's suite** — import it from `./fixtures.ts` only, never from another test file, or that file's whole suite re-runs.
 - **This repository is public.** No real email addresses in code, tests, script output or commit messages.
 - **Mutation-test your own work.** Before calling a task done, revert your implementation to its previous behaviour and confirm the task's headline test *fails*. Phase 3 shipped a test labelled "the point of the whole feature" that passed against the buggy implementation.
+- **Mutation-test each guard separately, not just the headline behaviour.** Task 0a's review found that a test asserting "the dry run wrote nothing" pinned only one of three write sites — the other two could be unguarded with every test still green, and one of them deletes a team and cascades away its whole scoring history. If a function has N conditional write paths, break N of them, one at a time.
 - **If you find a defect in this plan, fix the plan file too**, not just your code. Most Phase 3 defects were in the plan.
 
 **Quality gates** (from `v2/`, after every task):
@@ -89,11 +90,19 @@ const modules = import.meta.glob('./**/*.ts')
 
 describe('deleteNamelessPlayers', () => {
   test('dry run reports counts and writes nothing', async () => {
+    // ASSERT ALL THREE WRITE SITES, not just the player deletion. The handler
+    // writes in three places — the emptied-team cascade, the roster/creator
+    // patch, and the player delete — and an earlier version of this test looked
+    // only at the last one. Mutation testing proved the gap real: unguarding the
+    // emptied-team branch left every test green, and that branch deletes a team
+    // AND cascades away all its monthlyWinners and scoringSystems. Task 0b runs
+    // this against the live beta deployment, so "the dry run really is dry" is
+    // the single most safety-critical property in the file.
     const t = convexTest(schema, modules)
-    const ada = await t.run(async (ctx) => {
+    const { ada, team } = await t.run(async (ctx) => {
       const nameless = await ctx.db.insert('players', aPlayer({ email: 'x@a.test', firstName: undefined, lastName: undefined }))
-      await ctx.db.insert('teams', aTeam({ playerIds: [nameless], creator: nameless }))
-      return nameless
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [nameless], creator: nameless }))
+      return { ada: nameless, team }
     })
 
     const report = await t.mutation(internal.migrate.deleteNamelessPlayers, { dryRun: true })
@@ -101,7 +110,29 @@ describe('deleteNamelessPlayers', () => {
 
     await t.run(async (ctx) => {
       expect(await ctx.db.get(ada)).not.toBeNull()
+      const untouched = await ctx.db.get(team)
+      expect(untouched).not.toBeNull()
+      expect(untouched!.creator).toBe(ada)
+      expect(untouched!.playerIds).toEqual([ada])
     })
+  })
+
+  test('refuses to run when a nameless player owns a monthlyWinners row', async () => {
+    // The spec names BOTH tables. Without this the refusal's second half is
+    // invisible to the suite — deleting the throw left every test green — and it
+    // is the half that protects somebody's recorded win history.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const nameless = await ctx.db.insert('players', aPlayer({ email: 'x@a.test', firstName: undefined, lastName: undefined }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [nameless], creator: nameless }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: nameless, teamId: team, year: 2026, month: 7, hasSeenCelebration: [],
+      })
+    })
+
+    await expect(
+      t.mutation(internal.migrate.deleteNamelessPlayers, { dryRun: false }),
+    ).rejects.toThrow(/owns monthlyWinners/)
   })
 
   test('removes the player from rosters, clears creator, and deletes an emptied team', async () => {
@@ -140,20 +171,27 @@ describe('deleteNamelessPlayers', () => {
   })
 
   test('deletes an emptied team\'s monthlyWinners and scoringSystems but not dailyScores', async () => {
+    // THE ROSTERED PLAYER IS THE POINT. An earlier fixture hung the surviving
+    // score on a player who was NOT on the team, so the likeliest wrong cascade
+    // — "delete the dailyScores of every member of the emptied team" — passed.
+    // `rostered` is on the team and their board must survive: a board belongs to
+    // a player and is shared across every team they are on.
     const t = convexTest(schema, modules)
-    const { live, score } = await t.run(async (ctx) => {
+    const { score } = await t.run(async (ctx) => {
       const nameless = await ctx.db.insert('players', aPlayer({ email: 'x@a.test', firstName: undefined, lastName: undefined }))
-      const live = await ctx.db.insert('players', aPlayer({ email: 'live@a.test' }))
+      const rostered = await ctx.db.insert('players', aPlayer({ email: 'rostered@a.test' }))
+      // The nameless player is the only one whose absence empties the roster,
+      // so `rostered` leaves via the team's deletion, not via the filter.
       const team = await ctx.db.insert('teams', aTeam({ playerIds: [nameless], creator: nameless }))
-      await ctx.db.insert('monthlyWinners', { playerId: live, teamId: team, year: 2026, month: 7, hasSeenCelebration: [] })
+      await ctx.db.insert('monthlyWinners', { playerId: rostered, teamId: team, year: 2026, month: 7, hasSeenCelebration: [] })
       await ctx.db.insert('scoringSystems', {
         teamId: team, effectiveFrom: '2026-07',
         oneGuess: 5, twoGuesses: 3, threeGuesses: 2, fourGuesses: 1, fiveGuesses: 0, sixGuesses: -1, failed: -3, nA: 0,
       })
       const score = await ctx.db.insert('dailyScores', {
-        playerId: live, puzzleDay: '2026-07-01', date: 0, guesses: [],
+        playerId: rostered, puzzleDay: '2026-07-01', date: 0, guesses: [],
       })
-      return { live, score }
+      return { score }
     })
 
     await t.mutation(internal.migrate.deleteNamelessPlayers, { dryRun: false })
@@ -283,7 +321,9 @@ export const deleteNamelessPlayers = internalMutation({
 cd v2 && pnpm exec vitest run convex/migrate.test.ts
 ```
 
-Expected: PASS, 4 tests.
+Expected: PASS, 5 tests.
+
+Then mutation-test **each write guard separately**, not just the headline behaviour. Change `if (!dryRun)` to `if (true)` at the emptied-team cascade, then at the roster/creator patch, then at the player delete — each one on its own must turn the dry-run test red. Then delete the `monthlyWinners` refusal `throw`; the fifth test must go red. Restore after each.
 
 - [ ] **Step 5: Write the operational runner**
 
