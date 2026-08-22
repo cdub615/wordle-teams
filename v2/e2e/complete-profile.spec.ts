@@ -95,14 +95,18 @@ test('a name of only whitespace is refused locally, with an error and no navigat
   // completeProfile throws `Unauthenticated` from getAuthUser. Because that is a
   // bare ConvexError rather than accessError('UNAUTHENTICATED'), the page shows
   // its generic fallback, which is why the failure reads as a mystery rather
-  // than as a session problem. It does not recover: a retry loop pressed Submit
-  // four times over 45 seconds and every attempt failed identically.
+  // than as a session problem.
   //
-  // Two earlier attempts got this wrong and are worth naming so nobody tries a
-  // third. It was first read as a slow websocket reconnect and given a 15s
-  // timeout — that only delays the same rejection. It is not a timing problem at
-  // all. The 'saves and clears the alert' assertion that used to live here has
-  // moved to the one-character test below, which never goes offline.
+  // The window is short, not permanent. Frame capture shows the client sending
+  // `Authenticate tokenType:"None"` on reconnect and a real `tokenType:"User"`
+  // about 200ms later, so a mutation is only rejected if it lands inside that
+  // gap — which is why the failure was ~1 run in 5 under parallel load rather
+  // than deterministic. The client recovers; this test simply has no reason to
+  // gamble on winning the race.
+  //
+  // One earlier attempt read it as a slow websocket reconnect and gave the
+  // assertion a 15s timeout, which only delays the same rejection. Named here so
+  // nobody tries a third variation on a timeout.
 })
 
 test('a one-character first and last name saves without bouncing back', async ({ page }) => {
@@ -113,16 +117,13 @@ test('a one-character first and last name saves without bouncing back', async ({
   await signIn(page)
   await expect(page).toHaveURL('/complete-profile')
 
-  // THE ALERT IS NOT STICKY. Rejected first, then corrected, in one session and
-  // fully online — this is the half that moved out of the offline test above,
-  // which cannot submit twice. A sticky error would survive the second submit
-  // and sit on the dashboard.
-  await page.getByLabel('First Name').fill('   ')
-  await page.getByLabel('Last Name').fill('   ')
-  await page.getByRole('button', { name: 'Submit' }).click()
-  await expect(page.getByRole('alert')).toHaveText('Enter both a first and a last name.')
-  await expect(page).toHaveURL('/complete-profile')
-
+  // NON-STICKINESS OF THE ALERT IS NOT PINNED HERE, OR ANYWHERE — see
+  // wordle-teams-ckx. A reject-then-correct block used to sit here, claiming to
+  // prove it. It did not: deleting `setError(null)` from the route leaves all
+  // four of these tests green. The claim was also impossible as written, because
+  // the page unmounts on `navigate({ to: '/' })`, so the error state is
+  // destroyed whether or not it was cleared — the only observable window is
+  // between the click and the navigation, and nothing asserts there.
   await page.getByLabel('First Name').fill('A')
   await page.getByLabel('Last Name').fill('B')
   await page.getByRole('button', { name: 'Submit' }).click()
