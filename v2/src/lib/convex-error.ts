@@ -44,8 +44,15 @@ export function convexErrorCode(error: unknown): AccessCode | null {
  * for BOTH callers below, since both delegate here — instead of silently
  * routing the new code to a generic message. See the comment on AccessCode
  * itself.
+ *
+ * EXPORTED for one caller that has no ConvexError to map: routes/complete-
+ * profile.tsx checks isCompleteName locally before it submits, and shows this
+ * exact string for INVALID_NAME. It reuses the copy rather than writing its own
+ * so a client-side rejection and the server's rejection of the same name cannot
+ * read differently. Reach for the three wrappers below in every other case —
+ * they are what turn an unknown failure into something useful.
  */
-function typedCodeMessage(code: AccessCode): string {
+export function typedCodeMessage(code: AccessCode): string {
   switch (code) {
     case 'UNAUTHENTICATED':
       return 'Your session expired. Please sign in again.'

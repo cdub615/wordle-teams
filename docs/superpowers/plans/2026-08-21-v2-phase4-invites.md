@@ -2618,27 +2618,41 @@ git commit -m "feat(v2): leaveTeam — a member can remove themselves (wt-ksh.5.
 
 **Files:**
 - Create: `v2/src/routes/complete-profile.tsx`
-- Modify: `v2/src/routes/index.tsx:40-42`
+- Create: `v2/e2e/complete-profile.spec.ts`
+- Modify: `v2/src/routes/index.tsx` (`beforeLoad`)
+- Modify: `v2/convex/players.ts` (the clock bound — Step 3b)
+- Modify: `v2/convex/players.test.ts`
+- Modify: `v2/convex/access.ts`, `v2/convex/scores.ts` (the requirePlausibleToday call-site lists)
+- Modify: `v2/src/lib/convex-error.ts` (export `typedCodeMessage`)
+- Modify: `v2/e2e/login.spec.ts` (its cold signup now lands somewhere else)
+- Modify: `v2/e2e/sign-in.ts` (parallel-worker-safe default address)
 
 - [ ] **Step 1: Create the route**
 
-Create `v2/src/routes/complete-profile.tsx`:
+Create `v2/src/routes/complete-profile.tsx`. As shipped:
 
 ```tsx
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation } from '@tanstack/react-query'
-import { useState, type FormEventHandler } from 'react'
-import { Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
+import { useState, type FormEvent } from 'react'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
+import { useHydrated } from '#/lib/use-hydrated'
 import { Button } from '#/components/ui/button.tsx'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '#/components/ui/card.tsx'
 import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
-import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { dashboardErrorMessage, mutationErrorMessage, typedCodeMessage } from '#/lib/convex-error.ts'
 import { isCompleteName } from '../../convex/lib/invite.ts'
 import { toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import type { ErrorComponentProps } from '@tanstack/react-router'
 
 /**
  * The one screen every v2 account passes through, because completeProfile is
@@ -2646,7 +2660,12 @@ import { toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
  *
  * Ports v1's /complete-profile, which A7 makes a sanctioned parity exception —
  * this is the onboarding surface, and it is the largest measured leak in the
- * product (wordle-teams-456: 87% of prod signups never enter a board).
+ * product (wordle-teams-456: 87% of prod signups never enter a board;
+ * wordle-teams-390: ~93% abandon at login). The COPY is v1's, verbatim. The
+ * SHELL and the FORM MECHANICS are /login's — page-wrap, one Card, uncontrolled
+ * inputs, a hydration-gated submit and one role="alert" — rather than v1's bare
+ * `mt-24` block, because these two screens are consecutive steps of the same
+ * funnel and A7 is the reason /login was restyled in the first place.
  */
 export const Route = createFileRoute('/complete-profile')({
   head: () => ({ meta: [{ title: pageTitle('Complete Profile') }] }),
@@ -2658,51 +2677,148 @@ export const Route = createFileRoute('/complete-profile')({
     // Already have a player? Nothing to complete.
     if (!needsProfile) throw redirect({ to: '/' })
   },
+  // THE FIRST ROUTE TO AWAIT A CONVEX QUERY IN beforeLoad, so it is also the
+  // first that needs its own boundary: without one, a throw from needsProfile
+  // renders TanStack's raw default — "Something went wrong!", a Hide Error
+  // toggle and the error string, with no Header, no Footer and no way out — on
+  // the screen where the account is created. See CompleteProfileError below.
+  errorComponent: CompleteProfileError,
   component: CompleteProfilePage,
 })
 
+/**
+ * This route's error boundary. NOT DashboardError, which is not a drop-in: it
+ * clears `STORAGE_KEY` and navigates to `/` with empty search, both of which are
+ * dashboard-specific repairs for a stale `?team=`. Nothing here has a bad
+ * parameter to escape — the only thing that can throw is the needsProfile read
+ * — so plain `reset()` is the right retry: it re-runs beforeLoad, which is
+ * exactly the operation that failed.
+ *
+ * DESIGN_SYSTEM.md §7 "Error state": `text-lg` headline, muted body, single
+ * primary retry button, same as DashboardError.
+ */
+function CompleteProfileError({ error, reset }: ErrorComponentProps) {
+  return (
+    <main className="flex w-full justify-center p-2 md:p-12">
+      <div className="flex max-w-lg flex-col items-center gap-4 pt-10 text-center">
+        <p className="text-lg">Ruh roh, something went wrong!</p>
+        <p className="text-muted-foreground">{dashboardErrorMessage(error)}</p>
+        <Button onClick={reset}>Try again</Button>
+      </div>
+    </main>
+  )
+}
+
 function CompleteProfilePage() {
   const navigate = useNavigate()
+  const hydrated = useHydrated()
   const complete = useMutation({ mutationFn: useConvexMutation(api.players.completeProfile) })
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  // The SAME predicate the server validates with and the route guard reads, via
-  // one shared function. If they disagreed, a name that saves would not clear
-  // the guard and the user would bounce back here forever — which is v1's own
-  // latent bug (it saves any non-empty name but guards on length > 1).
-  const canSubmit = isCompleteName(firstName, lastName) && !submitting
-
-  const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
+  /**
+   * THE INPUTS ARE UNCONTROLLED AND SUBMIT IS GATED ON HYDRATION ALONE, exactly
+   * as login.tsx does it, and for the same reason (wt-ksh.2.2): this form is
+   * server-rendered, so it looks interactive before any JavaScript has run. A
+   * controlled input bound to empty state wipes whatever was typed the moment
+   * React attaches, and a click before then fires a native GET that carries
+   * nothing and reads as "the button does nothing" — on the screen where the
+   * account is created. `!hydrated` is now the ONLY thing disabling this button,
+   * which makes it load-bearing; e2e/complete-profile.spec.ts asserts it with
+   * JavaScript switched off.
+   *
+   * IT IS DELIBERATELY *NOT* GATED ON THE NAME BEING COMPLETE, though it was in
+   * this task's first draft. A content-gated `disabled` strands the user: it
+   * removes the button from the focus order, so tabbing out of Last Name lands
+   * in the footer; Enter does nothing; `disabled:pointer-events-none` kills
+   * hover and title; `required` never fires, because native validation only runs
+   * on a submit attempt the gate makes unreachable — and none of that explains
+   * itself. An error message tells the user strictly more than a dead button
+   * does. Owner's ruling after Task 6's review.
+   *
+   * isCompleteName IS STILL THE SHARED PREDICATE — the same function
+   * completeProfileFor validates with — so the message below and the server's
+   * INVALID_NAME cannot disagree about what a complete name is, and they read
+   * identically because both resolve through typedCodeMessage. What the client
+   * check buys is a local, instant answer; the server validates regardless
+   * (convex/players.ts), so deleting it would be a UX regression, not a hole.
+   * It is stricter than `required`, deliberately: `required` is satisfied by a
+   * single space, and isCompleteName trims before judging.
+   *
+   * THE ROUTE GUARD IS A THIRD THING and does NOT go through isCompleteName —
+   * needsProfile is a row-existence check that never reads a name back. It is
+   * closed against a bounce anyway, and more strongly: completeProfileFor
+   * validates BEFORE it writes and always leaves a row behind, so a name that
+   * saves clears the guard whatever the guard's opinion of names would be. v1's
+   * bug was having a second opinion at all — it saved any non-empty name and
+   * guarded its redirect on `length > 1`, so a one-character name saved and then
+   * redirected forever.
+   */
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    // Read from the DOM, synchronously, before any await: the inputs are
+    // uncontrolled precisely so the DOM is the source of truth for what was
+    // entered, and `currentTarget` is null once the handler yields.
+    const data = new FormData(event.currentTarget)
+    const firstName = String(data.get('firstName') ?? '')
+    const lastName = String(data.get('lastName') ?? '')
+
+    setError(null)
+    if (!isCompleteName(firstName, lastName)) {
+      // The server's own copy for this code, not a second wording of it.
+      setError(typedCodeMessage('INVALID_NAME'))
+      return
+    }
+
     setSubmitting(true)
     try {
-      await complete.mutateAsync({
-        firstName,
-        lastName,
-        today: toPuzzleDay(new Date()),
-      })
+      await complete.mutateAsync({ firstName, lastName, today: toPuzzleDay(new Date()) })
+      // NOTHING PRIMES THE CACHE BEFORE THIS HOP, AND NOTHING HAS TO — but the
+      // reason is subtle enough to be worth stating, because getting it wrong
+      // is the redirect loop wordle-teams-obw warns about. `/`'s beforeLoad
+      // asks ensureQueryData for this same needsProfile key, and ensureQueryData
+      // returns cached data WITHOUT revalidating; a stale `true` left by this
+      // route's own guard would bounce the user straight back here. It cannot
+      // be stale by the time this line runs: @convex-dev/react-query subscribes
+      // to every convex query the moment its cache entry is created (the query
+      // cache's 'added' event — an observer is not required), and Convex holds
+      // a mutation's promise until the client's query set has advanced past
+      // that mutation's timestamp. So `false` is already in the cache here.
+      // Verified in the browser as well as reasoned about, and the round trip
+      // is pinned by e2e/complete-profile.spec.ts so a regression cannot land
+      // silently.
       await navigate({ to: '/' })
-    } catch (error) {
-      toast.error(mutationErrorMessage(error, 'Could not save your profile, please try again'))
+    } catch (err) {
+      // Inline rather than a toast, unlike the team dialogs: this page has one
+      // action and one error surface, the alert is announced by a screen reader
+      // and stays put while the user fixes the field, and it does not depend on
+      // the root Toaster being mounted.
+      setError(mutationErrorMessage(err, 'Could not save your profile, please try again'))
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <main className="mt-24 flex justify-center px-6">
-      <div className="w-full max-w-lg">
-        <h1 className="text-center text-3xl leading-loose font-semibold md:text-4xl">
-          Complete Your Profile
-        </h1>
-        <p className="text-muted-foreground text-center">
-          Please provide your name to complete your profile
-        </p>
-        <form onSubmit={handleSubmit}>
-          <div className="my-6 flex flex-col space-y-4 md:flex-row md:space-y-0 md:space-x-6">
-            <div className="w-full">
+    <main className="page-wrap flex justify-center px-4 py-10 sm:py-16">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle className="text-2xl" asChild>
+            <h1>Complete Your Profile</h1>
+          </CardTitle>
+          <CardDescription>Please provide your name to complete your profile</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* EACH LABEL IS GROUPED WITH ITS OWN FIELD (gap-2) and the groups are
+              separated (gap-6). A uniform gap measured identically between
+              label→input, input→next label and input→Submit, which reads as
+              "Last Name" belonging to the First Name input as much as to its
+              own, and glues Submit to the last field — a mis-tap hazard at
+              390x844 with the keyboard up. v1 grouped each pair in a wrapper
+              div too; /login has a single pair, so the ambiguity cannot arise
+              there and its flat gap-3 does not transfer. */}
+          <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+            <div className="grid gap-2">
               <Label htmlFor="firstName">First Name</Label>
               <Input
                 id="firstName"
@@ -2710,11 +2826,9 @@ function CompleteProfilePage() {
                 type="text"
                 autoComplete="given-name"
                 required
-                value={firstName}
-                onChange={(event) => setFirstName(event.target.value)}
               />
             </div>
-            <div className="w-full">
+            <div className="grid gap-2">
               <Label htmlFor="lastName">Last Name</Label>
               <Input
                 id="lastName"
@@ -2722,23 +2836,69 @@ function CompleteProfilePage() {
                 type="text"
                 autoComplete="family-name"
                 required
-                value={lastName}
-                onChange={(event) => setLastName(event.target.value)}
               />
             </div>
-          </div>
-          <div className="flex justify-end">
-            <Button type="submit" variant="secondary" disabled={!canSubmit} aria-disabled={!canSubmit}>
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Submit
+            <Button type="submit" disabled={!hydrated || submitting}>
+              {submitting ? 'Saving…' : 'Submit'}
             </Button>
-          </div>
-        </form>
-      </div>
+            {error && (
+              <p role="alert" className="text-sm text-danger">
+                {error}
+              </p>
+            )}
+          </form>
+        </CardContent>
+      </Card>
     </main>
   )
 }
 ```
+
+WHAT THE DRAFT GOT WRONG, and what review changed afterwards:
+
+1. **The draft's inputs were controlled and its submit button had no hydration
+   gate**, which reintroduces wt-ksh.2.2 on the one screen that creates the
+   account: this form is server-rendered, so before React attaches, a click is a
+   native GET that carries nothing and hydration wipes whatever was typed into a
+   `value`-bound input. login.tsx fixed exactly this; the fix is copied here.
+   Confirmed independently by a reviewer who delayed the client entry by 6s.
+2. **The draft ALSO gated Submit on the name being complete, and that was wrong
+   too** — the owner ruled it out after Task 6's review. A content-gated
+   `disabled` strands the user: it takes the button out of the focus order (tab
+   from Last Name landed in the footer), Enter does nothing,
+   `disabled:pointer-events-none` kills hover and title, `required` never fires
+   because native validation only runs on a submit attempt the gate makes
+   unreachable, and nothing on the page explains any of it. Submit is now gated
+   on `!hydrated || submitting` ALONE, exactly as login.tsx does it, and an
+   invalid name produces a `role="alert"` carrying the server's own INVALID_NAME
+   copy via the newly-exported `typedCodeMessage`. The property given up is
+   "never enabled for a name the server would reject"; the server validates
+   regardless, and a message tells the user strictly more than a dead button.
+   That also deleted `names`, `readNames`, `formRef`, the mount effect, both
+   `onChange` handlers, `canSubmit` and `aria-disabled` — the fields are read
+   from `event.currentTarget` as login.tsx:108 does.
+3. **The draft's comment claimed the form predicate, the server validation and
+   the route guard "all go through `isCompleteName`". They do not** — the guard
+   reads `needsProfile`, a row-existence check that never sees a name. The loop
+   is closed more strongly than the draft claimed, by completeProfileFor
+   validating before it writes and always leaving a row behind.
+4. **The shell is /login's, not v1's bare `mt-24` block.** The copy is still
+   v1's, verbatim. These two screens are consecutive steps of one funnel and A7
+   is why /login was restyled; a v1-styled page between two restyled ones is a
+   visible seam on the surface A7 exists to protect. Each label/field pair is
+   grouped (`grid gap-2`) with the groups separated (`gap-6`): a uniform gap
+   measured 12px between label→input, input→next label AND input→Submit at
+   390x844, which reads as "Last Name" belonging to the First Name input as much
+   as its own and glues Submit to the last field. /login has a single pair, so
+   its flat gap does not transfer.
+5. **This is the first route to `await` a Convex query in `beforeLoad`, so it is
+   the first that needs its own `errorComponent`.** Without one a throw renders
+   TanStack's raw default — "Something went wrong!", a Hide Error toggle, the
+   error string, no Header, no Footer, no recovery — on the account-creation
+   screen. `DashboardError` is NOT a drop-in: it clears `STORAGE_KEY` and
+   navigates to `/`, both repairs for a stale `?team=` that cannot exist here.
+   A local `CompleteProfileError` uses `dashboardErrorMessage` and plain
+   `reset()`, which re-runs the beforeLoad that failed.
 
 - [ ] **Step 2: Add the dashboard guard**
 
@@ -2749,8 +2909,9 @@ In `v2/src/routes/index.tsx`, replace `beforeLoad`:
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
     // Every dashboard query assumes a player exists. Before Phase 4 a cold
     // signup reached this page anyway — getMyTeams returns [] rather than
-    // throwing — pressed the one call to action, and got NO_PLAYER. See
-    // wt-ksh.5.1.
+    // throwing — pressed the one call to action, and got NO_PLAYER, which until
+    // Task 4 rendered as "Your session expired": the wrong cause, and one
+    // signing in again could not fix. See wt-ksh.5.1.
     const needsProfile = await context.queryClient.ensureQueryData(
       convexQuery(api.players.needsProfile, {}),
     )
@@ -2764,11 +2925,94 @@ In `v2/src/routes/index.tsx`, replace `beforeLoad`:
 cd v2 && pnpm exec tsc --noEmit && pnpm build
 ```
 
-Expected: PASS. `routeTree.gen.ts` picks up the new route via the vite plugin — do not run `tsr generate` by hand (see the note in `package.json`).
+Expected: `tsc` FAILS first (`'/complete-profile'` is not in `FileRoutesByPath`) and passes after `pnpm build` regenerates `routeTree.gen.ts` via the vite plugin — do not run `tsr generate` by hand (see the note in `package.json`). Commit the regenerated `routeTree.gen.ts`.
 
-- [ ] **Step 3b: Decide what a wrong device clock should do here**
+- [ ] **Step 3b: What a wrong device clock does here — DECIDED, lenient**
 
-`completeProfile` inherits `requirePlausibleToday`, so a device clock more than a day off now blocks **account creation**, not merely an action. That is a harder failure than the same bound has anywhere else — the user cannot create a player at all, and is locked out of the whole app rather than out of one mutation. `INVALID_DATE`'s copy is at least actionable ("Your device's clock looks off…"), so the current behaviour is defensible, but it should be a deliberate choice rather than an inherited one. Surfaced by Task 2's review. If you keep it, say so in the route's doc comment; if you don't, the bound has to move.
+`completeProfile` inherited `requirePlausibleToday`, so a device clock more than
+a day off blocked **account creation** rather than merely an action. THE OWNER
+RULED: create the player regardless of clock skew, and fall back to the server's
+own date for the winner recompute. Everywhere else the bound blocks one action
+and the user retries; here it would block the player row itself, and every route
+guard bounces a playerless account back to this form — so the bound would lock
+them out of the product entirely, at the single worst moment given signup is
+already the largest measured leak (wordle-teams-456).
+
+In `completeProfileFor` (`v2/convex/players.ts`), replacing
+`const today = requirePlausibleToday(rawToday)`:
+
+```ts
+  const serverToday = toPuzzleDay(new Date())
+  const today = isPlausibleToday(rawToday, serverToday) ? rawToday : serverToday
+```
+
+`isPlausibleToday` comes from `convex/lib/puzzleDay.ts` — the same predicate
+`requirePlausibleToday` applies, so the strict and lenient sites cannot drift on
+what "plausible" means. ONE clock read, reused for the test and the fallback:
+two `new Date()` calls either side of midnight could judge against one day and
+fall back to the next.
+
+Consequences, both mandatory:
+
+- `access.ts` and `scores.ts` each enumerate the `requirePlausibleToday` call
+  sites, and Task 5 had just corrected both to say SEVEN and to name
+  `completeProfile`. Both now say **six**, with `completeProfile` recorded as a
+  documented exception and the reason. This is the comment-drift defect Task 5's
+  review caught, one task later.
+- `players.test.ts`'s "refuses a today the server clock cannot believe" is
+  INVERTED into "CREATES THE PLAYER ANYWAY when the device clock is
+  implausible", plus two recompute tests that pin which date is actually used:
+  an implausible client date must recompute with the SERVER's, and a plausible
+  one must be used AS SENT. The second needs a current-month fixture — the two
+  dates differ by one day, so the only day they disagree about is today's — and
+  is the only fixture in the file allowed to be dated in the current month.
+
+- [ ] **Step 3c: Close `wordle-teams-obw` with e2e coverage**
+
+`convex-test` cannot stand up a Better Auth session, so the body of every authed
+wrapper — `needsProfile` included — is unreachable by the unit suite. Its most
+valuable uncovered mutation is `needsProfile` inverted: either an infinite
+redirect to the profile form, or an onboarding form nobody ever sees. Driving a
+brand-new address through this route exercises it in both directions for real.
+
+Create `v2/e2e/complete-profile.spec.ts`, reusing `./sign-in`, with four tests:
+
+1. a cold signup lands on `/complete-profile`, submits a name, reaches the
+   dashboard and STAYS there across a reload; `/complete-profile` then redirects
+   an account that already has a player;
+2. **a whitespace-only name shows the alert and does not navigate — asserted
+   WITH THE CONTEXT OFFLINE.** This is the only thing that gives the test teeth:
+   whitespace satisfies `required` but not `isCompleteName`, and the SERVER
+   rejects the same input with the SAME copy, so an online run cannot tell a
+   local rejection from a round trip and deleting the client-side check leaves
+   the test green. With no network only the local check can produce the message.
+   Same test asserts Submit is ENABLED with empty fields, pinning that the
+   content gate is gone;
+3. a one-character first and last name saves without bouncing back;
+4. **with JavaScript disabled, Submit is disabled** — `!hydrated` is now the
+   only gate, so it is load-bearing. The session must be minted with JS on (the
+   OTP flow is a React form), so hand `storageState` to a second
+   `javaScriptEnabled: false` context; a hand-built context needs `baseURL`
+   passed explicitly.
+
+Do NOT close obw by extracting a `needsProfileFor` helper for a single
+row-existence check — the issue rules that out; it breaks the `...For`
+convention.
+
+**`v2/e2e/login.spec.ts` must be updated in the same commit.** Its account is
+minted by `signIn()` and never seeded, so it has no `players` row — the guard in
+Step 2 redirects exactly that account, and the spec's `toHaveURL('/')` plus
+"not on a team yet" assertions go red. The new landing spot is
+`/complete-profile`; what happens after submit belongs to the new spec. Do not
+attribute either redirect to `__root`'s `beforeLoad` — it contains none; it
+resolves the session and returns `isAuthenticated`, and each route guards
+itself.
+
+**`v2/e2e/sign-in.ts`'s default address needs a random suffix.** `e2e+${Date.now()}@…`
+is unique across runs but not across parallel workers, and `playwright.config.ts`
+pins no `workers`. As of this commit that address owns a `players` row, so a
+same-millisecond collision makes the second caller land on the dashboard instead
+of the form — a failure nobody would guess from the message.
 
 - [ ] **Step 4: Drive it in the browser**
 
@@ -2782,16 +3026,63 @@ Sign in as a never-before-seen e2e address with `E2E_TEST_MODE` on. Expected: yo
 
 Then test the loop that v1 gets wrong: submit a one-character first and last name. Expected: it saves and you reach the dashboard — no bounce back.
 
+PROBE THE REDIRECT HOP SPECIFICALLY. `/`'s `beforeLoad` calls `ensureQueryData`,
+which returns cached data WITHOUT revalidating, so a stale `needsProfile: true`
+left by this route's own guard would bounce the user back to the form they just
+completed — the loop obw warns about. Measured: it does not happen, and not by
+luck. `@convex-dev/react-query` subscribes to a convex query the moment its
+cache entry is created (the query cache's `added` event; an observer is not
+required), and Convex holds a mutation's promise until the client's query set
+has advanced past that mutation's timestamp — `requestManager.removeCompleted(remoteQuerySet.timestamp())`.
+So `false` is in the cache before `navigate` runs. Verified by deleting a
+defensive `setQueryData` and re-driving the flow; no bounce either way, so the
+defensive line was dropped rather than shipped with a comment that overstated
+the risk. The e2e spec's post-submit reload assertion is what keeps it honest.
+
 - [ ] **Step 5: Screenshot light and dark on a touch viewport**
 
 Capture `/complete-profile` at 390×844 with touch emulation, in both themes. Wait for any animation to settle before capturing. Check for a horizontal scrollbar — a page-wide one is the exact class of bug Phase 3's gate caught.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Run the gates and commit**
+
+`pnpm e2e` is NOT in `test`/`tsc`/`build` and this task is the first to touch
+routes and rendered UI — run it separately and report the result.
 
 ```bash
-git add v2/src/routes/complete-profile.tsx v2/src/routes/index.tsx v2/src/routeTree.gen.ts
-git commit -m "feat(v2): /complete-profile route and dashboard profile guard (wt-ksh.5.1)"
+cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build && pnpm e2e
+git add v2/src/routes/complete-profile.tsx v2/src/routes/index.tsx v2/src/routeTree.gen.ts \
+        v2/src/lib/convex-error.ts \
+        v2/convex/players.ts v2/convex/players.test.ts v2/convex/access.ts v2/convex/scores.ts \
+        v2/e2e/complete-profile.spec.ts v2/e2e/login.spec.ts v2/e2e/sign-in.ts
+git commit -m "feat(v2): /complete-profile route and dashboard profile guard (wt-ksh.5.18)"
 ```
+
+`wt-ksh.5.18` is this task. `wt-ksh.5.1` is an acceptance-criterion issue the
+controller closes separately — do not reference it in the commit.
+
+**Mutation results for Step 3b** (isolated extraction, verdicts from vitest exit
+codes only):
+
+| Mutant | Exit | Verdict | Killed by |
+| --- | --- | --- | --- |
+| CONTROL (unmutated) | 0 | PASSED, as required | — |
+| SANITY (name validation removed) | 1 | KILLED | refuses an empty first or last name |
+| M1 client date trusted unconditionally | 1 | KILLED | recomputes with the SERVER date when the client's is implausible |
+| M2 server date used even when the client's is plausible | 1 | KILLED | recomputes with the CLIENT'S date when it is plausible |
+| M3 condition inverted | 1 | KILLED | both recompute tests |
+| M4 pre-Task-6 `requirePlausibleToday` restored | 1 | KILLED | CREATES THE PLAYER ANYWAY when the device clock is implausible |
+
+**Mutation results for the route** (Playwright exit codes; e2e mutants cannot use
+an isolated extraction, since the specs hit the vite dev server serving the
+working tree — back up, mutate, restore, then verify `git diff`):
+
+| Mutant | Exit | Verdict | Killed by |
+| --- | --- | --- | --- |
+| CONTROL (unmutated) | 0 | PASSED, as required | — |
+| SANITY (post-save `navigate` removed) | 1 | KILLED | 3 of 4 tests |
+| E1 `handleSubmit`'s isCompleteName check gutted | 1 | KILLED | the offline whitespace test, and only that one |
+| E2 hydration gate removed from Submit | 1 | KILLED | all four — a pre-hydration click submits natively, which is wt-ksh.2.2 itself |
+| E3 this route's own `!needsProfile` redirect removed | 1 | KILLED | the cold-signup test's reverse-direction assertion |
 
 ---
 

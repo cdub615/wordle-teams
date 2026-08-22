@@ -168,13 +168,22 @@ export async function requireTeamCreatorFor(
  * The bound itself — isPlausibleToday — is shared across every mutation that
  * feeds a client-supplied `today` into winner recomputation: updateTeam,
  * removeMember, leaveTeam and invitePlayer in teams.ts, setScoringSystem in
- * scoringSystems.ts, upsertBoard in scores.ts, and completeProfile in players.ts.
- * All SEVEN need it for the identical reason: see
- * the doc comment on isPlausibleToday in lib/puzzleDay.ts. KEEP THIS LIST WHOLE —
- * wordle-teams-04r's pre-cutover check is "every clock-bounded surface", and this
- * is where a reader goes to enumerate them. See wordle-teams-04r:
- * that Convex's clock is UTC is currently an inference, and confirming it is a
- * pre-cutover task.
+ * scoringSystems.ts, and upsertBoard in scores.ts. All SIX reach it through
+ * THIS function, and need it for the identical reason: see the doc comment on
+ * isPlausibleToday in lib/puzzleDay.ts.
+ *
+ * ONE DOCUMENTED EXCEPTION, and it is not an omission: completeProfileFor
+ * (players.ts) applies isPlausibleToday directly and falls back to the server's
+ * date instead of calling this. Throwing there would refuse to create the
+ * PLAYER ROW, and every route guard bounces a playerless account back to
+ * /complete-profile, so a wrong device clock would lock the account out of the
+ * product rather than blocking one action. It is still a clock-bounded surface;
+ * it is not a requirePlausibleToday call site.
+ *
+ * KEEP THIS LIST WHOLE — wordle-teams-04r's pre-cutover check is "every
+ * clock-bounded surface", and this is where a reader goes to enumerate them.
+ * See wordle-teams-04r: that Convex's clock is UTC is currently an inference,
+ * and confirming it is a pre-cutover task.
  */
 export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
   const serverToday = toPuzzleDay(new Date())

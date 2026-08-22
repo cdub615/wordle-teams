@@ -2,7 +2,7 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
-import { toPuzzleDay } from './lib/puzzleDay.ts'
+import { addDays, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
 import { completeProfileFor } from './players.ts'
 
 const modules = import.meta.glob('./**/*.ts')
@@ -392,14 +392,111 @@ describe('completeProfileFor validation', () => {
     })
   })
 
-  test('refuses a today the server clock cannot believe', async () => {
+  test('CREATES THE PLAYER ANYWAY when the device clock is implausible', async () => {
+    // THE ONE PLACE THE CLOCK BOUND IS LENIENT, and the inversion of what this
+    // test asserted before Task 6: it used to expect INVALID_DATE. Everywhere
+    // else requirePlausibleToday blocks one ACTION and the user retries. Here a
+    // throw would refuse the player ROW, and every route guard bounces a
+    // playerless account back to /complete-profile — so a wrong device clock
+    // would lock the account out of the product entirely. Owner's decision,
+    // Task 6 Step 3b; access.ts's requirePlausibleToday records it as this
+    // module's documented exception.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      await expect(
-        completeProfileFor(ctx, ADA, NAMES, '1999-01-01'),
-      ).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
+      const playerId = await completeProfileFor(ctx, ADA, NAMES, '1999-01-01')
 
-      expect(await ctx.db.query('players').collect()).toHaveLength(0)
+      const player = (await ctx.db.get(playerId))!
+      expect(player.email).toBe(ADA)
+      expect(player.firstName).toBe('Ada')
+      expect(await ctx.db.query('players').collect()).toHaveLength(1)
+    })
+  })
+
+  test("recomputes with the SERVER date when the client's is implausible", async () => {
+    // Lenient is not unbounded: the recompute writes a monthlyWinners row the
+    // whole team reads, so the wild value must not reach it.
+    //
+    // 2025-06 is a fixed past month, so every one of its days is due against
+    // any real server clock — but NONE of them is due against the client's
+    // 1999-01-01, since monthTotal charges nA only for `day < today`. That is
+    // what makes the two dates give different winners rather than merely
+    // different arithmetic. nA is -3 here, not the fixture's 0, for the same
+    // reason: at 0 a missed day costs nothing and the month's outcome would not
+    // depend on `today` at all.
+    //
+    //   server date: Bob has no boards (30 x -3 = -90); Ada solved one day in
+    //                six (-1) and missed 29 (-87) = -88, so ADA wins.
+    //   1999-01-01:  nothing is due, so Bob scores 0 and Ada -1 — Bob wins, and
+    //                the stale row seeded below never changes.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      // A copied player, so her boards can predate the profile submit.
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [bob], creator: bob, invited: [ADA], nA: -3 }),
+      )
+      await ctx.db.insert(
+        'dailyScores',
+        aScore(ada, '2025-06-03', ['CRANE', 'SLATE', 'SPELL', 'STEEL', 'SHEEP', 'SPEED']),
+      )
+      const staleRow = await ctx.db.insert('monthlyWinners', {
+        playerId: bob,
+        teamId,
+        year: 2025,
+        month: 6,
+        hasSeenCelebration: [bob],
+      })
+
+      await completeProfileFor(ctx, ADA, NAMES, '1999-01-01')
+
+      expect((await ctx.db.get(staleRow))!.playerId).toBe(ada)
+    })
+  })
+
+  test("recomputes with the CLIENT'S date when it is plausible", async () => {
+    // The other half of the fallback: a plausible date is used as sent, not
+    // quietly replaced by the server's. Without this, "always use serverToday"
+    // would pass every other test in this file.
+    //
+    // DELIBERATELY DATED IN THE CURRENT MONTH, unlike every other fixture here
+    // — the two dates differ by exactly one day, so the only day whose
+    // due-ness they disagree about is today's, and a past month cannot contain
+    // it. The month's other days are missed by BOTH players and cancel out, so
+    // the assertion does not depend on which day of the month this runs on:
+    //
+    //   client tomorrow: today is due. Bob (no boards) pays -3 for it; Ada has
+    //                    a board there worth -1 — ADA wins by 2.
+    //   server today:    today is not due yet. Bob pays nothing; Ada's board
+    //                    still scores -1 — BOB wins by 1.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const serverToday = toPuzzleDay(new Date())
+      const tomorrow = addDays(serverToday, 1)
+      const [year, month] = monthOf(serverToday).split('-').map(Number)
+
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [bob], creator: bob, invited: [ADA], nA: -3 }),
+      )
+      await ctx.db.insert(
+        'dailyScores',
+        aScore(ada, serverToday, ['CRANE', 'SLATE', 'SPELL', 'STEEL', 'SHEEP', 'SPEED']),
+      )
+      const staleRow = await ctx.db.insert('monthlyWinners', {
+        playerId: bob,
+        teamId,
+        year,
+        month,
+        hasSeenCelebration: [bob],
+      })
+
+      await completeProfileFor(ctx, ADA, NAMES, tomorrow)
+
+      expect((await ctx.db.get(staleRow))!.playerId).toBe(ada)
     })
   })
 

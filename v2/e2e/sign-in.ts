@@ -14,10 +14,19 @@ import type { Page } from '@playwright/test'
  * Returns the email used so a caller that needs data seeded for this exact
  * account (board-entry.spec.ts giving it a team) can do so before or after
  * calling this.
+ *
+ * THE DEFAULT ADDRESS CARRIES A RANDOM SUFFIX, not just a timestamp. Playwright
+ * runs specs in parallel and playwright.config.ts pins no `workers`, so two
+ * workers calling this in the same millisecond would otherwise share an
+ * account — and since Phase 4 that account owns a `players` row, so the second
+ * caller would find a profile already completed and land on the dashboard
+ * instead of /complete-profile, for a reason nobody would guess from the
+ * failure. Same shape the spec-local helpers in board-entry.spec.ts and
+ * teams.spec.ts already use.
  */
 export async function signIn(
   page: Page,
-  email: string = `e2e+${Date.now()}@wordleteams.com`,
+  email: string = `e2e+${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`,
 ): Promise<string> {
   const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
 

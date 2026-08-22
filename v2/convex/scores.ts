@@ -211,11 +211,15 @@ export async function upsertBoardFor(
   if (!boardIsValid(answer, guesses, existing !== null)) throw accessError('INVALID_BOARD')
 
   // The bound itself — requirePlausibleToday — is shared with updateTeamFor,
-  // removeMemberFor, leaveTeamFor and invitePlayerFor in teams.ts,
-  // setScoringSystemFor in scoringSystems.ts and completeProfileFor in
-  // players.ts, which need it for the identical reason: see the doc comment on
-  // isPlausibleToday in lib/puzzleDay.ts. access.ts's requirePlausibleToday
-  // carries the same list; keep the two in step.
+  // removeMemberFor, leaveTeamFor and invitePlayerFor in teams.ts and
+  // setScoringSystemFor in scoringSystems.ts, which need it for the identical
+  // reason: see the doc comment on isPlausibleToday in lib/puzzleDay.ts. Six
+  // call sites including this one. completeProfileFor (players.ts) is clock-
+  // bounded too but deliberately NOT one of them — it applies isPlausibleToday
+  // itself and falls back to the server's date rather than throwing, because
+  // refusing there would refuse the player row and lock the account out of the
+  // product. access.ts's requirePlausibleToday carries the same list and the
+  // same exception; keep the two in step.
   //
   // INVALID_DATE, NOT INVALID_BOARD: a clock this far off is not a board-shape
   // problem, and boardErrorMessage's "That board is not complete. Check the

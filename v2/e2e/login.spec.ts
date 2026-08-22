@@ -6,20 +6,27 @@ test('signs in with an emailed OTP code', async ({ page }) => {
 
   // The Phase 1 debug view this used to assert against (getByTestId
   // 'signed-in-email' / 'copied-data' / 'no-player') was replaced by the real
-  // dashboard when Task 6 rewrote routes/index.tsx (2df6872) — nothing here
-  // touches that; the same UI is gone for every caller, and this drifted out
-  // of sync because no e2e run caught it at the time. '/' is guarded by
-  // __root's beforeLoad, which bounces an unauthenticated visitor to
-  // /login — reaching it at all is now the observable "the OTP round-trip
-  // worked" signal. This account is freshly minted and was never given a
-  // team, so the dashboard's empty state is the current analogue of the old
-  // "no-player" assertion: it proves the signed-in page rendered all the way
-  // through rather than dying on a server error, exactly what the old
-  // copied-data assertion was guarding against. Task 13 (wt-ksh.4.30) replaced
-  // the placeholder paragraph with TeamsEmptyState, whose heading is a real
-  // <h1> rather than text alone.
-  await expect(page).toHaveURL('/')
-  await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
+  // dashboard when Phase 2's Task 6 rewrote routes/index.tsx (2df6872) — the
+  // same UI is gone for every caller, and this drifted out of sync because no
+  // e2e run caught it at the time.
+  //
+  // WHERE A COLD SIGNUP LANDS CHANGED AGAIN IN PHASE 4 (wt-ksh.5.18), and this
+  // is that landing spot: signIn() mints an account with no `players` row, and
+  // '/' now redirects exactly that account to /complete-profile, which is the
+  // whole point of the guard. Reaching an authenticated route at all remains
+  // the observable "the OTP round-trip worked" signal, because BOTH of these
+  // routes bounce an unauthenticated visitor to /login. Each does so in its own
+  // `beforeLoad` — __root's contains no redirect at all; it resolves the
+  // session (`fetchAuth`) and returns `isAuthenticated` for the child routes to
+  // act on. Do not read the guard on index.tsx as redundant with something
+  // inherited: deleting it ships an unguarded dashboard. The heading proves the
+  // signed-in page rendered all the way through rather than dying on a server
+  // error, which is what the old copied-data assertion was guarding against.
+  //
+  // What happens AFTER the form is submitted belongs to
+  // complete-profile.spec.ts, not here; this test is about the OTP round trip.
+  await expect(page).toHaveURL('/complete-profile')
+  await expect(page.getByRole('heading', { name: /complete your profile/i })).toBeVisible()
 })
 
 // javaScriptEnabled is a context OPTION, so it has to be declared for the block

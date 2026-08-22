@@ -1,8 +1,9 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { accessError, playerForEmail, requirePlausibleToday } from './access'
+import { accessError, playerForEmail } from './access'
 import { isCompleteName } from './lib/invite.ts'
+import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Id } from './_generated/dataModel'
 import type { WriterCtx } from './winners.ts'
@@ -110,7 +111,29 @@ export async function completeProfileFor(
   // by exactly the same rule lib/invite.ts's normaliseInviteEmail applies on the
   // write side, trim() included, or the two sides can disagree.
   const email = rawEmail.trim().toLowerCase()
-  const today = requirePlausibleToday(rawToday)
+
+  // ONBOARDING IS NOT A NORMAL SURFACE, which is why this does NOT call
+  // access.ts's requirePlausibleToday like every other mutation that feeds a
+  // client `today` into winner recomputation. That helper THROWS. Everywhere
+  // else it blocks one ACTION and the user retries; here it would block the
+  // player ROW itself — and every route guard bounces a playerless account back
+  // to /complete-profile, so the bound would lock a wrong-clocked device out of
+  // the whole product, at the single worst moment: signup is already the
+  // largest measured leak here (wordle-teams-456 — 87% of production signups
+  // never enter a board). Owner's decision, Task 6 Step 3b.
+  //
+  // Lenient is not unbounded. The recompute below writes a monthlyWinners row
+  // the whole team reads, so an implausible date must not reach it; it falls
+  // back to the server's own date instead of being trusted OR refused. Same
+  // predicate access.ts uses, imported from lib/puzzleDay.ts, so the strict and
+  // lenient call sites cannot drift apart on what "plausible" means.
+  //
+  // ONE clock read, reused for both the test and the fallback: two `new Date()`
+  // calls either side of midnight could judge `rawToday` against one day and
+  // then fall back to the next.
+  const serverToday = toPuzzleDay(new Date())
+  const today = isPlausibleToday(rawToday, serverToday) ? rawToday : serverToday
+
   const firstName = names.firstName.trim()
   const lastName = names.lastName.trim()
   if (!isCompleteName(firstName, lastName)) throw accessError('INVALID_NAME')
@@ -209,11 +232,13 @@ export async function completeProfileFor(
 /**
  * Create the caller's player row from a submitted name.
  *
- * `today` is client-supplied and bounded server-side by requirePlausibleToday
- * inside the helper, for the reason every other mutation that feeds one into
- * winner recomputation bounds it: the value decides which missed days are
- * already due for every member of a claimed team and is written into a
- * monthlyWinners row the whole team reads.
+ * `today` is client-supplied and bounded server-side inside the helper, for the
+ * reason every other mutation that feeds one into winner recomputation bounds
+ * it: the value decides which missed days are already due for every member of a
+ * claimed team and is written into a monthlyWinners row the whole team reads.
+ * THE BOUND HERE IS THE LENIENT ONE — an implausible date falls back to the
+ * server's own rather than throwing INVALID_DATE, because this is the mutation
+ * that creates the account. See the reasoning at the fallback itself.
  */
 export const completeProfile = mutation({
   args: { firstName: v.string(), lastName: v.string(), today: v.string() },
@@ -231,9 +256,17 @@ export const completeProfile = mutation({
 })
 
 /**
- * Whether the caller still has to complete their profile. Nothing consumes this
- * yet; it is the predicate an onboarding route guard needs, and it is defined
- * here so the rule lives beside the mutation that clears it.
+ * Whether the caller still has to complete their profile. Defined here so the
+ * rule lives beside the mutation that clears it.
+ *
+ * TWO CONSUMERS, both route guards, and they are mirror images: src/routes/
+ * index.tsx's beforeLoad sends a caller with no player TO /complete-profile,
+ * and src/routes/complete-profile.tsx's sends a caller who has one AWAY to the
+ * dashboard. Inverting this predicate therefore breaks onboarding in one of two
+ * ways — an endless redirect back to the form, or a form nobody who needs it
+ * ever reaches — and no unit test can see it, because convex-test cannot stand
+ * up a Better Auth session and this wrapper's body never runs there
+ * (wordle-teams-obw). e2e/complete-profile.spec.ts drives both directions.
  *
  * A ROW-EXISTENCE CHECK THAT NEVER READS A NAME BACK. completeProfileFor above
  * rejects an empty pair BEFORE it inserts and always leaves a row behind, so a

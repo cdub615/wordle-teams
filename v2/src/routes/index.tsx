@@ -37,8 +37,17 @@ export const Route = createFileRoute('/')({
         ? search.month
         : undefined,
   }),
-  beforeLoad: ({ context }) => {
+  beforeLoad: async ({ context }) => {
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
+    // Every dashboard query assumes a player exists. Before Phase 4 a cold
+    // signup reached this page anyway — getMyTeams returns [] rather than
+    // throwing — pressed the one call to action, and got NO_PLAYER, which until
+    // Task 4 rendered as "Your session expired": the wrong cause, and one
+    // signing in again could not fix. See wt-ksh.5.1.
+    const needsProfile = await context.queryClient.ensureQueryData(
+      convexQuery(api.players.needsProfile, {}),
+    )
+    if (needsProfile) throw redirect({ to: '/complete-profile' })
   },
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(convexQuery(api.teams.getMyTeams, {}))
