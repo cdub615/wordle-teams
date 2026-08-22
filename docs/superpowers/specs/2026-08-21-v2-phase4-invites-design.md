@@ -53,10 +53,17 @@ A creator cannot see who they invited, cannot tell a typo from a slow responder,
 cancel. This is the whole of what `wt-ksh.5.3` is left complaining about once nameless players
 cease to exist.
 
-**v1's `handle_add_player_to_team` is broken in production.** Its non-pro-over-two-teams branch
-references `invited_id`, which is not a parameter of that function (`player_id_input` is). So
-inviting an existing free player who already has two teams raises a Postgres error rather than
-capping anything. A faithful port would port a fault.
+**v1 caps an over-limit free player in TWO places, and both work.** `handle_invited_signup`
+covers the no-account path; `handle_add_player_to_team` covers the existing-player path. An
+earlier draft of this design claimed the second was broken in production because its
+non-pro-over-two-teams branch references `invited_id`, which is not a parameter of that function.
+That was true only of `20240429200154_fix_handle_add_player_to_team.sql`, superseded 25 minutes
+later by `20240429204119_handle_add_player_add_to_invited.sql`, which changed `WHERE id =
+invited_id` to `WHERE id = player_id_input`. The current definition,
+`20240501180309_add_player_to_invited_if_not_signedup.sql`, never mentions `invited_id`, and no
+later migration redefines the function. Its cap branch parks the address in `invited` and
+increments `invites_pending_upgrade` — a correct cap. **Deferring the cap to Phase 5 is unchanged;
+only this justification for it was wrong.** Recorded as divergence 8.
 
 ## Decisions Made (and alternatives ruled out)
 
@@ -313,8 +320,8 @@ All six must be added to `V2-ADDENDUM.md` §7a so Phase 7's audit does not treat
 | 7 | **A player cannot exist without a name** | Schema-enforced. 151 nameless production players and the 29 dead teams they created are not copied. Measured: those players own 0 boards and 0 winner rows, so nothing but `player_ids`/`creator` refers to them |
 | 8 | **No 2-team cap on invitees until Phase 5** | v1 caps a non-pro invitee at two teams in `handle_invited_signup`. v2 is **more permissive than prod** until Polar lands. The retrofit hazard is real and is filed: enforcing it later means removing people from teams they already joined |
 | 9 | **Inviting someone already on the team says so** | v1 returns *"Successfully invited player"* and closes the dialog. v2 tells the truth and keeps the dialog open |
-| 10 | **A member can leave a team** | v1 has no such affordance at any layer — the UI hides remove on your own row and the only exit is asking the creator. Owner-sanctioned new behaviour. The creator still cannot leave, so every team keeps an administrator |
-| 11 | **Inviting an existing player who is also already in `invited` adds them, rather than re-sending** | **v1 has FOUR branches, not the three this design first counted.** Its middle case — the player exists AND the address is already in `invited` — re-sends the Supabase invite and does **not** add them to the team. That does nothing useful for someone who already has an account: `inviteUserByEmail` cannot help them, so they stay off the team indefinitely, however many times the creator tries. v2 adds them and clears the `invited` entry in the same write. Found by Task 3's review; the design's own spec table had inherited the mis-count |
+| 10 | **A member can leave a team** | **No such affordance in v1's UI** — `current-team-client.tsx` gates remove on `player.id !== userId`, so the only exit is asking the creator. A UI claim only: v1's `removePlayer` server action checks neither session nor creator, and the live RLS policy admits any member, so self-removal was already reachable through the API. That is divergence 4's hole, and 4 and 10 must not contradict each other. What is new is the affordance, and a server rule permitting exactly this. The creator still cannot leave, so every team keeps an administrator |
+| 11 | **Inviting an existing player who is also already in `invited` adds them, rather than re-sending** | **v1 has FOUR branches, not the three this design first counted.** Its middle case — the player exists AND the address is already in `invited` — re-sends the Supabase invite and does **not** add them to the team. That does nothing useful for someone who already has an account: `inviteUserByEmail` cannot get them onto a team, so however many times the creator tries, they stay off it. (v1 does check that call's error, so the creator is told either "Successfully invited player" or "Player invite failed" — but neither adds them.) v2 adds them and clears the `invited` entry in the same write. Found by Task 3's review; the design's own spec table had inherited the mis-count |
 
 Divergences 6, 9, 10 and 11 are on surfaces v1 has; 7 and 8 are invisible in a route-by-route
 comparison. Exercising them takes an invite to an existing member, an invite to a third team,

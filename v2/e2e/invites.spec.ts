@@ -57,23 +57,51 @@ async function signInWithOwnTeam(page: Page, email: string): Promise<void> {
 /** The seeded team's name and the seeded player's first name — see e2eSeed.ts. */
 const SEEDED_TEAM = 'E2E Team'
 
+/**
+ * A literal, escaped for use as a RegExp.
+ *
+ * EVERY TEXT LOCATOR BELOW GOES THROUGH THIS, AND NONE OF THEM MAY BE
+ * "SIMPLIFIED" BACK TO A PLAIN STRING. Playwright matches a string `hasText`,
+ * `getByText` and `getByRole`'s `name` CASE-INSENSITIVELY, and a RegExp as
+ * written. Two tests here type a MIXED-CASE address and assert a lowercase one
+ * came back, which is the only thing pinning `normaliseInviteEmail`'s
+ * `toLowerCase()` through the UI — v1's real bug (amendment A2: v1 stored
+ * `teams.invited` as typed and matched it case-sensitively, so anyone invited at
+ * a mixed-case address silently never joined).
+ *
+ * MEASURED, not assumed. Against markup of this exact shape, an all-uppercase
+ * expectation matched a lowercase element 1, 2 and 1 times through `getByRole`'s
+ * `name`, `getByText` and `filter({hasText})` respectively — and 0 times through
+ * the RegExp form of each. So with string locators the positive assertions below
+ * are vacuous: a lowercase expectation matches a mixed-case actual, and a mutant
+ * storing the raw typed address into `teams.invited` survives all three tests.
+ *
+ * The `toHaveCount(0)` on `pendingRow(creator, inviteeTyped)` in the first test
+ * is the guard against this helper being quietly downgraded. Measured: make `re`
+ * return its argument and that assertion receives 1 instead of 0 and fails, so
+ * the case-sensitivity of this file cannot be removed silently.
+ */
+const re = (literal: string): RegExp => new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+
 /** The Current Team card, by the landmark current-team-card.tsx gives it. */
 const teamCard = (page: Page): Locator => page.getByRole('region', { name: 'Current Team' })
 
 /**
  * A pending-invite row for one address, located by the cancel control's
- * aria-label — which is exactly one element per row, so it counts rows.
+ * aria-label — which is exactly one element per row, so it counts rows. Being
+ * case-sensitive, it also pins the address AS STORED, since getTeamInvitesFor
+ * returns `team.invited` verbatim.
  *
  * NOT `getByText(email)`: the toast that announces the invite contains the
  * address too, and it is rendered by the root Toaster, outside this card. Every
  * pending assertion below is scoped to the card for that reason.
  */
 const pendingRow = (page: Page, email: string): Locator =>
-  teamCard(page).getByRole('button', { name: `Cancel invite to ${email}` })
+  teamCard(page).getByRole('button', { name: re(`Cancel invite to ${email}`) })
 
-/** A sonner toast by its copy. `hasText` is a substring match. */
+/** A sonner toast by its copy — substring, and case-SENSITIVE. See `re`. */
 const toastWith = (page: Page, text: string): Locator =>
-  page.locator('[data-sonner-toast]').filter({ hasText: text })
+  page.locator('[data-sonner-toast]').filter({ hasText: re(text) })
 
 /**
  * Opens the invite dialog and submits one address. Returns the dialog, because
@@ -107,7 +135,21 @@ test('an invited address joins the team after completing a profile', async ({ br
   // /complete-profile and this test would fail for a reason nobody would guess.
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const creatorEmail = `e2e+inv-owner-${stamp}@wordleteams.com`
-  const inviteeEmail = `e2e+inv-joiner-${stamp}@wordleteams.com`
+  const inviteeLocal = `e2e+inv-joiner-${stamp}`
+  const inviteeEmail = `${inviteeLocal}@wordleteams.com`
+  // THE SAME ADDRESS, TYPED THE WAY A PERSON TYPES ONE. Derived rather than
+  // written out so the two cannot drift: the stamp is digits and hyphens, so
+  // `inviteeTyped.toLowerCase() === inviteeEmail` holds by construction.
+  //
+  // This is what makes normalisation observable from the browser. The creator
+  // types this; every assertion below expects the LOWERCASE form back — in the
+  // toast (which echoes `outcome.email`, the server-normalised value), in the
+  // stored pending row, and in the resend matching the first invite instead of
+  // parking a second row. Then the invitee signs in at the lowercase address and
+  // claims it, which is amendment A2's acceptance criterion driven end to end:
+  // v1 matched `teams.invited` case-sensitively while auth lowercased every
+  // address, so a mixed-case invite silently never joined anyone.
+  const inviteeTyped = `${inviteeLocal.toUpperCase()}@WordleTeams.com`
 
   const creatorContext = await browser.newContext()
   const inviteeContext = await browser.newContext()
@@ -118,8 +160,9 @@ test('an invited address joins the team after completing a profile', async ({ br
     await expect(teamCard(creator)).toBeVisible()
 
     // OUTCOME 1 of 4 — `invited`. The address has no account, so it is parked
-    // in teams.invited and the invite email goes out.
-    await invite(creator, inviteeEmail)
+    // in teams.invited and the invite email goes out. Typed mixed-case,
+    // expected back lowercase everywhere below.
+    await invite(creator, inviteeTyped)
     await expect(toastWith(creator, `Invite sent to ${inviteeEmail}`)).toBeVisible()
     // The dialog closes on every outcome except already_member.
     await expect(creator.getByRole('dialog')).toHaveCount(0)
@@ -134,16 +177,20 @@ test('an invited address joins the team after completing a profile', async ({ br
     // getByText resolves to two nested elements.
     await expect(creator.getByRole('heading', { name: 'Pending invites' })).toBeVisible()
     await expect(pendingRow(creator, inviteeEmail)).toHaveCount(1)
-    await expect(teamCard(creator).getByText(inviteeEmail).first()).toBeVisible()
+    await expect(teamCard(creator).getByText(re(inviteeEmail)).first()).toBeVisible()
+    // And the mixed-case string the creator typed was NOT what got stored.
+    await expect(pendingRow(creator, inviteeTyped)).toHaveCount(0)
 
     // OUTCOME 2 of 4 — `resent`. Same address, second attempt, before anyone
     // has accepted. v1 said "Successfully invited player" here as well.
-    await invite(creator, inviteeEmail)
+    await invite(creator, inviteeTyped)
     await expect(toastWith(creator, `Invite re-sent to ${inviteeEmail}`)).toBeVisible()
     await expect(creator.getByRole('dialog')).toHaveCount(0)
     // A resend writes NOTHING (teams.ts), so the list must not grow a second
     // row for the same address — and the dedupe in current-team-card.tsx must
-    // not be what is hiding one.
+    // not be what is hiding one. This also pins the case-insensitive
+    // `alreadyInvited` scan: matching the stored lowercase entry against a
+    // freshly typed mixed-case address is the only reason this stays at one.
     await expect(pendingRow(creator, inviteeEmail)).toHaveCount(1)
 
     // The invitee's first ever sign-in. A brand-new account has no players row,
@@ -195,7 +242,7 @@ test('an invited address joins the team after completing a profile', async ({ br
     // client that has had to reconnect comes back on a backoff. Phase 4 already
     // lost a run in three to exactly that in complete-profile.spec.ts.
     await expect(pendingRow(creator, inviteeEmail)).toHaveCount(0, { timeout: 20_000 })
-    await expect(teamCard(creator).getByText(inviteeEmail)).toHaveCount(0)
+    await expect(teamCard(creator).getByText(re(inviteeEmail))).toHaveCount(0)
     await expect(creator.getByRole('heading', { name: 'Pending invites' })).toHaveCount(0)
     await expect(teamCard(creator).getByText('Iva Joiner')).toBeVisible({ timeout: 20_000 })
   } finally {
@@ -221,7 +268,13 @@ test('inviting someone already on the team says so and leaves the dialog open', 
   // visible distinguishes that from success — which is why nothing caught it
   // for the life of v1, and why divergence 9 exists.
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-  const email = `e2e+inv-member-${stamp}@wordleteams.com`
+  const memberLocal = `e2e+inv-member-${stamp}`
+  const email = `${memberLocal}@wordleteams.com`
+  // Typed mixed-case again, for a second reason: reaching `already_member` at
+  // all requires playerForEmail to normalise before it looks the account up, so
+  // this pins normalisation on the COMPARE path, where the first test pins it on
+  // the write path.
+  const typedEmail = `${memberLocal.toUpperCase()}@WordleTeams.com`
   // The address the creator "meant" to type. Seeded so it already has a players
   // row, which makes the corrected attempt take the `added` branch — the one
   // outcome that sends no email. The correction has to actually go through for
@@ -235,13 +288,18 @@ test('inviting someone already on the team says so and leaves the dialog open', 
   await expect(teamCard(page)).toBeVisible()
   await expect(teamCard(page).getByRole('listitem')).toHaveCount(1)
 
-  const dialog = await invite(page, email)
+  const dialog = await invite(page, typedEmail)
 
   // INFO, not success. Asserted through sonner's own data-type rather than the
   // icon or the copy alone, because the copy is the half that already differs
   // from v1 and the SEVERITY is the half that would silently drift back:
   // toast.success here would read as "done" and still match the text.
-  const toast = toastWith(page, `${email} is already on ${SEEDED_TEAM}`)
+  //
+  // AND IT ECHOES WHAT WAS TYPED, not a normalised address — the one outcome
+  // that does, deliberately, because it carries no server payload to echo
+  // instead (the server wrote nothing on this path). The case-sensitive locator
+  // is what makes that assertable at all.
+  const toast = toastWith(page, `${typedEmail} is already on ${SEEDED_TEAM}`)
   await expect(toast).toBeVisible()
   await expect(toast).toHaveAttribute('data-type', 'info')
 
