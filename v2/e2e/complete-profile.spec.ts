@@ -89,10 +89,17 @@ test('a name of only whitespace is refused locally, with an error and no navigat
   }
 
   // The alert is not sticky: a real name clears it and saves.
+  //
+  // GENEROUS TIMEOUT, AND IT IS NOT PADDING. setOffline(false) does not restore
+  // the Convex websocket synchronously — the client reconnects on a backoff, and
+  // this mutation cannot resolve until it does. At expect's default 5s this
+  // assertion failed roughly one run in three, always here and never on the
+  // offline half above. A flaky spec is worse than a missing one: it teaches
+  // everyone to re-run red until it is green.
   await page.getByLabel('First Name').fill('Ada')
   await page.getByLabel('Last Name').fill('Lovelace')
   await page.getByRole('button', { name: 'Submit' }).click()
-  await expect(page).toHaveURL('/')
+  await expect(page).toHaveURL('/', { timeout: 15_000 })
   await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
 })
 
