@@ -69,6 +69,17 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # NOTHING ELSE HERE TYPECHECKS. `vite build` transpiles and strips types,
+      # it does not check them, so before this step a type error reached beta so
+      # long as the tests passed — the only thing catching one was somebody
+      # remembering to run tsc by hand (wordle-teams-px4).
+      #
+      # It also catches a stale routeTree.gen.ts: the vite plugin regenerates it
+      # on build, so a new route that was never committed typechecks green
+      # locally after a build and fails here, which is the right way round.
+      - name: Typecheck
+        run: pnpm typecheck
+
       - name: Unit tests
         run: pnpm test:once
 

@@ -13,6 +13,7 @@
 		"build": "vite build",
 		"preview": "pnpm run build && vite preview",
 		"lint": "eslint . --max-warnings 0",
+		"typecheck": "tsc --noEmit",
 		"test": "vitest",
 		"test:once": "vitest run",
 		"e2e": "playwright test",
