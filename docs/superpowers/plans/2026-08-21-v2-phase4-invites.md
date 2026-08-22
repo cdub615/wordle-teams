@@ -3581,7 +3581,16 @@ git commit -m "feat(v2): invite dialog, pending invites and leave-team UI (wt-ks
 
 - [ ] **Step 1: Write the e2e spec**
 
-Create `v2/e2e/invites.spec.ts`, following the two-context pattern already in `v2/e2e/teams.spec.ts`:
+Create `v2/e2e/invites.spec.ts`, following the two-context pattern already in `v2/e2e/teams.spec.ts`.
+
+**THE HAPPY PATH BELOW IS NOT ENOUGH ON ITS OWN — PIN ALL FOUR `InviteOutcome`s AND THEIR EXACT COPY.** Task 7's review measured the hole: swapping the `resent` and `invited` toast strings, or deleting the `return` that keeps the dialog open on `already_member`, left all 294 unit tests, `tsc`, `build` and all 12 pre-existing e2e specs green. The outcome → message mapping *is* divergence 9's deliverable, and `already_member` is both the cheapest to reach (invite the creator's own address) and the highest value, because "nothing happened" and "it worked" are otherwise indistinguishable.
+
+Four traps found while writing the real thing, all of which the draft below falls into:
+
+1. **`@example.test` CANNOT SIGN IN.** `convex/testOtps.ts`'s `isE2eEmail` is `/^e2e\+[^@]+@wordleteams\.com$/i`, and `takeFor` throws for anything else — so an invitee at any other domain can be invited but can never accept, which is the half of this test that matters. Generate the invitee as `e2e+…@wordleteams.com`, unique per run.
+2. **`await expect(dialog).toBeVisible()` DOES NOT PROVE THE DIALOG STAYED OPEN.** Radix keeps `DialogContent` mounted through its exit animation (`duration-200` in `ui/dialog.tsx`), so a dialog that has already been closed passes `toBeVisible` for a fifth of a second. Measured: the `already_member` `return` → `break` mutation SURVIVED against that assertion. Assert `toHaveAttribute('data-state', 'open')`, and then actually type into the field and submit — the branch exists so the address can be corrected, so prove it can be.
+3. **`getByText(invitee)` MATCHES THE TOAST TOO**, because the toast copy embeds the address. Scope every pending-list assertion to the Current Team card, and count rows by the cancel control's `aria-label`, which is exactly one element per row.
+4. **PLAYWRIGHT'S 30s DEFAULT TEST TIMEOUT IS NOT A BUDGET THIS FITS IN.** `sign-in.ts` polls for an OTP for up to 15s, and this test signs in twice; an assertion timeout larger than the test's own budget is not a timeout at all, and blowing the budget reports as "Test timeout exceeded" pointing at the `finally`, naming neither the assertion nor the cause. Call `test.setTimeout()` in every test here that signs in.
 
 ```ts
 import { expect, test } from '@playwright/test'
@@ -3596,7 +3605,9 @@ import { expect, test } from '@playwright/test'
  * address would already have one.
  */
 test('an invited address joins the team after completing a profile', async ({ browser }) => {
-  const invitee = `e2e-invite-${Date.now()}@example.test`
+  test.setTimeout(120_000) // see trap 4 above
+  // e2e+*@wordleteams.com, NOT @example.test — see trap 1 above.
+  const invitee = `e2e+inv-joiner-${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
 
   const creatorContext = await browser.newContext()
   const creator = await creatorContext.newPage()
@@ -3621,11 +3632,21 @@ test('an invited address joins the team after completing a profile', async ({ br
   await joiner.getByRole('button', { name: 'Submit' }).click()
 
   // They land on the dashboard already on the team they were invited to.
-  await expect(joiner).toHaveURL(/\/(\?|$)/)
+  // `?team=` is the real proof: with zero teams the dashboard renders the empty
+  // state and never writes that parameter. /\/(\?|$)/ matches almost anything.
+  await expect(joiner).toHaveURL(/\?team=/)
   await expect(joiner.getByRole('region', { name: 'Current Team' })).toContainText('Iva')
 
-  // And the creator's Pending list clears reactively, with no reload.
-  await expect(creator.getByText(invitee)).toBeHidden()
+  // And the creator's Pending list clears reactively, with no reload. Scoped to
+  // the card (trap 3), counted by the cancel control, and toHaveCount(0) rather
+  // than toBeHidden: the section is gated on `pendingInvites.length > 0` so it
+  // unmounts outright, and toBeHidden also passes for a locator that has
+  // silently stopped matching anything — which a clearing assertion must not be
+  // blind to. Generous timeout: this page has sat idle through the invitee's
+  // whole sign-in, and a Convex client that reconnected comes back on a backoff.
+  const card = creator.getByRole('region', { name: 'Current Team' })
+  await expect(card.getByRole('button', { name: `Cancel invite to ${invitee}` }))
+    .toHaveCount(0, { timeout: 20_000 })
 
   await creatorContext.close()
   await inviteeContext.close()
@@ -3633,6 +3654,14 @@ test('an invited address joins the team after completing a profile', async ({ br
 ```
 
 Fill in the two sign-in blocks from `v2/e2e/teams.spec.ts`'s existing helper. Do not invent a second sign-in implementation.
+
+Then add tests for the other three outcomes:
+
+- **`resent`** — invite the same fresh address a second time, before anyone accepts. Assert `Invite re-sent to {email}`, and that the pending list does **not** grow a second row (a resend writes nothing).
+- **`already_member`** — the creator invites their own address. Assert an **info** toast (via sonner's `data-type`, not just the copy — the severity is the half that would silently drift back), the dialog still `data-state="open"` with the field empty, that no pending row was created, and that the still-open dialog is genuinely usable by correcting the address and submitting again. Correct it to a **seeded existing player**, so the correction takes the `added` branch: that is the one outcome that sends no email, and an `invited` correction puts a real Resend delivery on every local run.
+- **`added`** — invite someone who already has a player row. Assert `{First} was added to {team}` and that they appear in the member list. Create that player through the real `/complete-profile` flow rather than `e2eSeed.ensureTeamFor`: the seed names every player it creates `E2E Tester`, so the creator and the added member would be character-for-character identical in the member list and "they appear in the list" could not be asserted at all.
+
+**Then mutation-test the mapping.** Swap the `invited`/`resent`/`added` copy strings one at a time, and replace `already_member`'s `return` with a `break`; each must kill exactly one test. Run a CONTROL with no mutation, take verdicts from **exit codes only**, and prove with `git diff` that the component was restored.
 
 - [ ] **Step 2: Run it**
 
@@ -3642,9 +3671,11 @@ cd v2 && pnpm e2e
 
 Expected: PASS, including the pre-existing specs. `pnpm e2e` is not part of `test`/`tsc`/`build`, which is why a Phase 2 spec stayed red for three tasks.
 
+**ONE PRE-EXISTING SPEC IS FLAKY AND THIS TASK DOES NOT FIX IT.** `e2e/complete-profile.spec.ts:61` ("a name of only whitespace is refused locally") fails roughly one full-suite run in six. Measured across 30 runs, including six with `e2e/invites.spec.ts` removed from the directory, so it is not this task's doing. Three hypotheses are already ruled out by the captured artifact: it is **not** slowness (the `590d653` comment's diagnosis — the promise settles, it does not hang), **not** repaired by retrying the submit (a `toPass` loop pressed Submit four times over 45s and every attempt failed the same way), and **not** an auth failure surfacing as `UNAUTHENTICATED` (that renders "Your session expired"; the artifact shows the page's generic fallback, *"Could not save your profile, please try again"*). It looks like the Convex client staying persistently broken for tens of seconds after `context.setOffline(false)`. Needs its own issue; do not paper over it with a bigger timeout, which has now been tried twice.
+
 - [ ] **Step 3: Update the divergence list**
 
-In `docs/design-system/V2-ADDENDUM.md` §7a, change the heading count from five to ten and append:
+In `docs/design-system/V2-ADDENDUM.md` §7a, change the heading count from five to **eleven** — not ten. This step was written before Task 3's review found that v1's invite has FOUR branches rather than three; that became divergence 11, and the design doc (`…-phase4-invites-design.md`, "the list goes from five to eleven") was updated at `dede432` while this plan file was not. Append all six:
 
 ```markdown
 | 6 | Pending invites are visible to the creator, and cancellable | Phase 4 (`wt-ksh.5.3`) | v1 shows them nowhere, so a typo'd address sits in `invited[]` forever with no remedy and no way to see it. Production carried 44 pending invites across 33 teams when this was written |
@@ -3652,6 +3683,7 @@ In `docs/design-system/V2-ADDENDUM.md` §7a, change the heading count from five 
 | 8 | No 2-team cap on invitees until Phase 5 | Phase 4 | v1 caps a non-pro invitee at two teams in `handle_invited_signup`. v2 is **more permissive than prod** until Polar lands. Note v1's `handle_add_player_to_team` cap branch is broken in production — it references an undeclared `invited_id` — so inviting an existing free player who already has two teams errors out rather than capping |
 | 9 | Inviting someone already on the team says so | Phase 4 | v1 returns *"Successfully invited player"* and closes the dialog even when nothing happened. v2 shows an info toast and keeps the dialog open so the address can be corrected |
 | 10 | A member can leave a team | Phase 4 | v1 has no self-removal at any layer — the UI hides remove on your own row and the only exit is asking the creator. Owner-sanctioned. The creator still cannot leave, so every team keeps an administrator |
+| 11 | Inviting an existing player who is *also* already in `invited` adds them, rather than re-sending | Phase 4 | **v1's invite has FOUR branches, not the three this design first counted.** Its middle case — the player has an account AND the address is already parked in `invited` — re-sends the Supabase invite and does **not** add them to the team. `inviteUserByEmail` does nothing for an address that already has an account, so v1 mailed nobody, added nobody, and reported success; the invitee stayed off the team indefinitely however often the creator tried. v2 adds them and clears the `invited` entry in one write. Found by Task 3's review |
 ```
 
 Also add to the "not divergences, but recorded" list:
@@ -3670,10 +3702,17 @@ Also add to the "not divergences, but recorded" list:
 cd v2 && pnpm test:once && pnpm exec tsc --noEmit && pnpm build && pnpm e2e
 ```
 
+**NOT `git add -A`.** A pre-commit hook stages `.beads/issues.jsonl`, which the controller owns; `-A` sweeps it into whatever commit happens to run next. Commit by pathspec:
+
+```bash
+git commit --no-verify -m "test(v2): invite path e2e; record divergences 6-11" -- \
+  v2/e2e/invites.spec.ts docs/design-system/V2-ADDENDUM.md \
+  docs/superpowers/plans/2026-08-21-v2-phase4-invites.md
+```
+
 **Controller only** — pushing deploys to beta:
 
 ```bash
-git add -A && git commit -m "test(v2): invite path e2e; record divergences 6-10"
 git pull --rebase && bd dolt push && git push && git status
 ```
 

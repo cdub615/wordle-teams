@@ -303,7 +303,7 @@ asserting that no letter is ever lit more times than it appears in the answer.
 
 ## 7a. The full divergence list for Phase 7's parity audit
 
-**Five known differences from production, all deliberate. Anything else the
+**Eleven known differences from production, all deliberate. Anything else the
 audit finds is a bug.**
 
 | # | Divergence | Added | Why |
@@ -313,10 +313,22 @@ audit finds is a bug.**
 | 3 | `hasSeenCelebration` survives a winner rewrite | Phase 2 (`wt-ksh.3.7`) | v1's `update_monthly_winners` deletes the row and re-inserts it, wiping the seen-list every time anyone enters a board dated in that month — which can re-fire the celebration at someone who already dismissed it. v2 preserves the array when the winner is unchanged and resets it only when the winner actually changes |
 | 4 | Team mutations are creator-only, enforced server-side | Phase 3 (`wt-ksh.4.21`) | v1's UI offers Settings and Delete only to the creator, but its RLS policy permits `UPDATE` to the creator **or any member** — including writes to `player_ids`, so any member can remove any other member through the API. v2 makes the UI's rule the real one via `requireTeamCreator`. No user sees a behaviour change; the rule stops being cosmetic |
 | 5 | Membership and scoring changes recompute past winner rows | Phase 3 (`wt-ksh.4.24`, `wt-ksh.4.25`) | v1's `update_monthly_winners` is a trigger on `daily_scores`, so removing a player never fires it and they stay named as the winner of months they are no longer in. **Production is carrying stale rows today.** v2 recomputes every month the team has a winner row for |
+| 6 | Pending invites are visible to the creator, and cancellable | Phase 4 (`wt-ksh.5.3`) | v1 shows them nowhere, so a typo'd address sits in `invited[]` forever with no remedy and no way to see it. Production carried 44 pending invites across 33 teams when this was written |
+| 7 | A player cannot exist without a name | Phase 4 (`wt-ksh.5.1`) | `players.firstName`/`lastName` are required. 151 nameless production players and the 29 dead teams they created are not copied — measured, those players own 0 boards and 0 winner rows. This is what deleted `hasCompleteProfile` and its three must-agree call sites |
+| 8 | No 2-team cap on invitees until Phase 5 | Phase 4 | v1 caps a non-pro invitee at two teams in `handle_invited_signup`. v2 is **more permissive than prod** until Polar lands. Note v1's `handle_add_player_to_team` cap branch is broken in production — it references an undeclared `invited_id` — so inviting an existing free player who already has two teams errors out rather than capping |
+| 9 | Inviting someone already on the team says so | Phase 4 | v1 returns *"Successfully invited player"* and closes the dialog even when nothing happened. v2 shows an info toast and keeps the dialog open so the address can be corrected |
+| 10 | A member can leave a team | Phase 4 | v1 has no self-removal at any layer — the UI hides remove on your own row and the only exit is asking the creator. Owner-sanctioned. The creator still cannot leave, so every team keeps an administrator |
+| 11 | Inviting an existing player who is *also* already in `invited` adds them, rather than re-sending | Phase 4 | **v1's invite has FOUR branches, not the three the Phase 4 design first counted.** Its middle case — the player has an account AND the address is already parked in `invited` — re-sends the Supabase invite and does **not** add them to the team. `inviteUserByEmail` does nothing for an address that already has an account, so v1 mailed nobody, added nobody, and reported success; the invitee stayed off the team indefinitely however often the creator tried. v2 adds them and clears the `invited` entry in one write. Found by Task 3's review |
 
 Both Phase 2 divergences are on the **write** path, so they are invisible in a
 static route-by-route comparison. Exercising them takes a deliberate double
 submit and a winner rewrite within one month.
+
+Of the Phase 4 six, 6, 9, 10 and 11 are on surfaces v1 also has, so a
+route-by-route comparison will meet them; 7 and 8 will not show up that way at
+all, and take a look at the copied row counts and an invite to a third team
+respectively. All four invite outcomes are pinned by `v2/e2e/invites.spec.ts`,
+which is the only automated coverage the invite UI has at any layer.
 
 Not divergences from v1, but recorded because they look like ones:
 
@@ -338,6 +350,11 @@ Not divergences from v1, but recorded because they look like ones:
   the copy, not of the permission rule.
 - **The zero-teams empty state is a focused create-team card, not v1's
   marketing `Intro`.** Sanctioned by amendment A7.
+- **Inviting an existing player sends no email.** v1 adds them silently too; they
+  discover it in the app. Parity, deliberately kept.
+- **`NO_PLAYER` says "Finish setting up your profile", not "Your session
+  expired".** The code and the condition are unchanged; only the copy, which was
+  describing the wrong problem.
 
 ---
 
