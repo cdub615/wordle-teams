@@ -10,9 +10,8 @@ import {
   requireTeamCreatorFor,
   requireTeamMemberFor,
 } from './access'
-import { resend } from './email'
+import { sendEmail } from './email.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
-import { isE2eTraffic } from './lib/e2e.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
@@ -454,8 +453,8 @@ export type InviteOutcome =
  * doing so needs a real Better Auth session in the harness, so a rule stated in
  * the wrapper would be a rule nothing could prove.
  *
- * THE SEND IS THE ONE THING THAT CANNOT LIVE HERE. resend.sendEmail needs a real
- * MutationCtx, and this helper is typed against the narrow WriterCtx (`{ db }`)
+ * THE SEND IS THE ONE THING THAT CANNOT LIVE HERE. email.ts's sendEmail needs a
+ * real MutationCtx, and this helper is typed against the narrow WriterCtx (`{ db }`)
  * precisely so convex-test's `t.run` callback satisfies it with no cast. So the
  * DB work and the outcome happen here, and the wrapper composes the mail from
  * what it returns. That split is deliberate.
@@ -585,31 +584,27 @@ export const invitePlayer = mutation({
         // profile at that address is what claims it — see completeProfileFor.
         signInUrl: `${siteUrl}/login`,
       })
-      // NO REAL MAIL TO A THROWAWAY E2E ADDRESS. auth.ts already does this for
-      // sign-in codes; this path did not, so every e2e run that exercised an
-      // invite put a real delivery on the wire — from the PRODUCTION sending
-      // domain, to a mailbox that has never existed. Each one either forwarded
-      // into the owner's inbox or hard-bounced, and repeated bounces to unknown
-      // recipients are what gets a sending domain throttled. Two per suite run,
-      // unbounded once the suite runs in CI (wordle-teams-96l).
+      // THE THROWAWAY-ADDRESS GUARD IS NOT HERE. It used to be, and before that
+      // it was missing entirely — this path mailed real invitations from the
+      // production sending domain to addresses that had never existed, twice per
+      // e2e run, until it was caught (wordle-teams-96l). It now lives once, in
+      // email.ts's sendEmail, so the next sender inherits it instead of having to
+      // remember it (wordle-teams-sga). Do not reinstate a copy of it here.
       //
-      // ONLY THE SEND IS SUPPRESSED. The address is still parked in `invited`
-      // and the outcome is unchanged, so the e2e specs still exercise the real
-      // invite path — which is what they are for.
-      if (!isE2eTraffic(outcome.email, process.env.E2E_TEST_MODE)) {
-        // resend.sendEmail accepts a MutationCtx, so this enqueues inside the
-        // same transaction as the `invited` write — no action hop, and no mail
-        // can go out for a write that rolled back. (The converse no longer
-        // holds: in test mode an address IS parked without its invite going
-        // out, which is the whole point of the branch above.)
-        await resend.sendEmail(ctx, {
-          from: 'Wordle Teams <invites@wordleteams.com>',
-          to: outcome.email,
-          subject,
-          text,
-          html,
-        })
-      }
+      // Only the SEND is ever suppressed. The address is parked in `invited` and
+      // the outcome is unchanged either way, so the e2e specs still exercise the
+      // real invite path — which is what they are for.
+      //
+      // sendEmail takes a MutationCtx, so this enqueues inside the same
+      // transaction as the `invited` write — no action hop, and no mail can go
+      // out for a write that rolled back.
+      await sendEmail(ctx, {
+        from: 'Wordle Teams <invites@wordleteams.com>',
+        to: outcome.email,
+        subject,
+        text,
+        html,
+      })
     }
 
     return outcome

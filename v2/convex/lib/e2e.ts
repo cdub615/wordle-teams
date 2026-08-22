@@ -28,6 +28,14 @@ const E2E_ADDRESS = /^e2e\+[^@]+@wordleteams\.com$/i
  *
  * Only these may ever flow through the OTP-capture oracle or the seed helpers —
  * even in test mode, a real address must never have its codes readable.
+ *
+ * EXPECTS AN ALREADY-NORMALISED ADDRESS. It matches the raw string, so a padded
+ * or display-name form (`' e2e+a@…'`, `'Ada <e2e+a@…>'`) does NOT match and
+ * would be treated as a real recipient. Every path that reaches this today has
+ * already been through normaliseInviteEmail (lib/invite.ts) or better-auth, both
+ * of which trim and lowercase. A future caller that assembles addresses itself —
+ * Phase 6's reminders — must do the same: the routing is covered by
+ * construction, the MATCHING is not.
  */
 export const isE2eEmail = (email: string) => E2E_ADDRESS.test(email)
 
@@ -54,4 +62,29 @@ export const isE2eEmail = (email: string) => E2E_ADDRESS.test(email)
  */
 export function isE2eTraffic(email: string, e2eTestMode: string | undefined): boolean {
   return e2eTestMode === 'true' && isE2eEmail(email)
+}
+
+/**
+ * The recipients of a message that should actually be mailed.
+ *
+ * PER RECIPIENT, NOT PER MESSAGE. Resend's `to`, `cc` and `bcc` are each
+ * `string | string[]`, so one send can address several people at once — and
+ * Phase 6's reminders will. A message addressed to a throwaway account AND a
+ * real one must still reach the real one, so this filters rather than deciding
+ * a whole send. Testing the address against the message would be wrong in both
+ * directions: it would either mail the throwaway account or drop the real
+ * person's reminder.
+ *
+ * Returns a plain array, empty when nobody is left. `undefined` in gives an
+ * empty array out, so an absent `cc` and a fully-suppressed `cc` are the same
+ * thing here; the caller decides whether that means "omit the field" or "do not
+ * send at all".
+ */
+export function realRecipients(
+  recipients: string | Array<string> | undefined,
+  e2eTestMode: string | undefined,
+): Array<string> {
+  if (recipients === undefined) return []
+  const all = typeof recipients === 'string' ? [recipients] : recipients
+  return all.filter((address) => !isE2eTraffic(address, e2eTestMode))
 }

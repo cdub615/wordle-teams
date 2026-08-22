@@ -8,7 +8,7 @@ import { requireActionCtx } from '@convex-dev/better-auth/utils'
 import authConfig from './auth.config'
 import { components, internal } from './_generated/api'
 import { query } from './_generated/server'
-import { resend } from './email'
+import { sendEmail } from './email.ts'
 import { OTP_EXPIRY_SEC, signInCodeEmail } from './authEmails'
 import { isE2eTraffic } from './lib/e2e.ts'
 import type { GenericCtx } from '@convex-dev/better-auth'
@@ -196,12 +196,22 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
         expiresIn: OTP_EXPIRY_SEC,
 
         async sendVerificationOTP({ email, otp }) {
+          // NOT THE MAIL GUARD. That lives once, in email.ts's sendEmail
+          // (wordle-teams-sga), and teams.ts's copy of it was deleted for being
+          // a second statement of the same rule — so this looks like the
+          // leftover third. It is not.
+          //
+          // This branch is a ROUTE, not a suppression: an e2e code has to reach
+          // the capture oracle, because that is the only way the suite can read
+          // it and sign in. Deleting these lines does not merely re-enable mail
+          // — it breaks every e2e sign-in. The `return` is what stops both paths
+          // firing; the suppression underneath it is incidental.
           if (isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
             await requireActionCtx(ctx).runMutation(internal.testOtps.store, { email, otp })
-            return // no real email in test mode
+            return
           }
           const { subject, text, html } = signInCodeEmail(otp)
-          await resend.sendEmail(requireActionCtx(ctx), {
+          await sendEmail(requireActionCtx(ctx), {
             from: 'Wordle Teams <auth@wordleteams.com>',
             to: email,
             subject,

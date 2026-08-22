@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isE2eEmail, isE2eTraffic } from './e2e.ts'
+import { isE2eEmail, isE2eTraffic, realRecipients } from './e2e.ts'
 
 // The addresses here are throwaway e2e shapes and example.test, never anybody's
 // real address — this repository is public.
@@ -62,5 +62,52 @@ describe('isE2eTraffic', () => {
   // people — a genuine invitation is never swallowed by the flag alone.
   test('a real address is NOT e2e traffic even in test mode', () => {
     expect(isE2eTraffic(REAL, 'true')).toBe(false)
+  })
+})
+
+describe('realRecipients', () => {
+  test('a lone real address survives, as an array', () => {
+    expect(realRecipients(REAL, 'true')).toEqual([REAL])
+  })
+
+  test('a lone throwaway address is removed in test mode', () => {
+    expect(realRecipients(E2E, 'true')).toEqual([])
+  })
+
+  test('the same address survives when the flag is off', () => {
+    expect(realRecipients(E2E, undefined)).toEqual([E2E])
+  })
+
+  // THE REASON THIS FILTERS INSTEAD OF DECIDING A WHOLE SEND. Phase 6's
+  // reminders address several people at once; suppressing the message because
+  // one recipient is a throwaway account would drop the other's mail.
+  test('a mixed batch keeps the real people and drops the throwaways', () => {
+    const other = 'grace@example.test'
+    expect(realRecipients([E2E, REAL, 'e2e+two@wordleteams.com', other], 'true')).toEqual([
+      REAL,
+      other,
+    ])
+  })
+
+  test('order is preserved, so a batch stays aligned with whatever it was built from', () => {
+    const a = 'a@example.test'
+    const b = 'b@example.test'
+    expect(realRecipients([b, E2E, a], 'true')).toEqual([b, a])
+  })
+
+  test('a batch of only throwaways empties completely', () => {
+    expect(realRecipients([E2E, 'e2e+two@wordleteams.com'], 'true')).toEqual([])
+  })
+
+  test('an absent field is an empty array, not a crash', () => {
+    expect(realRecipients(undefined, 'true')).toEqual([])
+  })
+
+  test('an already-empty batch stays empty', () => {
+    expect(realRecipients([], 'true')).toEqual([])
+  })
+
+  test('nothing is dropped when the flag is off, however the batch is shaped', () => {
+    expect(realRecipients([E2E, REAL], 'false')).toEqual([E2E, REAL])
   })
 })
