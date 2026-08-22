@@ -1,6 +1,6 @@
 import { mutation } from './_generated/server'
 import { v } from 'convex/values'
-import { isE2eEmail } from './testOtps'
+import { isE2eTraffic } from './lib/e2e.ts'
 
 /**
  * Gives an e2e test account a team, so the dashboard clears its "not on a
@@ -33,7 +33,7 @@ import { isE2eEmail } from './testOtps'
 export const ensureTeamFor = mutation({
   args: { email: v.string() },
   handler: async (ctx, { email }) => {
-    if (process.env.E2E_TEST_MODE !== 'true' || !isE2eEmail(email)) {
+    if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
       throw new Error('e2eSeed.ensureTeamFor is only available in E2E test mode for e2e+* addresses')
     }
     const lower = email.toLowerCase()
@@ -103,9 +103,8 @@ export const ensureSharedTeamFor = mutation({
   args: { emailA: v.string(), emailB: v.string() },
   handler: async (ctx, { emailA, emailB }) => {
     if (
-      process.env.E2E_TEST_MODE !== 'true' ||
-      !isE2eEmail(emailA) ||
-      !isE2eEmail(emailB)
+      !isE2eTraffic(emailA, process.env.E2E_TEST_MODE) ||
+      !isE2eTraffic(emailB, process.env.E2E_TEST_MODE)
     ) {
       throw new Error(
         'e2eSeed.ensureSharedTeamFor is only available in E2E test mode for e2e+* addresses',

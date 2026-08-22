@@ -2,14 +2,11 @@ import { internalMutation, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
 // Only throwaway e2e accounts may ever flow through the OTP-capture oracle —
-// even in test mode, real addresses must never have their codes readable.
-//
-// RE-EXPORTED, NOT DEFINED HERE. The address shape now lives in lib/e2e.ts with
-// the mode check beside it, so the two cannot drift; this re-export keeps
-// auth.ts's and e2eSeed.ts's existing imports working. Import from lib/e2e.ts
-// in new code.
+// even in test mode, real addresses must never have their codes readable. Both
+// halves of that — the address shape and the mode check — live in lib/e2e.ts,
+// which is the single place either can be changed. All five call sites in
+// convex/ go through isE2eTraffic; none restates the flag comparison.
 import { isE2eTraffic } from './lib/e2e.ts'
-export { isE2eEmail } from './lib/e2e.ts'
 
 export const store = internalMutation({
   args: { email: v.string(), otp: v.string() },

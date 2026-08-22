@@ -598,9 +598,10 @@ export const invitePlayer = mutation({
       // invite path — which is what they are for.
       if (!isE2eTraffic(outcome.email, process.env.E2E_TEST_MODE)) {
         // resend.sendEmail accepts a MutationCtx, so this enqueues inside the
-        // same transaction as the `invited` write — no action hop, and the write
-        // and the send commit together: an address cannot be parked without its
-        // invite going out, and no mail can go out for a write that rolled back.
+        // same transaction as the `invited` write — no action hop, and no mail
+        // can go out for a write that rolled back. (The converse no longer
+        // holds: in test mode an address IS parked without its invite going
+        // out, which is the whole point of the branch above.)
         await resend.sendEmail(ctx, {
           from: 'Wordle Teams <invites@wordleteams.com>',
           to: outcome.email,

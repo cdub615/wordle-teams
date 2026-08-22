@@ -21,6 +21,14 @@ describe('isE2eEmail', () => {
     ['an e2e+ prefix on somebody else’s domain', 'e2e+abc@example.test'],
     ['a bare plus with no tag', 'e2e+@wordleteams.com'],
     ['the domain as a subdomain of somewhere else', 'e2e+abc@wordleteams.com.evil.test'],
+    // PINS THE LEADING ANCHOR, and it is the dangerous direction. Without `^` —
+    // or with `.test()` swapped for a `.search() >= 0` — this real person is
+    // reclassified as e2e traffic, and on a deployment with the flag set their
+    // genuine invitation is dropped silently with the suite fully green. Every
+    // other fixture here gives the same verdict with or without `^`.
+    ['a real local part that merely ENDS in the throwaway shape', 'ada.e2e+news@wordleteams.com'],
+    // Pins the escaped dot in the domain.
+    ['a domain differing only where the dot is', 'e2e+abc@wordleteamsXcom'],
     ['an empty string', ''],
   ])('rejects %s', (_label, email) => {
     expect(isE2eEmail(email)).toBe(false)
@@ -32,10 +40,13 @@ describe('isE2eTraffic', () => {
     expect(isE2eTraffic(E2E, 'true')).toBe(true)
   })
 
-  // THE PRODUCTION HALF. E2E_TEST_MODE is never set on the deployment that
-  // becomes production (wordle-teams-7az), so even an address that happens to
-  // match the throwaway shape is treated as an ordinary user there and gets its
-  // real mail. Suppressing it would mean silently never inviting somebody.
+  // THE PRODUCTION HALF — a requirement, not yet a fact. E2E_TEST_MODE MUST NOT
+  // be set on the deployment that becomes production, so that an address
+  // matching the throwaway shape is treated as an ordinary user there and gets
+  // its real mail. But beta carries its environment into production at cutover;
+  // wordle-teams-7az is the step that clears it and is still OPEN. These cases
+  // pin what the predicate does with the flag off — they cannot pin that the
+  // flag is off.
   test.each([
     ['unset', undefined],
     ['empty', ''],
