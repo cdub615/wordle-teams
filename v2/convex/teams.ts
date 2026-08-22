@@ -12,6 +12,7 @@ import {
 } from './access'
 import { resend } from './email'
 import { teamInviteEmail } from './inviteEmails.ts'
+import { isE2eTraffic } from './lib/e2e.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
@@ -584,17 +585,30 @@ export const invitePlayer = mutation({
         // profile at that address is what claims it — see completeProfileFor.
         signInUrl: `${siteUrl}/login`,
       })
-      // resend.sendEmail accepts a MutationCtx, so this enqueues inside the same
-      // transaction as the `invited` write — no action hop, and the write and
-      // the send commit together: an address cannot be parked without its invite
-      // going out, and no mail can go out for a write that rolled back.
-      await resend.sendEmail(ctx, {
-        from: 'Wordle Teams <invites@wordleteams.com>',
-        to: outcome.email,
-        subject,
-        text,
-        html,
-      })
+      // NO REAL MAIL TO A THROWAWAY E2E ADDRESS. auth.ts already does this for
+      // sign-in codes; this path did not, so every e2e run that exercised an
+      // invite put a real delivery on the wire — from the PRODUCTION sending
+      // domain, to a mailbox that has never existed. Each one either forwarded
+      // into the owner's inbox or hard-bounced, and repeated bounces to unknown
+      // recipients are what gets a sending domain throttled. Two per suite run,
+      // unbounded once the suite runs in CI (wordle-teams-96l).
+      //
+      // ONLY THE SEND IS SUPPRESSED. The address is still parked in `invited`
+      // and the outcome is unchanged, so the e2e specs still exercise the real
+      // invite path — which is what they are for.
+      if (!isE2eTraffic(outcome.email, process.env.E2E_TEST_MODE)) {
+        // resend.sendEmail accepts a MutationCtx, so this enqueues inside the
+        // same transaction as the `invited` write — no action hop, and the write
+        // and the send commit together: an address cannot be parked without its
+        // invite going out, and no mail can go out for a write that rolled back.
+        await resend.sendEmail(ctx, {
+          from: 'Wordle Teams <invites@wordleteams.com>',
+          to: outcome.email,
+          subject,
+          text,
+          html,
+        })
+      }
     }
 
     return outcome

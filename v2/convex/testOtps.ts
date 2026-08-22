@@ -3,7 +3,13 @@ import { v } from 'convex/values'
 
 // Only throwaway e2e accounts may ever flow through the OTP-capture oracle —
 // even in test mode, real addresses must never have their codes readable.
-export const isE2eEmail = (email: string) => /^e2e\+[^@]+@wordleteams\.com$/i.test(email)
+//
+// RE-EXPORTED, NOT DEFINED HERE. The address shape now lives in lib/e2e.ts with
+// the mode check beside it, so the two cannot drift; this re-export keeps
+// auth.ts's and e2eSeed.ts's existing imports working. Import from lib/e2e.ts
+// in new code.
+import { isE2eTraffic } from './lib/e2e.ts'
+export { isE2eEmail } from './lib/e2e.ts'
 
 export const store = internalMutation({
   args: { email: v.string(), otp: v.string() },
@@ -30,7 +36,7 @@ export const store = internalMutation({
 export const takeFor = mutation({
   args: { email: v.string() },
   handler: async (ctx, { email }) => {
-    if (process.env.E2E_TEST_MODE !== 'true' || !isE2eEmail(email)) {
+    if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
       throw new Error('testOtps.takeFor is only available in E2E test mode for e2e+* addresses')
     }
     const doc = await ctx.db
