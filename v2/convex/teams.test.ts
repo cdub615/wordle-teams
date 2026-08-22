@@ -10,6 +10,7 @@ import {
   deleteTeamFor,
   getTeamInvitesFor,
   invitePlayerFor,
+  leaveTeamFor,
   removeMemberFor,
   updateTeamFor,
 } from './teams.ts'
@@ -561,6 +562,27 @@ describe('removeMemberFor', () => {
     })
   })
 
+  test('bounds today BEFORE the creator guard, so a wrong clock gets INVALID_DATE here too', async () => {
+    // The other half of leaveTeamFor's cross-surface parity claim: both helpers
+    // check the clock before refusing a creator, so the same wrong clock gets
+    // the same code from either. This surface had NO clock test at all before —
+    // the bound could have been dropped from removeMemberFor entirely and
+    // nothing would have noticed.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+
+      // Removing the CREATOR, which is what would otherwise throw
+      // CREATOR_NOT_REMOVABLE.
+      await expect(
+        removeMemberFor(ctx, ada, { teamId, playerId: ada, today: '1999-01-01' }),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([ada, bob])
+    })
+  })
+
   test('leaves the removed player’s boards intact', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -578,6 +600,300 @@ describe('removeMemberFor', () => {
       await removeMemberFor(ctx, ada, { teamId, playerId: bob, today })
 
       expect(await ctx.db.get(scoreId)).not.toBeNull()
+    })
+  })
+})
+
+describe('leaveTeamFor', () => {
+  test('a member removes themselves', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+
+      await leaveTeamFor(ctx, bob, { teamId, today })
+
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([creator])
+    })
+  })
+
+  test('refuses the creator, who reaches the creator guard rather than the membership one', async () => {
+    // Their exit is deleteTeam. This keeps the Phase 3 invariant that a team
+    // always has an administrator.
+    //
+    // THE CODE IS PINNED, not merely "it threw", and the reason is narrower than
+    // it first looks. Under this fixture the creator IS on the roster and
+    // `today` is valid, so nothing upstream can throw and even a bare
+    // .rejects.toThrow() would kill a guard-deleted mutant — measured, not
+    // assumed. What a bare toThrow() would NOT kill is a guard that throws the
+    // wrong code: NOT_A_MEMBER instead of CREATOR_NOT_REMOVABLE. That is the
+    // mutant this pin exists for, and it matters because the design mandates
+    // reusing CREATOR_NOT_REMOVABLE here — this assertion is the only thing
+    // tying the implementation to that decision.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+
+      await expect(leaveTeamFor(ctx, creator, { teamId, today })).rejects.toMatchObject({
+        data: { code: 'CREATOR_NOT_REMOVABLE' },
+      })
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([creator, bob])
+    })
+  })
+
+  test('a non-member is refused, and the roster is untouched', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const stranger = await ctx.db.insert('players', aPlayer({ email: 'stranger@example.test' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator], creator }))
+
+      await expect(leaveTeamFor(ctx, stranger, { teamId, today })).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([creator])
+    })
+  })
+
+  test('recomputes EVERY month the team has a winner row for', async () => {
+    // TWO months, for the reason removeMemberFor's twin test gives: with a
+    // single winner row this could not tell "recomputed every month in
+    // monthsWithWinners" from "recomputed one of them". Both are fixed months
+    // in 2025 — never the wall-clock month, or a mutant that ignored
+    // monthsWithWinners and recomputed only `today`'s month would survive.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const bob = await ctx.db.insert(
+        'players',
+        aPlayer({ email: 'bob@example.test', firstName: 'Bob' }),
+      )
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+      // Bob won both June and July 2025 outright.
+      for (const puzzleDay of ['2025-06-02', '2025-07-02']) {
+        await ctx.db.insert('dailyScores', {
+          playerId: bob,
+          puzzleDay,
+          date: 1_755_500_000_000,
+          answer: 'SPEED',
+          guesses: ['SPEED'],
+        })
+      }
+      for (const [year, month] of [
+        [2025, 6],
+        [2025, 7],
+      ] as const) {
+        await ctx.db.insert('monthlyWinners', {
+          playerId: bob,
+          teamId,
+          year,
+          month,
+          hasSeenCelebration: [bob],
+        })
+      }
+
+      await leaveTeamFor(ctx, bob, { teamId, today })
+
+      // The creator has no scores at all, so a fresh compute gives her 0 for
+      // both months — but winnerOf returns null only when the CANDIDATE LIST is
+      // empty, not when every candidate scored zero, so with Bob gone she wins
+      // both outright. If only one month had been recomputed the other would
+      // still name Bob.
+      const rows = await ctx.db.query('monthlyWinners').collect()
+      expect(rows.map((row) => ({ month: row.month, playerId: row.playerId }))).toEqual([
+        { month: 6, playerId: creator },
+        { month: 7, playerId: creator },
+      ])
+      // The winner changed on both rows, so the celebration flag resets — proof
+      // this is a genuine recompute, not the old rows left untouched.
+      expect(rows.every((row) => row.hasSeenCelebration.length === 0)).toBe(true)
+    })
+  })
+
+  test('the last member of a creator-less team deletes it and cascades', async () => {
+    // The scoped-copy case: `creator` is undefined, so nobody is refused and the
+    // team can be emptied. Leaving an unreachable orphan would be worse.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: undefined }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: bob,
+        teamId,
+        year: 2025,
+        month: 6,
+        hasSeenCelebration: [],
+      })
+      await ctx.db.insert('scoringSystems', {
+        teamId,
+        effectiveFrom: '2025-06',
+        oneGuess: 5,
+        twoGuesses: 3,
+        threeGuesses: 2,
+        fourGuesses: 1,
+        fiveGuesses: 0,
+        sixGuesses: -1,
+        failed: -3,
+        nA: 0,
+      })
+      const scoreId = await ctx.db.insert('dailyScores', {
+        playerId: bob,
+        puzzleDay: '2025-06-02',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      await leaveTeamFor(ctx, bob, { teamId, today })
+
+      expect(await ctx.db.get(teamId)).toBeNull()
+      expect(await ctx.db.query('monthlyWinners').collect()).toEqual([])
+      expect(await ctx.db.query('scoringSystems').collect()).toEqual([])
+      // A board belongs to the player and is shared across every team.
+      expect(await ctx.db.get(scoreId)).not.toBeNull()
+    })
+  })
+
+  test('a pending invite is destroyed with the team, and that is the intended trade', async () => {
+    // THE INVITE IS A THIRD PARTY'S, and it was live: completeProfileFor scans
+    // every team for the joiner's address with NO creator check, so an entry
+    // parked on a creator-less team really could still be claimed. `invited` is
+    // copied wholesale from production, so this state is reachable with real
+    // data rather than only by construction.
+    //
+    // Pinned so the choice is recorded rather than incidental. The alternative
+    // is worse: the invitee claims it later and lands alone on a team nobody can
+    // administer, which is the same dead end one step further on.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [bob], creator: undefined, invited: ['pending@example.test'] }),
+      )
+
+      await leaveTeamFor(ctx, bob, { teamId, today })
+
+      expect(await ctx.db.get(teamId)).toBeNull()
+      // Nowhere left to claim: no team parks that address any more.
+      const teams = await ctx.db.query('teams').collect()
+      expect(teams.flatMap((team) => team.invited)).toEqual([])
+    })
+  })
+
+  test('deletes a team whose creator is not on its roster, when its last member leaves', async () => {
+    // The branch is keyed on the ROSTER being empty afterwards, not on
+    // `creator === undefined`. A team naming a creator who is not a member is
+    // representable — the schema enforces no referential integrity between
+    // `creator` and `playerIds` — and it is just as unadministrable, because
+    // requireTeamCreatorFor goes through requireTeamMemberFor first. Pinned so
+    // the cascade comment's claim about what reaches it is a tested one.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ghost = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.test' }))
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: ghost }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: bob,
+        teamId,
+        year: 2025,
+        month: 6,
+        hasSeenCelebration: [],
+      })
+
+      await leaveTeamFor(ctx, bob, { teamId, today })
+
+      expect(await ctx.db.get(teamId)).toBeNull()
+      expect(await ctx.db.query('monthlyWinners').collect()).toEqual([])
+    })
+  })
+
+  test('refuses a today the server clock cannot believe, and the roster survives', async () => {
+    // `today` decides which missed days are already due and is written into a
+    // monthlyWinners row the whole team reads — the same reason every other
+    // mutation that feeds one into recomputation bounds it. Added because a
+    // mutant that dropped requirePlausibleToday from leaveTeamFor survived every
+    // one of the five tests this block was originally drafted with.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+
+      await expect(leaveTeamFor(ctx, bob, { teamId, today: '1999-01-01' })).rejects.toMatchObject({
+        data: { code: 'INVALID_DATE' },
+      })
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([creator, bob])
+    })
+  })
+
+  test('bounds today BEFORE the creator guard, so a creator with a wrong clock gets INVALID_DATE', async () => {
+    // The ordering promise in leaveTeamFor's comment, made testable. Both of the
+    // other clock tests use a non-CREATOR leaver, so neither can see the bound
+    // move below the creator guard — measured: that reorder left every other
+    // test in this file green. The twin assertion for the other surface is in
+    // removeMemberFor's block, since the claim is cross-surface parity.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+
+      await expect(
+        leaveTeamFor(ctx, creator, { teamId, today: '1999-01-01' }),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
+    })
+  })
+
+  test('refuses an implausible today on the CASCADE path too, and the team survives', async () => {
+    // The bound is checked before the branch, so the same call cannot be
+    // accepted or refused depending on how many other people happen to be on the
+    // team — and the path this pins is the one that DELETES a team. Separate
+    // from the test above because only that ordering makes both true.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: undefined }))
+
+      await expect(leaveTeamFor(ctx, bob, { teamId, today: '1999-01-01' })).rejects.toMatchObject({
+        data: { code: 'INVALID_DATE' },
+      })
+      expect(await ctx.db.get(teamId)).not.toBeNull()
+    })
+  })
+
+  test('does not touch another team when one is cascaded away', async () => {
+    // cascadeDeleteTeam is now called from two places and both index-scan by
+    // teamId. Un-scoping the scan outright is ALREADY caught, by deleteTeamFor's
+    // "does not touch another team's winner rows" — this is not that. What only
+    // this test can see is the two call paths DIVERGING: a cascade that keeps
+    // its scoping on the delete path and loses it on the leave path.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const doomed = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: undefined }))
+      const kept = await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 207, playerIds: [bob], creator: bob }),
+      )
+      for (const teamId of [doomed, kept]) {
+        await ctx.db.insert('monthlyWinners', {
+          playerId: bob,
+          teamId,
+          year: 2025,
+          month: 6,
+          hasSeenCelebration: [],
+        })
+      }
+
+      await leaveTeamFor(ctx, bob, { teamId: doomed, today })
+
+      expect(await ctx.db.get(kept)).not.toBeNull()
+      const remaining = await ctx.db.query('monthlyWinners').collect()
+      expect(remaining.map((row) => row.teamId)).toEqual([kept])
     })
   })
 })

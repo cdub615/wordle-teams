@@ -8,13 +8,14 @@ import {
   requirePlausibleToday,
   requirePlayer,
   requireTeamCreatorFor,
+  requireTeamMemberFor,
 } from './access'
 import { resend } from './email'
 import { teamInviteEmail } from './inviteEmails.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
-import type { Id, DataModel } from './_generated/dataModel'
+import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader } from 'convex/server'
 import type { WriterCtx } from './winners.ts'
 import type { PuzzleDay } from './lib/puzzleDay.ts'
@@ -23,12 +24,16 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
  * Team management. Phase 3 (wt-ksh.4).
  *
  * THIS MODULE OWNS TEAM IDENTITY AND MEMBERSHIP — name, playerIds, creator,
- * playWeekends, showLetters — and nothing else. A team's scoring system lives
- * in scoringSystems.ts, which touches the scoringSystems table exclusively and
- * never these fields (wt-ksh.4.32). Invites landed HERE in Phase 4, where this
- * comment said they would: adding and removing people is membership, and
- * removeMember is invitePlayer's nearest sibling. The invite COPY lives in
- * inviteEmails.ts, mirroring the authEmails.ts split.
+ * playWeekends, showLetters. A team's scoring system lives in scoringSystems.ts,
+ * which owns the scoring-system EDITOR and never touches these fields
+ * (wt-ksh.4.32). The carve-out is deletion: cascadeDeleteTeam below deletes this
+ * team's scoringSystems rows, on both of its call paths (deleteTeamFor and
+ * leaveTeamFor), because no one else can.
+ *
+ * Invites landed HERE in Phase 4, where this comment said they would: adding and
+ * removing people is membership, and removeMember is invitePlayer's nearest
+ * sibling. The invite COPY lives in inviteEmails.ts, mirroring the authEmails.ts
+ * split.
  *
  * getMyTeams moved here from scores.ts and grew members, creator and settings,
  * so that ONE subscription drives the picker, the CurrentTeam card and the
@@ -220,7 +225,7 @@ export const updateTeam = mutation({
 })
 
 /**
- * Delete a team, CASCADING BY HAND.
+ * Delete a team and the rows that belong to it, CASCADING BY HAND.
  *
  * Postgres has ON DELETE CASCADE on monthly_winners.team_id; Convex has no such
  * thing, so the rows have to go explicitly or they become unreachable orphans
@@ -230,14 +235,19 @@ export const updateTeam = mutation({
  * dailyScores are NOT deleted. A board belongs to a player and is shared across
  * every team they are on — daily_scores has no team foreign key in Postgres
  * either — so deleting a team must never destroy anybody's history.
+ *
+ * NO ACCESS CHECK OF ITS OWN — every caller must do that first. Shared by
+ * deleteTeamFor (creator-only) and by leaveTeamFor's last-member case.
+ *
+ * TAKES THE DOCUMENT, NOT AN ID, and that is the whole of the protection: it
+ * cannot enforce authorization, but a caller holding only a client-supplied
+ * `v.id('teams')` cannot reach it without an intervening fetch, which makes an
+ * unauthorized call visually anomalous rather than indistinguishable from a
+ * correct one. It also matches the neighbouring team-scoped writers —
+ * recomputeTeamMonths and loadTeamMonthSystem both take a Doc<'teams'>, and only
+ * the authorization-free read monthsWithWinners takes a bare id.
  */
-export async function deleteTeamFor(
-  ctx: WriterCtx,
-  playerId: Id<'players'>,
-  teamId: Id<'teams'>,
-): Promise<void> {
-  const team = await requireTeamCreatorFor(ctx, playerId, teamId)
-
+async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Promise<void> {
   const winners = await ctx.db
     .query('monthlyWinners')
     .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id))
@@ -250,7 +260,23 @@ export async function deleteTeamFor(
     .collect()
   for (const row of systems) await ctx.db.delete(row._id)
 
+  // The team doc carries `invited`, so this is also what retires any invite
+  // still parked on the team — see leaveTeamFor's empty-roster branch.
   await ctx.db.delete(team._id)
+}
+
+/**
+ * Delete a team. Creator-only.
+ *
+ * The cascade, and why it is written out by hand, is cascadeDeleteTeam above.
+ */
+export async function deleteTeamFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<void> {
+  const team = await requireTeamCreatorFor(ctx, playerId, teamId)
+  await cascadeDeleteTeam(ctx, team)
 }
 
 export const deleteTeam = mutation({
@@ -272,8 +298,10 @@ export const deleteTeam = mutation({
  *
  * The creator cannot be removed, matching v1's UI, which hides the remove
  * button on your own row. Since only the creator can reach this at all, that
- * makes "remove yourself" unreachable rather than merely hidden — v1 has no
- * leave-team affordance and neither does this.
+ * makes "remove yourself" unreachable HERE rather than merely hidden. v1 stops
+ * there and has no leave-team affordance at any layer; v2 has one, but as a
+ * separate mutation — leaveTeamFor, below, divergence 10 — precisely so that
+ * this creator-only surface keeps refusing self-removal.
  */
 export async function removeMemberFor(
   ctx: WriterCtx,
@@ -307,6 +335,78 @@ export const removeMember = mutation({
   handler: async (ctx, args) => {
     const player = await requirePlayer(ctx)
     await removeMemberFor(ctx, player._id, args)
+  },
+})
+
+/**
+ * Remove yourself from a team.
+ *
+ * THE ONE MUTATION ON AN EXISTING TEAM THAT IS NOT CREATOR-ONLY (createTeam is
+ * not on an existing team), and the mirror of removeMember: that one lets the
+ * creator remove anybody but themselves, this one lets anybody remove only
+ * themselves.
+ *
+ * v1 has no such affordance at any layer — its UI hides remove on your own row
+ * and the only exit is asking the creator. Owner-sanctioned; divergence 10.
+ *
+ * THE CREATOR CANNOT LEAVE. Their exit is deleteTeam. That keeps the invariant
+ * that a team always has somebody who can administer it, and it means a team
+ * with an administrator can never be emptied by leaving.
+ */
+export async function leaveTeamFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  args: { teamId: Id<'teams'>; today: PuzzleDay },
+): Promise<void> {
+  const team = await requireTeamMemberFor(ctx, playerId, args.teamId)
+  // BOUNDED ON BOTH PATHS, though only the recompute below reads it. The same
+  // call must not be accepted or refused depending on how many other people
+  // happen to be on the team, and the branch this does not feed is the one that
+  // deletes a team. Ordered before the creator guard exactly as removeMemberFor
+  // orders it, so a device with a wrong clock gets the same INVALID_DATE from
+  // either surface.
+  const today = requirePlausibleToday(args.today)
+  if (team.creator === playerId) throw accessError('CREATOR_NOT_REMOVABLE')
+
+  const remaining = team.playerIds.filter((memberId) => memberId !== playerId)
+
+  // NOBODY LEFT. Reachable only when the team has no creator ON ITS ROSTER: the
+  // guard above already refused a creator who is a member, and a scoped copy may
+  // omit `creator` entirely (schema comment, Phase 1) or name somebody who was
+  // not copied onto playerIds. Either way NOBODY CAN EVER ADMINISTER IT —
+  // requireTeamCreatorFor goes through requireTeamMemberFor first — so it cannot
+  // be renamed, invited to, or deleted by anyone, now or later.
+  //
+  // IT CAN STILL BE JOINED, and the invite it is deleted with is a THIRD
+  // PARTY'S. completeProfileFor scans every team for the joiner's address with
+  // no creator check at all, so an entry parked in `invited` here is live, and
+  // `invited` is copied wholesale from production — a creator-less scoped copy
+  // with one member and a pending invite is precisely the state this branch
+  // exists for. Deleting is still the better of two bad outcomes: the alternative
+  // is that the invitee eventually lands alone on a team nobody can administer,
+  // which is the same dead end one step later. The invite goes with the team
+  // because it IS a field on the team doc; this is a deliberate loss, not a
+  // side effect nobody noticed, and a test pins it.
+  if (remaining.length === 0) {
+    await cascadeDeleteTeam(ctx, team)
+    return
+  }
+
+  await ctx.db.patch(team._id, { playerIds: remaining })
+
+  // The leaver stops being eligible to have won any month — divergence 5, the
+  // same reason removeMember recomputes. Against the POST-PATCH document:
+  // recomputeTeamMonth reads playerIds off the doc it is handed, and `team` is
+  // the pre-patch snapshot, which still has the leaver on it.
+  const updated = (await ctx.db.get(team._id))!
+  await recomputeTeamMonths(ctx, updated, await monthsWithWinners(ctx, team._id), today)
+}
+
+export const leaveTeam = mutation({
+  args: { teamId: v.id('teams'), today: v.string() },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    await leaveTeamFor(ctx, player._id, args)
   },
 })
 

@@ -209,20 +209,31 @@ membership, and `removeMember` is their nearest sibling."*
 The add-directly branch recomputes because the new member is immediately eligible to have won
 past months — the same reasoning `removeMember` carries in reverse.
 
-`leaveTeam({ teamId, today })` — the mirror of `removeMember`, and the one team mutation that is
-**not** creator-only. `requireTeamMemberFor` with the caller as the target: you may remove
-yourself and nobody else, which is the inverse of `removeMember`'s "you may remove anybody but
-yourself".
+`leaveTeam({ teamId, today })` — the mirror of `removeMember`, and the one mutation on an
+**existing** team that is **not** creator-only (`createTeam` is not on an existing team).
+`requireTeamMemberFor` with the caller as the target: you may remove yourself and nobody else,
+which is the inverse of `removeMember`'s "you may remove anybody but yourself".
 
 - **The creator cannot leave**, reusing `CREATOR_NOT_REMOVABLE`. Their exit is `deleteTeam`.
   This keeps the Phase 3 invariant that a team always has an administrator, and means no team
-  can be emptied by leaving.
-- **Except a creator-less team** — the scoped-copy case Phase 3 recorded, where `creator` is
-  `undefined` and nobody is refused. If the last member leaves one, the team is deleted with the
-  same manual cascade `deleteTeamFor` uses (`monthlyWinners` and `scoringSystems` go,
-  `dailyScores` stay), rather than being left as an unreachable orphan.
+  **with an administrator** can be emptied by leaving.
+- **Except a team with no creator ON ITS ROSTER.** Keyed on the roster, not on
+  `creator === undefined`: the scoped-copy case Phase 3 recorded (where `creator` was not
+  copied) reaches it, and so does a copy naming a creator who was not copied onto `playerIds` —
+  both are equally unadministrable, since `requireTeamCreatorFor` goes through
+  `requireTeamMemberFor` first. If the last member leaves one, the team is deleted with the same
+  manual cascade `deleteTeamFor` uses (`monthlyWinners` and `scoringSystems` go, `dailyScores`
+  stay), rather than being left as an unreachable orphan.
+  - **This destroys any invite still parked on that team**, and the invite may be a third
+    party's: `completeProfileFor` scans every team for the joiner's address with no creator
+    check, so such an entry is genuinely still claimable, and `invited` is copied wholesale from
+    production. Accepted deliberately — the alternative is that the invitee later lands alone on
+    a team nobody can administer, the same dead end one step further on. Pinned by a test.
 - **Recomputes every month with a winner row**, for exactly the reason `removeMember` does
   (divergence 5): the leaver stops being eligible to have won them.
+- **Bounds `today` before the creator guard**, matching `removeMember`, so the same wrong device
+  clock yields `INVALID_DATE` from either surface — including on the delete path, which does not
+  otherwise read `today`.
 
 `cancelInvite({ teamId, email })` — creator-only, removes the address.
 

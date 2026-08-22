@@ -167,10 +167,12 @@ export async function requireTeamCreatorFor(
  *
  * The bound itself — isPlausibleToday — is shared across every mutation that
  * feeds a client-supplied `today` into winner recomputation: updateTeam,
- * removeMember and invitePlayer in teams.ts, setScoringSystem in
+ * removeMember, leaveTeam and invitePlayer in teams.ts, setScoringSystem in
  * scoringSystems.ts, upsertBoard in scores.ts, and completeProfile in players.ts.
- * All six need it for the identical reason: see
- * the doc comment on isPlausibleToday in lib/puzzleDay.ts. See wordle-teams-04r:
+ * All SEVEN need it for the identical reason: see
+ * the doc comment on isPlausibleToday in lib/puzzleDay.ts. KEEP THIS LIST WHOLE —
+ * wordle-teams-04r's pre-cutover check is "every clock-bounded surface", and this
+ * is where a reader goes to enumerate them. See wordle-teams-04r:
  * that Convex's clock is UTC is currently an inference, and confirming it is a
  * pre-cutover task.
  */

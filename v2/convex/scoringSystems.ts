@@ -13,7 +13,13 @@ import type { ScoringSystem } from './lib/scoring.ts'
  * The scoring-system slice of team management, split out of teams.ts
  * (wt-ksh.4.32). teams.ts owns team IDENTITY and MEMBERSHIP — name,
  * playerIds, creator, playWeekends, showLetters; this module owns the
- * scoringSystems table exclusively and never touches those fields.
+ * scoring-system EDITOR and never touches those fields.
+ *
+ * NOT the only writer of the scoringSystems TABLE, and never was. teams.ts's
+ * cascadeDeleteTeam deletes a team's version rows when the team goes, on both
+ * of its call paths (deleteTeamFor and leaveTeamFor) — a cascade that has to
+ * live with the deletion it belongs to. What is exclusive here is inserting and
+ * patching them.
  */
 
 /**
