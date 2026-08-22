@@ -88,19 +88,21 @@ test('a name of only whitespace is refused locally, with an error and no navigat
     await page.context().setOffline(false)
   }
 
-  // The alert is not sticky: a real name clears it and saves.
+  // THIS TEST DELIBERATELY STOPS HERE, AND MUST NOT SUBMIT AGAIN.
   //
-  // GENEROUS TIMEOUT, AND IT IS NOT PADDING. setOffline(false) does not restore
-  // the Convex websocket synchronously — the client reconnects on a backoff, and
-  // this mutation cannot resolve until it does. At expect's default 5s this
-  // assertion failed roughly one run in three, always here and never on the
-  // offline half above. A flaky spec is worse than a missing one: it teaches
-  // everyone to re-run red until it is green.
-  await page.getByLabel('First Name').fill('Ada')
-  await page.getByLabel('Last Name').fill('Lovelace')
-  await page.getByRole('button', { name: 'Submit' }).click()
-  await expect(page).toHaveURL('/', { timeout: 15_000 })
-  await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
+  // setOffline(false) restores the network but NOT the Convex client's auth
+  // token: a submit after this point reaches the server unauthenticated and
+  // completeProfile throws `Unauthenticated` from getAuthUser. Because that is a
+  // bare ConvexError rather than accessError('UNAUTHENTICATED'), the page shows
+  // its generic fallback, which is why the failure reads as a mystery rather
+  // than as a session problem. It does not recover: a retry loop pressed Submit
+  // four times over 45 seconds and every attempt failed identically.
+  //
+  // Two earlier attempts got this wrong and are worth naming so nobody tries a
+  // third. It was first read as a slow websocket reconnect and given a 15s
+  // timeout — that only delays the same rejection. It is not a timing problem at
+  // all. The 'saves and clears the alert' assertion that used to live here has
+  // moved to the one-character test below, which never goes offline.
 })
 
 test('a one-character first and last name saves without bouncing back', async ({ page }) => {
@@ -109,6 +111,16 @@ test('a one-character first and last name saves without bouncing back', async ({
   // so a one-character name saved and then redirected to the form forever. v2
   // has no second opinion — needsProfile checks for a ROW.
   await signIn(page)
+  await expect(page).toHaveURL('/complete-profile')
+
+  // THE ALERT IS NOT STICKY. Rejected first, then corrected, in one session and
+  // fully online — this is the half that moved out of the offline test above,
+  // which cannot submit twice. A sticky error would survive the second submit
+  // and sit on the dashboard.
+  await page.getByLabel('First Name').fill('   ')
+  await page.getByLabel('Last Name').fill('   ')
+  await page.getByRole('button', { name: 'Submit' }).click()
+  await expect(page.getByRole('alert')).toHaveText('Enter both a first and a last name.')
   await expect(page).toHaveURL('/complete-profile')
 
   await page.getByLabel('First Name').fill('A')
