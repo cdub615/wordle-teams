@@ -7,5 +7,10 @@
   },
   "files.readonlyInclude": {
     "**/routeTree.gen.ts": true
-  }
+  },
+  // v2 owns its own lint config, and the repo ROOT still has v1's .eslintrc.json
+  // — a format ESLint 10 cannot read at all. Without this, an editor opened at
+  // the repo root gives no diagnostics for v2 and the first place a lint failure
+  // appears is the CI step that gates the beta deploy.
+  "eslint.workingDirectories": ["v2"]
 }

@@ -21,9 +21,9 @@ import type { ActionCtx, MutationCtx } from './_generated/server'
  * rather than exporting `resend`.
  *
  * testMode stays FALSE. The component's own test mode is narrower than it
- * sounds: it allows only a fixed handful of Resend's probe addresses —
- * delivered/bounced/complained, optionally +tagged, at resend.dev — so not even
- * `ada@resend.dev` gets through. It would break real sign-in mail on localhost,
+ * sounds: the local part must be exactly delivered, bounced or complained
+ * (optionally +tagged) at Resend's probe domain, so an ordinary name on that
+ * same domain is rejected too. It would break real sign-in mail on localhost,
  * where the owner signs in. Suppression here is by address, not by deployment.
  */
 const resend = new Resend(components.resend, { testMode: false })

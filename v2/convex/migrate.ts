@@ -16,6 +16,15 @@ import type { MutationCtx } from './_generated/server'
 // to them. The script reaches them with ConvexHttpClient.setAdminAuth and the
 // deploy key.
 
+// REFERENCED, JUST NOT IN A WAY no-unused-vars CAN SEE — the `@see {@link
+// chunkNote}` tag below resolves to it, so deleting the constant would leave
+// that tag dangling. The rule only reads value positions, not JSDoc.
+//
+// tsc gets this right where ESLint does not: noUnusedLocals is on, and it does
+// NOT fire here, because it follows the @link. Remove the tag and tsc reports
+// TS6133 on the next line. So the suppression is narrow and deliberate, not a
+// workaround for dead code.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const chunkNote = 'Batched by the caller; Convex bounds how much one mutation may write.'
 
 /** Find an existing doc by its Supabase primary key. */

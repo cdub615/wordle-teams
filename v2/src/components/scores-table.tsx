@@ -139,7 +139,9 @@ export function ScoresTable({
     // Clamp to the scroll bounds so early- and late-month days don't leave a
     // gap at either end.
     wrapper.scrollLeft = Math.max(0, Math.min(target, wrapper.scrollWidth - wrapper.clientWidth))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately excludes score data; see comment above
+    // Deps deliberately exclude score data; see the comment above. (This once
+    // carried an exhaustive-deps suppression. The rule reports nothing here, so
+    // the directive was a lie about the code beneath it and went.)
   }, [hydrated, teamId, month])
 
   const rows = players

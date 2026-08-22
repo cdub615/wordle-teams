@@ -60,6 +60,15 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Ahead of the tests because it is the cheaper failure, and because the
+      # rule it exists for is a deploy-safety one: nothing but convex/email.ts
+      # may import the Resend client, which is what keeps real mail away from
+      # throwaway e2e addresses (wordle-teams-96l, wordle-teams-9lh). A lint
+      # config nobody runs enforces nothing, which is why this step exists at
+      # all rather than just the config.
+      - name: Lint
+        run: pnpm lint
+
       - name: Unit tests
         run: pnpm test:once
 

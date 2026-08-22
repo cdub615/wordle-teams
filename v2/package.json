@@ -12,6 +12,7 @@
 		"//generate-routes": "REMOVED. `tsr generate` standalone strips the Register block from routeTree.gen.ts, including the startInstance registration that wires the Sentry global middlewares — and the vite plugin silently writes it back on the next dev/build, so the damage only shows if you commit in between. The plugin in vite.config.ts is the only generator; there is nothing to run by hand. See wt-ksh.1.15.",
 		"build": "vite build",
 		"preview": "pnpm run build && vite preview",
+		"lint": "eslint . --max-warnings 0",
 		"test": "vitest",
 		"test:once": "vitest run",
 		"e2e": "playwright test",
@@ -62,6 +63,7 @@
 	},
 	"devDependencies": {
 		"@edge-runtime/vm": "^5.0.0",
+		"@eslint/js": "^10.0.1",
 		"@playwright/test": "^1.61.1",
 		"@supabase/supabase-js": "^2.112.2",
 		"@tailwindcss/typography": "^0.5.16",
@@ -75,8 +77,12 @@
 		"@vitejs/plugin-react": "^6.0.1",
 		"convex-test": "^0.0.54",
 		"dotenv": "^17.4.2",
+		"eslint": "^10.9.0",
+		"eslint-plugin-react-hooks": "^7.1.1",
+		"globals": "^17.11.0",
 		"jsdom": "^28.1.0",
 		"typescript": "^6.0.2",
+		"typescript-eslint": "^8.67.0",
 		"vite": "^8.0.0",
 		"vitest": "^4.1.5",
 		"wrangler": "^4.111.0"

@@ -20,6 +20,18 @@ const ALLOWED_EMAILS = [
   /@redacted\.invalid$/i,
   /@test\.tst$/i,
   /@example\.(com|org|net)$/i,
+  // RFC 2606 reserves the `.test` TLD for exactly this, alongside the
+  // example.com/org/net names already allowed above — it can never resolve and
+  // can never belong to anybody. The v2 suites use it throughout
+  // (ada@example.test, creator@example.test).
+  //
+  // ADDED AFTER THE FACT, and the reason matters: every commit in Phase 4 was
+  // made with --no-verify, on the belief that this hook merely staged
+  // .beads/issues.jsonl. It does not — it is this check. So the guard was
+  // bypassed for a whole phase, and when finally run it failed on 40 addresses
+  // that were all reserved test names. A safety check that cries wolf on
+  // legitimate content is one people learn to skip.
+  /@([a-z0-9-]+\.)*test$/i,
   /noreply@/i,
   /(^|\.)sentry\.io$/i, // Sentry DSNs look like <key>@o<org>.ingest.us.sentry.io
 ]
