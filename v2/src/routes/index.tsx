@@ -173,6 +173,15 @@ function Dashboard() {
             isCreator={selectedTeam.isCreator}
             myPlayerId={myPlayerId}
             onEditSettings={() => setSettingsOpen(true)}
+            // Leaving the selected team leaves ?team= pointing at a team you
+            // are no longer on — the same broken-param problem deleting one
+            // has, so this is MyTeamsCard's onDeleted handler below, minus its
+            // `deleted !== teamParam` guard: this card only ever renders the
+            // selected team, so there is no other team it could have been.
+            onLeft={() => {
+              localStorage.removeItem(STORAGE_KEY)
+              void navigate({ to: '/', search: {}, replace: true })
+            }}
           />
           <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />
           <ScoringSystemCard

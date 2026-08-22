@@ -3141,11 +3141,22 @@ export function InvitePlayerDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  teamId: string
+  // Id<'teams'>, for the reason CurrentTeamCard's own prop gives.
+  teamId: Id<'teams'>
   teamName: string
 }) {
   const invite = useMutation({ mutationFn: useConvexMutation(api.teams.invitePlayer) })
   const { height, offsetTop } = useVisualViewport()
+  // CONTROLLED, unlike /login's and /complete-profile's inputs, and the
+  // difference is not an oversight. Those two are rendered into the SSR HTML,
+  // so a fast typist can type before hydration and React's first controlled
+  // render wipes it (wt-ksh.2.2, and again in Phase 4). Radix unmounts
+  // DialogContent while `open` is false, so nothing here exists until the user
+  // clicks Invite — which is itself an onClick, and therefore already
+  // post-hydration. There is no pre-hydration window to lose input in. Do not
+  // "fix" this into an uncontrolled input: submit deliberately CLEARS the field
+  // on already_member and deliberately LEAVES it on failure, and neither is
+  // expressible without owning the value.
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -3162,23 +3173,37 @@ export function InvitePlayerDialog({
     setSubmitting(true)
     try {
       const outcome = await invite.mutateAsync({
-        teamId: teamId as Id<'teams'>,
+        teamId,
         email,
         today: toPuzzleDay(new Date()),
       })
 
-      if (outcome.status === 'already_member') {
-        toast.info(`${email} is already on ${teamName}`)
-        setEmail('')
-        return // deliberately NOT closing — see the doc comment
-      }
-
-      if (outcome.status === 'added') {
-        toast.success(`${outcome.firstName} was added to ${teamName}`)
-      } else if (outcome.status === 'resent') {
-        toast.success(`Invite re-sent to ${outcome.email}`)
-      } else {
-        toast.success(`Invite sent to ${outcome.email}`)
+      // EXHAUSTIVE, not a chain ending in `else`. Three of the four outcomes
+      // carry an `email`, so a fifth InviteOutcome variant that also carried one
+      // would fall into a bare else and be announced as "Invite sent to …" —
+      // compiling cleanly, and in the one place whose entire purpose is one
+      // message per outcome (divergence 9). The `never` assignment below turns
+      // that into a compile error instead.
+      switch (outcome.status) {
+        case 'already_member':
+          // The typed address, not a server-normalised one: `already_member`
+          // carries no payload, because the server wrote nothing on that path.
+          toast.info(`${email} is already on ${teamName}`)
+          setEmail('')
+          return // deliberately NOT closing — see the doc comment
+        case 'added':
+          toast.success(`${outcome.firstName} was added to ${teamName}`)
+          break
+        case 'resent':
+          toast.success(`Invite re-sent to ${outcome.email}`)
+          break
+        case 'invited':
+          toast.success(`Invite sent to ${outcome.email}`)
+          break
+        default: {
+          const _exhaustive: never = outcome
+          return _exhaustive
+        }
       }
       onOpenChange(false)
     } catch (error) {
@@ -3194,15 +3219,43 @@ export function InvitePlayerDialog({
           other team dialogs — see create-team-dialog.tsx for why both are
           load-bearing on a phone. */}
       <DialogContent
-        className="w-11/12 overflow-y-auto rounded-lg"
+        className="w-11/12 rounded-lg overflow-y-auto"
         style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
       >
+        {/* NO WRAPPING OR TRUNCATING CLASSES HERE, DELIBERATELY, even though
+            this is the only dialog title that embeds the team name.
+            __root.tsx's <body> carries `[overflow-wrap:anywhere]`; it inherits,
+            and unlike `break-words` it also shrinks min-content, so the grid
+            column never widens and a 48-character unbreakable name already
+            wraps inside the `w-11/12` box. Measured at 390px: bare title →
+            overflow-wrap `anywhere`, dialog scrollWidth 356 == clientWidth 356.
+            Adding `min-w-0 break-words` → `break-word`, byte-identical geometry
+            and strictly weaker than what is inherited. Only neutralising the
+            body rule too → scrollWidth 451 > clientWidth 356, real overflow.
+
+            A `truncate` here is the one thing that genuinely breaks it, because
+            its `white-space: nowrap` beats the inherited rule: the grid column
+            takes min-content from the whole unwrapped string, DialogHeader is
+            `text-center` inside it, and the description, the input and the
+            Invite button all land off a 390px screen. An earlier draft of this
+            file did exactly that.
+
+            The lasting trap is the measurement, not the CSS: `document.
+            scrollWidth` reports no horizontal overflow for anything inside
+            DialogContent, because it is `fixed` and Radix locks body scroll
+            while a dialog is open. Check the dialog's own scrollWidth. */}
         <DialogHeader>
           <DialogTitle>Invite Player to {teamName}</DialogTitle>
           <DialogDescription>Enter the player&apos;s email address</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="w-full space-y-6">
-          <div>
+          <div className="space-y-2">
+            {/* type="email" + required is v1's markup, kept: it gets the @ key
+                on a phone keyboard and catches the obvious typo without a round
+                trip. It is NOT the same rule as the server's — the HTML5
+                validator accepts a dotless domain ('a@b') that
+                normaliseInviteEmail rejects — so INVALID_EMAIL is still
+                reachable from this form, not merely defence in depth. */}
             <Label htmlFor="invite-email">Email</Label>
             <Input
               id="invite-email"
@@ -3251,19 +3304,59 @@ Add props `onInvite` is not needed — the card owns the dialog. Inside the comp
   const [leaveOpen, setLeaveOpen] = useState(false)
   const [leaving, setLeaving] = useState(false)
 
-  // Creator-only, and only fetched for the creator: these are real email
-  // addresses, which is why they are NOT on getMyTeams. useQuery rather than
-  // useSuspenseQuery so a member's card renders without waiting on a query that
-  // would refuse them anyway.
-  const { data: invites } = useQuery({
-    ...convexQuery(api.teams.getTeamInvites, { teamId: teamId as Id<'teams'> }),
-    enabled: isCreator,
-  })
+  // Creator-only, and not even SUBSCRIBED TO for anyone else: these are real
+  // email addresses, which is why they are not on getMyTeams.
+  //
+  // `'skip'` RATHER THAN `enabled: isCreator`, and the difference is not
+  // stylistic. TanStack Query still adds a disabled query to its cache when the
+  // hook mounts, and ConvexQueryClient opens its websocket watch from that
+  // cache's `added` event (node_modules/@convex-dev/react-query, subscribeInner)
+  // without consulting `enabled` at all — so every non-creator member's browser
+  // would subscribe to a query that throws NOT_TEAM_CREATOR server-side, and log
+  // it. `convexQuery(..., 'skip')` marks the query key skipped, which that same
+  // subscriber checks before it watches anything, and sets `enabled: false` for
+  // itself.
+  //
+  // useQuery, not useSuspenseQuery, so a member's card renders without waiting
+  // on a read they are never going to make.
+  const { data: invites } = useQuery(
+    convexQuery(
+      api.teams.getTeamInvites,
+      isCreator ? { teamId } : 'skip',
+    ),
+  )
+
+  // EXACT DUPLICATES ARE REACHABLE, so this cannot render `invited` raw. v1's
+  // no-account branch appends the address without checking whether it is
+  // already parked (`invited.includes(email)` is nested inside its
+  // player-exists branch), so re-inviting somebody who never signed up parks the
+  // same lowercase string twice; scripts/copy-from-supabase.mjs maps
+  // `e.toLowerCase()` over the array and neither trims nor dedupes, so the pair
+  // arrives intact. Two identical strings would mean duplicate React keys AND
+  // `openEmail === email` matching both rows, so one click would open two
+  // popovers.
+  //
+  // Deduplicating hides nothing the creator could act on: the rows are
+  // character-for-character identical, and cancelInvite removes EVERY matching
+  // entry anyway, so one row really is one cancellable address.
+  //
+  // WHAT THIS DOES NOT FIX, stated because it is easy to assume otherwise:
+  // entries that merely NORMALISE to each other still render as two rows, and
+  // those two rows are indistinguishable. Neither copy gate trims, so ' a@b.c'
+  // and 'a@b.c' both survive as distinct strings — but HTML collapses the
+  // leading space, so measured in this exact markup both spans have innerText
+  // 'a@b.c' and width 48px, and both aria-labels read the same. Then
+  // cancelInviteFor normalises before it filters, so cancelling either one
+  // deletes BOTH: the list drops by two for a single click, with a toast naming
+  // one address. Rare (it needs a padded row copied from v1) and it errs
+  // towards clearing junk rather than leaving it, so it is recorded rather than
+  // worked around — a fix belongs in the copy gate, not here.
+  const pendingInvites = invites ? Array.from(new Set(invites)) : []
 
   const handleCancel = async (email: string) => {
     setPendingEmail(email)
     try {
-      await cancel.mutateAsync({ teamId: teamId as Id<'teams'>, email })
+      await cancel.mutateAsync({ teamId, email })
       toast.success(`Invite to ${email} cancelled`)
       setOpenEmail(null)
     } catch (error) {
@@ -3276,7 +3369,7 @@ Add props `onInvite` is not needed — the card owns the dialog. Inside the comp
   const handleLeave = async () => {
     setLeaving(true)
     try {
-      await leave.mutateAsync({ teamId: teamId as Id<'teams'>, today: toPuzzleDay(new Date()) })
+      await leave.mutateAsync({ teamId, today: toPuzzleDay(new Date()) })
       toast.success(`You left ${name}`)
       setLeaveOpen(false)
       onLeft()
@@ -3288,13 +3381,19 @@ Add props `onInvite` is not needed — the card owns the dialog. Inside the comp
   }
 ```
 
-Add `onLeft: () => void` to the props type.
+Add `onLeft: () => void` to the props type, and NARROW `teamId` from `string` to
+`Id<'teams'>` on both this component and `InvitePlayerDialog`. `getMyTeamsFor`
+returns `id: team._id`, so the `index.tsx` call site already holds an
+`Id<'teams'>`; widening it in the prop type was the only reason every
+`mutateAsync` in either file had to cast it straight back, `handleRemove`'s
+pre-existing cast included. `ScoresTable`'s `teamParam as Id<'teams'>` stays —
+that one really does come from a URL string.
 
 In the header, put Invite beside Settings:
 
 ```tsx
             {isCreator && (
-              <div className="flex gap-2">
+              <div className="flex shrink-0 gap-2">
                 <Button size="icon" variant="outline" aria-label="Team settings" onClick={onEditSettings}>
                   <Settings size={22} />
                 </Button>
@@ -3314,8 +3413,21 @@ In the member `<li>`, add the Leave control as the **complement** of remove:
                 {/* Leave is the exact complement of remove above: a creator sees
                     remove on everyone else's row and nothing on their own; a
                     member sees Leave on their own row and nothing on anyone
-                    else's. They must never both render on one row. The creator
-                    cannot leave — leaveTeam refuses it server-side. */}
+                    else's. getMyTeamsFor computes `isCreator` as
+                    `team.creator === playerId`, the same comparison leaveTeamFor
+                    makes before it throws CREATOR_NOT_REMOVABLE, so that error
+                    is unreachable from this control while the server still
+                    refuses a creator who asks for it directly.
+
+                    THE TWO GATES DEGRADE IN OPPOSITE DIRECTIONS when
+                    myPlayerId is null. `member.id === myPlayerId` matches
+                    nothing, so a member gets no Leave control at all — nothing
+                    offered, nothing broken. Remove's `member.id !== myPlayerId`
+                    matches EVERYTHING, so a creator gets an extra Remove on
+                    their own row that removeMemberFor always refuses with
+                    CREATOR_NOT_REMOVABLE. That is Phase 3 behaviour and is left
+                    alone here; it is recorded only so nobody reads these two
+                    lines as symmetric. */}
                 {!isCreator && member.id === myPlayerId && (
                   <ConfirmPopover
                     open={leaveOpen}
@@ -3336,17 +3448,37 @@ In the member `<li>`, add the Leave control as the **complement** of remove:
 After the member list, add the Pending section and the dialog:
 
 ```tsx
-        {isCreator && invites && invites.length > 0 && (
+        {isCreator && pendingInvites.length > 0 && (
           <div className="mt-4">
             <Separator className="mb-4" />
             <h3 className="text-muted-foreground mb-2 text-sm font-medium">Pending invites</h3>
             <ul className="flex flex-col space-y-2">
-              {invites.map((email) => (
+              {pendingInvites.map((email) => (
                 <li key={email} className="min-w-0">
                   <div className="flex w-full min-w-0 items-center justify-between gap-2">
-                    <span className="text-muted-foreground flex min-w-0 items-center gap-2 truncate">
-                      <Mail size={14} className="shrink-0" />
-                      <span className="truncate">{email}</span>
+                    {/* WRAPS, where the member rows above truncate, and the
+                        difference is the whole point of this section. A member
+                        row shows a short name; a pending row shows an address,
+                        and divergence 6 exists so a creator can "tell a typo
+                        from a slow responder". Typos live in the TAIL —
+                        @gmial.com, exampl3.com — which is exactly what an
+                        ellipsis eats: at 390px the truncated box fit 31
+                        characters, so three addresses differing only in domain
+                        rendered pixel-identical. break-all rather than plain
+                        wrapping because an address has no spaces to break at. */}
+                    <span className="text-muted-foreground flex min-w-0 items-start gap-2">
+                      {/* items-start + mt-[5px], not items-center: once an
+                          address wraps, centring puts the envelope on line 2 of
+                          3 — measured 24px, exactly one line box, below the
+                          first line's midpoint (and 12px on a 2-line row). It is
+                          the only row-start marker in a section that exists to
+                          be SCANNED, so a marker pointing at the middle works
+                          against the wrap beside it. 5px is (24 - 14) / 2, the
+                          icon's optical centre on a 24px line box. The trash
+                          button stays centred on the outer flex — that reads as
+                          a row-level action. */}
+                      <Mail size={14} className="mt-[5px] shrink-0" />
+                      <span className="min-w-0 break-all">{email}</span>
                     </span>
                     <ConfirmPopover
                       open={openEmail === email}
@@ -3368,12 +3500,18 @@ After the member list, add the Pending section and the dialog:
           </div>
         )}
       </CardContent>
-      <InvitePlayerDialog
-        open={inviteOpen}
-        onOpenChange={setInviteOpen}
-        teamId={teamId}
-        teamName={name}
-      />
+      {/* The only thing that can set `inviteOpen` is the creator-only button
+          above, so for everyone else this would mount a dialog with no trigger —
+          and with it useVisualViewport's resize/scroll listeners — that can
+          never open. */}
+      {isCreator && (
+        <InvitePlayerDialog
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          teamId={teamId}
+          teamName={name}
+        />
+      )}
     </Card>
 ```
 
@@ -3414,7 +3552,8 @@ With `pnpm dev` and `E2E_TEST_MODE` on, as a team creator:
 | Invite the same address again | "Invite re-sent to …"; Pending shows it **once** |
 | Invite a member already on the team | **info** toast "… is already on …"; **dialog stays open**; field cleared |
 | Invite an existing player not on the team | "{First} was added to …"; they appear in the member list |
-| Invite `not-an-email` | error toast "That does not look like an email address."; dialog stays open |
+| Invite `not-an-email` | the BROWSER refuses it — `type="email"` + `required` — with "Please include an '@'…"; nothing is submitted, no toast, dialog stays open |
+| Invite `foo@bar` | passes HTML5 validation (which does not require a dot in the domain) but fails `normaliseInviteEmail`: error toast "That does not look like an email address."; dialog stays open, field keeps `foo@bar` |
 | Cancel a pending invite | it disappears from Pending |
 | As a non-creator member, open the card | no Settings, no Invite, no Pending section; a Leave control on your own row |
 | Leave the selected team | you land on another team, not the error boundary |
@@ -3429,7 +3568,7 @@ Wait for Radix's `animate-in` to settle before capturing, or you will screenshot
 
 ```bash
 git add v2/src/components/teams v2/src/routes/index.tsx
-git commit -m "feat(v2): invite dialog, pending invites and leave-team UI (wt-ksh.5.3)"
+git commit -m "feat(v2): invite dialog, pending invites and leave-team UI (wt-ksh.5.19)"
 ```
 
 ---
@@ -3591,4 +3730,4 @@ BODY
 **Two things a reviewer should watch.**
 
 1. **Task 2's fifth test** builds boards for a player it then deletes, so that the claim is what makes them count. That construction is fiddly and may need reworking against the real `monthTotal` semantics — but the assertion it exists to make (a stale winner row changes when someone claims an invite) must not be weakened into "the row still exists".
-2. **Task 7's `useQuery` for `getTeamInvites`** is `enabled: isCreator`, and the mutation refuses non-creators anyway. If `enabled` is dropped, every member's browser issues a query that throws, which will surface as a console error rather than a broken page — easy to miss and worth checking in review.
+2. **Task 7's `useQuery` for `getTeamInvites`** must use `convexQuery(..., 'skip')`, not `enabled: isCreator`. This draft said `enabled` and predicted that dropping it would show up as a console error; BOTH halves were wrong, and Task 7 measured it. `enabled: isCreator` does not stop the subscription at all — ConvexQueryClient watches on the query cache's `added` event, which TanStack fires for a disabled query too — so a non-creator's browser really did execute `Q(teams:getTeamInvites)` (4 executions observed, versus 0 with `'skip'`). And it is SILENT: the adapter catches the refusal and writes it into the query's state, so nothing reaches the console. A reviewer looking for a red console line would have concluded it was fine.

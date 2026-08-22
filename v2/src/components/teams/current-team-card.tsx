@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Settings, Trash2 } from 'lucide-react'
+import { LogOut, Mail, Settings, Trash2, UserPlus2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useConvexMutation } from '@convex-dev/react-query'
-import { useMutation } from '@tanstack/react-query'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../../convex/_generated/api'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
@@ -10,6 +10,7 @@ import { ConfirmPopover } from '#/components/confirm-popover.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { InvitePlayerDialog } from './invite-player-dialog.tsx'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 export type TeamMember = { id: string; firstName: string; lastName: string }
@@ -17,9 +18,14 @@ export type TeamMember = { id: string; firstName: string; lastName: string }
 /**
  * The selected team's members, and the creator's controls.
  *
- * Ports v1's current-team-client.tsx, minus the Invite button — invites are
- * Phase 4. Settings and the per-member remove are creator-only, matching v1's
- * UI; unlike v1 that is now also true of the mutation (divergence 4).
+ * Ports v1's current-team-client.tsx. Settings, Invite and the per-member
+ * remove are creator-only, matching v1's UI; unlike v1 that is now also true of
+ * the mutations (divergence 4).
+ *
+ * TWO THINGS HERE ARE NOT IN v1 AT ALL. The Pending invites list is divergence
+ * 6 — v1 shows a creator nowhere who they invited, so a typo'd address sits in
+ * `invited[]` forever with no way to see it or take it back. The Leave control
+ * is divergence 10 — v1's only exit from a team is asking its creator.
  *
  * ALL members render, including the caller's own row — v1 maps every player
  * and gates only the remove control (`canInvite && player.id !== userId`),
@@ -37,9 +43,13 @@ export function CurrentTeamCard({
   isCreator,
   myPlayerId,
   onEditSettings,
+  onLeft,
   className,
 }: {
-  teamId: string
+  // Id<'teams'>, not string: getMyTeamsFor returns `id: team._id`, so the
+  // index.tsx call site already has one. Typing this as `string` was the only
+  // reason four mutateAsync calls below had to cast it straight back.
+  teamId: Id<'teams'>
   name: string
   members: Array<TeamMember>
   isCreator: boolean
@@ -50,9 +60,74 @@ export function CurrentTeamCard({
   // row", same as before this prop existed.
   myPlayerId: string | null
   onEditSettings: () => void
+  // Called after a successful leave, so the caller can deal with `?team=`
+  // pointing at a team the user is no longer on — the same broken-param
+  // problem MyTeamsCard's onDeleted exists for. No argument: this card only
+  // ever renders the SELECTED team, so the team that was left is always the
+  // one in the URL, and there is nothing for the caller to compare.
+  onLeft: () => void
   className?: string
 }) {
   const remove = useMutation({ mutationFn: useConvexMutation(api.teams.removeMember) })
+  const cancel = useMutation({ mutationFn: useConvexMutation(api.teams.cancelInvite) })
+  const leave = useMutation({ mutationFn: useConvexMutation(api.teams.leaveTeam) })
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null)
+  const [openEmail, setOpenEmail] = useState<string | null>(null)
+  // One boolean, not a per-row map like `openId` below: Leave renders on at
+  // most one row (your own) and only when you are not the creator.
+  const [leaveOpen, setLeaveOpen] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+
+  // Creator-only, and not even SUBSCRIBED TO for anyone else: these are real
+  // email addresses, which is why they are not on getMyTeams.
+  //
+  // `'skip'` RATHER THAN `enabled: isCreator`, and the difference is not
+  // stylistic. TanStack Query still adds a disabled query to its cache when the
+  // hook mounts, and ConvexQueryClient opens its websocket watch from that
+  // cache's `added` event (node_modules/@convex-dev/react-query, subscribeInner)
+  // without consulting `enabled` at all — so every non-creator member's browser
+  // would subscribe to a query that throws NOT_TEAM_CREATOR server-side, and log
+  // it. `convexQuery(..., 'skip')` marks the query key skipped, which that same
+  // subscriber checks before it watches anything, and sets `enabled: false` for
+  // itself.
+  //
+  // useQuery, not useSuspenseQuery, so a member's card renders without waiting
+  // on a read they are never going to make.
+  const { data: invites } = useQuery(
+    convexQuery(
+      api.teams.getTeamInvites,
+      isCreator ? { teamId } : 'skip',
+    ),
+  )
+
+  // EXACT DUPLICATES ARE REACHABLE, so this cannot render `invited` raw. v1's
+  // no-account branch appends the address without checking whether it is
+  // already parked (`invited.includes(email)` is nested inside its
+  // player-exists branch), so re-inviting somebody who never signed up parks the
+  // same lowercase string twice; scripts/copy-from-supabase.mjs maps
+  // `e.toLowerCase()` over the array and neither trims nor dedupes, so the pair
+  // arrives intact. Two identical strings would mean duplicate React keys AND
+  // `openEmail === email` matching both rows, so one click would open two
+  // popovers.
+  //
+  // Deduplicating hides nothing the creator could act on: the rows are
+  // character-for-character identical, and cancelInvite removes EVERY matching
+  // entry anyway, so one row really is one cancellable address.
+  //
+  // WHAT THIS DOES NOT FIX, stated because it is easy to assume otherwise:
+  // entries that merely NORMALISE to each other still render as two rows, and
+  // those two rows are indistinguishable. Neither copy gate trims, so ' a@b.c'
+  // and 'a@b.c' both survive as distinct strings — but HTML collapses the
+  // leading space, so measured in this exact markup both spans have innerText
+  // 'a@b.c' and width 48px, and both aria-labels read the same. Then
+  // cancelInviteFor normalises before it filters, so cancelling either one
+  // deletes BOTH: the list drops by two for a single click, with a toast naming
+  // one address. Rare (it needs a padded row copied from v1) and it errs
+  // towards clearing junk rather than leaving it, so it is recorded rather than
+  // worked around — a fix belongs in the copy gate, not here.
+  const pendingInvites = invites ? Array.from(new Set(invites)) : []
+
   const [pendingId, setPendingId] = useState<string | null>(null)
   // Which member's popover is open, if any. Controlled so a successful remove
   // can close it explicitly (see handleRemove below) instead of relying on
@@ -66,7 +141,7 @@ export function CurrentTeamCard({
     setPendingId(playerId)
     try {
       await remove.mutateAsync({
-        teamId: teamId as Id<'teams'>,
+        teamId,
         playerId: playerId as Id<'players'>,
         today: toPuzzleDay(new Date()),
       })
@@ -76,6 +151,33 @@ export function CurrentTeamCard({
       toast.error(mutationErrorMessage(error, 'Failed to remove player'))
     } finally {
       setPendingId(null)
+    }
+  }
+
+  const handleCancel = async (email: string) => {
+    setPendingEmail(email)
+    try {
+      await cancel.mutateAsync({ teamId, email })
+      toast.success(`Invite to ${email} cancelled`)
+      setOpenEmail(null)
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Could not cancel that invite'))
+    } finally {
+      setPendingEmail(null)
+    }
+  }
+
+  const handleLeave = async () => {
+    setLeaving(true)
+    try {
+      await leave.mutateAsync({ teamId, today: toPuzzleDay(new Date()) })
+      toast.success(`You left ${name}`)
+      setLeaveOpen(false)
+      onLeft()
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Could not leave that team'))
+    } finally {
+      setLeaving(false)
     }
   }
 
@@ -92,9 +194,19 @@ export function CurrentTeamCard({
           <div className="flex min-w-0 items-center justify-between gap-2">
             <h2 className="min-w-0 truncate">{name}</h2>
             {isCreator && (
-              <Button size="icon" variant="outline" aria-label="Team settings" onClick={onEditSettings}>
-                <Settings size={22} />
-              </Button>
+              <div className="flex shrink-0 gap-2">
+                <Button size="icon" variant="outline" aria-label="Team settings" onClick={onEditSettings}>
+                  <Settings size={22} />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  aria-label="Invite player"
+                  onClick={() => setInviteOpen(true)}
+                >
+                  <UserPlus2 size={22} />
+                </Button>
+              </div>
             )}
           </div>
         </CardTitle>
@@ -122,12 +234,109 @@ export function CurrentTeamCard({
                     onConfirm={() => handleRemove(member.id)}
                   />
                 )}
+                {/* Leave is the exact COMPLEMENT of remove above, and the two
+                    must never both render on one row. getMyTeamsFor computes
+                    `isCreator` as `team.creator === playerId`, the same
+                    comparison leaveTeamFor makes before it throws
+                    CREATOR_NOT_REMOVABLE, so gating on `!isCreator` means that
+                    error is unreachable from this control while the server
+                    still refuses a creator who asks for it directly. A creator
+                    sees remove on everyone else's row and nothing on their own;
+                    a member sees Leave on their own row and nothing on anyone
+                    else's.
+
+                    THE TWO GATES DEGRADE IN OPPOSITE DIRECTIONS when
+                    myPlayerId is null (see the prop's comment). `member.id ===
+                    myPlayerId` matches nothing, so a member gets no Leave
+                    control at all — nothing offered, nothing broken. Remove's
+                    `member.id !== myPlayerId` matches EVERYTHING, so a creator
+                    gets an extra Remove on their own row that removeMemberFor
+                    always refuses with CREATOR_NOT_REMOVABLE. That is Phase 3
+                    behaviour and is left alone here; it is recorded only so
+                    nobody reads these two lines as symmetric. */}
+                {!isCreator && member.id === myPlayerId && (
+                  <ConfirmPopover
+                    open={leaveOpen}
+                    onOpenChange={setLeaveOpen}
+                    trigger={
+                      <Button variant="ghost" aria-label={`Leave ${name}`}>
+                        <LogOut size={16} className="text-danger" />
+                      </Button>
+                    }
+                    message={`Leave ${name}?`}
+                    confirmLabel="Leave"
+                    pending={leaving}
+                    onConfirm={handleLeave}
+                  />
+                )}
               </div>
               {index < members.length - 1 && <Separator className="mt-2" />}
             </li>
           ))}
         </ul>
+        {isCreator && pendingInvites.length > 0 && (
+          <div className="mt-4">
+            <Separator className="mb-4" />
+            <h3 className="text-muted-foreground mb-2 text-sm font-medium">Pending invites</h3>
+            <ul className="flex flex-col space-y-2">
+              {pendingInvites.map((email) => (
+                <li key={email} className="min-w-0">
+                  <div className="flex w-full min-w-0 items-center justify-between gap-2">
+                    {/* WRAPS, where the member rows above truncate, and the
+                        difference is the whole point of this section. A member
+                        row shows a short name; a pending row shows an address,
+                        and divergence 6 exists so a creator can "tell a typo
+                        from a slow responder". Typos live in the TAIL —
+                        @gmial.com, exampl3.com — which is exactly what an
+                        ellipsis eats: at 390px the truncated box fit 31
+                        characters, so three addresses differing only in domain
+                        rendered pixel-identical. break-all rather than plain
+                        wrapping because an address has no spaces to break at. */}
+                    <span className="text-muted-foreground flex min-w-0 items-start gap-2">
+                      {/* items-start + mt-[5px], not items-center: once an
+                          address wraps, centring puts the envelope on line 2 of
+                          3 — measured 24px, exactly one line box, below the
+                          first line's midpoint. It is the only row-start marker
+                          in a section that exists to be SCANNED, so a marker
+                          pointing at the middle works against the wrap beside
+                          it. 5px is (24 - 14) / 2, the icon's optical centre on
+                          a 24px line box. The trash button stays centred on the
+                          outer flex — that reads as a row-level action. */}
+                      <Mail size={14} className="mt-[5px] shrink-0" />
+                      <span className="min-w-0 break-all">{email}</span>
+                    </span>
+                    <ConfirmPopover
+                      open={openEmail === email}
+                      onOpenChange={(next) => setOpenEmail(next ? email : null)}
+                      trigger={
+                        <Button variant="ghost" aria-label={`Cancel invite to ${email}`}>
+                          <Trash2 size={16} className="text-danger" />
+                        </Button>
+                      }
+                      message={`Cancel the invite to ${email}?`}
+                      confirmLabel="Cancel invite"
+                      pending={pendingEmail === email}
+                      onConfirm={() => handleCancel(email)}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </CardContent>
+      {/* The only thing that can set `inviteOpen` is the creator-only button
+          above, so for everyone else this would mount a dialog with no trigger —
+          and with it useVisualViewport's resize/scroll listeners — that can
+          never open. */}
+      {isCreator && (
+        <InvitePlayerDialog
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          teamId={teamId}
+          teamName={name}
+        />
+      )}
     </Card>
   )
 }
