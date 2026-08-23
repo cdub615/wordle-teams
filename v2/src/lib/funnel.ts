@@ -44,6 +44,7 @@ export type FunnelEvent =
  */
 function send(event: FunnelEvent): void {
   if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console -- DEV-only funnel tracing; see wordle-teams-61x
     console.debug('[funnel]', event.name, event)
   }
   void fetch('/api/funnel', {

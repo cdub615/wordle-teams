@@ -12,9 +12,9 @@ import tseslint from 'typescript-eslint'
  *
  * DELIBERATELY NOT A STYLE POLICY. The baseline is the recommended sets and
  * nothing more, so this stays a correctness tool that passes clean rather than a
- * backlog of taste. `no-console` in particular is NOT enabled: the four call
- * sites in src/ and convex/ are all deliberate diagnostics, and whether to
- * police them is its own decision (wordle-teams-61x).
+ * backlog of taste. The one addition beyond them is `no-console`, and it is
+ * scoped by what the directory IS rather than applied across the board — see
+ * the src/ block below (wordle-teams-61x).
  *
  * `pnpm lint` runs it; CI runs the same command just before the unit tests, so
  * an added rule enforces something rather than sitting in a config nobody runs.
@@ -108,6 +108,20 @@ export default tseslint.config(
       // taste — squarely the correctness half this config is for. The tree
       // already satisfies it, so it costs nothing to hold the line.
       'react-hooks/rules-of-hooks': 'error',
+
+      // SCOPED TO src/ ON PURPOSE, and the scoping is the whole decision.
+      // This is the only code that ships to a user's browser, so a debugging
+      // line left behind here has a cost. In convex/ the same call is the
+      // LOGGING API — console.log is how anything reaches the deployment log at
+      // all (auth.ts prints id_token claim keys that way) — and in scripts/ it
+      // is the program's output. Banning it there would be wrong, so neither is
+      // in this block's `files`.
+      //
+      // warn and error stay: a genuine failure the user should not have to read
+      // the network tab to see, like a board submit that died before it saved.
+      // `debug` is not allowed, which is what makes funnel.ts's DEV-only line
+      // carry a directive again — the one it had before any linter existed.
+      'no-console': ['error', { allow: ['warn', 'error'] }],
     },
   },
 
