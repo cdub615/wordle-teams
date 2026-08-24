@@ -40,7 +40,7 @@ import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
 import { selectCopyable } from './lib/copy-filters.mjs'
-import { formatTally, mergeTally } from './lib/copy-tallies.mjs'
+import { formatClobberReport, formatTally, mergeTally } from './lib/copy-tallies.mjs'
 
 const args = process.argv.slice(2)
 const has = (flag) => args.includes(flag)
@@ -232,6 +232,12 @@ convex.setAdminAuth(CONVEX_MIGRATION_KEY)
 // Convex bounds how much a single mutation may write, so batch. Small enough to
 // stay well inside the limit even for the widest rows (webhook bodies).
 const CHUNK = 200
+
+// Every table's merged tally, keyed by label, in write order — the input to the
+// clobber report below. Filled by writeAll rather than from its return value, so
+// the key and the printed label cannot drift apart.
+const written = {}
+
 async function writeAll(label, fn, rows) {
   // Named `tallies`, not `totals`: `totals` is already the Supabase row counts
   // destructured above, and shadowing it here would be quietly confusing.
@@ -245,8 +251,10 @@ async function writeAll(label, fn, rows) {
     // reporting an overwrite.
     mergeTally(tallies, await convex.mutation(fn, { rows: rows.slice(i, i + CHUNK) }))
   }
+  // formatTally prints the flat counters only. The `clobbered` records the three
+  // diffing mutations return are held back for the block after all six writes.
   console.log(`  ${label.padEnd(17)} ${formatTally(tallies)}`)
-  return tallies
+  written[label] = tallies
 }
 
 // THE TEAM FILTER HAS NO SECOND GATE, so it gets one here.
@@ -270,18 +278,26 @@ if (teamRows.length !== copyable.teams.length || playerRows.length !== copyable.
 console.log('\nWriting to Convex...')
 // Order matters: teams reference players, and everything else references both.
 await writeAll('players', internal.migrate.upsertPlayers, playerRows)
-const teamTotals = await writeAll('teams', internal.migrate.upsertTeams, teamRows)
+await writeAll('teams', internal.migrate.upsertTeams, teamRows)
 await writeAll('dailyScores', internal.migrate.upsertDailyScores, scoreRows)
 await writeAll('monthlyWinners', internal.migrate.upsertMonthlyWinners, winnerRows)
 await writeAll('playerMembership', internal.migrate.upsertMemberships, membershipRows)
 await writeAll('webhookEvents', internal.migrate.upsertWebhookEvents, webhookRows)
 
-if (teamTotals.droppedMembers > 0) {
+if (written.teams.droppedMembers > 0) {
   console.log(
-    `\n  note: ${teamTotals.droppedMembers} team membership(s) referenced a player outside the copied scope and were dropped.`,
+    `\n  note: ${written.teams.droppedMembers} team membership(s) referenced a player outside the copied scope and were dropped.`,
   )
   console.log('  Expected with --scope=mine. It would be a real problem with --scope=all.')
 }
+
+// WHAT THIS COPY OVERWROTE — last thing before the counts, because it is what
+// the person running this at cutover is watching for, and the counts block below
+// is six short lines, so it stays on screen. Rendered in lib/copy-tallies.mjs
+// and tested there; loud when non-zero, one line when zero. Counts only: this
+// repository is public and the overwritten fields include team names and
+// invited addresses.
+console.log(`\n${formatClobberReport(written)}`)
 
 const counts = await convex.query(internal.migrate.counts, {})
 console.log('\nConvex now holds:')
