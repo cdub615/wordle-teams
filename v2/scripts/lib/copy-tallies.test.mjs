@@ -99,6 +99,17 @@ describe('formatTally', () => {
     expect(formatTally({})).toBe('(nothing to do)')
     expect(formatTally({ inserted: 0, updated: 0, clobbered: {} })).toBe('inserted=0 updated=0')
   })
+
+  test('refuses a nested record that nothing downstream knows how to print', () => {
+    // `clobbered` is skipped BY NAME because formatClobberReport prints it. Any
+    // other nested record would be dropped here and never picked up there —
+    // mergeTally accepts it happily, so nothing else would notice. Same
+    // refuse-rather-than-guess stance as mergeTally, for the same reason: this
+    // module's whole subject is a report going silently missing.
+    expect(() => formatTally({ inserted: 1, dropped: { byTeam: 2 } })).toThrow(
+      /'dropped'.*prints it nowhere/s,
+    )
+  })
 })
 
 describe('formatClobberReport', () => {
@@ -170,9 +181,10 @@ describe('formatClobberReport', () => {
     ).toBe(
       [
         '################################################################################',
-        '##  OVERWROTE v2 EDITS: teams, monthlyWinners',
-        '##  Counts are rows whose stored value this copy replaced. Deliberate before',
-        '##  cutover, when beta state is discarded. After cutover it is live user data.',
+        '##  OVERWROTE STORED VALUES: teams, monthlyWinners',
+        '##  Rows whose stored value this copy replaced: a v2 edit lost, or a v1-side',
+        '##  edit arriving during dual-running. Deliberate before cutover, when beta',
+        '##  state is discarded; after cutover it is live user data.',
         '##',
         '##  teams            name on 2 rows, scoring on 1 row',
         '##  monthlyWinners   legacyId on 3 rows',
@@ -182,6 +194,26 @@ describe('formatClobberReport', () => {
         '################################################################################',
       ].join('\n'),
     )
+  })
+
+  test('the headline does not blame v2 for a difference v1 could equally have caused', () => {
+    // A `clobbered` entry means only that the incoming v1 value differs from the
+    // stored Convex value. That is a lost v2 edit OR v1 drifting since the last
+    // copy — the ordinary dual-running case this script exists to handle.
+    //
+    // `scoring` is the case where blaming v2 is not merely unprovable but WRONG:
+    // convex/migrate.ts documents it as the one field group v2 never writes
+    // after createTeam (setScoringSystem writes a scoringSystems row, not the
+    // team doc), so a scoring difference is always a v1-side edit. A banner
+    // announcing destroyed v2 edits here is the false alarm that trains
+    // everyone to ignore the report.
+    const block = formatClobberReport({
+      teams: { inserted: 0, updated: 29, droppedMembers: 0, clobbered: { scoring: 4 } },
+    })
+    expect(block).toContain('##  OVERWROTE STORED VALUES: teams')
+    expect(block).not.toContain('v2 EDITS')
+    // The cause stays in the body, stated as the either/or it actually is.
+    expect(block).toContain('a v2 edit lost, or a v1-side')
   })
 
   test('the block carries field NAMES and row counts, and nothing else', () => {
@@ -207,13 +239,73 @@ describe('formatClobberReport', () => {
     ).toBe(
       [
         '################################################################################',
-        '##  OVERWROTE v2 EDITS: players',
-        '##  Counts are rows whose stored value this copy replaced. Deliberate before',
-        '##  cutover, when beta state is discarded. After cutover it is live user data.',
+        '##  OVERWROTE STORED VALUES: players',
+        '##  Rows whose stored value this copy replaced: a v2 edit lost, or a v1-side',
+        '##  edit arriving during dual-running. Deliberate before cutover, when beta',
+        '##  state is discarded; after cutover it is live user data.',
         '##',
         '##  players   email on 1 row',
         '################################################################################',
       ].join('\n'),
     )
+  })
+
+  // The frame is what makes the block visually distinct from the routine output
+  // around it, so nothing may escape it. An unwrapped detail line for a player
+  // row with every diffable field runs past 220 columns, and the terminal's own
+  // wrap drops the `##` gutter — the overflow then reads as unrelated output.
+  describe('stays inside its 80-column frame', () => {
+    // Every field upsertPlayers can report. legacyId is excluded because it is
+    // the key the row was matched on and can never differ.
+    const ALL_PLAYER_FIELDS = {
+      email: 1,
+      firstName: 2,
+      lastName: 2,
+      hasPwa: 3,
+      timeZone: 4,
+      reminderDeliveryMethods: 11,
+      reminderDeliveryTime: 11,
+      lastBoardEntryReminder: 7,
+      createdAt: 1,
+    }
+
+    test('the worst case wraps instead of overflowing', () => {
+      const lines = formatClobberReport({
+        players: { inserted: 0, updated: 535, clobbered: ALL_PLAYER_FIELDS },
+        monthlyWinners: { inserted: 0, updated: 61, skipped: 0, clobbered: { legacyId: 3 } },
+      }).split('\n')
+
+      for (const line of lines) {
+        expect(line.length).toBeLessThanOrEqual(80)
+        expect(line.startsWith('#')).toBe(true)
+      }
+    })
+
+    test('wrapping loses no field and no count', () => {
+      const block = formatClobberReport({
+        players: { inserted: 0, updated: 535, clobbered: ALL_PLAYER_FIELDS },
+      })
+      for (const [field, rows] of Object.entries(ALL_PLAYER_FIELDS)) {
+        expect(block).toContain(`${field} on ${rows} row`)
+      }
+    })
+
+    test('continuation lines keep the gutter and line up under the label', () => {
+      // Pins where the wrap actually falls, so a change to the frame or to the
+      // separator shows up as a diff rather than as a silently uglier block.
+      expect(
+        formatClobberReport({
+          players: { inserted: 0, updated: 535, clobbered: ALL_PLAYER_FIELDS },
+        })
+          .split('\n')
+          .filter((line) => line.includes(' on ')),
+      ).toEqual([
+        '##  players   email on 1 row, firstName on 2 rows, lastName on 2 rows,',
+        '##            hasPwa on 3 rows, timeZone on 4 rows,',
+        '##            reminderDeliveryMethods on 11 rows,',
+        '##            reminderDeliveryTime on 11 rows, lastBoardEntryReminder on 7 rows,',
+        '##            createdAt on 1 row',
+      ])
+    })
   })
 })
