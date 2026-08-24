@@ -30,7 +30,7 @@
 import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
-import { narrowToCopied } from './lib/verify-filters.mjs'
+import { expectedMemberCount, narrowToCopied } from './lib/verify-filters.mjs'
 
 const args = process.argv.slice(2)
 const scope = (args.find((a) => a.startsWith('--scope=')) ?? '--scope=mine').split('=')[1]
@@ -122,16 +122,12 @@ for (const t of src.teams) {
     continue
   }
   check(`team ${t.id} name`, t.name, got.name)
-  // The roster gets the same narrowing at a finer grain. upsertTeams resolves
-  // each member uuid and DROPS the ones with no matching player — counting them
-  // into droppedMembers — so a team that survived with a nameless member on it
-  // legitimately arrives one member lighter. The Phase 4 measurement found 3
-  // live teams holding a nameless member, so comparing the raw roster length
-  // would report those 3 as mismatches on a full copy. Expecting the right
-  // number is not the same as tolerating a difference: this still fails if a
-  // member that WAS copied went missing.
-  const expectedMembers = (t.player_ids || []).filter((id) => src.copiedPlayerIds.has(id)).length
-  check(`team ${t.id} member count`, expectedMembers, got.playerCount)
+  // The roster gets the same narrowing at a finer grain — upsertTeams drops the
+  // member uuids it cannot resolve, so a team that kept a nameless member
+  // arrives one member lighter. The rule lives in lib/verify-filters.mjs, where
+  // a test can execute it; see there for why this expects MORE precisely rather
+  // than more loosely.
+  check(`team ${t.id} member count`, expectedMemberCount(t, src.copiedPlayerIds), got.playerCount)
   // Invited addresses are normalised on write, so compare against the normalised
   // form — comparing raw would flag the repair as a mismatch.
   const expectedInvited = [...new Set((t.invited || []).map((e) => e.toLowerCase()))].sort()

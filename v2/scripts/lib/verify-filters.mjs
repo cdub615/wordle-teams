@@ -35,10 +35,17 @@ import { selectCopyable } from './copy-filters.mjs'
  * production on 2026-08-24: player_customer holds 535 rows to players' 535, none
  * of them orphaned, and all 151 nameless players carry one — so player_customer
  * is 1:1 with players, and a skipped player takes exactly one membership row
- * with it. The membership shortfall is therefore the player shortfall by
- * construction, not by coincidence. If a run reports the two moving by different
- * amounts, the predicate below has drifted from `isNamed` and that is a bug in
- * this file, not a problem in the data.
+ * with it. On that data the two shortfalls are the same number.
+ *
+ * IF THEY EVER DIVERGE, THAT IS A DATA FINDING, NOT A BUG HERE. The set below is
+ * derived from selectCopyable's own output, so the membership predicate cannot
+ * drift away from `isNamed` — it has no independent notion of who is copyable.
+ * What CAN change is the 1:1 relationship: a player carrying two membership rows
+ * makes the membership shortfall exceed the player shortfall, and a skipped
+ * player carrying none makes it fall short. Both are real changes in
+ * player_customer since 2026-08-24, and both are worth going and looking at.
+ * Whoever sees 152 against 151 at the Phase 7 audit should query the table, not
+ * read this file.
  *
  * SCORES, WINNERS AND WEBHOOKS ARE PASSED THROUGH UNTOUCHED, deliberately. The
  * Phase 4 measurement (2026-08-20, in the Phase 4 invites design doc) found that
@@ -49,11 +56,7 @@ import { selectCopyable } from './copy-filters.mjs'
  * finding to investigate, which is exactly what not filtering them preserves.
  *
  * `copiedPlayerIds` is returned as well as used, because a surviving team's
- * ROSTER needs the same narrowing at a finer grain: upsertTeams resolves each
- * member uuid and drops the ones with no matching player, so a team that kept a
- * nameless member arrives one member lighter than its Supabase `player_ids`.
- * Handing the set out keeps that comparison reading the same answer as this
- * function rather than recomputing it.
+ * ROSTER needs the same narrowing at a finer grain — see expectedMemberCount.
  *
  * @returns the scoped result with `players`, `teams` and `memberships` narrowed
  *   and every other key passed through, plus the copied player ids and `skipped`
@@ -76,4 +79,34 @@ export function narrowToCopied(src) {
       memberships: src.memberships.length - memberships.length,
     },
   }
+}
+
+/**
+ * How many members a surviving team should have in Convex.
+ *
+ * The narrowing again, one level down from rows. upsertTeams resolves every
+ * member uuid and DROPS the ones with no matching player — counting them into
+ * `droppedMembers` — so a team that survived with a nameless member on it
+ * legitimately arrives one member lighter than its Supabase `player_ids`. The
+ * Phase 4 measurement found 3 live teams holding a nameless member, so a
+ * verifier comparing the raw roster length would report those 3 as mismatches on
+ * a full copy.
+ *
+ * THIS DOES NOT WIDEN WHAT THE COMPARISON ACCEPTS, it moves it. A named member
+ * the copy lost still fails, because the expected count still includes them. A
+ * nameless player wrongly PRESENT in Convex now fails too, where a raw-length
+ * comparison passed — the count it expects is strictly more precise than the one
+ * it replaced, in both directions.
+ *
+ * Here rather than inline in verify-parity.mjs for the reason the whole module
+ * exists: that script runs at module scope against a live deployment and cannot
+ * be imported, so an expression written there is an expression no test can
+ * execute — and a test that restated it could drift from it silently, which is
+ * the failure this task was filed to fix.
+ *
+ * @param team a Supabase teams row; `player_ids` may be null, which Supabase allows.
+ * @param copiedPlayerIds the set narrowToCopied returns.
+ */
+export function expectedMemberCount(team, copiedPlayerIds) {
+  return (team.player_ids || []).filter((id) => copiedPlayerIds.has(id)).length
 }

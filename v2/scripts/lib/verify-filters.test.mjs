@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { selectCopyable } from './copy-filters.mjs'
-import { narrowToCopied } from './verify-filters.mjs'
+import { expectedMemberCount, narrowToCopied } from './verify-filters.mjs'
 
 // The verifier's narrowing, pinned. verify-parity.mjs cannot be tested — like
 // the copy script it runs at module scope against production and a live
@@ -84,17 +84,32 @@ describe('narrowToCopied', () => {
     expect(got.memberships).toHaveLength(7)
   })
 
+  test('counts a membership per player, not per player id, when the two are not 1:1', () => {
+    // The header says a divergence between the two shortfalls is a DATA finding
+    // — player_customer no longer 1:1 with players — rather than a drifted
+    // predicate. This is that case, pinned: one skipped player carrying two
+    // membership rows moves memberships by 2 while players moves by 1. The
+    // narrowing is still right; the numbers simply stop matching, which is
+    // exactly the signal to go and look at the table.
+    const players = [player('named'), player('nameless', { first_name: null })]
+    const memberships = [
+      membership('m-named', 'named'),
+      membership('m-nameless-1', 'nameless'),
+      membership('m-nameless-2', 'nameless'),
+    ]
+
+    const got = narrowToCopied(scoped({ players, memberships }))
+
+    expect(got.skipped.players).toBe(1)
+    expect(got.skipped.memberships).toBe(2)
+    expect(got.memberships.map((m) => m.id)).toEqual(['m-named'])
+  })
+
   test('hands out the copied player ids, which is how a team roster is narrowed', () => {
-    // verify-parity.mjs compares a team's member count against the roster
-    // filtered through this set, because upsertTeams drops the members it cannot
-    // resolve. Production has 3 live teams holding a nameless member, so the raw
-    // roster length would report those as mismatches on a full copy.
     const players = [player('named'), player('nameless', { first_name: null })]
     const got = narrowToCopied(scoped({ players, teams: [team(1, ['named', 'nameless'])] }))
 
     expect([...got.copiedPlayerIds]).toEqual(['named'])
-    const roster = got.teams[0].player_ids.filter((id) => got.copiedPlayerIds.has(id))
-    expect(roster).toEqual(['named'])
   })
 
   test('passes scores, winners, webhooks and totals through untouched', () => {
@@ -163,5 +178,55 @@ describe('narrowToCopied', () => {
     expect(src.players).toHaveLength(2)
     expect(src.teams).toHaveLength(1)
     expect(src.memberships).toHaveLength(1)
+  })
+})
+
+describe('expectedMemberCount', () => {
+  // What verify-parity.mjs compares a team's Convex playerCount against. It runs
+  // on the set narrowToCopied produced, so these fixtures build it the same way
+  // the script does rather than hand-rolling a Set.
+  const idsFor = (...players) => narrowToCopied(scoped({ players })).copiedPlayerIds
+
+  test('does not count a member the copy skipped', () => {
+    // The 3 live teams production holds with a nameless member on them. Their
+    // Convex playerCount is one lower than player_ids, because upsertTeams drops
+    // the uuid it cannot resolve.
+    const ids = idsFor(player('named'), player('nameless', { first_name: null }))
+    expect(expectedMemberCount(team(1, ['named', 'nameless']), ids)).toBe(1)
+  })
+
+  test('still expects every member the copy DID write', () => {
+    // The case that makes this a narrowing and not a relaxation: a named member
+    // lost somewhere between Supabase and Convex leaves the expected count at 2
+    // against a playerCount of 1, and the check fails. Filtering the expectation
+    // must not become a way to stop noticing that.
+    const ids = idsFor(player('a'), player('b'), player('nameless', { last_name: null }))
+    expect(expectedMemberCount(team(1, ['a', 'b', 'nameless']), ids)).toBe(2)
+  })
+
+  test('never counts a skipped member, so one wrongly present in Convex fails', () => {
+    // The other direction, and the one a raw-roster comparison got wrong: if a
+    // nameless player somehow reached Convex and joined this team, playerCount
+    // is 2 while this expects 1, and the mismatch is reported. Comparing
+    // player_ids.length would have passed it.
+    const ids = idsFor(player('named'), player('nameless', { first_name: '' }))
+    expect(expectedMemberCount(team(1, ['named', 'nameless']), ids)).not.toBe(2)
+    expect(expectedMemberCount(team(1, ['named', 'nameless']), ids)).toBe(1)
+  })
+
+  test('drops a roster uuid matching no player at all', () => {
+    // upsertTeams counts these into droppedMembers too, so the verifier must not
+    // expect them either. Distinct from the nameless case: this uuid is in no
+    // players row, copyable or otherwise.
+    expect(expectedMemberCount(team(1, ['named', 'ghost']), idsFor(player('named')))).toBe(1)
+  })
+
+  test('is unchanged by the narrowing when every member was copied', () => {
+    const ids = idsFor(player('a'), player('b'))
+    expect(expectedMemberCount(team(1, ['a', 'b']), ids)).toBe(2)
+  })
+
+  test('tolerates a null player_ids, which Supabase allows', () => {
+    expect(expectedMemberCount({ id: 1, name: 't', player_ids: null }, idsFor(player('a')))).toBe(0)
   })
 })
