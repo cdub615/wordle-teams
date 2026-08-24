@@ -270,7 +270,7 @@ if (teamRows.length !== copyable.teams.length || playerRows.length !== copyable.
   process.exit(1)
 }
 
-// ORDER MATTERS, and this list is what fixes it: teams reference players, and
+// ORDER MATTERS, and this list is what pins it: teams reference players, and
 // everything else references both. Written sequentially, top to bottom.
 //
 // Each label is written ONCE, and is both what prints in the per-table line and

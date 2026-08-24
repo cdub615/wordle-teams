@@ -150,7 +150,8 @@ export function formatClobberReport(talliesByTable) {
     // `clean` empty here means no table that diffs had any rows — not that they
     // all came back clean. Different facts, and the line has to say which.
     const clauses = scopeClauses(clean, notDiffed)
-    if (clean.length === 0) clauses.unshift(`${NOTHING} — no table that diffs had rows to write`)
+    if (clean.length === 0)
+      clauses.unshift(`${OVERWROTE_NOTHING} — no table that diffs had rows to write`)
     return `  ${clauses.join('. ')}.`
   }
 
@@ -202,23 +203,20 @@ const partition = (talliesByTable) => {
   return { overwritten, clean, notDiffed }
 }
 
-const NOTHING = 'Overwrote nothing'
+const OVERWROTE_NOTHING = 'Overwrote nothing'
 
 /**
  * The two standing clauses, in ONE vocabulary for both branches.
  *
- * The quiet line and the banner's footer state the same two facts, and they used
- * to state them in two grammars ("Overwrote nothing in x" against "Overwrote
- * nothing: x") from three literals that had to be edited in lockstep. A report
- * whose whole purpose is legibility should not disagree with itself about how it
- * says a thing; building both from here is what stops it.
+ * The quiet line and the banner's footer state the same two facts, so both build
+ * them from here rather than from literals that would have to move in lockstep.
  *
  * `Not diffed:` rather than "x does not diff", so the phrasing reads the same
  * whether the list has one entry or three.
  */
 const scopeClauses = (clean, notDiffed) => {
   const clauses = []
-  if (clean.length) clauses.push(`${NOTHING}: ${clean.join(', ')}`)
+  if (clean.length) clauses.push(`${OVERWROTE_NOTHING}: ${clean.join(', ')}`)
   if (notDiffed.length) clauses.push(`Not diffed: ${notDiffed.join(', ')}`)
   return clauses
 }
