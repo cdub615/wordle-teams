@@ -86,9 +86,9 @@ export function formatTally(tallies) {
     }
     if (key === 'clobbered') continue
     throw new Error(
-      `copy tally: '${key}' is a nested record, and the only one anything knows how ` +
-        `to print is 'clobbered'. This summary skips it and formatClobberReport ` +
-        `never looks at it, so the run prints it nowhere. Teach one of them about it.`,
+      `copy tally: '${key}' is ${describe(value)}. This summary prints numbers, and ` +
+        `skips 'clobbered' because formatClobberReport prints that instead; anything ` +
+        `else the run reports nowhere. Teach one of them about it.`,
     )
   }
   return parts.join(' ')
@@ -138,59 +138,95 @@ export function formatTally(tallies) {
  * the tables it is speaking for and names the ones it is not. A table whose
  * tally is empty was never written to at all and belongs in neither list.
  *
- * @param {Record<string, Record<string, unknown>>} byTable table label -> the
- *   tally mergeTally accumulated for it, in the order the copy wrote them.
+ * @param {Record<string, Record<string, unknown>>} talliesByTable table label ->
+ *   the tally mergeTally accumulated for it, in the order the copy wrote them.
  * @returns {string} either one indented line, or a multi-line banner. Already
  *   formatted for console.log; the caller supplies the leading blank line.
  */
-export function formatClobberReport(byTable) {
-  const overwritten = [] // [label, [[field, rows], ...]] — at least one field
-  const clean = [] // reported `clobbered`, and it was empty
-  const notDiffed = [] // written to, but this mutation returns no `clobbered`
-
-  for (const [label, tallies] of Object.entries(byTable)) {
-    if (Object.keys(tallies).length === 0) continue
-    const clobbered = tallies.clobbered
-    if (clobbered === undefined) {
-      notDiffed.push(label)
-    } else if (Object.keys(clobbered).length === 0) {
-      clean.push(label)
-    } else {
-      overwritten.push([label, Object.entries(clobbered)])
-    }
-  }
+export function formatClobberReport(talliesByTable) {
+  const { overwritten, clean, notDiffed } = partition(talliesByTable)
 
   if (overwritten.length === 0) {
-    // With nothing overwritten, `clean` IS every table that reported.
-    const scope = clean.length
-      ? `Overwrote nothing in ${clean.join(', ')}`
-      : 'Overwrote nothing: no table that diffs had rows to write'
-    // `not diffed:` rather than "X does not diff", so the phrasing reads the
-    // same whether the list has one entry or three.
-    const caveat = notDiffed.length ? `; not diffed: ${notDiffed.join(', ')}` : ''
-    return `  ${scope}${caveat}.`
+    // `clean` empty here means no table that diffs had any rows — not that they
+    // all came back clean. Different facts, and the line has to say which.
+    const clauses = scopeClauses(clean, notDiffed)
+    if (clean.length === 0) clauses.unshift(`${NOTHING} — no table that diffs had rows to write`)
+    return `  ${clauses.join('. ')}.`
   }
 
   const width = Math.max(...overwritten.map(([label]) => label.length)) + 3
   const lines = [
     RULE,
-    `##  OVERWROTE STORED VALUES: ${overwritten.map(([label]) => label).join(', ')}`,
-    '##  Rows whose stored value this copy replaced: a v2 edit lost, or a v1-side',
-    '##  edit arriving during dual-running. Deliberate before cutover, when beta',
-    '##  state is discarded; after cutover it is live user data.',
-    '##',
+    `${GUTTER}OVERWROTE STORED VALUES: ${overwritten.map(([label]) => label).join(', ')}`,
+    `${GUTTER}Rows whose stored value this copy replaced: a v2 edit lost, or a v1-side`,
+    `${GUTTER}edit arriving during dual-running. Deliberate before cutover, when beta`,
+    `${GUTTER}state is discarded; after cutover it is live user data.`,
+    BLANK,
     ...overwritten.flatMap(([label, fields]) => detailLines(label, fields, width)),
   ]
-  const notes = []
-  if (clean.length) notes.push(`##  Overwrote nothing: ${clean.join(', ')}`)
-  if (notDiffed.length) notes.push(`##  Not diffed: ${notDiffed.join(', ')}`)
-  if (notes.length) lines.push('##', ...notes)
+  const notes = scopeClauses(clean, notDiffed).map((clause) => `${GUTTER}${clause}`)
+  if (notes.length) lines.push(BLANK, ...notes)
   lines.push(RULE)
   return lines.join('\n')
 }
 
+/**
+ * Sort the tables into the three things the report can say about one.
+ *
+ * The invariants live here rather than inline in the renderer, because they are
+ * about the DATA and are easy to get subtly wrong:
+ *
+ *   - An empty tally means the mutation was never called, which the copy only
+ *     does when that table had no rows in scope. It neither overwrote anything
+ *     nor failed to diff, so it belongs in NEITHER list — listing it would be a
+ *     zero that reads as a checked, clean table.
+ *   - `clobbered` absent means the mutation does not diff at all. That is a
+ *     different fact from `clobbered` present and empty, which is a real "this
+ *     table was checked and nothing moved", and conflating them is exactly the
+ *     overclaim the clean line exists to avoid.
+ *
+ * @returns {{ overwritten: Array<[string, Array<[string, number]>]>, clean: string[], notDiffed: string[] }}
+ *   `overwritten` carries each table's field entries and always has at least one.
+ */
+const partition = (talliesByTable) => {
+  const overwritten = []
+  const clean = []
+  const notDiffed = []
+  for (const [label, tallies] of Object.entries(talliesByTable)) {
+    if (Object.keys(tallies).length === 0) continue
+    const clobbered = tallies.clobbered
+    if (clobbered === undefined) notDiffed.push(label)
+    else if (Object.keys(clobbered).length === 0) clean.push(label)
+    else overwritten.push([label, Object.entries(clobbered)])
+  }
+  return { overwritten, clean, notDiffed }
+}
+
+const NOTHING = 'Overwrote nothing'
+
+/**
+ * The two standing clauses, in ONE vocabulary for both branches.
+ *
+ * The quiet line and the banner's footer state the same two facts, and they used
+ * to state them in two grammars ("Overwrote nothing in x" against "Overwrote
+ * nothing: x") from three literals that had to be edited in lockstep. A report
+ * whose whole purpose is legibility should not disagree with itself about how it
+ * says a thing; building both from here is what stops it.
+ *
+ * `Not diffed:` rather than "x does not diff", so the phrasing reads the same
+ * whether the list has one entry or three.
+ */
+const scopeClauses = (clean, notDiffed) => {
+  const clauses = []
+  if (clean.length) clauses.push(`${NOTHING}: ${clean.join(', ')}`)
+  if (notDiffed.length) clauses.push(`Not diffed: ${notDiffed.join(', ')}`)
+  return clauses
+}
+
 const FRAME = 80
 const RULE = '#'.repeat(FRAME)
+const GUTTER = '##  '
+const BLANK = '##'
 
 /**
  * One table's fields, wrapped to stay inside the frame.
@@ -202,30 +238,32 @@ const RULE = '#'.repeat(FRAME)
  * so the overflow reads as unrelated output escaping the block. Wrapping here
  * keeps every line framed and indented under its label.
  *
- * A field name long enough to overflow on its OWN would still overflow, since
- * nothing truncates — a truncated field name is a name the reader cannot act on.
- * Nothing comes close today: the longest is reminderDeliveryMethods, which at
- * the widest gutter the report can produce measures 56 columns.
+ * ONE FIELD STILL OVERFLOWS IF IT MUST. Nothing truncates, because a truncated
+ * field name is a name the reader cannot act on, so a single field wider than
+ * the frame takes the whole line and runs over. Stated as a bound rather than as
+ * arithmetic that would go stale: the indent tracks the longest label that
+ * reports `clobbered`, so the threshold moves — it sits near 48 columns of field
+ * name today, and would tighten to about 46 if playerMembership ever starts
+ * reporting, which convex/migrate.ts anticipates for Phase 5. The widest field
+ * name in play is reminderDeliveryMethods at 23, so the margin is comfortable
+ * either way, and no plausible schema field closes a gap that size.
  */
 const detailLines = (label, fields, width) => {
-  const gutter = `##  ${' '.repeat(width)}`
-  const lines = []
-  let current = `##  ${label.padEnd(width)}`
-  for (const [i, [field, rows]] of fields.entries()) {
-    // The separator rides on the item BEFORE the break, so a continuation line
-    // never opens with a comma and a continued list never looks finished.
-    const last = i === fields.length - 1
-    const item = `${field} on ${rows} ${rows === 1 ? 'row' : 'rows'}${last ? '' : ','}`
-    if (i === 0) {
-      current += item
-    } else if (current.length + 1 + item.length <= FRAME) {
-      current += ` ${item}`
-    } else {
-      lines.push(current)
-      current = gutter + item
-    }
+  const indent = GUTTER + ' '.repeat(width)
+  // The separator rides on the item BEFORE the break, so a continuation line
+  // never opens with a comma and a continued list never looks finished.
+  const items = fields.map(
+    ([field, rows], i) =>
+      `${field} on ${rows} ${rows === 1 ? 'row' : 'rows'}${i === fields.length - 1 ? '' : ','}`,
+  )
+  // The first item joins the label; it has nowhere else to go, so it is seeded
+  // rather than measured. Every later item is measured against the frame.
+  const lines = [`${GUTTER}${label.padEnd(width)}${items[0]}`]
+  for (const item of items.slice(1)) {
+    const open = lines.length - 1
+    if (lines[open].length + 1 + item.length <= FRAME) lines[open] += ` ${item}`
+    else lines.push(indent + item)
   }
-  lines.push(current)
   return lines
 }
 

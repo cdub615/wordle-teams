@@ -107,8 +107,17 @@ describe('formatTally', () => {
     // refuse-rather-than-guess stance as mergeTally, for the same reason: this
     // module's whole subject is a report going silently missing.
     expect(() => formatTally({ inserted: 1, dropped: { byTeam: 2 } })).toThrow(
-      /'dropped'.*prints it nowhere/s,
+      /'dropped' is an object.*reports nowhere/s,
     )
+  })
+
+  test('the refusal describes what it actually got', () => {
+    // The throw fires on any non-number, not only on a nested record, so it
+    // borrows mergeTally's `describe` rather than asserting a shape it has not
+    // checked. Calling a string "a nested record" sends the reader looking for
+    // the wrong bug.
+    expect(() => formatTally({ inserted: 1, note: 'hi' })).toThrow(/'note' is a string/)
+    expect(() => formatTally({ inserted: 1, seen: [1, 2] })).toThrow(/'seen' is an array/)
   })
 })
 
@@ -132,21 +141,42 @@ describe('formatClobberReport', () => {
         webhookEvents: { inserted: 12, updated: 0, skipped: 0 },
       }),
     ).toBe(
-      '  Overwrote nothing in players, teams, monthlyWinners; ' +
-        'not diffed: dailyScores, playerMembership, webhookEvents.',
+      '  Overwrote nothing: players, teams, monthlyWinners. ' +
+        'Not diffed: dailyScores, playerMembership, webhookEvents.',
     )
   })
 
   test('the quiet line does not claim anything about the tables that do not diff', () => {
     // A bare "overwrote nothing" would silently assert something about
     // dailyScores, which does not diff at all (wordle-teams-r9d). The claim has
-    // to be scoped to the three mutations that actually report.
-    const line = formatClobberReport({
-      players: { inserted: 1, updated: 0, clobbered: {} },
+    // to be scoped to the mutations that actually report — hence the trailing
+    // clause, and hence the list after the colon rather than a bare full stop.
+    expect(
+      formatClobberReport({
+        players: { inserted: 1, updated: 0, clobbered: {} },
+        dailyScores: { inserted: 9, updated: 0 },
+      }),
+    ).toBe('  Overwrote nothing: players. Not diffed: dailyScores.')
+  })
+
+  test('the quiet line and the banner footer use one grammar for the same fact', () => {
+    // They state the same two things and used to disagree about how — "nothing
+    // in x" against "nothing: x", "not diffed" against "Not diffed" — out of
+    // three literals that had to move together. A report about legibility should
+    // not contradict itself.
+    const tallies = {
+      players: { inserted: 0, updated: 2, clobbered: {} },
       dailyScores: { inserted: 9, updated: 0 },
+    }
+    const quiet = formatClobberReport(tallies)
+    const loud = formatClobberReport({
+      ...tallies,
+      teams: { inserted: 0, updated: 1, clobbered: { name: 1 } },
     })
-    expect(line).toBe('  Overwrote nothing in players; not diffed: dailyScores.')
-    expect(line).not.toMatch(/^ {2}Overwrote nothing\./)
+    for (const clause of ['Overwrote nothing: players', 'Not diffed: dailyScores']) {
+      expect(quiet).toContain(clause)
+      expect(loud).toContain(`##  ${clause}`)
+    }
   })
 
   test('a table the copy never wrote to is not a spurious zero', () => {
@@ -159,13 +189,26 @@ describe('formatClobberReport', () => {
         teams: {},
         webhookEvents: {},
       }),
-    ).toBe('  Overwrote nothing in players.')
+    ).toBe('  Overwrote nothing: players.')
   })
 
   test('nothing written at all still refuses to overclaim', () => {
     expect(formatClobberReport({ players: {}, teams: {} })).toBe(
-      '  Overwrote nothing: no table that diffs had rows to write.',
+      '  Overwrote nothing — no table that diffs had rows to write.',
     )
+  })
+
+  test('no diffing table had rows, but something was written', () => {
+    // The awkward corner: an em dash on the first clause, because "nothing: no
+    // table..." reads as a list of one strangely-named table. The two clauses
+    // are not the same claim — the first says no table that diffs had rows, the
+    // second names the tables that were written but never diff.
+    expect(
+      formatClobberReport({
+        players: {},
+        dailyScores: { inserted: 9, updated: 0 },
+      }),
+    ).toBe('  Overwrote nothing — no table that diffs had rows to write. Not diffed: dailyScores.')
   })
 
   test('a copy that reverted v2 state prints a block that cannot be scrolled past', () => {
@@ -232,22 +275,19 @@ describe('formatClobberReport', () => {
   })
 
   test('every table overwriting something leaves no empty trailing list', () => {
-    expect(
-      formatClobberReport({
-        players: { inserted: 0, updated: 2, clobbered: { email: 1 } },
-      }),
-    ).toBe(
-      [
-        '################################################################################',
-        '##  OVERWROTE STORED VALUES: players',
-        '##  Rows whose stored value this copy replaced: a v2 edit lost, or a v1-side',
-        '##  edit arriving during dual-running. Deliberate before cutover, when beta',
-        '##  state is discarded; after cutover it is live user data.',
-        '##',
-        '##  players   email on 1 row',
-        '################################################################################',
-      ].join('\n'),
-    )
+    // Asserted structurally rather than verbatim: the banner's prose is pinned
+    // in full by the test above, and re-pinning it here would mean three edits
+    // for one wording change. What is actually under test is that a report with
+    // nothing to say in its footer ends at the detail line.
+    const lines = formatClobberReport({
+      players: { inserted: 0, updated: 2, clobbered: { email: 1 } },
+    }).split('\n')
+
+    expect(lines.at(-2)).toBe('##  players   email on 1 row')
+    expect(lines.at(-1)).toBe('#'.repeat(80))
+    expect(lines.filter((line) => line === '##')).toHaveLength(1)
+    expect(lines.some((line) => line.includes('Overwrote nothing'))).toBe(false)
+    expect(lines.some((line) => line.includes('Not diffed'))).toBe(false)
   })
 
   // The frame is what makes the block visually distinct from the routine output
@@ -306,6 +346,44 @@ describe('formatClobberReport', () => {
         '##            reminderDeliveryTime on 11 rows, lastBoardEntryReminder on 7 rows,',
         '##            createdAt on 1 row',
       ])
+    })
+
+    test('a line of exactly 80 columns stands, and 81 wraps', () => {
+      // The `<= FRAME` boundary itself. Nothing in the real schema lands on it,
+      // so these names are built to straddle it — without this, an off-by-one
+      // that let 81 columns through would pass every other test here.
+      const detail = (fieldWidth) =>
+        formatClobberReport({
+          teams: { inserted: 0, updated: 1, clobbered: { aa: 2, ['b'.repeat(fieldWidth)]: 2 } },
+        })
+          .split('\n')
+          .filter((line) => line.includes(' on '))
+
+      const fits = detail(44)
+      expect(fits).toHaveLength(1)
+      expect(fits[0]).toHaveLength(80)
+
+      const wraps = detail(45)
+      expect(wraps).toHaveLength(2)
+      expect(wraps[1].startsWith(`##  ${' '.repeat(8)}`)).toBe(true)
+    })
+
+    test('a field too wide for the frame overflows rather than being truncated', () => {
+      // The documented exception. A truncated field name is a name the reader
+      // cannot act on, so this one deliberately runs over — pinned so that a
+      // future "fix" that starts truncating fails here instead of shipping.
+      const huge = 'z'.repeat(100)
+      const lines = formatClobberReport({
+        teams: { inserted: 0, updated: 1, clobbered: { aa: 1, [huge]: 2, after: 3 } },
+      }).split('\n')
+      const indent = `##  ${' '.repeat(8)}`
+
+      const overflow = lines.find((line) => line.includes(huge))
+      expect(overflow).toBe(`${indent}${huge} on 2 rows,`)
+      expect(overflow.length).toBeGreaterThan(80)
+      // The overflow is contained: the next field starts a fresh, aligned line
+      // rather than being dragged along behind it.
+      expect(lines).toContain(`${indent}after on 3 rows`)
     })
   })
 })

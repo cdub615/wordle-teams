@@ -233,11 +233,6 @@ convex.setAdminAuth(CONVEX_MIGRATION_KEY)
 // stay well inside the limit even for the widest rows (webhook bodies).
 const CHUNK = 200
 
-// Every table's merged tally, keyed by label, in write order — the input to the
-// clobber report below. Filled by writeAll rather than from its return value, so
-// the key and the printed label cannot drift apart.
-const written = {}
-
 async function writeAll(label, fn, rows) {
   // Named `tallies`, not `totals`: `totals` is already the Supabase row counts
   // destructured above, and shadowing it here would be quietly confusing.
@@ -254,7 +249,7 @@ async function writeAll(label, fn, rows) {
   // formatTally prints the flat counters only. The `clobbered` records the three
   // diffing mutations return are held back for the block after all six writes.
   console.log(`  ${label.padEnd(17)} ${formatTally(tallies)}`)
-  written[label] = tallies
+  return tallies
 }
 
 // THE TEAM FILTER HAS NO SECOND GATE, so it gets one here.
@@ -275,18 +270,31 @@ if (teamRows.length !== copyable.teams.length || playerRows.length !== copyable.
   process.exit(1)
 }
 
-console.log('\nWriting to Convex...')
-// Order matters: teams reference players, and everything else references both.
-await writeAll('players', internal.migrate.upsertPlayers, playerRows)
-await writeAll('teams', internal.migrate.upsertTeams, teamRows)
-await writeAll('dailyScores', internal.migrate.upsertDailyScores, scoreRows)
-await writeAll('monthlyWinners', internal.migrate.upsertMonthlyWinners, winnerRows)
-await writeAll('playerMembership', internal.migrate.upsertMemberships, membershipRows)
-await writeAll('webhookEvents', internal.migrate.upsertWebhookEvents, webhookRows)
+// ORDER MATTERS, and this list is what fixes it: teams reference players, and
+// everything else references both. Written sequentially, top to bottom.
+//
+// Each label is written ONCE, and is both what prints in the per-table line and
+// the key its tally is stored under, so the two cannot drift apart. The `teams`
+// lookup below is the one place that still names a table independently of this
+// list; the clobber report itself just reads whatever keys are here.
+const TABLES = [
+  ['players', internal.migrate.upsertPlayers, playerRows],
+  ['teams', internal.migrate.upsertTeams, teamRows],
+  ['dailyScores', internal.migrate.upsertDailyScores, scoreRows],
+  ['monthlyWinners', internal.migrate.upsertMonthlyWinners, winnerRows],
+  ['playerMembership', internal.migrate.upsertMemberships, membershipRows],
+  ['webhookEvents', internal.migrate.upsertWebhookEvents, webhookRows],
+]
 
-if (written.teams.droppedMembers > 0) {
+console.log('\nWriting to Convex...')
+const talliesByTable = {}
+for (const [label, fn, rows] of TABLES) {
+  talliesByTable[label] = await writeAll(label, fn, rows)
+}
+
+if (talliesByTable.teams.droppedMembers > 0) {
   console.log(
-    `\n  note: ${written.teams.droppedMembers} team membership(s) referenced a player outside the copied scope and were dropped.`,
+    `\n  note: ${talliesByTable.teams.droppedMembers} team membership(s) referenced a player outside the copied scope and were dropped.`,
   )
   console.log('  Expected with --scope=mine. It would be a real problem with --scope=all.')
 }
@@ -297,7 +305,7 @@ if (written.teams.droppedMembers > 0) {
 // and tested there; loud when non-zero, one line when zero. Counts only: this
 // repository is public and the overwritten fields include team names and
 // invited addresses.
-console.log(`\n${formatClobberReport(written)}`)
+console.log(`\n${formatClobberReport(talliesByTable)}`)
 
 const counts = await convex.query(internal.migrate.counts, {})
 console.log('\nConvex now holds:')
