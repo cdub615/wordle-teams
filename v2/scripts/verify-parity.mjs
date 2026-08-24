@@ -16,11 +16,21 @@
  * composition, and a per-player daily-score fingerprint including the puzzleDay
  * histogram — which is what catches a board landing on the wrong day.
  *
+ * IT DOES NOT COMPARE EVERY SCOPED ROW. The copy has skipped nameless players
+ * and the teams left with none of their members since Phase 4, so the scoped
+ * Supabase read is narrowed to what the copy would have written before anything
+ * is compared — see lib/verify-filters.mjs. Exactly the same rules, imported from
+ * the copier rather than restated, and applied ONCE below so that no comparison
+ * downstream can walk a row that was never copied. The comparisons themselves
+ * stay exact: a check that tolerated a delta could not tell a deliberate
+ * exclusion from a lost row.
+ *
  * PRINTS COUNTS AND IDS, NEVER ADDRESSES. This repo is public.
  */
 import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
+import { narrowToCopied } from './lib/verify-filters.mjs'
 
 const args = process.argv.slice(2)
 const scope = (args.find((a) => a.startsWith('--scope=')) ?? '--scope=mine').split('=')[1]
@@ -50,7 +60,31 @@ const check = (label, expected, actual) => {
 
 const supabase = connect()
 console.log(`Reading Supabase (scope=${scope})...`)
-const src = await readScoped(supabase, scope, ME)
+const scoped = await readScoped(supabase, scope, ME)
+
+// --- narrowing ----------------------------------------------------------------
+
+// NARROWED ONCE, HERE, and every comparison below reads `src`. That is the whole
+// design: a `.filter()` at each comparison site is one site away from being
+// forgotten, and the failure mode is silent — the count checks agree while a
+// field comparison still walks rows Convex was never given, so the verifier
+// reports a mismatch on a row the copy correctly skipped.
+//
+// `scoped` is kept only for the "of N in scope" denominators just below.
+//
+// Reported unconditionally, zeroes included, for the same reason the copy script
+// prints its Skipped block that way: a zero is the statement that the narrowing
+// ran and found nothing, where silence could equally mean it never ran. At the
+// Phase 7 audit someone has to be able to see that it ran, and by how much.
+// Counts only — this repository is public and these rows carry names and email
+// addresses.
+const src = narrowToCopied(scoped)
+console.log('\nNarrowed to what the copy writes (not compared):')
+console.log(`  nameless players  ${src.skipped.players} of ${scoped.players.length} in scope`)
+console.log(`  memberless teams  ${src.skipped.teams} of ${scoped.teams.length} in scope`)
+console.log(
+  `  their memberships ${src.skipped.memberships} of ${scoped.memberships.length} in scope`,
+)
 
 const convex = new ConvexHttpClient(CONVEX_URL)
 convex.setAdminAuth(CONVEX_MIGRATION_KEY)
@@ -62,6 +96,12 @@ const [counts, probe] = await Promise.all([
 
 // --- row counts ---------------------------------------------------------------
 
+// players, teams and playerMembership are the NARROWED counts — the copy leaves
+// rows behind on purpose, so the un-narrowed lengths are not what Convex should
+// hold. dailyScores, monthlyWinners and webhookEvents are the full scoped
+// lengths, and staying that way is the point: the Phase 4 measurement found that
+// nameless players own 0 boards and 0 monthly-winner rows, so a shortfall on one
+// of these three is something to investigate rather than something to filter.
 console.log('\nRow counts:')
 check('players', src.players.length, counts.players)
 check('teams', src.teams.length, counts.teams)
@@ -82,7 +122,16 @@ for (const t of src.teams) {
     continue
   }
   check(`team ${t.id} name`, t.name, got.name)
-  check(`team ${t.id} member count`, (t.player_ids || []).length, got.playerCount)
+  // The roster gets the same narrowing at a finer grain. upsertTeams resolves
+  // each member uuid and DROPS the ones with no matching player — counting them
+  // into droppedMembers — so a team that survived with a nameless member on it
+  // legitimately arrives one member lighter. The Phase 4 measurement found 3
+  // live teams holding a nameless member, so comparing the raw roster length
+  // would report those 3 as mismatches on a full copy. Expecting the right
+  // number is not the same as tolerating a difference: this still fails if a
+  // member that WAS copied went missing.
+  const expectedMembers = (t.player_ids || []).filter((id) => src.copiedPlayerIds.has(id)).length
+  check(`team ${t.id} member count`, expectedMembers, got.playerCount)
   // Invited addresses are normalised on write, so compare against the normalised
   // form — comparing raw would flag the repair as a mismatch.
   const expectedInvited = [...new Set((t.invited || []).map((e) => e.toLowerCase()))].sort()
@@ -121,6 +170,11 @@ check('statuses agreeing', srcStatus.size, srcStatus.size - statusMismatches)
 // --- daily scores, per player ------------------------------------------------------
 
 console.log('\nDaily scores per player (count, guesses, and puzzleDay histogram):')
+// Built from the NARROWED players, unlike the copier's map of the same name.
+// That is not an inconsistency: this one is only ever read as .get(p.id) inside
+// the loop below, which iterates the same narrowed list, so narrowing it changes
+// no lookup. The copier's must stay un-narrowed because it computes a puzzleDay
+// for every scoped score, including any owned by a player it is skipping.
 const tzByPlayerId = new Map(src.players.map((p) => [p.id, p.time_zone]))
 
 let dayMismatchTotal = 0
@@ -166,7 +220,13 @@ for (const p of src.players) {
 console.log('\n' + '-'.repeat(64))
 if (failures.length === 0) {
   console.log(`PARITY OK — Convex matches Supabase for scope=${scope}.`)
-  console.log(`  ${src.scores.length} daily scores across ${src.players.length} players and ${src.teams.length} teams,`)
+  // The player and team numbers are the narrowed ones, so that this line agrees
+  // with the checks above it rather than quoting a total none of them used. The
+  // score count is the full scoped one, which is what its check compared.
+  console.log(
+    `  ${src.scores.length} daily scores in scope, across the ${src.players.length} players ` +
+      `and ${src.teams.length} teams the copy writes,`,
+  )
   console.log(`  every puzzleDay histogram agreeing (${dayMismatchTotal} differing days).`)
   process.exit(0)
 }

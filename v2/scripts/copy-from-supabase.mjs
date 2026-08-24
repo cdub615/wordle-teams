@@ -29,10 +29,11 @@
  * left with no members are skipped — see lib/copy-filters.mjs for both rules and
  * why they are safe. The run summary reports both counts.
  *
- * A CONSEQUENCE FOR verify-parity.mjs: it still compares every scoped Supabase
- * row against Convex, so as soon as either count above is non-zero it will report
- * a players/teams shortfall. That is the verifier not knowing about these rules
- * yet, not the copy losing data. Teach it before the Phase 7 parity audit.
+ * verify-parity.mjs KNOWS ABOUT THIS, as of wt-ksh.13.7. It narrows its own
+ * scoped read through lib/verify-filters.mjs — which calls the same
+ * selectCopyable, so the two cannot drift — and prints what it left out. Changing
+ * either rule below therefore changes what the verifier expects, in the same
+ * commit, which is the point of them sharing one implementation.
  *
  * PRINTS COUNTS, NEVER ADDRESSES. This repository is public.
  */
@@ -107,6 +108,11 @@ console.log(`  webhookEvents    ${scopedWebhooks.length} of ${totals.webhookEven
 // into its `skipped` tally when the parent is not there. Deliberately left to
 // them, so that one mechanism reports every orphan — including the ones a scoped
 // copy produces, which have nothing to do with these two rules.
+//
+// verify-parity.mjs additionally narrows MEMBERSHIPS by player, because it has
+// to predict the row count upsertMemberships will produce rather than merely
+// report what it skipped. That narrowing lives in lib/verify-filters.mjs and is
+// not wanted here: nothing in this script would read it.
 const copyable = selectCopyable(scopedPlayers, scopedTeams)
 console.log('\nSkipped (not copied):')
 console.log(`  nameless players ${copyable.skippedPlayers} of ${scopedPlayers.length} in scope`)
@@ -164,6 +170,12 @@ const teamRows = copyable.teams.map((t) => ({
   createdAt: ms(t.created_at),
 }))
 
+// scopedPlayers, NOT copyable.players, and that is load-bearing: the map is read
+// once per SCOPED score below, including any owned by a player this run is
+// skipping. Narrowing it would silently fall back to HOME_TZ for those rows and
+// compute a puzzleDay in the wrong timezone. (verify-parity.mjs builds the same
+// map from its narrowed list, which is safe there because it only ever looks up
+// players it is already iterating.)
 const tzByPlayerId = new Map(scopedPlayers.map((p) => [p.id, p.time_zone]))
 
 const scoreRows = scopedScores.map((s) => ({

@@ -7,13 +7,19 @@
 // Pure functions over plain Supabase row objects, so scripts/lib/copy-filters.test.mjs
 // can pin them with no network and no deployment.
 //
-// NOT shared with verify-parity.mjs, and that is worth knowing: the verifier
-// still compares every scoped Supabase row against Convex, so a copy that
-// legitimately skips rows will read as a parity failure until the verifier
-// learns about these exclusions. Kept here, addressable, rather than folded into
-// supabase-scope.mjs, whose whole contract is that the copier and the verifier
-// share it — putting these there would imply an agreement that does not exist
-// yet.
+// SHARED WITH verify-parity.mjs SINCE wt-ksh.13.7, through lib/verify-filters.mjs
+// rather than directly. The verifier has to expect exactly the rows the copy
+// wrote — otherwise a legitimate exclusion reads as a parity failure — and the
+// only safe way to agree about that is one implementation of the rules, so
+// verify-filters.mjs calls selectCopyable rather than restating it. What lives
+// there instead of here is the narrowing the VERIFIER alone needs: memberships
+// belonging to a skipped player, which the copier leaves to upsertMemberships'
+// own orphan tally.
+//
+// Still not folded into supabase-scope.mjs. That module's contract is what "in
+// scope" means, which both scripts resolve identically; these rules are what the
+// copy refuses to bring across, which is a different question, and the verifier
+// has to be able to talk about the difference between the two.
 
 /**
  * A player is copyable only if they have BOTH names.
