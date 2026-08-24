@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from './_generated/server'
 import { v } from 'convex/values'
+import { SYSTEM_FIELDS } from './lib/scoringSystem.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -38,6 +39,159 @@ async function byLegacyId<T extends 'players' | 'teams' | 'playerMembership' | '
     .withIndex('by_legacyId', (q) => q.eq('legacyId', legacyId as never))
     .unique()
 }
+
+// --- what the copy overwrites ------------------------------------------------
+
+/**
+ * THE COPY REPORTS WHAT IT CLOBBERS (wt-ksh.13).
+ *
+ * The copy is re-runnable by design and the cutover runbook runs it again inside
+ * the cutover window. v2 has since become a writer of the same tables: Phase 2
+ * dailyScores, Phase 3 teams and — through winners.ts — monthlyWinners, Phase 4
+ * teams.invited and teams.playerIds via invites, joins, cancels and leaves. A
+ * patch here reverts any of it.
+ *
+ * The owner's decision (2026-08-24) is that this deployment's state IS discarded
+ * at cutover — that is the copy's job, and beta is permanently testing data,
+ * including rows other testers create. What must stop is it happening SILENTLY.
+ * So upsertPlayers, upsertTeams and upsertMonthlyWinners diff the doc they are
+ * about to write against the row already stored, and return per-field counts of
+ * the rows they overwrote.
+ *
+ * WHAT COUNTS AS A CLOBBER: a field the patch will actually write, carrying a
+ * value different from the stored one. Two consequences worth stating outright,
+ * because both are easy to get wrong in the other direction:
+ *
+ *   - A field ABSENT from the incoming doc is never counted. upsertTeams spreads
+ *     `creator` conditionally, so when the creator was outside the copied scope
+ *     the patch does not touch the stored creator at all. Nothing is written, so
+ *     nothing is clobbered.
+ *   - An identical re-copy must report zero across the board. A report that
+ *     fires on a no-op is noise, and noise is indistinguishable from silence
+ *     after the second run.
+ *
+ * WHICH ROWS ARE ACTUALLY AT RISK, stated precisely because it is easy to get
+ * backwards: a row BORN in v2 is the SAFE one. It has no legacyId, and for
+ * players and teams legacyId is the entire upsert key, so the copy can never
+ * match it and never patches it. What this report is about is a COPIED row —
+ * one that already carries its Supabase key — that v2 then edited.
+ *
+ * monthlyWinners IS THE EXCEPTION, and it is the reason that paragraph is worth
+ * writing down. It matches on (teamId, year, month), not on legacyId, so a
+ * winner row v2 computed itself IS matched, adopted and overwritten. The report
+ * shows it: an adopted row differs in `legacyId` (undefined, now a Supabase id)
+ * on top of whatever else moved.
+ *
+ * THE BLIND SPOTS, IN FULL. This list is meant to be complete as of Phase 4 —
+ * `git grep -n "db\.patch(\|db\.delete(\|db\.insert(" convex/` is how to check
+ * it, and the copied tables v2 writes at all are players, teams, dailyScores and
+ * monthlyWinners.
+ *
+ *   - STRUCTURAL, and no diff-based report can ever see it: a row v2 DELETED. A
+ *     deleted team, board or winner row has nothing left to diff against, so the
+ *     copy takes the INSERT branch and puts it back reported as `inserted` —
+ *     indistinguishable from a genuinely new v1 row. cascadeDeleteTeam (the team
+ *     and its winner rows), recomputeTeamMonth (a month that stops having a
+ *     winner) and upsertBoardFor (a cleared board) all hard-delete without
+ *     regard to legacyId. wt-ksh.13.10; it needs a tombstone, not a diff.
+ *   - MERELY UNWIRED: upsertDailyScores. Same clobber shape as the three below,
+ *     and reachable the same way monthlyWinners is — upsertBoardFor keys on
+ *     (playerId, puzzleDay), not legacyId, so it patches COPIED score rows. Left
+ *     out because it is a decision about dual-running rules before it is code:
+ *     if boards are only ever entered in v1 during the window, re-importing v1's
+ *     truth is correct. wordle-teams-r9d.
+ *   - NOT AT RISK TODAY: playerMembership and webhookEvents. Nothing in v2
+ *     writes either table yet, so there is no edit for a re-copy to revert.
+ *     Phase 5's Polar work is what would change that.
+ */
+type Clobbered = Record<string, number>
+
+/**
+ * Field equality for the diff. Arrays compare as MULTISETS — order-insensitive,
+ * duplicate-sensitive.
+ *
+ * ORDER-INSENSITIVE because the copy rebuilds these arrays rather than reading
+ * them back: upsertTeams resolves Supabase uuids into playerIds in source order
+ * and lowercases `invited` into a fresh array, and upsertMonthlyWinners rebuilds
+ * hasSeenCelebration the same way. None of those orders need match the one v2
+ * left behind — a join appends, a leave splices. Comparing order-sensitively
+ * would report a clobber on essentially every run, which trains everyone to
+ * ignore the report, which is the exact failure this exists to prevent.
+ *
+ * DUPLICATE-SENSITIVE because `invited` really can hold the same address twice
+ * (Phase 4 established it), so replacing ['a', 'a'] with ['a'] is an overwrite.
+ * Comparing as Sets would hide it.
+ *
+ * WHY THE BARE `.sort()` IS SOUND, since it is the obvious thing to distrust:
+ * not because these arrays happen to hold strings (they do — Convex Ids are
+ * strings), but because BOTH SIDES ARE CANONICALISED BY THE SAME COMPARATOR.
+ * Default sort orders by string conversion, which is a total order over any one
+ * primitive type, so equal multisets canonicalise to equal sequences even where
+ * that order is surprising: [10, 9] and [9, 10] both sort to [10, 9], and
+ * comparing them still returns true. The schema fact is true; it is not the
+ * reason this works.
+ */
+function sameFieldValue(incoming: unknown, stored: unknown): boolean {
+  if (Array.isArray(incoming) && Array.isArray(stored)) {
+    if (incoming.length !== stored.length) return false
+    const a = [...incoming].sort()
+    const b = [...stored].sort()
+    return a.every((value, i) => value === b[i])
+  }
+  return incoming === stored
+}
+
+/**
+ * Count, into `into`, each field of `doc` that would overwrite a different value
+ * on `existing`.
+ *
+ * ONE INCREMENT PER FIELD PER ROW, not one per row: a run that renames a team
+ * AND rewrites its roster reports both, because they are two different things to
+ * have lost. Grouped fields (see TEAM_FIELD_GROUPS) collapse to one increment
+ * for the row, which is what the Set is for.
+ *
+ * `legacyId` is in every doc and can never differ — it is the key the row was
+ * matched on — so it costs one comparison and never appears in the report.
+ */
+function recordClobbers<T extends object>(
+  doc: Partial<T>,
+  existing: T,
+  into: Clobbered,
+  groups: Record<string, string> = {},
+): void {
+  const stored = existing as Record<string, unknown>
+  const fields = new Set<string>()
+  for (const [field, value] of Object.entries(doc)) {
+    if (sameFieldValue(value, stored[field])) continue
+    fields.add(groups[field] ?? field)
+  }
+  for (const field of fields) into[field] = (into[field] ?? 0) + 1
+}
+
+/**
+ * The eight base scoring fields report as one `scoring` count rather than eight.
+ *
+ * They move together or not at all — v1's team settings page writes all eight in
+ * one save — so eight separate counts would say one thing eight times, and the
+ * one thing that matters is that the copy rewrote a team's BASE system. That is
+ * wordle-teams-1j3's retroactive rewrite: v2 resolves a month's scoring from the
+ * scoringSystems version rows and falls back to these eight, so replacing them
+ * re-scores every month before v2's first version row. Which of the numbers
+ * moved does not change the answer to "did months just get rewritten".
+ *
+ * Note this is the one field group v2 itself never writes after createTeam —
+ * setScoringSystem writes a scoringSystems row, not the team doc. A difference
+ * here is a v1-side edit landing during dual-running, not a lost v2 edit.
+ *
+ * SYSTEM_FIELDS rather than eight names typed out here: it is derived from
+ * DEFAULT_SYSTEM under `satisfies ScoringSystem`, so a ninth scoring field is a
+ * compile error at the source until it is added there, and this grouping picks
+ * it up with no edit. A hand-listed set would silently report the ninth field
+ * on its own.
+ */
+const TEAM_FIELD_GROUPS: Record<string, string> = Object.fromEntries(
+  SYSTEM_FIELDS.map((field) => [field, 'scoring']),
+)
 
 // --- players -----------------------------------------------------------------
 
@@ -87,6 +241,13 @@ export const upsertPlayers = internalMutation({
   handler: async (ctx, { rows }) => {
     let inserted = 0
     let updated = 0
+    // LATENT TODAY, ARMED BY PHASE 6. needsProfile is a row-existence check, so a
+    // copied player never reaches /complete-profile, and v2 has no rename
+    // surface — completeProfileFor's existing-row patch is idempotency defence
+    // against a double submit, not a feature. Reminders & PWA (wt-ksh.7) makes
+    // timeZone, reminderDeliveryMethods, reminderDeliveryTime and hasPwa
+    // user-editable, and this report is what will show the copy taking them back.
+    const clobbered: Clobbered = {}
     for (const row of rows) {
       // Defence in depth: auth stores addresses lowercased, and a mixed-case
       // player row would break the by_email lookup that links a signed-in user
@@ -94,6 +255,7 @@ export const upsertPlayers = internalMutation({
       const doc = { ...row, email: row.email.toLowerCase() }
       const existing = await byLegacyId(ctx, 'players', doc.legacyId)
       if (existing) {
+        recordClobbers(doc, existing, clobbered)
         await ctx.db.patch(existing._id, doc)
         updated++
       } else {
@@ -101,7 +263,7 @@ export const upsertPlayers = internalMutation({
         inserted++
       }
     }
-    return { inserted, updated }
+    return { inserted, updated, clobbered }
   },
 })
 
@@ -139,6 +301,7 @@ export const upsertTeams = internalMutation({
     let inserted = 0
     let updated = 0
     let droppedMembers = 0
+    const clobbered: Clobbered = {}
 
     for (const row of rows) {
       const { creatorLegacyId, playerLegacyIds, ...rest } = row
@@ -167,6 +330,7 @@ export const upsertTeams = internalMutation({
 
       const existing = await byLegacyId(ctx, 'teams', row.legacyId)
       if (existing) {
+        recordClobbers(doc, existing, clobbered, TEAM_FIELD_GROUPS)
         await ctx.db.patch(existing._id, doc)
         updated++
       } else {
@@ -174,7 +338,7 @@ export const upsertTeams = internalMutation({
         inserted++
       }
     }
-    return { inserted, updated, droppedMembers }
+    return { inserted, updated, droppedMembers, clobbered }
   },
 })
 
@@ -227,6 +391,22 @@ export const upsertDailyScores = internalMutation({
 
 // --- monthly winners ---------------------------------------------------------
 
+/**
+ * THE ONE UPSERT THAT CAN ADOPT A ROW v2 CREATED, because it is the one that
+ * does not match on legacyId — see the clobber block at the top of this file.
+ *
+ * winners.ts's recomputeTeamMonth writes this table on every board entry, team
+ * edit, membership change and scoring change, keyed on the same (teamId, year,
+ * month). So the row this finds may well be one v2 computed minutes ago: the
+ * copy then replaces the winner v2 calculated with v1's, clears
+ * hasSeenCelebration, and stamps a Supabase legacyId onto a row that had none.
+ * All three now show up in the report.
+ *
+ * NOT COVERED, and it is the worse half: recomputeTeamMonth DELETES the row when
+ * a month has no winner, and cascadeDeleteTeam deletes a team's winner rows with
+ * the team. A deleted row has nothing to diff against and comes back through the
+ * insert branch. wt-ksh.13.10.
+ */
 export const upsertMonthlyWinners = internalMutation({
   args: {
     rows: v.array(
@@ -244,6 +424,7 @@ export const upsertMonthlyWinners = internalMutation({
     let inserted = 0
     let updated = 0
     let skipped = 0
+    const clobbered: Clobbered = {}
     for (const row of rows) {
       const player = await byLegacyId(ctx, 'players', row.playerLegacyId)
       const team = await byLegacyId(ctx, 'teams', row.teamLegacyId)
@@ -274,6 +455,7 @@ export const upsertMonthlyWinners = internalMutation({
         )
         .unique()
       if (existing) {
+        recordClobbers(doc, existing, clobbered)
         await ctx.db.patch(existing._id, doc)
         updated++
       } else {
@@ -281,7 +463,7 @@ export const upsertMonthlyWinners = internalMutation({
         inserted++
       }
     }
-    return { inserted, updated, skipped }
+    return { inserted, updated, skipped, clobbered }
   },
 })
 

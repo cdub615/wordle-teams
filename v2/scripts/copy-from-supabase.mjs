@@ -40,6 +40,7 @@ import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
 import { selectCopyable } from './lib/copy-filters.mjs'
+import { formatTally, mergeTally } from './lib/copy-tallies.mjs'
 
 const args = process.argv.slice(2)
 const has = (flag) => args.includes(flag)
@@ -236,13 +237,15 @@ async function writeAll(label, fn, rows) {
   // destructured above, and shadowing it here would be quietly confusing.
   const tallies = {}
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const res = await convex.mutation(fn, { rows: rows.slice(i, i + CHUNK) })
-    for (const [k, v] of Object.entries(res)) tallies[k] = (tallies[k] ?? 0) + v
+    // The adding-up lives in scripts/lib/copy-tallies.mjs, and is tested there:
+    // this script runs against a live deployment at module scope, so nothing
+    // written inline here can be executed by a test. It is not bookkeeping any
+    // more either — three of these mutations now return a nested `clobbered`
+    // record (wt-ksh.13), and getting the merge wrong prints garbage instead of
+    // reporting an overwrite.
+    mergeTally(tallies, await convex.mutation(fn, { rows: rows.slice(i, i + CHUNK) }))
   }
-  const summary = Object.entries(tallies)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(' ')
-  console.log(`  ${label.padEnd(17)} ${summary || '(nothing to do)'}`)
+  console.log(`  ${label.padEnd(17)} ${formatTally(tallies)}`)
   return tallies
 }
 
