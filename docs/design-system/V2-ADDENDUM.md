@@ -348,6 +348,11 @@ Not divergences from v1, but recorded because they look like ones:
 - **A team whose creator was not copied cannot be edited by anyone.**
   `teams.creator` is optional because a scoped copy may omit it. A property of
   the copy, not of the permission rule.
+- **Beta team and player state does not survive cutover.** The final copy run is
+  meant to overwrite it — beta is permanently testing data, including rows other
+  testers create. Deliberate, and it reads like data loss. Epic `wt-ksh`,
+  *Data Model & Migration*, has which rows a re-run can actually revert and what
+  the overwrite report cannot see.
 - **The zero-teams empty state is a focused create-team card, not v1's
   marketing `Intro`.** Sanctioned by amendment A7.
 - **Inviting an existing player sends no email.** v1 adds them silently too; they
