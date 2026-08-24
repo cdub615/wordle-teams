@@ -40,12 +40,13 @@ import { selectCopyable } from './copy-filters.mjs'
  * IF THEY EVER DIVERGE, THAT IS A DATA FINDING, NOT A BUG HERE. The set below is
  * derived from selectCopyable's own output, so the membership predicate cannot
  * drift away from `isNamed` — it has no independent notion of who is copyable.
- * What CAN change is the 1:1 relationship: a player carrying two membership rows
- * makes the membership shortfall exceed the player shortfall, and a skipped
- * player carrying none makes it fall short. Both are real changes in
- * player_customer since 2026-08-24, and both are worth going and looking at.
- * Whoever sees 152 against 151 at the Phase 7 audit should query the table, not
- * read this file.
+ * What CAN change is the 1:1 relationship, and only for SKIPPED players — a
+ * named player's membership rows are all copied, however many there are. A
+ * skipped player carrying two makes the membership shortfall exceed the player
+ * shortfall, and a skipped player carrying none makes it fall short. Both are
+ * real changes in player_customer since 2026-08-24, and both are worth going and
+ * looking at. Whoever sees 152 against 151 at the Phase 7 audit should query the
+ * table for the SKIPPED players' rows, not read this file.
  *
  * SCORES, WINNERS AND WEBHOOKS ARE PASSED THROUGH UNTOUCHED, deliberately. The
  * Phase 4 measurement (2026-08-20, in the Phase 4 invites design doc) found that
