@@ -94,7 +94,7 @@ describe('formatTally', () => {
 
   test('says `(nothing to do)` when the mutation was never called', () => {
     // An empty tally means there were no rows for that table at all. This is the
-    // condition on the tally itself, not on what survived the filter above —
+    // condition on the tally itself, not on what survived the skip above —
     // a tally with counters in it never prints as "nothing to do".
     expect(formatTally({})).toBe('(nothing to do)')
     expect(formatTally({ inserted: 0, updated: 0, clobbered: {} })).toBe('inserted=0 updated=0')
