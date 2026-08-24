@@ -27,7 +27,7 @@ Run against production on 2026-08-20, counts only (this repository is public).
 
 | Measurement | Result |
 |---|---|
-| Players with no `first_name`/`last_name` | **151 of 533** (28%). None partially named — it is always both or neither |
+| Players with no `first_name`/`last_name` | **151 of 533** (28%). None partially named — it is always both or neither. **Re-measured 2026-08-24** (`wt-ksh.13.8`): still **151**, now of **535** — two signups since. The figure the copy filter rests on has not moved |
 | Boards ever entered by a nameless player | **0.** Also 0 monthly-winner rows |
 | Teams created by a nameless player | **29** — and all 29 have **zero** members who have ever entered a board |
 | Live teams holding a nameless member | **3** |
@@ -41,10 +41,27 @@ to it**. The 151 figure governs the **full** copy, which runs at the Phase 7 par
 again inside the cutover window. That makes the *copy-script filter* the load-bearing fix and
 the one-off cleanup a formality — verified by dry run, not assumed in either direction.
 
-The first three lines are what make the owner's escalation cheap. Nameless players are
-referenced by nothing except `teams.player_ids` and `teams.creator`; no board, no winner row,
-no membership row points at one. They can be left out of the copy without orphaning anything
-real.
+The first three lines are what make the owner's escalation cheap. No board and no winner row
+points at a nameless player, so they can be left out of the copy without orphaning anything a
+user could see.
+
+**One clause of that has been corrected.** This design originally also claimed "no membership
+row points at one", and that nameless players were referenced by nothing except
+`teams.player_ids` and `teams.creator`. `wt-ksh.13.8` ran the count against production on
+2026-08-24 and it is false. `player_customer` — the Supabase table Convex calls
+`playerMembership` — holds **151** rows whose player is nameless, the same count as the
+nameless players themselves, out of a total of **535** against `players`' **535**, with **0**
+orphaned rows. `player_customer` is therefore 1:1 with `players`, so at a full copy the
+membership shortfall is exactly the player shortfall, 151, by construction rather than by
+coincidence.
+
+**Nothing about the decision moves**, and the copy still needs no membership filter of its own:
+`upsertMemberships` resolves each row's player by `legacyId` and counts the unresolvable ones
+into its `skipped` tally, which is deliberately where every orphan gets reported. What the false
+clause cost is the *verifier*. `verify-parity.mjs` has to **predict** the row count rather than
+report it, so it narrows memberships on its own side — `wt-ksh.13.7`,
+`scripts/lib/verify-filters.mjs`. A reader trusting the original sentence would conclude that
+narrowing is unnecessary.
 
 Two structural findings shaped the rest:
 
@@ -317,7 +334,7 @@ All six must be added to `V2-ADDENDUM.md` §7a so Phase 7's audit does not treat
 | # | Divergence | Why |
 |---|---|---|
 | 6 | **Pending invites are visible to the creator, and cancellable** | v1 shows them nowhere, so a typo'd address sits in `invited[]` forever with no remedy and no way to see it. Production carries 44 pending invites across 33 teams today |
-| 7 | **A player cannot exist without a name** | Schema-enforced. 151 nameless production players and the 29 dead teams they created are not copied. Measured: those players own 0 boards and 0 winner rows, so nothing but `player_ids`/`creator` refers to them |
+| 7 | **A player cannot exist without a name** | Schema-enforced. 151 nameless production players and the 29 dead teams they created are not copied. Measured 2026-08-20: those players own 0 boards and 0 winner rows. Re-measured 2026-08-24 (`wt-ksh.13.8`): they **do** carry `player_customer` rows — 151 of them — which is why `verify-parity.mjs` narrows memberships as well as players and teams |
 | 8 | **No 2-team cap on invitees until Phase 5** | v1 caps a non-pro invitee at two teams in `handle_invited_signup`. v2 is **more permissive than prod** until Polar lands. The retrofit hazard is real and is filed: enforcing it later means removing people from teams they already joined |
 | 9 | **Inviting someone already on the team says so** | v1 returns *"Successfully invited player"* and closes the dialog. v2 tells the truth and keeps the dialog open |
 | 10 | **A member can leave a team** | **No such affordance in v1's UI** — `current-team-client.tsx` gates remove on `player.id !== userId`, so the only exit is asking the creator. A UI claim only: v1's `removePlayer` server action checks neither session nor creator, and the live RLS policy admits any member, so self-removal was already reachable through the API. That is divergence 4's hole, and 4 and 10 must not contradict each other. What is new is the affordance, and a server rule permitting exactly this. The creator still cannot leave, so every team keeps an administrator |
