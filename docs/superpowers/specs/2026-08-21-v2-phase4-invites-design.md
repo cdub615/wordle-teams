@@ -51,17 +51,20 @@ row points at one", and that nameless players were referenced by nothing except
 2026-08-24 and it is false. `player_customer` — the Supabase table Convex calls
 `playerMembership` — holds **151** rows whose player is nameless, the same count as the
 nameless players themselves, out of a total of **535** against `players`' **535**, with **0**
-orphaned rows. `player_customer` is therefore 1:1 with `players`, so at a full copy the
-membership shortfall is exactly the player shortfall, 151, by construction rather than by
-coincidence.
+orphaned rows. In aggregate, on that date, the two tables match one for one, which is why the
+membership shortfall at a full copy came out equal to the player shortfall, 151.
 
-**Nothing about the decision moves**, and the copy still needs no membership filter of its own:
-`upsertMemberships` resolves each row's player by `legacyId` and counts the unresolvable ones
-into its `skipped` tally, which is deliberately where every orphan gets reported. What the false
-clause cost is the *verifier*. `verify-parity.mjs` has to **predict** the row count rather than
-report it, so it narrows memberships on its own side — `wt-ksh.13.7`,
-`scripts/lib/verify-filters.mjs`. A reader trusting the original sentence would conclude that
-narrowing is unnecessary.
+**Read that as a measurement, not a rule.** Nothing enforces it:
+`20240319201543_move_columns_to_playercustomer.sql` gives `player_customer` a foreign key on
+`player_id` and a unique index on `id`, and no uniqueness on `player_id` at all. The match is
+`handle_new_user` inserting one row per signup, so it can drift exactly as the 533 above did.
+
+**Nothing about the decision moves**, and the copy still needs no membership filter of its own —
+`upsertMemberships` counts each unresolvable row into its own `skipped` tally, deliberately.
+What the false clause cost is the *verifier*, which has to **predict** the row count rather than
+report it, so `wt-ksh.13.7` narrows memberships in `scripts/lib/verify-filters.mjs`. That
+file's header is the full account, including what a shortfall that is *not* 151 would mean.
+A reader trusting the original sentence would conclude the narrowing is unnecessary.
 
 Two structural findings shaped the rest:
 
