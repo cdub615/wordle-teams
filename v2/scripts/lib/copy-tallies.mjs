@@ -293,11 +293,16 @@ const detailLines = (label, fields, width) => {
  * already returns `inserted` (convex/migrate.ts, lines 266, 341, 388, 466, 508
  * and 553).
  *
- * IT DOES NOT TELL THE TWO APART, and saying otherwise here or in the block
- * would be a lie. It narrows "invisible" to "visible and worth adjudicating";
- * wt-ksh.9 step 2 is where the adjudicating is written down. New v1 rows are
- * ORDINARY during dual-running — players enter boards every day — so this block
- * firing is a prompt to read, not a stop signal on its own.
+ * IT DOES NOT SAY WHICH INSERT IS WHICH, and saying otherwise here or in the
+ * block would be a lie. Resurrection is ONE of the reasons a re-run inserts, and
+ * the block must not name it against a closed list of alternatives, because that
+ * list is not closed: rows new in v1 since the last copy (ordinary — players
+ * enter boards daily), a widened --scope, a previous copy that died partway, a
+ * first copy into a deployment that already held v2-born rows, and a row that
+ * used to fail selectCopyable and now passes are all innocent, and there is no
+ * argument that the list ends there. So the block says "several innocent ones"
+ * and sends the reader to wt-ksh.9 step 2, which enumerates and orders them.
+ * This block firing is a prompt to read, not a stop signal on its own.
  *
  * IT COVERS ALL SIX TABLES, which the clobber report cannot: `clobbered` comes
  * back from three mutations, `inserted` from all six. dailyScores is the one
@@ -315,27 +320,48 @@ const detailLines = (label, fields, width) => {
  * The blind spot that buys is narrow and worth naming: a deployment can only be
  * empty because it was never copied to, or because purgeCopiedData emptied it
  * (convex/migrate.ts) — an explicit operator wipe, after which every row IS new.
- * No v2 code path can empty it: `git grep -n "db\.delete(" convex/` finds
- * user-reachable deletes only in winners.ts, scores.ts and teams.ts, and none of
- * the three touches players, playerMembership or webhookEvents.
+ * No v2 code path can empty it, and the check is
+ * `git grep -n "db\.delete(" convex/`. As of 2026-08-25 that prints fourteen
+ * hits and only three of them are relevant, so the full breakdown matters more
+ * than the short version: winners.ts, scores.ts and teams.ts are the deletes
+ * that touch a COPIED table, and none of the three touches players,
+ * playerMembership or webhookEvents. The rest are testOtps.ts (three hits,
+ * including the exported `takeFor` mutation, all against the `testOtps` table,
+ * which the copy never writes), migrate.ts (purgeCopiedData itself) and four
+ * *.test.ts files.
  *
  * LOUD WHEN NON-ZERO, ONE LINE WHEN ZERO, following formatClobberReport and the
  * skip report: a zero states the check ran, where silence could equally mean it
- * never did.
+ * never did. The same reasoning is why a FAILED pre-write read prints a line
+ * rather than nothing — see `countsBefore`.
  *
  * COUNTS ONLY, NEVER VALUES. This repository is public. What prints is table
  * names, row counts, and the deployment's own row count.
  *
  * @param {Record<string, Record<string, unknown>>} talliesByTable table label ->
  *   the tally mergeTally accumulated for it, in the order the copy wrote them.
- * @param {Record<string, number>} countsBefore internal.migrate.counts read
- *   before the writes: table -> rows the deployment already held.
+ * @param {Record<string, number> | null} countsBefore internal.migrate.counts
+ *   read before the writes: table -> rows the deployment already held. NULL
+ *   MEANS THE READ FAILED and the caller carried on writing anyway, which it
+ *   must — that query collects every row of every table and can exceed Convex's
+ *   read cap, and a report about the copy may not be what kills the copy. Null
+ *   is a state the report has to SPEAK about: with no trigger there is no way to
+ *   tell a first copy from a re-run, and staying silent would be the first-copy
+ *   answer, i.e. an all-clear this run did not earn. Anything else non-record
+ *   still throws, because it is a programming error rather than an outage.
  * @returns {string | null} null when the deployment was empty and this report has
- *   nothing to say; one indented line when it was not and nothing was inserted;
- *   a framed block otherwise. null rather than '' so a caller cannot print an
- *   empty frame and mistake it for a deliberate silence.
+ *   nothing to say; one indented line when it was not and nothing was inserted,
+ *   and one when the trigger could not be read at all; a framed block otherwise.
+ *   null rather than '' so a caller cannot print an empty frame and mistake it
+ *   for a deliberate silence.
  */
 export function formatInsertReport(talliesByTable, countsBefore) {
+  if (countsBefore === null)
+    return (
+      `  ${INSERT_CHECK} DID NOT RUN — the pre-write row counts could not be read, ` +
+      `so a resurrected row would be unseen. wt-ksh.9 step 2.`
+    )
+
   const held = totalHeld(countsBefore)
   const inserts = insertsByTable(talliesByTable)
 
@@ -359,9 +385,16 @@ export function formatInsertReport(talliesByTable, countsBefore) {
     // a deployment an order of magnitude larger cannot push a wrapped sentence
     // out through the right-hand edge of the frame.
     `${GUTTER}Trigger: the deployment already held ${held} rows before this run.`,
-    `${GUTTER}A re-run against unchanged v1 data inserts nothing, so each row below is`,
-    `${GUTTER}either new in v1 since the last copy, or one v2 DELETED that this copy put`,
-    `${GUTTER}back. These counts cannot tell those apart — wt-ksh.9 step 2 adjudicates.`,
+    // NOT AN EITHER/OR. An earlier draft read "either new in v1, or one v2
+    // DELETED", which is the one exhaustive claim in this block and it is false:
+    // a widened --scope, a previous copy that died partway, a first copy into a
+    // deployment holding v2-born rows and a row that used to fail selectCopyable
+    // all insert innocently too. This is the text that actually gets read at
+    // cutover, so it names resurrection as ONE reason and hands off the list.
+    `${GUTTER}A re-run against unchanged v1 data inserts nothing, so every row below`,
+    `${GUTTER}needs a reason. One possible reason is a row v2 DELETED that this copy`,
+    `${GUTTER}put back; there are several innocent ones. These counts cannot tell them`,
+    `${GUTTER}apart — wt-ksh.9 step 2 is the list to work through, in order.`,
     `${GUTTER}Every table the copy writes is counted, including those it cannot diff.`,
     BLANK,
     // Only the tables that inserted. The zeros are already on screen: every
@@ -375,6 +408,7 @@ export function formatInsertReport(talliesByTable, countsBefore) {
 
 const INSERTED_NOTHING = 'Inserted nothing'
 const INSERT_HEADLINE = 'INSERTED INTO A NON-EMPTY DEPLOYMENT'
+const INSERT_CHECK = 'Insert check'
 
 const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`
 

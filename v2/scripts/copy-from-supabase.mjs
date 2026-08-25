@@ -307,10 +307,26 @@ const TABLES = [
 // trigger for the insert report at the bottom: a copy into a deployment that
 // already holds rows is a RE-RUN, and a re-run against unchanged v1 data should
 // insert nothing. Measured rather than flagged on purpose — a --expect-no-inserts
-// flag is a thing the operator forgets at the one moment it matters, and this
-// costs one query. Same query the "Convex now holds:" block runs at the end;
-// counts only, no values. Not reached under --dry-run, which exits above.
-const countsBefore = await convex.query(internal.migrate.counts, {})
+// flag is a thing the operator forgets at the one moment it matters. Counts only,
+// no values. Not reached under --dry-run, which exits above.
+//
+// IT MUST NOT BE ABLE TO STOP THE COPY, which is what a bare top-level await
+// here would do. This is NOT a cheap query: internal.migrate.counts collects
+// every row of every table unbounded, and migrate.ts:573-576 records that Convex
+// caps one function execution at 4096 reads while the copied scope alone is
+// ~7000 daily scores — the reason purgeCopiedData next to it is batched. The
+// same query runs at the END of this script, where a failure costs the closing
+// summary of a copy that already succeeded. In FRONT of the writes an unhandled
+// failure costs the entire copy, at cutover, to protect a report about it. So it
+// degrades: the writes go ahead and the insert check announces that it did not
+// run, rather than the operator reading its silence as a clean bill of health.
+let countsBefore = null
+try {
+  countsBefore = await convex.query(internal.migrate.counts, {})
+} catch (err) {
+  console.log(`\n  Could not read the deployment's row counts before writing: ${err.message}`)
+  console.log('  The copy continues. See the insert check below the write summary.')
+}
 
 console.log('\nWriting to Convex...')
 const talliesByTable = {}
@@ -350,6 +366,10 @@ console.log(`\n${formatClobberReport(talliesByTable)}`)
 // resurrected board or team rewrites scoring history where an overwritten name is
 // cosmetic, which is why 13.10 is P1. It also puts the pair on screen in the same
 // order as the cutover runbook's steps 1 and 2 (wt-ksh.9).
+//
+// `countsBefore` is null when the pre-write read failed above. That prints as an
+// explicit "did not run" line rather than as nothing, because nothing here is
+// the FIRST-COPY signal and would be read as an all-clear.
 const insertReport = formatInsertReport(talliesByTable, countsBefore)
 if (insertReport) console.log(`\n${insertReport}`)
 

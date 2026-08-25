@@ -486,9 +486,10 @@ describe('formatInsertReport', () => {
         '################################################################################',
         '##  INSERTED INTO A NON-EMPTY DEPLOYMENT: 6 rows across 3 tables',
         '##  Trigger: the deployment already held 22622 rows before this run.',
-        '##  A re-run against unchanged v1 data inserts nothing, so each row below is',
-        '##  either new in v1 since the last copy, or one v2 DELETED that this copy put',
-        '##  back. These counts cannot tell those apart — wt-ksh.9 step 2 adjudicates.',
+        '##  A re-run against unchanged v1 data inserts nothing, so every row below',
+        '##  needs a reason. One possible reason is a row v2 DELETED that this copy',
+        '##  put back; there are several innocent ones. These counts cannot tell them',
+        '##  apart — wt-ksh.9 step 2 is the list to work through, in order.',
         '##  Every table the copy writes is counted, including those it cannot diff.',
         '##',
         '##  teams            1 row',
@@ -499,6 +500,52 @@ describe('formatInsertReport', () => {
     )
   })
 
+  test('says the check DID NOT RUN when the pre-write counts could not be read', () => {
+    // The failure this replaced: a bare top-level await on
+    // internal.migrate.counts, which collects every row of every table and can
+    // exceed Convex's 4096-read cap (migrate.ts:573-576). Unhandled, in front
+    // of the writes, that turned a failed REPORT into a failed COPY. So the
+    // script degrades to null here — and null may not print as silence,
+    // because silence is the first-copy answer and would read as an all-clear.
+    expect(formatInsertReport({ teams: { inserted: 1, updated: 0 } }, null)).toBe(
+      '  Insert check DID NOT RUN — the pre-write row counts could not be read, ' +
+        'so a resurrected row would be unseen. wt-ksh.9 step 2.',
+    )
+  })
+
+  test('the did-not-run line does not depend on what was inserted', () => {
+    // Without the trigger there is no way to tell a first copy from a re-run,
+    // so the insert counts cannot be interpreted at all and the line must not
+    // pretend otherwise by changing shape around them.
+    const line = formatInsertReport({ teams: { inserted: 1, updated: 0 } }, null)
+    expect(formatInsertReport({}, null)).toBe(line)
+    expect(formatInsertReport({ dailyScores: { inserted: 9_000, updated: 0 } }, null)).toBe(line)
+  })
+
+  test('only null degrades; a malformed counts payload still throws', () => {
+    // null is the caller's catch block saying "the deployment was unreachable".
+    // undefined, an array or a record of strings are programming errors, and
+    // treating them as an outage would hide a broken call site behind a line
+    // that reads like an infrastructure hiccup.
+    expect(() => formatInsertReport({}, undefined)).toThrow(/pre-write counts are missing/)
+    expect(() => formatInsertReport({}, [1, 2])).toThrow(/pre-write counts are an array/)
+  })
+
+  test('the block names resurrection as ONE reason, not one of two', () => {
+    // The one exhaustive claim this block used to make, and the only place the
+    // "detector, not a fix" discipline had leaked. A widened --scope, a copy
+    // that died partway, a first copy into a deployment holding v2-born rows
+    // and a row that used to fail selectCopyable all insert innocently, so an
+    // either/or printed in the block a cutover operator actually reads would
+    // send him deleting legitimately-copied rows.
+    const block = formatInsertReport({ teams: { inserted: 1, updated: 0 } }, HELD)
+    expect(block).toContain('One possible reason is a row v2 DELETED that this copy')
+    expect(block).toContain('there are several innocent ones')
+    expect(block).not.toContain('either new in v1')
+    // The enumeration lives in the runbook, where there is room to order it.
+    expect(block).toContain('wt-ksh.9 step 2 is the list to work through')
+  })
+
   test('the block does not claim to know which inserts are resurrections', () => {
     // It cannot, and overclaiming is the failure this is most exposed to: the
     // block would then be announcing lost user data on a re-run that merely
@@ -507,8 +554,8 @@ describe('formatInsertReport', () => {
     const block = formatInsertReport({ teams: { inserted: 1, updated: 0 } }, HELD)
     expect(block).toContain('##  INSERTED INTO A NON-EMPTY DEPLOYMENT: 1 row across 1 table')
     expect(block).not.toContain('RESURRECT')
-    expect(block).toContain('either new in v1 since the last copy, or one v2 DELETED')
-    expect(block).toContain('cannot tell those apart')
+    expect(block).toContain('One possible reason is a row v2 DELETED')
+    expect(block).toContain('cannot tell them')
   })
 
   test('lists only the tables that inserted, and how many', () => {
@@ -653,7 +700,7 @@ describe('formatInsertReport', () => {
         HELD,
       ).split('\n')
 
-      expect(lines).toHaveLength(15)
+      expect(lines).toHaveLength(16)
       for (const line of lines) {
         expect(line.length).toBeLessThanOrEqual(80)
         expect(line.startsWith('#')).toBe(true)
