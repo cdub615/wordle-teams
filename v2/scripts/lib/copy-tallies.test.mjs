@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { formatClobberReport, formatTally, mergeTally } from './copy-tallies.mjs'
+import {
+  formatClobberReport,
+  formatInsertReport,
+  formatTally,
+  mergeTally,
+} from './copy-tallies.mjs'
 
 // The copy's adding-up and its two renderings, pinned. copy-from-supabase.mjs
 // itself cannot be tested — it connects to Supabase and to a deployment at
@@ -384,6 +389,311 @@ describe('formatClobberReport', () => {
       // The overflow is contained: the next field starts a fresh, aligned line
       // rather than being dragged along behind it.
       expect(lines).toContain(`${indent}after on 3 rows`)
+    })
+  })
+})
+
+describe('formatInsertReport', () => {
+  // wt-ksh.13.10. The clobber report above cannot see a row v2 DELETED — there
+  // is nothing left to diff against, so the copy re-inserts it and reports
+  // `inserted`, indistinguishable from a new v1 row. This detector reads that
+  // insert count instead, against the deployment's own row count taken before
+  // the writes. Same reason as the block above for pinning the rendering
+  // verbatim: what is under test is what a human sees at cutover.
+
+  const EMPTY = {
+    players: 0,
+    teams: 0,
+    dailyScores: 0,
+    monthlyWinners: 0,
+    playerMembership: 0,
+    webhookEvents: 0,
+  }
+
+  // Shaped like a deployment that has already been copied into once.
+  const HELD = {
+    players: 535,
+    teams: 29,
+    dailyScores: 21_450,
+    monthlyWinners: 61,
+    playerMembership: 535,
+    webhookEvents: 12,
+  }
+
+  test('says nothing at all on a first copy into an empty deployment', () => {
+    // THE CASE THAT DECIDES WHETHER THE DETECTOR IS USABLE. Every row is an
+    // insert here, legitimately — 22622 of them — and a report that cries wolf
+    // on the first copy is one nobody trusts on the third.
+    expect(
+      formatInsertReport(
+        {
+          players: { inserted: 535, updated: 0, clobbered: {} },
+          teams: { inserted: 29, updated: 0, droppedMembers: 0, clobbered: {} },
+          dailyScores: { inserted: 21_450, updated: 0, skipped: 0 },
+          monthlyWinners: { inserted: 61, updated: 0, skipped: 0, clobbered: {} },
+          playerMembership: { inserted: 535, updated: 0, skipped: 0 },
+          webhookEvents: { inserted: 12, updated: 0, skipped: 0 },
+        },
+        EMPTY,
+      ),
+    ).toBeNull()
+  })
+
+  test('null, not an empty string, so a caller cannot print an empty frame', () => {
+    // The caller prints `\n${report}` when there is a report. An empty string
+    // would put a stray blank line where the whole point is silence.
+    expect(formatInsertReport({ players: { inserted: 3, updated: 0 } }, EMPTY)).toBeNull()
+  })
+
+  test('a re-run that inserted nothing says so in one quiet line', () => {
+    // A zero states the check ran, where silence could equally mean it never
+    // did — the same precedent formatClobberReport and the skip report set.
+    // Unscoped on purpose: unlike the clobber line there is no list of tables
+    // this one is not speaking for, because `inserted` comes back from all six.
+    expect(
+      formatInsertReport(
+        {
+          players: { inserted: 0, updated: 535, clobbered: {} },
+          teams: { inserted: 0, updated: 29, droppedMembers: 0, clobbered: {} },
+          dailyScores: { inserted: 0, updated: 21_450, skipped: 0 },
+          monthlyWinners: { inserted: 0, updated: 61, skipped: 0, clobbered: {} },
+          playerMembership: { inserted: 0, updated: 535, skipped: 0 },
+          webhookEvents: { inserted: 0, updated: 12, skipped: 0 },
+        },
+        HELD,
+      ),
+    ).toBe(
+      '  Inserted nothing on a re-run — the deployment already held 22622 rows, ' +
+        'so nothing v2 deleted came back.',
+    )
+  })
+
+  test('a re-run that inserted prints a block that cannot be scrolled past', () => {
+    expect(
+      formatInsertReport(
+        {
+          players: { inserted: 0, updated: 535, clobbered: {} },
+          teams: { inserted: 1, updated: 28, droppedMembers: 0, clobbered: {} },
+          dailyScores: { inserted: 3, updated: 21_447, skipped: 0 },
+          monthlyWinners: { inserted: 2, updated: 59, skipped: 0, clobbered: {} },
+          playerMembership: { inserted: 0, updated: 535, skipped: 0 },
+          webhookEvents: { inserted: 0, updated: 12, skipped: 0 },
+        },
+        HELD,
+      ),
+    ).toBe(
+      [
+        '################################################################################',
+        '##  INSERTED INTO A NON-EMPTY DEPLOYMENT: 6 rows across 3 tables',
+        '##  Trigger: the deployment already held 22622 rows before this run.',
+        '##  A re-run against unchanged v1 data inserts nothing, so each row below is',
+        '##  either new in v1 since the last copy, or one v2 DELETED that this copy put',
+        '##  back. These counts cannot tell those apart — wt-ksh.9 step 2 adjudicates.',
+        '##  Every table the copy writes is counted, including those it cannot diff.',
+        '##',
+        '##  teams            1 row',
+        '##  dailyScores      3 rows',
+        '##  monthlyWinners   2 rows',
+        '################################################################################',
+      ].join('\n'),
+    )
+  })
+
+  test('the block does not claim to know which inserts are resurrections', () => {
+    // It cannot, and overclaiming is the failure this is most exposed to: the
+    // block would then be announcing lost user data on a re-run that merely
+    // picked up yesterday's boards. The headline states the trigger; the body
+    // states the either/or and hands the reader to the runbook.
+    const block = formatInsertReport({ teams: { inserted: 1, updated: 0 } }, HELD)
+    expect(block).toContain('##  INSERTED INTO A NON-EMPTY DEPLOYMENT: 1 row across 1 table')
+    expect(block).not.toContain('RESURRECT')
+    expect(block).toContain('either new in v1 since the last copy, or one v2 DELETED')
+    expect(block).toContain('cannot tell those apart')
+  })
+
+  test('lists only the tables that inserted, and how many', () => {
+    // The zeros are already on screen — every table's own formatTally line
+    // above reads `inserted=0 ...` — so repeating all six here would cost the
+    // block five lines and push the clobber block off a short terminal.
+    const lines = formatInsertReport(
+      {
+        players: { inserted: 0, updated: 535, clobbered: {} },
+        dailyScores: { inserted: 4, updated: 21_447, skipped: 0 },
+      },
+      HELD,
+    ).split('\n')
+    expect(lines.filter((line) => / \d+ rows?$/.test(line))).toEqual(['##  dailyScores   4 rows'])
+  })
+
+  test('counts a table the clobber report is structurally unable to diff', () => {
+    // Half of the value of this detector. partition() routes dailyScores,
+    // playerMembership and webhookEvents to 'Not diffed' because their
+    // mutations return no `clobbered`; all three return `inserted`, so all
+    // three appear here. dailyScores especially — a cleared board is one of the
+    // two confirmed resurrection paths (wt-ksh.13.10), and wordle-teams-r9d
+    // leaves it undiffed on purpose.
+    const tallies = {
+      dailyScores: { inserted: 3, updated: 0, skipped: 0 },
+      playerMembership: { inserted: 1, updated: 0, skipped: 0 },
+      webhookEvents: { inserted: 2, updated: 0, skipped: 0 },
+    }
+    expect(formatClobberReport(tallies)).toContain(
+      'Not diffed: dailyScores, playerMembership, webhookEvents',
+    )
+    const block = formatInsertReport(tallies, HELD)
+    expect(block).toContain('##  dailyScores        3 rows')
+    expect(block).toContain('##  playerMembership   1 row')
+    expect(block).toContain('##  webhookEvents      2 rows')
+  })
+
+  test('a table the copy never wrote to is not a spurious zero', () => {
+    // Same rule partition() applies: an empty tally means the mutation was
+    // never called, which the script only does when the table had no rows in
+    // scope. It inserted nothing, and it did not "gain zero rows" either.
+    expect(formatInsertReport({ players: {}, teams: {} }, HELD)).toBe(
+      '  Inserted nothing on a re-run — the deployment already held 22622 rows, ' +
+        'so nothing v2 deleted came back.',
+    )
+  })
+
+  test('counts rows, not tables, in the headline, and gets both plurals right', () => {
+    const headline = (tallies) =>
+      formatInsertReport(tallies, HELD)
+        .split('\n')
+        .find((line) => line.includes('NON-EMPTY'))
+
+    expect(headline({ teams: { inserted: 1, updated: 0 } })).toBe(
+      '##  INSERTED INTO A NON-EMPTY DEPLOYMENT: 1 row across 1 table',
+    )
+    expect(
+      headline({ teams: { inserted: 1, updated: 0 }, dailyScores: { inserted: 1, updated: 0 } }),
+    ).toBe('##  INSERTED INTO A NON-EMPTY DEPLOYMENT: 2 rows across 2 tables')
+  })
+
+  test('one row in one table is enough to fire it', () => {
+    // The team resurrection the bead confirmed by probe reads exactly like
+    // this: inserted=1 on teams and nothing else moving.
+    expect(formatInsertReport({ teams: { inserted: 1, updated: 28 } }, HELD)).toContain(
+      '##  teams   1 row',
+    )
+  })
+
+  test('a deployment holding a single row is already a re-run', () => {
+    // The boundary. `held === 0` is the silence, and nothing above it is.
+    expect(formatInsertReport({ players: { inserted: 1, updated: 0 } }, { players: 1 })).toContain(
+      'INSERTED INTO A NON-EMPTY DEPLOYMENT',
+    )
+    expect(formatInsertReport({ players: { inserted: 1, updated: 0 } }, { players: 0 })).toBeNull()
+  })
+
+  test('one non-empty table makes the whole deployment non-empty', () => {
+    // Deployment-wide, not per table. A deployment holding players but no teams
+    // is one an earlier run already wrote to, so a team arriving now is worth
+    // adjudicating — per-table gating would call that a first copy and go quiet.
+    expect(formatInsertReport({ teams: { inserted: 1, updated: 0 } }, { ...EMPTY, players: 3 })).toContain(
+      'INSERTED INTO A NON-EMPTY DEPLOYMENT',
+    )
+  })
+
+  test('refuses a written table whose mutation stopped reporting inserts', () => {
+    // Treating the absence as zero would turn the only thing watching for a
+    // resurrected row into a permanent, silent all-clear. Same refuse-rather-
+    // than-guess stance as mergeTally and formatTally, for the same reason.
+    expect(() => formatInsertReport({ teams: { updated: 4 } }, HELD)).toThrow(
+      /'teams' was written but its 'inserted' is missing/,
+    )
+    expect(() => formatInsertReport({ teams: { inserted: '4' } }, HELD)).toThrow(
+      /'inserted' is a string/,
+    )
+  })
+
+  test('checks the tallies even when the deployment was empty', () => {
+    // The silent branch still validates its inputs, so a mutation that quietly
+    // stopped returning `inserted` fails on a first copy rather than waiting
+    // for the run where the answer matters.
+    expect(() => formatInsertReport({ teams: { updated: 4 } }, EMPTY)).toThrow(/'inserted'/)
+  })
+
+  test('refuses pre-write counts that would make the trigger meaningless', () => {
+    // A non-numeric value makes the sum NaN, `NaN === 0` is false, and the
+    // detector silently flips from "silent on a first copy" to "loud on every
+    // copy" — the false alarm that trains the reader to skip the block.
+    expect(() => formatInsertReport({}, { players: null })).toThrow(
+      /pre-write count for 'players' is null/,
+    )
+    expect(() => formatInsertReport({}, undefined)).toThrow(/pre-write counts are missing/)
+    expect(() => formatInsertReport({}, [1, 2])).toThrow(/pre-write counts are an array/)
+  })
+
+  test('carries table names and row counts, and nothing else', () => {
+    // COUNTS ONLY, NEVER VALUES. This repository is public. The input is counts
+    // by construction; this pins that the renderer reaches for nothing else,
+    // and that the only numbers on a detail line are the row count.
+    const block = formatInsertReport(
+      { teams: { inserted: 2, updated: 27, clobbered: { name: 9 } } },
+      HELD,
+    )
+    const detail = block.split('\n').find((line) => line.startsWith('##  teams'))
+    expect(detail).toBe('##  teams   2 rows')
+    expect(detail.match(/\d+/g)).toEqual(['2'])
+    // The clobber field names belong to the block above, not this one.
+    expect(block).not.toContain('name')
+  })
+
+  describe('stays inside the same 80-column frame as the clobber block', () => {
+    // The two blocks print on the same screen, one blank line apart. A frame
+    // that is 80 columns in one and something else in the other reads as two
+    // unrelated things, which is the opposite of what the shared border is for.
+
+    test('the worst realistic case fits: all six tables, seven-figure counts', () => {
+      const lines = formatInsertReport(
+        Object.fromEntries(
+          Object.keys(HELD).map((table) => [table, { inserted: 1_234_567, updated: 0 }]),
+        ),
+        HELD,
+      ).split('\n')
+
+      expect(lines).toHaveLength(15)
+      for (const line of lines) {
+        expect(line.length).toBeLessThanOrEqual(80)
+        expect(line.startsWith('#')).toBe(true)
+      }
+    })
+
+    test('the deployment size cannot push the trigger line out of the frame', () => {
+      // Why the row count sits on a line of its own instead of inside the
+      // prose: it is the one number in the block with no upper bound, and a
+      // wrapped sentence carrying it would overflow as the deployment grows.
+      const trigger = (held) =>
+        formatInsertReport({ teams: { inserted: 1, updated: 0 } }, { players: held })
+          .split('\n')
+          .find((line) => line.includes('Trigger:'))
+
+      expect(trigger(1)).toHaveLength(64)
+      expect(trigger(999_999_999_999).length).toBeLessThanOrEqual(80)
+    })
+
+    test('both blocks use one border, so a run that fires both reads as two', () => {
+      // The composition, pinned. copy-from-supabase.mjs prints the clobber block
+      // and then this one, separated by a blank line. Same rule and gutter in
+      // both, and a distinct ALL-CAPS headline in each, so neither can be
+      // mistaken for the other's footer.
+      const tallies = {
+        teams: { inserted: 1, updated: 28, clobbered: { name: 2 } },
+        dailyScores: { inserted: 3, updated: 21_447 },
+      }
+      const clobber = formatClobberReport(tallies).split('\n')
+      const inserts = formatInsertReport(tallies, HELD).split('\n')
+
+      const rule = '#'.repeat(80)
+      expect([clobber.at(0), clobber.at(-1), inserts.at(0), inserts.at(-1)]).toEqual([
+        rule,
+        rule,
+        rule,
+        rule,
+      ])
+      expect(clobber[1]).toBe('##  OVERWROTE STORED VALUES: teams')
+      expect(inserts[1]).toBe('##  INSERTED INTO A NON-EMPTY DEPLOYMENT: 4 rows across 2 tables')
     })
   })
 })

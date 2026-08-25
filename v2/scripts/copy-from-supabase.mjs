@@ -41,7 +41,12 @@ import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
 import { selectCopyable } from './lib/copy-filters.mjs'
-import { formatClobberReport, formatTally, mergeTally } from './lib/copy-tallies.mjs'
+import {
+  formatClobberReport,
+  formatInsertReport,
+  formatTally,
+  mergeTally,
+} from './lib/copy-tallies.mjs'
 
 const args = process.argv.slice(2)
 const has = (flag) => args.includes(flag)
@@ -298,6 +303,15 @@ const TABLES = [
   ['webhookEvents', internal.migrate.upsertWebhookEvents, webhookRows],
 ]
 
+// THE DEPLOYMENT'S ROW COUNTS, READ BEFORE ANYTHING IS WRITTEN. This is the
+// trigger for the insert report at the bottom: a copy into a deployment that
+// already holds rows is a RE-RUN, and a re-run against unchanged v1 data should
+// insert nothing. Measured rather than flagged on purpose — a --expect-no-inserts
+// flag is a thing the operator forgets at the one moment it matters, and this
+// costs one query. Same query the "Convex now holds:" block runs at the end;
+// counts only, no values. Not reached under --dry-run, which exits above.
+const countsBefore = await convex.query(internal.migrate.counts, {})
+
 console.log('\nWriting to Convex...')
 const talliesByTable = {}
 for (const [label, fn, rows] of TABLES) {
@@ -311,13 +325,33 @@ if (talliesByTable.teams.droppedMembers > 0) {
   console.log('  Expected with --scope=mine. It would be a real problem with --scope=all.')
 }
 
-// WHAT THIS COPY OVERWROTE — last thing before the counts, because it is what
-// the person running this at cutover is watching for, and the counts block below
-// is six short lines, so it stays on screen. Rendered in lib/copy-tallies.mjs
-// and tested there; loud when non-zero, one line when zero. Counts only: this
-// repository is public and the overwritten fields include team names and
-// invited addresses.
+// WHAT THIS COPY OVERWROTE — first of the run's two report blocks, and near the
+// end because it is what the person running this at cutover is watching for. The
+// insert block below it and the counts block are both short, so it stays on
+// screen. Rendered in lib/copy-tallies.mjs and tested there; loud when non-zero,
+// one line when zero. Counts only: this repository is public and the overwritten
+// fields include team names and invited addresses.
 console.log(`\n${formatClobberReport(talliesByTable)}`)
+
+// WHAT THIS COPY PUT BACK — a DETECTOR, not a fix, and the comment says so
+// because the block does. A row v2 DELETED leaves nothing for the block above to
+// diff against, so it returns counted as an insert, indistinguishable from a new
+// v1 row (wt-ksh.13.10). This cannot tell those two apart either. What it does is
+// make the insert VISIBLE on a re-run, which is the thing a diff-based report
+// structurally cannot do, and it covers all six tables where the clobber report
+// covers three. Silent on a first copy into an empty deployment, where every row
+// is an insert legitimately. Rendered and tested in lib/copy-tallies.mjs.
+//
+// PRINTED AFTER THE CLOBBER BLOCK, deliberately, as two separate frames with one
+// blank line between them. They share the `#` frame because the frame means
+// "stop and read" and a second border style would be a second alarm to learn;
+// each carries its own ALL-CAPS headline so neither reads as the other's footer.
+// This one goes last — closest to the counts, hardest to scroll past — because a
+// resurrected board or team rewrites scoring history where an overwritten name is
+// cosmetic, which is why 13.10 is P1. It also puts the pair on screen in the same
+// order as the cutover runbook's steps 1 and 2 (wt-ksh.9).
+const insertReport = formatInsertReport(talliesByTable, countsBefore)
+if (insertReport) console.log(`\n${insertReport}`)
 
 const counts = await convex.query(internal.migrate.counts, {})
 console.log('\nConvex now holds:')

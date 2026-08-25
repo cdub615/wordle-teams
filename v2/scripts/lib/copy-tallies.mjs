@@ -12,6 +12,17 @@
 // of per-field counts. The old one-line accumulator was `(tallies[k] ?? 0) + v`,
 // which on a nested record tallies the string '0[object Object]' and prints it —
 // a silent report is what wt-ksh.13 is about, and a garbled one is no better.
+//
+// TWO BLOCKS ARE RENDERED HERE, NOT ONE, and they read the same tallies from
+// opposite ends. formatClobberReport diffs the `clobbered` records: what the
+// copy OVERWROTE. formatInsertReport reads `inserted`: what the copy PUT BACK.
+// They share one frame, one gutter and one vocabulary because they print on the
+// same screen and a reader should not have to learn two alarms — which is the
+// reason they stayed in one module rather than becoming two (wt-ksh.13.10).
+//
+// formatInsertReport takes ONE INPUT THAT IS NOT A MUTATION RETURN: the
+// deployment's own row counts, read before the writes. That is the whole of the
+// widening — the header sentence above still describes the rest.
 
 /**
  * Add one mutation result into a running tally, in place.
@@ -265,6 +276,166 @@ const detailLines = (label, fields, width) => {
   return lines
 }
 
+/**
+ * The insert report: a DETECTOR for rows a re-run put back. Not a fix for them.
+ *
+ * WHAT THE CLOBBER REPORT ABOVE STRUCTURALLY CANNOT SEE. It diffs an incoming v1
+ * doc against the row already stored. When v2 DELETED that row there is nothing
+ * left to diff: byLegacyId finds no match, the copy takes the insert branch, and
+ * the row comes back counted as `inserted` — indistinguishable from a genuinely
+ * new v1 row. Confirmed for teams (cascadeDeleteTeam, convex/teams.ts) and for
+ * boards (upsertBoardFor, convex/scores.ts). wt-ksh.13.10.
+ *
+ * SO THIS ONE DOES NOT DIFF. It rests on a different property: a re-copy against
+ * unchanged v1 data should insert NOTHING. A non-zero insert count on a re-run
+ * is therefore either a new v1 row or a resurrected one, and both are worth a
+ * look. No schema change and no tombstone: every one of the six mutations
+ * already returns `inserted` (convex/migrate.ts, lines 266, 341, 388, 466, 508
+ * and 553).
+ *
+ * IT DOES NOT TELL THE TWO APART, and saying otherwise here or in the block
+ * would be a lie. It narrows "invisible" to "visible and worth adjudicating";
+ * wt-ksh.9 step 2 is where the adjudicating is written down. New v1 rows are
+ * ORDINARY during dual-running — players enter boards every day — so this block
+ * firing is a prompt to read, not a stop signal on its own.
+ *
+ * IT COVERS ALL SIX TABLES, which the clobber report cannot: `clobbered` comes
+ * back from three mutations, `inserted` from all six. dailyScores is the one
+ * that matters most, being both deliberately undiffed (wordle-teams-r9d) and one
+ * of the two confirmed resurrection paths.
+ *
+ * THE TRIGGER IS MEASURED, NOT FLAGGED. `countsBefore` is internal.migrate.counts
+ * read BEFORE the writes, and a deployment that already holds rows is what makes
+ * the run a re-run. A --expect-no-inserts flag would be a thing the operator
+ * forgets at the one moment it matters.
+ *
+ * SILENT ON A FIRST COPY, and that is what decides whether the detector is
+ * usable at all. Every row is an insert into an empty deployment, legitimately;
+ * a report that cries wolf on the first copy is one nobody trusts on the third.
+ * The blind spot that buys is narrow and worth naming: a deployment can only be
+ * empty because it was never copied to, or because purgeCopiedData emptied it
+ * (convex/migrate.ts) — an explicit operator wipe, after which every row IS new.
+ * No v2 code path can empty it: `git grep -n "db\.delete(" convex/` finds
+ * user-reachable deletes only in winners.ts, scores.ts and teams.ts, and none of
+ * the three touches players, playerMembership or webhookEvents.
+ *
+ * LOUD WHEN NON-ZERO, ONE LINE WHEN ZERO, following formatClobberReport and the
+ * skip report: a zero states the check ran, where silence could equally mean it
+ * never did.
+ *
+ * COUNTS ONLY, NEVER VALUES. This repository is public. What prints is table
+ * names, row counts, and the deployment's own row count.
+ *
+ * @param {Record<string, Record<string, unknown>>} talliesByTable table label ->
+ *   the tally mergeTally accumulated for it, in the order the copy wrote them.
+ * @param {Record<string, number>} countsBefore internal.migrate.counts read
+ *   before the writes: table -> rows the deployment already held.
+ * @returns {string | null} null when the deployment was empty and this report has
+ *   nothing to say; one indented line when it was not and nothing was inserted;
+ *   a framed block otherwise. null rather than '' so a caller cannot print an
+ *   empty frame and mistake it for a deliberate silence.
+ */
+export function formatInsertReport(talliesByTable, countsBefore) {
+  const held = totalHeld(countsBefore)
+  const inserts = insertsByTable(talliesByTable)
+
+  // AFTER the two reads, not before: an empty deployment still gets its inputs
+  // checked, so a mutation that quietly stopped reporting `inserted` fails on
+  // the first copy rather than waiting for the run where it matters.
+  if (held === 0) return null
+
+  if (inserts.length === 0)
+    return (
+      `  ${INSERTED_NOTHING} on a re-run — the deployment already held ${held} rows, ` +
+      `so nothing v2 deleted came back.`
+    )
+
+  const rows = inserts.reduce((sum, [, n]) => sum + n, 0)
+  const width = Math.max(...inserts.map(([label]) => label.length)) + 3
+  return [
+    RULE,
+    `${GUTTER}${INSERT_HEADLINE}: ${plural(rows, 'row')} across ${plural(inserts.length, 'table')}`,
+    // The count sits on a line of its own rather than inside the prose, so that
+    // a deployment an order of magnitude larger cannot push a wrapped sentence
+    // out through the right-hand edge of the frame.
+    `${GUTTER}Trigger: the deployment already held ${held} rows before this run.`,
+    `${GUTTER}A re-run against unchanged v1 data inserts nothing, so each row below is`,
+    `${GUTTER}either new in v1 since the last copy, or one v2 DELETED that this copy put`,
+    `${GUTTER}back. These counts cannot tell those apart — wt-ksh.9 step 2 adjudicates.`,
+    `${GUTTER}Every table the copy writes is counted, including those it cannot diff.`,
+    BLANK,
+    // Only the tables that inserted. The zeros are already on screen: every
+    // table's own line above it reads `inserted=0 ...` from formatTally, so
+    // repeating them here would cost the block six lines and push the clobber
+    // block off a short terminal to say something already said.
+    ...inserts.map(([label, n]) => `${GUTTER}${label.padEnd(width)}${plural(n, 'row')}`),
+    RULE,
+  ].join('\n')
+}
+
+const INSERTED_NOTHING = 'Inserted nothing'
+const INSERT_HEADLINE = 'INSERTED INTO A NON-EMPTY DEPLOYMENT'
+
+const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`
+
+/**
+ * The tables that inserted at least one row, in write order.
+ *
+ * An empty tally means the mutation was never called — the copy only does that
+ * when the table had no rows in scope — so it inserted nothing and is not a
+ * table that "gained zero rows" either. Same rule partition() applies, for the
+ * same reason.
+ *
+ * A NON-EMPTY TALLY WITHOUT A NUMERIC `inserted` THROWS rather than counting as
+ * zero. All six mutations return one today; if one stopped, treating the absence
+ * as zero would turn this report — the only thing watching for a resurrected row
+ * — into a permanent, silent all-clear. That is the failure mode the whole
+ * module exists to refuse.
+ *
+ * @returns {Array<[string, number]>}
+ */
+const insertsByTable = (talliesByTable) => {
+  const inserts = []
+  for (const [label, tallies] of Object.entries(talliesByTable)) {
+    if (Object.keys(tallies).length === 0) continue
+    const n = tallies.inserted
+    if (typeof n !== 'number')
+      throw new Error(
+        `copy tally: '${label}' was written but its 'inserted' is ${describe(n)}. ` +
+          `Every migrate.ts upsert returns an insert count, and this report is the only ` +
+          `thing watching for a row v2 deleted coming back; it will not assume zero.`,
+      )
+    if (n > 0) inserts.push([label, n])
+  }
+  return inserts
+}
+
+/**
+ * How many rows the deployment held before the writes — the re-run signal.
+ *
+ * Validated rather than summed blindly: a non-numeric value makes the sum NaN,
+ * `NaN === 0` is false, and the detector would silently switch from "silent on a
+ * first copy" to "loud on every copy" — the false alarm that trains the reader
+ * to skip the block.
+ */
+const totalHeld = (countsBefore) => {
+  if (typeof countsBefore !== 'object' || countsBefore === null || Array.isArray(countsBefore))
+    throw new Error(
+      `copy tally: the pre-write counts are ${describe(countsBefore)}, not a record of row ` +
+        `counts. Without them there is no way to tell a first copy from a re-run.`,
+    )
+  let held = 0
+  for (const [table, n] of Object.entries(countsBefore)) {
+    if (typeof n !== 'number')
+      throw new Error(
+        `copy tally: pre-write count for '${table}' is ${describe(n)}, not a number. ` +
+          `A NaN total reads as non-empty and would make every copy print the block.`,
+      )
+    held += n
+  }
+  return held
+}
+
 const isRecordOfNumbers = (value) =>
   typeof value === 'object' &&
   value !== null &&
@@ -274,6 +445,10 @@ const isRecordOfNumbers = (value) =>
 const describe = (value) => {
   if (Array.isArray(value)) return 'an array'
   if (value === null) return 'null'
+  // Not `a undefined`. Absence is the case insertsByTable reports on — a
+  // mutation that stopped returning `inserted` — and the message has to read as
+  // a sentence for the person who has to act on it.
+  if (value === undefined) return 'missing'
   if (typeof value !== 'object') return `a ${typeof value}`
   // `find` misses when every value IS a number, which happens one level down:
   // describing { scoring: { oneGuess: 1 } } recurses into a perfectly valid
