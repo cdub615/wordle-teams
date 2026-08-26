@@ -473,21 +473,16 @@ export const upsertMemberships = internalMutation({
   args: {
     rows: v.array(
       v.object({
-        // Still REQUIRED here even though playerMembership.legacyId became
-        // optional in Phase 5, for the same reason upsertPlayers keeps it: the
-        // SCHEMA has to allow a row born in v2 without one, but a COPIED row
-        // always has one, and this validator is what guarantees byLegacyId below
-        // is never handed `undefined`. Convex enforces arg validators at runtime
-        // independently of the schema, so that holds even for a malformed
-        // caller — it does not rest on Supabase happening to populate the field.
+        // Still REQUIRED even though playerMembership.legacyId became optional in
+        // Phase 5 — the same reason playerInput above keeps it, and Convex
+        // enforces arg validators at runtime, so `undefined` cannot reach
+        // byLegacyId below even from a malformed caller.
         //
-        // It matters more from Phase 5 on than it did before. The schema now
-        // permits native membership rows, and Phase 5's Polar handler WILL write
-        // them — no such handler exists yet, so this is a guard standing ahead of
-        // the writer it guards against. Once one exists, `q.eq('legacyId',
-        // undefined)` would MATCH a native row, and the copy would adopt and
-        // overwrite something it did not create — wt-ksh.13's failure class,
-        // reached through a table that was previously immune to it.
+        // The stakes rose in Phase 5. Once Phase 5's Polar handler writes native
+        // membership rows — none exists yet, so this guard stands ahead of the
+        // writer it guards against — `q.eq('legacyId', undefined)` would MATCH
+        // one, and the copy would adopt and overwrite a row it did not create
+        // (wt-ksh.13), through a table previously immune to that.
         legacyId: v.string(),
         playerLegacyId: v.string(),
         membershipStatus: v.union(
@@ -530,37 +525,35 @@ export const upsertWebhookEvents = internalMutation({
   args: {
     rows: v.array(
       v.object({
-        // Still REQUIRED here even though webhookEvents.legacyId became optional
-        // in Phase 5 — same reasoning as upsertMemberships above, but it guards a
-        // DIFFERENT lookup, so do not read the two as interchangeable. This
-        // upsert has no by_legacyId index to key on: it keys on by_webhookId and
-        // then narrows with the `.filter` on legacyId below.
+        // Still REQUIRED, guarding a different mechanism from upsertMemberships
+        // above: there is no by_legacyId index here, so this upsert keys on a
+        // by_webhookId RANGE and narrows it with the `.filter` below.
         //
-        // WHAT THAT FILTER IS FOR is the case where ONE webhookId matches TWO
-        // rows. The id belongs to Polar, not to us — it names a delivery rather
-        // than our record of one — so while v1 and v2 are both live and both
-        // receiving, the same delivery can end up stored on each side: v1's,
-        // arriving here through the copy, carries a legacyId, and v2's native row
-        // has none. The by_webhookId range then returns BOTH, and the legacyId
-        // filter is the only thing that picks out the copied one. A row arriving
-        // without a legacyId would make that filter `legacyId === undefined`,
-        // which selects the NATIVE row — the copy adopting and overwriting an
-        // event it did not create (wt-ksh.13).
+        // THAT FILTER IS LOAD-BEARING TODAY, not only once Polar is wired up.
+        // Copied rows whose Postgres webhook_id is null all arrive as
+        // `webhookId: undefined`, so the range returns every one of them at once
+        // and the `.unique()` would throw; the legacyId filter is what reduces it
+        // to the single intended row. Those rows demonstrably exist — the Polar
+        // migration leaves them exempt from its partial unique index
+        // (20260731120000_polar_migration_drop_lemonsqueezy_columns.sql:103).
+        //
+        // ANTICIPATED, NOT YET REACHABLE: v1 and v2 both live and both
+        // receiving, with one delivery stored on each side — v1's arriving
+        // through the copy with a legacyId, v2's native row without. That
+        // assumes Polar stamps one webhook-id per delivery across endpoints,
+        // which is expected but UNVERIFIED against Polar's docs. If it holds the
+        // range returns both rows, and a legacyId of `undefined` would make the
+        // filter select the NATIVE one — the copy overwriting an event it did
+        // not create (wt-ksh.13).
         legacyId: v.number(),
 
-        // Optional for a reason unrelated to the above, and the two are worth
-        // not conflating. The column was added NULLABLE on 2024-03-23
+        // Optional for an unrelated reason, worth not conflating with the above:
+        // the column was added NULLABLE on 2024-03-23
         // (supabase/migrations/20240323195151_webhook_events_add_webhook_id.sql),
-        // so the rows carrying no id are the ones older than that migration.
-        // Copied rows are therefore "may or may not have one" rather than "have
-        // none": a Lemon Squeezy row from after that date holds a uuid, and
-        // copy-from-supabase.mjs's `opt` preserves it, mapping only null/''
-        // to undefined.
-        //
-        // NOTHING ENFORCES that a native row has one. Polar supplies it in
-        // practice, but no validator or schema rule requires it, so do not build
-        // a "native rows always have a webhookId" inference on top of this field
-        // — in particular, absence here does NOT mean a row was copied.
+        // so only rows older than that carry none — copied rows are "may or may
+        // not have one", since copy-from-supabase.mjs's `opt` preserves any real
+        // id. NOTHING enforces that a native row has one either, so absence here
+        // does NOT mean a row was copied.
         webhookId: v.optional(v.string()),
         playerLegacyId: v.string(),
         eventName: v.string(),

@@ -257,7 +257,11 @@ export default defineSchema({
   webhookEvents: defineTable({
     // OPTIONAL SINCE PHASE 5, for the same reason as playerMembership.legacyId
     // above. Every webhook v2 receives is native and has no Supabase row behind
-    // it; the rows that DO carry a legacyId are the copied Lemon Squeezy ones.
+    // it; the rows that DO carry a legacyId are the copied ones — the Lemon
+    // Squeezy era, and, since v1 migrated to Polar in place on 2026-08-03, v1's
+    // own Polar events too. The copy filters by neither provider nor date
+    // (scripts/copy-from-supabase.mjs), so do not read "copied" as "pre-Polar":
+    // a copied row and a native one can describe the same Polar delivery.
     legacyId: v.optional(v.number()),
 
     // A STRING, NOT A UUID. Polar follows Standard Webhooks, whose ids look like

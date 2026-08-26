@@ -340,15 +340,25 @@ describe('natively-created rows', () => {
 
       // Born in v2: no Supabase identity to carry, and a synthesised value would
       // lie to by_legacyId and to Phase 7's reconciliation.
-      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+      const membershipId = await ctx.db.insert('playerMembership', {
+        playerId,
+        membershipStatus: 'pro',
+      })
 
-      await ctx.db.insert('webhookEvents', {
+      const eventId = await ctx.db.insert('webhookEvents', {
         webhookId: 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W',
         playerId,
         eventName: 'subscription.active',
         body: {},
         processed: true,
       })
+
+      // Round-trips ABSENT, not merely accepted — matching the two tests above.
+      // An insert that only has to succeed would still pass if a default were
+      // ever introduced, and a default is exactly what would destroy the
+      // copied/native distinction these two fields exist to carry.
+      expect((await ctx.db.get(membershipId))?.legacyId).toBeUndefined()
+      expect((await ctx.db.get(eventId))?.legacyId).toBeUndefined()
     })
   })
 })
