@@ -16,31 +16,31 @@ import type { Id } from '../../../convex/_generated/dataModel'
 export type TeamMember = { id: string; firstName: string; lastName: string }
 
 /**
- * The selected team's members, and the creator's controls.
+ * The selected team's members, and the owner's controls.
  *
  * Ports v1's current-team-client.tsx. Settings, Invite and the per-member
- * remove are creator-only, matching v1's UI; unlike v1 that is now also true of
+ * remove are owner-only, matching v1's UI; unlike v1 that is now also true of
  * the mutations (divergence 4).
  *
  * TWO THINGS HERE ARE NOT IN v1 AT ALL. The Pending invites list is divergence
- * 6 — v1 shows a creator nowhere who they invited, so a typo'd address sits in
+ * 6 — v1 shows an owner nowhere who they invited, so a typo'd address sits in
  * `invited[]` forever with no way to see it or take it back. The Leave control
- * is divergence 10 — v1's only exit from a team is asking its creator.
+ * is divergence 10 — v1's only exit from a team is asking its owner.
  *
  * ALL members render, including the caller's own row — v1 maps every player
  * and gates only the remove control (`canInvite && player.id !== userId`),
- * never the row itself. The creator has no remove control on their own row:
- * removeMember refuses it server-side, and this gates on `isCreator &&
+ * never the row itself. The owner has no remove control on their own row:
+ * removeMember refuses it server-side, and this gates on `isOwner &&
  * member.id !== myPlayerId` the same way. Filtering `members` itself (an
  * earlier version of this component did, at the call site) instead hid the
- * creator from their own Current Team card, disagreeing with My Teams and the
+ * owner from their own Current Team card, disagreeing with My Teams and the
  * scores table on the same screen.
  */
 export function CurrentTeamCard({
   teamId,
   name,
   members,
-  isCreator,
+  isOwner,
   myPlayerId,
   onEditSettings,
   onLeft,
@@ -52,7 +52,7 @@ export function CurrentTeamCard({
   teamId: Id<'teams'>
   name: string
   members: Array<TeamMember>
-  isCreator: boolean
+  isOwner: boolean
   // Nullable because getMyPlayerId (convex/scores.ts) is: a player record
   // linked purely by email, same as every other access check, and can come
   // back null. `member.id !== myPlayerId` degrades safely when it does —
@@ -75,19 +75,19 @@ export function CurrentTeamCard({
   const [pendingEmail, setPendingEmail] = useState<string | null>(null)
   const [openEmail, setOpenEmail] = useState<string | null>(null)
   // One boolean, not a per-row map like `openId` below: Leave renders on at
-  // most one row (your own) and only when you are not the creator.
+  // most one row (your own) and only when you are not the owner.
   const [leaveOpen, setLeaveOpen] = useState(false)
   const [leaving, setLeaving] = useState(false)
 
-  // Creator-only, and not even SUBSCRIBED TO for anyone else: these are real
+  // Owner-only, and not even SUBSCRIBED TO for anyone else: these are real
   // email addresses, which is why they are not on getMyTeams.
   //
-  // `'skip'` RATHER THAN `enabled: isCreator`, and the difference is not
+  // `'skip'` RATHER THAN `enabled: isOwner`, and the difference is not
   // stylistic. TanStack Query still adds a disabled query to its cache when the
   // hook mounts, and ConvexQueryClient opens its websocket watch from that
   // cache's `added` event (node_modules/@convex-dev/react-query, subscribeInner)
-  // without consulting `enabled` at all — so every non-creator member's browser
-  // would subscribe to a query that throws NOT_TEAM_CREATOR server-side, and log
+  // without consulting `enabled` at all — so every non-owner member's browser
+  // would subscribe to a query that throws NOT_TEAM_OWNER server-side, and log
   // it. `convexQuery(..., 'skip')` marks the query key skipped, which that same
   // subscriber checks before it watches anything, and sets `enabled: false` for
   // itself.
@@ -97,7 +97,7 @@ export function CurrentTeamCard({
   const { data: invites } = useQuery(
     convexQuery(
       api.teams.getTeamInvites,
-      isCreator ? { teamId } : 'skip',
+      isOwner ? { teamId } : 'skip',
     ),
   )
 
@@ -111,7 +111,7 @@ export function CurrentTeamCard({
   // `openEmail === email` matching both rows, so one click would open two
   // popovers.
   //
-  // Deduplicating hides nothing the creator could act on: the rows are
+  // Deduplicating hides nothing the owner could act on: the rows are
   // character-for-character identical, and cancelInvite removes EVERY matching
   // entry anyway, so one row really is one cancellable address.
   //
@@ -193,7 +193,7 @@ export function CurrentTeamCard({
         <CardTitle asChild>
           <div className="flex min-w-0 items-center justify-between gap-2">
             <h2 className="min-w-0 truncate">{name}</h2>
-            {isCreator && (
+            {isOwner && (
               <div className="flex shrink-0 gap-2">
                 <Button size="icon" variant="outline" aria-label="Team settings" onClick={onEditSettings}>
                   <Settings size={22} />
@@ -219,7 +219,7 @@ export function CurrentTeamCard({
                 <span className="min-w-0 truncate">
                   {member.firstName} {member.lastName}
                 </span>
-                {isCreator && member.id !== myPlayerId && (
+                {isOwner && member.id !== myPlayerId && (
                   <ConfirmPopover
                     open={openId === member.id}
                     onOpenChange={(next) => setOpenId(next ? member.id : null)}
@@ -236,11 +236,11 @@ export function CurrentTeamCard({
                 )}
                 {/* Leave is the exact COMPLEMENT of remove above, and the two
                     must never both render on one row. getMyTeamsFor computes
-                    `isCreator` as `team.creator === playerId`, the same
+                    `isOwner` as `team.owner === playerId`, the same
                     comparison leaveTeamFor makes before it throws
-                    CREATOR_NOT_REMOVABLE, so gating on `!isCreator` means that
+                    OWNER_NOT_REMOVABLE, so gating on `!isOwner` means that
                     error is unreachable from this control while the server
-                    still refuses a creator who asks for it directly. A creator
+                    still refuses an owner who asks for it directly. An owner
                     sees remove on everyone else's row and nothing on their own;
                     a member sees Leave on their own row and nothing on anyone
                     else's.
@@ -249,12 +249,12 @@ export function CurrentTeamCard({
                     myPlayerId is null (see the prop's comment). `member.id ===
                     myPlayerId` matches nothing, so a member gets no Leave
                     control at all — nothing offered, nothing broken. Remove's
-                    `member.id !== myPlayerId` matches EVERYTHING, so a creator
+                    `member.id !== myPlayerId` matches EVERYTHING, so an owner
                     gets an extra Remove on their own row that removeMemberFor
-                    always refuses with CREATOR_NOT_REMOVABLE. That is Phase 3
+                    always refuses with OWNER_NOT_REMOVABLE. That is Phase 3
                     behaviour and is left alone here; it is recorded only so
                     nobody reads these two lines as symmetric. */}
-                {!isCreator && member.id === myPlayerId && (
+                {!isOwner && member.id === myPlayerId && (
                   <ConfirmPopover
                     open={leaveOpen}
                     onOpenChange={setLeaveOpen}
@@ -274,7 +274,7 @@ export function CurrentTeamCard({
             </li>
           ))}
         </ul>
-        {isCreator && pendingInvites.length > 0 && (
+        {isOwner && pendingInvites.length > 0 && (
           <div className="mt-4">
             <Separator className="mb-4" />
             <h3 className="text-muted-foreground mb-2 text-sm font-medium">Pending invites</h3>
@@ -285,7 +285,7 @@ export function CurrentTeamCard({
                     {/* WRAPS, where the member rows above truncate, and the
                         difference is the whole point of this section. A member
                         row shows a short name; a pending row shows an address,
-                        and divergence 6 exists so a creator can "tell a typo
+                        and divergence 6 exists so an owner can "tell a typo
                         from a slow responder". Typos live in the TAIL —
                         @gmial.com, exampl3.com — which is exactly what an
                         ellipsis eats: at 390px the truncated box fit 31
@@ -325,11 +325,11 @@ export function CurrentTeamCard({
           </div>
         )}
       </CardContent>
-      {/* The only thing that can set `inviteOpen` is the creator-only button
+      {/* The only thing that can set `inviteOpen` is the owner-only button
           above, so for everyone else this would mount a dialog with no trigger —
           and with it useVisualViewport's resize/scroll listeners — that can
           never open. */}
-      {isCreator && (
+      {isOwner && (
         <InvitePlayerDialog
           open={inviteOpen}
           onOpenChange={setInviteOpen}

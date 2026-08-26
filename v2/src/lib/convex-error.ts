@@ -19,10 +19,10 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'NO_PLAYER' ||
     code === 'NOT_A_MEMBER' ||
     code === 'INVALID_BOARD' ||
-    code === 'NOT_TEAM_CREATOR' ||
+    code === 'NOT_TEAM_OWNER' ||
     code === 'INVALID_TEAM' ||
     code === 'INVALID_DATE' ||
-    code === 'CREATOR_NOT_REMOVABLE' ||
+    code === 'OWNER_NOT_REMOVABLE' ||
     code === 'INVALID_SYSTEM' ||
     code === 'INVALID_EMAIL' ||
     code === 'INVALID_NAME'
@@ -68,7 +68,14 @@ export function typedCodeMessage(code: AccessCode): string {
       return 'You are not on that team any more.'
     case 'INVALID_BOARD':
       return 'That board is not complete. Check the answer and your guesses.'
-    case 'NOT_TEAM_CREATOR':
+    case 'NOT_TEAM_OWNER':
+      // "created" is still TRUE and will stop being true. Today every team's
+      // owner is the member who created it, so this reads correctly. Phase 5's
+      // softened downgrade reassigns `owner` to the earliest-joined remaining
+      // member — the whole reason the field was renamed to `owner` — and on
+      // the day that ships this sentence becomes a lie to the user. Rewording
+      // it is product copy, not a rename, so it is left for that task to make
+      // together with the rest of the downgrade's user-facing wording.
       return 'Only the person who created this team can change it.'
     case 'INVALID_TEAM':
       return 'A team needs a name.'
@@ -78,7 +85,8 @@ export function typedCodeMessage(code: AccessCode): string {
       // difference. "Refresh and try again" would not fix a genuinely wrong
       // clock, so this points at the actual cause instead.
       return "Your device's clock looks off. Check your date and time settings and try again."
-    case 'CREATOR_NOT_REMOVABLE':
+    case 'OWNER_NOT_REMOVABLE':
+      // Same "created" caveat as NOT_TEAM_OWNER above.
       return "The person who created this team can't be removed as a member."
     case 'INVALID_SYSTEM':
       return `Points must be whole numbers between ${SYSTEM_VALUE_MIN} and ${SYSTEM_VALUE_MAX}.`

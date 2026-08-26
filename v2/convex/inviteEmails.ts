@@ -11,7 +11,7 @@
  * Escape the five characters that can break out of HTML text or an attribute
  * value.
  *
- * NOT DECORATION. `teamName` is whatever the creator typed into the team form
+ * NOT DECORATION. `teamName` is whatever the owner typed into the team form
  * and `inviterName` is whatever they typed into the profile form — both reach
  * this template unfiltered, and both land inside a document that is delivered to
  * somebody else's inbox. A team named `</h1><a href="...">` would otherwise be

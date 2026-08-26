@@ -7,7 +7,7 @@ import {
   playerForEmail,
   requirePlausibleToday,
   requirePlayer,
-  requireTeamCreatorFor,
+  requireTeamOwnerFor,
   requireTeamMemberFor,
 } from './access'
 import { sendEmail } from './email.ts'
@@ -23,7 +23,7 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 /**
  * Team management. Phase 3 (wt-ksh.4).
  *
- * THIS MODULE OWNS TEAM IDENTITY AND MEMBERSHIP — name, playerIds, creator,
+ * THIS MODULE OWNS TEAM IDENTITY AND MEMBERSHIP — name, playerIds, owner,
  * playWeekends, showLetters. A team's scoring system lives in scoringSystems.ts,
  * which owns the scoring-system EDITOR and never touches these fields
  * (wt-ksh.4.32). The carve-out is deletion: cascadeDeleteTeam below deletes this
@@ -35,7 +35,7 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
  * sibling. The invite COPY lives in inviteEmails.ts, mirroring the authEmails.ts
  * split.
  *
- * getMyTeams moved here from scores.ts and grew members, creator and settings,
+ * getMyTeams moved here from scores.ts and grew members, owner and settings,
  * so that ONE subscription drives the picker, the CurrentTeam card and the
  * MyTeams card.
  *
@@ -101,9 +101,9 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
       return {
         id: team._id,
         name: team.name,
-        // Not `creator` itself: the caller only ever needs to know whether the
-        // buttons are theirs, and a raw creator id is one more thing on the wire.
-        isCreator: team.creator === playerId,
+        // Not `owner` itself: the caller only ever needs to know whether the
+        // buttons are theirs, and a raw owner id is one more thing on the wire.
+        isOwner: team.owner === playerId,
         playWeekends: team.playWeekends,
         showLetters: team.showLetters,
         // Fields are picked explicitly rather than spreading the doc, so the
@@ -146,7 +146,7 @@ function requireName(name: string): string {
 export type TeamSettings = { name: string; playWeekends: boolean; showLetters: boolean }
 
 /**
- * Create a team, with the caller as its only member and its creator.
+ * Create a team, with the caller as its only member and its owner.
  *
  * NO SERVER-SIDE TEAM CAP. v1 shows "Upgrade for more" once a free account has
  * two teams, but that is UI only — nothing stops a free account creating five
@@ -160,7 +160,7 @@ export async function createTeamFor(
 ): Promise<Id<'teams'>> {
   return await ctx.db.insert('teams', {
     name: requireName(settings.name),
-    creator: playerId,
+    owner: playerId,
     playerIds: [playerId],
     invited: [],
     playWeekends: settings.playWeekends,
@@ -194,7 +194,7 @@ export async function updateTeamFor(
   playerId: Id<'players'>,
   args: TeamSettings & { teamId: Id<'teams'>; today: PuzzleDay },
 ): Promise<void> {
-  const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
+  const team = await requireTeamOwnerFor(ctx, playerId, args.teamId)
   const today = requirePlausibleToday(args.today)
   const name = requireName(args.name)
   const weekendsChanged = team.playWeekends !== args.playWeekends
@@ -237,7 +237,7 @@ export const updateTeam = mutation({
  * either — so deleting a team must never destroy anybody's history.
  *
  * NO ACCESS CHECK OF ITS OWN — every caller must do that first. Shared by
- * deleteTeamFor (creator-only) and by leaveTeamFor's last-member case.
+ * deleteTeamFor (owner-only) and by leaveTeamFor's last-member case.
  *
  * TAKES THE DOCUMENT, NOT AN ID, and that is the whole of the protection: it
  * cannot enforce authorization, but a caller holding only a client-supplied
@@ -266,7 +266,7 @@ async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Promise<vo
 }
 
 /**
- * Delete a team. Creator-only.
+ * Delete a team. Owner-only.
  *
  * The cascade, and why it is written out by hand, is cascadeDeleteTeam above.
  */
@@ -275,7 +275,7 @@ export async function deleteTeamFor(
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
 ): Promise<void> {
-  const team = await requireTeamCreatorFor(ctx, playerId, teamId)
+  const team = await requireTeamOwnerFor(ctx, playerId, teamId)
   await cascadeDeleteTeam(ctx, team)
 }
 
@@ -296,21 +296,21 @@ export const deleteTeam = mutation({
  * named as the winner of months they are no longer in, and production is
  * carrying stale rows today.
  *
- * The creator cannot be removed, matching v1's UI, which hides the remove
- * button on your own row. Since only the creator can reach this at all, that
+ * The owner cannot be removed, matching v1's UI, which hides the remove
+ * button on your own row. Since only the owner can reach this at all, that
  * makes "remove yourself" unreachable HERE rather than merely hidden. v1 stops
  * there and has no leave-team affordance at any layer; v2 has one, but as a
  * separate mutation — leaveTeamFor, below, divergence 10 — precisely so that
- * this creator-only surface keeps refusing self-removal.
+ * this owner-only surface keeps refusing self-removal.
  */
 export async function removeMemberFor(
   ctx: WriterCtx,
   playerId: Id<'players'>,
   args: { teamId: Id<'teams'>; playerId: Id<'players'>; today: PuzzleDay },
 ): Promise<void> {
-  const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
+  const team = await requireTeamOwnerFor(ctx, playerId, args.teamId)
   const today = requirePlausibleToday(args.today)
-  if (args.playerId === team.creator) throw accessError('CREATOR_NOT_REMOVABLE')
+  if (args.playerId === team.owner) throw accessError('OWNER_NOT_REMOVABLE')
 
   // Idempotent no-op, not an error: the postcondition ("that player is not on
   // this team") already holds. A throw here would surface a confusing error
@@ -341,15 +341,17 @@ export const removeMember = mutation({
 /**
  * Remove yourself from a team.
  *
- * THE ONE MUTATION ON AN EXISTING TEAM THAT IS NOT CREATOR-ONLY (createTeam is
+ * THE ONE MUTATION ON AN EXISTING TEAM THAT IS NOT OWNER-ONLY (createTeam is
  * not on an existing team), and the mirror of removeMember: that one lets the
- * creator remove anybody but themselves, this one lets anybody remove only
+ * owner remove anybody but themselves, this one lets anybody remove only
  * themselves.
  *
  * v1 has no such affordance at any layer — its UI hides remove on your own row
- * and the only exit is asking the creator. Owner-sanctioned; divergence 10.
+ * and the only exit is asking the team's owner. Sanctioned by the project owner
+ * (the human, not this field — the rename collided the two words here);
+ * divergence 10.
  *
- * THE CREATOR CANNOT LEAVE. Their exit is deleteTeam. That keeps the invariant
+ * THE OWNER CANNOT LEAVE. Their exit is deleteTeam. That keeps the invariant
  * that a team always has somebody who can administer it, and it means a team
  * with an administrator can never be emptied by leaving.
  */
@@ -362,25 +364,25 @@ export async function leaveTeamFor(
   // BOUNDED ON BOTH PATHS, though only the recompute below reads it. The same
   // call must not be accepted or refused depending on how many other people
   // happen to be on the team, and the branch this does not feed is the one that
-  // deletes a team. Ordered before the creator guard exactly as removeMemberFor
+  // deletes a team. Ordered before the owner guard exactly as removeMemberFor
   // orders it, so a device with a wrong clock gets the same INVALID_DATE from
   // either surface.
   const today = requirePlausibleToday(args.today)
-  if (team.creator === playerId) throw accessError('CREATOR_NOT_REMOVABLE')
+  if (team.owner === playerId) throw accessError('OWNER_NOT_REMOVABLE')
 
   const remaining = team.playerIds.filter((memberId) => memberId !== playerId)
 
-  // NOBODY LEFT. Reachable only when the team has no creator ON ITS ROSTER: the
-  // guard above already refused a creator who is a member, and a scoped copy may
-  // omit `creator` entirely (schema comment, Phase 1) or name somebody who was
+  // NOBODY LEFT. Reachable only when the team has no owner ON ITS ROSTER: the
+  // guard above already refused an owner who is a member, and a scoped copy may
+  // omit `owner` entirely (schema comment, Phase 1) or name somebody who was
   // not copied onto playerIds. Either way NOBODY CAN EVER ADMINISTER IT —
-  // requireTeamCreatorFor goes through requireTeamMemberFor first — so it cannot
+  // requireTeamOwnerFor goes through requireTeamMemberFor first — so it cannot
   // be renamed, invited to, or deleted by anyone, now or later.
   //
   // IT CAN STILL BE JOINED, and the invite it is deleted with is a THIRD
   // PARTY'S. completeProfileFor scans every team for the joiner's address with
-  // no creator check at all, so an entry parked in `invited` here is live, and
-  // `invited` is copied wholesale from production — a creator-less scoped copy
+  // no owner check at all, so an entry parked in `invited` here is live, and
+  // `invited` is copied wholesale from production — an owner-less scoped copy
   // with one member and a pending invite is precisely the state this branch
   // exists for. Deleting is still the better of two bad outcomes: the alternative
   // is that the invitee eventually lands alone on a team nobody can administer,
@@ -430,7 +432,7 @@ export type InviteOutcome =
   | { status: 'resent'; email: string; teamName: string; inviterName: string }
 
 /**
- * Invite someone to a team by email address. Creator-only.
+ * Invite someone to a team by email address. Owner-only.
  *
  * Ports v1's invitePlayer (src/app/me/actions.ts), which nests FOUR branches,
  * not three: player-on-team, player-not-on-team-but-already-invited,
@@ -441,7 +443,7 @@ export type InviteOutcome =
  * "already has an account AND an outstanding invite" by resending the invite and
  * NOT adding them — but its resend went through Supabase's inviteUserByEmail,
  * which does nothing for an address that already has an account. So v1 mailed
- * nobody, added nobody, and told the creator it had succeeded; the invitee stayed
+ * nobody, added nobody, and told the owner it had succeeded; the invitee stayed
  * off the team indefinitely. v2 routes that case into `added` instead, which is
  * the outcome v1 was trying and failing to reach. Reproducing it faithfully would
  * mean reproducing a dead end.
@@ -468,7 +470,7 @@ export async function invitePlayerFor(
   playerId: Id<'players'>,
   args: { teamId: Id<'teams'>; email: string; today: PuzzleDay },
 ): Promise<InviteOutcome> {
-  const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
+  const team = await requireTeamOwnerFor(ctx, playerId, args.teamId)
   const today = requirePlausibleToday(args.today)
   // NORMALISED ON THE WAY IN, once, and every comparison and write below uses
   // the result rather than args.email. Lowercasing is the fix for a real v1 bug
@@ -481,7 +483,7 @@ export async function invitePlayerFor(
   const existing = await playerForEmail(ctx, email)
   if (existing) {
     // Idempotent no-op, and reported as one. v1 logged this branch and then told
-    // the creator the invite succeeded.
+    // the owner the invite succeeded.
     //
     // WRITES NOTHING, INCLUDING NO INVITE CLEANUP. A team that lists this person
     // in BOTH playerIds and invited is reachable — it is exactly what the copy
@@ -542,8 +544,8 @@ export async function invitePlayerFor(
 
   // The inviter's own row, for the "Ada invited you" line — read only on the two
   // branches that actually mail. `?? 'Someone'` is not dead:
-  // requireTeamCreatorFor only proves this id is in playerIds and equals
-  // `creator`, and a roster entry can outlive the player row it names (Convex
+  // requireTeamOwnerFor only proves this id is in playerIds and equals
+  // `owner`, and a roster entry can outlive the player row it names (Convex
   // ids are not foreign keys — the same state getMyTeamsFor and
   // recomputeTeamMonth both guard). An anonymous invite beats a crashed one, and
   // v1's Supabase template was anonymous anyway.
@@ -612,21 +614,21 @@ export const invitePlayer = mutation({
 })
 
 /**
- * The addresses invited to a team but not yet joined. CREATOR-ONLY.
+ * The addresses invited to a team but not yet joined. OWNER-ONLY.
  *
  * Deliberately NOT folded into getMyTeams. That query picks its fields
  * explicitly so `invited` cannot reach the wire (see getMyTeamsFor), it is
  * fetched by every connected client, and these are real email addresses. This
- * is a separate, creator-scoped read of ONE team.
+ * is a separate, owner-scoped read of ONE team.
  *
  * RETURNS THE STORED ENTRIES AS THEY ARE STORED, unnormalised, and Task 7
- * renders these strings verbatim. The creator is being shown what is actually
+ * renders these strings verbatim. The owner is being shown what is actually
  * parked on their team: a copied row can carry padding no gate ever stripped
  * (see cancelInviteFor), and telling a typo from a slow responder — the whole
  * point of divergence 6 — means being able to SEE the odd entry rather than
  * being handed a tidied copy of it.
  *
- * v1 exposes this nowhere — a creator cannot see who they invited, tell a typo
+ * v1 exposes this nowhere — an owner cannot see who they invited, tell a typo
  * from a slow responder, or cancel. Divergence 6.
  */
 export async function getTeamInvitesFor(
@@ -634,7 +636,7 @@ export async function getTeamInvitesFor(
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
 ): Promise<Array<string>> {
-  const team = await requireTeamCreatorFor(ctx, playerId, teamId)
+  const team = await requireTeamOwnerFor(ctx, playerId, teamId)
   return team.invited
 }
 
@@ -647,7 +649,7 @@ export const getTeamInvites = query({
 })
 
 /**
- * Withdraw a pending invite. Creator-only.
+ * Withdraw a pending invite. Owner-only.
  *
  * NORMALISED ON READ — trim().toLowerCase(), mirroring normaliseInviteEmail on
  * write — exactly as invitePlayerFor's two scans and completeProfileFor's do.
@@ -676,7 +678,7 @@ export const getTeamInvites = query({
  * that one gives: any team write invalidates getMyTeams for EVERY connected
  * client (see this file's module comment), and paying that broadcast for a
  * change that never happened is pure waste. This is a public mutation — an
- * authenticated creator can submit any string, so it is not reachable only by
+ * authenticated owner can submit any string, so it is not reachable only by
  * pressing a button for a row they can see — and a double-click on a row that
  * is already gone is the same trigger removeMemberFor cites.
  */
@@ -685,7 +687,7 @@ export async function cancelInviteFor(
   playerId: Id<'players'>,
   args: { teamId: Id<'teams'>; email: string },
 ): Promise<void> {
-  const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
+  const team = await requireTeamOwnerFor(ctx, playerId, args.teamId)
   const email = normaliseInviteEmail(args.email)
   if (!email) throw accessError('INVALID_EMAIL')
 

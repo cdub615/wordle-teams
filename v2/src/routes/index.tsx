@@ -162,15 +162,15 @@ function Dashboard() {
       {selectedTeam && (
         <>
           {/* Every member renders, including the caller's own row — see
-              current-team-card.tsx's doc comment. The creator cannot be
+              current-team-card.tsx's doc comment. The owner cannot be
               removed — removeMember refuses it server-side — so the card
-              gates the remove control on `isCreator && member.id !==
+              gates the remove control on `isOwner && member.id !==
               myPlayerId` rather than filtering the row out. */}
           <CurrentTeamCard
             teamId={selectedTeam.id}
             name={selectedTeam.name}
             members={selectedTeam.members}
-            isCreator={selectedTeam.isCreator}
+            isOwner={selectedTeam.isOwner}
             myPlayerId={myPlayerId}
             onEditSettings={() => setSettingsOpen(true)}
             // Leaving the selected team leaves ?team= pointing at a team you
@@ -188,7 +188,7 @@ function Dashboard() {
             teamId={teamParam as Id<'teams'>}
             month={monthParam}
             isPro={isPro}
-            isCreator={selectedTeam.isCreator}
+            isOwner={selectedTeam.isOwner}
           />
         </>
       )}

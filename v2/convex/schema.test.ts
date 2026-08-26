@@ -74,7 +74,7 @@ describe('teams', () => {
       const team = await ctx.db.get(teamId)
       expect(team?.playerIds).toEqual([playerId])
       expect(team?.oneGuess).toBe(6)
-      expect(team?.creator).toBeUndefined()
+      expect(team?.owner).toBeUndefined()
     })
   })
 

@@ -62,10 +62,10 @@ test('creating a team through the dropdown makes it the selected one', async ({ 
   await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible()
 
   // wt-ksh regression: creating a team through the dropdown makes THIS
-  // account its creator (createTeam sets creator to the caller), and a solo
+  // account its owner (createTeam sets owner to the caller), and a solo
   // team's only member is that same account. current-team-card.tsx used to
-  // filter the creator out of `members` at the call site instead of gating
-  // just the remove control, so a creator on a solo team saw an EMPTY
+  // filter the owner out of `members` at the call site instead of gating
+  // just the remove control, so an owner on a solo team saw an EMPTY
   // Current Team card while their own name still showed up in My Teams and
   // the scores table above — three views of the same team disagreeing on one
   // screen. Scoped to the card's own `role="region"` landmark (not just
@@ -75,7 +75,7 @@ test('creating a team through the dropdown makes it the selected one', async ({ 
   const currentTeamCard = page.getByRole('region', { name: 'Current Team' })
   await expect(currentTeamCard.getByRole('heading', { name })).toBeVisible()
   await expect(currentTeamCard.getByText('E2E Tester')).toBeVisible()
-  // The creator cannot remove themselves — removeMember refuses it
+  // The owner cannot remove themselves — removeMember refuses it
   // server-side, and the card must not offer the control against its own
   // row. `Remove E2E` is the exact aria-label current-team-card.tsx builds
   // from this account's own firstName.

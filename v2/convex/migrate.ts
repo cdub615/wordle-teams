@@ -63,8 +63,8 @@ async function byLegacyId<T extends 'players' | 'teams' | 'playerMembership' | '
  * because both are easy to get wrong in the other direction:
  *
  *   - A field ABSENT from the incoming doc is never counted. upsertTeams spreads
- *     `creator` conditionally, so when the creator was outside the copied scope
- *     the patch does not touch the stored creator at all. Nothing is written, so
+ *     `owner` conditionally, so when the owner was outside the copied scope
+ *     the patch does not touch the stored owner at all. Nothing is written, so
  *     nothing is clobbered.
  *   - An identical re-copy must report zero across the board. A report that
  *     fires on a no-op is noise, and noise is indistinguishable from silence
@@ -292,8 +292,12 @@ const teamInput = v.object({
  * Teams arrive carrying Supabase uuids; they are stored as Convex references.
  * A uuid with no corresponding player is DROPPED rather than failing the row —
  * a scoped copy legitimately contains teams whose other members were not copied,
- * and refusing the team would lose the owner's own data. The script reports the
- * count so a silent drop cannot be mistaken for a clean run.
+ * and refusing the team would lose the scoped account's own data. The script
+ * reports the count so a silent drop cannot be mistaken for a clean run.
+ *
+ * ("the scoped account" was "the owner" until the creator → owner rename. It
+ * means the person supabase-scope.mjs scopes the copy to, and never this table's
+ * `owner` field, which the rename would now have it read as.)
  */
 export const upsertTeams = internalMutation({
   args: { rows: v.array(teamInput) },
@@ -313,14 +317,17 @@ export const upsertTeams = internalMutation({
         else droppedMembers++
       }
 
-      const creatorDoc = creatorLegacyId
+      // `creatorLegacyId` keeps its name: it is the wire field the copy script
+      // sends and it names v1's Postgres column. Only the v2 field it lands in
+      // was renamed.
+      const ownerDoc = creatorLegacyId
         ? await byLegacyId(ctx, 'players', creatorLegacyId)
         : null
 
       const doc = {
         ...rest,
         playerIds,
-        ...(creatorDoc ? { creator: creatorDoc._id } : {}),
+        ...(ownerDoc ? { owner: ownerDoc._id } : {}),
         // The whole point of §4.3: v1 matched this case-sensitively while auth
         // lowercased addresses, so mixed-case invitees never joined. Normalised
         // here as well as in the script, because this is the last gate before
@@ -745,14 +752,19 @@ export const counts = internalQuery({
  * reference below names the task and the step together rather than picking one.
  *
  * Sets `owner = creator` for every team that has a creator and no owner yet.
- * Idempotent, so re-running it reports `updated: 0` — UNLESS A TEAM WAS CREATED
- * IN BETWEEN. createTeamFor (teams.ts:163) still writes `creator` alone until
- * Task 2 (deploy step 3) switches the writers and readers over, so a non-zero
- * confirming dry run means a NEW team, not a failed backfill; the fix is to run
- * it again. That cannot silently reach the schema drop: Task 2b's
- * clearTeamCreator is specified to throw on any team holding a creator with no
- * owner, so an incomplete backfill fails loudly one step before `creator`
- * leaves the schema.
+ * Idempotent, so re-running it reports `updated: 0`.
+ *
+ * THAT `updated: 0` IS NOW UNCONDITIONAL, and it was not when this shipped.
+ * Between deploy steps 2 and 3 createTeamFor still wrote `creator` alone, so a
+ * team created in that window would show up in a later dry run and a non-zero
+ * count meant a NEW team rather than a failed backfill. Deploy step 3 switched
+ * the writers over — createTeamFor (teams.ts:163) now writes `owner` — so
+ * nothing can mint a `creator` any more and that window is closed. This
+ * mutation can only ever find teams that predate the switch.
+ *
+ * An incomplete backfill still cannot silently reach the schema drop:
+ * clearTeamCreator below throws on any team holding a creator with no owner, so
+ * it fails loudly one step before `creator` leaves the schema.
  *
  * DOES NOT CLEAR `creator`, deliberately. At the point this runs, the deployed
  * code still READS `creator`; blanking it here would render every team
@@ -772,7 +784,7 @@ export const backfillTeamOwner = internalMutation({
   handler: async (ctx, { dryRun }) => {
     // Unbounded collect, and it is fine at this scale: ~171 teams in
     // production, well inside the per-execution read cap — the same measurement
-    // as the note at schema.ts:138. Contrast wordle-teams-b31, which is
+    // as the note at schema.ts:147. Contrast wordle-teams-b31, which is
     // dailyScores at ~7000 and does need bounding.
     const teams = await ctx.db.query('teams').collect()
     let updated = 0
@@ -784,5 +796,60 @@ export const backfillTeamOwner = internalMutation({
     }
 
     return { scanned: teams.length, updated }
+  },
+})
+
+/**
+ * Clears `teams.creator` once nothing reads it (Phase 5, Task 2b — deploy step 4
+ * of 5). Ships in Task 2 (deploy step 3) and is RUN in Task 2b (deploy step 4),
+ * the same one-apart numbering the backfill above uses.
+ *
+ * WHY THIS IS A SEPARATE MUTATION, DEPLOYED A STEP LATER THAN THE BACKFILL.
+ * Two constraints point in opposite directions. Convex validates the schema
+ * against every existing document on push, so `creator` can only LEAVE the
+ * schema once no document carries it — which is what this mutation arranges.
+ * But a field can only be CLEARED once no deployed code reads it, and until
+ * deploy step 3 landed, the code running on beta read `creator` for every
+ * settings, invite, removal and delete check. Clearing in the same pass that
+ * set `owner` would therefore have blanked the field the then-current code was
+ * still reading, rendering every team owner-less on beta — no settings, no
+ * invites, no deletion — until the next deploy landed. Hence: back fill, deploy
+ * the readers, THEN clear, THEN drop.
+ *
+ * REFUSES TO BLANK A TEAM THAT NEVER GOT AN OWNER. Such a team would come out
+ * of this with neither field, which is exactly the owner-less state V2-ADDENDUM
+ * warns about, and step 5's schema drop would then strand it with no way back —
+ * the value it would have been recovered from is the one we just deleted. It
+ * throws instead, which turns an incomplete backfill into a loud failure one
+ * step before that becomes irreversible. Throwing also aborts the whole
+ * mutation: Convex rolls the transaction back, so a run that hits this clears
+ * nothing at all rather than stopping half way.
+ *
+ * DELETED IN TASK 2c (deploy step 5), along with backfillTeamOwner,
+ * scripts/clear-team-creator.mjs and scripts/backfill-team-owner.mjs. Once
+ * `creator` leaves the schema this can never find a team to clear and can never
+ * be tested again — its fixtures become unconstructable.
+ *
+ * Counts only. It never returns or logs a team name or an address.
+ */
+export const clearTeamCreator = internalMutation({
+  args: { dryRun: v.boolean() },
+  handler: async (ctx, { dryRun }) => {
+    // Unbounded collect, fine at this scale for the reason backfillTeamOwner
+    // gives above: ~171 teams in production, well inside the read cap.
+    const teams = await ctx.db.query('teams').collect()
+    let cleared = 0
+
+    for (const team of teams) {
+      if (!team.creator) continue
+      // Refuse to blank a team that never got an owner — that would
+      // manufacture exactly the owner-less state V2-ADDENDUM warns about,
+      // and step 5's schema drop would then strand it.
+      if (!team.owner) throw new Error(`team ${team._id} has creator but no owner`)
+      cleared += 1
+      if (!dryRun) await ctx.db.patch(team._id, { creator: undefined })
+    }
+
+    return { scanned: teams.length, cleared }
   },
 })

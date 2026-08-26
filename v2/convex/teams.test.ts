@@ -27,57 +27,57 @@ describe('getMyTeamsFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      const mine = await ctx.db.insert('teams', aTeam({ name: 'Mine', playerIds: [ada], creator: ada }))
-      await ctx.db.insert('teams', aTeam({ legacyId: 207, name: 'Theirs', playerIds: [bob], creator: bob }))
+      const mine = await ctx.db.insert('teams', aTeam({ name: 'Mine', playerIds: [ada], owner: ada }))
+      await ctx.db.insert('teams', aTeam({ legacyId: 207, name: 'Theirs', playerIds: [bob], owner: bob }))
 
       const teams = await getMyTeamsFor(ctx, ada)
       expect(teams.map((team) => team.id)).toEqual([mine])
     })
   })
 
-  test('carries members, creator flag and settings', async () => {
+  test('carries members, owner flag and settings', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob', lastName: 'Ross' }))
       await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [ada, bob], creator: ada, playWeekends: false, showLetters: false }),
+        aTeam({ playerIds: [ada, bob], owner: ada, playWeekends: false, showLetters: false }),
       )
 
       const [team] = await getMyTeamsFor(ctx, ada)
-      expect(team.isCreator).toBe(true)
+      expect(team.isOwner).toBe(true)
       expect(team.playWeekends).toBe(false)
       expect(team.showLetters).toBe(false)
       expect(team.members.map((member) => member.firstName)).toEqual(['Ada', 'Bob'])
     })
   })
 
-  test('isCreator is false for a member who did not create the team', async () => {
+  test('isOwner is false for a member who did not create the team', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
 
       const [team] = await getMyTeamsFor(ctx, bob)
-      expect(team.isCreator).toBe(false)
+      expect(team.isOwner).toBe(false)
     })
   })
 
-  test('isCreator is false when the team is a scoped copy with no creator', async () => {
-    // A scoped copy may omit `creator` entirely — see access.ts's
-    // requireTeamCreatorFor and its "refuses everyone when the creator was
-    // not copied" test. isCreator is a UI-trust boolean shipped to every
+  test('isOwner is false when the team is a scoped copy with no owner', async () => {
+    // A scoped copy may omit `owner` entirely — see access.ts's
+    // requireTeamOwnerFor and its "refuses everyone when the owner was
+    // not copied" test. isOwner is a UI-trust boolean shipped to every
     // client and gates the team-management buttons, so this is pinned rather
     // than left to fall out of `undefined === playerId` by accident.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: undefined }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: undefined }))
 
       const [team] = await getMyTeamsFor(ctx, ada)
-      expect(team.isCreator).toBe(false)
+      expect(team.isOwner).toBe(false)
     })
   })
 
@@ -86,7 +86,7 @@ describe('getMyTeamsFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: bob }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [bob], owner: bob }))
 
       const teams = await getMyTeamsFor(ctx, ada)
       expect(teams).toEqual([])
@@ -106,7 +106,7 @@ describe('getMyTeamsFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const ghost = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
-      await ctx.db.insert('teams', aTeam({ playerIds: [ada, ghost], creator: ada }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada, ghost], owner: ada }))
       await ctx.db.delete(ghost)
 
       const [team] = await getMyTeamsFor(ctx, ada)
@@ -121,7 +121,7 @@ describe('getMyTeamsFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
       await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [ada], creator: ada, invited: ['someone@example.com'] }),
+        aTeam({ playerIds: [ada], owner: ada, invited: ['someone@example.com'] }),
       )
 
       const [team] = await getMyTeamsFor(ctx, ada)
@@ -133,10 +133,10 @@ describe('getMyTeamsFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      await ctx.db.insert('teams', aTeam({ name: 'Second', playerIds: [ada], creator: ada, createdAt: 2000 }))
+      await ctx.db.insert('teams', aTeam({ name: 'Second', playerIds: [ada], owner: ada, createdAt: 2000 }))
       await ctx.db.insert(
         'teams',
-        aTeam({ legacyId: 207, name: 'First', playerIds: [ada], creator: ada, createdAt: 1000 }),
+        aTeam({ legacyId: 207, name: 'First', playerIds: [ada], owner: ada, createdAt: 1000 }),
       )
 
       const teams = await getMyTeamsFor(ctx, ada)
@@ -158,7 +158,7 @@ describe('createTeamFor', () => {
 
       const team = (await ctx.db.get(teamId))!
       expect(team.name).toBe('New Team')
-      expect(team.creator).toBe(ada)
+      expect(team.owner).toBe(ada)
       expect(team.playerIds).toEqual([ada])
       expect(team.invited).toEqual([])
       expect(team.showLetters).toBe(false)
@@ -204,7 +204,7 @@ describe('updateTeamFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
       await updateTeamFor(ctx, ada, {
         teamId,
@@ -227,7 +227,7 @@ describe('updateTeamFor', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [ada, bob], creator: ada, playWeekends: true }),
+        aTeam({ playerIds: [ada, bob], owner: ada, playWeekends: true }),
       )
       // Bob has a decisive win; Ada has no scores at all this month. A fresh
       // recompute would name Bob. The stored row deliberately names Ada
@@ -268,12 +268,12 @@ describe('updateTeamFor', () => {
     })
   })
 
-  test('refuses a member who is not the creator', async () => {
+  test('refuses a member who is not the owner', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
 
       await expect(
         updateTeamFor(ctx, bob, {
@@ -283,7 +283,7 @@ describe('updateTeamFor', () => {
           showLetters: true,
           today,
         }),
-      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
+      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_OWNER' } })
     })
   })
 
@@ -294,7 +294,7 @@ describe('updateTeamFor', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [ada, bob], creator: ada, playWeekends: true }),
+        aTeam({ playerIds: [ada, bob], owner: ada, playWeekends: true }),
       )
       // 2026-06-06 is a Saturday, 2026-06-08 a Monday.
       // With weekends on, Ada (weekend win) leads; with weekends off she scores nothing.
@@ -342,7 +342,7 @@ describe('deleteTeamFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
       const scoreId = await ctx.db.insert('dailyScores', {
         playerId: ada,
         puzzleDay: '2026-06-08',
@@ -385,7 +385,7 @@ describe('deleteTeamFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
       await deleteTeamFor(ctx, ada, teamId)
 
@@ -393,13 +393,13 @@ describe('deleteTeamFor', () => {
     })
   })
 
-  test('refuses a member who is not the creator', async () => {
+  test('refuses a member who is not the owner', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
-      await expect(deleteTeamFor(ctx, bob, teamId)).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      await expect(deleteTeamFor(ctx, bob, teamId)).rejects.toMatchObject({ data: { code: 'NOT_TEAM_OWNER' } })
       expect(await ctx.db.get(teamId)).not.toBeNull()
     })
   })
@@ -408,8 +408,8 @@ describe('deleteTeamFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const doomed = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
-      const kept = await ctx.db.insert('teams', aTeam({ legacyId: 207, playerIds: [ada], creator: ada }))
+      const doomed = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const kept = await ctx.db.insert('teams', aTeam({ legacyId: 207, playerIds: [ada], owner: ada }))
       await ctx.db.insert('monthlyWinners', {
         playerId: ada,
         teamId: doomed,
@@ -439,7 +439,7 @@ describe('removeMemberFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
 
       await removeMemberFor(ctx, ada, { teamId, playerId: bob, today })
 
@@ -452,7 +452,7 @@ describe('removeMemberFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
       // Bob won both June and July outright.
       for (const puzzleDay of ['2026-06-08', '2026-07-08']) {
         await ctx.db.insert('dailyScores', {
@@ -496,31 +496,31 @@ describe('removeMemberFor', () => {
     })
   })
 
-  test('refuses to remove the creator', async () => {
+  test('refuses to remove the owner', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
 
       await expect(
         removeMemberFor(ctx, ada, { teamId, playerId: ada, today }),
-      ).rejects.toMatchObject({ data: { code: 'CREATOR_NOT_REMOVABLE' } })
+      ).rejects.toMatchObject({ data: { code: 'OWNER_NOT_REMOVABLE' } })
       expect((await ctx.db.get(teamId))!.playerIds).toEqual([ada, bob])
     })
   })
 
-  test('refuses a member who is not the creator', async () => {
+  test('refuses a member who is not the owner', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
       const carol = await ctx.db.insert('players', aPlayer({ email: 'carol@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob, carol], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob, carol], owner: ada }))
 
       await expect(
         removeMemberFor(ctx, bob, { teamId, playerId: carol, today }),
-      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
+      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_OWNER' } })
     })
   })
 
@@ -530,7 +530,7 @@ describe('removeMemberFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
       const carol = await ctx.db.insert('players', aPlayer({ email: 'carol@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
       // Deliberately stale — a fresh recompute would change this, since ada
       // has no scores and bob does. Left alone, it proves the recompute was
       // skipped rather than having run and coincidentally landed on the same
@@ -562,9 +562,9 @@ describe('removeMemberFor', () => {
     })
   })
 
-  test('bounds today BEFORE the creator guard, so a wrong clock gets INVALID_DATE here too', async () => {
+  test('bounds today BEFORE the owner guard, so a wrong clock gets INVALID_DATE here too', async () => {
     // The other half of leaveTeamFor's cross-surface parity claim: both helpers
-    // check the clock before refusing a creator, so the same wrong clock gets
+    // check the clock before refusing an owner, so the same wrong clock gets
     // the same code from either. This surface had NO clock test at all before —
     // the bound could have been dropped from removeMemberFor entirely and
     // nothing would have noticed.
@@ -572,10 +572,10 @@ describe('removeMemberFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
 
-      // Removing the CREATOR, which is what would otherwise throw
-      // CREATOR_NOT_REMOVABLE.
+      // Removing the OWNER, which is what would otherwise throw
+      // OWNER_NOT_REMOVABLE.
       await expect(
         removeMemberFor(ctx, ada, { teamId, playerId: ada, today: '1999-01-01' }),
       ).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
@@ -588,7 +588,7 @@ describe('removeMemberFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
       const scoreId = await ctx.db.insert('dailyScores', {
         playerId: bob,
         puzzleDay: '2026-06-08',
@@ -608,53 +608,53 @@ describe('leaveTeamFor', () => {
   test('a member removes themselves', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const owner = await ctx.db.insert('players', aPlayer({ email: 'owner@example.test' }))
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [owner, bob], owner }))
 
       await leaveTeamFor(ctx, bob, { teamId, today })
 
-      expect((await ctx.db.get(teamId))!.playerIds).toEqual([creator])
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([owner])
     })
   })
 
-  test('refuses the creator, who reaches the creator guard rather than the membership one', async () => {
+  test('refuses the owner, who reaches the owner guard rather than the membership one', async () => {
     // Their exit is deleteTeam. This keeps the Phase 3 invariant that a team
     // always has an administrator.
     //
     // THE CODE IS PINNED, not merely "it threw", and the reason is narrower than
-    // it first looks. Under this fixture the creator IS on the roster and
+    // it first looks. Under this fixture the owner IS on the roster and
     // `today` is valid, so nothing upstream can throw and even a bare
     // .rejects.toThrow() would kill a guard-deleted mutant — measured, not
     // assumed. What a bare toThrow() would NOT kill is a guard that throws the
-    // wrong code: NOT_A_MEMBER instead of CREATOR_NOT_REMOVABLE. That is the
+    // wrong code: NOT_A_MEMBER instead of OWNER_NOT_REMOVABLE. That is the
     // mutant this pin exists for, and it matters because the design mandates
-    // reusing CREATOR_NOT_REMOVABLE here — this assertion is the only thing
+    // reusing OWNER_NOT_REMOVABLE here — this assertion is the only thing
     // tying the implementation to that decision.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const owner = await ctx.db.insert('players', aPlayer({ email: 'owner@example.test' }))
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [owner, bob], owner }))
 
-      await expect(leaveTeamFor(ctx, creator, { teamId, today })).rejects.toMatchObject({
-        data: { code: 'CREATOR_NOT_REMOVABLE' },
+      await expect(leaveTeamFor(ctx, owner, { teamId, today })).rejects.toMatchObject({
+        data: { code: 'OWNER_NOT_REMOVABLE' },
       })
-      expect((await ctx.db.get(teamId))!.playerIds).toEqual([creator, bob])
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([owner, bob])
     })
   })
 
   test('a non-member is refused, and the roster is untouched', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const owner = await ctx.db.insert('players', aPlayer({ email: 'owner@example.test' }))
       const stranger = await ctx.db.insert('players', aPlayer({ email: 'stranger@example.test' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator], creator }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [owner], owner }))
 
       await expect(leaveTeamFor(ctx, stranger, { teamId, today })).rejects.toMatchObject({
         data: { code: 'NOT_A_MEMBER' },
       })
-      expect((await ctx.db.get(teamId))!.playerIds).toEqual([creator])
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([owner])
     })
   })
 
@@ -666,12 +666,12 @@ describe('leaveTeamFor', () => {
     // monthsWithWinners and recomputed only `today`'s month would survive.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const owner = await ctx.db.insert('players', aPlayer({ email: 'owner@example.test' }))
       const bob = await ctx.db.insert(
         'players',
         aPlayer({ email: 'bob@example.test', firstName: 'Bob' }),
       )
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [owner, bob], owner }))
       // Bob won both June and July 2025 outright.
       for (const puzzleDay of ['2025-06-02', '2025-07-02']) {
         await ctx.db.insert('dailyScores', {
@@ -697,15 +697,15 @@ describe('leaveTeamFor', () => {
 
       await leaveTeamFor(ctx, bob, { teamId, today })
 
-      // The creator has no scores at all, so a fresh compute gives her 0 for
+      // The owner has no scores at all, so a fresh compute gives her 0 for
       // both months — but winnerOf returns null only when the CANDIDATE LIST is
       // empty, not when every candidate scored zero, so with Bob gone she wins
       // both outright. If only one month had been recomputed the other would
       // still name Bob.
       const rows = await ctx.db.query('monthlyWinners').collect()
       expect(rows.map((row) => ({ month: row.month, playerId: row.playerId }))).toEqual([
-        { month: 6, playerId: creator },
-        { month: 7, playerId: creator },
+        { month: 6, playerId: owner },
+        { month: 7, playerId: owner },
       ])
       // The winner changed on both rows, so the celebration flag resets — proof
       // this is a genuine recompute, not the old rows left untouched.
@@ -713,13 +713,13 @@ describe('leaveTeamFor', () => {
     })
   })
 
-  test('the last member of a creator-less team deletes it and cascades', async () => {
-    // The scoped-copy case: `creator` is undefined, so nobody is refused and the
+  test('the last member of an owner-less team deletes it and cascades', async () => {
+    // The scoped-copy case: `owner` is undefined, so nobody is refused and the
     // team can be emptied. Leaving an unreachable orphan would be worse.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: undefined }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], owner: undefined }))
       await ctx.db.insert('monthlyWinners', {
         playerId: bob,
         teamId,
@@ -759,8 +759,8 @@ describe('leaveTeamFor', () => {
 
   test('a pending invite is destroyed with the team, and that is the intended trade', async () => {
     // THE INVITE IS A THIRD PARTY'S, and it was live: completeProfileFor scans
-    // every team for the joiner's address with NO creator check, so an entry
-    // parked on a creator-less team really could still be claimed. `invited` is
+    // every team for the joiner's address with NO owner check, so an entry
+    // parked on an owner-less team really could still be claimed. `invited` is
     // copied wholesale from production, so this state is reachable with real
     // data rather than only by construction.
     //
@@ -772,7 +772,7 @@ describe('leaveTeamFor', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [bob], creator: undefined, invited: ['pending@example.test'] }),
+        aTeam({ playerIds: [bob], owner: undefined, invited: ['pending@example.test'] }),
       )
 
       await leaveTeamFor(ctx, bob, { teamId, today })
@@ -784,18 +784,18 @@ describe('leaveTeamFor', () => {
     })
   })
 
-  test('deletes a team whose creator is not on its roster, when its last member leaves', async () => {
+  test('deletes a team whose owner is not on its roster, when its last member leaves', async () => {
     // The branch is keyed on the ROSTER being empty afterwards, not on
-    // `creator === undefined`. A team naming a creator who is not a member is
+    // `owner === undefined`. A team naming an owner who is not a member is
     // representable — the schema enforces no referential integrity between
-    // `creator` and `playerIds` — and it is just as unadministrable, because
-    // requireTeamCreatorFor goes through requireTeamMemberFor first. Pinned so
+    // `owner` and `playerIds` — and it is just as unadministrable, because
+    // requireTeamOwnerFor goes through requireTeamMemberFor first. Pinned so
     // the cascade comment's claim about what reaches it is a tested one.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ghost = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.test' }))
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: ghost }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], owner: ghost }))
       await ctx.db.insert('monthlyWinners', {
         playerId: bob,
         teamId,
@@ -819,31 +819,31 @@ describe('leaveTeamFor', () => {
     // one of the five tests this block was originally drafted with.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const owner = await ctx.db.insert('players', aPlayer({ email: 'owner@example.test' }))
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [owner, bob], owner }))
 
       await expect(leaveTeamFor(ctx, bob, { teamId, today: '1999-01-01' })).rejects.toMatchObject({
         data: { code: 'INVALID_DATE' },
       })
-      expect((await ctx.db.get(teamId))!.playerIds).toEqual([creator, bob])
+      expect((await ctx.db.get(teamId))!.playerIds).toEqual([owner, bob])
     })
   })
 
-  test('bounds today BEFORE the creator guard, so a creator with a wrong clock gets INVALID_DATE', async () => {
+  test('bounds today BEFORE the owner guard, so an owner with a wrong clock gets INVALID_DATE', async () => {
     // The ordering promise in leaveTeamFor's comment, made testable. Both of the
-    // other clock tests use a non-CREATOR leaver, so neither can see the bound
-    // move below the creator guard — measured: that reorder left every other
+    // other clock tests use a non-OWNER leaver, so neither can see the bound
+    // move below the owner guard — measured: that reorder left every other
     // test in this file green. The twin assertion for the other surface is in
     // removeMemberFor's block, since the claim is cross-surface parity.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const creator = await ctx.db.insert('players', aPlayer({ email: 'creator@example.test' }))
+      const owner = await ctx.db.insert('players', aPlayer({ email: 'owner@example.test' }))
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [creator, bob], creator }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [owner, bob], owner }))
 
       await expect(
-        leaveTeamFor(ctx, creator, { teamId, today: '1999-01-01' }),
+        leaveTeamFor(ctx, owner, { teamId, today: '1999-01-01' }),
       ).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
     })
   })
@@ -856,7 +856,7 @@ describe('leaveTeamFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: undefined }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [bob], owner: undefined }))
 
       await expect(leaveTeamFor(ctx, bob, { teamId, today: '1999-01-01' })).rejects.toMatchObject({
         data: { code: 'INVALID_DATE' },
@@ -874,10 +874,10 @@ describe('leaveTeamFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      const doomed = await ctx.db.insert('teams', aTeam({ playerIds: [bob], creator: undefined }))
+      const doomed = await ctx.db.insert('teams', aTeam({ playerIds: [bob], owner: undefined }))
       const kept = await ctx.db.insert(
         'teams',
-        aTeam({ legacyId: 207, playerIds: [bob], creator: bob }),
+        aTeam({ legacyId: 207, playerIds: [bob], owner: bob }),
       )
       for (const teamId of [doomed, kept]) {
         await ctx.db.insert('monthlyWinners', {
@@ -902,9 +902,9 @@ describe('leaveTeamFor', () => {
  * The invite fixtures. `.test` addresses only — this repository is public.
  *
  * ADA_AS_TYPED is the same address as ADA, padded and mixed-case, in the shape a
- * creator actually types or pastes one. STRANGER is nobody's account.
+ * owner actually types or pastes one. STRANGER is nobody's account.
  */
-const CREATOR = 'creator@example.test'
+const OWNER = 'owner@example.test'
 const ADA = 'ada@example.test'
 const ADA_AS_TYPED = '  Ada@Example.TEST '
 const STRANGER = 'new.person@example.test'
@@ -926,25 +926,25 @@ const aScore = (playerId: Id<'players'>, puzzleDay: string, guesses: Array<strin
  * so a test can pre-park an invite.
  */
 const aTeamOwnedByCara = async (ctx: TestCtx, over: Record<string, unknown> = {}) => {
-  const creator = await ctx.db.insert(
+  const owner = await ctx.db.insert(
     'players',
-    aPlayer({ email: CREATOR, firstName: 'Cara', lastName: 'Creator' }),
+    aPlayer({ email: OWNER, firstName: 'Cara', lastName: 'Owner' }),
   )
   const teamId = await ctx.db.insert(
     'teams',
-    aTeam({ name: 'The Guessers', playerIds: [creator], creator, ...over }),
+    aTeam({ name: 'The Guessers', playerIds: [owner], owner, ...over }),
   )
-  return { creator, teamId }
+  return { owner, teamId }
 }
 
 describe('invitePlayerFor', () => {
   test('adds an existing player straight to the team', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
 
-      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
 
       // toEqual, not toMatchObject: the ABSENCE of email/teamName is the thing
       // that stops the wrapper mailing anybody. v1 sends no mail when an
@@ -955,7 +955,7 @@ describe('invitePlayerFor', () => {
       expect(outcome).toEqual({ status: 'added', firstName: 'Ada' })
 
       const team = (await ctx.db.get(teamId))!
-      expect(team.playerIds).toEqual([creator, ada])
+      expect(team.playerIds).toEqual([owner, ada])
       // Added, not parked: nothing goes into `invited` on this branch.
       expect(team.invited).toEqual([])
     })
@@ -968,14 +968,14 @@ describe('invitePlayerFor', () => {
     // somebody who already had an account.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
 
-      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: ADA_AS_TYPED, today })
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA_AS_TYPED, today })
 
       expect(outcome).toEqual({ status: 'added', firstName: 'Ada' })
       const team = (await ctx.db.get(teamId))!
-      expect(team.playerIds).toEqual([creator, ada])
+      expect(team.playerIds).toEqual([owner, ada])
       expect(team.invited).toEqual([])
     })
   })
@@ -984,7 +984,7 @@ describe('invitePlayerFor', () => {
     // THE ORDINARY SEQUENCE, not a corner case: park an invite for someone with
     // no account, they sign up, invite them again. Without the cleanup they are
     // a member AND permanently pending — getTeamInvitesFor's pending list is
-    // `team.invited` itself, so the creator would see them in both places, with
+    // `team.invited` itself, so the owner would see them in both places, with
     // cancelInviteFor the only remedy and nothing telling them to press it.
     //
     // Reachable for the whole copied user base, not just for people who joined
@@ -1001,14 +1001,14 @@ describe('invitePlayerFor', () => {
     // `added` and a silent regression to the branch that stranded the invitee.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
 
-      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
 
       expect(outcome).toEqual({ status: 'added', firstName: 'Ada' })
       const team = (await ctx.db.get(teamId))!
-      expect(team.playerIds).toEqual([creator, ada])
+      expect(team.playerIds).toEqual([owner, ada])
       expect(team.invited).toEqual([])
     })
   })
@@ -1020,14 +1020,14 @@ describe('invitePlayerFor', () => {
     // places an invite is retired and both compare the same way.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA_AS_TYPED] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA_AS_TYPED] })
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
 
-      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
 
       expect(outcome).toEqual({ status: 'added', firstName: 'Ada' })
       const team = (await ctx.db.get(teamId))!
-      expect(team.playerIds).toEqual([creator, ada])
+      expect(team.playerIds).toEqual([owner, ada])
       expect(team.invited).toEqual([])
     })
   })
@@ -1035,10 +1035,10 @@ describe('invitePlayerFor', () => {
   test('leaves OTHER pending invites alone when a player is added', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [STRANGER, ADA] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [STRANGER, ADA] })
       await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
 
-      await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+      await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
 
       // Only Ada's entry goes. Filtering to [] would cancel everybody else's
       // outstanding invite as a side effect of one person joining.
@@ -1051,19 +1051,19 @@ describe('invitePlayerFor', () => {
     await t.run(async (ctx) => {
       // Ada is on the roster AND still listed as invited — the state a copied v1
       // team arrives in, since v1 never removed an invite it could not match.
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
-      await ctx.db.patch(teamId, { playerIds: [creator, ada] })
+      await ctx.db.patch(teamId, { playerIds: [owner, ada] })
 
-      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: ADA_AS_TYPED, today })
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA_AS_TYPED, today })
 
       // Nothing happened, and it says so. v1 logged this branch and then told
-      // the creator "Successfully invited player" — divergence 9.
+      // the owner "Successfully invited player" — divergence 9.
       expect(outcome).toEqual({ status: 'already_member' })
       const team = (await ctx.db.get(teamId))!
       // Not appended a second time, which would show Ada twice on the team card
       // and enter her twice in the month's candidate list.
-      expect(team.playerIds).toEqual([creator, ada])
+      expect(team.playerIds).toEqual([owner, ada])
       // AND NOT REPAIRED EITHER. This branch is documented as writing nothing,
       // because a write here costs a getMyTeams broadcast to every connected
       // client on the path whose whole point is that nothing happened.
@@ -1080,32 +1080,32 @@ describe('invitePlayerFor', () => {
     // would name Ada.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
-      await ctx.db.patch(teamId, { playerIds: [creator, ada] })
+      await ctx.db.patch(teamId, { playerIds: [owner, ada] })
       await ctx.db.insert('dailyScores', aScore(ada, '2025-06-03', ['SPEED']))
       const stale = await ctx.db.insert('monthlyWinners', {
-        playerId: creator,
+        playerId: owner,
         teamId,
         year: 2025,
         month: 6,
-        hasSeenCelebration: [creator],
+        hasSeenCelebration: [owner],
       })
 
-      await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+      await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
 
       const row = (await ctx.db.get(stale))!
-      expect(row.playerId).toBe(creator)
-      expect(row.hasSeenCelebration).toEqual([creator])
+      expect(row.playerId).toBe(owner)
+      expect(row.hasSeenCelebration).toEqual([owner])
     })
   })
 
   test('parks an unknown address in invited, lowercased and trimmed', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
 
-      const outcome = await invitePlayerFor(ctx, creator, {
+      const outcome = await invitePlayerFor(ctx, owner, {
         teamId,
         email: STRANGER_AS_TYPED,
         today,
@@ -1127,16 +1127,16 @@ describe('invitePlayerFor', () => {
       // around rather than one it can rely on.
       expect(team.invited).toEqual([STRANGER])
       // Parked, not added: an address with no account joins nobody's roster.
-      expect(team.playerIds).toEqual([creator])
+      expect(team.playerIds).toEqual([owner])
     })
   })
 
   test('reports resent for an address already invited, without duplicating it', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [STRANGER] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [STRANGER] })
 
-      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: STRANGER, today })
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: STRANGER, today })
 
       // Same payload as `invited` — the mail is identical, and the only thing
       // that differs is that there was nothing to write.
@@ -1157,13 +1157,13 @@ describe('invitePlayerFor', () => {
     // unrepresentable data. It pins the read-side normalisation, because the cost
     // of losing it is silent: a second, differently-cased entry for the same
     // person, which completeProfileFor's own normalisation would then claim and
-    // remove anyway, leaving a creator staring at a pending invite for somebody
+    // remove anyway, leaving an owner staring at a pending invite for somebody
     // who has already joined.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [STRANGER_AS_TYPED] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [STRANGER_AS_TYPED] })
 
-      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: STRANGER, today })
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: STRANGER, today })
 
       expect(outcome).toMatchObject({ status: 'resent', email: STRANGER })
       // Untouched — a resend writes nothing at all, so the odd row is neither
@@ -1175,31 +1175,31 @@ describe('invitePlayerFor', () => {
   test('rejects a malformed address and writes nothing', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
 
       await expect(
-        invitePlayerFor(ctx, creator, { teamId, email: 'not-an-email', today }),
+        invitePlayerFor(ctx, owner, { teamId, email: 'not-an-email', today }),
       ).rejects.toMatchObject({ data: { code: 'INVALID_EMAIL' } })
 
       const team = (await ctx.db.get(teamId))!
       expect(team.invited).toEqual([])
-      expect(team.playerIds).toEqual([creator])
+      expect(team.playerIds).toEqual([owner])
     })
   })
 
-  test('falls back to an anonymous inviter when the creator’s row is gone', async () => {
+  test('falls back to an anonymous inviter when the owner’s row is gone', async () => {
     // Convex ids are not foreign keys, so a `playerIds` entry — including the
-    // creator's — can outlive the row it names, the same state getMyTeamsFor and
-    // recomputeTeamMonth both guard. requireTeamCreatorFor still passes, because
+    // owner's — can outlive the row it names, the same state getMyTeamsFor and
+    // recomputeTeamMonth both guard. requireTeamOwnerFor still passes, because
     // it only compares ids. Without the fallback the subject line would read
     // "undefined invited you"; with it the mail is merely anonymous, which is
     // what v1's Supabase template always was.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
-      await ctx.db.delete(creator)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
+      await ctx.db.delete(owner)
 
-      const outcome = await invitePlayerFor(ctx, creator, { teamId, email: STRANGER, today })
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: STRANGER, today })
 
       expect(outcome).toMatchObject({ status: 'invited', inviterName: 'Someone' })
     })
@@ -1211,28 +1211,28 @@ describe('invitePlayerFor', () => {
     // every other mutation that feeds one into recomputation bounds it.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
 
       await expect(
-        invitePlayerFor(ctx, creator, { teamId, email: STRANGER, today: '1999-01-01' }),
+        invitePlayerFor(ctx, owner, { teamId, email: STRANGER, today: '1999-01-01' }),
       ).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
 
       expect((await ctx.db.get(teamId))!.invited).toEqual([])
     })
   })
 
-  test('refuses a member who is not the creator', async () => {
+  test('refuses a member who is not the owner', async () => {
     // Divergence 4: v1's RLS lets any member UPDATE the team, so any member can
-    // invite. v2 makes the UI's creator-only rule the real one.
+    // invite. v2 makes the UI's owner-only rule the real one.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      await ctx.db.patch(teamId, { playerIds: [creator, bob] })
+      await ctx.db.patch(teamId, { playerIds: [owner, bob] })
 
       await expect(
         invitePlayerFor(ctx, bob, { teamId, email: STRANGER, today }),
-      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
+      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_OWNER' } })
 
       expect((await ctx.db.get(teamId))!.invited).toEqual([])
     })
@@ -1252,7 +1252,7 @@ describe('invitePlayerFor', () => {
     // first one" is distinguishable from "recompute every one".
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx)
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
       // Cara solved in four (1 point) in each month; Ada solved in one (5).
       // Every other day of both months scores the team's nA, which is 0, so each
@@ -1260,7 +1260,7 @@ describe('invitePlayerFor', () => {
       for (const puzzleDay of ['2025-06-03', '2025-07-03']) {
         await ctx.db.insert(
           'dailyScores',
-          aScore(creator, puzzleDay, ['CRANE', 'SLATE', 'SPELL', 'SPEED']),
+          aScore(owner, puzzleDay, ['CRANE', 'SLATE', 'SPELL', 'SPEED']),
         )
         await ctx.db.insert('dailyScores', aScore(ada, puzzleDay, ['SPEED']))
       }
@@ -1270,16 +1270,16 @@ describe('invitePlayerFor', () => {
       for (const month of [6, 7]) {
         stale.push(
           await ctx.db.insert('monthlyWinners', {
-            playerId: creator,
+            playerId: owner,
             teamId,
             year: 2025,
             month,
-            hasSeenCelebration: [creator],
+            hasSeenCelebration: [owner],
           }),
         )
       }
 
-      await invitePlayerFor(ctx, creator, { teamId, email: ADA, today })
+      await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
 
       for (const rowId of stale) {
         const row = (await ctx.db.get(rowId))!
@@ -1326,7 +1326,7 @@ const spyOnPatch = (ctx: TestCtx) => {
 }
 
 describe('cancelInviteFor / getTeamInvitesFor', () => {
-  test('the creator sees pending invites EXACTLY as they are stored', async () => {
+  test('the owner sees pending invites EXACTLY as they are stored', async () => {
     // STRANGER_AS_TYPED is padded, and it comes back padded. Task 7 renders
     // these strings verbatim, and recognising a bad entry — telling a typo from
     // a slow responder, which is the whole point of divergence 6 — means seeing
@@ -1334,26 +1334,26 @@ describe('cancelInviteFor / getTeamInvitesFor', () => {
     // entry and one odd one so a `.map(normalise)` on the way out is visible.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, {
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, {
         invited: [ADA, STRANGER_AS_TYPED],
       })
 
-      expect(await getTeamInvitesFor(ctx, creator, teamId)).toEqual([ADA, STRANGER_AS_TYPED])
+      expect(await getTeamInvitesFor(ctx, owner, teamId)).toEqual([ADA, STRANGER_AS_TYPED])
     })
   })
 
-  test('a member who is not the creator is refused by the QUERY', async () => {
+  test('a member who is not the owner is refused by the QUERY', async () => {
     // NOT MERELY A HIDDEN BUTTON. These are real email addresses, so the refusal
-    // has to be the read itself — divergence 6 exists to give the creator a
+    // has to be the read itself — divergence 6 exists to give the owner a
     // surface v1 lacks, not to give every member a roster of who else was asked.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      await ctx.db.patch(teamId, { playerIds: [creator, bob] })
+      await ctx.db.patch(teamId, { playerIds: [owner, bob] })
 
       await expect(getTeamInvitesFor(ctx, bob, teamId)).rejects.toMatchObject({
-        data: { code: 'NOT_TEAM_CREATOR' },
+        data: { code: 'NOT_TEAM_OWNER' },
       })
     })
   })
@@ -1361,9 +1361,9 @@ describe('cancelInviteFor / getTeamInvitesFor', () => {
   test('cancel removes the address, case-insensitively', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA, STRANGER] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA, STRANGER] })
 
-      await cancelInviteFor(ctx, creator, { teamId, email: STRANGER_AS_TYPED })
+      await cancelInviteFor(ctx, owner, { teamId, email: STRANGER_AS_TYPED })
 
       expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
     })
@@ -1387,11 +1387,11 @@ describe('cancelInviteFor / getTeamInvitesFor', () => {
     // can reach it.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, {
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, {
         invited: [ADA, STRANGER_AS_TYPED],
       })
 
-      await cancelInviteFor(ctx, creator, { teamId, email: STRANGER })
+      await cancelInviteFor(ctx, owner, { teamId, email: STRANGER })
 
       expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
     })
@@ -1403,12 +1403,12 @@ describe('cancelInviteFor / getTeamInvitesFor', () => {
     // second makes the button look broken.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, {
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, {
         invited: [STRANGER_AS_TYPED, ADA, STRANGER],
       })
       const spy = spyOnPatch(ctx)
 
-      await cancelInviteFor(spy.ctx, creator, { teamId, email: STRANGER })
+      await cancelInviteFor(spy.ctx, owner, { teamId, email: STRANGER })
 
       expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
       // Doing the work in ONE patch, and — read with the next test — proof that
@@ -1424,7 +1424,7 @@ describe('cancelInviteFor / getTeamInvitesFor', () => {
     // gives: any team write invalidates getMyTeams for EVERY connected client,
     // so paying that broadcast for a change that never happened is pure waste.
     // Reachable without a UI bug — cancelInvite is a public mutation and a
-    // creator can submit any string — and by a double-click on a row the
+    // owner can submit any string — and by a double-click on a row the
     // reactive update has already removed.
     //
     // COUNTS PATCHES RATHER THAN COMPARING THE DOCUMENT, because comparing it
@@ -1435,10 +1435,10 @@ describe('cancelInviteFor / getTeamInvitesFor', () => {
     // not simply blind.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
       const spy = spyOnPatch(ctx)
 
-      await cancelInviteFor(spy.ctx, creator, { teamId, email: STRANGER })
+      await cancelInviteFor(spy.ctx, owner, { teamId, email: STRANGER })
 
       expect(spy.patches).toEqual([])
       expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
@@ -1454,25 +1454,25 @@ describe('cancelInviteFor / getTeamInvitesFor', () => {
     // a missing INVALID_EMAIL from a wasted write into a silent lie.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
 
       await expect(
-        cancelInviteFor(ctx, creator, { teamId, email: '   ' }),
+        cancelInviteFor(ctx, owner, { teamId, email: '   ' }),
       ).rejects.toMatchObject({ data: { code: 'INVALID_EMAIL' } })
 
       expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
     })
   })
 
-  test('a member who is not the creator cannot cancel', async () => {
+  test('a member who is not the owner cannot cancel', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { creator, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
+      const { owner, teamId } = await aTeamOwnedByCara(ctx, { invited: [ADA] })
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
-      await ctx.db.patch(teamId, { playerIds: [creator, bob] })
+      await ctx.db.patch(teamId, { playerIds: [owner, bob] })
 
       await expect(cancelInviteFor(ctx, bob, { teamId, email: ADA })).rejects.toMatchObject({
-        data: { code: 'NOT_TEAM_CREATOR' },
+        data: { code: 'NOT_TEAM_OWNER' },
       })
 
       expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
@@ -1517,7 +1517,7 @@ describe('teamInviteEmail', () => {
   })
 
   test('escapes the two user-controlled names into the HTML', async () => {
-    // `teamName` is whatever the creator typed into the team form and
+    // `teamName` is whatever the owner typed into the team form and
     // `inviterName` whatever they typed into the profile form. Both land in
     // somebody else's inbox, so neither may become markup.
     const { html } = teamInviteEmail({

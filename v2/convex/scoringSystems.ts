@@ -1,6 +1,6 @@
 import { v } from 'convex/values'
 import { mutation } from './_generated/server'
-import { accessError, requirePlausibleToday, requirePlayer, requireTeamCreatorFor } from './access'
+import { accessError, requirePlausibleToday, requirePlayer, requireTeamOwnerFor } from './access'
 import { SYSTEM_FIELDS, SYSTEM_VALUE_MAX, SYSTEM_VALUE_MIN } from './lib/scoringSystem.ts'
 import { monthOf } from './lib/puzzleDay.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
@@ -12,7 +12,7 @@ import type { ScoringSystem } from './lib/scoring.ts'
 /**
  * The scoring-system slice of team management, split out of teams.ts
  * (wt-ksh.4.32). teams.ts owns team IDENTITY and MEMBERSHIP — name,
- * playerIds, creator, playWeekends, showLetters; this module owns the
+ * playerIds, owner, playWeekends, showLetters; this module owns the
  * scoring-system EDITOR and never touches those fields.
  *
  * NOT the only writer of the scoringSystems TABLE, and never was. teams.ts's
@@ -63,7 +63,7 @@ export async function setScoringSystemFor(
   playerId: Id<'players'>,
   args: { teamId: Id<'teams'>; values: ScoringSystem; today: PuzzleDay },
 ): Promise<void> {
-  const team = await requireTeamCreatorFor(ctx, playerId, args.teamId)
+  const team = await requireTeamOwnerFor(ctx, playerId, args.teamId)
   const today = requirePlausibleToday(args.today)
   const values = requireValues(args.values)
   const effectiveFrom = monthOf(today)

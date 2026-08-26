@@ -64,7 +64,7 @@ describe('completeProfileFor', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [bob], creator: bob, invited: [ADA] }),
+        aTeam({ playerIds: [bob], owner: bob, invited: [ADA] }),
       )
 
       const playerId = await completeProfileFor(ctx, `  ${ADA_AS_TYPED}  `, NAMES, today)
@@ -130,7 +130,7 @@ describe('completeProfileFor', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [bob], creator: bob, invited: [ADA_AS_TYPED] }),
+        aTeam({ playerIds: [bob], owner: bob, invited: [ADA_AS_TYPED] }),
       )
 
       const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
@@ -152,7 +152,7 @@ describe('completeProfileFor', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [bob], creator: bob, invited: [`  ${ADA_AS_TYPED}  `] }),
+        aTeam({ playerIds: [bob], owner: bob, invited: [`  ${ADA_AS_TYPED}  `] }),
       )
 
       const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
@@ -169,11 +169,11 @@ describe('completeProfileFor', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
       const one = await ctx.db.insert(
         'teams',
-        aTeam({ name: 'One', playerIds: [bob], creator: bob, invited: [ADA] }),
+        aTeam({ name: 'One', playerIds: [bob], owner: bob, invited: [ADA] }),
       )
       const two = await ctx.db.insert(
         'teams',
-        aTeam({ legacyId: 207, name: 'Two', playerIds: [bob], creator: bob, invited: [ADA] }),
+        aTeam({ legacyId: 207, name: 'Two', playerIds: [bob], owner: bob, invited: [ADA] }),
       )
       // Invited someone else entirely. The scan reads EVERY team — Convex
       // cannot index array membership — so "does not join a team it was not
@@ -184,7 +184,7 @@ describe('completeProfileFor', () => {
           legacyId: 208,
           name: 'Other',
           playerIds: [bob],
-          creator: bob,
+          owner: bob,
           invited: ['someone.else@example.test'],
         }),
       )
@@ -206,7 +206,7 @@ describe('completeProfileFor', () => {
         'teams',
         aTeam({
           playerIds: [bob],
-          creator: bob,
+          owner: bob,
           invited: ['charles@example.test', ADA_AS_TYPED, 'grace@example.test'],
         }),
       )
@@ -229,7 +229,7 @@ describe('completeProfileFor', () => {
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [ada], creator: ada, invited: [ADA_AS_TYPED] }),
+        aTeam({ playerIds: [ada], owner: ada, invited: [ADA_AS_TYPED] }),
       )
 
       const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
@@ -269,11 +269,11 @@ describe('completeProfileFor', () => {
       // once is the ordinary case for a copied player.
       const first = await ctx.db.insert(
         'teams',
-        aTeam({ name: 'First', playerIds: [bob], creator: bob, invited: [ADA] }),
+        aTeam({ name: 'First', playerIds: [bob], owner: bob, invited: [ADA] }),
       )
       const second = await ctx.db.insert(
         'teams',
-        aTeam({ legacyId: 207, name: 'Second', playerIds: [bob], creator: bob, invited: [ADA] }),
+        aTeam({ legacyId: 207, name: 'Second', playerIds: [bob], owner: bob, invited: [ADA] }),
       )
       // Bob solved in four (1 point); Ada solved in one (5). Every other day of
       // the month scores the team's nA, which is 0 for both of them, so the
@@ -318,7 +318,7 @@ describe('completeProfileFor', () => {
       const charles = await ctx.db.insert('players', aPlayer({ email: 'charles@example.test' }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [bob, charles], creator: bob, invited: [] }),
+        aTeam({ playerIds: [bob, charles], owner: bob, invited: [] }),
       )
       // Same fixed past month as the test above, for the same reason: nothing
       // here should depend on when it runs.
@@ -435,7 +435,7 @@ describe('completeProfileFor validation', () => {
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [bob], creator: bob, invited: [ADA], nA: -3 }),
+        aTeam({ playerIds: [bob], owner: bob, invited: [ADA], nA: -3 }),
       )
       await ctx.db.insert(
         'dailyScores',
@@ -480,7 +480,7 @@ describe('completeProfileFor validation', () => {
       const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [bob], creator: bob, invited: [ADA], nA: -3 }),
+        aTeam({ playerIds: [bob], owner: bob, invited: [ADA], nA: -3 }),
       )
       await ctx.db.insert(
         'dailyScores',
@@ -506,7 +506,7 @@ describe('completeProfileFor validation', () => {
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
       const teamId = await ctx.db.insert(
         'teams',
-        aTeam({ playerIds: [bob], creator: bob, invited: [ADA] }),
+        aTeam({ playerIds: [bob], owner: bob, invited: [ADA] }),
       )
 
       await expect(

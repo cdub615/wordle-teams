@@ -39,13 +39,13 @@ export function ScoringSystemCard({
   teamId,
   month,
   isPro,
-  isCreator,
+  isOwner,
   className,
 }: {
   teamId: Id<'teams'>
   month: string
   isPro: boolean
-  isCreator: boolean
+  isOwner: boolean
   className?: string
 }) {
   const hydrated = useHydrated()
@@ -57,7 +57,7 @@ export function ScoringSystemCard({
   // viewer is not, and they disagree on the first and last days of a month.
   // Before hydration, assume the month is current, which hides nothing.
   const isCurrentMonth = hydrated ? month === monthOf(toPuzzleDay(new Date())) : true
-  const canEdit = isCurrentMonth && isPro && isCreator
+  const canEdit = isCurrentMonth && isPro && isOwner
 
   return (
     <Card className={className}>

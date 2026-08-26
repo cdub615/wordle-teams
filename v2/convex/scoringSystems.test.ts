@@ -25,7 +25,7 @@ describe('setScoringSystemFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
       await setScoringSystemFor(ctx, ada, { teamId, values: newValues, today })
 
@@ -43,7 +43,7 @@ describe('setScoringSystemFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
       await setScoringSystemFor(ctx, ada, { teamId, values: newValues, today })
       await setScoringSystemFor(ctx, ada, {
@@ -58,16 +58,16 @@ describe('setScoringSystemFor', () => {
     })
   })
 
-  test('refuses a member who is not the creator', async () => {
+  test('refuses a member who is not the owner', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
 
       await expect(
         setScoringSystemFor(ctx, bob, { teamId, values: newValues, today }),
-      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_CREATOR' } })
+      ).rejects.toMatchObject({ data: { code: 'NOT_TEAM_OWNER' } })
     })
   })
 
@@ -75,7 +75,7 @@ describe('setScoringSystemFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
       await expect(
         setScoringSystemFor(ctx, ada, { teamId, values: { ...newValues, oneGuess: 1.5 }, today }),
@@ -97,7 +97,7 @@ describe('setScoringSystemFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
       await setScoringSystemFor(ctx, ada, {
         teamId,
@@ -117,7 +117,7 @@ describe('setScoringSystemFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
       const lastMonth = addMonths(today.slice(0, 7), -1)
 
       // Last month: Ada solved in one (5), Bob failed (-3). Ada won.
@@ -193,7 +193,7 @@ describe('setScoringSystemFor — the running month', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
       // Today, under the ORIGINAL system: Ada solved in one (5), Bob failed
       // (-3), so Ada leads. `today` is used as the puzzle day so the board is
       // always due and always inside the current month, whatever the real date.
@@ -242,7 +242,7 @@ describe('setScoringSystemFor — the running month', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], creator: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
       await setScoringSystemFor(ctx, ada, { teamId, values: inverted, today })
 

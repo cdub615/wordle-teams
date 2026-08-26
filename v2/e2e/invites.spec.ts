@@ -42,10 +42,10 @@ import type { Locator, Page } from '@playwright/test'
  * Same shape as the identically-named helper in teams.spec.ts, and deliberately
  * not shared with it — each spec owns its seeding rather than reaching across
  * files — but it takes the address, because every test here needs to know the
- * creator's own email to invite it back at itself (`already_member`).
+ * owner's own email to invite it back at itself (`already_member`).
  *
- * ensureTeamFor makes this account the team's `creator`, which is what unlocks
- * the Invite button and the Pending list; both are creator-only, in the UI and
+ * ensureTeamFor makes this account the team's `owner`, which is what unlocks
+ * the Invite button and the Pending list; both are owner-only, in the UI and
  * in the mutations (divergence 4).
  */
 async function signInWithOwnTeam(page: Page, email: string): Promise<void> {
@@ -76,7 +76,7 @@ const SEEDED_TEAM = 'E2E Team'
  * are vacuous: a lowercase expectation matches a mixed-case actual, and a mutant
  * storing the raw typed address into `teams.invited` survives all three tests.
  *
- * The `toHaveCount(0)` on `pendingRow(creator, inviteeTyped)` in the first test
+ * The `toHaveCount(0)` on `pendingRow(owner, inviteeTyped)` in the first test
  * is the guard against this helper being quietly downgraded. Measured: make `re`
  * return its argument and that assertion receives 1 instead of 0 and fails, so
  * the case-sensitivity of this file cannot be removed silently.
@@ -134,14 +134,14 @@ test('an invited address joins the team after completing a profile', async ({ br
   // players row, so the second caller would land on the dashboard instead of
   // /complete-profile and this test would fail for a reason nobody would guess.
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-  const creatorEmail = `e2e+inv-owner-${stamp}@wordleteams.com`
+  const ownerEmail = `e2e+inv-owner-${stamp}@wordleteams.com`
   const inviteeLocal = `e2e+inv-joiner-${stamp}`
   const inviteeEmail = `${inviteeLocal}@wordleteams.com`
   // THE SAME ADDRESS, TYPED THE WAY A PERSON TYPES ONE. Derived rather than
   // written out so the two cannot drift: the stamp is digits and hyphens, so
   // `inviteeTyped.toLowerCase() === inviteeEmail` holds by construction.
   //
-  // This is what makes normalisation observable from the browser. The creator
+  // This is what makes normalisation observable from the browser. The owner
   // types this; every assertion below expects the LOWERCASE form back — in the
   // toast (which echoes `outcome.email`, the server-normalised value), in the
   // stored pending row, and in the resend matching the first invite instead of
@@ -151,23 +151,23 @@ test('an invited address joins the team after completing a profile', async ({ br
   // address, so a mixed-case invite silently never joined anyone.
   const inviteeTyped = `${inviteeLocal.toUpperCase()}@WordleTeams.com`
 
-  const creatorContext = await browser.newContext()
+  const ownerContext = await browser.newContext()
   const inviteeContext = await browser.newContext()
 
   try {
-    const creator = await creatorContext.newPage()
-    await signInWithOwnTeam(creator, creatorEmail)
-    await expect(teamCard(creator)).toBeVisible()
+    const owner = await ownerContext.newPage()
+    await signInWithOwnTeam(owner, ownerEmail)
+    await expect(teamCard(owner)).toBeVisible()
 
     // OUTCOME 1 of 4 — `invited`. The address has no account, so it is parked
     // in teams.invited and the invite email goes out. Typed mixed-case,
     // expected back lowercase everywhere below.
-    await invite(creator, inviteeTyped)
-    await expect(toastWith(creator, `Invite sent to ${inviteeEmail}`)).toBeVisible()
+    await invite(owner, inviteeTyped)
+    await expect(toastWith(owner, `Invite sent to ${inviteeEmail}`)).toBeVisible()
     // The dialog closes on every outcome except already_member.
-    await expect(creator.getByRole('dialog')).toHaveCount(0)
+    await expect(owner.getByRole('dialog')).toHaveCount(0)
 
-    // Divergence 6: v1 shows a creator nowhere who they invited. The row is
+    // Divergence 6: v1 shows an owner nowhere who they invited. The row is
     // asserted twice on purpose — once by its cancel control, which counts rows
     // unambiguously, and once by the address being RENDERED, which is the thing
     // the divergence is actually for. Task 7 gave that span `break-all`; that is
@@ -175,23 +175,23 @@ test('an invited address joins the team after completing a profile', async ({ br
     // locator still matches. `.first()` because the address is the entire text
     // content of both the inner span and its wrapper, so an unqualified
     // getByText resolves to two nested elements.
-    await expect(creator.getByRole('heading', { name: 'Pending invites' })).toBeVisible()
-    await expect(pendingRow(creator, inviteeEmail)).toHaveCount(1)
-    await expect(teamCard(creator).getByText(re(inviteeEmail)).first()).toBeVisible()
-    // And the mixed-case string the creator typed was NOT what got stored.
-    await expect(pendingRow(creator, inviteeTyped)).toHaveCount(0)
+    await expect(owner.getByRole('heading', { name: 'Pending invites' })).toBeVisible()
+    await expect(pendingRow(owner, inviteeEmail)).toHaveCount(1)
+    await expect(teamCard(owner).getByText(re(inviteeEmail)).first()).toBeVisible()
+    // And the mixed-case string the owner typed was NOT what got stored.
+    await expect(pendingRow(owner, inviteeTyped)).toHaveCount(0)
 
     // OUTCOME 2 of 4 — `resent`. Same address, second attempt, before anyone
     // has accepted. v1 said "Successfully invited player" here as well.
-    await invite(creator, inviteeTyped)
-    await expect(toastWith(creator, `Invite re-sent to ${inviteeEmail}`)).toBeVisible()
-    await expect(creator.getByRole('dialog')).toHaveCount(0)
+    await invite(owner, inviteeTyped)
+    await expect(toastWith(owner, `Invite re-sent to ${inviteeEmail}`)).toBeVisible()
+    await expect(owner.getByRole('dialog')).toHaveCount(0)
     // A resend writes NOTHING (teams.ts), so the list must not grow a second
     // row for the same address — and the dedupe in current-team-card.tsx must
     // not be what is hiding one. This also pins the case-insensitive
     // `alreadyInvited` scan: matching the stored lowercase entry against a
     // freshly typed mixed-case address is the only reason this stays at one.
-    await expect(pendingRow(creator, inviteeEmail)).toHaveCount(1)
+    await expect(pendingRow(owner, inviteeEmail)).toHaveCount(1)
 
     // The invitee's first ever sign-in. A brand-new account has no players row,
     // so `/`'s beforeLoad guard bounces it to the onboarding form — the invite
@@ -213,18 +213,18 @@ test('an invited address joins the team after completing a profile', async ({ br
     await expect(joiner).toHaveURL(/\?team=/)
     const joinerCard = teamCard(joiner)
     await expect(joinerCard.getByRole('heading', { name: SEEDED_TEAM })).toBeVisible()
-    // Both members, so this is demonstrably the CREATOR'S team and not some
-    // team of their own: 'E2E Tester' is the seeded creator, and the joiner
+    // Both members, so this is demonstrably the OWNER'S team and not some
+    // team of their own: 'E2E Tester' is the seeded owner, and the joiner
     // never created anything.
     await expect(joinerCard.getByText('E2E Tester')).toBeVisible()
     await expect(joinerCard.getByText('Iva Joiner')).toBeVisible()
-    // A member, not the creator, so they get Leave (divergence 10) and no
+    // A member, not the owner, so they get Leave (divergence 10) and no
     // Invite button.
     await expect(joinerCard.getByRole('button', { name: `Leave ${SEEDED_TEAM}` })).toBeVisible()
     await expect(joinerCard.getByRole('button', { name: 'Invite player' })).toHaveCount(0)
 
-    // AND THE CREATOR'S PAGE UPDATES WITH NO RELOAD AND NO INTERACTION. Nothing
-    // has touched `creator` since the resend above. One Convex write —
+    // AND THE OWNER'S PAGE UPDATES WITH NO RELOAD AND NO INTERACTION. Nothing
+    // has touched `owner` since the resend above. One Convex write —
     // completeProfileFor's patch of playerIds and invited — has to reach two
     // separate subscriptions on this page: getTeamInvites, which drops the
     // pending row, and getMyTeams, which grows the member list.
@@ -241,12 +241,12 @@ test('an invited address joins the team after completing a profile', async ({ br
     // of the invitee's sign-in — a minute or so of OTP polling — and a Convex
     // client that has had to reconnect comes back on a backoff. Phase 4 already
     // lost a run in three to exactly that in complete-profile.spec.ts.
-    await expect(pendingRow(creator, inviteeEmail)).toHaveCount(0, { timeout: 20_000 })
-    await expect(teamCard(creator).getByText(re(inviteeEmail))).toHaveCount(0)
-    await expect(creator.getByRole('heading', { name: 'Pending invites' })).toHaveCount(0)
-    await expect(teamCard(creator).getByText('Iva Joiner')).toBeVisible({ timeout: 20_000 })
+    await expect(pendingRow(owner, inviteeEmail)).toHaveCount(0, { timeout: 20_000 })
+    await expect(teamCard(owner).getByText(re(inviteeEmail))).toHaveCount(0)
+    await expect(owner.getByRole('heading', { name: 'Pending invites' })).toHaveCount(0)
+    await expect(teamCard(owner).getByText('Iva Joiner')).toBeVisible({ timeout: 20_000 })
   } finally {
-    await creatorContext.close()
+    await ownerContext.close()
     await inviteeContext.close()
   }
 })
@@ -259,11 +259,11 @@ test('inviting someone already on the team says so and leaves the dialog open', 
   test.setTimeout(90_000)
 
   // OUTCOME 3 of 4 — `already_member`, reached the cheapest way there is: the
-  // creator invites their own address, which playerForEmail resolves to a
+  // owner invites their own address, which playerForEmail resolves to a
   // player already in playerIds.
   //
   // THIS IS THE HIGHEST-VALUE TEST IN THE FILE. v1 answers this case with
-  // "Successfully invited player" and closes the dialog, so a creator who
+  // "Successfully invited player" and closes the dialog, so an owner who
   // fat-fingers an address they have already added is told it worked. Nothing
   // visible distinguishes that from success — which is why nothing caught it
   // for the life of v1, and why divergence 9 exists.
@@ -275,7 +275,7 @@ test('inviting someone already on the team says so and leaves the dialog open', 
   // this pins normalisation on the COMPARE path, where the first test pins it on
   // the write path.
   const typedEmail = `${memberLocal.toUpperCase()}@WordleTeams.com`
-  // The address the creator "meant" to type. Seeded so it already has a players
+  // The address the owner "meant" to type. Seeded so it already has a players
   // row, which makes the corrected attempt take the `added` branch — the one
   // outcome that sends no email. The correction has to actually go through for
   // this test to mean anything, and an `invited` correction would put a real
@@ -348,12 +348,12 @@ test('inviting someone who already has an account adds them to the team directly
   // simply find themselves on the team, which is v1's behaviour and is kept as
   // parity on purpose.
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-  const creatorEmail = `e2e+add-owner-${stamp}@wordleteams.com`
+  const ownerEmail = `e2e+add-owner-${stamp}@wordleteams.com`
   const existingEmail = `e2e+add-player-${stamp}@wordleteams.com`
 
   // The existing player is made through the REAL onboarding flow rather than
   // e2eSeed, for one reason that matters: ensureTeamFor names every player it
-  // creates 'E2E Tester', so the creator and the added member would be
+  // creates 'E2E Tester', so the owner and the added member would be
   // character-for-character identical in the member list and "they appear in the
   // list" could not be asserted at all. A distinct name also makes the toast's
   // `{firstName}` — the single most useful thing the outcome carries, since it
@@ -374,28 +374,28 @@ test('inviting someone who already has an account adds them to the team directly
     await newcomerContext.close()
   }
 
-  const creatorContext = await browser.newContext()
+  const ownerContext = await browser.newContext()
   try {
-    const creator = await creatorContext.newPage()
-    await signInWithOwnTeam(creator, creatorEmail)
-    const card = teamCard(creator)
+    const owner = await ownerContext.newPage()
+    await signInWithOwnTeam(owner, ownerEmail)
+    const card = teamCard(owner)
     await expect(card).toBeVisible()
-    // One member — the creator — before the add, so the count below measures a
+    // One member — the owner — before the add, so the count below measures a
     // change rather than a state. The card's only <li>s are member rows and
     // pending rows, and there are no pending rows on this path.
     await expect(card.getByRole('listitem')).toHaveCount(1)
 
-    await invite(creator, existingEmail)
+    await invite(owner, existingEmail)
 
     // The firstName the server read back off the matched account, not anything
     // the client typed.
-    await expect(toastWith(creator, `Ada was added to ${SEEDED_TEAM}`)).toBeVisible()
-    await expect(creator.getByRole('dialog')).toHaveCount(0)
+    await expect(toastWith(owner, `Ada was added to ${SEEDED_TEAM}`)).toBeVisible()
+    await expect(owner.getByRole('dialog')).toHaveCount(0)
 
     // AND THEY ARE ACTUALLY ON THE TEAM, which the toast alone does not prove.
     await expect(card.getByText('Ada Lovelace')).toBeVisible()
     await expect(card.getByRole('listitem')).toHaveCount(2)
-    // The creator's remove control appears on the new member's row and on no
+    // The owner's remove control appears on the new member's row and on no
     // other — their own row never carries one, because removeMember refuses it
     // server-side.
     await expect(card.getByRole('button', { name: 'Remove Ada' })).toHaveCount(1)
@@ -404,8 +404,8 @@ test('inviting someone who already has an account adds them to the team directly
     // teams.invited where nothing would ever claim it — they already have a
     // players row, so completeProfile, the only other place an invite is
     // retired, can never run for them again.
-    await expect(creator.getByRole('heading', { name: 'Pending invites' })).toHaveCount(0)
+    await expect(owner.getByRole('heading', { name: 'Pending invites' })).toHaveCount(0)
   } finally {
-    await creatorContext.close()
+    await ownerContext.close()
   }
 })

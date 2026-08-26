@@ -282,20 +282,20 @@ describe('upsertTeams reports what a re-copy overwrites', () => {
     expect((await recopy(t)).clobbered).toEqual({ scoring: 1 })
   })
 
-  test('counts a creator the copy replaces', async () => {
+  test('counts an owner the copy replaces', async () => {
     const t = await afterFirstCopy()
-    expect((await recopy(t, [aTeam({ creatorLegacyId: GRACE })])).clobbered).toEqual({ creator: 1 })
+    expect((await recopy(t, [aTeam({ creatorLegacyId: GRACE })])).clobbered).toEqual({ owner: 1 })
   })
 
-  test('does not count a creator the copy leaves alone', async () => {
+  test('does not count an owner the copy leaves alone', async () => {
     const t = await afterFirstCopy()
-    // Out of a scoped copy, so upsertTeams omits `creator` from the doc entirely
+    // Out of a scoped copy, so upsertTeams omits `owner` from the doc entirely
     // and the patch does not touch it. Nothing is written, so nothing is
-    // clobbered — and the stored creator has to still be there afterwards, which
+    // clobbered — and the stored owner has to still be there afterwards, which
     // is the half of the claim a count alone would not prove.
-    const before = await t.run(async (ctx) => (await ctx.db.query('teams').first())!.creator)
+    const before = await t.run(async (ctx) => (await ctx.db.query('teams').first())!.owner)
     expect((await recopy(t, [aTeam({ creatorLegacyId: undefined })])).clobbered).toEqual({})
-    const after = await t.run(async (ctx) => (await ctx.db.query('teams').first())!.creator)
+    const after = await t.run(async (ctx) => (await ctx.db.query('teams').first())!.owner)
     expect(after).toBe(before)
     expect(after).not.toBeUndefined()
   })
@@ -454,6 +454,11 @@ describe('upsertMonthlyWinners reports what a re-copy overwrites', () => {
 /**
  * The `creator` → `owner` backfill (Phase 5, Task 0 ships it, Task 1 runs it).
  *
+ * THESE TESTS STILL SAY `creator`, AND THAT IS NOT A MISSED RENAME. Everything
+ * else in v2 now reads `owner`; this mutation is the thing that MIGRATES one to
+ * the other, so it has to keep naming the field it reads from. It and these
+ * tests are deleted together at deploy step 5, when `creator` leaves the schema.
+ *
  * NOTE THE FIXTURES ARE NOT THE ONES ABOVE. These use aPlayer/aTeam imported
  * from ./fixtures.ts, which build DOCUMENTS for ctx.db.insert. The describe
  * blocks above define their own local aPlayer/aTeam, which build the copy's
@@ -505,5 +510,76 @@ describe('backfillTeamOwner', () => {
       updated: 0,
     })
     expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBeUndefined()
+  })
+})
+
+/**
+ * The `creator` clear (Phase 5, Task 2b — deploy step 4). Same reason as the
+ * block above for still saying `creator`: this is the mutation that empties the
+ * field, so it cannot stop naming it.
+ *
+ * Fixtures are ./fixtures.ts's aPlayer/aTeam — documents, not copy input rows.
+ */
+describe('clearTeamCreator', () => {
+  test('clearTeamCreator refuses a team with a creator and no owner', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+      await ctx.db.insert('teams', aTeam({ legacyId: 903, playerIds: [alice], creator: alice }))
+    })
+
+    await expect(
+      t.mutation(internal.migrate.clearTeamCreator, { dryRun: false }),
+    ).rejects.toThrow(/has creator but no owner/)
+  })
+
+  test('clearTeamCreator clears a backfilled team and is idempotent', async () => {
+    const t = convexTest(schema, modules)
+    const teamId = await t.run(async (ctx) => {
+      const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+      return ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 904, playerIds: [alice], creator: alice, owner: alice }),
+      )
+    })
+
+    const first = await t.mutation(internal.migrate.clearTeamCreator, { dryRun: false })
+    expect(first).toEqual({ scanned: 1, cleared: 1 })
+    expect((await t.run((ctx) => ctx.db.get(teamId)))?.creator).toBeUndefined()
+
+    const second = await t.mutation(internal.migrate.clearTeamCreator, { dryRun: false })
+    expect(second).toEqual({ scanned: 1, cleared: 0 })
+  })
+
+  test('dry run reports without clearing', async () => {
+    const t = convexTest(schema, modules)
+    const { alice, teamId } = await t.run(async (ctx) => {
+      const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 905, playerIds: [alice], creator: alice, owner: alice }),
+      )
+      return { alice, teamId }
+    })
+
+    expect(await t.mutation(internal.migrate.clearTeamCreator, { dryRun: true })).toEqual({
+      scanned: 1,
+      cleared: 1,
+    })
+    expect((await t.run((ctx) => ctx.db.get(teamId)))?.creator).toBe(alice)
+  })
+
+  test('leaves an already-cleared team alone', async () => {
+    const t = convexTest(schema, modules)
+    const teamId = await t.run(async (ctx) => {
+      const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+      return ctx.db.insert('teams', aTeam({ legacyId: 906, playerIds: [alice], owner: alice }))
+    })
+
+    expect(await t.mutation(internal.migrate.clearTeamCreator, { dryRun: false })).toEqual({
+      scanned: 1,
+      cleared: 0,
+    })
+    expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBeDefined()
   })
 })

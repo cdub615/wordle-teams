@@ -17,12 +17,12 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
  * the negative cases can be proven against real documents without standing up
  * a Better Auth session in the harness. The functions call it directly with
  * their own `requirePlayer(ctx)` result rather than through a ctx-only
- * wrapper — see requireTeamCreatorFor below for the creator-checking sibling.
+ * wrapper — see requireTeamOwnerFor below for the owner-checking sibling.
  */
 
 // If you add a member here, src/lib/convex-error.ts's typedCodeMessage switch
 // must grow a case too — it is exhaustive against this type on purpose.
-// INVALID_DATE is thrown here (requirePlausibleToday); CREATOR_NOT_REMOVABLE
+// INVALID_DATE is thrown here (requirePlausibleToday); OWNER_NOT_REMOVABLE
 // is thrown in teams.ts; INVALID_NAME is thrown in players.ts. INVALID_EMAIL is
 // thrown in teams.ts too, by invitePlayerFor and cancelInviteFor, when
 // normaliseInviteEmail rejects the submitted address.
@@ -31,10 +31,10 @@ export type AccessCode =
   | 'NO_PLAYER'
   | 'NOT_A_MEMBER'
   | 'INVALID_BOARD'
-  | 'NOT_TEAM_CREATOR'
+  | 'NOT_TEAM_OWNER'
   | 'INVALID_TEAM'
   | 'INVALID_DATE'
-  | 'CREATOR_NOT_REMOVABLE'
+  | 'OWNER_NOT_REMOVABLE'
   | 'INVALID_SYSTEM'
   | 'INVALID_EMAIL'
   | 'INVALID_NAME'
@@ -134,31 +134,31 @@ export async function requireTeamMemberFor(
 }
 
 /**
- * The team, if that player created it.
+ * The team, if that player owns it.
  *
- * WHY CREATOR-ONLY, AND WHY SERVER-SIDE. v1's UI offers Settings, Invite and
- * Delete only to the creator, but its RLS policy permits UPDATE to the creator
+ * WHY OWNER-ONLY, AND WHY SERVER-SIDE. v1's UI offers Settings, Invite and
+ * Delete only to the owner, but its RLS policy permits UPDATE to the owner
  * OR any member — including writes to player_ids, so any member can remove any
  * other member through the API. v2 makes the UI's rule the real one. No user
  * sees a behaviour change; the rule simply stops being cosmetic. Recorded as
  * divergence 4 in V2-ADDENDUM 7a.
  *
- * A non-member gets NOT_A_MEMBER rather than NOT_TEAM_CREATOR, matching
+ * A non-member gets NOT_A_MEMBER rather than NOT_TEAM_OWNER, matching
  * requireTeamMemberFor: a probe must not be able to distinguish "no such team"
  * from "not yours" from "yours but not yours to edit".
  *
- * `creator` is optional because a scoped copy may not include it. Such a team
- * has NOBODY who can edit it. That is honest — you are not the creator — and it
+ * `owner` is optional because a scoped copy may not include it. Such a team
+ * has NOBODY who can edit it. That is honest — you are not the owner — and it
  * is asserted in the tests so it is a known property rather than a beta
  * surprise.
  */
-export async function requireTeamCreatorFor(
+export async function requireTeamOwnerFor(
   ctx: ReaderCtx,
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
 ): Promise<Doc<'teams'>> {
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
-  if (team.creator !== playerId) throw accessError('NOT_TEAM_CREATOR')
+  if (team.owner !== playerId) throw accessError('NOT_TEAM_OWNER')
   return team
 }
 

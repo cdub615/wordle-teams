@@ -14,14 +14,14 @@ import type { Id } from '../../../convex/_generated/dataModel'
 export type MyTeam = {
   id: string
   name: string
-  isCreator: boolean
+  isOwner: boolean
   members: Array<{ id: string; firstName: string; lastName: string }>
 }
 
 /**
  * Every team you are on, with its members. Ports v1's my-teams.tsx.
  *
- * Delete is creator-only in the UI, as in v1, and now also in the mutation.
+ * Delete is owner-only in the UI, as in v1, and now also in the mutation.
  * Deleting cascades to the team's winner rows and scoring versions but leaves
  * every board alone — a board belongs to a player, not to a team.
  */
@@ -80,7 +80,7 @@ export function MyTeamsCard({
                       </li>
                     ))}
                   </ul>
-                  {team.isCreator && (
+                  {team.isOwner && (
                     <ConfirmPopover
                       open={openId === team.id}
                       onOpenChange={(next) => setOpenId(next ? team.id : null)}
