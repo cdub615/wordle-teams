@@ -169,7 +169,7 @@ name* asserting something untrue is the stronger form of the same defect. Phase 
 that makes it false, so the fix belongs with its reason, and the migration only gets more
 expensive from here.
 
-## Prerequisite 1: `creator` → `owner`, and a three-step deploy
+## Prerequisite 1: `creator` → `owner`, and a five-step deploy
 
 **Measured blast radius: 311 references across 20 files — 14 non-test, 6 test.**
 
@@ -199,27 +199,44 @@ is a one-token rename on the write side with the read side untouched.
 
 Beta holds **natively-created** teams — Phase 4 was owner-confirmed there through the real invite
 path — and native rows have no `legacyId`, so a re-copy would not restore them. Convex validates
-the schema against existing documents on push, so this is a three-step deploy, mirroring the
-pattern Phase 4's spec already established:
+the schema against existing documents on push, so this is a **five**-step deploy, extending the
+pattern Phase 4's spec established.
 
-1. Add `owner: v.optional(v.id('players'))` **alongside** `creator`. Add the backfill internal
-   mutation under this schema. Push.
-2. Dry-run the backfill against beta, then run it: `owner = creator` for every team where
-   `owner` is unset. Idempotent, counts only, never addresses.
-3. Switch every reader and writer to `owner`, drop `creator` from the schema. Push.
+Two constraints point in opposite directions, and that is what sets the length:
 
-Step 2 runs through `v2/scripts/backfill-team-owner.mjs`, mirroring
+- `creator` can only leave the **schema** once no document carries it.
+- `creator` can only be cleared from **documents** once no deployed code reads it.
+
+So the field cannot be dropped in the same deploy that switches the readers, and it cannot be
+cleared in the same pass that populates `owner` — doing that would blank the field the
+then-current code still reads, and every team would render owner-less on beta until the next
+deploy landed.
+
+| Step | Deploy | `creator` in schema | `creator` on docs | Code reads |
+|---|---|---|---|---|
+| 1 | yes | added `owner` beside it | set | `creator` |
+| 2 | — | yes | set | `creator` |
+| 3 | yes | yes | set | `owner` |
+| 4 | — | yes | cleared | `owner` |
+| 5 | yes | dropped | absent | `owner` |
+
+Beta is functional at every step. Steps 2 and 4 are operational runs, not deploys.
+
+Steps 2 and 4 run through `v2/scripts/backfill-team-owner.mjs` and
+`v2/scripts/clear-team-creator.mjs`, mirroring
 `cleanup-nameless-players.mjs`: `ConvexHttpClient` + `setAdminAuth`, `--dry-run` by default. It is
 not the CLI path — `npx convex run` demands `deployment:data:view`, which no key in this repo
 carries, whereas the migration key already carries `runInternalMutations` and
 `runInternalQueries`.
 
 **No task may run `convex deploy` or `convex dev`.** Pushing the branch triggers the GitHub Action
-that deploys to beta; steps 1 and 3 are ordinary pushes.
+that deploys to beta; steps 1, 3 and 5 are ordinary pushes.
 
-**The scaffolding is then deleted.** Once `creator` is gone from the schema, the backfill can
-never find an unset `owner` again and can never be tested again. It and
-`backfill-team-owner.mjs` come out in the same task that completes step 3.
+**The scaffolding is then deleted.** Once `creator` is gone from the schema, neither
+`backfillTeamOwner` nor `clearTeamCreator` can find a team to act on again, **and neither can be
+tested again** — their fixtures become unconstructable. Keeping them would mean permanently
+untested live code that cannot do anything. Both mutations and both `.mjs` scripts come out in
+the same task that completes step 5, exactly as Phase 4 retired `deleteNamelessPlayers`.
 
 ## Prerequisite 2: the two blocking `legacyId` fields
 
@@ -561,9 +578,11 @@ Ordered. The rename lands first so no Polar code is written against the old name
 
 | # | Task | Gate |
 |---|---|---|
-| 0 | Add `owner` beside `creator`; add the backfill internal mutation + `backfill-team-owner.mjs`. Push (deploy step 1) | Gates green |
-| 1 | Dry-run then run the backfill against beta (deploy step 2) | Counts reported, non-zero verified against a deployment known to hold data |
-| 2 | Switch all 311 references to `owner`, drop `creator` from the schema, delete the backfill scaffolding. Push (deploy step 3) | Gates green + **e2e by hand** |
+| 0 | Add `owner` beside `creator`; add `backfillTeamOwner` + its script. Push (deploy 1) | Gates green |
+| 1 | Dry-run then run the backfill against beta (deploy 2) | Counts reported, non-zero verified against a deployment known to hold data |
+| 2 | Switch all 311 references to `owner`; add `clearTeamCreator`. `creator` STAYS in the schema. Push (deploy 3) | Gates green + **e2e by hand** |
+| 2b | Dry-run then run the clear against beta (deploy 4) | Cleared count matches Task 1's backfilled count |
+| 2c | Drop `creator` from the schema; delete both mutations and both scripts. Push (deploy 5) | Gates green + **e2e by hand** |
 | 3 | Widen `playerMembership.legacyId` and `webhookEvents.legacyId` to optional | Gates green |
 | 4 | `convex/lib/polarEvents.ts` — the pure map | Five events + three prototype keys pinned |
 | 5 | `convex/lib/polarIdentity.ts` + `resolvePlayerIdFor` — dual-namespace resolution | **Both silent-202 cases pinned** |

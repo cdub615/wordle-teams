@@ -67,7 +67,7 @@
 
 ## Task 0: Add `owner` beside `creator`, and the backfill
 
-Deploy step 1 of 3. The schema must accept both fields at once so the backfill can run before anything reads `owner`.
+Deploy step 1 of 5. The schema must accept both fields at once so the backfill can run before anything reads `owner`.
 
 **Files:**
 - Modify: `v2/convex/schema.ts:98`
@@ -142,10 +142,13 @@ In `v2/convex/schema.ts`, immediately after the `creator` line (currently line 9
     creator: v.optional(v.id('players')), // optional: the creator may be outside a scoped copy
 
     // BEING RENAMED FROM `creator`. Both fields exist only for the duration of
-    // the three-step deploy in Phase 5 (Task 0 adds this, Task 1 backfills it,
-    // Task 2 drops `creator`). Convex validates the schema against existing
-    // documents on push, and beta holds natively-created teams that a re-copy
-    // could not restore, so the rename cannot land in one step.
+    // the five-step deploy in Phase 5 (Task 0 adds this, Task 1 backfills it,
+    // Task 2 switches every reader, Task 2b clears the old field, Task 2c
+    // drops it). Convex validates the schema against existing documents on
+    // push, so `creator` can only leave the schema once no document carries it,
+    // and it can only be cleared once no deployed code reads it — which is why
+    // this takes five steps rather than one. Beta holds natively-created teams
+    // that a re-copy could not restore, so it must stay working throughout.
     //
     // WHY RENAME AT ALL: this field is read as a ROLE everywhere and never as
     // history — it gates settings, invites, member removal and deletion — and
@@ -257,14 +260,14 @@ Expected: all four green.
 
 ```bash
 git add v2/convex/schema.ts v2/convex/migrate.ts v2/convex/migrate.test.ts v2/scripts/backfill-team-owner.mjs
-git commit -m "feat(teams): add owner beside creator, with a backfill (rename step 1/3)"
+git commit -m "feat(teams): add owner beside creator, with a backfill (rename step 1/5)"
 ```
 
 ---
 
 ## Task 1: Run the backfill against beta
 
-Deploy step 2 of 3. **Operational — no code changes.** This is the controller's task, not a subagent's: it requires the branch to be pushed and credentials a subagent must not hold.
+Deploy step 2 of 5. **Operational — no code changes.** This is the controller's task, not a subagent's: it requires the branch to be pushed and credentials a subagent must not hold.
 
 **Files:** none.
 
@@ -311,7 +314,7 @@ Paste the three observed counts into the beads issue for this task. They are the
 
 ## Task 2: Switch every reference to `owner`, drop `creator`
 
-Deploy step 3 of 3. Measured scope: **311 references across 20 files — 14 non-test, 6 test.** Three of the 311 are in `.mjs` and **must not change**.
+Deploy step 3 of 5. Measured scope: **311 references across 20 files — 14 non-test, 6 test.** Three of the 311 are in `.mjs` and **must not change**.
 
 **Files:**
 - Modify: `v2/convex/schema.ts`, `access.ts`, `teams.ts`, `migrate.ts:323`, `scoringSystems.ts`, `e2eSeed.ts`, `inviteEmails.ts`
@@ -373,9 +376,97 @@ cd v2 && grep -rn "NOT_TEAM_CREATOR\|CREATOR_NOT_REMOVABLE" src/ convex/
 
 Expected after the rename: no matches.
 
-- [ ] **Step 4: Drop `creator` from the schema and delete the scaffolding**
+- [ ] **Step 4: Add the mutation that clears `creator` — but do NOT drop the field yet**
 
-In `v2/convex/schema.ts`, remove the `creator` line and rewrite the `owner` comment so it no longer describes a migration that is over:
+**`creator` stays in the schema through this task.** Convex validates existing documents against the schema on push, so a field can only leave the schema once no document carries it — and the field can only be cleared once no deployed code reads it. Those two constraints point in opposite directions, which is why this is five steps and not three:
+
+| Step | Deploy | `creator` in schema | `creator` on docs | Code reads | Beta |
+|---|---|---|---|---|---|
+| Task 0 | yes | yes | set | `creator` | works |
+| Task 1 | — | yes | set | `creator` | works |
+| **Task 2 (here)** | yes | **yes** | set | `owner` | works |
+| Task 2b | — | yes | **cleared** | `owner` | works |
+| Task 2c | yes | **dropped** | absent | `owner` | works |
+
+Clearing `creator` in Task 0's backfill instead would break beta between Tasks 1 and 2, because the still-deployed code reads `creator` and would see every team as owner-less.
+
+Add to `v2/convex/migrate.ts`, beside `backfillTeamOwner`:
+
+```ts
+/**
+ * Clears teams.creator after the rename (Phase 5, deploy step 4 of 5).
+ *
+ * SEPARATE FROM backfillTeamOwner AND DEPLOYED LATER ON PURPOSE. A field can
+ * only leave the schema once no document carries it, and it can only be cleared
+ * once no deployed code reads it. Running this in the same pass that sets
+ * `owner` would blank the field the then-current code still reads, and every
+ * team would render owner-less on beta until the next deploy landed.
+ *
+ * Deleted in Task 2c together with backfillTeamOwner. Counts only.
+ */
+export const clearTeamCreator = internalMutation({
+  args: { dryRun: v.boolean() },
+  handler: async (ctx, { dryRun }) => {
+    const teams = await ctx.db.query('teams').collect()
+    let cleared = 0
+
+    for (const team of teams) {
+      if (!team.creator) continue
+      // Refuse to blank a team that never got an owner — that would
+      // manufacture exactly the owner-less state V2-ADDENDUM warns about.
+      if (!team.owner) throw new Error(`team ${team._id} has creator but no owner`)
+      cleared += 1
+      if (!dryRun) await ctx.db.patch(team._id, { creator: undefined })
+    }
+
+    return { scanned: teams.length, cleared }
+  },
+})
+```
+
+Add a matching `--execute` script at `v2/scripts/clear-team-creator.mjs`, identical to `backfill-team-owner.mjs` but calling `internal.migrate.clearTeamCreator` and printing `creator cleared:`.
+
+Add a test to `migrate.test.ts` mirroring the backfill's three:
+
+```ts
+test('clearTeamCreator refuses a team with a creator and no owner', async () => {
+  const t = convexTest(schema)
+  await t.run(async (ctx) => {
+    const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+    await ctx.db.insert('teams', aTeam({ legacyId: 903, playerIds: [alice], creator: alice }))
+  })
+
+  await expect(
+    t.mutation(internal.migrate.clearTeamCreator, { dryRun: false }),
+  ).rejects.toThrow(/has creator but no owner/)
+})
+
+test('clearTeamCreator clears a backfilled team and is idempotent', async () => {
+  const t = convexTest(schema)
+  const teamId = await t.run(async (ctx) => {
+    const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+    return ctx.db.insert(
+      'teams',
+      aTeam({ legacyId: 904, playerIds: [alice], creator: alice, owner: alice }),
+    )
+  })
+
+  expect(await t.mutation(internal.migrate.clearTeamCreator, { dryRun: false })).toEqual({
+    scanned: 1,
+    cleared: 1,
+  })
+  expect((await t.run((ctx) => ctx.db.get(teamId)))?.creator).toBeUndefined()
+
+  expect(await t.mutation(internal.migrate.clearTeamCreator, { dryRun: false })).toEqual({
+    scanned: 1,
+    cleared: 0,
+  })
+})
+```
+
+- [ ] **Step 4b: Rewrite the `owner` comment**
+
+In `v2/convex/schema.ts`, leave `creator` in place but rewrite the `owner` comment:
 
 ```ts
     // The team's owner: the single player who can rename it, change its scoring
@@ -391,15 +482,21 @@ In `v2/convex/schema.ts`, remove the `creator` line and rewrite the `owner` comm
     owner: v.optional(v.id('players')),
 ```
 
-Delete `backfillTeamOwner` from `migrate.ts` and delete `v2/scripts/backfill-team-owner.mjs` and its three tests in `migrate.test.ts`.
+**Do not delete the backfill scaffolding here** — Task 2b still needs it, and Task 2c removes both.
 
-- [ ] **Step 5: Verify nothing is left**
+- [ ] **Step 5: Verify nothing READS `creator` any more**
 
 ```bash
-cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ | wc -l
+cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ | grep -v "schema.ts\|migrate.ts" | wc -l
 ```
 
-Expected: `0`.
+Expected: `0` — every reader is switched.
+
+```bash
+cd v2 && grep -c "creator" convex/schema.ts
+```
+
+Expected: non-zero — the field is deliberately still declared, and Task 2c is what removes it.
 
 ```bash
 cd v2 && grep -rn "creator" --include='*.mjs' scripts/ | wc -l
@@ -422,8 +519,95 @@ If e2e fails with `Could not find public function for X:Y`, that is a **stale lo
 
 ```bash
 git add -A v2/
-git commit -m "refactor(teams): rename creator to owner (rename step 3/3)"
+git commit -m "refactor(teams): switch every reader to owner (rename step 3/5)"
 ```
+
+---
+
+## Task 2b: Clear `creator` on beta
+
+Deploy step 4 of 5. **Operational — no code changes.** Controller's task, like Task 1.
+
+**Files:** none.
+
+- [ ] **Step 1: Push Task 2 and watch the deploy**
+
+```bash
+git push && gh run watch
+```
+
+Expected: green. Beta now reads `owner`, which Task 1 populated.
+
+- [ ] **Step 2: Dry-run the clear**
+
+```bash
+cd v2 && node scripts/clear-team-creator.mjs
+```
+
+Expected: `creator cleared:` equals the `owner set:` count Task 1 recorded. If it **throws** `has creator but no owner`, stop — Task 1's backfill did not cover every team, and dropping the field would strand one.
+
+- [ ] **Step 3: Execute, then confirm idempotency**
+
+```bash
+cd v2 && node scripts/clear-team-creator.mjs --execute
+cd v2 && node scripts/clear-team-creator.mjs
+```
+
+Expected: the second run reports `creator cleared: 0` with `scanned` unchanged.
+
+- [ ] **Step 4: Sanity-check beta in a browser**
+
+Load beta and confirm a team you own still shows its owner-only controls. Nothing reads `creator` at this point, so this should be invisible — but this is the last moment the field could be restored cheaply if it is not.
+
+---
+
+## Task 2c: Drop `creator` and delete the scaffolding
+
+Deploy step 5 of 5.
+
+**Files:**
+- Modify: `v2/convex/schema.ts`, `v2/convex/migrate.ts`, `v2/convex/migrate.test.ts`
+- Delete: `v2/scripts/backfill-team-owner.mjs`, `v2/scripts/clear-team-creator.mjs`
+
+- [ ] **Step 1: Drop the field**
+
+Remove the `creator` line from the `teams` table in `v2/convex/schema.ts`. The `owner` comment written in Task 2 Step 4b already stands on its own and needs no further edit.
+
+- [ ] **Step 2: Delete the scaffolding**
+
+Once `creator` leaves the schema, `backfillTeamOwner` and `clearTeamCreator` can never find a team to act on **and can never be tested again** — their fixtures become unconstructable. Keeping them would mean permanently untested live code that cannot do anything. This is the same reasoning Phase 4 applied to `deleteNamelessPlayers`.
+
+Delete from `v2/convex/migrate.ts`: `backfillTeamOwner`, `clearTeamCreator`. Delete from `v2/convex/migrate.test.ts`: all five of their tests. Delete both `.mjs` scripts.
+
+- [ ] **Step 3: Verify**
+
+```bash
+cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ | wc -l
+```
+
+Expected: `0`.
+
+```bash
+cd v2 && grep -rn "creator" --include='*.mjs' scripts/ | wc -l
+```
+
+Expected: `3` — unchanged. Those name v1's Postgres column.
+
+```bash
+cd v2 && ls scripts/backfill-team-owner.mjs scripts/clear-team-creator.mjs 2>&1
+```
+
+Expected: both "No such file or directory".
+
+- [ ] **Step 4: Gates, e2e, commit, push**
+
+```bash
+cd v2 && pnpm lint && pnpm typecheck && pnpm test:once && pnpm build && pnpm e2e
+git add -A v2/
+git commit -m "refactor(teams): drop creator, delete the rename scaffolding (step 5/5)"
+```
+
+The controller pushes and watches the deploy. **If this push fails schema validation**, a document still carries `creator` — re-run Task 2b's dry run rather than forcing anything.
 
 ---
 
