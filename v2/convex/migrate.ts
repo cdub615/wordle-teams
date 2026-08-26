@@ -482,10 +482,12 @@ export const upsertMemberships = internalMutation({
         // caller — it does not rest on Supabase happening to populate the field.
         //
         // It matters more from Phase 5 on than it did before. The schema now
-        // permits native membership rows and the Polar handler writes them, so
-        // `q.eq('legacyId', undefined)` would MATCH one, and the copy would
-        // adopt and overwrite a row it did not create — wt-ksh.13's failure
-        // class, reached through a table that was previously immune to it.
+        // permits native membership rows, and Phase 5's Polar handler WILL write
+        // them — no such handler exists yet, so this is a guard standing ahead of
+        // the writer it guards against. Once one exists, `q.eq('legacyId',
+        // undefined)` would MATCH a native row, and the copy would adopt and
+        // overwrite something it did not create — wt-ksh.13's failure class,
+        // reached through a table that was previously immune to it.
         legacyId: v.string(),
         playerLegacyId: v.string(),
         membershipStatus: v.union(
@@ -531,17 +533,34 @@ export const upsertWebhookEvents = internalMutation({
         // Still REQUIRED here even though webhookEvents.legacyId became optional
         // in Phase 5 — same reasoning as upsertMemberships above, but it guards a
         // DIFFERENT lookup, so do not read the two as interchangeable. This
-        // upsert has no by_legacyId index to key on; it keys on by_webhookId and
-        // then narrows with the `.filter` on legacyId below. A row arriving
-        // without one would make that filter `legacyId === undefined`, which is
-        // precisely what a native Polar event carries, so the copy could adopt
-        // and overwrite an event it did not create (wt-ksh.13).
+        // upsert has no by_legacyId index to key on: it keys on by_webhookId and
+        // then narrows with the `.filter` on legacyId below.
+        //
+        // WHAT THAT FILTER IS FOR is the case where ONE webhookId matches TWO
+        // rows. The id belongs to Polar, not to us — it names a delivery rather
+        // than our record of one — so while v1 and v2 are both live and both
+        // receiving, the same delivery can end up stored on each side: v1's,
+        // arriving here through the copy, carries a legacyId, and v2's native row
+        // has none. The by_webhookId range then returns BOTH, and the legacyId
+        // filter is the only thing that picks out the copied one. A row arriving
+        // without a legacyId would make that filter `legacyId === undefined`,
+        // which selects the NATIVE row — the copy adopting and overwriting an
+        // event it did not create (wt-ksh.13).
         legacyId: v.number(),
 
-        // Optional, unlike legacyId above, and safely so: the copied Lemon
-        // Squeezy rows are the ones that lack a webhookId, while every native
-        // Polar event has one. So a `webhookId: undefined` query reaches only
-        // copied rows, and the legacyId filter then picks out the exact one.
+        // Optional for a reason unrelated to the above, and the two are worth
+        // not conflating. The column was added NULLABLE on 2024-03-23
+        // (supabase/migrations/20240323195151_webhook_events_add_webhook_id.sql),
+        // so the rows carrying no id are the ones older than that migration.
+        // Copied rows are therefore "may or may not have one" rather than "have
+        // none": a Lemon Squeezy row from after that date holds a uuid, and
+        // copy-from-supabase.mjs's `opt` preserves it, mapping only null/''
+        // to undefined.
+        //
+        // NOTHING ENFORCES that a native row has one. Polar supplies it in
+        // practice, but no validator or schema rule requires it, so do not build
+        // a "native rows always have a webhookId" inference on top of this field
+        // — in particular, absence here does NOT mean a row was copied.
         webhookId: v.optional(v.string()),
         playerLegacyId: v.string(),
         eventName: v.string(),
