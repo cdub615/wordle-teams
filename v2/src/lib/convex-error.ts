@@ -69,14 +69,16 @@ export function typedCodeMessage(code: AccessCode): string {
     case 'INVALID_BOARD':
       return 'That board is not complete. Check the answer and your guesses.'
     case 'NOT_TEAM_OWNER':
-      // "created" is still TRUE and will stop being true. Today every team's
-      // owner is the member who created it, so this reads correctly. Phase 5's
-      // softened downgrade reassigns `owner` to the earliest-joined remaining
-      // member — the whole reason the field was renamed to `owner` — and on
-      // the day that ships this sentence becomes a lie to the user. Rewording
-      // it is product copy, not a rename, so it is left for that task to make
-      // together with the rest of the downgrade's user-facing wording.
-      return 'Only the person who created this team can change it.'
+      // SAYS "OWNER", NOT "THE PERSON WHO CREATED IT", and that is the whole
+      // point of the wording. It used to say "created", which was true only
+      // while every team's owner was also its creator. Phase 5's softened
+      // downgrade reassigns `owner` to the earliest-joined remaining member,
+      // so a team's owner is now routinely somebody who did not create it —
+      // and the old sentence would have told that person something false about
+      // themselves. Nothing would have caught it: these are string literals in
+      // a switch, so lint, tsc, build and the whole suite stay green while the
+      // copy lies. Keep any future rewording true of the OWNER FIELD alone.
+      return "Only this team's owner can change it."
     case 'INVALID_TEAM':
       return 'A team needs a name.'
     case 'INVALID_DATE':
@@ -86,8 +88,8 @@ export function typedCodeMessage(code: AccessCode): string {
       // clock, so this points at the actual cause instead.
       return "Your device's clock looks off. Check your date and time settings and try again."
     case 'OWNER_NOT_REMOVABLE':
-      // Same "created" caveat as NOT_TEAM_OWNER above.
-      return "The person who created this team can't be removed as a member."
+      // Says "owner" for the reason NOT_TEAM_OWNER above does.
+      return "This team's owner can't be removed as a member."
     case 'INVALID_SYSTEM':
       return `Points must be whole numbers between ${SYSTEM_VALUE_MIN} and ${SYSTEM_VALUE_MAX}.`
     case 'INVALID_EMAIL':

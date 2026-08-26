@@ -11,6 +11,7 @@
 import type * as access from "../access.js";
 import type * as auth from "../auth.js";
 import type * as authEmails from "../authEmails.js";
+import type * as billing from "../billing.js";
 import type * as e2ePrune from "../e2ePrune.js";
 import type * as e2eSeed from "../e2eSeed.js";
 import type * as email from "../email.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   access: typeof access;
   auth: typeof auth;
   authEmails: typeof authEmails;
+  billing: typeof billing;
   e2ePrune: typeof e2ePrune;
   e2eSeed: typeof e2eSeed;
   email: typeof email;

@@ -236,11 +236,14 @@ export const updateTeam = mutation({
  * every team they are on — daily_scores has no team foreign key in Postgres
  * either — so deleting a team must never destroy anybody's history.
  *
- * NO ACCESS CHECK OF ITS OWN — every caller must do that first. Three callers:
- * deleteTeamFor (owner-only), leaveTeamFor's last-member case, and e2ePrune.ts,
+ * NO ACCESS CHECK OF ITS OWN — every caller must do that first. Four callers:
+ * deleteTeamFor (owner-only); leaveTeamFor's last-member case; e2ePrune.ts,
  * which substitutes a different authority for the missing access check — it runs
  * only on an E2E_TEST_MODE deployment and only on teams whose entire roster was
- * e2e debris. Any fourth caller owes the same.
+ * e2e debris; and since Phase 5, billing.ts's downgradeTeamRemovalFor, whose
+ * authority is the verified Polar event that revoked the subscription, and which
+ * reaches here ONLY for a team its empty-remainder check proved nobody is left
+ * on. Any fifth caller owes the same.
  *
  * EXPORTED SINCE THE PRUNE (wordle-teams-1cd). It was module-private while both
  * callers lived in this file; e2ePrune.ts must not hand-roll a second cascade,
