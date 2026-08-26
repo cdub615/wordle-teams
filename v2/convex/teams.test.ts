@@ -901,8 +901,8 @@ describe('leaveTeamFor', () => {
 /**
  * The invite fixtures. `.test` addresses only — this repository is public.
  *
- * ADA_AS_TYPED is the same address as ADA, padded and mixed-case, in the shape a
- * owner actually types or pastes one. STRANGER is nobody's account.
+ * ADA_AS_TYPED is the same address as ADA, padded and mixed-case, in the shape
+ * an owner actually types or pastes one. STRANGER is nobody's account.
  */
 const OWNER = 'owner@example.test'
 const ADA = 'ada@example.test'
@@ -1423,7 +1423,7 @@ describe('cancelInviteFor / getTeamInvitesFor', () => {
     // The mirror of removeMemberFor's early return, and for the reason that one
     // gives: any team write invalidates getMyTeams for EVERY connected client,
     // so paying that broadcast for a change that never happened is pure waste.
-    // Reachable without a UI bug — cancelInvite is a public mutation and a
+    // Reachable without a UI bug — cancelInvite is a public mutation and an
     // owner can submit any string — and by a double-click on a row the
     // reactive update has already removed.
     //

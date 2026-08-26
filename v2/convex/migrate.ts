@@ -1,5 +1,5 @@
 import { internalMutation, internalQuery } from './_generated/server'
-import { v } from 'convex/values'
+import { ConvexError, v } from 'convex/values'
 import { SYSTEM_FIELDS } from './lib/scoringSystem.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
@@ -820,10 +820,12 @@ export const backfillTeamOwner = internalMutation({
  * of this with neither field, which is exactly the owner-less state V2-ADDENDUM
  * warns about, and step 5's schema drop would then strand it with no way back —
  * the value it would have been recovered from is the one we just deleted. It
- * throws instead, which turns an incomplete backfill into a loud failure one
- * step before that becomes irreversible. Throwing also aborts the whole
- * mutation: Convex rolls the transaction back, so a run that hits this clears
- * nothing at all rather than stopping half way.
+ * throws a ConvexError carrying `{ code: 'CREATOR_WITHOUT_OWNER', teamId }`
+ * instead, which turns an incomplete backfill into a loud failure one step
+ * before that becomes irreversible. Throwing also aborts the whole mutation:
+ * Convex rolls the transaction back, so a run that hits this clears nothing at
+ * all rather than stopping half way. The fix is to re-run
+ * scripts/backfill-team-owner.mjs --execute, then this again.
  *
  * DELETED IN TASK 2c (deploy step 5), along with backfillTeamOwner,
  * scripts/clear-team-creator.mjs and scripts/backfill-team-owner.mjs. Once
@@ -845,7 +847,21 @@ export const clearTeamCreator = internalMutation({
       // Refuse to blank a team that never got an owner — that would
       // manufacture exactly the owner-less state V2-ADDENDUM warns about,
       // and step 5's schema drop would then strand it.
-      if (!team.owner) throw new Error(`team ${team._id} has creator but no owner`)
+      //
+      // A ConvexError, NOT A PLAIN Error, AND THE DIFFERENCE IS THE WHOLE
+      // POINT OF NAMING THE TEAM. Convex REDACTS plain Error messages in
+      // production, and beta runs on prod Convex vars, so `throw new
+      // Error(...)` would reach the operator running clear-team-creator.mjs
+      // as "Server Error" — losing the one id that makes this actionable.
+      // ConvexError's `data` is delivered to the caller verbatim. Do not
+      // "simplify" this back to an Error; convex-test never redacts, so the
+      // test below cannot tell you that you broke it.
+      //
+      // Not accessError(): this is an operational failure, not an access
+      // denial, and AccessCode must not grow codes no UI can render.
+      if (!team.owner) {
+        throw new ConvexError({ code: 'CREATOR_WITHOUT_OWNER', teamId: team._id })
+      }
       cleared += 1
       if (!dryRun) await ctx.db.patch(team._id, { creator: undefined })
     }

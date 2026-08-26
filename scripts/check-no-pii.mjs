@@ -23,7 +23,7 @@ const ALLOWED_EMAILS = [
   // RFC 2606 reserves the `.test` TLD for exactly this, alongside the
   // example.com/org/net names already allowed above — it can never resolve and
   // can never belong to anybody. The v2 suites use it throughout
-  // (ada@example.test, creator@example.test).
+  // (ada@example.test, owner@example.test).
   //
   // ADDED AFTER THE FACT, and the reason matters: every commit in Phase 4 was
   // made with --no-verify, on the belief that this hook merely staged

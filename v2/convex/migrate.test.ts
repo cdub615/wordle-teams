@@ -1,4 +1,5 @@
 import { convexTest } from 'convex-test'
+import { ConvexError } from 'convex/values'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { internal } from './_generated/api'
@@ -523,14 +524,28 @@ describe('backfillTeamOwner', () => {
 describe('clearTeamCreator', () => {
   test('clearTeamCreator refuses a team with a creator and no owner', async () => {
     const t = convexTest(schema, modules)
-    await t.run(async (ctx) => {
+    const teamId = await t.run(async (ctx) => {
       const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
-      await ctx.db.insert('teams', aTeam({ legacyId: 903, playerIds: [alice], creator: alice }))
+      return ctx.db.insert('teams', aTeam({ legacyId: 903, playerIds: [alice], creator: alice }))
     })
 
-    await expect(
-      t.mutation(internal.migrate.clearTeamCreator, { dryRun: false }),
-    ).rejects.toThrow(/has creator but no owner/)
+    // ASSERTS THE PAYLOAD, NOT A MESSAGE SUBSTRING, and the distinction is the
+    // point of the throw. A plain Error would satisfy `toThrow(/.../)` here
+    // just as well — convex-test never redacts — while being redacted to
+    // "Server Error" on the prod-vars deployment this actually runs against.
+    // Pinning `data.teamId` is the only assertion that fails if someone turns
+    // this back into an Error, because a plain Error has no `data` at all.
+    await expect(t.mutation(internal.migrate.clearTeamCreator, { dryRun: false })).rejects.toThrow(
+      ConvexError,
+    )
+    const err = await t
+      .mutation(internal.migrate.clearTeamCreator, { dryRun: false })
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ConvexError)
+    expect((err as ConvexError<{ code: string; teamId: string }>).data).toEqual({
+      code: 'CREATOR_WITHOUT_OWNER',
+      teamId,
+    })
   })
 
   test('clearTeamCreator clears a backfilled team and is idempotent', async () => {

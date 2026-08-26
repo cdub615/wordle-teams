@@ -42,6 +42,13 @@
  * incomplete backfill surfacing one step before the schema drop makes it
  * irreversible: re-run scripts/backfill-team-owner.mjs --execute, then this.
  *
+ * IT PRINTS THE OFFENDING teamId, which is the one exception to "counts only"
+ * below and is not a PII leak — a Convex document id is an opaque key, not a
+ * team name or an address. It survives to the operator's screen only because
+ * the mutation throws a ConvexError with the id in `data`: a plain Error would
+ * arrive redacted as "Server Error" from a production-vars deployment. See the
+ * catch below, which reads `data` explicitly.
+ *
  * SAFE TO RE-RUN. It only touches teams that still carry a creator, so a second
  * run reports `creator cleared 0`. Nothing can reintroduce one either —
  * createTeamFor writes `owner` as of step 3 — so unlike the backfill this
@@ -66,6 +73,7 @@
  * `creator` is gone from the schema there is nothing left for it to clear.
  */
 import { ConvexHttpClient } from 'convex/browser'
+import { ConvexError } from 'convex/values'
 import { internal } from '../convex/_generated/api.js'
 
 const args = process.argv.slice(2)
@@ -100,9 +108,37 @@ const convex = new ConvexHttpClient(CONVEX_URL)
 convex.setAdminAuth(CONVEX_MIGRATION_KEY)
 
 console.log(`Clearing teams.creator (${execute ? 'EXECUTE' : 'dry run'})...`)
-const { scanned, cleared } = await convex.mutation(internal.migrate.clearTeamCreator, {
-  dryRun: !execute,
-})
+
+// UNWRAPS ConvexError.data RATHER THAN LETTING THE THROW REACH THE TOP. An
+// unhandled rejection prints a stack whose message, on a production-vars
+// deployment, is the redacted "Server Error" — the mutation goes to the trouble
+// of putting the team id in `data` precisely so it survives that, and only an
+// explicit read of `err.data` gets it onto the operator's screen. `data` is the
+// only field guaranteed to cross the wire intact; `err.message` is not.
+let result
+try {
+  result = await convex.mutation(internal.migrate.clearTeamCreator, { dryRun: !execute })
+} catch (err) {
+  if (err instanceof ConvexError && err.data?.code === 'CREATOR_WITHOUT_OWNER') {
+    console.error('\nRefused: a team still carries a creator but has no owner.')
+    console.error(`  teamId  ${err.data.teamId}`)
+    console.error(
+      '\nNothing was written — the mutation throws before its first patch and Convex\n' +
+        'rolls the transaction back, so this is a clean stop, not a half-done run.\n' +
+        'This means the backfill is incomplete. Fix it by re-running:\n' +
+        '  CONVEX_URL=... CONVEX_MIGRATION_KEY=... node scripts/backfill-team-owner.mjs --execute\n' +
+        'then run this script again.',
+    )
+    process.exit(1)
+  }
+  // Anything else is not this failure mode, and guessing at it would be worse
+  // than showing the operator what actually came back.
+  console.error(`\nThe mutation failed: ${err.message}`)
+  if (err instanceof ConvexError) console.error(`  data: ${JSON.stringify(err.data)}`)
+  process.exit(1)
+}
+
+const { scanned, cleared } = result
 
 const row = (label, n) => console.log(`  ${label.padEnd(30)} ${n}`)
 row('teams scanned', scanned)
