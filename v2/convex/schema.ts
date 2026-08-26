@@ -95,29 +95,20 @@ export default defineSchema({
     // match, because the copy must not adopt them.
     legacyId: v.optional(v.number()),
     name: v.string(),
-    // DEAD FIELD, RETAINED ONLY UNTIL THE TASK 2c SCHEMA DROP (deploy step 5).
-    // Renamed to `owner` below. As of Task 2 (deploy step 3) NOTHING READS OR
-    // WRITES THIS — the only code that still names it is the migration
-    // scaffolding in migrate.ts (backfillTeamOwner, which filled `owner` from
-    // it, and clearTeamCreator, which empties it), plus their scripts and tests.
-    // It is still declared because Convex validates the schema against every
-    // existing document on push, so the declaration cannot go until Task 2b
-    // (deploy step 4) has cleared the field from the last document carrying it.
-    // Do not add a reader. If you want the team's owner, it is `owner`.
-    creator: v.optional(v.id('players')),
 
-    // WHO CONTROLS THIS TEAM. Gates settings, invites, member removal and
-    // deletion — see requireTeamOwnerFor in access.ts, which is the only place
-    // that check lives.
+    // WHO CONTROLS THIS TEAM: the one player who can rename it, change its
+    // scoring system, invite and remove members, and delete it — see
+    // requireTeamOwnerFor in access.ts, which is the only place that check
+    // lives.
     //
-    // Optional because a scoped copy may not include the owner's player row, so
+    // Optional because a scoped copy may not include that player's row, so
     // upsertTeams omits the field rather than inventing one. Such a team has
     // NOBODY who can edit it; that is honest, and it is asserted in the tests so
     // it stays a known property rather than a beta surprise.
     //
-    // NAMED `owner`, NOT `creator`: it is read as a ROLE everywhere and never as
-    // history, and Phase 5's softened downgrade reassigns it to the
-    // earliest-joined remaining member, which would make `creator` plainly false.
+    // A ROLE, NOT HISTORY. This is emphatically not "the person who created the
+    // team": Phase 5's softened downgrade reassigns it to the earliest-joined
+    // remaining member, so reading it as authorship is plainly false.
     owner: v.optional(v.id('players')),
     playerIds: v.array(v.id('players')),
 
