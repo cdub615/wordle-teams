@@ -469,10 +469,12 @@ In `v2/convex/schema.ts`, leave `creator` in place but rewrite the `owner` comme
 - [ ] **Step 5: Verify nothing READS `creator` any more**
 
 ```bash
-cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ e2e/ | grep -v "schema.ts\|migrate.ts" | wc -l
+cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ e2e/ | grep -v "_generated" | grep -vE "^convex/(schema|migrate|migrate\.test)\.ts:" | wc -l
 ```
 
 Expected: `0` — every reader is switched. **`e2e/` is included deliberately**: nothing there breaks without it, so it is the one directory a passing build will not catch.
+
+**Note the `-vE` anchored exclusion.** An earlier draft used `grep -v "schema.ts\|migrate.ts"`, where the unescaped `.` is a regex wildcard — and that pattern does **not** match `convex/migrate.test.ts`, so the test file's 28 legitimately-protected references (5 `creatorLegacyId`, 23 scaffolding tests) counted as failures and the gate could never reach 0. `migrate.test.ts` is excluded on the same grounds as `migrate.ts`: it tests the migration scaffolding, which must keep naming the field it migrates from.
 
 ```bash
 cd v2 && grep -c "creator" convex/schema.ts
