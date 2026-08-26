@@ -236,8 +236,16 @@ export const updateTeam = mutation({
  * every team they are on — daily_scores has no team foreign key in Postgres
  * either — so deleting a team must never destroy anybody's history.
  *
- * NO ACCESS CHECK OF ITS OWN — every caller must do that first. Shared by
- * deleteTeamFor (owner-only) and by leaveTeamFor's last-member case.
+ * NO ACCESS CHECK OF ITS OWN — every caller must do that first. Three callers:
+ * deleteTeamFor (owner-only), leaveTeamFor's last-member case, and e2ePrune.ts,
+ * which substitutes a different authority for the missing access check — it runs
+ * only on an E2E_TEST_MODE deployment and only on teams whose entire roster was
+ * e2e debris. Any fourth caller owes the same.
+ *
+ * EXPORTED SINCE THE PRUNE (wordle-teams-1cd). It was module-private while both
+ * callers lived in this file; e2ePrune.ts must not hand-roll a second cascade,
+ * because a bare `db.delete(team._id)` there would orphan exactly the
+ * monthlyWinners and scoringSystems rows this function exists to collect.
  *
  * TAKES THE DOCUMENT, NOT AN ID, and that is the whole of the protection: it
  * cannot enforce authorization, but a caller holding only a client-supplied
@@ -247,7 +255,7 @@ export const updateTeam = mutation({
  * recomputeTeamMonths and loadTeamMonthSystem both take a Doc<'teams'>, and only
  * the authorization-free read monthsWithWinners takes a bare id.
  */
-async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Promise<void> {
+export async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Promise<void> {
   const winners = await ctx.db
     .query('monthlyWinners')
     .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id))

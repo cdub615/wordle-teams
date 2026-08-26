@@ -39,6 +39,46 @@ const E2E_ADDRESS = /^e2e\+[^@]+@wordleteams\.com$/i
  */
 export const isE2eEmail = (email: string) => E2E_ADDRESS.test(email)
 
+// The synthetic `players.legacyId` e2eSeed.ts stamps on every row it creates:
+// `e2e-<lowercased email>`. See that file's doc comment — the value exists so a
+// seeded row is identifiable on sight AND can never be adopted by the Supabase
+// copy, which matches on by_legacyId.
+const E2E_SEED_LEGACY_PREFIX = 'e2e-'
+
+/**
+ * Whether a `players` row is a throwaway e2e row — the rule e2ePrune.ts deletes
+ * on, and the reason it can be trusted to.
+ *
+ * A UNION OF TWO MARKERS, BECAUSE NEITHER ALONE COVERS THE ROWS THAT EXIST.
+ * Measured against the local anonymous backend on 2026-08-26, over 2520 player
+ * rows, every one of which was e2e debris:
+ *
+ *   - 2488 matched by ADDRESS. 605 of those carry no legacyId at all: they were
+ *     created by the real signup/invite flow during a test, not by the seed, so
+ *     no marker was ever stamped on them. The address is the only handle.
+ *   - 1915 matched by LEGACY-ID PREFIX. 32 of those FAIL the address test:
+ *     `second-e2e+<stamp>@wordleteams.com`, from an older spec, where the local
+ *     part does not START with `e2e+` and E2E_ADDRESS is anchored. The prefix is
+ *     the only handle.
+ *
+ * WHY THE PREFIX CANNOT MATCH A COPIED ROW, which is what makes it safe to
+ * delete on. A copied player's legacyId is a Supabase uuid, whose first hyphen
+ * is always at index 8; `e2e-` puts one at index 3, so no uuid can begin with
+ * it. Confirmed on the same measurement: of 1916 string legacyIds present, 1915
+ * had their first hyphen at index 3 and one at index 7 (a hand-written scratch
+ * value) — not one at index 8, because no Supabase copy has ever run against
+ * that deployment.
+ *
+ * NOT MODE-GATED, deliberately, unlike isE2eTraffic above. This answers "is this
+ * row test data", which is a property of the row; whether the caller is allowed
+ * to act on that answer is a property of the deployment, and e2ePrune.ts checks
+ * E2E_TEST_MODE itself before it reads this. Folding the flag in here would make
+ * the predicate untestable against a row without also stubbing the environment.
+ */
+export function isE2ePlayerRow(row: { email: string; legacyId?: string }): boolean {
+  return isE2eEmail(row.email) || (row.legacyId?.startsWith(E2E_SEED_LEGACY_PREFIX) ?? false)
+}
+
 /**
  * Whether this address, on this deployment, is e2e traffic.
  *

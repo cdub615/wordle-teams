@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isE2eEmail, isE2eTraffic, realRecipients } from './e2e.ts'
+import { isE2eEmail, isE2ePlayerRow, isE2eTraffic, realRecipients } from './e2e.ts'
 
 // The addresses here are throwaway e2e shapes and example.test, never anybody's
 // real address — this repository is public.
@@ -109,5 +109,54 @@ describe('realRecipients', () => {
 
   test('nothing is dropped when the flag is off, however the batch is shaped', () => {
     expect(realRecipients([E2E, REAL], 'false')).toEqual([E2E, REAL])
+  })
+})
+
+describe('isE2ePlayerRow', () => {
+  // The prune deletes on this predicate, so every case below is a row that
+  // either does or does not get destroyed. Each fixture is a shape that was
+  // actually MEASURED on the local backend on 2026-08-26, not an invented one.
+
+  test('the seed shape: an e2e address carrying the e2e- legacyId', () => {
+    expect(isE2ePlayerRow({ email: E2E, legacyId: `e2e-${E2E}` })).toBe(true)
+  })
+
+  test('address only, no legacyId — 605 rows born in the real signup flow', () => {
+    expect(isE2ePlayerRow({ email: E2E })).toBe(true)
+  })
+
+  // THE CASE THE ADDRESS RULE ALONE MISSES, and the reason the predicate is a
+  // union at all. 32 rows looked like this: an older spec's `second-e2e+…` local
+  // part, which does not START with `e2e+`, so the anchored E2E_ADDRESS regex —
+  // correctly, see its own test above — rejects it. Only the seed's legacyId
+  // reaches them. Delete this branch and 32 rows become immortal.
+  test('legacyId only, when the address does not start with the e2e+ tag', () => {
+    const email = 'second-e2e+1755555555555-1@wordleteams.com'
+    expect(isE2eEmail(email)).toBe(false)
+    expect(isE2ePlayerRow({ email, legacyId: `e2e-${email}` })).toBe(true)
+  })
+
+  test('an older seed that stamped only the local part is still caught', () => {
+    // 203 rows carried `e2e-<local part>` rather than `e2e-<full address>`. The
+    // rule is a PREFIX test, not an equality against the row's own email, which
+    // is what keeps those reachable.
+    expect(isE2ePlayerRow({ email: E2E, legacyId: 'e2e-abc123' })).toBe(true)
+  })
+
+  test.each([
+    ['a real player with no legacyId', { email: REAL }],
+    // THE ROW THIS PREDICATE EXISTS TO NOT DELETE. A copied player's legacyId is
+    // a Supabase uuid; its first hyphen is at index 8, and `e2e-` puts one at
+    // index 3, so no uuid can begin with the marker. The fixture is chosen to
+    // start with the literal characters `e2e` to pin exactly that: it is the
+    // POSITION of the hyphen doing the work, not the absence of those letters.
+    [
+      'a copied player whose uuid happens to begin e2e',
+      { email: REAL, legacyId: 'e2e12345-1111-4111-8111-111111111111' },
+    ],
+    ['a real address at the product domain', { email: 'ada@wordleteams.com' }],
+    ['an e2e+ tag on somebody else’s domain', { email: 'e2e+abc@example.test' }],
+  ])('leaves %s alone', (_label, row) => {
+    expect(isE2ePlayerRow(row)).toBe(false)
   })
 })
