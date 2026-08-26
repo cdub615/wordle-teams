@@ -50,9 +50,11 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
  * single array literal is shared across every insert this module ever makes.
  *
  * handle_new_user ALSO inserted a player_customer row with status 'new'. There
- * is deliberately no equivalent here: playerMembership.legacyId is a required
- * string with no native source, and isProFor (access.ts) already reads a missing
- * membership row as not-pro, which is what 'new' meant.
+ * is deliberately no equivalent here, and the reason is NOT that the schema
+ * forbids one — Phase 5 widened playerMembership.legacyId to optional, so a
+ * native membership row is writable now. It is that isProFor (access.ts) already
+ * reads a MISSING membership row as not-pro, which is exactly what 'new' meant,
+ * so a row that says "nothing yet" would buy nothing.
  */
 const newPlayerDefaults = () => ({
   hasPwa: false,

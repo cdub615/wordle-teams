@@ -240,7 +240,14 @@ export default defineSchema({
   // nothing ever branched on the variant, since every gate is just "are they
   // pro". Do not port the dropped columns back into existence.
   playerMembership: defineTable({
-    legacyId: v.string(),
+    // OPTIONAL SINCE PHASE 5, for the reason players.legacyId is optional since
+    // Phase 4: Phase 5 is the first phase in which v2 WRITES this table, and a
+    // membership row for a player born in v2 has no Supabase identity to carry.
+    // Absence is meaningful — `legacyId === undefined` means "born in v2, not
+    // copied", which is what Phase 7's row-count reconciliation needs. No
+    // synthesised value: the copy matches on by_legacyId, so a fake one would
+    // silently never match.
+    legacyId: v.optional(v.string()),
     playerId: v.id('players'),
     membershipStatus,
   })
@@ -248,7 +255,10 @@ export default defineSchema({
     .index('by_player', ['playerId']),
 
   webhookEvents: defineTable({
-    legacyId: v.number(),
+    // OPTIONAL SINCE PHASE 5, for the same reason as playerMembership.legacyId
+    // above. Every webhook v2 receives is native and has no Supabase row behind
+    // it; the rows that DO carry a legacyId are the copied Lemon Squeezy ones.
+    legacyId: v.optional(v.number()),
 
     // A STRING, NOT A UUID. Polar follows Standard Webhooks, whose ids look like
     // 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W'. v1 lost a day to a uuid column that

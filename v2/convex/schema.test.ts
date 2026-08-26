@@ -331,6 +331,26 @@ describe('natively-created rows', () => {
       expect(row?.legacyId).toBeUndefined()
     })
   })
+
+  test('playerMembership and webhookEvents accept a native row with no legacyId', async () => {
+    const t = convexTest(schema, modules)
+
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined }))
+
+      // Born in v2: no Supabase identity to carry, and a synthesised value would
+      // lie to by_legacyId and to Phase 7's reconciliation.
+      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+
+      await ctx.db.insert('webhookEvents', {
+        webhookId: 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W',
+        playerId,
+        eventName: 'subscription.active',
+        body: {},
+        processed: true,
+      })
+    })
+  })
 })
 
 describe('teams.legacyId', () => {
