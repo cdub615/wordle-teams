@@ -320,15 +320,24 @@ Deploy step 3 of 5. Measured scope: **311 references across 20 files — 14 non-
 - Modify: `v2/convex/schema.ts`, `access.ts`, `teams.ts`, `migrate.ts:323`, `scoringSystems.ts`, `e2eSeed.ts`, `inviteEmails.ts`
 - Modify: `v2/src/routes/index.tsx`, `src/components/teams/current-team-card.tsx`, `src/components/teams/my-teams-card.tsx`, `src/components/scoring-system-card.tsx`
 - Modify: all 6 `*.test.ts` files carrying the name
+- Modify: `v2/e2e/invites.spec.ts` (47 refs), `v2/e2e/teams.spec.ts` (4) — locals and prose, no field accesses
 - Delete: `v2/scripts/backfill-team-owner.mjs`, and `backfillTeamOwner` from `migrate.ts`
 
 - [ ] **Step 1: Confirm the starting count**
 
 ```bash
-cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' --include='*.mjs' convex/ src/ scripts/ | wc -l
+cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' --include='*.mjs' convex/ src/ scripts/ | grep -v "_generated" | wc -l
 ```
 
-Expected: `311`. If it differs, the tree moved under you — reconcile before continuing.
+Expected: **`336`** — 311 before Task 0, plus the 25 references Task 0 itself added (the `owner` schema comment, `backfillTeamOwner`, `clearTeamCreator` and their tests). If it differs, the tree moved under you — reconcile before continuing.
+
+**Three hazards, all measured after Task 0 rather than assumed:**
+
+1. **`e2e/` is in scope and was missing from the original file list.** It holds **51** references across `e2e/invites.spec.ts` (47) and `e2e/teams.spec.ts` (4). Verified: **zero of them are field accesses** — `grep -rn "\.creator\b\|creator:" e2e/` returns 0. They are local Playwright names (`creator` page object, `creatorContext`, `creatorEmail`) and prose. So nothing breaks if you skip them, which is exactly why they are easy to miss — but comments like "both are creator-only, in the UI and the server" become false, and comment accuracy is a defect here. Rename them.
+
+2. **Do NOT blind search-and-replace `owner`.** The word already appears in v2 prose meaning *the app's human owner* ("the owner's teams", "owner-confirmed", `e2e+inv-owner-…@wordleteams.com`). Replacing `creator`→`owner` is safe; the hazard is any reverse or fuzzy pass.
+
+3. **`migrate.test.ts` has shadowed fixtures.** It now imports `aPlayer`/`aTeam` from `./fixtures.ts`, but the `upsertPlayers`, `upsertTeams` and `upsertMonthlyWinners` describe blocks each define *local* `aPlayer`/`aTeam` with a different shape — copy-input rows carrying `creatorLegacyId`/`playerLegacyIds`, not documents. **Lint and tsc are both silent about this.** `creatorLegacyId` is a wire name that must NOT be renamed, so read which fixture is in scope before touching any line in that file.
 
 - [ ] **Step 2: Rename the identifiers**
 
@@ -487,10 +496,10 @@ In `v2/convex/schema.ts`, leave `creator` in place but rewrite the `owner` comme
 - [ ] **Step 5: Verify nothing READS `creator` any more**
 
 ```bash
-cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ | grep -v "schema.ts\|migrate.ts" | wc -l
+cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ e2e/ | grep -v "schema.ts\|migrate.ts" | wc -l
 ```
 
-Expected: `0` — every reader is switched.
+Expected: `0` — every reader is switched. **`e2e/` is included deliberately**: nothing there breaks without it, so it is the one directory a passing build will not catch.
 
 ```bash
 cd v2 && grep -c "creator" convex/schema.ts
@@ -582,7 +591,7 @@ Delete from `v2/convex/migrate.ts`: `backfillTeamOwner`, `clearTeamCreator`. Del
 - [ ] **Step 3: Verify**
 
 ```bash
-cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ | wc -l
+cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' convex/ src/ e2e/ | wc -l
 ```
 
 Expected: `0`.
