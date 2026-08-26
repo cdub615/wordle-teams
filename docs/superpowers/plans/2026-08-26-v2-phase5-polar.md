@@ -204,49 +204,18 @@ Expected: PASS, including the three new tests.
 
 - [ ] **Step 6: Write the operational script**
 
-Create `v2/scripts/backfill-team-owner.mjs`, mirroring `cleanup-nameless-players.mjs`:
+Create `v2/scripts/backfill-team-owner.mjs`.
 
-```js
-#!/usr/bin/env node
-/**
- * Backfills teams.owner from teams.creator on a deployed Convex instance.
- * Phase 5 deploy step 2. Deleted in Task 2 together with the mutation it calls.
- *
- * NOT the CLI path: `npx convex run` demands `deployment:data:view`, which no
- * key in this repo carries. The migration key already carries
- * runInternalMutations, which is what this needs.
- *
- * Counts only — never a team name, never an address.
- *
- *   node scripts/backfill-team-owner.mjs            # dry run (default)
- *   node scripts/backfill-team-owner.mjs --execute
- */
-import { ConvexHttpClient } from 'convex/browser'
-import { internal } from '../convex/_generated/api.js'
+**BUILT — read the real file, not a sketch.** This step is complete as of commits `6978f72` + `a59c5f3`; the code block that used to sit here was a sketch and three of its details were wrong against the actual codebase. Corrections, kept because they generalise to the other scripts in this plan:
 
-const url = process.env.CONVEX_URL
-const adminKey = process.env.CONVEX_ADMIN_KEY
+- **`cleanup-nameless-players.mjs` does not exist.** Phase 4's spec describes it, but it was deleted after that phase, exactly as its own spec said it would be. The live models are **`v2/scripts/verify-parity.mjs`** and `copy-from-supabase.mjs`.
+- **The env var is `CONVEX_MIGRATION_KEY`, not `CONVEX_ADMIN_KEY`.** No script in this repo uses the latter and no key carries it.
+- **Do not put `--env-file=../.env.production.local` in the usage line.** That file holds 58 Vercel-generated secrets and zero `CONVEX_*` values; the siblings load it because they read Supabase, which this script never does.
 
-if (!url || !adminKey) {
-  console.error('CONVEX_URL and CONVEX_ADMIN_KEY must both be set.')
-  process.exit(1)
-}
+Two things the built version does that the sketch did not, both worth keeping in later scripts:
 
-const dryRun = !process.argv.includes('--execute')
-
-const client = new ConvexHttpClient(url)
-client.setAdminAuth(adminKey)
-
-const result = await client.mutation(internal.migrate.backfillTeamOwner, { dryRun })
-
-console.log(dryRun ? 'DRY RUN (pass --execute to write)' : 'EXECUTED')
-console.log(`  teams scanned: ${result.scanned}`)
-console.log(`  owner set:     ${result.updated}`)
-
-if (dryRun && result.updated === 0) {
-  console.log('\nNothing to do. Confirm the deployment actually holds teams before trusting this.')
-}
-```
+- **Exits 1 when `scanned === 0`**, rather than printing a note. A run against the wrong `CONVEX_URL` is otherwise indistinguishable from a clean no-op, and exit 0 there reads as success.
+- **Rejects unknown arguments.** Note this is *stricter* than its siblings, which validate only the value of `--scope=` and silently ignore anything else — so a mistyped `--exectue` is a no-op in `copy-from-supabase.mjs` today. This script is the first in the repo with the guard, not a conformance fix. Whether the siblings should get it too is filed separately.
 
 - [ ] **Step 7: Run the gates**
 
@@ -296,7 +265,7 @@ Expected: `teams scanned:` is **non-zero**. If it reports 0 teams scanned, stop 
 cd v2 && node scripts/backfill-team-owner.mjs --execute
 ```
 
-Expected: `owner set:` equals the earlier dry-run `owner set:` count.
+Expected: `owners written` equals the count the dry run reported as `owners that would be written`.
 
 - [ ] **Step 4: Confirm idempotency**
 
@@ -304,7 +273,11 @@ Expected: `owner set:` equals the earlier dry-run `owner set:` count.
 cd v2 && node scripts/backfill-team-owner.mjs
 ```
 
-Expected: `owner set: 0`, with `teams scanned:` unchanged.
+Expected: `owners that would be written: 0`, with `teams scanned:` unchanged.
+
+**A non-zero result here is probably NOT a failed backfill.** `createTeamFor` (`convex/teams.ts:163`) writes `creator` and no `owner`, and keeps doing so until Task 2 deploys. So any team created on beta between your `--execute` and Task 2 shows up as one more to write. Re-run `--execute` and carry on. The backstop is that `clearTeamCreator` refuses any creator-without-owner team at Task 2b, so a team created in this window can never silently reach the schema drop in Task 2c.
+
+If you want the window closed entirely, run Task 2 promptly after this, or re-run `--execute` immediately before Task 2b.
 
 - [ ] **Step 5: Record the numbers**
 
@@ -329,7 +302,7 @@ Deploy step 3 of 5. Measured scope: **311 references across 20 files — 14 non-
 cd v2 && grep -rn "creator\|Creator" --include='*.ts' --include='*.tsx' --include='*.mjs' convex/ src/ scripts/ | grep -v "_generated" | wc -l
 ```
 
-Expected: **`336`** — 311 before Task 0, plus the 25 references Task 0 itself added (the `owner` schema comment, `backfillTeamOwner`, `clearTeamCreator` and their tests). If it differs, the tree moved under you — reconcile before continuing.
+**Record what it prints; do not match it against a number in this document.** Measured at 311 before Task 0 and **344** after Task 0 and its review fixes landed — the growth is Task 0's own `owner` schema comment, `backfillTeamOwner`, its tests and its doc comments. An earlier draft of this plan said 336 and itemised `clearTeamCreator` into that total, which was wrong: `clearTeamCreator` is added by **this** task, not Task 0. Any number written here ages the moment a comment is edited, so treat this as a starting inventory to reconcile against your own final count, not as a gate that halts.
 
 **Three hazards, all measured after Task 0 rather than assumed:**
 
@@ -553,7 +526,7 @@ Expected: green. Beta now reads `owner`, which Task 1 populated.
 cd v2 && node scripts/clear-team-creator.mjs
 ```
 
-Expected: `creator cleared:` equals the `owner set:` count Task 1 recorded. If it **throws** `has creator but no owner`, stop — Task 1's backfill did not cover every team, and dropping the field would strand one.
+Expected: the cleared count equals the `owners written` count Task 1 recorded. If it **throws** `has creator but no owner`, stop — Task 1's backfill did not cover every team, and dropping the field would strand one.
 
 - [ ] **Step 3: Execute, then confirm idempotency**
 
