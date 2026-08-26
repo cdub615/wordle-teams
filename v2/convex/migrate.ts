@@ -473,6 +473,19 @@ export const upsertMemberships = internalMutation({
   args: {
     rows: v.array(
       v.object({
+        // Still REQUIRED here even though playerMembership.legacyId became
+        // optional in Phase 5, for the same reason upsertPlayers keeps it: the
+        // SCHEMA has to allow a row born in v2 without one, but a COPIED row
+        // always has one, and this validator is what guarantees byLegacyId below
+        // is never handed `undefined`. Convex enforces arg validators at runtime
+        // independently of the schema, so that holds even for a malformed
+        // caller — it does not rest on Supabase happening to populate the field.
+        //
+        // It matters more from Phase 5 on than it did before. The schema now
+        // permits native membership rows and the Polar handler writes them, so
+        // `q.eq('legacyId', undefined)` would MATCH one, and the copy would
+        // adopt and overwrite a row it did not create — wt-ksh.13's failure
+        // class, reached through a table that was previously immune to it.
         legacyId: v.string(),
         playerLegacyId: v.string(),
         membershipStatus: v.union(
@@ -515,7 +528,20 @@ export const upsertWebhookEvents = internalMutation({
   args: {
     rows: v.array(
       v.object({
+        // Still REQUIRED here even though webhookEvents.legacyId became optional
+        // in Phase 5 — same reasoning as upsertMemberships above, but it guards a
+        // DIFFERENT lookup, so do not read the two as interchangeable. This
+        // upsert has no by_legacyId index to key on; it keys on by_webhookId and
+        // then narrows with the `.filter` on legacyId below. A row arriving
+        // without one would make that filter `legacyId === undefined`, which is
+        // precisely what a native Polar event carries, so the copy could adopt
+        // and overwrite an event it did not create (wt-ksh.13).
         legacyId: v.number(),
+
+        // Optional, unlike legacyId above, and safely so: the copied Lemon
+        // Squeezy rows are the ones that lack a webhookId, while every native
+        // Polar event has one. So a `webhookId: undefined` query reaches only
+        // copied rows, and the legacyId filter then picks out the exact one.
         webhookId: v.optional(v.string()),
         playerLegacyId: v.string(),
         eventName: v.string(),
