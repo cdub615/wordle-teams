@@ -96,6 +96,21 @@ export default defineSchema({
     legacyId: v.optional(v.number()),
     name: v.string(),
     creator: v.optional(v.id('players')), // optional: the creator may be outside a scoped copy
+
+    // BEING RENAMED FROM `creator`. Both fields exist only for the duration of
+    // the five-step deploy in Phase 5 (Task 0 adds this, Task 1 backfills it,
+    // Task 2 switches every reader, Task 2b clears the old field, Task 2c
+    // drops it). Convex validates the schema against existing documents on
+    // push, so `creator` can only leave the schema once no document carries it,
+    // and it can only be cleared once no deployed code reads it — which is why
+    // this takes five steps rather than one. Beta holds natively-created teams
+    // that a re-copy could not restore, so it must stay working throughout.
+    //
+    // WHY RENAME AT ALL: this field is read as a ROLE everywhere and never as
+    // history — it gates settings, invites, member removal and deletion — and
+    // Phase 5's softened downgrade reassigns it to the earliest-joined
+    // remaining member, which makes the name `creator` plainly false.
+    owner: v.optional(v.id('players')),
     playerIds: v.array(v.id('players')),
 
     // INVITED ADDRESSES ARE ALWAYS LOWERCASE. v1 matched this array

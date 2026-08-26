@@ -697,3 +697,39 @@ export const counts = internalQuery({
     webhookEvents: (await ctx.db.query('webhookEvents').collect()).length,
   }),
 })
+
+// --- creator -> owner rename -------------------------------------------------
+
+/**
+ * One-shot backfill for the `creator` → `owner` rename (Phase 5, deploy step 2).
+ *
+ * Sets `owner = creator` for every team that has a creator and no owner yet.
+ * Idempotent, so re-running it is safe and reports `updated: 0`.
+ *
+ * DOES NOT CLEAR `creator`, deliberately. At the point this runs, the deployed
+ * code still READS `creator`; blanking it here would render every team
+ * owner-less on beta until the next deploy landed. Clearing is a separate
+ * mutation that ships later, once nothing reads the field.
+ *
+ * DELETED IN TASK 2c, along with scripts/backfill-team-owner.mjs. Once
+ * `creator` leaves the schema this can never find a team to update and can
+ * never be tested again — its fixtures become unconstructable — so keeping it
+ * would mean permanently untested live code that cannot do anything.
+ *
+ * Counts only. It never returns or logs a team name or an address.
+ */
+export const backfillTeamOwner = internalMutation({
+  args: { dryRun: v.boolean() },
+  handler: async (ctx, { dryRun }) => {
+    const teams = await ctx.db.query('teams').collect()
+    let updated = 0
+
+    for (const team of teams) {
+      if (!team.creator || team.owner) continue
+      updated += 1
+      if (!dryRun) await ctx.db.patch(team._id, { owner: team.creator })
+    }
+
+    return { scanned: teams.length, updated }
+  },
+})

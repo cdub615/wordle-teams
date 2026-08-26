@@ -2,6 +2,7 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { internal } from './_generated/api'
+import { aPlayer, aTeam } from './fixtures.ts'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -450,3 +451,46 @@ describe('upsertMonthlyWinners reports what a re-copy overwrites', () => {
   })
 })
 
+test('backfillTeamOwner copies creator into owner and is idempotent', async () => {
+  const t = convexTest(schema, modules)
+  const { alice, teamId } = await t.run(async (ctx) => {
+    const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+    const teamId = await ctx.db.insert(
+      'teams',
+      aTeam({ legacyId: 900, playerIds: [alice], creator: alice }),
+    )
+    return { alice, teamId }
+  })
+
+  const first = await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })
+  expect(first).toEqual({ scanned: 1, updated: 1 })
+  expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBe(alice)
+
+  const second = await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })
+  expect(second).toEqual({ scanned: 1, updated: 0 })
+})
+
+test('backfillTeamOwner dry run reports without writing', async () => {
+  const t = convexTest(schema, modules)
+  const teamId = await t.run(async (ctx) => {
+    const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+    return ctx.db.insert('teams', aTeam({ legacyId: 901, playerIds: [alice], creator: alice }))
+  })
+
+  expect(await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: true })).toEqual({
+    scanned: 1,
+    updated: 1,
+  })
+  expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBeUndefined()
+})
+
+test('backfillTeamOwner leaves a creator-less team alone', async () => {
+  const t = convexTest(schema, modules)
+  const teamId = await t.run((ctx) => ctx.db.insert('teams', aTeam({ legacyId: 902 })))
+
+  expect(await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })).toEqual({
+    scanned: 1,
+    updated: 0,
+  })
+  expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBeUndefined()
+})
