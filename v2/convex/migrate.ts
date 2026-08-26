@@ -701,17 +701,28 @@ export const counts = internalQuery({
 // --- creator -> owner rename -------------------------------------------------
 
 /**
- * One-shot backfill for the `creator` → `owner` rename (Phase 5, deploy step 2).
+ * Backfill for the `creator` → `owner` rename (Phase 5, Task 1 — deploy step 2
+ * of 5). The two numbering schemes run one apart on purpose: this code SHIPS in
+ * Task 0 (deploy step 1) and is RUN in Task 1 (deploy step 2), so every
+ * reference below names the task and the step together rather than picking one.
  *
  * Sets `owner = creator` for every team that has a creator and no owner yet.
- * Idempotent, so re-running it is safe and reports `updated: 0`.
+ * Idempotent, so re-running it reports `updated: 0` — UNLESS A TEAM WAS CREATED
+ * IN BETWEEN. createTeamFor (teams.ts:163) still writes `creator` alone until
+ * Task 2 (deploy step 3) switches the writers and readers over, so a non-zero
+ * confirming dry run means a NEW team, not a failed backfill; the fix is to run
+ * it again. That cannot silently reach the schema drop: Task 2b's
+ * clearTeamCreator is specified to throw on any team holding a creator with no
+ * owner, so an incomplete backfill fails loudly one step before `creator`
+ * leaves the schema.
  *
  * DOES NOT CLEAR `creator`, deliberately. At the point this runs, the deployed
  * code still READS `creator`; blanking it here would render every team
  * owner-less on beta until the next deploy landed. Clearing is a separate
  * mutation that ships later, once nothing reads the field.
  *
- * DELETED IN TASK 2c, along with scripts/backfill-team-owner.mjs. Once
+ * DELETED IN TASK 2c (deploy step 5), along with
+ * scripts/backfill-team-owner.mjs. Once
  * `creator` leaves the schema this can never find a team to update and can
  * never be tested again — its fixtures become unconstructable — so keeping it
  * would mean permanently untested live code that cannot do anything.
@@ -721,6 +732,10 @@ export const counts = internalQuery({
 export const backfillTeamOwner = internalMutation({
   args: { dryRun: v.boolean() },
   handler: async (ctx, { dryRun }) => {
+    // Unbounded collect, and it is fine at this scale: ~171 teams in
+    // production, well inside the per-execution read cap — the same measurement
+    // as the note at schema.ts:138. Contrast wordle-teams-b31, which is
+    // dailyScores at ~7000 and does need bounding.
     const teams = await ctx.db.query('teams').collect()
     let updated = 0
 

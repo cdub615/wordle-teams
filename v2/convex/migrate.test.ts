@@ -451,46 +451,59 @@ describe('upsertMonthlyWinners reports what a re-copy overwrites', () => {
   })
 })
 
-test('backfillTeamOwner copies creator into owner and is idempotent', async () => {
-  const t = convexTest(schema, modules)
-  const { alice, teamId } = await t.run(async (ctx) => {
-    const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
-    const teamId = await ctx.db.insert(
-      'teams',
-      aTeam({ legacyId: 900, playerIds: [alice], creator: alice }),
-    )
-    return { alice, teamId }
+/**
+ * The `creator` → `owner` backfill (Phase 5, Task 0 ships it, Task 1 runs it).
+ *
+ * NOTE THE FIXTURES ARE NOT THE ONES ABOVE. These use aPlayer/aTeam imported
+ * from ./fixtures.ts, which build DOCUMENTS for ctx.db.insert. The describe
+ * blocks above define their own local aPlayer/aTeam, which build the copy's
+ * INPUT ROWS — `creatorLegacyId`, `playerLegacyIds`, Supabase uuids — and shadow
+ * the import inside their own scope. The two shapes are not interchangeable, so
+ * a test moved between here and there fails rather than quietly doing something
+ * else, but the names alone will not warn you.
+ */
+describe('backfillTeamOwner', () => {
+  test('copies creator into owner and is idempotent', async () => {
+    const t = convexTest(schema, modules)
+    const { alice, teamId } = await t.run(async (ctx) => {
+      const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 900, playerIds: [alice], creator: alice }),
+      )
+      return { alice, teamId }
+    })
+
+    const first = await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })
+    expect(first).toEqual({ scanned: 1, updated: 1 })
+    expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBe(alice)
+
+    const second = await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })
+    expect(second).toEqual({ scanned: 1, updated: 0 })
   })
 
-  const first = await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })
-  expect(first).toEqual({ scanned: 1, updated: 1 })
-  expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBe(alice)
+  test('dry run reports without writing', async () => {
+    const t = convexTest(schema, modules)
+    const teamId = await t.run(async (ctx) => {
+      const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
+      return ctx.db.insert('teams', aTeam({ legacyId: 901, playerIds: [alice], creator: alice }))
+    })
 
-  const second = await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })
-  expect(second).toEqual({ scanned: 1, updated: 0 })
-})
-
-test('backfillTeamOwner dry run reports without writing', async () => {
-  const t = convexTest(schema, modules)
-  const teamId = await t.run(async (ctx) => {
-    const alice = await ctx.db.insert('players', aPlayer({ legacyId: 'p-alice' }))
-    return ctx.db.insert('teams', aTeam({ legacyId: 901, playerIds: [alice], creator: alice }))
+    expect(await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: true })).toEqual({
+      scanned: 1,
+      updated: 1,
+    })
+    expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBeUndefined()
   })
 
-  expect(await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: true })).toEqual({
-    scanned: 1,
-    updated: 1,
-  })
-  expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBeUndefined()
-})
+  test('leaves a creator-less team alone', async () => {
+    const t = convexTest(schema, modules)
+    const teamId = await t.run((ctx) => ctx.db.insert('teams', aTeam({ legacyId: 902 })))
 
-test('backfillTeamOwner leaves a creator-less team alone', async () => {
-  const t = convexTest(schema, modules)
-  const teamId = await t.run((ctx) => ctx.db.insert('teams', aTeam({ legacyId: 902 })))
-
-  expect(await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })).toEqual({
-    scanned: 1,
-    updated: 0,
+    expect(await t.mutation(internal.migrate.backfillTeamOwner, { dryRun: false })).toEqual({
+      scanned: 1,
+      updated: 0,
+    })
+    expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBeUndefined()
   })
-  expect((await t.run((ctx) => ctx.db.get(teamId)))?.owner).toBeUndefined()
 })
