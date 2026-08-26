@@ -10,8 +10,9 @@
 ## Summary
 
 Polar billing in v2: checkout, customer portal, an idempotent webhook handler, the membership
-transitions that move a player between free and pro, and the non-pro 2-team cap Phase 4 deferred
-here.
+transitions that move a player between free and pro, the non-pro 2-team cap Phase 4 deferred
+here, and the checkout return leg plus the pro-gate enforcement question (`wordle-teams-6tn`,
+adopted into this phase).
 
 This is **not** a greenfield integration. v1 migrated Lemon Squeezy → Polar in place and has been
 live in production since 2026-08-03. v2 inherits the Polar organizations, the two Pro products
@@ -152,6 +153,8 @@ Decisions E–J were made during this brainstorming session, each against a meas
 | H | **On downgrade, a created-but-left team's owner is reassigned to `playerIds[0]` of the remainder**; the team is deleted only when the remainder is empty. "Earliest-joined" is pinned to the append-ordered array because v2 has no `joinedAt`. | Leaving the team owner-less (V2-ADDENDUM already records that an owner-less team cannot be edited by anyone); leaving the downgraded player as owner of a team they left |
 | I | **Raw `@polar-sh/sdk` only.** A plain Convex `httpAction` returns whatever status it needs. Fixes measurement 6. | `@polar-sh/better-auth` (cannot return 5xx); a hybrid split |
 | J | **`teams.creator` is renamed to `teams.owner`** across v2, before any Polar code. | Keeping `creator` and accepting a field name that asserts a falsehood; adding `owner` beside an immutable `creator` (nothing reads "who originally created this") |
+| K | **The pro gates stay exactly as enforced as v1's**: the invite cap is enforced server-side because v1 enforces it in the RPC; `createTeam` and the scoring editor stay UI-only because v1 does not enforce them either. Closes the second half of `wordle-teams-6tn`. | Enforcing `createTeam` and the scoring editor server-side — a behaviour change dressed as a port, and one that would start refusing writes production accepts today |
+| L | **The checkout return leg is ported in drastically reduced form.** v2's reactive query removes the reason v1's version exists. Closes the first half of `wordle-teams-6tn`. | Porting `CheckoutReturn` faithfully, which would carry a session refresh and a timed retry that do nothing in v2 |
 
 ### On decision J
 
@@ -390,6 +393,63 @@ Phase 4's invite result already has four distinct outcomes; the cap adds a fifth
 collapsing into a generic failure. Phase 4 established that telling the creator exactly what
 happened is the point.
 
+## The checkout return leg, and the pro gates (`wordle-teams-6tn`)
+
+`wordle-teams-6tn` is folded into this phase. Its acceptance criterion is that Phase 5's scope
+names `CheckoutReturn` and states whether the pro gates are enforced server-side. Both are
+answered here.
+
+### The return leg is mostly unnecessary in v2
+
+v1's `src/components/checkout-return.tsx` exists to defeat a **JWT staleness** problem, which its
+own header states: `user_member_status` is stamped into the Supabase token when it is issued, so
+without `supabase.auth.refreshSession()` the token still says "free" no matter what the database
+holds. On top of that it schedules a 2-second retry, because Polar's webhook races the browser
+redirect.
+
+**v2 has neither problem.** Membership is read through `api.teams.amIPro` with `convexQuery` +
+`useSuspenseQuery` (`src/routes/index.tsx:66`) — a reactive websocket subscription, not a claim
+baked into a token. When `processPolarEvent` patches `playerMembership`, every subscribed client
+updates on its own. The session refresh has nothing to refresh, and the retry has nothing to
+retry: a slow webhook simply means the subscription updates a moment later.
+
+So the port keeps only what is still real:
+
+1. **Strip `?checkout=success`** from the URL so a reload does not re-trigger anything.
+2. **Show a pending state** — "finishing your upgrade…" — when the player returns from checkout
+   and `amIPro` is still false, resolving by itself the instant the webhook lands. This is the
+   honest version of v1's retry: v1 re-fetched because it had to, v2 waits because it does not.
+3. **No `refreshSession`, no timer, no `handled` ref.** The `useRef` guard exists only because
+   React Strict Mode double-mounts effects that perform a refresh; with no refresh to perform,
+   the guard has nothing to guard.
+
+The success URL keeps v1's shape and returns the player to the page that renders their
+membership.
+
+### The pro gates are enforced exactly as far as v1 enforces them
+
+`isProFor`'s doc comment (`convex/access.ts:202-209`) currently reads "READ ONLY, AND NOT
+ENFORCED … Phase 5 owns whether that changes." This is that decision, and the answer is **no
+change** — with one exception that was already decided.
+
+| Gate | v1 | v2 after Phase 5 | Why |
+|---|---|---|---|
+| Invite past the 2-team cap | **Enforced server-side**, in `handle_add_player_to_team` and `handle_invited_signup` | **Enforced** | Decision B. Porting real v1 behaviour, not adding a rule |
+| `createTeam` past 2 teams | UI-only; nothing stops a free account creating five teams through the API | **UI-only** | Enforcing would refuse writes production accepts today — a behaviour change dressed as a port |
+| Scoring-system editor | UI-only; the `save` action does not check pro | **UI-only** | Same |
+
+The asymmetry is v1's, not an inconsistency introduced here: v1 enforces the cap on the path
+where *somebody else* adds you to a team, and leaves the paths you drive yourself to the UI. Phase
+5 reproduces that shape.
+
+`isProFor`'s doc comment must be rewritten to record the resolution rather than continue deferring
+to a phase that has now happened.
+
+**Still not owned by any phase, and deliberately not adopted here:** the month-navigation history
+gap Phase 2 deferred (v2 shows a pro user less history than production) and `wordle-teams-k7w`
+(the monthly-winner celebration dialog). Neither is a billing behaviour; folding them in because
+they are adjacent is how a phase stops closing.
+
 ## Error handling
 
 | Condition | Response | Why |
@@ -464,8 +524,13 @@ run by hand for the rename task.
   v2 revokes them, because no Polar event references them. Correct by construction.
 - Reviving the dropped `player_customer` columns. Nothing branched on the variant; every gate is
   just "are they pro".
-- `wordle-teams-6tn` (CheckoutReturn card) and `wordle-teams-k7w` (monthly-winner dialog) still
-  have no owning phase. Not adopted here.
+- `wordle-teams-k7w` (the monthly-winner celebration dialog) still has no owning phase. Not
+  adopted here — it is not a billing behaviour.
+- The month-navigation history gap Phase 2 deferred, noted in `wordle-teams-6tn` and left open by
+  it. v2 shows a pro user less history than production; that is a Phase 2 deferral to settle in
+  the Phase 7 parity audit, not a Polar task.
+
+`wordle-teams-6tn` **is** adopted (decisions K and L) and closes with this phase.
 
 ## Acceptance Criteria
 
@@ -484,7 +549,11 @@ run by hand for the rename task.
    releases every parked invite.
 7. `teams.creator` no longer exists; `owner` carries the role everywhere; the backfill scaffolding
    is deleted.
-8. Four gates green, e2e run by hand for the rename, beta deploy green.
+8. Returning from checkout shows a pending state that resolves **without a reload or a refresh**
+   when the webhook lands, and `?checkout=success` is stripped from the URL.
+9. `isProFor`'s doc comment records the enforcement decision instead of deferring to Phase 5, and
+   `wordle-teams-6tn` closes.
+10. Four gates green, e2e run by hand for the rename and the return leg, beta deploy green.
 
 ## Task Breakdown
 
@@ -504,7 +573,8 @@ Ordered. The rename lands first so no Polar code is written against the old name
 | 9 | `convex/polar.ts` actions + `@polar-sh/sdk` dependency | Env validation fails loudly and identically |
 | 10 | The webhook `httpAction` + `processPolarEvent` + `recordWebhookFailure` | Duplicate **and** failed-then-retried both pinned |
 | 11 | Upgrade / portal UI | e2e by hand |
-| 12 | Divergences 8, 12, 13; sandbox verification; phase close | Owner-confirmed on beta |
+| 12 | The checkout return leg + `isProFor`'s doc comment (closes `wordle-teams-6tn`) | Pending state resolves with no reload; e2e by hand |
+| 13 | Divergences 8, 12, 13; sandbox verification; phase close | Owner-confirmed on beta |
 
 ## Gotchas Carried Into This Phase
 
