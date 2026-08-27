@@ -693,6 +693,14 @@ git commit -m "feat(schema): allow native playerMembership and webhookEvents row
 
 ## Task 4: `convex/lib/polarEvents.ts` — the pure event map
 
+> **SHIPPED, AND IT DIFFERS FROM THE SNIPPETS BELOW IN ONE WAY.** Commits `212814c` + `f79b1bf`. The snippets are kept as the historical record; the module is the source of truth.
+>
+> **`ACKNOWLEDGED_EVENTS` does not exist.** It was replaced by `export function isAcknowledgedEvent(eventType: string): boolean`. `ReadonlySet` is **compile-time only** — at runtime a caller can `.add()` to the exported set, and `Object.freeze()` does not prevent it (a frozen `Set` still accepts `.add()`, because entries live in internal slots rather than frozen properties; measured). That made the acknowledged-vs-unrecognised classification caller-corruptible, which is what Task 10 branches on to decide whether to log an unhandled event — in a module that spends fifteen lines justifying a `Map` precisely because its keys arrive from outside.
+>
+> **Task 10 must call `isAcknowledgedEvent(...)`, not `ACKNOWLEDGED_EVENTS.has(...)`.** Task 10's own snippets never referenced the symbol, so nothing else needs changing.
+>
+> Also note the plan's test named `'the two grant events do not share a mutable object'` **only asserted frozenness and never compared the two** — proven by experiment: under a mutation giving each grant event its own frozen object, the plan's 6-test suite exits 0 while the shipped 13-test suite exits 1.
+
 **Files:**
 - Create: `v2/convex/lib/polarEvents.ts`
 - Test: `v2/convex/lib/polarEvents.test.ts`
