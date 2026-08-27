@@ -432,12 +432,46 @@ test('a player already on the team is not added twice, and their address is stil
   })
 })
 
+// THE COUNT AND THE RELEASE DELIBERATELY DISAGREE ABOUT THIS TEAM, and the
+// asymmetry is the point: the release must visit it to clear the stale address,
+// while the badge must not offer an invite to a team the player is already on —
+// there would be nothing to accept and nothing to click. Counting it would have
+// swapped v1's counter, which could drift, for a derivation that over-counts.
+//
+// This is not a hypothetical row: a member listed in both playerIds and invited
+// is exactly what the copy brings over, since v1 never removed an invite it
+// could not match.
+test('a stale invite on a team the player is already on does not count', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: V1_UUID, email: ADA }))
+    const joined = await ctx.db.insert(
+      'teams',
+      aTeam({ legacyId: 13, playerIds: [playerId], invited: [ADA] }),
+    )
+    // A real one beside it, so this pins the exclusion rather than a zero the
+    // whole function could be returning.
+    await ctx.db.insert('teams', aTeam({ legacyId: 14, invited: ['Ada@Example.COM'] }))
+
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(1)
+
+    // The release still visits BOTH — excluding the joined team from the scan
+    // itself would strand its address forever.
+    await upgradeTeamInvitesFor(ctx, playerId)
+    expect((await ctx.db.get(joined))!.invited).toEqual([])
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(0)
+  })
+})
+
 // COPIED ROWS PREDATE THE LOWERCASE RULE. schema.ts's comment on `invited` says
 // the table cannot hold a mixed-case invite, but that governs v2's writers; the
 // copy gates map `e.toLowerCase()` and never trim, so a padded v1 address
 // survives intact (cancelInviteFor spells out which half of this is defence in
-// depth and which is not). An entry this fails to match is one nothing can ever
-// clear — the upgrade is a migrated user's only exit from it.
+// depth and which is not). An entry the upgrade misses is not strictly
+// unclearable — invitePlayerFor's add branch and cancelInviteFor would clear it
+// — but both need the team's OWNER to act again, and their invite list still
+// shows the address as outstanding, so nothing prompts them to. This is the only
+// exit the invited player can reach on their own.
 test('a mixed-case or padded copied invited entry still matches', async () => {
   const t = convexTest(schema, modules)
   await t.run(async (ctx) => {

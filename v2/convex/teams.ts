@@ -10,13 +10,6 @@ import {
   requireTeamOwnerFor,
   requireTeamMemberFor,
 } from './access'
-// THE FIRST IMPORT CYCLE IN convex/, AND IT IS DELIBERATE: billing.ts already
-// imports cascadeDeleteTeam from here. Both directions are referenced only from
-// inside function bodies — never at module scope — so neither module needs the
-// other to be initialised to finish loading. The alternative was a second
-// derivation of "parked against this address" beside the one billing.ts already
-// has, which is precisely the drift decision G exists to remove.
-import { pendingInviteCountFor } from './billing.ts'
 import { sendEmail } from './email.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
@@ -141,29 +134,6 @@ export const amIPro = query({
     const player = await currentPlayer(ctx)
     if (!player) return false
     return await isProFor(ctx, player._id)
-  },
-})
-
-/**
- * How many invites are parked against the caller's address, for v1's
- * "N Invites Pending" badge (user-dropdown.tsx:182, non-pro only).
- *
- * v1 reads a counter out of the JWT's app_metadata; v2 derives the number from
- * `teams.invited` — see pendingInviteCountFor for why decision G makes that the
- * only version that is right for a migrated user. NO CONSUMER YET: the badge is
- * Task 11 (wordle-teams-ksh).
- *
- * currentPlayer AND 0, NOT requirePlayer, mirroring amIPro above: this is a
- * badge, and a signed-out or profile-less caller wanting one is not an error to
- * throw at them. Every mutation on this file's write paths uses requirePlayer;
- * the two read-only chrome queries do not.
- */
-export const myPendingInviteCount = query({
-  args: {},
-  handler: async (ctx) => {
-    const player = await currentPlayer(ctx)
-    if (!player) return 0
-    return await pendingInviteCountFor(ctx, player._id)
   },
 })
 

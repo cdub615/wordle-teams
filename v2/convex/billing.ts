@@ -1,3 +1,5 @@
+import { query } from './_generated/server'
+import { currentPlayer } from './access'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { cascadeDeleteTeam } from './teams.ts'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
@@ -15,14 +17,17 @@ import type { WriterCtx } from './winners.ts'
  * is. That separation is why a webhook handler can be tested against a captured
  * payload while the rules below are tested against the database alone.
  *
- * EVERYTHING HERE IS A `...For` HELPER TAKING EXPLICIT ARGUMENTS — a playerId,
- * or the candidates that resolve TO one — never a mutation reading the session.
- * (This said "taking an explicit playerId" when the module had a single export;
- * resolvePlayerIdFor returns a playerId rather than taking one, so the narrower
- * wording became false of half of them.) convex-test cannot stand up a Better Auth
- * session (wordle-teams-obw), so logic behind a mutation wrapper is logic no
- * unit test can reach. The wrappers that do read the session are thin and live
- * next to the code that needs them.
+ * EVERY RULE HERE LIVES IN A `...For` HELPER TAKING EXPLICIT ARGUMENTS — a
+ * playerId, or the candidates that resolve TO one — never in a function that
+ * reads the session. (This said "taking an explicit playerId" when the module
+ * had a single export; resolvePlayerIdFor returns a playerId rather than taking
+ * one, so the narrower wording became false of half of them. It then said
+ * EVERYTHING here was such a helper, which myPendingInviteCount falsified.)
+ * convex-test cannot stand up a Better Auth session (wordle-teams-obw), so logic
+ * behind a mutation or query wrapper is logic no unit test can reach. The
+ * wrappers that do read the session are thin and live next to the code that
+ * needs them — myPendingInviteCount is the only one so far, and it resolves the
+ * caller and delegates in three lines.
  */
 
 /**
@@ -110,29 +115,39 @@ export async function resolvePlayerIdFor(
 }
 
 /**
- * An address as it must be COMPARED, mirroring normaliseInviteEmail's
- * trim().toLowerCase() on write — the same read-side normalisation
- * invitePlayerFor, cancelInviteFor and completeProfileFor all apply to this
- * field.
+ * An address reduced to what it can be COMPARED by, mirroring
+ * normaliseInviteEmail's trim().toLowerCase() on write — the same read-side
+ * normalisation invitePlayerFor, cancelInviteFor and completeProfileFor all
+ * apply to this field.
+ *
+ * BOTH OPERATIONS EARN THEIR PLACE, and cancelInviteFor sets out why they are
+ * not the same strength: toLowerCase is defence in depth against a future
+ * writer, since both copy gates already lowercase, while trim is not covered by
+ * anything — neither gate trims, so a padded v1 address survives the copy
+ * intact.
  *
  * NOT normaliseInviteEmail ITSELF, which is lib/invite.ts's WRITE-boundary
  * validator and returns null for anything failing its shape regex. Both values
  * compared below are already stored — one off a player row, one out of
  * `teams.invited` — so there is no input to reject here, and refusing to match
- * on shape would turn a stored address the regex dislikes into an invite
- * nothing can ever clear.
+ * on shape would strand an address the regex happens to dislike.
+ *
+ * NOT NAMED normaliseFor…: in this module that suffix means a helper taking an
+ * explicit playerId, and this is a string function.
  */
-const normaliseForMatch = (address: string) => address.trim().toLowerCase()
+const matchKey = (address: string) => address.trim().toLowerCase()
 
 /**
  * The teams holding an invite parked against this player's address, plus the
  * address that matched them.
  *
- * ONE PREDICATE, TWO CALLERS, WHICH IS WHAT DECISION G BUYS. The release below
- * and the count below it must agree on what "parked" means, and the only way
- * they cannot disagree is by asking the question once. v1's answer was a
- * counter written from five call sites using two different formulas, so it
- * could drift from `teams.invited` even in v1.
+ * ONE SELECTION, TWO CALLERS, WHICH IS WHAT DECISION G BUYS. The release below
+ * and the count below it must agree on WHICH ADDRESS MATCHES WHICH ENTRY, and
+ * the only way they cannot disagree is by asking that question once, here.
+ * v1's answer was a counter written from five call sites using two different
+ * formulas, so it could drift from `teams.invited` even in v1. (The count then
+ * narrows this set — it excludes teams the player is already on — but it cannot
+ * widen it, so no team can be counted that the upgrade would not clear.)
  *
  * NULL RATHER THAN AN EMPTY LIST WHEN THE PLAYER ROW IS GONE, because the two
  * callers want different things from that case and neither of them wants "this
@@ -140,12 +155,13 @@ const normaliseForMatch = (address: string) => address.trim().toLowerCase()
  * is reachable: a deletion can race a Polar redelivery, and throwing there is a
  * 500 and an endless retry over an event that can never succeed.
  *
- * NORMALISED ON READ. `invited` is lowercase by schema rule (the comment on the
- * field), but that rule governs v2's writers: both copy gates map
- * `e.toLowerCase()` and NEITHER TRIMS, so a padded v1 address survives the copy
- * intact — cancelInviteFor sets out which half of this is defence in depth and
- * which is not. For a copied player this is their only exit, so an entry the
- * comparison misses is an invite nothing can ever clear.
+ * MATCHED BY KEY, NOT BY EQUALITY (see matchKey), because `invited` is lowercase
+ * by schema rule only for rows v2 wrote — a copied v1 row predates that rule.
+ * A missed entry is not strictly unclearable: invitePlayerFor's add branch and
+ * cancelInviteFor normalise the same way and would clear it. But both of those
+ * need the team's OWNER to act again, and nothing prompts them to — their invite
+ * list still shows the address as outstanding. This is the only exit the invited
+ * player can reach on their own.
  *
  * Collect-and-filter, because Convex cannot index array membership — the same
  * read getMyTeamsFor, myData and downgradeTeamRemovalFor already do, over the
@@ -158,13 +174,11 @@ async function parkedInvitesFor(
   const player = await ctx.db.get(playerId)
   if (!player) return null
 
-  const email = normaliseForMatch(player.email)
+  const email = matchKey(player.email)
   const allTeams = await ctx.db.query('teams').collect()
   return {
     email,
-    teams: allTeams.filter((team) =>
-      team.invited.some((entry) => normaliseForMatch(entry) === email),
-    ),
+    teams: allTeams.filter((team) => team.invited.some((entry) => matchKey(entry) === email)),
   }
 }
 
@@ -220,14 +234,14 @@ export async function upgradeTeamInvitesFor(
         : [...team.playerIds, playerId],
       // EVERY matching entry, not the first, for the reason cancelInviteFor
       // gives: one address can be parked twice in two shapes, and the leftover
-      // is an invite nothing can clear.
-      invited: team.invited.filter((entry) => normaliseForMatch(entry) !== parked.email),
+      // reads as an outstanding invite to a member.
+      invited: team.invited.filter((entry) => matchKey(entry) !== parked.email),
     })
   }
 }
 
 /**
- * How many invites are parked against this player's address.
+ * How many invites this player is actually waiting on.
  *
  * DERIVED, NOT STORED (decision G), and the difference is user-visible. v1's
  * counter is not vestigial — it drives a "N Invites Pending" badge, non-pro
@@ -235,6 +249,20 @@ export async function upgradeTeamInvitesFor(
  * so it can drift from `teams.invited` even in v1, and it is not copied, so
  * every migrated user would read 0 while holding real parked invites. Derived,
  * it cannot drift, needs no backfill, and needs no `players` schema field.
+ *
+ * A TEAM THEY ARE ALREADY ON DOES NOT COUNT, and this is the one place the
+ * count deliberately says something narrower than the release. The state is not
+ * hypothetical — upgradeTeamInvitesFor's own note calls a member listed in both
+ * `playerIds` and `invited` exactly what the copy brings over — and counting it
+ * would show a non-pro migrated user "1 Invite Pending" for a team they are
+ * already a member of, with nothing to accept and nothing to click. Replacing a
+ * counter that could drift with a derivation that over-counts would leave
+ * decision G ahead on provenance and level on outcome.
+ *
+ * THE EXCLUSION LIVES HERE AND MUST NOT MOVE INTO parkedInvitesFor. The release
+ * has to visit precisely those teams in order to clear the stale address; a
+ * shared filter would strand every one of them, which is the same bug seen from
+ * the other end.
  *
  * COUNTS TEAMS, NOT ENTRIES. One address parked twice on one team in two shapes
  * is one pending invite to the person holding it.
@@ -246,8 +274,39 @@ export async function pendingInviteCountFor(
   ctx: ReaderCtx,
   playerId: Id<'players'>,
 ): Promise<number> {
-  return (await parkedInvitesFor(ctx, playerId))?.teams.length ?? 0
+  const parked = await parkedInvitesFor(ctx, playerId)
+  if (!parked) return 0
+  return parked.teams.filter((team) => !team.playerIds.includes(playerId)).length
 }
+
+/**
+ * The "N Invites Pending" badge for the signed-in caller.
+ *
+ * Ports v1's user-dropdown.tsx:182, which reads a counter out of the JWT's
+ * app_metadata; v2 derives the number instead — see pendingInviteCountFor.
+ *
+ * THE ONE WRAPPER IN THIS MODULE, and it lives here rather than beside amIPro in
+ * teams.ts for one measured reason: teams.ts would then have to import this
+ * module, and billing.ts already imports cascadeDeleteTeam from teams.ts. That
+ * is a cycle bought by six lines. The two edges are not equal — cascadeDeleteTeam
+ * is a real dependency — and teams.ts's own amIPro shows the cycle-free shape,
+ * calling isProFor from access.ts, a leaf.
+ *
+ * currentPlayer AND 0, NOT requirePlayer, mirroring amIPro: this is chrome, and
+ * a signed-out or profile-less caller asking for a badge is not an error worth
+ * throwing at them.
+ *
+ * NO CONSUMER YET: Task 11 (wordle-teams-ksh) adds the badge that reads
+ * api.billing.myPendingInviteCount.
+ */
+export const myPendingInviteCount = query({
+  args: {},
+  handler: async (ctx) => {
+    const player = await currentPlayer(ctx)
+    if (!player) return 0
+    return await pendingInviteCountFor(ctx, player._id)
+  },
+})
 
 /**
  * Apply the free-tier team limit after a subscription is revoked.
