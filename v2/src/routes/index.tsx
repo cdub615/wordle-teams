@@ -1,5 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
-import { convexQuery } from '@convex-dev/react-query'
+import { convexQuery, useConvexAction } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -9,6 +9,8 @@ import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
+import { CHECKOUT_FAILED } from '#/lib/billing-copy.ts'
+import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
@@ -67,6 +69,36 @@ function Dashboard() {
   const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const [createOpen, setCreateOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const createCheckout = useConvexAction(api.polar.createProCheckout)
+
+  /**
+   * The upgrade path, behind team-picker.tsx's existing "Upgrade for more".
+   *
+   * ONE ENTRY POINT, NOT A SECOND BUTTON. The CTA is already there, gated on
+   * `atFreeLimit`; wiring it is the whole change. v1's three upgrade buttons
+   * are identical to each other and take no plan, because the customer chooses
+   * monthly or annual on Polar's hosted page — proProductIds passes both.
+   *
+   * A FULL-PAGE NAVIGATION, NOT the router: the URL is on polar.sh, and
+   * `navigate` only knows this app's routes.
+   *
+   * NULL IS THE ONLY FAILURE SHAPE createProCheckout HAS — it catches its own
+   * Polar errors — so the catch below is for a throw that never reached Polar,
+   * an unset SITE_URL or the transport. Both must say something; a dead menu
+   * item is indistinguishable from a broken one.
+   */
+  const startUpgrade = async () => {
+    try {
+      const url = await createCheckout({})
+      if (!url) {
+        toast.error(CHECKOUT_FAILED)
+        return
+      }
+      window.location.href = url
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, CHECKOUT_FAILED))
+    }
+  }
 
   // Bottom of the login funnel (wt-ksh.12.7). Reaching here authenticated is the
   // only reliable "they made it" signal: the OAuth round-trip finishes as a fresh
@@ -143,11 +175,7 @@ function Dashboard() {
           isPro={isPro}
           onChange={(team) => navigate({ to: '/', search: { team, month: monthParam } })}
           onCreate={() => setCreateOpen(true)}
-          // Checkout is Phase 5. Until then, say so rather than doing nothing —
-          // a dead menu item is indistinguishable from a broken one — but in
-          // product terms, not roadmap terms: nothing here should read like an
-          // internal comment that leaked into the UI.
-          onUpgrade={() => toast.info('More teams need a paid plan. Coming soon.')}
+          onUpgrade={() => void startUpgrade()}
         />
         <MonthPicker
           currentMonth={currentMonth}

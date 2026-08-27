@@ -35,6 +35,24 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     }
     return { isAuthenticated, token }
   },
+  /*
+   * NO LOADER, AND THE HEADER'S TWO QUERIES ARE DELIBERATELY NOT PREFETCHED
+   * HERE. routes/index.tsx prefetches with `ensureQueryData` because its reads
+   * feed `useSuspenseQuery` — without the prefetch the component suspends and
+   * the query only starts once the route renders, which is a real waterfall.
+   * Header's reads feed a plain `useQuery`, so nothing waits on them: the badge
+   * is simply absent for the first frame, and the subscription opens on the
+   * first client render either way. There is no waterfall to remove, only
+   * latency to add.
+   *
+   * THE FIRST VERSION OF THIS TASK DID AWAIT THEM HERE, and a root loader runs
+   * before every child loader on every route — so those two awaits sat in front
+   * of the dashboard's own three, on /about as well as on /. Removed on the
+   * argument above rather than on a measurement: taking the loader out did NOT
+   * on its own settle `pnpm e2e`, which is why the flake that showed up
+   * alongside it is written down where its real cause was found
+   * (e2e/billing.spec.ts) and not here.
+   */
   head: () => ({
     meta: [
       {
@@ -73,6 +91,19 @@ function RootComponent() {
       authClient={authClient as unknown as AuthClient}
       initialToken={context.token}
     >
+      {/*
+        HEADER LIVES HERE, NOT IN RootDocument, and the move is what makes its
+        Convex hooks work at all: shellComponent renders OUTSIDE the root
+        route's component (@tanstack/react-router's Match.js wraps the match
+        context provider in it), so a Header in RootDocument sits above this
+        provider and every Convex React hook in it throws "Could not find
+        Convex client!" — measured as a 500 on GET /login.
+
+        THE RENDERED DOM IS UNCHANGED. RootDocument's `{children}` is exactly
+        this subtree, and it sat between Header and Footer there, so <body>
+        still reads header, page, footer.
+      */}
+      <Header />
       <Outlet />
     </ConvexBetterAuthProvider>
   )
@@ -86,7 +117,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-accent-solid/25">
-        <Header />
         {children}
         <Footer />
         {/*
