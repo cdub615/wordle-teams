@@ -1,6 +1,7 @@
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { cascadeDeleteTeam } from './teams.ts'
-import type { Id } from './_generated/dataModel'
+import type { DataModel, Id } from './_generated/dataModel'
+import type { GenericDatabaseReader } from 'convex/server'
 import type { WriterCtx } from './winners.ts'
 
 /**
@@ -20,6 +21,80 @@ import type { WriterCtx } from './winners.ts'
  * unit test can reach. The wrappers that do read the session are thin and live
  * next to the code that needs them.
  */
+
+/**
+ * Anything with a `db` reader — a query, mutation, or a convex-test `ctx.run`.
+ *
+ * Mirrors access.ts's and scores.ts's ReaderCtx exactly, for the same reason:
+ * resolvePlayerIdFor only ever touches `ctx.db`, and keeping the parameter type
+ * to just that lets convex-test's `t.run` callback ctx (a real
+ * GenericMutationCtx, structurally a `db: GenericDatabaseWriter`, itself a
+ * GenericDatabaseReader) satisfy it with no cast.
+ */
+type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
+
+/**
+ * Turn Polar identity candidates into a real player id, taking the first
+ * candidate that names a LIVE player.
+ *
+ * Pairs with lib/polarIdentity.ts's extractIdentityCandidates, which produces
+ * the ordered array this takes. That module is pure because it only reads a
+ * webhook body; this half needs ctx.db, which is why the two are separate.
+ *
+ * TWO NAMESPACES, AND THE SECOND IS NOT AN EDGE CASE. v1's
+ * `src/lib/polar/checkout.ts:22` set `externalCustomerId` to the v1 player id —
+ * a Postgres uuid — and v2 stores that uuid as `players.legacyId`. So after
+ * cutover EVERY existing subscriber's renewal, cancellation and revocation
+ * arrives carrying a string that `normalizeId` rejects. That is the opposite of
+ * the null-external-id failure: the id is populated and well formed, it just
+ * belongs to the other namespace. Resolving only Convex ids would silently 202
+ * every paying customer, on revocation.
+ *
+ * NO SHAPE CHECK. v1 gated every candidate on a uuid regex; see the note in
+ * lib/polarIdentity.ts for why that cannot be ported in either direction. The
+ * question "is this real" is answered here, by looking it up.
+ *
+ * RETURNS NULL RATHER THAN THROWING. The caller answers HTTP 202, because a
+ * foreign or unknown external id is not a transient fault and retrying can
+ * never fix it. Returning 500 there would put Polar into an endless redelivery
+ * loop over an event this app can do nothing with — for instance one belonging
+ * to a different integration on the same Polar organization. NO SUCH CALLER
+ * EXISTS YET: the webhook endpoint is Task 10 (wordle-teams-p8m), so this
+ * contract is stated ahead of the handler it constrains.
+ *
+ * NO ACCESS CHECK OF ITS OWN, like everything else in this module. The
+ * authority is the verified Polar event; there is no session on a webhook.
+ */
+export async function resolvePlayerIdFor(
+  ctx: ReaderCtx,
+  candidates: readonly string[],
+): Promise<Id<'players'> | null> {
+  for (const raw of candidates) {
+    // 1. A Convex id: a checkout this v2 created.
+    //
+    // THE `get` IS NOT REDUNDANT. normalizeId validates that the string is a
+    // well-formed id FOR THIS TABLE; it says nothing about whether the document
+    // is still there. Returning a deleted player's id would hand the caller an
+    // id whose patch throws inside the transaction — a 500, and an endless
+    // Polar retry over an event that can never succeed.
+    const direct = ctx.db.normalizeId('players', raw)
+    if (direct && (await ctx.db.get(direct))) return direct
+
+    // 2. A v1 uuid: every customer that came across at cutover. by_legacyId is
+    //    an index, so a miss here costs no scan.
+    const legacy = await ctx.db
+      .query('players')
+      .withIndex('by_legacyId', (q) => q.eq('legacyId', raw))
+      .unique()
+    if (legacy) return legacy._id
+
+    // A candidate that names nothing is skipped, not fatal: the happy-path
+    // customer.externalId can be stale or foreign while the metadata we set
+    // ourselves is still correct.
+  }
+
+  return null
+}
 
 /**
  * Apply the free-tier team limit after a subscription is revoked.
