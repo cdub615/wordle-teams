@@ -93,11 +93,27 @@ export function isMissingCustomer(error: unknown): boolean {
  * reading. That is the same duck-typing `isMissingCustomer` justifies at
  * length.
  *
- * 403 IS INCLUDED BY JUDGMENT, NOT BY MEASUREMENT: Polar's tokens are scoped,
- * and a token with the wrong scopes is the same operator mistake as a token
- * from the wrong instance. Nothing in this repo has seen Polar send one. It is
- * classified with 401 because the alternative — "please try again" at somebody
- * whose retry is guaranteed to fail — is the worse answer to be wrong with.
+ * 403 WAS INCLUDED BY JUDGMENT AND IS NOW MEASURED. It was classified with 401
+ * on the reasoning that Polar's tokens are scoped, so a token with the wrong
+ * scopes is the same operator mistake as a token from the wrong instance —
+ * while noting that nothing here had seen Polar send one. Polar then sent one,
+ * on the owner's first real portal click against the sandbox (2026-08-27):
+ *
+ *   403 {"error": "insufficient_scope", "error_description": "The request
+ *   requires higher privileges than provided by the access token."}
+ *   www-authenticate: Bearer realm="polar", scope="customer_sessions:write"
+ *
+ * A valid, authenticating token missing one scope. It needed a human to edit
+ * the token in Polar; no amount of retrying would have helped. The judgment was
+ * right, and the case it was guessing about is the one that actually happened
+ * first.
+ *
+ * THE FOUR SCOPES THIS INTEGRATION NEEDS, one per SDK call in convex/polar.ts:
+ * `checkouts:write` (checkouts.create), `customer_sessions:write`
+ * (customerSessions.create), `checkouts:read` (checkouts.get) and
+ * `customers:write` (customers.update). Only the second is reachable from the
+ * portal button, so a token short of the others fails later and in rarer paths
+ * — customers.update in particular only runs for an email-matched customer.
  *
  * WHY A CREDENTIAL FAILURE IS "NOT CONFIGURED" AND NOT "POLAR IS UNWELL", which
  * is the one genuinely arguable call here. A token can be revoked at runtime by
