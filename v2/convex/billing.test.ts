@@ -1,7 +1,12 @@
 import { convexTest } from 'convex-test'
 import { expect, test } from 'vitest'
 import schema from './schema'
-import { downgradeTeamRemovalFor, resolvePlayerIdFor } from './billing.ts'
+import {
+  downgradeTeamRemovalFor,
+  pendingInviteCountFor,
+  resolvePlayerIdFor,
+  upgradeTeamInvitesFor,
+} from './billing.ts'
 import { extractIdentityCandidates } from './lib/polarIdentity.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
 
@@ -331,5 +336,185 @@ test('skips a candidate that names nothing and keeps going', async () => {
   await t.run(async (ctx) => {
     const playerId = await ctx.db.insert('players', aPlayer({ legacyId: V1_UUID }))
     expect(await resolvePlayerIdFor(ctx, ['not-an-id', V1_UUID])).toBe(playerId)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// upgradeTeamInvitesFor and pendingInviteCountFor — the port of v1's
+// handle_upgrade_team_invites, and the badge count that decision G derives
+// rather than stores.
+// ---------------------------------------------------------------------------
+
+const ADA = 'ada@example.com'
+
+test('upgrading releases every parked invite, on all three teams at once', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined, email: ADA }))
+    const teams = [
+      await ctx.db.insert('teams', aTeam({ legacyId: 1, invited: [ADA] })),
+      await ctx.db.insert('teams', aTeam({ legacyId: 2, invited: [ADA] })),
+      await ctx.db.insert('teams', aTeam({ legacyId: 3, invited: [ADA] })),
+    ]
+
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(3)
+    await upgradeTeamInvitesFor(ctx, playerId)
+
+    for (const id of teams) {
+      const team = (await ctx.db.get(id))!
+      // BOTH HALVES, always together: dropping the address without adding the
+      // player is the failure that leaves them invited to nothing.
+      expect(team.playerIds).toContain(playerId)
+      expect(team.invited).toEqual([])
+    }
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(0)
+  })
+})
+
+// An upgrade is a billing event, not an invite event: the overwhelming majority
+// of upgrades have nothing parked, and that path must not throw.
+test('upgrading with no parked invites is a no-op, not an error', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined, email: ADA }))
+    const untouched = await ctx.db.insert('teams', aTeam({ legacyId: 1, playerIds: [playerId] }))
+
+    await expect(upgradeTeamInvitesFor(ctx, playerId)).resolves.toBeUndefined()
+
+    expect((await ctx.db.get(untouched))!.playerIds).toEqual([playerId])
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(0)
+  })
+})
+
+// Pins that the scan is keyed on the address rather than on "any team with a
+// pending invite" — without the comparison, an upgrade would sweep the upgrader
+// onto every team in the table that has anyone parked on it.
+test('a team that invited someone else is untouched', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined, email: ADA }))
+    const theirs = await ctx.db.insert(
+      'teams',
+      aTeam({ legacyId: 4, invited: ['grace@example.com'] }),
+    )
+
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(0)
+    await upgradeTeamInvitesFor(ctx, playerId)
+
+    const team = (await ctx.db.get(theirs))!
+    expect(team.playerIds).not.toContain(playerId)
+    expect(team.invited).toEqual(['grace@example.com'])
+  })
+})
+
+// A team listing the same person in BOTH playerIds and invited is exactly what
+// the copy brings over, since v1 never removed an invite it could not match —
+// and v1's own array_append here is unconditional, so the faithful port would
+// put them on the roster twice. See invitePlayerFor, which documents the same
+// hazard on its own already-a-member branch.
+test('a player already on the team is not added twice, and their address is still cleared', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined, email: ADA }))
+    const teamId = await ctx.db.insert(
+      'teams',
+      aTeam({ legacyId: 8, playerIds: [playerId], invited: [ADA] }),
+    )
+
+    await upgradeTeamInvitesFor(ctx, playerId)
+
+    const team = (await ctx.db.get(teamId))!
+    expect(team.playerIds).toEqual([playerId])
+    // Clearing it is the whole reason this team is visited at all: while the
+    // address sits there, getTeamInvitesFor shows the person as pending at the
+    // same time as the roster shows them as a member.
+    expect(team.invited).toEqual([])
+  })
+})
+
+// COPIED ROWS PREDATE THE LOWERCASE RULE. schema.ts's comment on `invited` says
+// the table cannot hold a mixed-case invite, but that governs v2's writers; the
+// copy gates map `e.toLowerCase()` and never trim, so a padded v1 address
+// survives intact (cancelInviteFor spells out which half of this is defence in
+// depth and which is not). An entry this fails to match is one nothing can ever
+// clear — the upgrade is a migrated user's only exit from it.
+test('a mixed-case or padded copied invited entry still matches', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: V1_UUID, email: ADA }))
+    const mixedCase = await ctx.db.insert('teams', aTeam({ legacyId: 9, invited: ['Ada@Example.COM'] }))
+    const padded = await ctx.db.insert('teams', aTeam({ legacyId: 10, invited: ['  ada@example.com  '] }))
+
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(2)
+    await upgradeTeamInvitesFor(ctx, playerId)
+
+    for (const id of [mixedCase, padded]) {
+      const team = (await ctx.db.get(id))!
+      expect(team.playerIds).toContain(playerId)
+      expect(team.invited).toEqual([])
+    }
+  })
+})
+
+// DECISION G, and the case that makes it more than a preference. A migrated
+// user's v1 invites_pending_upgrade lives in auth.users.raw_app_meta_data,
+// which the copy never reads — a stored counter would read 0 here while three
+// real invites sat parked. Derived, it cannot.
+//
+// The badge that consumes this does not exist yet: the UI is Task 11
+// (wordle-teams-ksh).
+test('the pending count is derived from teams.invited for a migrated player', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: V1_UUID, email: ADA }))
+    await ctx.db.insert('teams', aTeam({ legacyId: 5, invited: [ADA] }))
+    await ctx.db.insert('teams', aTeam({ legacyId: 6, invited: ['ADA@example.com'] }))
+    // Neither of these counts: one parks a different address, one parks none.
+    await ctx.db.insert('teams', aTeam({ legacyId: 7, invited: ['grace@example.com'] }))
+    await ctx.db.insert('teams', aTeam({ legacyId: 8, invited: [] }))
+
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(2)
+
+    await upgradeTeamInvitesFor(ctx, playerId)
+
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(0)
+  })
+})
+
+// Counts TEAMS, not entries. One address parked twice in two shapes on one team
+// is one pending invite to the person holding it — the badge reads "N Invites
+// Pending", and two lines for one team would be wrong.
+test('the pending count counts a team once even if the address is parked twice', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined, email: ADA }))
+    const teamId = await ctx.db.insert(
+      'teams',
+      aTeam({ legacyId: 11, invited: [ADA, 'Ada@example.com'] }),
+    )
+
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(1)
+
+    await upgradeTeamInvitesFor(ctx, playerId)
+
+    // EVERY matching entry goes, not the first, for the reason cancelInviteFor
+    // gives: leaving the duplicate behind leaves an invite nothing can clear.
+    expect((await ctx.db.get(teamId))!.invited).toEqual([])
+  })
+})
+
+// A player row can be gone by the time a Polar event is processed — a deletion
+// races the webhook. Neither half may throw: a 500 there is an endless Polar
+// redelivery over an event that can never succeed.
+test('a player id naming no row upgrades to nothing and counts 0', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined, email: ADA }))
+    const teamId = await ctx.db.insert('teams', aTeam({ legacyId: 12, invited: [ADA] }))
+    await ctx.db.delete(playerId)
+
+    await expect(upgradeTeamInvitesFor(ctx, playerId)).resolves.toBeUndefined()
+    expect(await pendingInviteCountFor(ctx, playerId)).toBe(0)
+    expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
   })
 })

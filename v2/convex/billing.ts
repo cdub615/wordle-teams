@@ -1,6 +1,6 @@
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { cascadeDeleteTeam } from './teams.ts'
-import type { DataModel, Id } from './_generated/dataModel'
+import type { DataModel, Doc, Id } from './_generated/dataModel'
 import type { GenericDatabaseReader } from 'convex/server'
 import type { WriterCtx } from './winners.ts'
 
@@ -107,6 +107,146 @@ export async function resolvePlayerIdFor(
   }
 
   return null
+}
+
+/**
+ * An address as it must be COMPARED, mirroring normaliseInviteEmail's
+ * trim().toLowerCase() on write — the same read-side normalisation
+ * invitePlayerFor, cancelInviteFor and completeProfileFor all apply to this
+ * field.
+ *
+ * NOT normaliseInviteEmail ITSELF, which is lib/invite.ts's WRITE-boundary
+ * validator and returns null for anything failing its shape regex. Both values
+ * compared below are already stored — one off a player row, one out of
+ * `teams.invited` — so there is no input to reject here, and refusing to match
+ * on shape would turn a stored address the regex dislikes into an invite
+ * nothing can ever clear.
+ */
+const normaliseForMatch = (address: string) => address.trim().toLowerCase()
+
+/**
+ * The teams holding an invite parked against this player's address, plus the
+ * address that matched them.
+ *
+ * ONE PREDICATE, TWO CALLERS, WHICH IS WHAT DECISION G BUYS. The release below
+ * and the count below it must agree on what "parked" means, and the only way
+ * they cannot disagree is by asking the question once. v1's answer was a
+ * counter written from five call sites using two different formulas, so it
+ * could drift from `teams.invited` even in v1.
+ *
+ * NULL RATHER THAN AN EMPTY LIST WHEN THE PLAYER ROW IS GONE, because the two
+ * callers want different things from that case and neither of them wants "this
+ * player has no invites" — one does nothing, the other answers 0. A missing row
+ * is reachable: a deletion can race a Polar redelivery, and throwing there is a
+ * 500 and an endless retry over an event that can never succeed.
+ *
+ * NORMALISED ON READ. `invited` is lowercase by schema rule (the comment on the
+ * field), but that rule governs v2's writers: both copy gates map
+ * `e.toLowerCase()` and NEITHER TRIMS, so a padded v1 address survives the copy
+ * intact — cancelInviteFor sets out which half of this is defence in depth and
+ * which is not. For a copied player this is their only exit, so an entry the
+ * comparison misses is an invite nothing can ever clear.
+ *
+ * Collect-and-filter, because Convex cannot index array membership — the same
+ * read getMyTeamsFor, myData and downgradeTeamRemovalFor already do, over the
+ * 171 teams the schema comment on `teams` records.
+ */
+async function parkedInvitesFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+): Promise<{ email: string; teams: Doc<'teams'>[] } | null> {
+  const player = await ctx.db.get(playerId)
+  if (!player) return null
+
+  const email = normaliseForMatch(player.email)
+  const allTeams = await ctx.db.query('teams').collect()
+  return {
+    email,
+    teams: allTeams.filter((team) =>
+      team.invited.some((entry) => normaliseForMatch(entry) === email),
+    ),
+  }
+}
+
+/**
+ * Release every invite parked against this player's address, on upgrade.
+ *
+ * Ports v1's handle_upgrade_team_invites (20240426190809): for every team whose
+ * `invited` holds their email, remove the email and append their id.
+ *
+ * KEYS OFF `teams.invited`, NOT OFF A COUNTER, and that is what makes decision
+ * D safe. v1's invites_pending_upgrade lives in auth.users.raw_app_meta_data,
+ * which the copy script does not read and must not start reading. The parking
+ * itself is in `teams.invited`, which IS copied — so a migrated v1 user with
+ * parked invites is released correctly here even though v2 never saw their
+ * counter.
+ *
+ * NO COUNTER TO ZERO. v1 follows the UPDATE with a second statement setting
+ * invites_pending_upgrade to 0; v2 derives the count (pendingInviteCountFor),
+ * so dropping the address IS the update and the two cannot disagree.
+ *
+ * ONE PATCH, TWO FIELDS, exactly as invitePlayerFor's add branch: the address
+ * must leave `invited` in the same write that puts the player on the roster, or
+ * they read as a member and as pending at the same time.
+ *
+ * THE DOUBLE-ADD GUARD IS A DIVERGENCE FROM v1, whose `array_append` is
+ * unconditional. A team listing the same person in BOTH playerIds and `invited`
+ * is exactly what the copy brings over, since v1 never removed an invite it
+ * could not match, so the faithful port would put a copied member on their own
+ * roster twice — invitePlayerFor documents the same hazard on its
+ * already-a-member branch. Visiting the team is still correct: clearing the
+ * stale address is the only thing left to do there.
+ *
+ * NOTHING PARKS AN INVITE AT THE CAP YET. The non-pro 2-team cap that creates
+ * new parked invites is Task 8 (wordle-teams-qyd), so today the only entries
+ * this can find are the ones the copy brought over and the ones invitePlayerFor
+ * parks for an address with no account. This helper is built first because the
+ * release half is what makes the cap safe to add.
+ *
+ * NO ACCESS CHECK OF ITS OWN, like everything else in this module: the
+ * authority is the verified Polar event that activated the subscription.
+ */
+export async function upgradeTeamInvitesFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+): Promise<void> {
+  const parked = await parkedInvitesFor(ctx, playerId)
+  if (!parked) return
+
+  for (const team of parked.teams) {
+    await ctx.db.patch(team._id, {
+      playerIds: team.playerIds.includes(playerId)
+        ? team.playerIds
+        : [...team.playerIds, playerId],
+      // EVERY matching entry, not the first, for the reason cancelInviteFor
+      // gives: one address can be parked twice in two shapes, and the leftover
+      // is an invite nothing can clear.
+      invited: team.invited.filter((entry) => normaliseForMatch(entry) !== parked.email),
+    })
+  }
+}
+
+/**
+ * How many invites are parked against this player's address.
+ *
+ * DERIVED, NOT STORED (decision G), and the difference is user-visible. v1's
+ * counter is not vestigial — it drives a "N Invites Pending" badge, non-pro
+ * only — but it is written from five call sites using two different formulas,
+ * so it can drift from `teams.invited` even in v1, and it is not copied, so
+ * every migrated user would read 0 while holding real parked invites. Derived,
+ * it cannot drift, needs no backfill, and needs no `players` schema field.
+ *
+ * COUNTS TEAMS, NOT ENTRIES. One address parked twice on one team in two shapes
+ * is one pending invite to the person holding it.
+ *
+ * NO CONSUMER YET: the badge is Task 11 (wordle-teams-ksh), so this count is
+ * stated ahead of the UI it feeds.
+ */
+export async function pendingInviteCountFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+): Promise<number> {
+  return (await parkedInvitesFor(ctx, playerId))?.teams.length ?? 0
 }
 
 /**
