@@ -15,8 +15,11 @@ import type { WriterCtx } from './winners.ts'
  * is. That separation is why a webhook handler can be tested against a captured
  * payload while the rules below are tested against the database alone.
  *
- * EVERYTHING HERE IS A `...For` HELPER taking an explicit playerId, never a
- * mutation reading the session. convex-test cannot stand up a Better Auth
+ * EVERYTHING HERE IS A `...For` HELPER TAKING EXPLICIT ARGUMENTS — a playerId,
+ * or the candidates that resolve TO one — never a mutation reading the session.
+ * (This said "taking an explicit playerId" when the module had a single export;
+ * resolvePlayerIdFor returns a playerId rather than taking one, so the narrower
+ * wording became false of half of them.) convex-test cannot stand up a Better Auth
  * session (wordle-teams-obw), so logic behind a mutation wrapper is logic no
  * unit test can reach. The wrappers that do read the session are thin and live
  * next to the code that needs them.
@@ -61,6 +64,16 @@ type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
  * to a different integration on the same Polar organization. NO SUCH CALLER
  * EXISTS YET: the webhook endpoint is Task 10 (wordle-teams-p8m), so this
  * contract is stated ahead of the handler it constrains.
+ *
+ * THE ONE EXCEPTION IS DELIBERATE: the `.unique()` below throws if two players
+ * share a legacyId, and that SHOULD be a 500. Duplicate legacyIds mean the copy
+ * has corrupted the table, which is transient in the only sense that matters —
+ * someone can fix the data and Polar's redelivery then succeeds. Answering 202
+ * would discard the event and hide the corruption. Unreachable today: the only
+ * writer of players.legacyId is migrate.ts, whose byLegacyId (migrate.ts:31)
+ * upserts through the same `.unique()` and so throws before it can create a
+ * second one. This note stands ahead of any future native writer of the field,
+ * which is what would make it reachable.
  *
  * NO ACCESS CHECK OF ITS OWN, like everything else in this module. The
  * authority is the verified Polar event; there is no session on a webhook.

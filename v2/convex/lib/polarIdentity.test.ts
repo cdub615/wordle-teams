@@ -32,10 +32,8 @@ describe('extractIdentityCandidates', () => {
     ).toEqual({ candidates: [], customerId: 'cus_1', checkoutId: 'ch_1' })
   })
 
-  // '' and 42 are both dropped rather than passed along. An empty string would
-  // reach normalizeId and a number would reach it as a non-string, and neither
-  // can ever name a player — carrying them would only cost a wasted lookup and
-  // make an "unresolvable" log line ambiguous.
+  // Why '' and 42 are dropped rather than passed along: see asCandidate in
+  // ./polarIdentity.ts.
   test('ignores non-string and empty candidates', () => {
     expect(
       extractIdentityCandidates({
@@ -53,10 +51,8 @@ describe('extractIdentityCandidates', () => {
     })
   })
 
-  // A v1 uuid is a perfectly good candidate here. It is NOT filtered by shape —
-  // this is the half of the deleted uuid regex that mattered, inverted: v1
-  // accepted only uuids, and v2 must accept both namespaces and let the
-  // database say which one this is. See resolvePlayerIdFor in ../billing.ts.
+  // A v1 uuid is a perfectly good candidate: NOT filtered by shape, because
+  // both namespaces are real. See the uuid-regex note in ./polarIdentity.ts.
   test('passes a v1 uuid through untouched', () => {
     const uuid = '11111111-1111-4111-8111-111111111111'
     expect(
@@ -70,5 +66,15 @@ describe('extractIdentityCandidates', () => {
       customerId: null,
       checkoutId: null,
     })
+  })
+
+  // Task 10 hands this `await request.json()`. A request body of literal `null`
+  // parses to null rather than throwing, and a body with no `data` key yields
+  // undefined — so both reach this function for real, and neither may TypeError
+  // inside a webhook handler. Empty is the right answer: nothing to identify.
+  test('an absent body yields an empty result rather than throwing', () => {
+    const empty = { candidates: [], customerId: null, checkoutId: null }
+    expect(extractIdentityCandidates(null)).toEqual(empty)
+    expect(extractIdentityCandidates(undefined)).toEqual(empty)
   })
 })

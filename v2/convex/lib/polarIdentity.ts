@@ -57,9 +57,9 @@ export type IdentityCandidates = {
    * Carried so a later step can REPAIR it — stamping the resolved id onto the
    * customer means the next event for the same person arrives with
    * customer.externalId populated and needs no fallback. That repair needs the
-   * Polar SDK and is Task 9 (wordle-teams-p8m's sibling); NOTHING READS THIS
-   * FIELD YET. It is returned now so the extraction never has to be revisited
-   * to add it, and so the webhook body is read exactly once.
+   * Polar SDK and is Task 9 (wordle-teams-l1v); NOTHING READS THIS FIELD YET.
+   * It is returned now so the extraction never has to be revisited to add it,
+   * and so the webhook body is read exactly once.
    */
   customerId: string | null
   /**
@@ -67,9 +67,9 @@ export type IdentityCandidates = {
    *
    * v1's third and last resort: `checkouts.get(checkoutId).externalCustomerId`
    * still holds the value even when the customer does not. That lookup is one
-   * Polar API call, so it belongs in an action, and it too is Task 9 — NO
-   * CALLER READS THIS YET either. Same reasoning as `customerId`: extracted
-   * here so the last-resort path has its input ready.
+   * Polar API call, so it belongs in an action, and it too is Task 9
+   * (wordle-teams-l1v) — NO CALLER READS THIS YET either. Same reasoning as
+   * `customerId`: extracted here so the last-resort path has its input ready.
    */
   checkoutId: string | null
 }
@@ -87,25 +87,33 @@ const asCandidate = (value: unknown): string | null =>
  * Cheapest first, and both of these are free — they are already in the body.
  * Neither is trusted: each is a string to hand to `resolvePlayerIdFor`, which
  * decides whether it names a live player.
+ *
+ * TAKES NULL, because the docblock above is only honest if it does. Task 10
+ * will hand this `await request.json()`, and a request body of literal `null`
+ * parses to `null` rather than throwing; a body with no `data` key yields
+ * `undefined`. Both mean "nothing to identify", which is an empty result, not a
+ * TypeError inside a webhook handler.
  */
-export function extractIdentityCandidates(data: SubscriptionIdentity): IdentityCandidates {
+export function extractIdentityCandidates(
+  data: SubscriptionIdentity | null | undefined,
+): IdentityCandidates {
   const candidates: string[] = []
 
   // 1. The happy path: Polar applied our external id to the customer.
-  const fromCustomer = asCandidate(data.customer?.externalId)
+  const fromCustomer = asCandidate(data?.customer?.externalId)
   if (fromCustomer) candidates.push(fromCustomer)
 
   // 2. Metadata we set on the checkout ourselves (v1's checkout.ts:27 sets
   //    `metadata: { player_id: playerId }`, and v2's checkout will do the
   //    same). Costs no API call, and survives the customer-match case above.
-  const fromMetadata = asCandidate(data.metadata?.player_id)
+  const fromMetadata = asCandidate(data?.metadata?.player_id)
   if (fromMetadata) candidates.push(fromMetadata)
 
   return {
     candidates,
     // `customer.id` when the body embeds the customer, `customerId` when it
     // only references one. v1 read the same pair, in the same order.
-    customerId: asCandidate(data.customer?.id) ?? asCandidate(data.customerId),
-    checkoutId: asCandidate(data.checkoutId),
+    customerId: asCandidate(data?.customer?.id) ?? asCandidate(data?.customerId),
+    checkoutId: asCandidate(data?.checkoutId),
   }
 }
