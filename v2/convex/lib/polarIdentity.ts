@@ -57,9 +57,11 @@ export type IdentityCandidates = {
    * Carried so a later step can REPAIR it — stamping the resolved id onto the
    * customer means the next event for the same person arrives with
    * customer.externalId populated and needs no fallback. That repair needs the
-   * Polar SDK and is Task 9 (wordle-teams-l1v); NOTHING READS THIS FIELD YET.
-   * It is returned now so the extraction never has to be revisited to add it,
-   * and so the webhook body is read exactly once.
+   * Polar SDK, and as of Task 9 (wordle-teams-l1v) it EXISTS:
+   * `internal.polar.repairCustomerExternalId` takes exactly this value. NOTHING
+   * PASSES IT ONE YET — the webhook that joins the two is Task 10
+   * (wordle-teams-p8m). Returned now so the extraction never has to be revisited
+   * to add it, and so the webhook body is read exactly once.
    */
   customerId: string | null
   /**
@@ -67,9 +69,11 @@ export type IdentityCandidates = {
    *
    * v1's third and last resort: `checkouts.get(checkoutId).externalCustomerId`
    * still holds the value even when the customer does not. That lookup is one
-   * Polar API call, so it belongs in an action, and it too is Task 9
-   * (wordle-teams-l1v) — NO CALLER READS THIS YET either. Same reasoning as
-   * `customerId`: extracted here so the last-resort path has its input ready.
+   * Polar API call, so it belongs in an action, and Task 9 (wordle-teams-l1v)
+   * added it as `internal.polar.fetchCheckoutExternalId` — but, like
+   * `customerId` above, NO CALLER PASSES THIS FIELD TO IT YET. Task 10
+   * (wordle-teams-p8m) is the webhook that will. Same reasoning as `customerId`:
+   * extracted here so the last-resort path has its input ready.
    */
   checkoutId: string | null
 }
