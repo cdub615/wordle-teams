@@ -3,7 +3,7 @@ import { v } from 'convex/values'
 import { action, internalAction, internalQuery } from './_generated/server'
 import { internal } from './_generated/api'
 import { currentPlayer } from './access.ts'
-import { isMissingCheckout, isMissingCustomer } from './lib/polarErrors.ts'
+import { isCredentialProblem, isMissingCheckout, isMissingCustomer } from './lib/polarErrors.ts'
 import type { Id } from './_generated/dataModel'
 
 /**
@@ -77,10 +77,11 @@ import type { Id } from './_generated/dataModel'
  * function. So the server is named directly, which is also the stronger form of
  * the rule it enforces (see `polarServer`).
  *
- * NONE OF THE FIVE IS SET ON ANY DEPLOYMENT YET, and no task in the Phase 5
- * plan sets them — tracked as wordle-teams-3bl, which blocks Task 13's sandbox
- * pass. They move as a SET: token, secret, server and both product ids all
- * belong to one Polar instance.
+ * SET ON THE PRODUCTION DEPLOYMENT (the one beta runs on) SINCE 2026-08-27 and
+ * on no other — the dev deployment this repo's e2e drives has none of the five,
+ * measured with `convex env list`. Tracked as wordle-teams-3bl, which blocks
+ * Task 13's sandbox pass. They move as a SET: token, secret, server and both
+ * product ids all belong to one Polar instance.
  */
 const REQUIRED_ENV_VARS = [
   'POLAR_ACCESS_TOKEN',
@@ -113,6 +114,11 @@ const REQUIRED_ENV_VARS = [
  * redelivery (see `fetchCheckoutExternalId`) rather than a silently dropped
  * upgrade.
  *
+ * THE THROW IS FOR THE PATHS THAT WANT ONE — `polar()` and `proProductIds()`,
+ * both of which are called from inside a `try` that already has to be there for
+ * the network. The two user-facing actions call `polarEnvProblem()` instead and
+ * never let this reach a catch; see that function.
+ *
  * Exported so `polar.test.ts` can pin it, as are the other decisions this
  * module makes outside an SDK call — `polarServer`, `proProductIds`,
  * `externalIdsFor` and `lookupPortal`.
@@ -122,6 +128,54 @@ export function assertPolarEnv(): void {
   if (missing.length > 0) {
     throw new Error(`Missing required POLAR env variables: ${missing.join(', ')}`)
   }
+}
+
+/**
+ * The same contract as `assertPolarEnv` plus `polarServer`, answered as a VALUE:
+ * the operator-facing reason this deployment cannot talk to Polar, or null if it
+ * can.
+ *
+ * THE BUG THIS EXISTS FOR (wordle-teams-9fm). `polar()` asserts the environment,
+ * and both actions used to call it from inside the `try` that wraps the Polar
+ * request. So the assertion's throw landed in a catch written for HTTP errors,
+ * failed `isMissingCustomer`, and came out as the same `reason: 'error'` a Polar
+ * outage produces — the toast then told the player to try again at the one
+ * failure retrying can never fix. The owner hit exactly that on beta on
+ * 2026-08-27: five causes, one sentence, and nothing in the UI or the reasoning
+ * around it able to say which.
+ *
+ * HOISTED RATHER THAN CLASSIFIED AFTER THE FACT, which is the actual fix.
+ * Whether the deployment is configured is knowable with no network and no
+ * player, so the actions ask BEFORE they risk anything; the alternative — catch
+ * the exception and try to recognise it downstream — reconstructs a fact that
+ * was available for free, and reconstructs it from an `Error` whose only
+ * distinguishing feature is its message text.
+ *
+ * IT STILL CATCHES, AND THE DIFFERENCE IS WHAT THE CATCH CAN SEE. `assertPolarEnv`
+ * and `polarServer` are the throwing primitives, and this composes them: two
+ * calls on the two lines above their own catch, with no network, no SDK and no
+ * other author's error able to arrive in between. Keeping them as the
+ * primitives is what stops the two messages — the one naming every missing
+ * variable, the one quoting the bad server — from being written twice and
+ * drifting apart. What the old code did wrong was not using try/catch; it was
+ * letting a catch written for Polar's HTTP responses, and reached through an
+ * SDK call, be the thing that decided.
+ *
+ * THE STRING IS FOR THE SERVER LOG AND MUST NEVER BE RETURNED TO THE BROWSER.
+ * It names variables and quotes values — `POLAR_SERVER must be 'production' or
+ * 'sandbox', not 'prod'` — and this repo is public. The actions log it and
+ * return a bare reason; src/lib/billing-copy.ts turns that reason into copy that
+ * mentions no variable at all, and billing-copy.test.ts pins that it cannot.
+ */
+export function polarEnvProblem(): string | null {
+  try {
+    assertPolarEnv()
+    polarServer()
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+
+  return null
 }
 
 /**
@@ -291,6 +345,26 @@ export const checkoutIdentity = internalQuery({
 })
 
 /**
+ * The three answers the checkout can give — the same split `PortalResult` makes,
+ * minus the branch that has no meaning here.
+ *
+ * THERE IS NO `no-customer`: a checkout is how somebody BECOMES a Polar
+ * customer, so not having one is the normal input rather than an outcome.
+ *
+ * `not-configured` MEANS THIS DEPLOYMENT CANNOT TALK TO POLAR AT ALL — a
+ * variable missing from the set, a POLAR_SERVER that is neither instance, or a
+ * credential Polar rejected. `error` means Polar was asked and did not answer
+ * usefully. The line between them is "would trying again ever work", and it is
+ * the whole of wordle-teams-9fm: this used to be a bare `string | null`, so an
+ * unset token and a Polar outage produced the identical "please try again".
+ * `isCredentialProblem` in lib/polarErrors.ts argues where a 401 belongs.
+ */
+export type CheckoutResult =
+  | { url: string }
+  | { url: null; reason: 'not-configured' }
+  | { url: null; reason: 'error' }
+
+/**
  * Creates the Polar checkout a player is sent to when they upgrade to Pro.
  *
  * BOTH THE EXTERNAL ID AND THE METADATA, and the metadata is not redundant.
@@ -317,19 +391,34 @@ export const checkoutIdentity = internalQuery({
  * its own. The `?checkout=success` param is what Task 12's return leg
  * (wordle-teams-wxg) reads to say something honest while that is in flight.
  *
- * NULL ON FAILURE RATHER THAN A THROW, so the UI can offer to try again instead
- * of showing an error boundary. The two null cases are logged distinctly: a
- * caller with no resolvable player is a routing bug, since the index route
- * redirects a playerless account to /complete-profile before it can render an
- * upgrade button, while a Polar failure is an outage.
+ * A RESULT ON FAILURE RATHER THAN A THROW, so the UI can say something honest
+ * instead of showing an error boundary. Every failure is logged with its own
+ * line, because the log is how the owner diagnoses this: a caller with no
+ * resolvable player is a routing bug, since the index route redirects a
+ * playerless account to /complete-profile before it can render an upgrade
+ * button; an unconfigured deployment names what is wrong with it; a Polar
+ * failure is an outage.
+ *
+ * THE ENVIRONMENT IS CHECKED FIRST, BEFORE THE IDENTITY LOOKUP AND BEFORE THE
+ * `try`. It is the cheapest question here and the only one whose answer no
+ * amount of retrying changes, so it is worth asking before anything else can
+ * mask it — see `polarEnvProblem`. A playerless caller on an unconfigured
+ * deployment therefore reports the configuration, which is the more actionable
+ * of the two truths.
  */
 export const createProCheckout = action({
   args: {},
-  handler: async (ctx): Promise<string | null> => {
+  handler: async (ctx): Promise<CheckoutResult> => {
+    const misconfigured = polarEnvProblem()
+    if (misconfigured !== null) {
+      console.error(`[polar] cannot create a checkout: ${misconfigured}`)
+      return { url: null, reason: 'not-configured' }
+    }
+
     const me = await ctx.runQuery(internal.polar.checkoutIdentity, {})
     if (!me) {
       console.error('[polar] checkout requested with no resolvable player')
-      return null
+      return { url: null, reason: 'error' }
     }
 
     try {
@@ -342,25 +431,49 @@ export const createProCheckout = action({
         successUrl: `${siteUrl()}/?checkout=success`,
       })
 
-      return checkout.url
+      return { url: checkout.url }
     } catch (error) {
+      // The credential can only be found wrong by asking, so this is the one
+      // configuration failure the check above cannot pre-empt.
+      if (isCredentialProblem(error)) {
+        console.error('[polar] Polar rejected the configured credentials on checkout', error)
+        return { url: null, reason: 'not-configured' }
+      }
+
       console.error('[polar] failed to create checkout', error)
-      return null
+      return { url: null, reason: 'error' }
     }
   },
 })
 
 /**
- * The three answers the portal can give.
+ * The four answers the portal can give.
+ *
+ * EVERY BRANCH HERE EXISTS TO STOP ONE LIE, and the lie is always the same one:
+ * "please try again" said to somebody for whom trying again cannot work.
  *
  * `no-customer` IS AN EXPECTED STATE, not a failure: it is what anyone who has
- * never checked out gets. It is kept distinct from `error` so the UI can say
- * something true rather than "try again later" about a condition retrying will
- * never fix. Ported from v1, where the same three shapes exist.
+ * never checked out gets. Three of these shapes are ported from v1, where the
+ * same distinction exists.
+ *
+ * `not-configured` IS THE OPERATOR'S STATE, and it is the fourth, added for
+ * wordle-teams-9fm. A variable missing from the set, a
+ * POLAR_SERVER that names neither instance, or a credential Polar rejected: all
+ * three need a human to change a deployment setting, and none of them clears by
+ * waiting. Collapsing them into `error` is what shipped the bug — the owner
+ * clicked Billing on beta, got the retryable sentence, and neither he nor the
+ * page could tell a misconfiguration from an outage. The reason is deliberately
+ * BARE: `polarEnvProblem`'s message names variables and quotes values, it is
+ * logged, and it stops at the server.
+ *
+ * `error` IS NOW ONLY THE OPERATIONAL CASE — Polar was reached and did not give
+ * a usable answer, or was not reachable. That one IS worth retrying, which is
+ * the only reason the sentence that says so is allowed to survive anywhere.
  */
 export type PortalResult =
   | { url: string }
   | { url: null; reason: 'no-customer' }
+  | { url: null; reason: 'not-configured' }
   | { url: null; reason: 'error' }
 
 /**
@@ -404,16 +517,44 @@ export function externalIdsFor(identity: {
 }
 
 /**
- * One portal attempt, reduced to the three outcomes plus the Polar customer id
- * a success reveals. That id is not otherwise knowable — nothing here stores
- * one — and it is the repair's input.
+ * One portal attempt, reduced to the same outcomes `PortalResult` carries plus
+ * the Polar customer id a success reveals. That id is not otherwise knowable —
+ * nothing here stores one — and it is the repair's input.
  */
 export type PortalAttemptResult =
   | { url: string; customerId: string }
   | { url: null; reason: 'no-customer' }
+  | { url: null; reason: 'not-configured' }
   | { url: null; reason: 'error' }
 
 export type PortalAttempt = (externalId: string) => Promise<PortalAttemptResult>
+
+/**
+ * Which of the three failures one rejected portal request is.
+ *
+ * A SEPARATE FUNCTION BECAUSE IT IS THE DECISION, and the only other thing in
+ * the attempt is an SDK call. Inline, it would live inside a closure inside an
+ * action, which is to say somewhere no unit test can reach — and this
+ * classification is precisely what wordle-teams-9fm was: not a broken portal,
+ * a portal whose failures were indistinguishable. polar.test.ts drives it
+ * against object literals; no client, no network.
+ *
+ * ORDER MATTERS AND IS NOT ARBITRARY. `isMissingCustomer` goes first because it
+ * is the narrowest — a 422 carrying one specific detail string — and because
+ * its answer is not a failure at all. `isCredentialProblem` then takes the two
+ * statuses that mean the deployment is wrong. Everything left is operational,
+ * which is the only bucket that keeps the retry sentence.
+ *
+ * The two classifiers live in lib/polarErrors.ts, which is dependency-free for
+ * exactly this reason; each argues its own boundaries there.
+ */
+export function classifyPortalError(
+  error: unknown,
+): 'no-customer' | 'not-configured' | 'error' {
+  if (isMissingCustomer(error)) return 'no-customer'
+  if (isCredentialProblem(error)) return 'not-configured'
+  return 'error'
+}
 
 /**
  * A success carries the identity that WON as well as the customer it found, so
@@ -432,11 +573,13 @@ export type PortalLookup =
  * a network — and it is genuine logic, not a wrapper worth stubbing. Three
  * rules live here and each is a way to get this wrong:
  *
- *   - ONLY `no-customer` ADVANCES. A 500 or an auth failure on the first
+ *   - ONLY `no-customer` ADVANCES. A 500 or a rejected credential on the first
  *     identity must stop, not silently retry as the second and end up reported
  *     as `no-customer`. That would turn an outage into "you have no
- *     subscription", which is the exact lie the three-way result exists to
- *     prevent — and it would do it to everyone, not just migrated users.
+ *     subscription", which is the exact lie the multi-way result exists to
+ *     prevent — and it would do it to everyone, not just migrated users. The
+ *     rule is written as "not no-customer stops", so `not-configured` was
+ *     already covered on the day it was added.
  *   - EVERY IDENTITY EXHAUSTED MEANS `no-customer`, and that answer stays
  *     truthful for the genuinely new user, who is most of the callers.
  *   - THE WINNING IDENTITY IS REPORTED, because "which name worked" is the
@@ -490,6 +633,17 @@ export async function lookupPortal(
 export const getCustomerPortalUrl = action({
   args: {},
   handler: async (ctx): Promise<PortalResult> => {
+    // FIRST, AND OUTSIDE EVERY try IN THIS HANDLER. This is the fix for
+    // wordle-teams-9fm: `polar()` asserts the same contract, but it does it from
+    // inside the attempt's catch below, where the throw was reduced to the
+    // generic `error` and the player was told to try again at the one thing
+    // retrying cannot fix. See polarEnvProblem.
+    const misconfigured = polarEnvProblem()
+    if (misconfigured !== null) {
+      console.error(`[polar] cannot open a portal session: ${misconfigured}`)
+      return { url: null, reason: 'not-configured' }
+    }
+
     const me = await ctx.runQuery(internal.polar.checkoutIdentity, {})
     if (!me) {
       console.error('[polar] portal requested with no resolvable player')
@@ -506,12 +660,21 @@ export const getCustomerPortalUrl = action({
         })
         return { url: session.customerPortalUrl, customerId: session.customerId }
       } catch (error) {
+        const reason = classifyPortalError(error)
+
         // Not worth alarming on: see isMissingCustomer, and the note on
         // PortalResult for why this is an answer rather than a failure.
-        if (isMissingCustomer(error)) return { url: null, reason: 'no-customer' }
+        if (reason === 'no-customer') return { url: null, reason }
+
+        if (reason === 'not-configured') {
+          // The credential can only be found wrong by asking, so this is the
+          // one configuration failure the check at the top cannot pre-empt.
+          console.error('[polar] Polar rejected the configured credentials', error)
+          return { url: null, reason }
+        }
 
         console.error('[polar] failed to create portal session', error)
-        return { url: null, reason: 'error' }
+        return { url: null, reason }
       }
     })
 

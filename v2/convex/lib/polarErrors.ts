@@ -76,6 +76,49 @@ export function isMissingCustomer(error: unknown): boolean {
 }
 
 /**
+ * Whether Polar rejected the credential this deployment is holding, rather than
+ * failing to answer.
+ *
+ * THE POINT IS THAT RETRYING CANNOT FIX IT, which is the same line
+ * `isMissingCustomer` draws and the reason `PortalResult` has more than two
+ * shapes. A rejected token stays rejected until an operator changes something,
+ * so telling the player to try again is untrue in exactly the way
+ * wordle-teams-9fm is about.
+ *
+ * 401 IS THE MEASURED-SHAPE CASE. `PolarError` sets `statusCode` from the
+ * response status (`dist/esm/models/errors/polarerror.js:8`) and every error
+ * class extends it, and the generated `customerSessionsCreate` matches only
+ * 201 and 422 before falling through to a bare `M.fail("4XX")` — so a 401
+ * arrives here as an untyped error whose `statusCode` is the only thing worth
+ * reading. That is the same duck-typing `isMissingCustomer` justifies at
+ * length.
+ *
+ * 403 IS INCLUDED BY JUDGMENT, NOT BY MEASUREMENT: Polar's tokens are scoped,
+ * and a token with the wrong scopes is the same operator mistake as a token
+ * from the wrong instance. Nothing in this repo has seen Polar send one. It is
+ * classified with 401 because the alternative — "please try again" at somebody
+ * whose retry is guaranteed to fail — is the worse answer to be wrong with.
+ *
+ * WHY A CREDENTIAL FAILURE IS "NOT CONFIGURED" AND NOT "POLAR IS UNWELL", which
+ * is the one genuinely arguable call here. A token can be revoked at runtime by
+ * someone who never touched this deployment, so it is not strictly a fact
+ * knowable before the call, the way a missing variable is. But the question the
+ * classification answers is not "whose fault is it", it is "can the player do
+ * anything". Both a sandbox token pointed at production and a token revoked
+ * this morning need a human to change a variable before the next attempt can
+ * succeed; neither clears on its own. Grouping them with the outage would put
+ * the one failure that never resolves behind the sentence that promises it
+ * will.
+ */
+export function isCredentialProblem(error: unknown): boolean {
+  const { statusCode } = (error ?? {}) as HttpErrorish
+
+  // Strictly, for the reason isMissingCheckout gives: a hand-rolled wrapper's
+  // '401' string is not a Polar status.
+  return statusCode === 401 || statusCode === 403
+}
+
+/**
  * Whether this error means the CHECKOUT cannot be read no matter how often we
  * ask, rather than that the call failed.
  *

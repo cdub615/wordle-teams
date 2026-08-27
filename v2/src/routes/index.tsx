@@ -9,7 +9,7 @@ import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
-import { CHECKOUT_FAILED } from '#/lib/billing-copy.ts'
+import { CHECKOUT_FAILED, checkoutOutcome } from '#/lib/billing-copy.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
 import { MonthPicker } from '#/components/month-picker.tsx'
@@ -101,19 +101,28 @@ function Dashboard() {
    * A FULL-PAGE NAVIGATION, NOT the router: the URL is on polar.sh, and
    * `navigate` only knows this app's routes.
    *
-   * NULL IS THE ONLY FAILURE SHAPE createProCheckout HAS — it catches its own
-   * Polar errors — so the catch below is for a throw that never reached Polar,
-   * an unset SITE_URL or the transport. Both must say something; a dead menu
-   * item is indistinguishable from a broken one.
+   * A URL-LESS CheckoutResult IS THE ONLY FAILURE SHAPE createProCheckout HAS —
+   * it catches its own Polar errors, and an unset SITE_URL with them, since
+   * that read is inside its `try` — so the catch below is for the transport or
+   * for the identity query throwing before the action could answer at all. Both
+   * must say something; a dead menu item is indistinguishable from a broken one.
+   *
+   * AND THE TWO FAILURES IT REPORTS ARE NOT THE SAME FAILURE, which is why this
+   * asks billing-copy.ts rather than testing for a URL. `not-configured` cannot
+   * be retried into working, so it must not be shown the sentence that says to
+   * try — see checkoutOutcome, and wordle-teams-9fm, where this treated every
+   * cause alike.
    */
   const startUpgrade = async () => {
     try {
-      const url = await createCheckout({})
-      if (!url) {
-        toast.error(CHECKOUT_FAILED)
+      const outcome = checkoutOutcome(await createCheckout({}))
+      if (outcome.action === 'navigate') {
+        window.location.href = outcome.url
         return
       }
-      window.location.href = url
+      // Header.tsx's portal does the same thing with the same reasoning: the
+      // level is chosen in billing-copy.ts, where a test can see it.
+      toast[outcome.level](outcome.message)
     } catch (error) {
       toast.error(mutationErrorMessage(error, CHECKOUT_FAILED))
     }

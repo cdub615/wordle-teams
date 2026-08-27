@@ -61,11 +61,11 @@ export default function Header() {
   )
 
   /**
-   * All three PortalResult branches, kept distinguishable. The mapping itself
+   * All four PortalResult branches, kept distinguishable. The mapping itself
    * is billing-copy.ts's, so it is testable without a DOM — see its note and
    * billing-copy.test.ts; what is left here is a call, a navigation and a toast.
    *
-   * A THROW IS A FOURTH OUTCOME AND NOT ONE OF THE THREE. getCustomerPortalUrl
+   * A THROW IS ANOTHER OUTCOME AND NOT ONE OF THOSE FOUR. getCustomerPortalUrl
    * turns a Polar failure into `reason: 'error'` itself, so reaching this catch
    * means the action never got that far — an unset SITE_URL, or the transport.
    * mutationErrorMessage gives a typed ConvexError its own copy and everything

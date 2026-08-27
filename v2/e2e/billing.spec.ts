@@ -37,12 +37,20 @@ import type { Locator, Page } from '@playwright/test'
  * share one session does, and a new test here should only mint a session if it
  * genuinely cannot.
  *
- * WHAT IT CANNOT ASSERT: a redirect to Polar. No POLAR_* variable is set on any
- * deployment (wordle-teams-3bl), so both actions fail on assertPolarEnv. That
- * makes the honest-failure path the observable one, which is genuinely the
- * behaviour worth pinning first — v1's bug was never a broken checkout, it was
- * a checkout that failed and said nothing. Task 13 (wordle-teams-02c) does the
- * sandbox pass; when POLAR_* lands, test 1 becomes a redirect assertion.
+ * WHAT IT CANNOT ASSERT: a redirect to Polar. No POLAR_* variable is set on the
+ * deployment this drives — measured with `convex env list`, and the five are on
+ * production only (wordle-teams-3bl) — so both actions stop at
+ * `polarEnvProblem`. That makes the honest-failure path the observable one,
+ * which is genuinely the behaviour worth pinning first — v1's bug was never a
+ * broken checkout, it was a checkout that failed and said nothing, and
+ * wordle-teams-9fm was a checkout that failed and said the wrong thing. Task 13
+ * (wordle-teams-02c) does the sandbox pass; when POLAR_* lands here, test 1
+ * becomes a redirect assertion.
+ *
+ * WHICH MAKES THIS THE ONLY PLACE THE `not-configured` BRANCH IS PROVEN END TO
+ * END, and it is proven against a deployment that genuinely is not configured
+ * rather than a stub. billing-copy.test.ts pins the sentence's properties and
+ * polar.test.ts pins the classification; only this can see the two joined up.
  *
  * NOR THE BADGE ABOVE ZERO. Reaching one pending invite needs a SECOND account
  * that owns a team, since the count only rises when somebody else's invite is
@@ -103,16 +111,28 @@ test('the billing link and the upgrade CTA each report their own failure', async
   await expect(billing).toBeEnabled()
   await billing.click()
 
-  // THE `error` BRANCH, NOT `no-customer`, AND THE DIFFERENCE IS THE POINT.
-  // assertPolarEnv throws a plain Error, isMissingCustomer answers false for it
-  // (no statusCode), so lookupPortal reports `error` — and the UI has to say the
-  // retryable sentence rather than the "you have no billing account" one.
-  // Getting the no-customer copy here would mean the three-way PortalResult had
-  // been collapsed somewhere between the action and the toast.
-  await expect(toastWith(page, 'Could not open the billing portal.')).toBeVisible({
+  // THE `not-configured` BRANCH, AND THE OTHER TWO ARE THE POINT OF ASSERTING
+  // IT. This deployment has no POLAR_* variable (measured with `convex env
+  // list`), so polarEnvProblem answers before any network call and the portal
+  // reports a misconfiguration — which is the literal truth here.
+  //
+  // wordle-teams-9fm IS WHAT THE TWO NEGATIVE ASSERTIONS CATCH, and this is the
+  // only place in the repo that can catch it end to end. `no-customer` would
+  // mean the reasons had been collapsed between the action and the toast, as
+  // before. `error` — "Could not open the billing portal. Please try again." —
+  // is what this ACTUALLY SAID until wordle-teams-9fm: a sentence inviting a
+  // retry that could never work, for a deployment that is simply not set up.
+  await expect(toastWith(page, 'Billing is unavailable.')).toBeVisible({
     timeout: 15_000,
   })
   await expect(toastWith(page, 'You do not have a billing account yet.')).toHaveCount(0)
+  await expect(toastWith(page, 'Please try again')).toHaveCount(0)
+
+  // AND NOTHING NAMES A VARIABLE. The server knows exactly which of the five are
+  // missing and logs it; this repo is public and the browser is not where that
+  // goes. Asserted on the whole document rather than the toast, because a leak
+  // anywhere on the page is the same leak.
+  await expect(page.locator('body')).not.toContainText('POLAR_')
 
   // The button comes back rather than staying stuck pending: a failure the
   // player cannot retry is the same dead end as no message at all.
@@ -136,12 +156,18 @@ test('the billing link and the upgrade CTA each report their own failure', async
   await expect(page.getByRole('menuitem', { name: 'New Team' })).toHaveCount(0)
   await page.getByRole('menuitem', { name: 'Upgrade for more' }).click()
 
-  // Was `toast.info('More teams need a paid plan. Coming soon.')` until this
-  // task. Nothing about a real checkout is observable without POLAR_*, but a
-  // CTA that reaches createProCheckout and reports its null is exactly what
+  // Was `toast.info('More teams need a paid plan. Coming soon.')` until Task 11.
+  // Nothing about a real checkout is observable without POLAR_*, but a CTA that
+  // reaches createProCheckout and reports what it answers is exactly what
   // distinguishes the wired button from the placeholder it replaced.
-  await expect(toastWith(page, 'Could not start checkout.')).toBeVisible({ timeout: 15_000 })
+  //
+  // AND IT REPORTS THE SAME MISCONFIGURATION THE PORTAL DID, in its own words:
+  // both paths had this bug (wordle-teams-9fm) and both were fixed. "Could not
+  // start checkout. Please try again." is the operational sentence and is the
+  // wrong answer on a deployment holding no access token.
+  await expect(toastWith(page, 'Upgrades are unavailable.')).toBeVisible({ timeout: 15_000 })
   await expect(toastWith(page, 'Coming soon')).toHaveCount(0)
+  await expect(toastWith(page, 'Please try again')).toHaveCount(0)
 
   // ── The return leg from checkout (wordle-teams-wxg) ───────────────────────
   // NO REAL CHECKOUT IS NEEDED TO REACH THIS, and none can be driven: with no

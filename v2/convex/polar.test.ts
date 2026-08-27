@@ -1,12 +1,19 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { convexTest } from 'convex-test'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import schema from './schema'
+import { api } from './_generated/api'
 import {
   assertPolarEnv,
+  classifyPortalError,
   externalIdsFor,
   lookupPortal,
+  polarEnvProblem,
   polarServer,
   proProductIds,
 } from './polar.ts'
 import type { PortalAttemptResult } from './polar.ts'
+
+const modules = import.meta.glob('./**/*.ts')
 
 /**
  * WHAT THIS FILE CAN AND CANNOT COVER.
@@ -134,6 +141,180 @@ describe('polarServer', () => {
   test('refuses an unset value', () => {
     setEnv({})
     expect(() => polarServer()).toThrow("POLAR_SERVER must be 'production' or 'sandbox'")
+  })
+})
+
+/**
+ * THE DEFECT wordle-teams-9fm WAS ABOUT: a Polar misconfiguration and a Polar
+ * outage produced the same toast, so "please try again" was shown for the one
+ * failure retrying can never fix. These pin the distinction at both ends of it —
+ * the check that runs before any network call, and the classifier that runs on
+ * what the network gave back.
+ */
+describe('polarEnvProblem', () => {
+  test('is null when the deployment is fully configured', () => {
+    setEnv(ALL_SET)
+    expect(polarEnvProblem()).toBeNull()
+  })
+
+  // The SAME message assertPolarEnv throws, because it IS that message: a
+  // second wording would be a second thing to keep true.
+  test('names every missing variable', () => {
+    setEnv({})
+    expect(polarEnvProblem()).toBe('Missing required POLAR env variables: ' + REQUIRED.join(', '))
+  })
+
+  // THE CASE assertPolarEnv ALONE CANNOT SEE. All five are present, so the
+  // variable check passes; the value is still nonsense, and sandbox and
+  // production are separate Polar instances.
+  test('catches a POLAR_SERVER that is set but wrong, and quotes it', () => {
+    setEnv({ ...ALL_SET, POLAR_SERVER: 'prod' })
+    expect(polarEnvProblem()).toBe("POLAR_SERVER must be 'production' or 'sandbox', not 'prod'")
+  })
+
+  // The two problems are separate facts and must not be reported as one.
+  test('a missing variable and a bad server read differently', () => {
+    setEnv({})
+    const missing = polarEnvProblem()
+    setEnv({ ...ALL_SET, POLAR_SERVER: 'prod' })
+    expect(polarEnvProblem()).not.toBe(missing)
+  })
+
+  // IT ANSWERS RATHER THAN THROWING, which is the whole point: the actions call
+  // it OUTSIDE their try, so nothing about the environment can arrive in a catch
+  // written for Polar's HTTP errors and come out as a generic failure.
+  test('never throws, whatever is set', () => {
+    setEnv({})
+    expect(() => polarEnvProblem()).not.toThrow()
+    setEnv({ ...ALL_SET, POLAR_SERVER: '' })
+    expect(() => polarEnvProblem()).not.toThrow()
+  })
+})
+
+describe('classifyPortalError', () => {
+  // Polar answers an unknown external_customer_id with 422 plus this detail —
+  // see isMissingCustomer, which was three attempts in v1. Not a failure.
+  test('a 422 naming a missing customer is no-customer', () => {
+    expect(
+      classifyPortalError({ statusCode: 422, body: '{"detail":"Customer does not exist."}' }),
+    ).toBe('no-customer')
+  })
+
+  // A REJECTED CREDENTIAL IS A DEPLOYMENT FACT, not an outage: a sandbox token
+  // against POLAR_SERVER=production, a revoked token, a token with the wrong
+  // scopes. None of them clears by waiting, so none may be told to try again.
+  test.each([401, 403])('a %i is not-configured', (statusCode) => {
+    expect(classifyPortalError({ statusCode })).toBe('not-configured')
+  })
+
+  // AND EVERYTHING ELSE STAYS RETRYABLE, which is what keeps the retry sentence
+  // honest where it survives. A bare 422 is here deliberately: Polar sends one
+  // for ordinary validation failures too, and only the detail tells them apart.
+  test.each<[string, unknown]>([
+    ['a 500', { statusCode: 500 }],
+    ['a 429', { statusCode: 429 }],
+    ['a 422 with no matching detail', { statusCode: 422, body: '{"detail":"bad success_url"}' }],
+    ['a network error with no status', new Error('fetch failed')],
+    ['a thrown string', 'nope'],
+    ['null', null],
+  ])('%s is an operational error', (_label, error) => {
+    expect(classifyPortalError(error)).toBe('error')
+  })
+})
+
+/**
+ * THE CLASSIFICATION END TO END, through the actions themselves.
+ *
+ * WORTH THE HARNESS BECAUSE THE HOIST IS THE FIX. `polarEnvProblem` being
+ * correct proves nothing if the handler still asks it from inside the try — and
+ * that placement is exactly what the bug was. Reaching `not-configured` here
+ * with no authentication and no network proves the check runs FIRST: an
+ * unconfigured deployment answers before `checkoutIdentity` is ever run, so
+ * there is nothing left for a catch to swallow.
+ *
+ * NO SESSION IS NEEDED AND NONE COULD BE MADE — convex-test cannot stand up a
+ * Better Auth session (wordle-teams-obw). That limits this to the branch that
+ * returns before any identity lookup, which is the branch under test.
+ */
+describe('the misconfigured deployment, through the actions', () => {
+  // The actions log the operator's detail; the harness prints it as a failure
+  // otherwise, and the CONTENT of that log is asserted below rather than in the
+  // noise of the run.
+  let logged: unknown[][]
+
+  beforeEach(() => {
+    logged = []
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(args)
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * The two ways a deployment can be misconfigured before it ever reaches
+   * Polar, each with the operator detail that must survive into the log. They
+   * are ONE user-facing outcome and TWO distinct server-side facts, which is the
+   * split the whole fix is: the player is told the same true thing either way,
+   * and the owner is told which of the two it is.
+   */
+  const MISCONFIGURED: Array<{ label: string; env: Record<string, string>; log: RegExp }> = [
+    // Not anchored: each action prefixes the detail with what it was trying to
+    // do, which is the half of the log line that says WHICH click failed.
+    { label: 'a missing variable', env: {}, log: /Missing required POLAR env variables: POLAR_/ },
+    {
+      label: 'a POLAR_SERVER that is neither instance',
+      env: { ...ALL_SET, POLAR_SERVER: 'prod' },
+      log: /POLAR_SERVER must be 'production' or 'sandbox', not 'prod'/,
+    },
+  ]
+
+  test.each(MISCONFIGURED)('the portal reports not-configured for $label', async ({ env, log }) => {
+    setEnv(env)
+    const t = convexTest(schema, modules)
+
+    expect(await t.action(api.polar.getCustomerPortalUrl, {})).toEqual({
+      url: null,
+      reason: 'not-configured',
+    })
+
+    // THE OWNER'S ONLY DIAGNOSTIC. The reason returned is bare on purpose, so
+    // the log is the only place the cause exists — losing it would trade one
+    // undiagnosable failure for another.
+    expect(logged.map((args) => args.join(' ')).join('\n')).toMatch(log)
+  })
+
+  test.each(MISCONFIGURED)(
+    'the checkout reports not-configured for $label',
+    async ({ env, log }) => {
+      setEnv(env)
+      const t = convexTest(schema, modules)
+
+      expect(await t.action(api.polar.createProCheckout, {})).toEqual({
+        url: null,
+        reason: 'not-configured',
+      })
+      expect(logged.map((args) => args.join(' ')).join('\n')).toMatch(log)
+    },
+  )
+
+  // WHAT MUST NEVER BE TRUE AGAIN. Before wordle-teams-9fm both of these
+  // answered exactly what a Polar outage answers, and the UI could only offer
+  // the retry that was guaranteed to fail.
+  test('and it is not what an outage answers', async () => {
+    setEnv({})
+    const t = convexTest(schema, modules)
+
+    expect(await t.action(api.polar.getCustomerPortalUrl, {})).not.toEqual({
+      url: null,
+      reason: 'error',
+    })
+    expect(await t.action(api.polar.createProCheckout, {})).not.toEqual({
+      url: null,
+      reason: 'error',
+    })
   })
 })
 
