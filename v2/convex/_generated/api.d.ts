@@ -21,6 +21,7 @@ import type * as inviteEmails from "../inviteEmails.js";
 import type * as lib_board from "../lib/board.js";
 import type * as lib_e2e from "../lib/e2e.js";
 import type * as lib_invite from "../lib/invite.js";
+import type * as lib_polarEvents from "../lib/polarEvents.js";
 import type * as lib_puzzleDay from "../lib/puzzleDay.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_scoringSystem from "../lib/scoringSystem.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   "lib/board": typeof lib_board;
   "lib/e2e": typeof lib_e2e;
   "lib/invite": typeof lib_invite;
+  "lib/polarEvents": typeof lib_polarEvents;
   "lib/puzzleDay": typeof lib_puzzleDay;
   "lib/scoring": typeof lib_scoring;
   "lib/scoringSystem": typeof lib_scoringSystem;
