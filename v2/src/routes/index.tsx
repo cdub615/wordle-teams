@@ -11,6 +11,7 @@ import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
 import { CHECKOUT_FAILED } from '#/lib/billing-copy.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
 import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
@@ -72,6 +73,24 @@ function Dashboard() {
   const createCheckout = useConvexAction(api.polar.createProCheckout)
 
   /**
+   * The return leg from checkout (wordle-teams-wxg, decision L).
+   *
+   * DECLARED BEFORE useDashboardSearchSync, WHICH IS NOT COSMETIC: effects run
+   * in the order their hooks are called, and the sync effect navigates —
+   * rewriting the URL to `?team=&month=` and dropping every param it does not
+   * know about, `checkout` included. Reading the marker after that would find
+   * it gone on the load it matters for.
+   *
+   * `&& !isPro` IS THE WHOLE OF THE RESOLUTION. amIPro is a reactive Convex
+   * subscription, so the webhook patching playerMembership turns isPro true,
+   * which turns this false and takes the notice away with no reload, no
+   * refetch and no timer — see components/checkout-return.tsx. If the webhook
+   * got there first, isPro is already true on arrival and nothing is shown at
+   * all, which is correct: the upgrade is not pending.
+   */
+  const upgradePending = useCheckoutReturn() && !isPro
+
+  /**
    * The upgrade path, behind team-picker.tsx's existing "Upgrade for more".
    *
    * ONE ENTRY POINT, NOT A SECOND BUTTON. The CTA is already there, gated on
@@ -120,9 +139,16 @@ function Dashboard() {
     navigate: (search) => void navigate({ to: '/', search, replace: true }),
   })
 
+  // ALL THREE RETURNS BELOW RENDER THE PENDING NOTICE, and the empty state is
+  // the one wordle-teams-6tn actually named: someone can upgrade before they
+  // have created a single team, and that is the case where they would
+  // otherwise be looking at a page with nothing on it that acknowledges the
+  // payment they just made. The skeleton branch matters too — it is what every
+  // load shows until useDashboardSearchSync fills the params in.
   if (teams.length === 0) {
     return (
       <main className="p-2 md:p-12">
+        {upgradePending && <CheckoutPending className="mb-4" />}
         <TeamsEmptyState onCreate={() => setCreateOpen(true)} />
         <CreateTeamDialog
           open={createOpen}
@@ -138,6 +164,7 @@ function Dashboard() {
   if (!teamParam || !monthParam) {
     return (
       <main className="p-2 md:p-12">
+        {upgradePending && <CheckoutPending className="mb-4" />}
         <Skeleton className="h-96 w-full rounded-lg" />
       </main>
     )
@@ -163,6 +190,7 @@ function Dashboard() {
     // producing a page-wide horizontal scrollbar with everything below the
     // header pushed edge-to-edge.
     <main className="mb-12 grid grid-cols-1 gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
+      {upgradePending && <CheckoutPending className="md:col-span-3" />}
       <CreateTeamDialog
         open={createOpen}
         onOpenChange={setCreateOpen}

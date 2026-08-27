@@ -221,6 +221,14 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  * accepts today — a behaviour change dressed as a port. The asymmetry is v1's,
  * not one introduced here: v1 enforces the cap on the path where SOMEBODY ELSE
  * puts you on a team, and leaves the paths you drive yourself to the UI.
+ *
+ * THE FOURTH GATE wordle-teams-6tn NAMES — the month window — IS NOT LISTED
+ * ABOVE BECAUSE IT DOES NOT EXIST HERE YET. month-picker.tsx's monthOptions
+ * offers everyone the same three months, pro or not, so v2 currently shows a
+ * pro player LESS history than production rather than gating more. There is
+ * nothing to enforce until the pro expansion is built, and Phase 5 deliberately
+ * did not build it: it is not a billing behaviour, and it still has no owning
+ * phase. Whoever adds it inherits the enforcement question with it.
  */
 export async function isProFor(ctx: ReaderCtx, playerId: Id<'players'>): Promise<boolean> {
   const membership = await ctx.db

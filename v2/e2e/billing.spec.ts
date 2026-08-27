@@ -143,6 +143,32 @@ test('the billing link and the upgrade CTA each report their own failure', async
   await expect(toastWith(page, 'Could not start checkout.')).toBeVisible({ timeout: 15_000 })
   await expect(toastWith(page, 'Coming soon')).toHaveCount(0)
 
+  // ── The return leg from checkout (wordle-teams-wxg) ───────────────────────
+  // NO REAL CHECKOUT IS NEEDED TO REACH THIS, and none can be driven: with no
+  // POLAR_* variable set, createProCheckout never returns a URL. But the state
+  // Polar leaves the browser in is entirely a query parameter —
+  // `${SITE_URL}/?checkout=success`, convex/polar.ts — so visiting it is the
+  // real thing. This account is still free, which is precisely the case the
+  // pending notice exists for.
+  await page.goto('/?checkout=success')
+  const pending = page.getByText('Finishing your upgrade')
+  await expect(pending).toBeVisible({ timeout: 20_000 })
+
+  // STILL THERE AFTER THE DASHBOARD'S OWN NAVIGATION, which is the assertion
+  // with teeth. useDashboardSearchSync navigates on hydration to fill ?team=
+  // and ?month= in; if that remounted the route — or if the notice's flag lived
+  // anywhere that a remount resets — the message would flash and vanish while
+  // the upgrade was still in flight. Waiting for ?team= to appear is waiting
+  // for exactly that navigation to have happened.
+  await expect.poll(() => new URL(page.url()).searchParams.get('team')).not.toBeNull()
+  await expect(pending).toBeVisible()
+
+  // The marker is stripped, so nothing can re-trigger on a reload.
+  expect(new URL(page.url()).searchParams.get('checkout')).toBeNull()
+  await page.reload()
+  await expect(page.getByRole('button', { name: /^Team: / })).toBeVisible({ timeout: 20_000 })
+  await expect(pending).toHaveCount(0)
+
   // ── On a phone ────────────────────────────────────────────────────────────
   // 390x844 is an iPhone 14. wordle-teams-ksh calls the phone the product's
   // primary device, and the header is the one bar every route carries —
