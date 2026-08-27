@@ -110,7 +110,7 @@ export async function resolvePlayerIdFor(
     if (legacy) return legacy._id
 
     // A candidate that names nothing is skipped, not fatal: the happy-path
-    // customer.externalId can be stale or foreign while the metadata we set
+    // customer.external_id can be stale or foreign while the metadata we set
     // ourselves is still correct.
   }
 
@@ -508,6 +508,16 @@ export const processPolarEvent = internalMutation({
     // throw, and this event would then answer 500 to every redelivery forever.
     if (existing?.processed) return 'duplicate'
 
+    // THE EXISTING ROW IS REUSED AS IT STANDS: `body`, `eventName` and
+    // `playerId` are not rewritten from this attempt's arguments. A redelivery
+    // carries the same delivery id and the same bytes, so they agree — unless
+    // identity resolved DIFFERENTLY between the two attempts, which needs a
+    // player row to have appeared or vanished in between. The cost of that is
+    // an audit row naming the first attempt's player while the membership write
+    // below goes to this one's; the membership write itself is never wrong,
+    // because it uses the argument and not the row. Left alone deliberately:
+    // patching them would make the audit trail describe the last attempt rather
+    // than the delivery, and it is the delivery that Polar redelivers.
     const rowId =
       existing?._id ??
       (await ctx.db.insert('webhookEvents', {

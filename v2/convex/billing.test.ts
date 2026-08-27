@@ -333,7 +333,7 @@ test('tries candidates in order and takes the first that resolves', async () => 
 })
 
 // An unresolvable candidate is skipped rather than ending the search — the
-// happy-path customer.externalId can be a stale or foreign value while the
+// happy-path customer.external_id can be a stale or foreign value while the
 // metadata we set ourselves is still correct.
 test('skips a candidate that names nothing and keeps going', async () => {
   const t = convexTest(schema, modules)

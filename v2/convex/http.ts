@@ -53,9 +53,12 @@ type PolarDelivery = { type?: unknown; data?: SubscriptionIdentity | null }
  *   missing webhook-id      400  malformed; a redelivery carries the same
  *                                headers, so retrying cannot fix it
  *   bad signature           403  not ours
- *   unparseable payload     400  the SDK cannot name the event; same reasoning
- *   no resolvable player    202  foreign or unknown, and retrying can NEVER
- *                                succeed — see below
+ *   unparseable payload     400  not JSON, or no `type` to act on; a
+ *                                redelivery carries the same bytes
+ *   checkout lookup failed  500  transient. The last-resort call could not be
+ *                                ASKED, which is not an answer of "nobody"
+ *   no resolvable player    202  every candidate was tried and named nobody,
+ *                                so retrying can NEVER succeed — see below
  *   already processed       200  a genuine replay
  *   processed               200
  *   processing threw        500  transient; Polar retries, and unlike v1 the
@@ -67,6 +70,13 @@ type PolarDelivery = { type?: unknown; data?: SubscriptionIdentity | null }
  * integration on the same Polar organization. It is not a silent success
  * either: v1's 2026-08-03 incident was a 202 that SHOULD have resolved, and
  * what fixed it was the fallback chain below, not a louder status code.
+ *
+ * WHICH IS WHY THE 202 IS SAID OF AN ANSWER AND NEVER OF A FAILURE. "Retrying
+ * can never succeed" is true once every candidate has been TRIED and named
+ * nobody. It is false when the fallback's one Polar call FAILS — a 5xx, a 429,
+ * a network blip, an unset POLAR_ACCESS_TOKEN — and answering 202 there would
+ * discard the delivery permanently and without even an audit row, in exactly
+ * the case the fallback exists for. That call is wrapped below and answers 500.
  *
  * VERIFIED THROUGH `standardwebhooks` DIRECTLY, NOT THROUGH THE POLAR SDK's
  * `validateEvent`, AND THAT IS A MEASUREMENT RATHER THAN A PREFERENCE. v1 uses
@@ -194,9 +204,27 @@ http.route({
     // this subscription still carries the external id even when the customer
     // does not — one Polar API call, so it is kept off the happy path.
     if (!playerId && identity.checkoutId) {
-      const fromCheckout = await ctx.runAction(internal.polar.fetchCheckoutExternalId, {
-        checkoutId: identity.checkoutId,
-      })
+      let fromCheckout: string | null
+      try {
+        fromCheckout = await ctx.runAction(internal.polar.fetchCheckoutExternalId, {
+          checkoutId: identity.checkoutId,
+        })
+      } catch (error) {
+        // A FAILED LOOKUP IS NOT AN ANSWER OF "NOBODY". Falling through to the
+        // 202 below would tell Polar never to redeliver, over a Polar 5xx, a
+        // 429, a network blip or an unset POLAR_ACCESS_TOKEN — and the 202 path
+        // stores no audit row, so the upgrade would be gone with no trace. It
+        // would land on exactly the customers this fallback exists for.
+        // `fetchCheckoutExternalId` returns null for the cases a redelivery
+        // genuinely cannot fix and throws for the rest; this is the rest.
+        console.error(
+          '[polar] checkout lookup failed; asking Polar to redeliver',
+          { webhookId, checkoutId: identity.checkoutId },
+          error,
+        )
+        return new Response('Checkout lookup failed', { status: 500 })
+      }
+
       if (fromCheckout) {
         playerId = await ctx.runQuery(internal.billing.resolvePlayerId, {
           candidates: [fromCheckout],

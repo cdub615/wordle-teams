@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isMissingCustomer } from './polarErrors.ts'
+import { isMissingCheckout, isMissingCustomer } from './polarErrors.ts'
 
 /**
  * The shape a real `PolarError` presents to this check. Measured against
@@ -79,5 +79,46 @@ describe('isMissingCustomer', () => {
   test('a stringified status does not match', () => {
     expect(isMissingCustomer({ statusCode: '422', body: NO_CUSTOMER_BODY })).toBe(false)
     expect(isMissingCustomer({ statusCode: '404', body: '' })).toBe(false)
+  })
+})
+
+describe('isMissingCheckout', () => {
+  // Polar answers a path parameter naming nothing with 404, and the SDK
+  // declares it. Nothing about a redelivery changes the id we would send.
+  test('a 404 is a checkout that cannot be read', () => {
+    expect(isMissingCheckout({ statusCode: 404, body: '{"detail":"Not Found"}' })).toBe(true)
+  })
+
+  // A rejected id is rejected the same way every time, so this is the same
+  // "retrying can never help" as a 404 rather than a failure to retry.
+  test('a 422 is a permanently unusable checkout id', () => {
+    expect(isMissingCheckout({ statusCode: 422, body: '{"detail":[]}' })).toBe(true)
+  })
+
+  // THE WHOLE POINT OF THE CLASSIFIER, and the bug it was written to close: a
+  // transient failure answered 'no checkout' becomes a 202, which tells Polar
+  // never to redeliver, and the upgrade is lost with no audit row.
+  test('a transient failure is NOT a missing checkout', () => {
+    expect(isMissingCheckout({ statusCode: 500, body: 'upstream error' })).toBe(false)
+    expect(isMissingCheckout({ statusCode: 502, body: '' })).toBe(false)
+    expect(isMissingCheckout({ statusCode: 429, body: 'slow down' })).toBe(false)
+  })
+
+  // A missing POLAR_ACCESS_TOKEN throws out of assertPolarEnv before any
+  // request is made, so it carries no status at all. A deployment configured to
+  // verify webhooks but not to call Polar must fail loudly — polar.ts's env
+  // contract says identically everywhere — rather than silently drop the
+  // upgrades that need the fallback.
+  test('an error with no HTTP status is a failure, not an answer', () => {
+    expect(isMissingCheckout(new Error('Missing required POLAR env variables'))).toBe(false)
+    expect(isMissingCheckout(new TypeError('fetch failed'))).toBe(false)
+    expect(isMissingCheckout(undefined)).toBe(false)
+    expect(isMissingCheckout(null)).toBe(false)
+    expect(isMissingCheckout('404')).toBe(false)
+  })
+
+  test('a stringified status does not match', () => {
+    expect(isMissingCheckout({ statusCode: '404' })).toBe(false)
+    expect(isMissingCheckout({ statusCode: '422' })).toBe(false)
   })
 })

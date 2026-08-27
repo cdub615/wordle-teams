@@ -74,3 +74,42 @@ export function isMissingCustomer(error: unknown): boolean {
   // be a way to match "[object Object]" by accident.
   return typeof body === 'string' && /customer does not exist/i.test(body)
 }
+
+/**
+ * Whether this error means the CHECKOUT cannot be read no matter how often we
+ * ask, rather than that the call failed.
+ *
+ * THE DISTINCTION IS A STATUS CODE ON THE WEBHOOK, which is why it is a
+ * classifier and not a `catch (e) { return null }`. `fetchCheckoutExternalId`
+ * is identity's last resort; a null from it means "the checkout names nobody",
+ * and convex/http.ts turns that into 202 — an answer that tells Polar NEVER to
+ * redeliver. Letting a Polar 500, a 429, a network blip or a missing
+ * POLAR_ACCESS_TOKEN produce that same null would discard the delivery
+ * permanently, and it would do it to exactly the customers the fallback exists
+ * for: the email-matched ones whose customer carries no external id. Anything
+ * this returns false for is rethrown and becomes a 500, so Polar redelivers.
+ *
+ * A DIFFERENT SHAPE FROM isMissingCustomer, and the difference is real rather
+ * than an inconsistency. That one asks about a value in a request BODY, which
+ * Polar answers with 422 plus a detail string. This one asks about a PATH
+ * parameter, and `checkouts.get` declares 404 `ResourceNotFound` and 422
+ * `HTTPValidationError` in the generated client (measured:
+ * `@polar-sh/sdk@0.49.0`, `dist/esm/funcs/checkoutsGet.js:87`, which matches
+ * exactly `200`, `404`, `422`, then fails 4XX and 5XX). So the status alone
+ * carries the meaning here and no body needs reading.
+ *
+ * 422 COUNTS AS "CANNOT BE READ", not as a failure: it means Polar rejected the
+ * id we sent as malformed, and a redelivery carries the same id. Retrying that
+ * forever is the infinite loop the 202 exists to prevent — the same reasoning
+ * as an unresolvable external id, reached one step later.
+ *
+ * NO 404-IS-GENEROUS BRANCH, unlike isMissingCustomer's: here the SDK's own
+ * matcher says 404 is what this endpoint sends.
+ */
+export function isMissingCheckout(error: unknown): boolean {
+  const { statusCode } = (error ?? {}) as HttpErrorish
+
+  // Strictly, so a hand-rolled wrapper's '404' string does not classify — the
+  // same reflex isMissingCustomer's tests pin.
+  return statusCode === 404 || statusCode === 422
+}

@@ -3,7 +3,7 @@ import { v } from 'convex/values'
 import { action, internalAction, internalQuery } from './_generated/server'
 import { internal } from './_generated/api'
 import { currentPlayer } from './access.ts'
-import { isMissingCustomer } from './lib/polarErrors.ts'
+import { isMissingCheckout, isMissingCustomer } from './lib/polarErrors.ts'
 import type { Id } from './_generated/dataModel'
 
 /**
@@ -42,9 +42,15 @@ import type { Id } from './_generated/dataModel'
  * (The one runtime dependency that could plausibly have needed Node,
  * `standardwebhooks`, reaches only `@stablelib/base64` and `fast-sha256` — both
  * pure JS — and is not on this module's import path anyway, since the root entry
- * does not re-export `webhooks.js`. Task 10 (wordle-teams-p8m) took that route:
- * convex/http.ts imports `@polar-sh/sdk/webhooks.js` and verifies signatures on
- * the default runtime, with no directive.)
+ * does not re-export `webhooks.js`.)
+ *
+ * TASK 10 WENT FURTHER, AND THE REASON MATTERS HERE: `@polar-sh/sdk`'s
+ * `validateEvent` cannot run on the default runtime at all — measured against
+ * the local backend, `ReferenceError: Buffer is not defined`, from its opening
+ * `Buffer.from(secret, 'utf-8')`. So convex/http.ts imports `standardwebhooks`
+ * DIRECTLY, which is the library that helper verifies through, and it needs no
+ * directive either. Nothing in this tree imports `@polar-sh/sdk/webhooks.js`.
+ * (This paragraph claimed http.ts imported it, in the commit that removed it.)
  *
  * Staying on the default runtime is not merely tidier. Convex's rule is that a
  * `'use node'` module may hold actions only, so the directive would also have
@@ -95,9 +101,17 @@ const REQUIRED_ENV_VARS = [
  * checkout but cannot verify the webhook it produces is misconfigured, and the
  * cheapest moment to find out is the first Polar call rather than the first
  * delivery. The reader is convex/http.ts, which checks the one variable again
- * on its own — this validates the SET, the webhook cannot afford to reach
- * `validateEvent` with an undefined secret, and neither check makes the other
- * redundant.
+ * on its own — this validates the SET, while the webhook cannot afford to reach
+ * `new Webhook(...)` with an undefined secret, because `TextEncoder` turns that
+ * into an empty key and every delivery is then rejected 403 as a bad signature.
+ * Neither check makes the other redundant.
+ *
+ * AND THE TWO ARE NOT INTERCHANGEABLE, which the webhook's checkout fallback
+ * proves: a deployment holding POLAR_WEBHOOK_SECRET but no POLAR_ACCESS_TOKEN
+ * verifies deliveries happily and then throws out of THIS function on the one
+ * Polar call identity's last resort makes. That throw is now a 500 and a
+ * redelivery (see `fetchCheckoutExternalId`) rather than a silently dropped
+ * upgrade.
  *
  * Exported so `polar.test.ts` can pin it, as are the other decisions this
  * module makes outside an SDK call — `polarServer`, `proProductIds`,
@@ -283,7 +297,7 @@ export const checkoutIdentity = internalQuery({
  * Polar does NOT stamp `external_customer_id` onto a customer that already
  * EXISTS under this email — it matches the checkout to that customer and leaves
  * its own (often null) external id alone — so the webhook's
- * `customer.externalId` comes back null and the upgrade silently does nothing.
+ * `customer.external_id` comes back null and the upgrade silently does nothing.
  * v1 watched that happen on 2026-08-03: real subscription, correct checkout,
  * HTTP 202, nobody upgraded. It matters more in v2 than it did in v1, because
  * at cutover every migrated user already exists as a Polar customer under their
@@ -526,7 +540,7 @@ export const getCustomerPortalUrl = action({
 /**
  * The external id recorded on a checkout — identity's third and last resort.
  *
- * When neither `customer.externalId` nor the checkout metadata names a live
+ * When neither `customer.external_id` nor the checkout metadata names a live
  * player, the checkout that created the subscription still holds the value.
  * `lib/polarIdentity.ts` extracts `checkoutId` for exactly this, and convex/
  * http.ts joins the two — it calls this only after the two free candidates have
@@ -541,8 +555,19 @@ export const getCustomerPortalUrl = action({
  * (`resolvePlayerIdFor` in billing.ts), and v1's uuid regex is deliberately not
  * ported. See the note in `lib/polarIdentity.ts`.
  *
- * NULL ON FAILURE, never a throw: the caller is a webhook handler, and a
- * checkout this token cannot read is not something a redelivery will fix.
+ * NULL MEANS "THE CHECKOUT NAMES NOBODY". IT THROWS WHEN THE CALL FAILED, and
+ * the two must not be conflated, because the caller turns null into HTTP 202 —
+ * an answer that tells Polar never to redeliver, and one that stores no audit
+ * row. (This said "NULL ON FAILURE, never a throw", and caught everything to
+ * honour it. That was written when nothing called this; Task 10
+ * (wordle-teams-p8m) made the swallow reachable, and with it a Polar 5xx, a
+ * 429, a network blip or an unset POLAR_ACCESS_TOKEN silently discarded the
+ * delivery — and did it to precisely the customers this fallback exists for,
+ * the email-matched ones whose customer carries no external id.)
+ *
+ * `isMissingCheckout` DRAWS THE LINE and explains where: 404 and 422 are
+ * permanent, everything else is worth another delivery. A throw here surfaces
+ * in convex/http.ts as a 500, which is Polar's cue to redeliver.
  */
 export const fetchCheckoutExternalId = internalAction({
   args: { checkoutId: v.string() },
@@ -551,8 +576,17 @@ export const fetchCheckoutExternalId = internalAction({
       const checkout = await polar().checkouts.get({ id: checkoutId })
       return checkout.externalCustomerId ?? null
     } catch (error) {
+      if (isMissingCheckout(error)) {
+        // An answer, not a failure: this checkout can never name anybody. Warn
+        // rather than error, and let the caller answer 202.
+        console.warn('[polar] checkout could not be read and never will be', { checkoutId }, error)
+        return null
+      }
+
+      // Rethrown, NOT swallowed. The webhook cannot tell a transient failure
+      // from "nobody" once this returns, so it must not be asked to.
       console.error('[polar] failed to read checkout', { checkoutId }, error)
-      return null
+      throw error
     }
   },
 })
@@ -561,7 +595,7 @@ export const fetchCheckoutExternalId = internalAction({
  * Stamps the resolved player id onto the Polar customer, so later events for
  * the same person take the fast path.
  *
- * THE SELF-HEAL BEHIND BOTH DIRECTIONS OF DECISION F. Once `customer.externalId`
+ * THE SELF-HEAL BEHIND BOTH DIRECTIONS OF DECISION F. Once `customer.external_id`
  * holds the Convex id, the next event for this person — a renewal, a
  * cancellation, a revocation — arrives with candidate 1 populated and needs no
  * fallback, and their next portal visit costs one Polar call instead of two.
