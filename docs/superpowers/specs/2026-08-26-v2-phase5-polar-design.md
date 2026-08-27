@@ -346,6 +346,16 @@ same organization.
 
 ## Identity resolution
 
+> **CORRECTION, 2026-08-27 (Task 10): the field names below are camelCase and the wire is snake_case.**
+>
+> This section was written assuming `@polar-sh/sdk`'s `validateEvent` would parse and camelCase the delivery. **It cannot run on Convex's default runtime**: `dist/esm/webhooks.js:126` calls `Buffer.from(secret, 'utf-8')`, and `Buffer` is a Node global the default runtime does not provide. Every delivery would have failed verification.
+>
+> Verification therefore goes through `standardwebhooks@1.0.0` directly — the library the SDK itself verifies through — which never touches the `Buffer` global. The consequence is that **a verified delivery is the raw wire JSON**, so `convex/lib/polarIdentity.ts` reads **`customer.external_id`**, **`customer_id`** and **`checkout_id`**. Only `metadata.player_id` is unchanged, because it was always our own key.
+>
+> **Nothing about the decision changes** — resolution still spans both namespaces, still tries `customer.external_id` → `metadata.player_id` → the checkout, and still replaces v1's UUID regex with "does this name a live player". Read every `customer.externalId` below as `customer.external_id`.
+>
+> **No gate in this repo could have caught this.** `vitest`'s `edge-runtime` environment *does* define `Buffer`, and `npx convex codegen` analyses modules without serving a request. It was found only by issuing a real request against a running backend. Tracked as `wordle-teams-xm2`, which blocks Task 13.
+
 Candidates in preference order — `customer.externalId`, `metadata.player_id`,
 `checkouts.get(checkoutId)` — each resolved against **both** namespaces:
 
