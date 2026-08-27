@@ -270,8 +270,17 @@ export default defineSchema({
     // Squeezy rows predate it.
     //
     // Convex has no unique constraints, so the replay guard lives in the
-    // mutation: look up by_webhookId first and return early if it is already
-    // there. Phase 5 owns that handler.
+    // mutation: `processPolarEvent` in billing.ts looks up by_webhookId first.
+    //
+    // IT RETURNS EARLY ON `processed`, NOT ON THE ROW EXISTING, and the
+    // difference is decision E / divergence 13. (This comment said "return
+    // early if it is already there" until Task 10 built the handler it was
+    // describing.) A row that exists but never completed is a delivery this app
+    // still owes: v1 treats it as a duplicate, answers 200 to the redelivery,
+    // and loses the event permanently while this row claims it was handled.
+    // So an unprocessed row CARRYING AN ERROR is a normal state here — it is
+    // what sits between a failure and the redelivery that finishes it — where
+    // in v1 the same two fields can only ever be seen set together.
     webhookId: v.optional(v.string()),
 
     playerId: v.id('players'),

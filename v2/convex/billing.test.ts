@@ -7,8 +7,12 @@ import {
   resolvePlayerIdFor,
   upgradeTeamInvitesFor,
 } from './billing.ts'
+import { internal } from './_generated/api'
 import { extractIdentityCandidates } from './lib/polarIdentity.ts'
+import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
+import type { TestConvex } from 'convex-test'
+import type { Id } from './_generated/dataModel'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -239,7 +243,7 @@ test('resolves a native Convex player id', async () => {
 
 // RELEASE GATE, case 1 — the v1 silent-202 failure, end to end from the body.
 // Polar matched the checkout to an EXISTING customer by email, so
-// customer.externalId came back null and only metadata.player_id carries the
+// customer.external_id came back null and only metadata.player_id carries the
 // value. On v1's dev on 2026-08-03 this body was accepted with HTTP 202 and
 // nobody was upgraded.
 //
@@ -252,9 +256,9 @@ test('resolves from checkout metadata when the customer external id was null', a
   await t.run(async (ctx) => {
     const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined }))
     const { candidates } = extractIdentityCandidates({
-      customer: { id: 'cus_1', externalId: null },
+      customer: { id: 'cus_1', external_id: null },
       metadata: { player_id: playerId },
-      checkoutId: 'ch_1',
+      checkout_id: 'ch_1',
     })
 
     expect(candidates).toEqual([playerId])
@@ -273,7 +277,7 @@ test('resolves a v1 uuid through by_legacyId', async () => {
   await t.run(async (ctx) => {
     const playerId = await ctx.db.insert('players', aPlayer({ legacyId: V1_UUID }))
     const { candidates } = extractIdentityCandidates({
-      customer: { id: 'cus_1', externalId: V1_UUID },
+      customer: { id: 'cus_1', external_id: V1_UUID },
     })
 
     expect(candidates).toEqual([V1_UUID])
@@ -551,4 +555,388 @@ test('a player id naming no row upgrades to nothing and counts 0', async () => {
     expect(await pendingInviteCountFor(ctx, playerId)).toBe(0)
     expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
   })
+})
+
+// ---------------------------------------------------------------------------
+// processPolarEvent and recordWebhookFailure — Task 10 (wordle-teams-p8m), the
+// point at which a verified Polar delivery becomes a membership change.
+//
+// WHAT THESE COVER AND WHAT THEY DO NOT. Everything below drives the two
+// mutations directly, because that is where the rules are: the replay guard,
+// the transition, the effect, and the audit row. The transport half — signature
+// verification, the header the delivery id comes from, and the status codes —
+// lives in convex/http.ts and is exercised by the sandbox pass in Task 13
+// (wordle-teams-02c); a convex-test harness cannot sign a Standard Webhooks
+// request against a secret no deployment has yet (wordle-teams-3bl).
+//
+// ACCEPTANCE CRITERION 3 HAS TWO HALVES and both are here: a duplicate must not
+// reprocess, and a FAILED delivery must. The second is divergence 13 — the one
+// v1 gets wrong — and the two tests are written so that guarding on row
+// existence rather than on `processed` fails the second while leaving the first
+// green, which is exactly the mutation this task's CONTROL A applies.
+// ---------------------------------------------------------------------------
+
+// A Standard Webhooks delivery id. NOT a uuid: v1 lost a day to a uuid column
+// that rejected exactly this shape, answered 500, and put Polar into an
+// infinite retry loop over an event that could never be stored.
+const WEBHOOK_ID = 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W'
+
+// The mutation's arguments, not a Polar body. Identity is resolved BEFORE the
+// mutation runs (the httpAction answers 202 when it cannot be), so what arrives
+// here is already a playerId plus the raw JSON to keep for the audit trail.
+const anEvent = (over: Record<string, unknown> = {}) => ({
+  webhookId: WEBHOOK_ID,
+  eventName: 'subscription.active',
+  body: { type: 'subscription.active', data: { id: 'sub_1' } },
+  ...over,
+})
+
+const statusOf = async (t: TestConvex<typeof schema>, playerId: Id<'players'>) =>
+  await t.run(
+    async (ctx) =>
+      (
+        await ctx.db
+          .query('playerMembership')
+          .withIndex('by_player', (q) => q.eq('playerId', playerId))
+          .first()
+      )?.membershipStatus ?? null,
+  )
+
+const rowsFor = async (t: TestConvex<typeof schema>, webhookId = WEBHOOK_ID) =>
+  await t.run(
+    async (ctx) =>
+      await ctx.db
+        .query('webhookEvents')
+        .withIndex('by_webhookId', (q) => q.eq('webhookId', webhookId))
+        .collect(),
+  )
+
+// The grant, end to end: the membership row AND the effect that goes with it.
+// Asserting only the status would pass against a handler that never released
+// the invites, which is half the transition.
+test('an active event upgrades the player and releases parked invites', async () => {
+  const t = convexTest(schema, modules)
+  const { playerId, teamId } = await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined, email: ADA }))
+    const teamId = await ctx.db.insert('teams', aTeam({ legacyId: 200, invited: [ADA] }))
+    return { playerId, teamId }
+  })
+
+  expect(await t.mutation(internal.billing.processPolarEvent, { ...anEvent(), playerId })).toBe(
+    'processed',
+  )
+
+  expect(await statusOf(t, playerId)).toBe('pro')
+  await t.run(async (ctx) => {
+    const team = (await ctx.db.get(teamId))!
+    expect(team.playerIds).toContain(playerId)
+    expect(team.invited).toEqual([])
+  })
+
+  const rows = await rowsFor(t)
+  expect(rows).toHaveLength(1)
+  expect(rows[0].processed).toBe(true)
+  expect(rows[0].eventName).toBe('subscription.active')
+  // The raw delivery, kept verbatim. The audit trail is what a stored event is
+  // for; a transition can be re-derived from the name, the body cannot.
+  expect(rows[0].body).toEqual({ type: 'subscription.active', data: { id: 'sub_1' } })
+})
+
+// A player born in v2 has no membership row at all until they pay — Task 3
+// (wordle-teams-h9k) is what made inserting one legal, by making legacyId
+// optional. `legacyId === undefined` has to stay meaningful: it is how Phase 7's
+// reconciliation tells a native row from a copied one.
+test('a player with no membership row gets one, with no legacyId', async () => {
+  const t = convexTest(schema, modules)
+  const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: undefined })))
+
+  await t.mutation(internal.billing.processPolarEvent, { ...anEvent(), playerId })
+
+  await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query('playerMembership')
+      .withIndex('by_player', (q) => q.eq('playerId', playerId))
+      .collect()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].membershipStatus).toBe('pro')
+    expect(rows[0].legacyId).toBeUndefined()
+  })
+})
+
+// ACCEPTANCE CRITERION 3, FIRST HALF.
+//
+// THE MEMBERSHIP IS CHANGED BEHIND THE HANDLER'S BACK between the two
+// deliveries, and that is the whole design of this test: asserting only that
+// the second call returns 'duplicate' would pass just as happily against a
+// handler that reprocessed and then said so. The 'free' below can only survive
+// if nothing ran.
+test('a duplicate webhook id returns success WITHOUT reprocessing', async () => {
+  const t = convexTest(schema, modules)
+  const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: undefined })))
+
+  await t.mutation(internal.billing.processPolarEvent, { ...anEvent(), playerId })
+  expect(await statusOf(t, playerId)).toBe('pro')
+
+  await t.run(async (ctx) => {
+    const row = (await ctx.db
+      .query('playerMembership')
+      .withIndex('by_player', (q) => q.eq('playerId', playerId))
+      .first())!
+    await ctx.db.patch(row._id, { membershipStatus: 'free' })
+  })
+
+  expect(await t.mutation(internal.billing.processPolarEvent, { ...anEvent(), playerId })).toBe(
+    'duplicate',
+  )
+
+  expect(await statusOf(t, playerId)).toBe('free')
+  // And no second audit row: Convex has no unique constraint to lean on, so
+  // the guard's lookup is the only thing stopping one delivery from
+  // accumulating a row per redelivery.
+  expect(await rowsFor(t)).toHaveLength(1)
+})
+
+// ACCEPTANCE CRITERION 3, SECOND HALF — DIVERGENCE 13, and the one v1 gets
+// wrong.
+//
+// v1 inserts the row before processing and marks it processed even when
+// processing fails, so the redelivery's INSERT hits the unique index, is mapped
+// to 'duplicate', answers 200, and the event is lost forever while the audit row
+// claims it was handled. v2 keys the guard on `processed`, so a row that exists
+// but never completed is a delivery this app still owes.
+test('a previously FAILED event IS reprocessed on redelivery', async () => {
+  const t = convexTest(schema, modules)
+  const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: undefined })))
+
+  // Exactly what the httpAction's catch block does after processPolarEvent has
+  // thrown and rolled back: the audit row is written OUTSIDE the failed
+  // transaction, unprocessed.
+  await t.mutation(internal.billing.recordWebhookFailure, {
+    ...anEvent(),
+    playerId,
+    processingError: 'boom',
+  })
+
+  expect(await statusOf(t, playerId)).toBeNull()
+
+  expect(await t.mutation(internal.billing.processPolarEvent, { ...anEvent(), playerId })).toBe(
+    'processed',
+  )
+
+  expect(await statusOf(t, playerId)).toBe('pro')
+  const rows = await rowsFor(t)
+  // Reused, not duplicated.
+  expect(rows).toHaveLength(1)
+  expect(rows[0].processed).toBe(true)
+  // The error from the failed attempt is GONE. A row that is processed and
+  // still carries an error is v1's terminal state, and it must be unreachable
+  // here.
+  expect(rows[0].processingError).toBeUndefined()
+})
+
+// The row a failure leaves behind is the input to the test above, so what it
+// contains is worth pinning on its own: processed:false is not bookkeeping, it
+// is the thing that lets the redelivery pick the event up.
+test('a failed delivery is stored unprocessed, carrying its error', async () => {
+  const t = convexTest(schema, modules)
+  const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: undefined })))
+
+  await t.mutation(internal.billing.recordWebhookFailure, {
+    ...anEvent(),
+    playerId,
+    processingError: 'Uncaught Error: boom',
+  })
+
+  const rows = await rowsFor(t)
+  expect(rows).toHaveLength(1)
+  expect(rows[0].processed).toBe(false)
+  expect(rows[0].processingError).toBe('Uncaught Error: boom')
+
+  // A second failure patches the same row rather than adding another.
+  await t.mutation(internal.billing.recordWebhookFailure, {
+    ...anEvent(),
+    playerId,
+    processingError: 'boom again',
+  })
+  const after = await rowsFor(t)
+  expect(after).toHaveLength(1)
+  expect(after[0].processingError).toBe('boom again')
+})
+
+// THE ONE CASE THAT WOULD REPLAY AN APPLIED EVENT. The normal path cannot reach
+// it — a processed row returns 'duplicate' and never throws — but a mutation
+// that COMMITTED and then failed to report back to the action would land here,
+// and flipping the row to processed:false would hand the redelivery a
+// membership change that already happened.
+test('recording a failure never un-processes an already-processed row', async () => {
+  const t = convexTest(schema, modules)
+  const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: undefined })))
+
+  await t.mutation(internal.billing.processPolarEvent, { ...anEvent(), playerId })
+  await t.mutation(internal.billing.recordWebhookFailure, {
+    ...anEvent(),
+    playerId,
+    processingError: 'the mutation committed but the action never heard back',
+  })
+
+  const rows = await rowsFor(t)
+  expect(rows).toHaveLength(1)
+  expect(rows[0].processed).toBe(true)
+  expect(
+    await t.mutation(internal.billing.processPolarEvent, { ...anEvent(), playerId }),
+  ).toBe('duplicate')
+})
+
+// RECOGNISED BUT DELIBERATELY INERT. Polar splits Lemon Squeezy's single
+// cancellation in two: `canceled` means the customer SCHEDULED a cancellation
+// and keeps paid access to the end of the period they already bought, and
+// `past_due` means a payment failed but is still recoverable. Downgrading on
+// either would strip a paying customer's teams weeks early — which is what
+// CONTROL B of this task's mutation testing does, to prove this test sees it.
+test('canceled and past_due change no membership and remove no teams', async () => {
+  for (const eventName of ['subscription.canceled', 'subscription.past_due']) {
+    const t = convexTest(schema, modules)
+    const { playerId, teams } = await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined }))
+      const other = await ctx.db.insert(
+        'players',
+        aPlayer({ legacyId: undefined, email: 'other@example.com' }),
+      )
+      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+      // MORE THAN FREE_TEAM_LIMIT, or "no teams removed" would be true of a
+      // downgrade too and the test would prove nothing. Each keeps a second
+      // member so a wrongly-dropped team still exists to be asked about.
+      const teams = []
+      for (let i = 0; i <= FREE_TEAM_LIMIT; i++) {
+        teams.push(
+          await ctx.db.insert(
+            'teams',
+            aTeam({ legacyId: 210 + i, playerIds: [playerId, other], owner: playerId }),
+          ),
+        )
+      }
+      return { playerId, teams }
+    })
+
+    expect(
+      await t.mutation(internal.billing.processPolarEvent, {
+        ...anEvent({ eventName, webhookId: `msg_${eventName}` }),
+        playerId,
+      }),
+    ).toBe('processed')
+
+    expect(await statusOf(t, playerId)).toBe('pro')
+    await t.run(async (ctx) => {
+      for (const id of teams) {
+        expect((await ctx.db.get(id))!.playerIds).toContain(playerId)
+      }
+    })
+    // Stored anyway: the audit trail is the point of the row, not the
+    // transition.
+    const rows = await rowsFor(t, `msg_${eventName}`)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].processed).toBe(true)
+  }
+})
+
+// The revocation is where access actually ends, and it carries the softened
+// downgrade with it (divergence 12): the player leaves the surplus teams, which
+// survive for everyone else on them.
+test('revoked downgrades the membership and applies the team limit', async () => {
+  const t = convexTest(schema, modules)
+  const { playerId, teams } = await t.run(async (ctx) => {
+    const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined }))
+    const other = await ctx.db.insert(
+      'players',
+      aPlayer({ legacyId: undefined, email: 'other@example.com' }),
+    )
+    await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+    // FREE_TEAM_LIMIT + 1 teams, oldest first, each with a second member so the
+    // surplus one survives its owner leaving and can still be inspected.
+    const teams = []
+    for (let i = 0; i <= FREE_TEAM_LIMIT; i++) {
+      teams.push(
+        await ctx.db.insert(
+          'teams',
+          aTeam({ legacyId: 220 + i, playerIds: [playerId, other], owner: other, createdAt: i }),
+        ),
+      )
+    }
+    return { playerId, teams }
+  })
+
+  expect(
+    await t.mutation(internal.billing.processPolarEvent, {
+      ...anEvent({ eventName: 'subscription.revoked' }),
+      playerId,
+    }),
+  ).toBe('processed')
+
+  // Patched, not inserted: this player already had a row.
+  expect(await statusOf(t, playerId)).toBe('expired')
+  await t.run(async (ctx) => {
+    const kept = teams.slice(0, FREE_TEAM_LIMIT)
+    for (const id of kept) expect((await ctx.db.get(id))!.playerIds).toContain(playerId)
+    for (const id of teams.slice(FREE_TEAM_LIMIT)) {
+      expect((await ctx.db.get(id))!.playerIds).not.toContain(playerId)
+    }
+  })
+})
+
+// An event nobody taught this app about. It is STORED — the audit trail is why
+// the table exists — and acknowledged, because a 500 would put Polar into an
+// endless redelivery loop over something no retry can change. `isAcknowledged
+// Event` is what tells this apart from canceled/past_due, so that only this one
+// is logged as unhandled.
+//
+// `subscription.created` is deliberately the example: Polar sends it when a
+// subscription record is established, which is not the same as it being paid
+// for, and treating it as the grant would hand out Pro on an unpaid checkout.
+test('an unrecognised event is stored and acknowledged with no membership change', async () => {
+  const t = convexTest(schema, modules)
+  const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: undefined })))
+
+  expect(
+    await t.mutation(internal.billing.processPolarEvent, {
+      ...anEvent({ eventName: 'subscription.created' }),
+      playerId,
+    }),
+  ).toBe('processed')
+
+  expect(await statusOf(t, playerId)).toBeNull()
+  const rows = await rowsFor(t)
+  expect(rows).toHaveLength(1)
+  expect(rows[0].processed).toBe(true)
+  expect(rows[0].eventName).toBe('subscription.created')
+})
+
+// The Map in lib/polarEvents.ts is a Map and not a Record precisely so that a
+// key off the prototype chain cannot resolve to something truthy. This is that
+// rule seen from the mutation: a hostile event name reaches the database as a
+// stored row and nothing else, never as an `undefined` membership status.
+test('a prototype-chain event name changes nothing', async () => {
+  const t = convexTest(schema, modules)
+  const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: undefined })))
+
+  expect(
+    await t.mutation(internal.billing.processPolarEvent, {
+      ...anEvent({ eventName: '__proto__' }),
+      playerId,
+    }),
+  ).toBe('processed')
+
+  expect(await statusOf(t, playerId)).toBeNull()
+})
+
+// The httpAction has no ctx.db, so resolution has to cross a runQuery. This is
+// that crossing, and it is thin on purpose — resolvePlayerIdFor's own tests
+// above are where the two-namespace rule is pinned.
+test('resolvePlayerId answers across the query boundary, and null for nobody', async () => {
+  const t = convexTest(schema, modules)
+  const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: V1_UUID })))
+
+  expect(
+    await t.query(internal.billing.resolvePlayerId, { candidates: ['nope', V1_UUID] }),
+  ).toBe(playerId)
+  expect(await t.query(internal.billing.resolvePlayerId, { candidates: [] })).toBeNull()
 })

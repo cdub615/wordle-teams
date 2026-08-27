@@ -1,5 +1,7 @@
-import { query } from './_generated/server'
+import { v } from 'convex/values'
+import { internalMutation, internalQuery, query } from './_generated/server'
 import { currentPlayer } from './access'
+import { isAcknowledgedEvent, mapEventToTransition } from './lib/polarEvents.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { cascadeDeleteTeam } from './teams.ts'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
@@ -66,9 +68,10 @@ type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
  * foreign or unknown external id is not a transient fault and retrying can
  * never fix it. Returning 500 there would put Polar into an endless redelivery
  * loop over an event this app can do nothing with — for instance one belonging
- * to a different integration on the same Polar organization. NO SUCH CALLER
- * EXISTS YET: the webhook endpoint is Task 10 (wordle-teams-p8m), so this
- * contract is stated ahead of the handler it constrains.
+ * to a different integration on the same Polar organization. THE CALLER NOW
+ * EXISTS and honours it: the webhook in convex/http.ts (Task 10,
+ * wordle-teams-p8m) reaches this through `resolvePlayerId` below and answers
+ * 202 on null.
  *
  * THE ONE EXCEPTION IS DELIBERATE: the `.unique()` below throws if two players
  * share a legacyId, and that SHOULD be a 500. Duplicate legacyIds mean the copy
@@ -113,6 +116,32 @@ export async function resolvePlayerIdFor(
 
   return null
 }
+
+/**
+ * `resolvePlayerIdFor` for a caller with no `ctx.db`.
+ *
+ * THE WEBHOOK IS AN httpAction, AND ACTIONS CANNOT TOUCH THE DATABASE — the
+ * same constraint that put `checkoutIdentity` in polar.ts. So the resolution the
+ * handler needs before it can store anything has to cross a `ctx.runQuery`, and
+ * this is the crossing. Internal because the webhook is its only caller and
+ * because handing the public API a "turn these strings into a player id"
+ * endpoint would let anyone probe which external ids name real players.
+ *
+ * A QUERY, NOT PART OF processPolarEvent, deliberately. Resolution has to
+ * happen BEFORE the storing mutation runs, because an unresolvable event is
+ * answered 202 and never stored at all — `webhookEvents.playerId` is
+ * `v.id('players')` and there is no row to attribute it to. Folding it into the
+ * mutation would mean either inventing a placeholder player or making the
+ * mutation return a third outcome the transaction has no use for.
+ *
+ * THIN, so billing.ts's rule holds: the decision is `resolvePlayerIdFor`'s and
+ * is unit-tested directly against ctx.db, with no wrapper in the way.
+ */
+export const resolvePlayerId = internalQuery({
+  args: { candidates: v.array(v.string()) },
+  handler: async (ctx, { candidates }): Promise<Id<'players'> | null> =>
+    await resolvePlayerIdFor(ctx, candidates),
+})
 
 /**
  * An address reduced to what it can be COMPARED by, mirroring
@@ -404,3 +433,206 @@ export async function downgradeTeamRemovalFor(
     })
   }
 }
+
+/**
+ * What a stored-and-applied delivery can come back as.
+ *
+ * TWO, WHERE v1's `WebhookOutcome` HAS FOUR, and the two missing ones are
+ * missing because this mutation cannot be the thing that decides them. v1's
+ * `ignored` (no such player) is settled BEFORE the mutation runs — an
+ * unresolvable event never reaches here, because `webhookEvents.playerId` is
+ * `v.id('players')` and there is nobody to attribute the row to; the webhook
+ * answers 202. v1's `failed` is a THROW here rather than a value, which is the
+ * whole of divergence 13: a returned failure would leave the partial writes in
+ * place, and a throw rolls them back. convex/http.ts maps these onto status
+ * codes.
+ */
+export type WebhookOutcome = 'processed' | 'duplicate'
+
+/**
+ * Store and apply one verified Polar webhook. ONE TRANSACTION, START TO FINISH.
+ *
+ * Ports v1's `handlePolarEvent` (src/lib/polar/webhook.ts), whose retry design
+ * is decorative. v1 inserts the row, then updates membership, then calls an
+ * RPC, as three separate statements — so a failure half way leaves the row
+ * behind, and `markProcessed` then stamps `processed: true` ALONGSIDE the error
+ * string. The route answers 500, Polar redelivers, the redelivery's INSERT hits
+ * the partial unique index, the code maps that to `duplicate` and answers 200,
+ * and the event is lost permanently while the audit row claims it was handled.
+ *
+ * A CONVEX MUTATION REMOVES THAT FAILURE MODE STRUCTURALLY. The insert, the
+ * membership write and the team changes are one transaction, so a throw
+ * anywhere rolls back all of it and the row simply is not there — or, if it was
+ * already there from an earlier failed attempt, is unchanged and still
+ * unprocessed. There is no state in which this leaves `processed: true` next to
+ * an error.
+ *
+ * THE REPLAY GUARD KEYS ON `processed`, NOT ON ROW EXISTENCE. Decision E,
+ * divergence 13, and the second half of the phase's acceptance criterion 3. A
+ * row that EXISTS but never completed is a delivery this app still owes, so it
+ * is picked up and finished; only a row that completed is a replay. Guarding on
+ * existence instead is precisely v1's bug, and it is what CONTROL A of this
+ * task's mutation testing reintroduces to prove the tests can see it.
+ *
+ * THE ROW IS REUSED, NOT RE-INSERTED, on that retry. Convex has no unique
+ * constraints — the by_webhookId index is not one — so nothing but this lookup
+ * stops one delivery from accumulating a row per attempt.
+ *
+ * NO ACCESS CHECK, like everything else in this module: the authority is the
+ * signature the webhook verified, and there is no session on a webhook. Every
+ * caller owes that verification. Internal so that authority cannot be
+ * bypassed — a public mutation taking `{ playerId, eventName }` would be a
+ * grant-yourself-Pro endpoint, which is wordle-teams-8uk in v1 and the reason
+ * v1's module carries its "MUST NOT CARRY 'use server'" warning.
+ */
+export const processPolarEvent = internalMutation({
+  args: {
+    webhookId: v.string(),
+    eventName: v.string(),
+    body: v.any(),
+    playerId: v.id('players'),
+  },
+  handler: async (ctx, { webhookId, eventName, body, playerId }): Promise<WebhookOutcome> => {
+    const existing = await ctx.db
+      .query('webhookEvents')
+      .withIndex('by_webhookId', (q) => q.eq('webhookId', webhookId))
+      .first()
+
+    // A GENUINE REPLAY, and only this is one. Standard Webhooks redelivers
+    // anything non-2xx, so replays are routine and must cost nothing and change
+    // nothing.
+    //
+    // `.first()` rather than `.unique()`: two rows for one delivery should be
+    // impossible — every writer of this table goes through the lookup above or
+    // recordWebhookFailure's — but if one ever appeared, `.unique()` would
+    // throw, and this event would then answer 500 to every redelivery forever.
+    if (existing?.processed) return 'duplicate'
+
+    const rowId =
+      existing?._id ??
+      (await ctx.db.insert('webhookEvents', {
+        webhookId,
+        playerId,
+        eventName,
+        body,
+        processed: false,
+        createdAt: Date.now(),
+      }))
+
+    const transition = mapEventToTransition(eventName)
+
+    if (transition) {
+      const membership = await ctx.db
+        .query('playerMembership')
+        .withIndex('by_player', (q) => q.eq('playerId', playerId))
+        .first()
+
+      if (membership) {
+        await ctx.db.patch(membership._id, { membershipStatus: transition.status })
+      } else {
+        // A PLAYER BORN IN v2 HAS NO MEMBERSHIP ROW UNTIL THEY PAY, and this is
+        // where the first one comes from. Legal only since Task 3
+        // (wordle-teams-h9k) made `legacyId` optional on this table; before
+        // that, every row had to name a Supabase one. No legacyId is written
+        // here on purpose — its absence is what says "born in v2, not copied",
+        // which Phase 7's reconciliation reads.
+        await ctx.db.insert('playerMembership', {
+          playerId,
+          membershipStatus: transition.status,
+        })
+      }
+
+      // A SWITCH, NOT AN if/else ON ONE EFFECT. With two effects the two shapes
+      // behave identically; they diverge the moment a third is added, where
+      // `else downgradeTeamRemovalFor(...)` would silently strip the teams of
+      // whoever the new effect was meant for.
+      switch (transition.effect) {
+        case 'release-invites':
+          await upgradeTeamInvitesFor(ctx, playerId)
+          break
+        case 'apply-team-limit':
+          await downgradeTeamRemovalFor(ctx, playerId)
+          break
+        default: {
+          // THE ASSIGNMENT IS THE POINT, not the throw: a third member of
+          // MembershipEffect makes this line stop compiling (measured, by
+          // adding one), which is the only version of "the switch is
+          // exhaustive" that a later editor cannot walk past. Bare cases with
+          // no default compile fine and do nothing, which is the silent
+          // failure this exists to prevent.
+          const unhandled: never = transition.effect
+          throw new Error(`Unhandled membership effect: ${String(unhandled)}`)
+        }
+      }
+    } else if (!isAcknowledgedEvent(eventName)) {
+      // NULL MEANS TWO THINGS and only one of them is worth a log line.
+      // `subscription.canceled` and `subscription.past_due` are recognised and
+      // deliberately inert — the customer keeps paid access to the end of the
+      // period they bought, so downgrading here would strip a paying customer's
+      // teams weeks early. Anything else is an event nobody taught this app
+      // about, and a quiet no-op would be how a real Polar event goes unhandled
+      // for a month. Both still store the row: the audit trail is the point.
+      console.warn('[polar] unhandled webhook event', { eventName, webhookId })
+    }
+
+    // `processingError: undefined` REMOVES the field rather than storing an
+    // undefined — the one state v1 can reach and this must not, a row that is
+    // processed and still carries the error from the attempt before it.
+    await ctx.db.patch(rowId, { processed: true, processingError: undefined })
+    return 'processed'
+  },
+})
+
+/**
+ * Record that a delivery failed — OUTSIDE the transaction that failed.
+ *
+ * NO v1 PRECEDENT, AND IT IS THE PRICE OF divergence 13. v1 can write the error
+ * onto the row from inside its own handler because its statements are not
+ * transactional; that same property is what loses the event. Here the rollback
+ * is what makes the retry correct, and the rollback would take the evidence
+ * with it — so the audit row is written by a SEPARATE mutation, which
+ * convex/http.ts calls from the catch block after `processPolarEvent` has
+ * already thrown and rolled back.
+ *
+ * `processed` STAYS FALSE, which is not incidental bookkeeping: it is exactly
+ * what lets the redelivery pick the event up and finish it. A row written here
+ * and a row written by a rolled-back attempt are the same thing to the guard in
+ * processPolarEvent.
+ *
+ * IT WILL NOT UN-PROCESS AN ALREADY-PROCESSED ROW. The normal path cannot reach
+ * one — a processed row returns `duplicate` and never throws — but a mutation
+ * that COMMITTED and then failed to report back to the action would, and
+ * flipping that row to `processed: false` would replay a membership change that
+ * already happened. So the patch touches the error alone and leaves `processed`
+ * as it found it.
+ */
+export const recordWebhookFailure = internalMutation({
+  args: {
+    webhookId: v.string(),
+    eventName: v.string(),
+    body: v.any(),
+    playerId: v.id('players'),
+    processingError: v.string(),
+  },
+  handler: async (ctx, { webhookId, eventName, body, playerId, processingError }) => {
+    const existing = await ctx.db
+      .query('webhookEvents')
+      .withIndex('by_webhookId', (q) => q.eq('webhookId', webhookId))
+      .first()
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { processingError })
+      return
+    }
+
+    await ctx.db.insert('webhookEvents', {
+      webhookId,
+      playerId,
+      eventName,
+      body,
+      processed: false,
+      processingError,
+      createdAt: Date.now(),
+    })
+  },
+})

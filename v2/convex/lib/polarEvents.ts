@@ -28,11 +28,16 @@
 /**
  * What the membership change implies for the player's teams.
  *
- * ONE of the two implementations exists as of this commit. 'apply-team-limit'
- * is `downgradeTeamRemovalFor` in convex/billing.ts, which is written and
- * tested. 'release-invites' lands in the same module at Task 6 and DOES NOT
- * EXIST YET — this type names it ahead of its implementation so the event map
- * can be finished and pinned first.
+ * BOTH IMPLEMENTATIONS NOW EXIST in convex/billing.ts — 'apply-team-limit' is
+ * `downgradeTeamRemovalFor`, 'release-invites' is `upgradeTeamInvitesFor`
+ * (Task 6, wordle-teams-o4a) — and `processPolarEvent` in the same module is
+ * the one place that turns a name here into a call. (This said only one of them
+ * existed, which Task 6 falsified and Task 10 noticed.)
+ *
+ * IT STILL NAMES RATHER THAN PERFORMS, which is what keeps this module free of
+ * a Convex context: the switch that maps these two strings onto those two
+ * functions lives with the mutation, not here, and TypeScript makes a third
+ * effect fail to compile there rather than silently pick a branch.
  */
 export type MembershipEffect = 'release-invites' | 'apply-team-limit'
 

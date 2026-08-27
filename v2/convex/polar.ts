@@ -42,8 +42,9 @@ import type { Id } from './_generated/dataModel'
  * (The one runtime dependency that could plausibly have needed Node,
  * `standardwebhooks`, reaches only `@stablelib/base64` and `fast-sha256` — both
  * pure JS — and is not on this module's import path anyway, since the root entry
- * does not re-export `webhooks.js`. So Task 10 (wordle-teams-p8m) can verify
- * signatures without `'use node'` either.)
+ * does not re-export `webhooks.js`. Task 10 (wordle-teams-p8m) took that route:
+ * convex/http.ts imports `@polar-sh/sdk/webhooks.js` and verifies signatures on
+ * the default runtime, with no directive.)
  *
  * Staying on the default runtime is not merely tidier. Convex's rule is that a
  * `'use node'` module may hold actions only, so the directive would also have
@@ -93,7 +94,10 @@ const REQUIRED_ENV_VARS = [
  * it. That is the point of validating the set: a deployment that can create a
  * checkout but cannot verify the webhook it produces is misconfigured, and the
  * cheapest moment to find out is the first Polar call rather than the first
- * delivery. Task 10 (wordle-teams-p8m) is what reads it.
+ * delivery. The reader is convex/http.ts, which checks the one variable again
+ * on its own — this validates the SET, the webhook cannot afford to reach
+ * `validateEvent` with an undefined secret, and neither check makes the other
+ * redundant.
  *
  * Exported so `polar.test.ts` can pin it, as are the other decisions this
  * module makes outside an SDK call — `polarServer`, `proProductIds`,
@@ -143,10 +147,11 @@ export function polarServer(): 'production' | 'sandbox' {
  * has to supply a SITE_URL in return, its comment explaining that "tests import
  * it transitively through access.ts". Module-scope validation makes every
  * importer, direct or transitive, answerable for configuration it may not use.
- * Task 10's webhook and Task 11's upgrade button (wordle-teams-ksh) will both
- * import this module, none of the five variables is set on any deployment yet,
- * and none of them is needed to read a scoreboard. Deferring the check to the
- * first Polar call keeps the failure where the misconfiguration is.
+ * Task 11's upgrade button (wordle-teams-ksh) will import this module, Task
+ * 10's webhook reaches it by function reference, none of the five variables is
+ * set on any deployment yet, and none of them is needed to read a scoreboard.
+ * Deferring the check to the first Polar call keeps the failure where the
+ * misconfiguration is.
  *
  * Memoised because the client is stateless configuration — it holds a token and
  * a base URL — so a warm function instance reusing it is free and correct.
@@ -453,8 +458,10 @@ export async function lookupPortal(
  *
  * CREATED AT THE MOMENT OF THE CLICK AND NEVER STORED: portal URLs expire.
  *
- * A FALLBACK HIT SELF-HEALS — the first of the two places that will, the other
- * being the webhook at Task 10. Winning on the legacy id proves the Polar
+ * A FALLBACK HIT SELF-HEALS — one of the two places that do, the other being
+ * the webhook (convex/http.ts), which asks the same question from the other
+ * side: not "which identity won" but "does the customer already carry the
+ * resolved id". Winning on the legacy id proves the Polar
  * customer still carries the v1 uuid, so the repair is scheduled and the NEXT
  * visit needs one call instead of two. Scheduled rather than awaited, and
  * wrapped, because nothing about tidying up may turn a portal session the
@@ -521,8 +528,9 @@ export const getCustomerPortalUrl = action({
  *
  * When neither `customer.externalId` nor the checkout metadata names a live
  * player, the checkout that created the subscription still holds the value.
- * `lib/polarIdentity.ts` extracts `checkoutId` for exactly this; the webhook
- * that joins the two is Task 10 (wordle-teams-p8m), so nothing calls this yet.
+ * `lib/polarIdentity.ts` extracts `checkoutId` for exactly this, and convex/
+ * http.ts joins the two — it calls this only after the two free candidates have
+ * resolved nobody.
  *
  * ONE POLAR API CALL, which is why it is here and not in `resolvePlayerIdFor`,
  * and why it is last: the two candidates ahead of it are already in the webhook
@@ -563,9 +571,9 @@ export const fetchCheckoutExternalId = internalAction({
  *
  *   - `getCustomerPortalUrl`, when the session was found by the player's
  *     `legacyId` rather than their Convex id. This one is live.
- *   - the webhook, when identity resolved from the checkout metadata or from
- *     `fetchCheckoutExternalId` rather than from `customer.externalId`. That is
- *     Task 10 (wordle-teams-p8m) and is NOT WIRED YET.
+ *   - the webhook (convex/http.ts), whenever the customer's own
+ *     `externalId` is not already the resolved player — which covers a stale v1
+ *     uuid AND the null the email-matched customer carries. Both live now.
  *
  * BEST EFFORT AND NEVER FATAL, which is why it swallows everything: the event
  * that triggered it has ALREADY been resolved, and failing to tidy up must not

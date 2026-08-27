@@ -10,7 +10,7 @@
  * ../billing.ts, and this split is what lets every webhook body shape below be
  * exercised with plain vitest and no convex-test harness.
  *
- * WHY THIS IS NOT JUST `customer.externalId`:
+ * WHY THIS IS NOT JUST `customer.external_id`:
  *
  * Polar matches a checkout to an EXISTING customer by email when one exists,
  * and does not stamp external_customer_id onto that customer — the value stays
@@ -48,12 +48,32 @@
  * Every field optional and every one nullable, because this is unvalidated
  * JSON off the wire — the signature check upstream proves it came from Polar,
  * not that it has the shape the SDK's types describe.
+ *
+ * snake_case, WHICH IS THE SHAPE THAT ACTUALLY ARRIVES, and it is worth saying
+ * why the camelCase one is not on offer. Polar sends `external_id`,
+ * `customer_id` and `checkout_id` on the wire; `@polar-sh/sdk`'s `validateEvent`
+ * renames them while it verifies, and v1 reads the renamed shape
+ * (`src/lib/polar/identity.ts`) because v1 runs on Node.
+ *
+ * v2 CANNOT RUN `validateEvent`. Measured on the local Convex backend (Task 10,
+ * 2026-08-27): it answers `ReferenceError: Buffer is not defined`, because its
+ * first line is `Buffer.from(secret, 'utf-8')` and Convex's default runtime has
+ * no Buffer. So convex/http.ts verifies through `standardwebhooks` directly —
+ * the same library, the same bytes, minus that one line — and what a verified
+ * delivery hands back is `JSON.parse` of the body, untouched. Renaming it back
+ * would mean either shipping a Buffer shim into an isolate that also serves the
+ * Better Auth routes, or re-running the SDK's per-event zod schemas, whose
+ * strictness would turn any future field Polar adds into a rejected delivery.
+ *
+ * `metadata.player_id` IS THE ONE FIELD THAT DOES NOT MOVE: metadata keys are
+ * ours (convex/polar.ts's checkout sets `player_id`, as v1's did) and no
+ * renaming touches them.
  */
 export type SubscriptionIdentity = {
-  customer?: { id?: string | null; externalId?: string | null } | null
-  customerId?: string | null
+  customer?: { id?: string | null; external_id?: string | null } | null
+  customer_id?: string | null
   metadata?: Record<string, unknown> | null
-  checkoutId?: string | null
+  checkout_id?: string | null
 }
 
 export type IdentityCandidates = {
@@ -64,25 +84,41 @@ export type IdentityCandidates = {
    *
    * Carried so a later step can REPAIR it — stamping the resolved id onto the
    * customer means the next event for the same person arrives with
-   * customer.externalId populated and needs no fallback. That repair needs the
+   * customer.external_id populated and needs no fallback. That repair needs the
    * Polar SDK, and as of Task 9 (wordle-teams-l1v) it EXISTS:
    * `internal.polar.repairCustomerExternalId` takes exactly this kind of value,
-   * and the customer portal already drives it after a legacy-id hit. NOTHING
-   * PASSES IT *THIS* FIELD YET — the webhook that joins the two is Task 10
-   * (wordle-teams-p8m). Returned now so the extraction never has to be revisited
-   * to add it, and so the webhook body is read exactly once.
+   * and the customer portal already drives it after a legacy-id hit. Task 10
+   * (wordle-teams-p8m) joined the two: the webhook in convex/http.ts passes this
+   * field, paired with `customerExternalId` below, which is what decides whether
+   * there is anything to repair.
    */
   customerId: string | null
+  /**
+   * The external id the Polar customer ALREADY CARRIES, or null.
+   *
+   * DELIBERATELY REDUNDANT with `candidates[0]` whenever that one came from the
+   * customer, and the redundancy is the whole point. `candidates` answers "who
+   * might this be"; this answers "what does Polar have on file". They come
+   * apart in exactly the case that cost v1 an upgrade on 2026-08-03: the
+   * customer matched by email carries NULL while the checkout metadata carries
+   * the right id, so `candidates[0]` IS the resolved player and comparing
+   * against it would call that customer healed and never repair it. Comparing
+   * against this field repairs it.
+   *
+   * Not a fourth candidate: it is already candidate 1 when it is a string, and
+   * pushing it twice would buy a second identical lookup.
+   */
+  customerExternalId: string | null
   /**
    * The checkout that created this subscription, or null.
    *
    * v1's third and last resort: `checkouts.get(checkoutId).externalCustomerId`
    * still holds the value even when the customer does not. That lookup is one
    * Polar API call, so it belongs in an action, and Task 9 (wordle-teams-l1v)
-   * added it as `internal.polar.fetchCheckoutExternalId` — but, like
-   * `customerId` above, NO CALLER PASSES THIS FIELD TO IT YET. Task 10
-   * (wordle-teams-p8m) is the webhook that will. Same reasoning as `customerId`:
-   * extracted here so the last-resort path has its input ready.
+   * added it as `internal.polar.fetchCheckoutExternalId`. Task 10
+   * (wordle-teams-p8m) is the webhook that passes it: convex/http.ts calls that
+   * action only when `candidates` resolved nothing AND this is non-null, which
+   * is what keeps the one API call off the happy path.
    */
   checkoutId: string | null
 }
@@ -102,10 +138,18 @@ const asCandidate = (value: unknown): string | null =>
  * decides whether it names a live player.
  *
  * TAKES NULL, because the docblock above is only honest if it does. Task 10
- * will hand this `await request.json()`, and a request body of literal `null`
- * parses to `null` rather than throwing; a body with no `data` key yields
- * `undefined`. Both mean "nothing to identify", which is an empty result, not a
- * TypeError inside a webhook handler.
+ * hands this the `data` of a verified delivery, and a request body of literal
+ * `null` parses to `null` rather than throwing; a body with no `data` key
+ * yields `undefined`. Both mean "nothing to identify", which is an empty
+ * result, not a TypeError inside a webhook handler.
+ *
+ * THE VERIFIED WIRE JSON, NOT AN SDK-PARSED EVENT, is what convex/http.ts
+ * passes — `verified.data`, straight off `standardwebhooks`. See the note on
+ * SubscriptionIdentity for the measurement that settled it. Handing this a
+ * camelCase event would find none of these fields and resolve nobody, which is
+ * why the type names them rather than accepting both shapes: a body that
+ * matches neither is a silent 202, and silent 202s are what this whole module
+ * exists to stop.
  */
 export function extractIdentityCandidates(
   data: SubscriptionIdentity | null | undefined,
@@ -113,7 +157,7 @@ export function extractIdentityCandidates(
   const candidates: string[] = []
 
   // 1. The happy path: Polar applied our external id to the customer.
-  const fromCustomer = asCandidate(data?.customer?.externalId)
+  const fromCustomer = asCandidate(data?.customer?.external_id)
   if (fromCustomer) candidates.push(fromCustomer)
 
   // 2. Metadata we set on the checkout ourselves (v1's checkout.ts:27 sets
@@ -126,7 +170,10 @@ export function extractIdentityCandidates(
     candidates,
     // `customer.id` when the body embeds the customer, `customerId` when it
     // only references one. v1 read the same pair, in the same order.
-    customerId: asCandidate(data?.customer?.id) ?? asCandidate(data?.customerId),
-    checkoutId: asCandidate(data?.checkoutId),
+    customerId: asCandidate(data?.customer?.id) ?? asCandidate(data?.customer_id),
+    // The same read as candidate 1, reported separately rather than inferred
+    // back out of `candidates` — see the field's note.
+    customerExternalId: fromCustomer,
+    checkoutId: asCandidate(data?.checkout_id),
   }
 }
