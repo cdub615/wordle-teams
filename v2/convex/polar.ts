@@ -19,9 +19,14 @@ import type { Id } from './_generated/dataModel'
  * transport: the part that knows the word "Polar". Nothing here decides
  * anything about memberships or teams.
  *
- * ACTIONS, BECAUSE EVERY CALL BELOW IS NETWORK. Convex queries and mutations
- * cannot make one. The single exception is `checkoutIdentity`, which is a query
- * precisely because actions cannot touch `ctx.db` — see its own note.
+ * ACTIONS, BECAUSE EVERY POLAR CALL IS NETWORK and Convex queries and mutations
+ * cannot make one. Two kinds of thing here are not actions, both deliberately:
+ * `checkoutIdentity` is a query precisely because actions cannot touch
+ * `ctx.db`; and the decisions the actions make — `externalIdsFor`,
+ * `lookupPortal`, plus the environment helpers, and `isMissingCustomer` over in
+ * lib/polarErrors.ts — are plain functions, pulled out of the SDK calls so they
+ * can be exercised without a network. What is left inside each action is one
+ * SDK call and nothing worth asserting about. See polar.test.ts.
  *
  * NO `'use node'`, AND THAT IS MEASURED RATHER THAN ASSUMED — three ways.
  * Grepping `@polar-sh/sdk@0.49.0`'s published ESM build for `node:`-prefixed or
@@ -90,9 +95,9 @@ const REQUIRED_ENV_VARS = [
  * cheapest moment to find out is the first Polar call rather than the first
  * delivery. Task 10 (wordle-teams-p8m) is what reads it.
  *
- * Exported so `polar.test.ts` can pin it. Along with `polarServer` and
- * `proProductIds` it is the whole of what this module can be unit tested on —
- * everything else here is one SDK call away from the network.
+ * Exported so `polar.test.ts` can pin it, as are the other decisions this
+ * module makes outside an SDK call — `polarServer`, `proProductIds`,
+ * `externalIdsFor` and `lookupPortal`.
  */
 export function assertPolarEnv(): void {
   const missing = REQUIRED_ENV_VARS.filter((name) => !process.env[name])
@@ -201,11 +206,18 @@ function siteUrl(): string {
  * the schema, so this only fires for a row holding whitespace — but sending
  * Polar a blank name is at best meaningless and at worst a 422 this repo has
  * not measured, and either way `undefined` is what "we do not have one" means.
+ *
+ * `legacyId` IS THE PLAYER'S OTHER NAME, and it is carried for the portal
+ * alone — see `externalIdsFor`. Null for anyone born in v2; the schema note on
+ * `players.legacyId` makes that absence meaningful rather than incidental. The
+ * CHECKOUT never uses it: a new checkout must be stamped with the identity
+ * every future event should carry, which is the Convex id.
  */
 export type CheckoutIdentity = {
   playerId: Id<'players'>
   email: string
   name: string | null
+  legacyId: string | null
 }
 
 /**
@@ -239,8 +251,9 @@ export type CheckoutIdentity = {
  * NOT DIRECTLY TESTABLE: convex-test cannot stand up a Better Auth session
  * (wordle-teams-obw), so anything behind `currentPlayer` is out of reach of the
  * harness. That is the whole reason billing.ts's rules live in `...For` helpers
- * instead, and it is why this wrapper is kept to four lines with no logic worth
- * proving.
+ * instead, and it is why this wrapper stays a projection with no decision in
+ * it — every decision made from its output (`externalIdsFor`, `lookupPortal`)
+ * is a separate exported function that IS tested.
  */
 export const checkoutIdentity = internalQuery({
   args: {},
@@ -249,7 +262,12 @@ export const checkoutIdentity = internalQuery({
     if (!player) return null
 
     const name = `${player.firstName} ${player.lastName}`.trim()
-    return { playerId: player._id, email: player.email, name: name.length > 0 ? name : null }
+    return {
+      playerId: player._id,
+      email: player.email,
+      name: name.length > 0 ? name : null,
+      legacyId: player.legacyId ?? null,
+    }
   },
 })
 
@@ -327,25 +345,120 @@ export type PortalResult =
   | { url: null; reason: 'error' }
 
 /**
+ * Every external id this player might be known to Polar by, cheapest first.
+ *
+ * DECISION F IN THE OUTBOUND DIRECTION. The webhook resolves an incoming
+ * external id across BOTH namespaces — Convex id, then `by_legacyId` — because
+ * after cutover a migrated subscriber's Polar customer carries their v1 uuid.
+ * Asking Polar for that same person by Convex id alone hits the mirror image of
+ * the same fact and gets "Customer does not exist.", so the portal would tell a
+ * PAYING SUBSCRIBER they have no billing account. That was wordle-teams-1m6.
+ * The principle was already settled; only one direction had been written down.
+ *
+ * WHY v1's uuid IS THE SECOND NAME AND NOT THE FIRST: v1's
+ * `src/lib/polar/checkout.ts:22` set `externalCustomerId` to the v1 player id, a
+ * Postgres uuid, and v2 stores that uuid as `players.legacyId`. Everything this
+ * v2 creates is stamped with the Convex id, so the Convex id is both the
+ * commoner answer and the one that stays correct; the uuid is a fact about the
+ * past that `repairCustomerExternalId` is steadily erasing.
+ *
+ * ONE ENTRY FOR A v2-NATIVE PLAYER, WHICH IS THE POINT. A player with no
+ * `legacyId` was born in v2 (the schema note on `players.legacyId` makes that
+ * absence meaningful) and can never have a v1 uuid, so there is no second call
+ * to make and no cost to pay. As migrated customers heal, that becomes
+ * everyone.
+ *
+ * Empty and duplicate ids are dropped for the reason `asCandidate` gives in
+ * lib/polarIdentity.ts: `legacyId` is `v.optional(v.string())`, so `''` is
+ * storable, and a candidate that can name nobody buys only a wasted round trip
+ * and an ambiguous log line.
+ */
+export function externalIdsFor(identity: {
+  playerId: string
+  legacyId?: string | null
+}): string[] {
+  const ids = [identity.playerId, identity.legacyId]
+  return ids.filter(
+    (id, index): id is string =>
+      typeof id === 'string' && id.length > 0 && ids.indexOf(id) === index,
+  )
+}
+
+/**
+ * One portal attempt, reduced to the three outcomes plus the Polar customer id
+ * a success reveals. That id is not otherwise knowable — nothing here stores
+ * one — and it is the repair's input.
+ */
+export type PortalAttemptResult =
+  | { url: string; customerId: string }
+  | { url: null; reason: 'no-customer' }
+  | { url: null; reason: 'error' }
+
+export type PortalAttempt = (externalId: string) => Promise<PortalAttemptResult>
+
+/**
+ * A success carries the identity that WON as well as the customer it found, so
+ * the caller can tell a fallback hit from a fast-path one. A failure carries
+ * the `PortalResult` to hand straight back, which keeps the two failure reasons
+ * from having to be reconstructed — and mistranslated — at the call site.
+ */
+export type PortalLookup =
+  | { found: true; url: string; customerId: string; externalId: string }
+  | { found: false; result: PortalResult }
+
+/**
+ * Tries each identity in turn and reports the first real answer.
+ *
+ * THE ATTEMPT IS INJECTED, which is what makes this sequencing testable without
+ * a network — and it is genuine logic, not a wrapper worth stubbing. Three
+ * rules live here and each is a way to get this wrong:
+ *
+ *   - ONLY `no-customer` ADVANCES. A 500 or an auth failure on the first
+ *     identity must stop, not silently retry as the second and end up reported
+ *     as `no-customer`. That would turn an outage into "you have no
+ *     subscription", which is the exact lie the three-way result exists to
+ *     prevent — and it would do it to everyone, not just migrated users.
+ *   - EVERY IDENTITY EXHAUSTED MEANS `no-customer`, and that answer stays
+ *     truthful for the genuinely new user, who is most of the callers.
+ *   - THE WINNING IDENTITY IS REPORTED, because "which name worked" is the
+ *     whole input to the repair.
+ *
+ * No candidates at all also answers `no-customer`: unreachable today, since
+ * `externalIdsFor` always keeps the Convex id, but "we asked about nobody" is
+ * nearer to no-customer than to a failure.
+ */
+export async function lookupPortal(
+  candidates: readonly string[],
+  attempt: PortalAttempt,
+): Promise<PortalLookup> {
+  for (const externalId of candidates) {
+    const result = await attempt(externalId)
+    if (result.url !== null) {
+      return { found: true, url: result.url, customerId: result.customerId, externalId }
+    }
+    if (result.reason !== 'no-customer') return { found: false, result }
+  }
+
+  return { found: false, result: { url: null, reason: 'no-customer' } }
+}
+
+/**
  * A short-lived Polar customer portal session for the signed-in player.
  *
- * RESOLVED BY `externalCustomerId` — the player's own Convex id — never by a
- * stored Polar customer id. That is exactly what let v1 DROP
- * `player_customer.customer_id` rather than retype it, and the v2 schema
- * comment at line 237 says not to bring the dropped columns back.
+ * RESOLVED BY `externalCustomerId`, NEVER BY A STORED POLAR CUSTOMER ID. That
+ * is exactly what let v1 DROP `player_customer.customer_id` rather than retype
+ * it, and the v2 schema comment at line 237 says not to bring the dropped
+ * columns back. Which external id, though, is `externalIdsFor`'s answer and not
+ * simply the Convex id — see its note, and wordle-teams-1m6.
  *
  * CREATED AT THE MOMENT OF THE CLICK AND NEVER STORED: portal URLs expire.
  *
- * KNOWN GAP AT CUTOVER, TRACKED AS wordle-teams-1m6. This looks the customer up
- * in ONE namespace, where the inbound direction resolves in two (decision F,
- * `resolvePlayerIdFor`). A subscriber migrated from v1 has their v1 uuid — v2's
- * `players.legacyId` — as their Polar `external_id`, because that is what v1's
- * checkout set, so asking for them by Convex id answers "Customer does not
- * exist." and this returns `no-customer` TO A PAYING SUBSCRIBER.
- * `repairCustomerExternalId` closes it, but only when their next subscription
- * event arrives, which for an annual plan can be months away. Deliberately not
- * fixed here: it is a second Polar call and a change to what identity the
- * portal accepts, which is a design question rather than a port.
+ * A FALLBACK HIT SELF-HEALS — the first of the two places that will, the other
+ * being the webhook at Task 10. Winning on the legacy id proves the Polar
+ * customer still carries the v1 uuid, so the repair is scheduled and the NEXT
+ * visit needs one call instead of two. Scheduled rather than awaited, and
+ * wrapped, because nothing about tidying up may turn a portal session the
+ * player is entitled to into an error.
  *
  * `error` RATHER THAN `no-customer` WHEN THERE IS NO PLAYER. Both are "no
  * billing account" in a loose sense, but a caller reaching the portal without a
@@ -362,21 +475,44 @@ export const getCustomerPortalUrl = action({
       return { url: null, reason: 'error' }
     }
 
-    try {
-      const session = await polar().customerSessions.create({
-        externalCustomerId: me.playerId,
-        returnUrl: `${siteUrl()}/`,
-      })
+    const returnUrl = `${siteUrl()}/`
 
-      return { url: session.customerPortalUrl }
-    } catch (error) {
-      // Not an error worth alarming on: see isMissingCustomer, and the note on
-      // PortalResult for why this is a distinct answer rather than a failure.
-      if (isMissingCustomer(error)) return { url: null, reason: 'no-customer' }
+    const lookup = await lookupPortal(externalIdsFor(me), async (externalId) => {
+      try {
+        const session = await polar().customerSessions.create({
+          externalCustomerId: externalId,
+          returnUrl,
+        })
+        return { url: session.customerPortalUrl, customerId: session.customerId }
+      } catch (error) {
+        // Not worth alarming on: see isMissingCustomer, and the note on
+        // PortalResult for why this is an answer rather than a failure.
+        if (isMissingCustomer(error)) return { url: null, reason: 'no-customer' }
 
-      console.error('[polar] failed to create portal session', error)
-      return { url: null, reason: 'error' }
+        console.error('[polar] failed to create portal session', error)
+        return { url: null, reason: 'error' }
+      }
+    })
+
+    if (!lookup.found) return lookup.result
+
+    // The Convex id is always first (externalIdsFor), so winning on anything
+    // else means the customer still carries the v1 uuid.
+    if (lookup.externalId !== me.playerId) {
+      try {
+        await ctx.scheduler.runAfter(0, internal.polar.repairCustomerExternalId, {
+          customerId: lookup.customerId,
+          playerId: me.playerId,
+        })
+      } catch (error) {
+        // Swallowed for the same reason repairCustomerExternalId swallows its
+        // own: the player has a valid session in hand, and failing to arrange
+        // the tidy-up must not take it away from them.
+        console.warn('[polar] could not schedule external id repair', error)
+      }
     }
+
+    return { url: lookup.url }
   },
 })
 
@@ -417,11 +553,19 @@ export const fetchCheckoutExternalId = internalAction({
  * Stamps the resolved player id onto the Polar customer, so later events for
  * the same person take the fast path.
  *
- * THE SELF-HEAL FOR THE SILENT-202 BUG. Once `customer.externalId` is set, the
- * next event for this person — a renewal, a cancellation, a revocation —
- * arrives with candidate 1 populated and needs no fallback at all. Called after
- * a resolution that came from the metadata or from the checkout, both of which
- * imply the customer's own external id was absent or wrong.
+ * THE SELF-HEAL BEHIND BOTH DIRECTIONS OF DECISION F. Once `customer.externalId`
+ * holds the Convex id, the next event for this person — a renewal, a
+ * cancellation, a revocation — arrives with candidate 1 populated and needs no
+ * fallback, and their next portal visit costs one Polar call instead of two.
+ *
+ * TWO CALLERS, EACH REACHING IT AFTER A FALLBACK WON, which is exactly the
+ * proof that the customer's own external id is absent or stale:
+ *
+ *   - `getCustomerPortalUrl`, when the session was found by the player's
+ *     `legacyId` rather than their Convex id. This one is live.
+ *   - the webhook, when identity resolved from the checkout metadata or from
+ *     `fetchCheckoutExternalId` rather than from `customer.externalId`. That is
+ *     Task 10 (wordle-teams-p8m) and is NOT WIRED YET.
  *
  * BEST EFFORT AND NEVER FATAL, which is why it swallows everything: the event
  * that triggered it has ALREADY been resolved, and failing to tidy up must not
@@ -437,7 +581,10 @@ export const fetchCheckoutExternalId = internalAction({
  * not. It says nothing about whether the document still exists; the caller has
  * just resolved it.
  *
- * NOTHING CALLS THIS YET: the webhook is Task 10 (wordle-teams-p8m).
+ * NOT DIRECTLY TESTED. Its whole body is one SDK write inside a catch-all, so
+ * the only assertion available without a network would be that the stub was
+ * called. What IS pinned is the decision to reach it — see lookupPortal's
+ * externalId and the portal tests in polar.test.ts.
  */
 export const repairCustomerExternalId = internalAction({
   args: { customerId: v.string(), playerId: v.id('players') },

@@ -32,6 +32,14 @@
  * a Postgres uuid, and v2 stores that uuid as `players.legacyId`. Neither shape
  * can be rejected. "Is this real" is answered by looking the id up, which is
  * `resolvePlayerIdFor`'s job, not by a regex here.
+ *
+ * THE OUTBOUND MIRROR LIVES IN convex/polar.ts. Decision F is a rule about both
+ * directions, and the same two namespaces apply when this app ASKS Polar about
+ * a player rather than being told about one: `externalIdsFor` builds the
+ * ordered names to try, and the customer portal walks them. Only the inbound
+ * half was written down at first, and the missing half was a real bug —
+ * wordle-teams-1m6, where a migrated subscriber asked for by Convex id alone
+ * was told they had no billing account. Keep the two ends in step.
  */
 
 /**
@@ -58,8 +66,9 @@ export type IdentityCandidates = {
    * customer means the next event for the same person arrives with
    * customer.externalId populated and needs no fallback. That repair needs the
    * Polar SDK, and as of Task 9 (wordle-teams-l1v) it EXISTS:
-   * `internal.polar.repairCustomerExternalId` takes exactly this value. NOTHING
-   * PASSES IT ONE YET — the webhook that joins the two is Task 10
+   * `internal.polar.repairCustomerExternalId` takes exactly this kind of value,
+   * and the customer portal already drives it after a legacy-id hit. NOTHING
+   * PASSES IT *THIS* FIELD YET — the webhook that joins the two is Task 10
    * (wordle-teams-p8m). Returned now so the extraction never has to be revisited
    * to add it, and so the webhook body is read exactly once.
    */
