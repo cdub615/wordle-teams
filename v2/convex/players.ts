@@ -1,9 +1,10 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { accessError, playerForEmail } from './access'
+import { accessError, isProFor, playerForEmail } from './access'
 import { isCompleteName } from './lib/invite.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
+import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Id } from './_generated/dataModel'
 import type { WriterCtx } from './winners.ts'
@@ -63,9 +64,13 @@ const newPlayerDefaults = () => ({
 })
 
 /**
- * Bring a player into existence under `email` with the submitted name, claim
- * every invite waiting for that address, and repair the winner rows the claim
- * just invalidated.
+ * Bring a player into existence under `email` with the submitted name, claim the
+ * invites waiting for that address that the free-tier cap allows, and repair the
+ * winner rows the claim just invalidated.
+ *
+ * NOT "EVERY INVITE", AND THAT WORDING WAS TRUE UNTIL PHASE 5. A non-pro player
+ * claims at most FREE_TEAM_LIMIT of them; the rest stay parked until they
+ * upgrade. See the cap at the loop.
  *
  * VALIDATION AND NORMALISATION LIVE HERE, NOT IN THE MUTATION, matching
  * updateTeamFor and removeMemberFor in teams.ts — the exported Convex function
@@ -170,6 +175,37 @@ export async function completeProfileFor(
   const allTeams = await ctx.db.query('teams').collect()
   const claimed = []
 
+  // THE NON-PRO TEAM CAP AT SIGNUP — the second half of the same rule
+  // teams.ts's invitePlayerFor enforces, ported from v1's OTHER capping RPC,
+  // handle_invited_signup (20240426201800). Without it the cap has a hole the
+  // size of the whole invite flow: invitePlayerFor parks an address with no
+  // account WITHOUT capping — there is no player yet to count teams for — so
+  // being invited to five teams before signing up and then joining all five is
+  // exactly the state v1 refuses and v2 used to allow.
+  //
+  // v1's rule is `IF NOT pro AND (pending invites) > 2 THEN claim 2 ELSE claim
+  // all`. Those two branches collapse: claiming at most FREE_TEAM_LIMIT is the
+  // same function, and it removes the `>` / `>=` boundary this transliterates
+  // badly at. What is NOT a transliteration is counting teams the player is
+  // ALREADY on. v1 counts only pending invites, because handle_invited_signup
+  // fires at signup, when a v1 account is always on zero teams. v2's
+  // completeProfileFor is also reachable for a row that already exists — a
+  // double-submitted form is enough — and on the second pass v1's formula would
+  // see the leftover parked invite, count 1, decide 1 <= 2 and hand out a THIRD
+  // team. Counting memberships is what makes it idempotent, and it is not
+  // stricter than v1 in any state v1 could reach.
+  //
+  // A TEAM THEY ARE ALREADY ON COSTS NO SLOT (see the loop). Clearing a stale
+  // address off a team they are already a member of is not joining anything —
+  // billing.ts's pendingInviteCountFor draws the same line for the same reason.
+  //
+  // WHICH invites lose is left to table order, i.e. oldest team first. v1's
+  // `LIMIT 2` has no ORDER BY at all, so its answer is whatever the planner
+  // returns; any deterministic choice is at least as good, and the invites that
+  // lose are not lost — they stay parked, and upgrading releases them.
+  const isPro = await isProFor(ctx, playerId)
+  let freeSlots = FREE_TEAM_LIMIT - allTeams.filter((t) => t.playerIds.includes(playerId)).length
+
   for (const team of allTeams) {
     // NORMALISED ON READ, MIRRORING normaliseInviteEmail'S trim().toLowerCase()
     // ON WRITE. This is the read half of amendment A2, and it is DEFENCE IN
@@ -188,6 +224,15 @@ export async function completeProfileFor(
     // `email` is trimmed and lowercased by construction above.
     if (!team.invited.some((entry) => entry.trim().toLowerCase() === email)) continue
 
+    // The cap, applied. `continue` LEAVES THE ADDRESS PARKED rather than
+    // dropping it, which is the whole point: upgrading runs
+    // upgradeTeamInvitesFor over exactly these entries and lets the player in.
+    const alreadyMember = team.playerIds.includes(playerId)
+    if (!isPro && !alreadyMember) {
+      if (freeSlots <= 0) continue
+      freeSlots -= 1
+    }
+
     await ctx.db.patch(team._id, {
       invited: team.invited.filter((entry) => entry.trim().toLowerCase() !== email),
       // A COPIED TEAM CAN LIST BOTH — the address in `invited` AND the player in
@@ -195,9 +240,7 @@ export async function completeProfileFor(
       // Appending unconditionally would put the same id in the roster twice,
       // which shows the person twice on the team card and enters them twice in
       // recomputeTeamMonth's candidate list for the month.
-      playerIds: team.playerIds.includes(playerId)
-        ? team.playerIds
-        : [...team.playerIds, playerId],
+      playerIds: alreadyMember ? team.playerIds : [...team.playerIds, playerId],
     })
     // Re-read: recomputeTeamMonth reads playerIds off the doc it is handed, and
     // `team` is the pre-patch snapshot.

@@ -211,11 +211,15 @@ async function parkedInvitesFor(
  * already-a-member branch. Visiting the team is still correct: clearing the
  * stale address is the only thing left to do there.
  *
- * NOTHING PARKS AN INVITE AT THE CAP YET. The non-pro 2-team cap that creates
- * new parked invites is Task 8 (wordle-teams-qyd), so today the only entries
- * this can find are the ones the copy brought over and the ones invitePlayerFor
- * parks for an address with no account. This helper is built first because the
- * release half is what makes the cap safe to add.
+ * THE CAP NOW PARKS INVITES, AND THIS IS THE ONLY THING THAT RELEASES THEM.
+ * This helper was built first, before the cap existed, because the release half
+ * is what makes the cap safe to add; Task 8 (wordle-teams-qyd) then added it, in
+ * teams.ts's invitePlayerFor. So the entries this finds now come from three
+ * places: the copy, invitePlayerFor parking an address with no account, and
+ * invitePlayerFor parking a non-pro invitee already on FREE_TEAM_LIMIT teams.
+ * ONLY THE THIRD IS UNREACHABLE BY ANY OTHER EXIT — the first two are claimed by
+ * completeProfileFor when the person completes a profile at that address, but a
+ * capped invitee already HAS a player row and never goes near it.
  *
  * NO ACCESS CHECK OF ITS OWN, like everything else in this module: the
  * authority is the verified Polar event that activated the subscription.

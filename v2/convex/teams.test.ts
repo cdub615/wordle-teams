@@ -15,6 +15,8 @@ import {
   updateTeamFor,
 } from './teams.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
+import { upgradeTeamInvitesFor } from './billing.ts'
+import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import type { GenericMutationCtx } from 'convex/server'
 import type { DataModel, Id } from './_generated/dataModel'
 
@@ -1291,6 +1293,165 @@ describe('invitePlayerFor', () => {
         // genuine recompute rather than the old rows left untouched.
         expect(row.hasSeenCelebration).toEqual([])
       }
+    })
+  })
+
+  /**
+   * THE NON-PRO TEAM CAP — the parking half of the mechanism billing.ts's
+   * upgradeTeamInvitesFor releases, ported from v1's handle_add_player_to_team.
+   *
+   * EVERY COUNT HERE IS DERIVED FROM FREE_TEAM_LIMIT, never written as a 2. The
+   * whole reason the constant exists is that team-picker.tsx swaps "New Team"
+   * for "Upgrade for more" off the same number; a test that hardcoded 2 would
+   * keep passing while the two sides drifted apart.
+   */
+  const onNTeams = async (ctx: TestCtx, playerId: Id<'players'>, count: number) => {
+    for (let i = 0; i < count; i += 1) {
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 300 + i, name: `theirs ${i}`, playerIds: [playerId], owner: playerId }),
+      )
+    }
+  }
+
+  test('parks a non-pro invitee already on FREE_TEAM_LIMIT teams instead of adding them', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+      await onNTeams(ctx, ada, FREE_TEAM_LIMIT)
+
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
+
+      // toEqual, not toMatchObject: the ABSENCE of teamName/inviterName is what
+      // stops the wrapper mailing anybody. There is nothing to mail — Ada has an
+      // account already, so no sign-up link would help her; only an upgrade
+      // clears this. v1 sends nothing here either.
+      expect(outcome).toEqual({ status: 'parked_at_cap', email: ADA })
+
+      const team = (await ctx.db.get(teamId))!
+      // NOT ADDED. This is the assertion that v2 stopped being more permissive
+      // than production (divergence 8).
+      expect(team.playerIds).toEqual([owner])
+      expect(team.playerIds).not.toContain(ada)
+      // PARKED, normalised, exactly once.
+      expect(team.invited).toEqual([ADA])
+    })
+  })
+
+  test('adds a PRO invitee no matter how many teams they are on', async () => {
+    // The isProFor check is the whole difference between a cap and a wall.
+    // Deliberately well past the limit, so this fails for an off-by-one too.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+      await ctx.db.insert('playerMembership', { playerId: ada, membershipStatus: 'pro' })
+      await onNTeams(ctx, ada, FREE_TEAM_LIMIT + 3)
+
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
+
+      expect(outcome).toEqual({ status: 'added', firstName: 'Ada' })
+      const team = (await ctx.db.get(teamId))!
+      expect(team.playerIds).toEqual([owner, ada])
+      expect(team.invited).toEqual([])
+    })
+  })
+
+  test('adds a non-pro invitee who is one team BELOW the cap', async () => {
+    // THE BOUNDARY, from the other side. v1's condition is `team_count >= 2`
+    // evaluated BEFORE the add, so a free player tops out at exactly
+    // FREE_TEAM_LIMIT teams: this invite is their last one, and it succeeds.
+    // A `>` here instead of `>=` passes this test and fails the parking one.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+      await onNTeams(ctx, ada, FREE_TEAM_LIMIT - 1)
+
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
+
+      expect(outcome).toEqual({ status: 'added', firstName: 'Ada' })
+      const team = (await ctx.db.get(teamId))!
+      expect(team.playerIds).toEqual([owner, ada])
+    })
+  })
+
+  test('re-inviting an already-parked capped address does not duplicate the entry', async () => {
+    // IDEMPOTENT. getTeamInvitesFor shows `team.invited` verbatim, so every
+    // duplicate is another row the owner has to make sense of — and v1's
+    // array_append is unconditional, so v1 really does accumulate them.
+    //
+    // The second attempt is typed the way an owner actually types one — padded
+    // and mixed-case — which also pins that the duplicate guard normalises. A
+    // guard comparing raw strings would append a second, differently-shaped copy
+    // of the same address.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+      await onNTeams(ctx, ada, FREE_TEAM_LIMIT)
+
+      const first = await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
+      const second = await invitePlayerFor(ctx, owner, { teamId, email: ADA_AS_TYPED, today })
+
+      // The SAME outcome both times, not a `resent`: nothing was mailed the
+      // first time, so there is nothing to re-send.
+      expect(first).toEqual({ status: 'parked_at_cap', email: ADA })
+      expect(second).toEqual({ status: 'parked_at_cap', email: ADA })
+
+      const team = (await ctx.db.get(teamId))!
+      expect(team.invited).toEqual([ADA])
+      expect(team.playerIds).toEqual([owner])
+    })
+  })
+
+  test('already_member wins over the cap for someone already on this team', async () => {
+    // BRANCH PRECEDENCE. Someone over the cap who is ALREADY on the target team
+    // must get the idempotent no-op, not a park: parking them would put their
+    // address in `invited` while they sit in `playerIds`, so getTeamInvitesFor
+    // would show a pending invite for a member — the exact state the add branch
+    // goes out of its way to clean up.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
+      await ctx.db.patch(teamId, { playerIds: [owner, ada] })
+      await onNTeams(ctx, ada, FREE_TEAM_LIMIT)
+
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA, today })
+
+      expect(outcome).toEqual({ status: 'already_member' })
+      expect((await ctx.db.get(teamId))!.invited).toEqual([])
+    })
+  })
+
+  test('a capped invite is parked here and released by the upgrade path', async () => {
+    // THE WHOLE MECHANISM, END TO END, in one transaction: Task 8 parks, Task 6
+    // releases. Split across two tests it would still pass with the two halves
+    // disagreeing about what a parked entry looks like — which is exactly how a
+    // matcher that forgets to normalise strands somebody forever.
+    //
+    // The address is parked BY THE CAP, not seeded by hand, so the release is
+    // proven against what invitePlayerFor actually writes.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, teamId } = await aTeamOwnedByCara(ctx)
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA, firstName: 'Ada' }))
+      await onNTeams(ctx, ada, FREE_TEAM_LIMIT)
+
+      const outcome = await invitePlayerFor(ctx, owner, { teamId, email: ADA_AS_TYPED, today })
+      expect(outcome).toEqual({ status: 'parked_at_cap', email: ADA })
+      expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
+
+      // She upgrades.
+      await ctx.db.insert('playerMembership', { playerId: ada, membershipStatus: 'pro' })
+      await upgradeTeamInvitesFor(ctx, ada)
+
+      const team = (await ctx.db.get(teamId))!
+      expect(team.playerIds).toEqual([owner, ada])
+      // ONE PATCH, TWO FIELDS: she must not read as a member AND as pending.
+      expect(team.invited).toEqual([])
     })
   })
 })

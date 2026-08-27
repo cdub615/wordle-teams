@@ -201,12 +201,25 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
 /**
  * Whether this player is on the pro plan.
  *
- * READ ONLY, AND NOT ENFORCED. Phase 3 uses this to hide the scoring editor and
- * to swap "New Team" for "Upgrade for more" past two teams — the same two gates
- * v1 has. v1's gates are UI-only too: its `save` action does not check pro, and
- * nothing stops a free account creating five teams through the API. Enforcing
- * here would be a behaviour change rather than a port. Phase 5 owns whether
- * that changes.
+ * ENFORCED IN EXACTLY ONE PLACE, AND IT IS THE ONE v1 ENFORCES. Decision K, and
+ * this comment used to defer to "Phase 5 owns whether that changes" — Phase 5
+ * happened, and the answer is "no change, with one exception that was already
+ * decided". v2 enforces exactly as far as v1 does and no further:
+ *
+ * - THE TEAM CAP ON INVITEES IS ENFORCED, in teams.ts's invitePlayerFor and
+ *   players.ts's completeProfileFor. v1 enforces it too, in the RPCs
+ *   handle_add_player_to_team and handle_invited_signup — both of which work.
+ *   Over cap and not pro, the address is parked in `teams.invited` and released
+ *   by billing.ts's upgradeTeamInvitesFor on upgrade.
+ * - `createTeam` PAST THE CAP IS NOT ENFORCED. v1 shows "Upgrade for more" but
+ *   nothing stops a free account creating five teams through its API.
+ * - THE SCORING-SYSTEM EDITOR IS NOT ENFORCED. v1's `save` action does not check
+ *   pro either.
+ *
+ * Refusing either of those last two would start rejecting writes production
+ * accepts today — a behaviour change dressed as a port. The asymmetry is v1's,
+ * not one introduced here: v1 enforces the cap on the path where SOMEBODY ELSE
+ * puts you on a team, and leaves the paths you drive yourself to the UI.
  */
 export async function isProFor(ctx: ReaderCtx, playerId: Id<'players'>): Promise<boolean> {
   const membership = await ctx.db

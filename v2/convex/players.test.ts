@@ -4,6 +4,10 @@ import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { addDays, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
 import { completeProfileFor } from './players.ts'
+import { upgradeTeamInvitesFor } from './billing.ts'
+import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
+import type { GenericMutationCtx } from 'convex/server'
+import type { DataModel } from './_generated/dataModel'
 
 const modules = import.meta.glob('./**/*.ts')
 const today = toPuzzleDay(new Date())
@@ -336,6 +340,156 @@ describe('completeProfileFor', () => {
       await completeProfileFor(ctx, ADA, NAMES, today)
 
       expect((await ctx.db.get(winnerRow))!.playerId).toBe(bob)
+    })
+  })
+
+  /**
+   * THE NON-PRO TEAM CAP AT SIGNUP — v1's handle_invited_signup
+   * (20240426201800), the other half of the rule teams.ts's invitePlayerFor
+   * enforces. Without it, being invited to five teams before signing up and
+   * joining all five is a hole the size of the whole invite flow: the invite
+   * that parks an address with no account cannot cap anything, because there is
+   * no player yet to count teams for.
+   *
+   * Counts derived from FREE_TEAM_LIMIT, never written as a 2, for the reason
+   * the constant's own comment gives.
+   */
+  const invitingTeams = async (ctx: GenericMutationCtx<DataModel>, count: number) => {
+    const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+    const ids = []
+    for (let i = 0; i < count; i += 1) {
+      ids.push(
+        await ctx.db.insert(
+          'teams',
+          aTeam({ legacyId: 400 + i, name: `team ${i}`, playerIds: [bob], owner: bob, invited: [ADA] }),
+        ),
+      )
+    }
+    return ids
+  }
+
+  test('a non-pro signup claims at most FREE_TEAM_LIMIT invites and leaves the rest parked', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ids = await invitingTeams(ctx, FREE_TEAM_LIMIT + 2)
+
+      const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
+
+      const teams = await Promise.all(ids.map(async (id) => (await ctx.db.get(id))!))
+      const joined = teams.filter((team) => team.playerIds.includes(playerId))
+      const stillParked = teams.filter((team) => team.invited.includes(ADA))
+
+      expect(joined).toHaveLength(FREE_TEAM_LIMIT)
+      expect(stillParked).toHaveLength(2)
+      // PARKED, NOT DROPPED. Losing the entry would be losing the invite; it has
+      // to survive so upgrading can release it. Every team is in exactly one of
+      // the two groups.
+      expect(joined.length + stillParked.length).toBe(teams.length)
+      // Table order, i.e. oldest first — v1's `LIMIT 2` has no ORDER BY at all,
+      // so any deterministic answer is at least as good as its planner's.
+      expect(teams.slice(0, FREE_TEAM_LIMIT).every((team) => team.playerIds.includes(playerId))).toBe(
+        true,
+      )
+    })
+  })
+
+  test('a PRO signup claims every invite waiting for them', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ids = await invitingTeams(ctx, FREE_TEAM_LIMIT + 3)
+      // The membership row has to exist BEFORE the player row does, which is
+      // only possible because it is keyed by id and this test writes both by
+      // hand. Reachable in production the ordinary way round: a copied v1
+      // subscriber whose player row was copied without a name.
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
+      await ctx.db.insert('playerMembership', { playerId: ada, membershipStatus: 'pro' })
+
+      const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
+      expect(playerId).toBe(ada)
+
+      for (const id of ids) {
+        const team = (await ctx.db.get(id))!
+        expect(team.playerIds).toContain(playerId)
+        expect(team.invited).toEqual([])
+      }
+    })
+  })
+
+  test('the invites the cap held back are released by the upgrade path', async () => {
+    // THE MECHANISM END TO END: parked at signup by the cap, freed by Task 6's
+    // upgradeTeamInvitesFor. Split into two tests, the halves could disagree
+    // about what a parked entry looks like and both still pass.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ids = await invitingTeams(ctx, FREE_TEAM_LIMIT + 2)
+
+      const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
+      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+      await upgradeTeamInvitesFor(ctx, playerId)
+
+      for (const id of ids) {
+        const team = (await ctx.db.get(id))!
+        expect(team.playerIds).toContain(playerId)
+        expect(team.invited).toEqual([])
+      }
+    })
+  })
+
+  test('a second submit does not hand out a team past the cap', async () => {
+    // WHY THE CAP COUNTS TEAMS THEY ARE ALREADY ON rather than transliterating
+    // v1's "how many invites are pending" formula. completeProfileFor is
+    // idempotent by design — two tabs, or a double-tapped submit — and on the
+    // second pass v1's formula sees only the leftover parked invite, counts 1,
+    // decides 1 is under the limit, and hands out a THIRD team. v1 never had to
+    // care: handle_invited_signup fires once, at signup.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ids = await invitingTeams(ctx, FREE_TEAM_LIMIT + 1)
+
+      const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
+      expect(await completeProfileFor(ctx, ADA, NAMES, today)).toBe(playerId)
+
+      const teams = await Promise.all(ids.map(async (id) => (await ctx.db.get(id))!))
+      expect(teams.filter((team) => team.playerIds.includes(playerId))).toHaveLength(FREE_TEAM_LIMIT)
+      expect(teams.filter((team) => team.invited.includes(ADA))).toHaveLength(1)
+    })
+  })
+
+  test('clearing a stale invite on a team they are already on costs no slot', async () => {
+    // A copied team can list the same person in BOTH playerIds and invited,
+    // because v1 never removed an invite it could not match. Visiting it only
+    // clears the stale address — nobody JOINS anything — so it must not spend
+    // one of the free tier's slots, exactly as billing.ts's
+    // pendingInviteCountFor excludes the same teams from its count.
+    //
+    // She is already on `stale`, so she has FREE_TEAM_LIMIT - 1 slots left and
+    // joins exactly one of the two real invites. If clearing `stale` also spent
+    // a slot she would have none and would join NEITHER, which is the failure
+    // this pins.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
+      const stale = await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 500, name: 'stale', playerIds: [ada], owner: ada, invited: [ADA] }),
+      )
+      const ids = await invitingTeams(ctx, 2)
+
+      const playerId = await completeProfileFor(ctx, ADA, NAMES, today)
+      expect(playerId).toBe(ada)
+
+      // The stale entry is gone and she is on it exactly once.
+      const staleTeam = (await ctx.db.get(stale))!
+      expect(staleTeam.invited).toEqual([])
+      expect(staleTeam.playerIds).toEqual([ada])
+
+      const teams = await Promise.all(ids.map(async (id) => (await ctx.db.get(id))!))
+      expect(teams.filter((team) => team.playerIds.includes(playerId))).toHaveLength(
+        FREE_TEAM_LIMIT - 1,
+      )
+      expect(teams.filter((team) => team.invited.includes(ADA))).toHaveLength(
+        2 - (FREE_TEAM_LIMIT - 1),
+      )
     })
   })
 })

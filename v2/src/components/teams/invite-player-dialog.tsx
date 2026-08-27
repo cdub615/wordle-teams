@@ -24,9 +24,10 @@ import type { Id } from '../../../convex/_generated/dataModel'
 /**
  * Invite someone by email. Ports v1's invite-player.tsx.
  *
- * FOUR OUTCOMES, FOUR MESSAGES. v1 reports all of them as "Successfully invited
+ * FIVE OUTCOMES, FIVE MESSAGES. v1 reports all of them as "Successfully invited
  * player" — including `already_member`, where nothing happened at all.
- * Divergence 9.
+ * Divergence 9. (Four when this was written; `parked_at_cap` is Phase 5's, and
+ * it is the second one v1 reports as a success while nobody joins anything.)
  *
  * `already_member` is the one that keeps the dialog OPEN: nothing the user
  * wanted actually happened, and the likeliest next action is correcting the
@@ -78,12 +79,16 @@ export function InvitePlayerDialog({
         today: toPuzzleDay(new Date()),
       })
 
-      // EXHAUSTIVE, not a chain ending in `else`. Three of the four outcomes
-      // carry an `email`, so a fifth InviteOutcome variant that also carried one
+      // EXHAUSTIVE, not a chain ending in `else`. Four of the five outcomes
+      // carry an `email`, so a sixth InviteOutcome variant that also carried one
       // would fall into a bare else and be announced as "Invite sent to …" —
       // compiling cleanly, and in the one place whose entire purpose is one
       // message per outcome (divergence 9). The `never` assignment below turns
       // that into a compile error instead.
+      //
+      // THIS ALREADY PAID FOR ITSELF. Phase 5's `parked_at_cap` is the fifth,
+      // and it carries an `email`; the `never` assignment is what stopped the
+      // build until a message for it existed, exactly as described above.
       switch (outcome.status) {
         case 'already_member':
           // The typed address, not a server-normalised one: `already_member`
@@ -99,6 +104,21 @@ export function InvitePlayerDialog({
           break
         case 'invited':
           toast.success(`Invite sent to ${outcome.email}`)
+          break
+        case 'parked_at_cap':
+          // NOT toast.success, and not toast.error either. The address WAS
+          // parked, so something happened and the dialog closes — but nobody
+          // joined the team and nobody was mailed, so calling it a success is
+          // the exact lie divergence 9 exists to stop. `info` is what
+          // already_member uses, for the same "this is not what you wanted"
+          // reason.
+          //
+          // outcome.email, not the typed `email`: the server parked the
+          // normalised address, and that is the string the owner will see in
+          // their pending list.
+          toast.info(
+            `${outcome.email} is already on the maximum number of teams for a free account. They'll join ${teamName} automatically if they upgrade.`,
+          )
           break
         default: {
           const _exhaustive: never = outcome

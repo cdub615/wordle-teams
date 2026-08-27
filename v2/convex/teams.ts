@@ -14,6 +14,7 @@ import { sendEmail } from './email.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
+import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader } from 'convex/server'
@@ -126,7 +127,15 @@ export const getMyTeams = query({
 /**
  * Whether the caller is on the pro plan, for the two UI gates v1 has: the
  * scoring editor, and "New Team" swapping to "Upgrade for more" past two teams.
- * Nothing is enforced server-side — see isProFor.
+ * THOSE TWO GATES ARE UI-ONLY, and stay that way — v1 does not enforce either
+ * one through its API, so enforcing them here would refuse writes production
+ * accepts today.
+ *
+ * The cap on INVITEES is the exception, and it is enforced server-side as of
+ * Phase 5 (invitePlayerFor below, and completeProfileFor in players.ts). The
+ * asymmetry is v1's rather than ours: it enforces the cap on the path where
+ * SOMEBODY ELSE puts you on a team and leaves the paths you drive yourself to
+ * the UI. Decision K; see isProFor in access.ts.
  */
 export const amIPro = query({
   args: {},
@@ -148,10 +157,12 @@ export type TeamSettings = { name: string; playWeekends: boolean; showLetters: b
 /**
  * Create a team, with the caller as its only member and its owner.
  *
- * NO SERVER-SIDE TEAM CAP. v1 shows "Upgrade for more" once a free account has
- * two teams, but that is UI only — nothing stops a free account creating five
- * through the API. Phase 3 reproduces the gate where v1 has it. Phase 5 owns
- * whether it becomes real.
+ * NO SERVER-SIDE TEAM CAP, AND PHASE 5 DECIDED TO LEAVE IT THAT WAY. v1 shows
+ * "Upgrade for more" once a free account has two teams, but that is UI only —
+ * nothing stops a free account creating five through the API. Phase 5 enforced
+ * the cap on INVITEES, where v1 enforces it too, and deliberately not here,
+ * where v1 does not: refusing a write production accepts today would be a
+ * behaviour change dressed as a port. Decision K.
  */
 export async function createTeamFor(
   ctx: WriterCtx,
@@ -426,10 +437,11 @@ export const leaveTeam = mutation({
 /**
  * What an invite actually did.
  *
- * A DISCRIMINATED RESULT RATHER THAN void, because four different things can
- * happen and v1 reports all of them as "Successfully invited player" — including
+ * A DISCRIMINATED RESULT RATHER THAN void, because five different things can
+ * happen and v1 reports four of them as "Successfully invited player" — including
  * the case where nothing happened at all, which is an outright lie. Divergence 9
- * in V2-ADDENDUM 7a.
+ * in V2-ADDENDUM 7a. (Four when this type was written; the fifth is Phase 5's
+ * cap, and v1 reports THAT one as a success too.)
  *
  * `added` carries firstName because it confirms the address matched a real
  * account, which is the most useful thing to learn after inviting by email.
@@ -441,6 +453,19 @@ export type InviteOutcome =
   | { status: 'added'; firstName: string }
   | { status: 'invited'; email: string; teamName: string; inviterName: string }
   | { status: 'resent'; email: string; teamName: string; inviterName: string }
+  // THE FIFTH, AND DELIBERATELY NOT A GENERIC FAILURE. The invitee has an
+  // account but is a non-pro player already on FREE_TEAM_LIMIT teams, so their
+  // address is parked in `invited` rather than added to the roster, and
+  // billing.ts's upgradeTeamInvitesFor releases it if they upgrade. Phase 4
+  // established that telling the owner exactly what happened is the point, and
+  // "they need to upgrade" is a different sentence from "that did not work".
+  //
+  // Carries the NORMALISED address, like `invited` and `resent`, because the
+  // owner is being told what was parked. It carries no teamName/inviterName
+  // because NOTHING IS MAILED on this path: the invitee already has an account
+  // and there is no link that would let them accept — only an upgrade clears
+  // it. That is v1's behaviour too; handle_add_player_to_team sends nothing.
+  | { status: 'parked_at_cap'; email: string }
 
 /**
  * Invite someone to a team by email address. Owner-only.
@@ -475,6 +500,9 @@ export type InviteOutcome =
  * NO EMAIL IS SENT WHEN AN EXISTING PLAYER IS ADDED DIRECTLY. That is v1's
  * behaviour — they simply find themselves on the team next time they look — and
  * it is kept deliberately as parity rather than being quietly improved.
+ *
+ * PHASE 5 ADDED A FIFTH OUTCOME INSIDE THE EXISTING-ACCOUNT BRANCH: the non-pro
+ * team cap, ported from v1's handle_add_player_to_team. See the branch itself.
  */
 export async function invitePlayerFor(
   ctx: WriterCtx,
@@ -489,6 +517,20 @@ export async function invitePlayerFor(
   // address with a trailing space find the account it names.
   const email = normaliseInviteEmail(args.email)
   if (!email) throw accessError('INVALID_EMAIL')
+
+  // NORMALISED ON READ, MIRRORING normaliseInviteEmail'S trim().toLowerCase() ON
+  // WRITE — the same defence in depth completeProfileFor applies when it scans
+  // for invites to claim, and for the same reason. Every write path lowercases
+  // today, so this is not a claim that abnormal rows exist; it is that the cost
+  // of one future writer forgetting is a duplicate invite row that can never be
+  // claimed and that nobody sees an error for.
+  //
+  // COMPUTED ONCE, ABOVE BOTH BRANCHES THAT PARK, and that is the reason it is
+  // up here rather than beside the no-account write below: the cap branch and
+  // the no-account branch both have to answer "is this address already parked
+  // on this team?", and asking it twice is how the two answers drift. `team` is
+  // a snapshot taken before any patch, so the value stays true for both.
+  const alreadyInvited = team.invited.some((entry) => entry.trim().toLowerCase() === email)
 
   // playerForEmail lowercases for itself; `email` is already normalised.
   const existing = await playerForEmail(ctx, email)
@@ -505,6 +547,62 @@ export async function invitePlayerFor(
     // in that state; the branch below is what stops this function creating new
     // ones.
     if (team.playerIds.includes(existing._id)) return { status: 'already_member' }
+
+    // THE NON-PRO TEAM CAP — the PARKING half of the mechanism billing.ts's
+    // upgradeTeamInvitesFor releases. Ports v1's handle_add_player_to_team, in
+    // its LATEST definition (20240501180309): a non-pro invitee already on
+    // FREE_TEAM_LIMIT teams has their ADDRESS parked in `invited` instead of
+    // being added to the roster.
+    //
+    // v1'S VERSION WORKS, and the record of it being broken was wrong. Migration
+    // 20240429200154 really did write `WHERE id = invited_id` against a variable
+    // it never declared, but 20240429204119 replaced that with
+    // `WHERE id = player_id_input` on 2024-04-29 and 20240501180309 kept the fix.
+    // The Phase 4 epic, its design spec and the divergence table all claimed
+    // otherwise, so a "faithful" port written from them would have ported a
+    // fault. Corrected 2026-08-22; verified here against the migrations.
+    //
+    // FREE_TEAM_LIMIT, NEVER A LITERAL 2. team-picker.tsx reads the same
+    // constant to swap "New Team" for "Upgrade for more", and a second literal
+    // is how the client-side swap and this server-side check drift apart.
+    //
+    // `>=`, AND THE COUNT EXCLUDES THIS TEAM. The already_member branch above has
+    // returned for anyone on it, so `theirTeams` is what they hold BEFORE this
+    // invite — `>` would let a free player reach FREE_TEAM_LIMIT + 1. That is
+    // v1's `team_count >= 2` exactly.
+    //
+    // NOT WHAT v2 DID BEFORE. Until Phase 5 a non-pro invitee could join
+    // unlimited teams — v2 was MORE PERMISSIVE than production, recorded as
+    // divergence 8. It is enforced now rather than later because enforcing later
+    // means removing people from teams they have already joined.
+    //
+    // THE PRO CHECK IS FIRST because it is one indexed read and the count is a
+    // full-table collect (Convex cannot index array membership — the same read
+    // getMyTeamsFor and billing.ts's downgradeTeamRemovalFor already do). A pro
+    // invitee pays nothing beyond that read.
+    if (!(await isProFor(ctx, existing._id))) {
+      const allTeams = await ctx.db.query('teams').collect()
+      const theirTeams = allTeams.filter((other) => other.playerIds.includes(existing._id)).length
+
+      if (theirTeams >= FREE_TEAM_LIMIT) {
+        // IDEMPOTENT, and the guard is not decoration: re-inviting a
+        // still-capped address must not park a second copy of it, because
+        // getTeamInvitesFor shows `team.invited` verbatim and every duplicate is
+        // one more row the owner has to make sense of. It also skips the team
+        // write, which invalidates getMyTeams for EVERY connected client (see
+        // this file's module comment), for a change that never happened — the
+        // same reason cancelInviteFor and removeMemberFor early-return.
+        //
+        // v1 has no such guard: its array_append is unconditional, so a second
+        // invite duplicates the entry AND increments the counter again. v2
+        // derives the count from `teams.invited` (billing.ts), so the duplicate
+        // is the only symptom left to remove.
+        if (!alreadyInvited) {
+          await ctx.db.patch(team._id, { invited: [...team.invited, email] })
+        }
+        return { status: 'parked_at_cap', email }
+      }
+    }
 
     // ONE PATCH, TWO FIELDS. The address must leave `invited` in the same write
     // that puts the player on the roster, or the entry survives forever: this
@@ -539,13 +637,6 @@ export async function invitePlayerFor(
     return { status: 'added', firstName: existing.firstName }
   }
 
-  // NORMALISED ON READ, MIRRORING normaliseInviteEmail'S trim().toLowerCase() ON
-  // WRITE — the same defence in depth completeProfileFor applies when it scans
-  // for invites to claim, and for the same reason. Every write path lowercases
-  // today, so this is not a claim that abnormal rows exist; it is that the cost
-  // of one future writer forgetting is a duplicate invite row that can never be
-  // claimed and that nobody sees an error for.
-  const alreadyInvited = team.invited.some((entry) => entry.trim().toLowerCase() === email)
   // A resend writes NOTHING. The address is already parked, and re-parking it
   // would either duplicate the entry or pay a team write — which invalidates
   // getMyTeams for every connected client (see this file's module comment) — for
