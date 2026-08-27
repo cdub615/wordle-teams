@@ -438,10 +438,12 @@ export const leaveTeam = mutation({
  * What an invite actually did.
  *
  * A DISCRIMINATED RESULT RATHER THAN void, because five different things can
- * happen and v1 reports four of them as "Successfully invited player" — including
+ * happen and v1 reports ALL of them as "Successfully invited player" — including
  * the case where nothing happened at all, which is an outright lie. Divergence 9
  * in V2-ADDENDUM 7a. (Four when this type was written; the fifth is Phase 5's
- * cap, and v1 reports THAT one as a success too.)
+ * cap, and v1 reports THAT one as a success too — src/app/me/actions.ts:179
+ * returns success on that path, so "all of them" survives the fifth outcome
+ * intact.)
  *
  * `added` carries firstName because it confirms the address matched a real
  * account, which is the most useful thing to learn after inviting by email.

@@ -211,15 +211,29 @@ async function parkedInvitesFor(
  * already-a-member branch. Visiting the team is still correct: clearing the
  * stale address is the only thing left to do there.
  *
- * THE CAP NOW PARKS INVITES, AND THIS IS THE ONLY THING THAT RELEASES THEM.
- * This helper was built first, before the cap existed, because the release half
- * is what makes the cap safe to add; Task 8 (wordle-teams-qyd) then added it, in
- * teams.ts's invitePlayerFor. So the entries this finds now come from three
+ * THE CAP NOW PARKS INVITES, AND FOR MOST OF THEM THIS IS THE ONLY EXIT. This
+ * helper was built first, before the cap existed, because the release half is
+ * what makes the cap safe to add; Task 8 (wordle-teams-qyd) then added the
+ * parking half in BOTH the places v1 has it — teams.ts's invitePlayerFor and
+ * players.ts's completeProfileFor. So the entries this finds come from three
  * places: the copy, invitePlayerFor parking an address with no account, and
  * invitePlayerFor parking a non-pro invitee already on FREE_TEAM_LIMIT teams.
- * ONLY THE THIRD IS UNREACHABLE BY ANY OTHER EXIT — the first two are claimed by
- * completeProfileFor when the person completes a profile at that address, but a
- * capped invitee already HAS a player row and never goes near it.
+ *
+ * THE THIRD IS UNREACHABLE BY ANY OTHER EXIT, because a capped invitee already
+ * HAS a player row and so never goes near completeProfileFor. THE FIRST TWO ARE
+ * ONLY PARTLY REACHABLE BY IT: completeProfileFor claims them when the person
+ * completes a profile at that address, but since Phase 5 it claims at most
+ * FREE_TEAM_LIMIT of them and LEAVES THE SURPLUS PARKED — and a second submit
+ * leaves the same surplus, because that cap counts teams already held. So an
+ * address invited to more teams than the cap allows before signing up joins
+ * FREE_TEAM_LIMIT of them and keeps the rest as entries nothing but an upgrade
+ * will clear. Measured, not reasoned: players.test.ts's "the invites the cap
+ * held back are released by the upgrade path" seeds FREE_TEAM_LIMIT + 2 such
+ * teams, and the 2 left over are released HERE and only here.
+ *
+ * (This paragraph previously claimed the first two were always claimed by
+ * completeProfileFor. Task 8 falsified that in the same commit that wrote it,
+ * by capping completeProfileFor.)
  *
  * NO ACCESS CHECK OF ITS OWN, like everything else in this module: the
  * authority is the verified Polar event that activated the subscription.

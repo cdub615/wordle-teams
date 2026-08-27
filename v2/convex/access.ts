@@ -201,7 +201,8 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
 /**
  * Whether this player is on the pro plan.
  *
- * ENFORCED IN EXACTLY ONE PLACE, AND IT IS THE ONE v1 ENFORCES. Decision K, and
+ * ENFORCED AT EXACTLY ONE GATE, AND IT IS THE ONE v1 ENFORCES. One gate, two
+ * call sites — v1 splits the same rule across two RPCs and so does v2. Decision K, and
  * this comment used to defer to "Phase 5 owns whether that changes" — Phase 5
  * happened, and the answer is "no change, with one exception that was already
  * decided". v2 enforces exactly as far as v1 does and no further:

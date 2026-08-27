@@ -380,11 +380,20 @@ describe('completeProfileFor', () => {
       const stillParked = teams.filter((team) => team.invited.includes(ADA))
 
       expect(joined).toHaveLength(FREE_TEAM_LIMIT)
-      expect(stillParked).toHaveLength(2)
+      // teams.length - FREE_TEAM_LIMIT, not a literal 2, and not because the
+      // number would be wrong: it is the SURPLUS, and sitting three lines under
+      // a toHaveLength(FREE_TEAM_LIMIT) a bare 2 reads like the cap itself.
+      expect(stillParked).toHaveLength(teams.length - FREE_TEAM_LIMIT)
       // PARKED, NOT DROPPED. Losing the entry would be losing the invite; it has
-      // to survive so upgrading can release it. Every team is in exactly one of
-      // the two groups.
-      expect(joined.length + stillParked.length).toBe(teams.length)
+      // to survive so upgrading can release it — so the surplus is genuinely
+      // still there and not merely absent from `joined`.
+      //
+      // AND THE TWO GROUPS ARE DISJOINT, which the two lengths do not establish
+      // between them: a team in BOTH plus a team in NEITHER satisfies every
+      // count above. A joined team that kept the address would read as a member
+      // AND as pending at once — the state the "ONE PATCH, TWO FIELDS" write
+      // exists to prevent.
+      expect(joined.filter((team) => stillParked.includes(team))).toEqual([])
       // Table order, i.e. oldest first — v1's `LIMIT 2` has no ORDER BY at all,
       // so any deterministic answer is at least as good as its planner's.
       expect(teams.slice(0, FREE_TEAM_LIMIT).every((team) => team.playerIds.includes(playerId))).toBe(
