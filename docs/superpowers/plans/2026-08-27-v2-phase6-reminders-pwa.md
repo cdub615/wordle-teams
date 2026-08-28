@@ -891,12 +891,19 @@ comment:
   // THE ENDPOINT IS THE IDENTITY, not a surrogate. It is what the push service
   // returns 410 for once the browser has thrown the subscription away, and
   // by_endpoint is how that response finds the row to delete.
+  // NO createdAt. Every other table's createdAt exists because the Supabase
+  // copy carries an ORIGINAL creation time that _creationTime would otherwise
+  // lose (see players'). This table is never copied, so that rationale is void
+  // — and scoringSystems, the other never-copied table, has none either. It
+  // would also LIE: saveSubscriptionFor upserts on endpoint without patching
+  // it, so once a shared device migrates an endpoint to another account the
+  // field records when a DIFFERENT player subscribed. Use _creationTime if a
+  // timestamp is ever wanted.
   pushSubscriptions: defineTable({
     playerId: v.id('players'),
     endpoint: v.string(),
     p256dh: v.string(),
     auth: v.string(),
-    createdAt: v.number(),
   })
     .index('by_player', ['playerId'])
     .index('by_endpoint', ['endpoint']),
@@ -922,18 +929,16 @@ test('deletes a pruned player&apos;s push subscriptions', async () => {
       endpoint: 'https://push.example/doomed',
       p256dh: 'k',
       auth: 'a',
-      createdAt: 0,
     })
     await ctx.db.insert('pushSubscriptions', {
       playerId: survivorId,
       endpoint: 'https://push.example/kept',
       p256dh: 'k',
       auth: 'a',
-      createdAt: 0,
     })
   })
 
-  await t.mutation(internal.e2ePrune.pruneOnce, {})
+  await t.mutation(internal.e2ePrune.pruneBatch, { execute: true, cursor: null })
 
   const left = await t.run(async (ctx) => ctx.db.query('pushSubscriptions').collect())
   expect(left).toHaveLength(1)
@@ -941,8 +946,19 @@ test('deletes a pruned player&apos;s push subscriptions', async () => {
 })
 ```
 
-The mutation name and args must match what `e2ePrune.ts` actually exports — read it, do not assume
-`pruneOnce`.
+**The sketch above names a mutation that does not exist.** The real entry point is `pruneBatch`, an
+`internalMutation` taking `{ execute, cursor, pageSize }` — cursor-paged, with a **dry-run mode**
+(`execute: false`) that must predict the write exactly. Read the file.
+
+That dry run is the substance of this task, not a detail: the counter must be correct when
+PREVIEWING as well as when writing. `e2ePrune.ts`'s own comments record two bugs where a counter was
+right in execute mode and wrong in the preview — "which is worse, not better, since the dry run is
+what the operator reads before deciding to write".
+
+And the counter must reach the operator: `scripts/prune-e2e-data.mjs` keeps a hand-maintained
+`TOTAL_KEYS` list, is not typechecked (`tsconfig.json` includes only `.ts`/`.tsx`), and silently
+omits any counter missing from it. A key added to the mutation but not to that array means rows are
+destroyed that were never previewed and never reported.
 
 - [ ] **Step 3: Run it and watch it fail**
 
@@ -2598,7 +2614,6 @@ export async function saveSubscriptionFor(
     endpoint: subscription.endpoint,
     p256dh: subscription.p256dh,
     auth: subscription.auth,
-    createdAt: Date.now(),
   })
 }
 
