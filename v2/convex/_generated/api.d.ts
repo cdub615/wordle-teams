@@ -35,6 +35,7 @@ import type * as players from "../players.js";
 import type * as polar from "../polar.js";
 import type * as scores from "../scores.js";
 import type * as scoringSystems from "../scoringSystems.js";
+import type * as settings from "../settings.js";
 import type * as status from "../status.js";
 import type * as teams from "../teams.js";
 import type * as testOtps from "../testOtps.js";
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   polar: typeof polar;
   scores: typeof scores;
   scoringSystems: typeof scoringSystems;
+  settings: typeof settings;
   status: typeof status;
   teams: typeof teams;
   testOtps: typeof testOtps;

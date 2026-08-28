@@ -25,7 +25,9 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // INVALID_DATE is thrown here (requirePlausibleToday); OWNER_NOT_REMOVABLE
 // is thrown in teams.ts; INVALID_NAME is thrown in players.ts. INVALID_EMAIL is
 // thrown in teams.ts too, by invitePlayerFor and cancelInviteFor, when
-// normaliseInviteEmail rejects the submitted address.
+// normaliseInviteEmail rejects the submitted address. INVALID_REMINDER_METHOD,
+// INVALID_REMINDER_TIME and INVALID_TIME_ZONE are thrown in settings.ts, by
+// updateReminderMethodsFor, updateReminderTimeFor and updateTimeZoneFor.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -38,6 +40,9 @@ export type AccessCode =
   | 'INVALID_SYSTEM'
   | 'INVALID_EMAIL'
   | 'INVALID_NAME'
+  | 'INVALID_REMINDER_METHOD'
+  | 'INVALID_REMINDER_TIME'
+  | 'INVALID_TIME_ZONE'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

@@ -25,6 +25,23 @@ import { addDays, isWeekendDay, type PuzzleDay } from './puzzleDay.ts'
 export type LocalTime = string
 
 /**
+ * The reminder times the app offers, and the ONLY ones the server accepts.
+ *
+ * v1's picker offers exactly these eighteen (board-entry-reminders.tsx:86-103)
+ * and nothing enforced it server-side. That gap is real, not theoretical: a
+ * shape-only check accepts '23:30:00', which isDueThisHour can never match,
+ * because the cron ticks on the hour. The row stores fine, the UI looks right,
+ * and the player is silently never reminded.
+ *
+ * Exported so the settings UI renders FROM this list rather than keeping a
+ * second copy in sync with it.
+ */
+export const REMINDER_TIMES: ReadonlyArray<LocalTime> = Array.from(
+  { length: 18 },
+  (_, i) => `${String(i + 5).padStart(2, '0')}:00:00`,
+)
+
+/**
  * Resolve an instant into a player's local calendar day and wall-clock time.
  *
  * `hourCycle: 'h23'` IS LOAD-BEARING, but not for the reason a first guess

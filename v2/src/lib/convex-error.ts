@@ -25,7 +25,10 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'OWNER_NOT_REMOVABLE' ||
     code === 'INVALID_SYSTEM' ||
     code === 'INVALID_EMAIL' ||
-    code === 'INVALID_NAME'
+    code === 'INVALID_NAME' ||
+    code === 'INVALID_REMINDER_METHOD' ||
+    code === 'INVALID_REMINDER_TIME' ||
+    code === 'INVALID_TIME_ZONE'
   ) {
     return code
   }
@@ -102,6 +105,26 @@ export function typedCodeMessage(code: AccessCode): string {
       // Says "both" because that is the only way to fail it: completeProfile
       // trims each name and rejects when either side is empty.
       return 'Enter both a first and a last name.'
+    case 'INVALID_REMINDER_METHOD':
+      // Thrown by updateReminderMethodsFor (convex/settings.ts) on TWO branches
+      // — an unrecognised method, and a recognised one repeated — so this has to
+      // be true of either. "Reminders can be sent by email or push
+      // notification." used to sit here, and was false on the duplicates
+      // branch: it describes a constraint ['email','email'] already satisfies.
+      // The NOT_TEAM_OWNER hazard applies here too: a literal in a switch, so
+      // every gate stays green while the copy lies about which branch fired.
+      return 'Choose email, push notification, or both.'
+    case 'INVALID_REMINDER_TIME':
+      return 'Pick a reminder time from the list.'
+    case 'INVALID_TIME_ZONE':
+      // NOT "that time zone is not one we recognise" — the user never typed or
+      // picked one. updateTimeZoneFor (convex/settings.ts) stores whatever
+      // Intl.DateTimeFormat().resolvedOptions().timeZone reports, so a rejection
+      // here means the BROWSER handed over something Intl itself cannot
+      // resolve, and telling the user their non-existent choice was wrong would
+      // be lying about the cause — the same reason INVALID_DATE points at the
+      // device clock instead of the input.
+      return "We could not read your device's time zone, so reminders can't be scheduled yet."
     default: {
       const _exhaustive: never = code
       return _exhaustive
