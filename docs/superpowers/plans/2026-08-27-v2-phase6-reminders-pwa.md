@@ -505,16 +505,32 @@ describe('localParts', () => {
     })
   })
 
-  test('formats midnight as 00, not 24', () => {
-    // hourCycle: 'h23' rather than hour12: false. The latter yields '24:00:00'
-    // in en-US, which would sort above every reminder time and never match.
-    expect(localParts('Australia/Sydney', utc2pm).time.slice(0, 2)).toBe('00')
+  test('uses a 24-hour cycle, so 14:00 is not formatted as 02', () => {
+    // MEASURED, after an earlier version of this comment got it backwards:
+    //   hourCycle:'h23'  -> 00   hour12:false -> 00   (identical)
+    //   hourCycle:'h24'  -> 24
+    //   option omitted   -> 12, plus a dayPeriod part
+    // So `hour12: false` is NOT the hazard the old comment claimed. OMITTING
+    // the option is: en-US then defaults to h12 and 14:00 formats as '02',
+    // which compares against reminder times as a morning.
+    expect(localParts('UTC', utc2pm).time).toBe('14:00:00')
+    expect(localParts('Australia/Sydney', utc2pm).time).toBe('00:00:00')
   })
 
-  test('stays on the previous day west of Greenwich', () => {
+  test('holds a large western offset, and rolls the day back across it', () => {
+    // Honolulu is UTC-10 with no DST. The first case pins the offset; the
+    // second is the one that matters — at 04:00Z it is still the PREVIOUS day
+    // there, which is the westward mirror of the Sydney case. An earlier draft
+    // asserted only the first, and its name claimed a rollback it never
+    // exercised. Getting this wrong misfiles the reminder day for every
+    // US-Pacific and Hawaii player.
     expect(localParts('Pacific/Honolulu', utc2pm)).toEqual({
       day: '2026-08-27',
       time: '04:00:00',
+    })
+    expect(localParts('Pacific/Honolulu', new Date('2026-08-27T04:00:00Z'))).toEqual({
+      day: '2026-08-26',
+      time: '18:00:00',
     })
   })
 })
@@ -675,9 +691,18 @@ export type LocalTime = string
 /**
  * Resolve an instant into a player's local calendar day and wall-clock time.
  *
- * `hourCycle: 'h23'` RATHER THAN `hour12: false`. The latter formats midnight
- * as '24' under en-US, which sorts above every reminder time in the table and
- * would silently never match. Pinned in the tests.
+ * `hourCycle: 'h23'` IS LOAD-BEARING, but not for the reason an earlier draft
+ * of this comment gave. Measured:
+ *
+ *   hourCycle:'h23'   -> 00     hour12:false -> 00     (identical; h23 either way)
+ *   hourCycle:'h24'   -> 24
+ *   option omitted    -> 12, and a separate dayPeriod part appears
+ *
+ * So `hour12: false` is harmless, and only an explicit 'h24' produces the '24'
+ * the old comment warned about. The actual hazard is OMITTING the option: en-US
+ * defaults to h12, 14:00 formats as '02', and every afternoon reminder then
+ * compares against a morning string. 'h23' is written rather than
+ * `hour12: false` because it states the intent directly.
  *
  * Accepts both IANA spellings of an aliased zone, which is load-bearing:
  * copied rows carry v1's Postgres names ('Asia/Calcutta'), natively-created
@@ -710,7 +735,12 @@ export function localParts(
 
 /**
  * v1's one-hour window, ported exactly: the reminder time must fall in
- * (an hour ago, now], both resolved in the player's zone.
+ * [an hour ago, now], both resolved in the player's zone.
+ *
+ * BOTH BOUNDS ARE INCLUSIVE, matching v1's SQL, which uses <= and >=. An
+ * earlier draft of this comment wrote the interval as (an hour ago, now] and
+ * was simply wrong about its own code — caught in review. The test named "the
+ * lower bound is inclusive" is what pins it.
  *
  * BOTH BOUNDS ARE PASSED IN rather than derived here, because deriving "an hour
  * ago" from a wall-clock string means doing timezone arithmetic on a string. The
@@ -1775,6 +1805,37 @@ Commit as `feat(reminders): the board-entry reminder email, self-hosted images a
 
 Push delivery is **not** wired here — Task 11 adds it, after S2. This task delivers email only, and
 that is enough to satisfy half the phase's done-when.
+
+### Read this before writing the claim: every player matches TWICE
+
+Measured during Task 3's review, and it changes how you must think about the stamp.
+
+`isDueThisHour`'s bounds are both inclusive, matching v1's SQL. The cron ticks at `minuteUTC: 0`.
+So in any **whole-hour-offset** zone, an `09:00:00` reminder satisfies the *upper* bound on the
+09:00 tick and the *lower* bound on the 10:00 tick — it matches on two consecutive runs. Simulated
+over 399 days across the eighteen offered times:
+
+| Zone | Missed | Double-matched |
+|---|---|---|
+| `America/Chicago`, `Australia/Sydney`, `Europe/London`, `Pacific/Honolulu` | 0 | 7182 |
+| `Asia/Kolkata`, `Asia/Kathmandu`, `Pacific/Chatham`, `America/St_Johns` | 0 | 0 |
+
+Nobody is ever missed, including across DST transitions. But **most players match twice every
+day**, and the only thing standing between that and two emails a day is
+`alreadyRemindedToday` reading a stamp that was already written.
+
+That is why the claim is written **before delivery and unconditionally** (decision F, divergence
+16). Writing it after a successful send, or only on success, would double-send to every
+whole-hour-offset player — which is the majority. Do not "improve" this into a
+write-after-success; the failure it would introduce is the common case, not an edge case.
+
+### A performance note, not a change
+
+`localParts` builds a fresh `Intl.DateTimeFormat` per call — measured at ~38µs including
+construction. The sweep calls it two or three times per player. At production's 533 players that is
+negligible; against an e2e-debris table of 2520 it is ~0.2-0.3s of the mutation's budget. If that
+ever gets tight, cache formatters in a `Map` keyed by zone **inside `sweep`** — not in
+`lib/reminders.ts`, which is correct to stay stateless.
 
 - [ ] **Step 1: Write the failing tests**
 
