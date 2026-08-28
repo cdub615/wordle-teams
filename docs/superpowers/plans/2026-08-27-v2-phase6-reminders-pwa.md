@@ -196,24 +196,44 @@ cd /home/cdub/projects/wordle-teams && bd close wordle-teams-465 wordle-teams-5r
 
 **ANSWERED 2026-08-27, AND THE STEPS BELOW WERE NEVER NEEDED. Read this first.**
 
-`convex run --inline-query` evaluates arbitrary readonly JS **on the real Convex runtime**, from
-the command line, with no probe file, no deploy and no dashboard click:
+`convex run --inline-query` evaluates arbitrary readonly JS **on the Convex runtime**, from the
+command line, with no probe file and no deploy:
 
 ```bash
-cd /home/cdub/projects/wordle-teams/v2 && pnpm exec convex run --prod --inline-query "$(command cat /tmp/s1.js)" > /tmp/s1.out 2>&1; echo "EXIT=$?"
+cd /home/cdub/projects/wordle-teams/v2 && pnpm exec convex run --inline-query "$(command cat /tmp/s1.js)" > /tmp/s1.out 2>&1; echo "EXIT=$?"
 ```
 
-Drop `--prod` for the local backend. **Redirect, never pipe** — a pipe swallowed the error on the
-first attempt and looked like an empty result, which is the same zsh `PIPESTATUS` trap the gates
-have.
+The result, matching Node exactly: `kolkata` `19:30:00` (half-hour offset kept), `calcutta` the
+same (the Postgres alias resolves identically, which copied rows depend on), `sydney`
+`2026-08-28 00:00:00` (rolls over, and midnight is `00` not `24`), `resolved` `UTC`.
+**Full ICU is present. Task 3 needed no redesign, and shipped green.**
 
-The result, identical on the local backend and beta, and matching Node exactly: `kolkata`
-`19:30:00` (half-hour offset kept), `calcutta` the same (the Postgres alias resolves identically,
-which copied rows depend on), `sydney` `2026-08-28 00:00:00` (rolls over, and midnight is `00`
-not `24`), `resolved` `UTC`. **Full ICU is present. Task 3 needs no redesign.**
+> ### ⚠️ THIS RAN ON THE LOCAL BACKEND, NOT BETA — AND `--prod` WILL NOT CHANGE THAT
+>
+> `v2/.env.local` sets `CONVEX_DEPLOYMENT=anonymous:anonymous-v2`. There is no cloud deployment for
+> `--prod` to resolve to, so **it silently falls back to `http://127.0.0.1:3210` with no warning**.
+> An earlier version of this section claimed the result was "identical on local and beta". It was
+> local twice.
+>
+> `convex run` **cannot** reach beta at all. Pointing `CONVEX_DEPLOY_KEY` at
+> `fabulous-goldfish-949` returns `You do not have permission to perform this operation
+> (deployment:functions:runTestQuery)`.
+>
+> **Always print the host before trusting any reading:**
+> ```bash
+> cd /home/cdub/projects/wordle-teams/v2 && pnpm exec convex run --inline-query 'return { url: process.env.CONVEX_CLOUD_URL }'
+> ```
+> `127.0.0.1` means local, whatever flag you passed.
+>
+> This is fine for a **runtime-capability** question like S1 — the local backend runs the same
+> binary. It is worthless for any question about beta's **data** or **env**, and mistaking one for
+> the other produced a bogus P1 bug on 2026-08-28 (`SITE_URL=http://localhost:3000`, which is simply
+> the correct value for a local backend). To read beta, use `ConvexHttpClient` +
+> `setAdminAuth(CONVEX_MIGRATION_KEY)` against an **internal** function — which means measuring
+> anything new there costs a deploy.
 
-**This technique applies to S2 as well** — see Task 10, which no longer needs a dashboard either.
-Any future "does this API exist on Convex's runtime" question is one command, not a deploy cycle.
+**The technique still helps S2** — see Task 10 — but only for the "what does the default runtime
+have" half. The `'use node'` question needs a deployed probe regardless.
 
 The original steps are kept below only as a record of what was planned.
 
@@ -1806,6 +1826,63 @@ Commit as `feat(reminders): the board-entry reminder email, self-hosted images a
 Push delivery is **not** wired here — Task 11 adds it, after S2. This task delivers email only, and
 that is enough to satisfy half the phase's done-when.
 
+### THE SWEEP IS OFF BY DEFAULT, AND GATED TWICE
+
+**Owner decision, 2026-08-28.** Beta holds copied production rows — real people who do not know
+this beta exists, and who are already receiving real reminders from v1. Sending them a second
+reminder from an app they have never heard of is not recoverable by an apology.
+
+Two gates, both in `sweep`, both checked **before any player is claimed**:
+
+1. **`REMINDERS_ENABLED`** — unless it is exactly `'true'`, the sweep returns immediately having
+   done nothing. Not set on beta. This is the switch that makes "off" the default state rather
+   than a property of the data.
+2. **`REMINDERS_ALLOWLIST`** — a comma-separated list of addresses. When `REMINDERS_ENABLED` is
+   on and this is non-empty, only players whose email is in it may be claimed or delivered to.
+   Empty means no restriction, which is the intended **production** setting at cutover.
+
+```typescript
+    // GATE 1. Off unless explicitly switched on for this deployment. Beta does
+    // not set it. A copy, a schema change or a settings-UI bug cannot turn
+    // reminders on; only an operator can.
+    if (process.env.REMINDERS_ENABLED !== 'true') return { claimed: 0, gated: 'disabled' as const }
+
+    // GATE 2. During beta, even with the switch on, only named testers receive.
+    // Empty list = no restriction, which is what production wants at cutover.
+    const allowlist = new Set(
+      (process.env.REMINDERS_ALLOWLIST ?? '')
+        .split(',')
+        .map((address) => address.trim().toLowerCase())
+        .filter((address) => address.length > 0),
+    )
+```
+
+and in the per-player filter, alongside the `timeZone` and methods checks:
+
+```typescript
+      if (allowlist.size > 0 && !allowlist.has(player.email)) return []
+```
+
+`players.email` is always lowercase (see the schema note), which is why the list is lowercased on
+read rather than compared case-insensitively per player.
+
+**Test all three states** — disabled, allowlisted, unrestricted. The gate is the only thing
+standing between a config slip and mailing every copied row, so it gets the same coverage as the
+eligibility rules. `convex-test` can set `process.env` per test.
+
+**At cutover:** set `REMINDERS_ENABLED=true` and leave `REMINDERS_ALLOWLIST` unset. That is a
+runbook line, and Task 14 must add it.
+
+### The copy stays out of it until cutover
+
+`scripts/copy-from-supabase.mjs` currently carries **neither** `reminder_delivery_methods` nor
+`time_zone`. Leave it that way through Phase 7's parity run: a re-copy must never be able to switch
+reminders on for a beta row. Adding both fields is an explicit **cutover** step, so real
+preferences arrive exactly when the app becomes real — Task 14 writes it into the runbook, or it
+will be forgotten and every existing subscriber will silently lose a feature they had.
+
+Note this makes Phase 7's parity audit expect a difference on those two columns. Record it.
+
 ### Read this before writing the claim: every player matches TWICE
 
 Measured during Task 3's review, and it changes how you must think about the stamp.
@@ -2193,19 +2270,17 @@ found it. `web-push` needs Node crypto for VAPID JWT signing and AES128GCM paylo
 **Files:**
 - Create (temporarily): `v2/convex/spikePush.ts`
 
-**Steps 3-5 are cheaper than written.** S1 established that
-`pnpm exec convex run --prod --inline-query '<js>'` evaluates on the real runtime with no deploy
-and no dashboard. That does **not** fully replace the probe here — an inline query runs in the
-*query* runtime, and `'use node'` applies to a deployed action module — so the probe file is still
-needed for the real answer. But use an inline query FIRST to check the cheap half:
+**Step 3 has a cheap precursor.** Check what the DEFAULT runtime has before spending a deploy
+finding out what the Node one adds — locally, which is fine for a capability question:
 
 ```bash
-cd /home/cdub/projects/wordle-teams/v2 && pnpm exec convex run --prod --inline-query 'return { hasBuffer: typeof Buffer !== "undefined", hasCrypto: typeof crypto !== "undefined", hasSubtle: typeof crypto !== "undefined" && typeof crypto.subtle !== "undefined" }' > /tmp/s2pre.out 2>&1; echo "EXIT=$?"
+cd /home/cdub/projects/wordle-teams/v2 && pnpm exec convex run --inline-query 'return { hasBuffer: typeof Buffer !== "undefined", hasCrypto: typeof crypto !== "undefined", hasSubtle: typeof crypto !== "undefined" && typeof crypto.subtle !== "undefined" }' > /tmp/s2pre.out 2>&1; echo "EXIT=$?"
 ```
 
-That tells you what the DEFAULT runtime has before you spend a deploy finding out what the Node one
-adds. And once the probe IS deployed, run it with `convex run --prod spikePush:probe '{...}'`
-rather than through the dashboard.
+**That does NOT replace the probe.** An inline query runs in the *query* runtime; `'use node'`
+applies to a deployed action module, which is the actual question. And per the warning in Task 1,
+`convex run` reaches only the local backend — it is refused against beta — so the deployed probe
+must be invoked from the Convex dashboard, not from the CLI. Steps 3-6 stand as written.
 
 - [ ] **Step 1: Generate a VAPID keypair**
 
