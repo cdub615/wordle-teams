@@ -31,8 +31,8 @@ import { isE2eTraffic } from './lib/e2e.ts'
  * so by_legacyId can never match either one to a real Supabase row.
  */
 export const ensureTeamFor = mutation({
-  args: { email: v.string() },
-  handler: async (ctx, { email }) => {
+  args: { email: v.string(), timeZone: v.optional(v.string()) },
+  handler: async (ctx, { email, timeZone }) => {
     if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
       throw new Error('e2eSeed.ensureTeamFor is only available in E2E test mode for e2e+* addresses')
     }
@@ -52,6 +52,16 @@ export const ensureTeamFor = mutation({
         hasPwa: false,
         reminderDeliveryMethods: [],
         reminderDeliveryTime: '18:00:00',
+        // Optional, and written directly rather than through
+        // updateTimeZoneFor — this seed exists to put a row in a KNOWN
+        // state before a test's sign-in, not to exercise that mutation's own
+        // Intl validation (settings.test.ts already does). The one caller
+        // that passes it (e2e/settings.spec.ts) uses it to seed a v1-style
+        // Postgres spelling like 'Asia/Calcutta' — a value the settings UI's
+        // own picker can never produce, since it only ever writes the IANA
+        // spellings in time-zones.ts's TIME_ZONE_GROUPS, but a real COPIED
+        // row carries exactly that (see time-zones.ts's timeZoneMapping).
+        ...(timeZone !== undefined ? { timeZone } : {}),
       }))
 
     // No index for "teams containing player X" — same collect-and-filter as

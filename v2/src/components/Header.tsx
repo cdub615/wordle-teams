@@ -9,6 +9,7 @@ import { Badge } from '#/components/ui/badge.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import { pendingInviteLabel, portalOutcome } from '#/lib/billing-copy.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { UserMenu } from './settings/user-menu.tsx'
 import ThemeToggle from './ThemeToggle'
 
 /**
@@ -137,25 +138,37 @@ export default function Header() {
             </Badge>
           )}
           {isAuthenticated && (
-            <Button
-              variant="ghost"
-              size="sm"
-              // Same word as the visible label, so unlike team-picker.tsx's
-              // trigger this hides nothing from a screen reader — it is here
-              // because the label itself is hidden below `sm`, where the button
-              // would otherwise have no accessible name at all.
-              aria-label="Billing"
-              disabled={portalPending}
-              onClick={() => void manageBilling()}
-              className="px-2 sm:px-3"
-            >
-              {portalPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <CreditCard className="h-4 w-4" aria-hidden="true" />
-              )}
-              <span className="hidden sm:inline">Billing</span>
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                // Same word as the visible label, so unlike team-picker.tsx's
+                // trigger this hides nothing from a screen reader — it is here
+                // because the label itself is hidden below `sm`, where the button
+                // would otherwise have no accessible name at all.
+                aria-label="Billing"
+                disabled={portalPending}
+                onClick={() => void manageBilling()}
+                className="px-2 sm:px-3"
+              >
+                {portalPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <CreditCard className="h-4 w-4" aria-hidden="true" />
+                )}
+                <span className="hidden sm:inline">Billing</span>
+              </Button>
+              {/*
+                UserMenu (settings/user-menu.tsx) owns its own three queries —
+                api.auth.getCurrentUser, api.players.myName, api.teams.amIPro —
+                and does NOT gate them on isAuthenticated itself. It doesn't
+                need to: this whole branch already only renders once
+                isAuthenticated is true, so UserMenu never exists in the tree
+                for a signed-out visitor. Same reasoning as amIPro/pendingInvites
+                above, just pushed one level down instead of duplicated here.
+              */}
+              <UserMenu />
+            </>
           )}
           <ThemeToggle />
         </div>

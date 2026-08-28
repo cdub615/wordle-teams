@@ -1,7 +1,7 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { accessError, isProFor, playerForEmail } from './access'
+import { accessError, currentPlayer, isProFor, playerForEmail } from './access'
 import { isCompleteName } from './lib/invite.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
@@ -337,5 +337,30 @@ export const needsProfile = query({
     if (!user?.email) return false
     // playerForEmail lowercases for itself.
     return (await playerForEmail(ctx, user.email)) === null
+  },
+})
+
+/**
+ * The caller's own name, for the settings menu's avatar initials and label
+ * (Phase 6, Task 6).
+ *
+ * DELIBERATELY JUST THESE TWO FIELDS. getMyPlayerId (scores.ts) already gives
+ * the id and amIPro (teams.ts) the plan; myData (me.ts) has both names too,
+ * but it is a Phase-1 diagnostic that collects every team and score the
+ * caller has ever recorded — the wrong query to run on every authenticated
+ * page load just to paint two letters in the corner of the header.
+ *
+ * currentPlayer, NOT requirePlayer: the header this feeds mounts globally,
+ * including on /complete-profile, where a signed-in session with no player
+ * row yet is the expected state, not an error. requirePlayer would throw
+ * NO_PLAYER there; this just returns null, and the menu falls back to the
+ * Better Auth user's email (user-menu.tsx).
+ */
+export const myName = query({
+  args: {},
+  handler: async (ctx) => {
+    const player = await currentPlayer(ctx)
+    if (!player) return null
+    return { firstName: player.firstName, lastName: player.lastName }
   },
 })
