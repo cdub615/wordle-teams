@@ -192,7 +192,32 @@ cd /home/cdub/projects/wordle-teams && bd close wordle-teams-465 wordle-teams-5r
 
 ---
 
-## Task 1: SPIKE S1 — does `Intl` support named timezones on Convex's runtime?
+## Task 1: SPIKE S1 — does `Intl` support named timezones on Convex's runtime? ✅ DONE
+
+**ANSWERED 2026-08-27, AND THE STEPS BELOW WERE NEVER NEEDED. Read this first.**
+
+`convex run --inline-query` evaluates arbitrary readonly JS **on the real Convex runtime**, from
+the command line, with no probe file, no deploy and no dashboard click:
+
+```bash
+cd /home/cdub/projects/wordle-teams/v2 && pnpm exec convex run --prod --inline-query "$(command cat /tmp/s1.js)" > /tmp/s1.out 2>&1; echo "EXIT=$?"
+```
+
+Drop `--prod` for the local backend. **Redirect, never pipe** — a pipe swallowed the error on the
+first attempt and looked like an empty result, which is the same zsh `PIPESTATUS` trap the gates
+have.
+
+The result, identical on the local backend and beta, and matching Node exactly: `kolkata`
+`19:30:00` (half-hour offset kept), `calcutta` the same (the Postgres alias resolves identically,
+which copied rows depend on), `sydney` `2026-08-28 00:00:00` (rolls over, and midnight is `00`
+not `24`), `resolved` `UTC`. **Full ICU is present. Task 3 needs no redesign.**
+
+**This technique applies to S2 as well** — see Task 10, which no longer needs a dashboard either.
+Any future "does this API exist on Convex's runtime" question is one command, not a deploy cycle.
+
+The original steps are kept below only as a record of what was planned.
+
+### (superseded) original steps
 
 Every eligibility rule in Task 3 depends on `Intl.DateTimeFormat` accepting an arbitrary IANA zone.
 Convex's default runtime is not Node and not a browser. If it ships without full ICU, `localParts`
@@ -2106,6 +2131,20 @@ found it. `web-push` needs Node crypto for VAPID JWT signing and AES128GCM paylo
 
 **Files:**
 - Create (temporarily): `v2/convex/spikePush.ts`
+
+**Steps 3-5 are cheaper than written.** S1 established that
+`pnpm exec convex run --prod --inline-query '<js>'` evaluates on the real runtime with no deploy
+and no dashboard. That does **not** fully replace the probe here — an inline query runs in the
+*query* runtime, and `'use node'` applies to a deployed action module — so the probe file is still
+needed for the real answer. But use an inline query FIRST to check the cheap half:
+
+```bash
+cd /home/cdub/projects/wordle-teams/v2 && pnpm exec convex run --prod --inline-query 'return { hasBuffer: typeof Buffer !== "undefined", hasCrypto: typeof crypto !== "undefined", hasSubtle: typeof crypto !== "undefined" && typeof crypto.subtle !== "undefined" }' > /tmp/s2pre.out 2>&1; echo "EXIT=$?"
+```
+
+That tells you what the DEFAULT runtime has before you spend a deploy finding out what the Node one
+adds. And once the probe IS deployed, run it with `convex run --prod spikePush:probe '{...}'`
+rather than through the dashboard.
 
 - [ ] **Step 1: Generate a VAPID keypair**
 
