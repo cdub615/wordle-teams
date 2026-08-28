@@ -7,39 +7,23 @@
 // add a third and fourth email and actually make the case for a component
 // library. Two emails written the same way beats two email systems.
 
-/**
- * Escape the five characters that can break out of HTML text or an attribute
- * value.
- *
- * NOT DECORATION. `teamName` is whatever the owner typed into the team form
- * and `inviterName` is whatever they typed into the profile form — both reach
- * this template unfiltered, and both land inside a document that is delivered to
- * somebody else's inbox. A team named `</h1><a href="...">` would otherwise be
- * markup rather than text in every recipient's mail client.
- *
- * Applied ONLY to the HTML part below. The subject and the plain-text part are
- * not markup, and escaping them would show a reader the literal `&amp;` in a
- * team name containing an ampersand.
- *
- * NOT A HEADER SANITISER. `teamName` reaches `subject` raw, newlines included —
- * requireName (teams.ts) only trims, so an interior CRLF survives. That is
- * accepted rather than overlooked: Resend takes these as JSON fields over HTTPS
- * rather than assembling a header block from them, and the header that would
- * actually matter for injection, `to:`, cannot carry a newline at all, because
- * EMAIL_SHAPE's `[^\s@]+` segments reject whitespace (lib/invite.ts).
- */
-function escapeHtml(value: string): string {
-  return value
-    // First, or it would re-escape the ampersands the other four introduce.
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
+import { escapeHtml } from './lib/html.ts'
 
 /**
- * @param teamName   the team they are being invited to
+ * @param teamName   the team they are being invited to.
+ *
+ *                   REACHES `subject` RAW, newlines included — requireName
+ *                   (teams.ts) only trims, so an interior CRLF survives. That
+ *                   is accepted rather than overlooked: Resend takes these as
+ *                   JSON fields over HTTPS rather than assembling a header
+ *                   block from them, and the header that would actually
+ *                   matter for injection, `to:`, cannot carry a newline at
+ *                   all, because EMAIL_SHAPE's `[^\s@]+` segments reject
+ *                   whitespace (lib/invite.ts). escapeHtml (lib/html.ts) has
+ *                   no opinion on this — it only escapes for the HTML part,
+ *                   below — so this paragraph, not that function's doc
+ *                   comment, is where the header-injection question is
+ *                   actually answered.
  * @param inviterName the inviter's first name — v1's Supabase template was
  *                    anonymous, and "Ada invited you" is far more legible than
  *                    "You have been invited"
