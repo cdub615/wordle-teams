@@ -293,6 +293,36 @@ export default defineSchema({
     .index('by_webhookId', ['webhookId'])
     .index('by_player', ['playerId']),
 
+  // WEB PUSH ENDPOINTS. Phase 6, and NOT copied from anywhere: v1 never stored
+  // one. Its subscribe route returns before doing anything
+  // (src/app/api/subscribe/route.ts:5), its button ships the literal string
+  // 'YOUR_PUBLIC_VAPID_KEY', and the push workflow was never registered with
+  // Novu. So this table has no legacyId, for the same reason scoringSystems has
+  // none — there is no Supabase counterpart for the copy to match against.
+  //
+  // ONE PLAYER, MANY ROWS. A subscription belongs to a browser profile on a
+  // device, not to a person: phone, laptop and a second browser are three
+  // endpoints, and all three should buzz.
+  //
+  // THE ENDPOINT IS THE IDENTITY, not a surrogate. It is what the push service
+  // returns 410 for once the browser has thrown the subscription away, and
+  // by_endpoint is how that response finds the row to delete.
+  //
+  // p256dh AND auth ARE WHAT THE PAYLOAD IS ENCRYPTED AGAINST. If either is
+  // stored wrong, delivery fails SILENTLY — the push service answers 201
+  // without decrypting anything, and the browser drops a message it cannot
+  // read. Task 11 carries that warning; it is repeated here because this is
+  // where the values live.
+  pushSubscriptions: defineTable({
+    playerId: v.id('players'),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_player', ['playerId'])
+    .index('by_endpoint', ['endpoint']),
+
   // --- Phase 0 scaffolding, still in use ---
 
   statusMessages: defineTable({

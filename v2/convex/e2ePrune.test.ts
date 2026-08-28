@@ -55,8 +55,18 @@ async function census(t: ReturnType<typeof convexTest>) {
     monthlyWinners: await ctx.db.query('monthlyWinners').collect(),
     scoringSystems: await ctx.db.query('scoringSystems').collect(),
     playerMembership: await ctx.db.query('playerMembership').collect(),
+    pushSubscriptions: await ctx.db.query('pushSubscriptions').collect(),
   }))
 }
+
+const aPushSubscription = (playerId: Id<'players'>, over: Record<string, unknown> = {}) => ({
+  playerId,
+  endpoint: 'https://push.example.test/endpoint',
+  p256dh: 'p256dh-key',
+  auth: 'auth-secret',
+  createdAt: Date.parse('2026-08-01T12:00:00Z'),
+  ...over,
+})
 
 const aScore = (playerId: Id<'players'>, over: Record<string, unknown> = {}) => ({
   playerId,
@@ -137,6 +147,7 @@ describe('e2e debris is removed', () => {
         nA: 0,
       })
       await ctx.db.insert('playerMembership', { playerId: player, membershipStatus: 'free' })
+      await ctx.db.insert('pushSubscriptions', aPushSubscription(player))
     })
 
     const totals = await prune(t, true)
@@ -150,6 +161,7 @@ describe('e2e debris is removed', () => {
     expect(totals.monthlyWinnersDeleted).toBe(1)
     expect(totals.scoringSystemsDeleted).toBe(1)
     expect(totals.playerMembershipsDeleted).toBe(1)
+    expect(totals.pushSubscriptionsDeleted).toBe(1)
 
     const left = await census(t)
     expect(left.players).toHaveLength(0)
@@ -161,6 +173,7 @@ describe('e2e debris is removed', () => {
     // the only thing standing between the cascade and a silent orphan.
     expect(left.scoringSystems).toHaveLength(0)
     expect(left.playerMembership).toHaveLength(0)
+    expect(left.pushSubscriptions).toHaveLength(0)
   })
 
   test('a player reachable ONLY by the e2e- legacyId, whose address fails the regex', async () => {
@@ -209,6 +222,7 @@ describe('legitimate data is left alone', () => {
         month: 8,
         hasSeenCelebration: [real],
       })
+      await ctx.db.insert('pushSubscriptions', aPushSubscription(real))
       // And an unrelated e2e player, so the prune has something to do and this
       // is not merely a test that a no-op changes nothing.
       await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
@@ -218,6 +232,7 @@ describe('legitimate data is left alone', () => {
     const totals = await prune(t, true)
     expect(totals.playersDeleted).toBe(1)
     expect(totals.teamsDeleted).toBe(0)
+    expect(totals.pushSubscriptionsDeleted).toBe(0)
 
     const left = await census(t)
     expect(left.players.map((p) => p._id)).toEqual([ids.real])
@@ -227,6 +242,8 @@ describe('legitimate data is left alone', () => {
     expect(left.monthlyWinners).toHaveLength(1)
     // The real player's own celebration reference is not collateral damage.
     expect(left.monthlyWinners[0].hasSeenCelebration).toEqual([ids.real])
+    // The real player's push subscription is not collateral damage either.
+    expect(left.pushSubscriptions).toHaveLength(1)
   })
 
   test('a team with a surviving member is NOT deleted, only trimmed', async () => {
@@ -307,6 +324,87 @@ describe('legitimate data is left alone', () => {
     expect(totals.teamsDeleted).toBe(0)
     expect(totals.teamsKeptWithUnresolvableMembers).toBe(1)
     expect((await census(t)).teams).toHaveLength(1)
+  })
+})
+
+describe('push subscriptions', () => {
+  // ONE PLAYER, MANY ROWS (schema.ts). A subscription belongs to a browser
+  // profile on a device, not to a person, so a single e2e player can leave
+  // several behind — one per browser the test drove.
+  test('all of an e2e player’s subscriptions are counted and deleted', async () => {
+    const t = convexTest(schema, modules)
+    const player = await t.run(async (ctx) => {
+      const player = await ctx.db.insert(
+        'players',
+        aPlayer({ email: E2E_ADDRESS, legacyId: undefined }),
+      )
+      await ctx.db.insert('pushSubscriptions', aPushSubscription(player, { endpoint: 'a' }))
+      await ctx.db.insert('pushSubscriptions', aPushSubscription(player, { endpoint: 'b' }))
+      await ctx.db.insert('pushSubscriptions', aPushSubscription(player, { endpoint: 'c' }))
+      return player
+    })
+
+    const totals = await prune(t, true)
+    expect(totals.pushSubscriptionsDeleted).toBe(3)
+
+    const left = await census(t)
+    expect(left.pushSubscriptions).toHaveLength(0)
+    expect(left.players.map((p) => p._id)).not.toContain(player)
+  })
+
+  test('a non-e2e player’s subscription survives', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const real = await ctx.db.insert('players', aPlayer({ email: REAL_ADDRESS }))
+      await ctx.db.insert('pushSubscriptions', aPushSubscription(real))
+      // An unrelated e2e player with no subscription at all, so the prune has
+      // something to do.
+      await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
+    })
+
+    const totals = await prune(t, true)
+    expect(totals.playersDeleted).toBe(1)
+    expect(totals.pushSubscriptionsDeleted).toBe(0)
+    expect((await census(t)).pushSubscriptions).toHaveLength(1)
+  })
+
+  test('the dry run predicts the exact count the write then deletes, and deletes nothing itself', async () => {
+    const build = async (t: ReturnType<typeof convexTest>) =>
+      await t.run(async (ctx) => {
+        const real = await ctx.db.insert('players', aPlayer({ email: REAL_ADDRESS }))
+        await ctx.db.insert('pushSubscriptions', aPushSubscription(real))
+        const a = await ctx.db.insert(
+          'players',
+          aPlayer({ email: E2E_ADDRESS, legacyId: undefined }),
+        )
+        await ctx.db.insert('pushSubscriptions', aPushSubscription(a, { endpoint: 'a-1' }))
+        await ctx.db.insert('pushSubscriptions', aPushSubscription(a, { endpoint: 'a-2' }))
+        const b = await ctx.db.insert(
+          'players',
+          aPlayer({ email: E2E_ADDRESS_2, legacyId: undefined }),
+        )
+        await ctx.db.insert('pushSubscriptions', aPushSubscription(b, { endpoint: 'b-1' }))
+      })
+
+    const dry = convexTest(schema, modules)
+    await build(dry)
+    const before = await census(dry)
+    const predicted = await prune(dry, false)
+    const after = await census(dry)
+
+    // A BROKEN COUNTER THAT ONLY WORKS UNDER EXECUTE WOULD PASS A TEST THAT
+    // ONLY CHECKED THE WRITE. This is the check that catches it: the same
+    // number must come back with nothing deleted.
+    expect(predicted.pushSubscriptionsDeleted).toBe(3)
+    expect(after.pushSubscriptions.map((s) => s._id)).toEqual(
+      before.pushSubscriptions.map((s) => s._id),
+    )
+
+    const wet = convexTest(schema, modules)
+    await build(wet)
+    const executed = await prune(wet, true)
+    expect(executed.pushSubscriptionsDeleted).toBe(predicted.pushSubscriptionsDeleted)
+    expect((await census(wet)).pushSubscriptions).toHaveLength(1)
   })
 })
 

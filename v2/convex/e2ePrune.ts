@@ -67,6 +67,12 @@ export type PruneBatchReport = {
   monthlyWinnersDeleted: number
   scoringSystemsDeleted: number
   playerMembershipsDeleted: number
+  // A ROW-PER-BROWSER TABLE (schema.ts), so one e2e player can leave several.
+  // Swept exactly like playerMembershipsDeleted — by_player, in the same loop,
+  // read before delete — so it is correct in dry-run mode for the same reason:
+  // nothing above this loop ever deletes a pushSubscriptions row by any other
+  // route, so there is no second path for this counter to miss.
+  pushSubscriptionsDeleted: number
   teamsDeleted: number
   teamRostersPatched: number
   // SWEPT ON THE FINAL BATCH ONLY, and the counter is why. "Is this address an
@@ -93,6 +99,7 @@ const emptyReport = (cursor: string, isDone: boolean): PruneBatchReport => ({
   monthlyWinnersDeleted: 0,
   scoringSystemsDeleted: 0,
   playerMembershipsDeleted: 0,
+  pushSubscriptionsDeleted: 0,
   teamsDeleted: 0,
   teamRostersPatched: 0,
   teamInvitesCleared: 0,
@@ -344,6 +351,17 @@ export const pruneBatch = internalMutation({
         .collect()
       report.playerMembershipsDeleted += memberships.length
       if (execute) for (const row of memberships) await ctx.db.delete(row._id)
+
+      // Phase 6. Same shape as playerMembership just above: keyed to the player
+      // by_player, with no other table or route ever pointing at one of these
+      // rows, so there is nothing else in this file that could double-count or
+      // miss one the way the winner rows once did.
+      const subscriptions = await ctx.db
+        .query('pushSubscriptions')
+        .withIndex('by_player', (q) => q.eq('playerId', player._id))
+        .collect()
+      report.pushSubscriptionsDeleted += subscriptions.length
+      if (execute) for (const row of subscriptions) await ctx.db.delete(row._id)
 
       // LAST, ALWAYS. Everything above needs the player's id to find its rows,
       // and a pass that had already deleted the player document would leave them
