@@ -48,6 +48,14 @@ import type { MutationCtx } from './_generated/server'
 // player held 31 dailyScores and the largest team 19 members, so a full page is
 // ~3100 score reads plus one whole-teams collect (1680 docs) — comfortably
 // inside the per-transaction limits, with room for the table to have grown.
+//
+// UPDATED, NOT RECALCULATED, FOR pushSubscriptions. The per-player loop now
+// runs three more indexed collects (monthlyWinners by_player, playerMembership,
+// pushSubscriptions), but dailyScores still dominates by an order of magnitude,
+// so the budget above still holds without a new number to defend. pushSubscriptions
+// is the one of the four with no measured bound of its own, and — until Task
+// 11's upsert lands — no dedupe either: an e2e run driving N browser contexts
+// leaves N rows per player, not one.
 const DEFAULT_PAGE_SIZE = 100
 
 /** What one batch touched, or — on a dry run — would have touched. */

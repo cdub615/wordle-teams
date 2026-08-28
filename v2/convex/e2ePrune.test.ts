@@ -59,12 +59,17 @@ async function census(t: ReturnType<typeof convexTest>) {
   }))
 }
 
+// Endpoint defaults to a value DERIVED FROM playerId, not a fixed string. Once
+// Task 11 lands, by_endpoint is the de-facto unique key on this table, and a
+// fixture that handed every caller the same URL would silently produce
+// colliding rows the moment two players' subscriptions were seeded in one
+// test. A caller that wants several rows on ONE player still overrides
+// `endpoint` explicitly — the default only protects the cross-player case.
 const aPushSubscription = (playerId: Id<'players'>, over: Record<string, unknown> = {}) => ({
   playerId,
-  endpoint: 'https://push.example.test/endpoint',
+  endpoint: `https://push.example.test/${playerId}`,
   p256dh: 'p256dh-key',
   auth: 'auth-secret',
-  createdAt: Date.parse('2026-08-01T12:00:00Z'),
   ...over,
 })
 
@@ -531,6 +536,12 @@ describe('paging', () => {
     // Guards the one-.paginate()-per-execution limit too: Convex fails at
     // runtime on a second call in one function, so any refactor that added an
     // inner paginate would take these multi-batch runs down.
+    //
+    // Two subscriptions per player is what actually exercises pushSubscriptions
+    // ACROSS a page boundary — every other assertion on that counter in this
+    // file runs inside a single page. teamInvitesCleared exists in this file
+    // BECAUSE a per-page recount slipped through untested; this is the same
+    // shape of gap, closed the same way.
     const build = async (t: ReturnType<typeof convexTest>) =>
       await t.run(async (ctx) => {
         for (let i = 0; i < 9; i++) {
@@ -540,6 +551,8 @@ describe('paging', () => {
           )
           await ctx.db.insert('teams', aTeam({ name: `T${i}`, playerIds: [p], owner: p }))
           await ctx.db.insert('dailyScores', aScore(p))
+          await ctx.db.insert('pushSubscriptions', aPushSubscription(p))
+          await ctx.db.insert('pushSubscriptions', aPushSubscription(p, { endpoint: `2-${p}` }))
         }
         await ctx.db.insert('players', aPlayer({ email: REAL_ADDRESS }))
       })
@@ -555,10 +568,12 @@ describe('paging', () => {
         playersDeleted: 9,
         teamsDeleted: 9,
         dailyScoresDeleted: 9,
+        pushSubscriptionsDeleted: 18,
       })
       const left = await census(t)
       expect(left.players).toHaveLength(1)
       expect(left.teams).toHaveLength(0)
+      expect(left.pushSubscriptions).toHaveLength(0)
     }
   })
 })

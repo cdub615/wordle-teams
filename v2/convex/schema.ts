@@ -318,7 +318,6 @@ export default defineSchema({
     endpoint: v.string(),
     p256dh: v.string(),
     auth: v.string(),
-    createdAt: v.number(),
   })
     .index('by_player', ['playerId'])
     .index('by_endpoint', ['endpoint']),

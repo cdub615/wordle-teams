@@ -88,6 +88,18 @@ if (!adminKey) {
 const convex = new ConvexHttpClient(url)
 convex.setAdminAuth(adminKey)
 
+// A HAND-MAINTAINED DUPLICATE OF PruneBatchReport's NUMERIC FIELDS, and that is
+// exactly the shape of bug this repo has already shipped twice inside
+// e2ePrune.ts itself (see its module comment). This copy drifted for real:
+// pushSubscriptionsDeleted was added to the mutation without being added here,
+// which means a real prune run would have deleted rows from a table this
+// script's own dry-run table and post-write summary said nothing about — the
+// operator authorising `--execute` would never have seen them coming. The
+// invariant below is what makes that impossible to repeat: if the mutation
+// ever reports a numeric counter not listed here, the script refuses to run
+// rather than silently under-report. e2ePrune.test.ts:36-42 built the same
+// drift-proofing into the TEST helper when this file was first written; this
+// script just didn't get the same treatment until now.
 const TOTAL_KEYS = [
   'playersScanned',
   'e2ePlayersFound',
@@ -96,6 +108,7 @@ const TOTAL_KEYS = [
   'monthlyWinnersDeleted',
   'scoringSystemsDeleted',
   'playerMembershipsDeleted',
+  'pushSubscriptionsDeleted',
   'teamsDeleted',
   'teamRostersPatched',
   'teamInvitesCleared',
@@ -123,6 +136,22 @@ async function pass(label, writing) {
       ...(pageSize === undefined ? {} : { pageSize }),
     })
     batches += 1
+
+    // THE DRIFT GUARD. Checked every batch, before totalling, so a counter
+    // added to the mutation but never added to TOTAL_KEYS above fails loudly
+    // instead of being silently absent from both the dry-run table and the
+    // post-write summary — the exact failure this script shipped with once
+    // already. Cheap: PruneBatchReport is small and this runs once per batch.
+    for (const [key, value] of Object.entries(report)) {
+      if (typeof value === 'number' && !TOTAL_KEYS.includes(key)) {
+        fail(
+          `${label}: the mutation reports a counter this script does not print: ${key}.\n` +
+            'Add it to TOTAL_KEYS. An operator must never authorise a destructive write from a\n' +
+            'summary that silently omits a whole table.',
+        )
+      }
+    }
+
     for (const key of TOTAL_KEYS) totals[key] += report[key]
 
     // THE ACCOUNTING INVARIANT, checked every batch rather than at the end. If
