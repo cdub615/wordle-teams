@@ -81,7 +81,7 @@ wrong. So each snippet below is labelled:
 | `v2/src/lib/push-subscribe.ts` | Permission, `pushManager`, key encoding. |
 | `v2/src/lib/push-subscribe.test.ts` | Encoding tests. |
 | `v2/src/lib/register-sw.ts` | The single registration. |
-| `v2/src/lib/time-zones.ts` | Grouped option list + `timeZoneMapping`. |
+| `v2/src/lib/time-zones.ts` | Grouped option list + a Postgres->IANA alias lookup. |
 | `v2/src/components/user-menu.tsx` | Header dropdown. |
 | `v2/src/components/settings/settings-dialog.tsx` | Tabs shell. |
 | `v2/src/components/settings/notifications-tab.tsx` | Timezone, time, two switches. |
@@ -1346,18 +1346,37 @@ work at all. Render only the Email switch here.
 
 Copy the five groups from `src/components/app-bar/user-dialog.tsx:50-103` verbatim — 26 zones with
 `value`, `label` and `shortLabel` — into `v2/src/lib/time-zones.ts` as `TIME_ZONE_GROUPS`, plus
-`timeZoneMapping` from `src/components/app-bar/app-bar-base.tsx:14-21`. Export both under exactly
-those names; Steps 4 and Task 7 import them that way.
+an alias lookup derived from `src/components/app-bar/app-bar-base.tsx:14-21` — but INVERTED, see
+below.
 
-Add this comment above `timeZoneMapping`, because its reason for existing has changed:
+**Invert it.** An earlier version of this plan told you to port `timeZoneMapping` as-is with a
+comment calling it "cosmetic, ported so a copied row and a native row spell the same zone
+identically". That was wrong twice: nothing called it, and it is keyed **IANA → Postgres**, which
+is the wrong direction to be useful.
+
+The real problem it should solve: v1 wrote the **Postgres** spelling (`app-bar-base.tsx:13-21` maps
+`'Asia/Kolkata' → 'Asia/Calcutta'` before saving) and the copy brings that across verbatim. But
+`TIME_ZONE_GROUPS` only carries `'Asia/Kolkata'`, so a copied Indian player's zone matches no
+option and the select shows "Select a time zone" — telling them nothing is configured when the
+reminder sweep resolves that same value perfectly well. It then invites them to re-pick, which is a
+silent behaviour change nobody asked for.
+
+Five spellings are affected: `Asia/Calcutta`, `Asia/Katmandu`, `Asia/Rangoon`, `Europe/Kyiv`,
+`Pacific/Kanton`.
+
+So export a **Postgres → IANA** lookup, apply it both to the display label and to the `Select`'s
+value, and write a comment describing what it actually does:
 
 ```typescript
 /**
- * v1 mapped five JS zone names onto the spellings Postgres wanted, because
- * `AT TIME ZONE` needed them. Convex asks Intl, which accepts both spellings as
- * aliases, so this is now COSMETIC — it is ported anyway so that a copied row
- * and a natively-created row spell the same zone identically, which is one
- * fewer false difference for Phase 7's parity audit to chase.
+ * The five Postgres spellings v1 wrote, mapped back to the IANA names this UI
+ * offers.
+ *
+ * v1 translated JS zone names into what Postgres's `AT TIME ZONE` wanted
+ * (app-bar-base.tsx:13-21) and stored the result; the copy brings those across
+ * verbatim. Intl treats the pairs as aliases, so the reminder sweep resolves
+ * either happily — but TIME_ZONE_GROUPS lists only the IANA name, so without
+ * this a copied player is shown "Select a time zone" while a zone IS set.
  */
 ```
 
@@ -1633,7 +1652,7 @@ import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { useEffect, useRef } from 'react'
 import { api } from '../../convex/_generated/api'
-import { timeZoneMapping } from './time-zones.ts'
+// NO timeZoneMapping HERE. See below — new rows store the canonical IANA name.
 import { captureError } from './sentry-capture.ts'
 
 /**
@@ -1668,10 +1687,14 @@ export function useLocalCapture() {
 
     if (!settings.timeZone && !wroteZone.current) {
       wroteZone.current = true
+      // STORE WHAT THE BROWSER SAYS, unmapped. v1 translated this into the
+      // spelling Postgres wanted before writing; v2 has no Postgres, so a new
+      // row should carry the canonical IANA name. Copied rows keep v1's older
+      // spellings, and time-zones.ts translates those at READ time — one
+      // direction, at the boundary that needs it, rather than rewriting data.
       const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone
-      const mapped = timeZoneMapping[resolved] ?? resolved
-      void updateTimeZone({ timeZone: mapped }).catch((error: unknown) =>
-        captureError(error, { where: 'useLocalCapture.timeZone', resolved, mapped }),
+      void updateTimeZone({ timeZone: resolved }).catch((error: unknown) =>
+        captureError(error, { where: 'useLocalCapture.timeZone', resolved }),
       )
     }
 
@@ -1886,15 +1909,40 @@ eligibility rules. `convex-test` can set `process.env` per test.
 **At cutover:** set `REMINDERS_ENABLED=true` and leave `REMINDERS_ALLOWLIST` unset. That is a
 runbook line, and Task 14 must add it.
 
-### The copy stays out of it until cutover
+### The copy DOES carry reminder settings today, and must not until cutover
 
-`scripts/copy-from-supabase.mjs` currently carries **neither** `reminder_delivery_methods` nor
-`time_zone`. Leave it that way through Phase 7's parity run: a re-copy must never be able to switch
-reminders on for a beta row. Adding both fields is an explicit **cutover** step, so real
-preferences arrive exactly when the app becomes real — Task 14 writes it into the runbook, or it
-will be forgotten and every existing subscriber will silently lose a feature they had.
+**Corrected 2026-08-28.** An earlier version of this section said the copy carried neither
+`reminder_delivery_methods` nor `time_zone`. It carries both, plus three more —
+`scripts/copy-from-supabase.mjs:151-155`:
 
-Note this makes Phase 7's parity audit expect a difference on those two columns. Record it.
+```javascript
+  hasPwa: !!p.has_pwa,
+  timeZone: opt(p.time_zone),
+  reminderDeliveryMethods: p.reminder_delivery_methods || [],
+  reminderDeliveryTime: p.reminder_delivery_time,
+  lastBoardEntryReminder: ms(p.last_board_entry_reminder),
+```
+
+and `convex/migrate.ts`'s `playerInput` accepts all five, so they land. The wrong claim came from
+measuring the **local** backend and reporting it as beta — see the warning box in Task 1.
+
+**Consequence: the env kill switch above is the ONLY thing protecting beta**, not a second layer on
+top of "the data is empty anyway". A Phase 7 re-copy would restore reminder settings even if
+someone had cleared them.
+
+Ranked by risk, so the fix is targeted rather than broad:
+
+| Field | Risk |
+|---|---|
+| `reminderDeliveryMethods` | **Dangerous** — this is what turns reminders on |
+| `timeZone` | **Dangerous** — the sweep skips anyone without one, so it is eligibility's other half |
+| `lastBoardEntryReminder` | **Protective** — copied forward it suppresses a same-day send. Keep it. |
+| `reminderDeliveryTime` | Harmless alone — inert without the two above |
+| `hasPwa` | Harmless — display only until push ships |
+
+Tracked as `wt-ksh.7.32`. Do not simply delete the lines: Phase 7's audit compares beta against
+production, so an omission is an **expected divergence** that must be recorded, and the cutover
+runbook must put it back.
 
 ### Read this before writing the claim: every player matches TWICE
 
