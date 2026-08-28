@@ -25,6 +25,7 @@ import type * as lib_polarErrors from "../lib/polarErrors.js";
 import type * as lib_polarEvents from "../lib/polarEvents.js";
 import type * as lib_polarIdentity from "../lib/polarIdentity.js";
 import type * as lib_puzzleDay from "../lib/puzzleDay.js";
+import type * as lib_reminders from "../lib/reminders.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_scoringSystem from "../lib/scoringSystem.js";
 import type * as lib_teamLimits from "../lib/teamLimits.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   "lib/polarEvents": typeof lib_polarEvents;
   "lib/polarIdentity": typeof lib_polarIdentity;
   "lib/puzzleDay": typeof lib_puzzleDay;
+  "lib/reminders": typeof lib_reminders;
   "lib/scoring": typeof lib_scoring;
   "lib/scoringSystem": typeof lib_scoringSystem;
   "lib/teamLimits": typeof lib_teamLimits;
