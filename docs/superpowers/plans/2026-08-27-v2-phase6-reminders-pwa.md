@@ -1134,7 +1134,7 @@ helper taking an explicit `playerId`; the wrappers do nothing but resolve the ca
 /**
  * The signed-in player's own notification settings.
  *
- * v2 had none of this. The five fields it writes — timeZone,
+ * v2 had none of this. The FOUR fields it writes — timeZone,
  * reminderDeliveryTime, reminderDeliveryMethods, hasPwa — are in the schema and
  * populated by the Supabase copy, and until now nothing in v2 read or wrote one
  * of them. A player who signed up in v2 therefore had no timeZone at all, which
@@ -1153,8 +1153,13 @@ import type { MutationCtx } from './_generated/server'
 /** The only two delivery methods that exist. */
 const METHODS = ['email', 'push'] as const
 
-/** 'HH:MM:SS', 00:00:00 through 23:59:59. */
-const TIME_SHAPE = /^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/
+// NO REGEX HERE. An earlier draft validated the SHAPE, 00:00:00-23:59:59, which
+// is wider than what the reminder engine can deliver: the cron ticks on the
+// hour, so isDueThisHour can never match '23:30:00'. It passed validation,
+// stored fine, and the player was silently never reminded — measured against
+// the real isDueThisHour across a full day of ticks. Membership in the eighteen
+// offered times is the check that matches reality, and it is also what makes
+// the error copy ("Pick a reminder time from the list") true.
 
 export async function updateReminderMethodsFor(
   ctx: MutationCtx,
@@ -1176,7 +1181,7 @@ export async function updateReminderTimeFor(
   playerId: Id<'players'>,
   time: string,
 ): Promise<void> {
-  if (!TIME_SHAPE.test(time)) accessError('INVALID_REMINDER_TIME')
+  if (!REMINDER_TIMES.includes(time)) throw accessError('INVALID_REMINDER_TIME')
   await ctx.db.patch(playerId, { reminderDeliveryTime: time })
 }
 
@@ -1274,11 +1279,19 @@ with no copy behind it. Suggested wording, matching the register of its neighbou
 
 ```typescript
     case 'INVALID_REMINDER_METHOD':
-      return 'Reminders can be sent by email or push notification.'
+      // True of BOTH branches that throw this. An earlier draft said
+      // "Reminders can be sent by email or push notification", which is a
+      // constraint a duplicated ['email','email'] already satisfies — so it
+      // described nothing about what actually failed.
+      return 'Choose email, push notification, or both.'
     case 'INVALID_REMINDER_TIME':
       return 'Pick a reminder time from the list.'
     case 'INVALID_TIME_ZONE':
-      return 'That time zone is not one we recognise.'
+      // NOT "not one we recognise", which reads as a rejected choice. The
+      // zone is read from Intl.DateTimeFormat().resolvedOptions() — the user
+      // picked nothing and can do nothing about a rejection. Points at the
+      // real cause, the way INVALID_DATE does.
+      return "We could not read your device's time zone, so reminders can't be scheduled yet."
 ```
 
 Read the comments on `NOT_TEAM_OWNER` and `INVALID_DATE` before writing yours. They record that
@@ -1419,11 +1432,11 @@ import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { TIME_ZONE_GROUPS } from '#/lib/time-zones.ts'
 import { useMediaQuery } from '#/lib/use-media-query.ts'
 
-/** v1 offers exactly these eighteen, 05:00 through 22:00 — board-entry-reminders.tsx:86-103. */
-const REMINDER_TIMES = Array.from(
-  { length: 18 },
-  (_, i) => `${String(i + 5).padStart(2, '0')}:00:00`,
-)
+// IMPORTED, NOT REDEFINED. `REMINDER_TIMES` lives in convex/lib/reminders.ts
+// and is the same list updateReminderTimeFor validates against, so the picker
+// and the server cannot drift. A second copy here is exactly how '23:30:00'
+// became storable-but-undeliverable — see the note in Task 5.
+import { REMINDER_TIMES } from '../../../convex/lib/reminders.ts'
 
 /** '13:00:00' -> '1 PM'. Local formatting only; never sent to the server. */
 function label(time: string): string {
