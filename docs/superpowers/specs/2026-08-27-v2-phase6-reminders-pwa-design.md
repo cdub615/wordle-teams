@@ -569,6 +569,7 @@ serially.
 
 | # | Task | Done when |
 |---|---|---|
+| 0 | Bring `feat/v2-replatform` up to date with `origin/main` | The branch is 0 behind; `wordle-teams-465` and `-5r9` closed as already-merged |
 | 1 | **S1** — `Intl` timezone support on Convex's runtime | A beta query formats an instant in `Australia/Sydney` correctly, output pasted into the issue |
 | 2 | **S3** — PWA plugin builds and `/sw.js` is served | `curl` against beta returns the worker with a JS content type at root scope |
 | 3 | `convex/lib/reminders.ts` + tests | Every Layer 1 export exists and its tests pass, including the half-hour-offset and local-midnight cases |
@@ -587,6 +588,30 @@ serially.
 Tasks 1 and 2 have no dependencies and are the only pair that may run in parallel. Task 10 gates
 11-13; if `web-push` cannot run on Convex, the push half is redesigned before any of it is built.
 
+### On task 0
+
+`feat/v2-replatform` is **31 commits behind `origin/main`** and 372 ahead, measured with
+`git rev-list --left-right --count origin/main...HEAD`. The gap is entirely v1 work — login fixes,
+Sentry noise filters, `src/lib/score-day.ts`, and the CI pinning — plus `.gitignore` and
+`.beads/issues.jsonl`.
+
+Nothing in Phase 6 depends on any of it. It is task 0 because the gap only widens, because the
+branch must reconcile with `main` at cutover regardless, and because doing it now means doing it
+while the diff is 31 commits of unrelated v1 work rather than at the end of a phase alongside
+everything this one adds.
+
+**`.beads/issues.jsonl` will conflict.** The pre-commit hook at `.beads/hooks` re-exports the whole
+tracker on every commit, so both sides have rewritten that file continuously. `wordle-teams-465`'s
+notes record the resolution used last time: take one side wholesale rather than merging it by
+hand. Do not reach for `--no-verify` to dodge the hook — it also chains to the PII guard for this
+public repo.
+
+**This task must not be bundled with any other.** A merge of this size wants its own commit and
+its own four green gates, so that a later bisect can tell v1 drift apart from Phase 6 work.
+
+The two CI issues are closed as part of this task, with a note that the fix arrived via #158/#159
+rather than through Phase 6 — they were not fixed here, only observed to be already fixed.
+
 ## Gotchas Carried Into This Phase
 
 - **Run everything from inside `v2/` except git, and give every gate its own `cd v2`.**
@@ -604,9 +629,12 @@ Tasks 1 and 2 have no dependencies and are the only pair that may run in paralle
   it a Convex-side change is invisible to e2e entirely.
 - **A frozen local Convex backend is invisible to all four gates** (`wordle-teams-lvv`). If e2e
   behaves impossibly, check the backend accepts a push before debugging code.
-- **CI installs the Convex and Supabase CLIs at `version: latest`**, so "Verify generated types
-  are checked in" fails on every PR (`wordle-teams-465`, `wordle-teams-5r9`). Worth fixing early
-  — it will otherwise noise up every PR in this phase.
+- **The "CI installs both CLIs at `version: latest`" warning is out of date, in two ways.** All
+  three Supabase workflows pin `2.114.0` on `main` and `dev` (PRs #158, #159, commit `33b07b9`);
+  this branch only appears unpinned because it is 31 commits behind, which task 0 fixes. And there
+  is no Convex CLI in CI at all — `deploy-v2.yml:91` runs `pnpm exec convex deploy` from the
+  `convex` package pinned in `v2/package.json`. The check itself regenerates
+  `src/lib/database.types.ts`, a v1 Supabase file that this phase never touches.
 - **A commit can falsify a comment it writes**, in the same commit, sometimes in another file.
   Sweep comments you write, not only ones you find. Comment accuracy is a defect here, not a nit.
 - **Measure, do not reason.** Across Phase 5 the plan's prose held up and its code was wrong every
