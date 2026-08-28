@@ -1,35 +1,41 @@
 import { Player, Team } from '@/lib/types'
 import { ColumnDef, VisibilityState } from '@tanstack/react-table'
 import { format, getDaysInMonth, getMonth, getYear, isFuture, isSameDay, isSameMonth, isWeekend, isBefore, startOfToday } from 'date-fns'
+import { dayKeyOf, dayKeyOfParts, todayKeyIn } from '@/lib/score-day'
 import { MonthScoresRow } from './scores-table-types'
 
-const getData = (team: Team, month: Date): MonthScoresRow[] => {
+// viewerTimeZone comes from the signed-in user's player record. It decides only what
+// counts as "already past"; which day a board belongs to is the score owner's zone.
+// Both are read from the database rather than from the runtime, so the server and the
+// browser produce the same table — see lib/score-day.ts and wordle-teams-dyp.
+const getData = (team: Team, month: Date, viewerTimeZone: string | null = null): MonthScoresRow[] => {
   const data: MonthScoresRow[] = []
+  const todayKey = todayKeyIn(viewerTimeZone)
   team.players?.map((player: Player) => {
-    const scores = player.scores?.filter((s) => isSameMonth(month, new Date(s.date)))
+    const monthPrefix = dayKeyOfParts(getYear(month), getMonth(month), 1).slice(0, 7)
+    const scores = player.scores?.filter((s) => dayKeyOf(s.date, player.timeZone).startsWith(monthPrefix))
     const daysInMonth = getDaysInMonth(month)
     const dailyAttempts = []
     for (let i = 1; i <= daysInMonth; i++) {
-      const dayInMonth = new Date(getYear(month), getMonth(month), i)
-      const scoreForDay = scores.find((s) =>
-        isSameDay(new Date(s.date), dayInMonth)
-      )
+      const dayKey = dayKeyOfParts(getYear(month), getMonth(month), i)
+      const scoreForDay = scores.find((s) => dayKeyOf(s.date, player.timeZone) === dayKey)
 
       if (!scoreForDay) {
-        if (isBefore(dayInMonth, startOfToday())) dailyAttempts.push(0)
+        if (dayKey < todayKey) dailyAttempts.push(0)
         continue
       }
       scoreForDay.trimEmptyGuesses()
       const attempts = scoreForDay.attempts
 
-      if ((!attempts || attempts === 0) && !isBefore(new Date(scoreForDay.date), startOfToday())) dailyAttempts.push('')
+      if ((!attempts || attempts === 0) && !(dayKeyOf(scoreForDay.date, player.timeZone) < todayKey))
+        dailyAttempts.push('')
       else if (attempts === 7) dailyAttempts.push('X')
       else dailyAttempts.push(attempts)
     }
 
     const row = {
       playerName: `${player.firstName}____${player.lastName}`,
-      monthTotal: player.aggregateScoreByMonth(month.toISOString(), team.playWeekends, team.scoringSystem),
+      monthTotal: player.aggregateScoreByMonth(month.toISOString(), team.playWeekends, team.scoringSystem, viewerTimeZone),
       day1: dailyAttempts[0],
       day2: dailyAttempts[1],
       day3: dailyAttempts[2],

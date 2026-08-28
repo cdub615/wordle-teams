@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "gen-types": "supabase gen types typescript --local > src/lib/database.types.ts",
+    "gen-types": "supabase gen types typescript --local --schema public > src/lib/database.types.ts",
     "pull-edge-config": "vercel env pull .env.local",
     "migrate-to-novu": "ts-node --compilerOptions '{\"module\":\"commonjs\"}' -r dotenv/config ./src/lib/migrate-to-novu.ts dotenv_config_path=.env.local"
   },
