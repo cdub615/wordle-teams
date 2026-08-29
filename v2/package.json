@@ -10,7 +10,8 @@
 	"scripts": {
 		"dev": "vite dev --port 3000",
 		"//generate-routes": "REMOVED. `tsr generate` standalone strips the Register block from routeTree.gen.ts, including the startInstance registration that wires the Sentry global middlewares — and the vite plugin silently writes it back on the next dev/build, so the damage only shows if you commit in between. The plugin in vite.config.ts is the only generator; there is nothing to run by hand. See wt-ksh.1.15.",
-		"build": "vite build",
+		"//build": "The service worker is built AFTER vite, not by it. vite-plugin-pwa cannot emit anything in this repo — @cloudflare/vite-plugin makes `vite build` a multi-environment build that resolves ssr last, which pins build.ssr=true, and the plugin's closeBundle guards on `!build.ssr`. It exits 0 and writes no sw.js. scripts/build-sw.mjs bundles src/sw.ts with esbuild, injects the precache manifest with workbox-build, writes dist/client/sw.js, and FAILS LOUDLY if any of that did not happen. See spike S3 and the header comment in that script.",
+		"build": "vite build && node scripts/build-sw.mjs",
 		"preview": "pnpm run build && vite preview",
 		"lint": "eslint . --max-warnings 0",
 		"typecheck": "tsc --noEmit",
@@ -82,6 +83,7 @@
 		"@vitejs/plugin-react": "^6.0.1",
 		"convex-test": "^0.0.54",
 		"dotenv": "^17.4.2",
+		"esbuild": "^0.28.2",
 		"eslint": "^10.9.0",
 		"eslint-plugin-react-hooks": "^7.1.1",
 		"globals": "^17.11.0",
@@ -91,7 +93,10 @@
 		"vite": "^8.0.0",
 		"vitest": "^4.1.5",
 		"workbox-build": "^7.4.1",
+		"workbox-core": "^7.4.1",
 		"workbox-precaching": "^7.4.1",
+		"workbox-routing": "^7.4.1",
+		"workbox-strategies": "^7.4.1",
 		"wrangler": "^4.111.0"
 	}
 }

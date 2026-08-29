@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <title>Offline &middot; Wordle Teams</title>
+    <!--
+      A STATIC FILE IN public/, NOT A ROUTE, AND THAT IS THE WHOLE POINT.
+      The service worker precaches BUILD OUTPUT: workbox-build globs dist/client
+      and hashes what it finds. A server-rendered /offline route has no
+      build-time artifact to glob, so it could be listed in the config, build
+      green, and be missing from the cache at the only moment it matters — when
+      the network is gone. This file lands at dist/client/offline.html, gets a
+      revision hash, and is fetched at install time like any other precached
+      asset.
+
+      SELF-CONTAINED ON PURPOSE: inline CSS, no webfont, no script, no image.
+      Every external reference would be one more request that has to succeed
+      offline, and the whole page exists because requests are failing.
+
+      #0a0a0a is public/manifest.json's theme_color and background_color, so the
+      standalone window's chrome and this page are the same colour.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: #0a0a0a;
+        color: #fafafa;
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+          sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      main {
+        width: 100%;
+        max-width: 26rem;
+        text-align: center;
+      }
+
+      .tiles {
+        display: flex;
+        gap: 0.375rem;
+        justify-content: center;
+        margin: 0 0 1.75rem;
+      }
+
+      .tile {
+        width: 2.5rem;
+        height: 2.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.25rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: #fafafa;
+        background: #18181b;
+        border: 1px solid #3f3f46;
+      }
+
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.5rem;
+        line-height: 1.25;
+        font-weight: 600;
+      }
+
+      p {
+        margin: 0 0 0.75rem;
+        color: #a1a1aa;
+        font-size: 0.9375rem;
+      }
+
+      p.reassurance {
+        color: #d4d4d8;
+      }
+
+      p:last-of-type {
+        margin-bottom: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!--
+        An empty Wordle row. Decorative, and deliberately wordless: five tiles is
+        the shape everyone recognises, and any letters here would have to fit a
+        five-cell grid on a 320px-wide phone.
+      -->
+      <div class="tiles" aria-hidden="true">
+        <span class="tile"></span>
+        <span class="tile"></span>
+        <span class="tile"></span>
+        <span class="tile"></span>
+        <span class="tile"></span>
+      </div>
+      <h1>You&rsquo;re offline</h1>
+      <p>
+        Wordle Teams needs a connection to load. Every screen reads live scores, so there is
+        nothing useful to show until you&rsquo;re back online.
+      </p>
+      <p class="reassurance">
+        Nothing has been lost. Your scores and your team standings are stored on the server,
+        exactly as you left them.
+      </p>
+      <p>Reconnect and reload the page to pick up where you were.</p>
+    </main>
+  </body>
+</html>

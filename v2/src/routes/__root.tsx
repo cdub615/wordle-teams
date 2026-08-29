@@ -8,6 +8,7 @@ import type { ConvexQueryClient } from '@convex-dev/react-query'
 import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
 import { pageTitle } from '#/lib/seo'
+import { useServiceWorkerRegistration } from '#/lib/register-sw.ts'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { Toaster } from '#/components/ui/sonner.tsx'
@@ -63,6 +64,15 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         content: 'width=device-width, initial-scale=1',
       },
       {
+        // Matches public/manifest.json's theme_color (and its background_color,
+        // which is the same value). The manifest colours the standalone window;
+        // this colours the browser UI on a normal tab, and Android reads it for
+        // the task-switcher card. They have to agree or the app changes shade
+        // as it is installed.
+        name: 'theme-color',
+        content: '#0a0a0a',
+      },
+      {
         // The site-wide default. Routes that had their own title in v1
         // override it with pageTitle('...'); everything else inherits this,
         // which is exactly how Next's title.default behaved.
@@ -74,6 +84,14 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         rel: 'stylesheet',
         href: appCss,
       },
+      {
+        // WITHOUT THIS THE APP IS NOT INSTALLABLE AT ALL. public/manifest.json
+        // has been correct since bc8e061 — right name, four icons, standalone,
+        // portrait — and nothing had ever linked it, so no browser had any
+        // reason to fetch it and no install prompt could ever appear.
+        rel: 'manifest',
+        href: '/manifest.json',
+      },
     ],
   }),
   shellComponent: RootDocument,
@@ -82,6 +100,11 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 
 function RootComponent() {
   const context = Route.useRouteContext()
+  // Client-only by construction: the hook's whole body is a useEffect, and
+  // effects do not run during SSR. Mounted here rather than in RootDocument for
+  // no deeper reason than that this is the component that renders on the
+  // client — it touches no context and does not care about the provider.
+  useServiceWorkerRegistration()
   return (
     <ConvexBetterAuthProvider
       client={context.convexQueryClient.convexClient}
