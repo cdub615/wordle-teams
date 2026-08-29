@@ -28,10 +28,10 @@
  * actually touches are declared locally and minimally, below. Nothing is
  * widened, nothing is `any`, and `pnpm typecheck` and `pnpm lint` both hold.
  */
-import { cacheNames } from 'workbox-core'
 import { matchPrecache, precacheAndRoute, type PrecacheEntry } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
 import { NetworkOnly } from 'workbox-strategies'
+import { staleCacheNames, workboxOwnedCacheNames } from './lib/sw-caches.ts'
 
 const OFFLINE_URL = '/offline.html'
 
@@ -189,9 +189,20 @@ interface ReminderPayload {
 }
 
 /**
- * The one payload this app sends, from convex/pushSend.ts:
+ * The one payload this app sends, from convex/pushSend.ts (the `payload` in
+ * `deliverTo`, which carries the matching note):
  *   { title: 'Wordle Teams', body: "You have not entered today's board yet…",
  *     url: '/' }
+ *
+ * THE `fallback` BELOW DUPLICATES THOSE THREE STRINGS VERBATIM, and nothing
+ * mechanical keeps them in step. They are byte-identical today; editing the
+ * server copy alone silently desynchronises what a user sees when a push body
+ * arrives malformed from what they see the rest of the time. Deliberately not
+ * shared: the sender is a Convex 'use node' action and this is a browser
+ * service worker bundled separately by scripts/build-sw.mjs, so a shared module
+ * would drag one runtime's dependencies into the other's bundle for the sake of
+ * three string literals. A cross-reference on both sides is the cheaper
+ * guarantee. CHANGE BOTH.
  *
  * Parsed defensively anyway. `event.data.json()` THROWS on a non-JSON body, and
  * v1's `event.data?.json() ?? {}` did not catch that — `??` only guards a null
@@ -315,23 +326,11 @@ self.addEventListener('notificationclick', (event) => {
  * `serwist-precache-v2-<scope>`, and nothing else will ever clear them: the
  * code that created them is gone.
  *
- * THE KEEP-SET IS DERIVED FROM WORKBOX, NOT GUESSED. `cacheNames` is
- * workbox-core's own accessor for the three caches it owns, built from its
- * prefix/suffix details (`workbox-precache-v2-<scope>`,
- * `workbox-runtime-<scope>`, `workbox-googleAnalytics-<scope>`). Reading them
- * from the library is what makes "delete everything else" safe.
- *
- * A PREDICATE LIKE `!name.startsWith('workbox-') && !name.includes('precache')`
- * WOULD BE WRONG IN BOTH DIRECTIONS, and I checked serwist's source rather than
- * assuming: serwist 9.2.1 builds its cache names with prefix `serwist` and
- * precache detail `precache-v2` (serwist/dist/chunks/waitUntil.js), so v1's
- * precache is literally named `serwist-precache-v2-https://wordleteams.com/`.
- * `!name.includes('precache')` is false for it, so the single largest cache
- * this switch exists to remove would be SPARED forever. In the other direction
- * the predicate is only accidentally safe for our own precache: it survives
- * because workbox's default prefix happens to be `workbox`, and one call to
- * `cacheNames.updateDetails` anywhere would turn it into a worker that deletes
- * its own precache on every activate.
+ * THE KEEP-SET IS DERIVED FROM WORKBOX, NOT GUESSED, and both halves of that
+ * decision live in ./lib/sw-caches.ts — lifted out of this file because
+ * everything here runs at module scope against service-worker globals, so a
+ * test could not import it. src/lib/sw-caches.test.ts pins the rule, including
+ * the two ways the obvious hand-written predicate gets it wrong.
  */
 self.addEventListener('install', () => {
   // Does NOT cut precaching short. skipWaiting only skips the WAITING phase,
@@ -343,16 +342,8 @@ self.addEventListener('install', () => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      const keep = new Set([
-        cacheNames.precache,
-        cacheNames.runtime,
-        cacheNames.googleAnalytics,
-      ])
-
-      const existing = await self.caches.keys()
-      await Promise.all(
-        existing.filter((name) => !keep.has(name)).map((name) => self.caches.delete(name)),
-      )
+      const stale = staleCacheNames(await self.caches.keys(), workboxOwnedCacheNames())
+      await Promise.all(stale.map((name) => self.caches.delete(name)))
 
       // After the eviction, so the first controlled fetch cannot race a cache
       // that is halfway deleted.

@@ -28,14 +28,25 @@
  * THE LOUD-FAILURE ASSERTIONS ARE THE POINT OF THIS FILE.
  * S3's lesson is that the previous approach failed SILENTLY. This one exits
  * non-zero, with a message naming the specific problem, if any of these is
- * true:
- *   1. dist/client/sw.js was not written;
- *   2. the output still contains the literal `self.__WB_MANIFEST`;
- *   3. the injected manifest has zero entries;
- *   4. the output landed anywhere other than dist/client/sw.js.
- * `assertSwBuild` below is a pure function over already-gathered facts so each
- * of those four can be exercised on its own, without having to break a real
- * build to see the guard fire.
+ * true — and each is named with the check that actually enforces it, because
+ * the mapping is not one-to-one:
+ *   1. dist/client/sw.js was not written        -> the `written` check.
+ *   2. the output still contains the literal
+ *      `self.__WB_MANIFEST`                     -> the `contents` check.
+ *   3. the injected manifest has zero entries   -> the `count` check.
+ *   4. the output landed anywhere other than
+ *      dist/client/sw.js                        -> the `stray` check over
+ *      injectManifest's OWN report of what it wrote, backed by the `written`
+ *      check. Writing to the wrong path shows up as both: a file reported at a
+ *      path we did not ask for, and nothing at the path we did.
+ * The `swDest` comparison at the top of `assertSwBuild` is a separate,
+ * defensive invariant rather than the enforcement of (4) — see its comment.
+ *
+ * `assertSwBuild` is a pure function over already-gathered facts so each of
+ * those can be exercised on its own, without breaking a real build to see the
+ * guard fire. scripts/build-sw.test.mjs does exactly that.
+ *
+ * A FAILED RUN LEAVES NO dist/client/sw.js BEHIND. See `removeArtifacts`.
  */
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -66,8 +77,15 @@ export const INJECTION_POINT = 'self.__WB_MANIFEST'
 export function assertSwBuild({ swDest, written, contents, count, filePaths }) {
   const problems = []
 
-  // 4. Wrong destination. Checked first because every other fact below is about
-  //    a file at `swDest`, and if that is the wrong path they are all moot.
+  // A DEFENSIVE INVARIANT, NOT THE ENFORCEMENT OF REQUIREMENT 4.
+  // `main()` passes this same constant, so in the real script this can never
+  // fire; it exists so that an edit which points the injectManifest call and
+  // this call at different paths is caught rather than half-applied. What
+  // actually enforces "the output must land at dist/client/sw.js" is the
+  // `stray` check immediately below (injectManifest reporting a path we did not
+  // ask for) together with the `written` check (nothing at the path we did).
+  // Checked first because every other fact below is about a file at `swDest`,
+  // and if that is the wrong path they are all moot.
   if (path.resolve(swDest) !== EXPECTED_SW_DEST) {
     problems.push(
       `the service worker was written to ${path.resolve(swDest)}, but it must be ` +
@@ -76,6 +94,9 @@ export function assertSwBuild({ swDest, written, contents, count, filePaths }) {
     )
   }
 
+  // 4. Wrong destination — the real check. injectManifest returns the absolute
+  //    path of every file it wrote, so this compares its own account of what it
+  //    did against the one path a worker for this app may occupy.
   const stray = filePaths.map((f) => path.resolve(f)).filter((f) => f !== EXPECTED_SW_DEST)
   if (stray.length > 0) {
     problems.push(
@@ -113,6 +134,24 @@ export function assertSwBuild({ swDest, written, contents, count, filePaths }) {
   return problems
 }
 
+/**
+ * Removes everything a run wrote, so a failed build cannot leave a shippable
+ * worker behind. Called BEFORE the build too: a stale sw.js from a previous
+ * successful run is just as dangerous as a broken one from this run, because
+ * neither matches the bundle sitting next to it.
+ *
+ * `pnpm build` exits 1 and short-circuits `&& wrangler deploy`, but a
+ * hand-run `wrangler deploy` after a failed build would otherwise ship
+ * whatever was left here — an un-injected worker that precaches nothing, or
+ * one whose manifest points at assets from a different build.
+ */
+async function removeArtifacts(extraPaths = []) {
+  const targets = new Set([EXPECTED_SW_DEST, ...extraPaths.map((f) => path.resolve(f))])
+  for (const target of targets) {
+    await rm(target, { force: true })
+  }
+}
+
 async function main() {
   if (!existsSync(CLIENT_DIR)) {
     throw new Error(
@@ -125,9 +164,17 @@ async function main() {
   // real destination. Two reasons: injectManifest refuses swSrc === swDest, and
   // an un-injected bundle must never exist at dist/client/sw.js even for an
   // instant — a build that died between the two steps would otherwise leave a
-  // shippable worker that precaches nothing.
+  // shippable worker that precaches nothing. `removeArtifacts` is the other
+  // half of that promise: staging keeps the bad file from being written, and
+  // removal handles every path where one gets written anyway.
   const stagingDir = await mkdtemp(path.join(tmpdir(), 'wt-sw-'))
   const staged = path.join(stagingDir, 'sw.js')
+
+  // Nothing from a previous run survives into this one, whether it succeeds or
+  // not. Without this, a run that dies before injectManifest — a syntax error
+  // in sw.ts, say — would leave the LAST build's worker in place and report
+  // failure, which is the worst of both.
+  await removeArtifacts()
 
   try {
     await esbuild.build({
@@ -182,8 +229,12 @@ async function main() {
     for (const warning of warnings) console.warn(`[build-sw] workbox warning: ${warning}`)
 
     if (problems.length > 0) {
+      // The file this run wrote is not shippable, so it does not stay on disk.
+      // `filePaths` is included so a write to the WRONG path is cleaned up too.
+      await removeArtifacts(filePaths)
       console.error('[build-sw] SERVICE WORKER BUILD FAILED:')
       for (const problem of problems) console.error(`[build-sw]   - ${problem}`)
+      console.error('[build-sw]   (dist/client/sw.js has been removed — nothing shippable remains)')
       process.exitCode = 1
       return
     }
@@ -201,7 +252,11 @@ async function main() {
 // Only when run as a program. Importing this module (the assertion tests do)
 // must not build anything.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch((error) => {
+  main().catch(async (error) => {
+    // Same rule on the throwing path. injectManifest writes swDest before it
+    // can throw on a sourcemap, and esbuild can die mid-write, so "we threw"
+    // is not evidence that nothing was left behind.
+    await removeArtifacts().catch(() => {})
     console.error('[build-sw] SERVICE WORKER BUILD FAILED:')
     console.error(error instanceof Error ? (error.stack ?? error.message) : String(error))
     process.exitCode = 1

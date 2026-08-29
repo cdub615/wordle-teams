@@ -79,6 +79,14 @@ export const deliverTo = internalAction({
     const subscriptions = await ctx.runQuery(internal.push.subscriptionsFor, { playerId })
     if (subscriptions.length === 0) return
 
+    // THE OTHER COPY OF THIS COPY IS v2/src/sw.ts's `readReminder` fallback,
+    // which renders these exact three strings when `event.data.json()` throws
+    // — a truncated or non-JSON push body. Byte-identical today. Not shared as
+    // a module: this is a Convex 'use node' action and that is a browser
+    // service worker bundled separately by scripts/build-sw.mjs, so there is no
+    // import path between them that does not drag one runtime into the other.
+    // CHANGE BOTH, or the notification a user sees on a malformed push quietly
+    // stops matching the one they see normally.
     const payload = JSON.stringify({
       title: 'Wordle Teams',
       body: "You have not entered today's board yet. Don't miss out on those points!",
