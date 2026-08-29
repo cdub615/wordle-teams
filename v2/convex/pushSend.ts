@@ -121,7 +121,12 @@ export const deliverTo = internalAction({
         // cleared profile, a revoked permission. Expected, not an error, and the
         // row must go or it is retried forever.
         if (logSafe.statusCode === 404 || logSafe.statusCode === 410) {
+          // `playerId` is the same one this action was invoked with, and the
+          // same one `subscriptionsFor` used to fetch `subscription` in the
+          // first place — see removeByEndpoint's own comment for why that
+          // makes it provably the right id and not just an available one.
           await ctx.runMutation(internal.push.removeByEndpoint, {
+            playerId,
             endpoint: subscription.endpoint,
           })
           continue

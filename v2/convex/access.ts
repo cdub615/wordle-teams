@@ -28,6 +28,11 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // normaliseInviteEmail rejects the submitted address. INVALID_REMINDER_METHOD,
 // INVALID_REMINDER_TIME and INVALID_TIME_ZONE are thrown in settings.ts, by
 // updateReminderMethodsFor, updateReminderTimeFor and updateTimeZoneFor.
+// INVALID_PUSH_ENDPOINT is thrown in push.ts, by saveSubscriptionFor, when the
+// submitted endpoint does not parse as a URL with protocol exactly "https:" —
+// rejecting it there covers every writer, not just the public mutation, and
+// keeps a caller from pointing webpush.sendNotification (an https.request
+// under the hood) at an arbitrary host.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -43,6 +48,7 @@ export type AccessCode =
   | 'INVALID_REMINDER_METHOD'
   | 'INVALID_REMINDER_TIME'
   | 'INVALID_TIME_ZONE'
+  | 'INVALID_PUSH_ENDPOINT'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

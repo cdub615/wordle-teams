@@ -7,17 +7,42 @@
  */
 import { v } from 'convex/values'
 import { internalMutation, internalQuery, mutation, query } from './_generated/server'
-import { requirePlayer } from './access.ts'
+import { accessError, requirePlayer } from './access.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 
 type SubscriptionInput = { endpoint: string; p256dh: string; auth: string }
+
+/**
+ * Whether `endpoint` is safe to hand to `webpush.sendNotification`, which
+ * `https.request`s whatever host it parses out of it. Only a parseable URL
+ * with protocol exactly `https:` passes — not a regex, because a hand-rolled
+ * pattern is exactly the kind of check that looks right and lets something
+ * through; the platform `URL` constructor is what actually parses a URL the
+ * way the request path will.
+ */
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
 
 export async function saveSubscriptionFor(
   ctx: MutationCtx,
   playerId: Id<'players'>,
   subscription: SubscriptionInput,
 ): Promise<void> {
+  // REJECTED HERE, NOT JUST AT THE PUBLIC MUTATION, so every writer is
+  // covered. A real browser's Push API never hands back anything but an
+  // https: endpoint; a value that fails this check is a hand-built or
+  // tampered request, aimed at making pushSend.ts's `https.request` reach an
+  // arbitrary host on this deployment's dime. The rejected value is never
+  // logged or echoed back — see INVALID_PUSH_ENDPOINT's copy in
+  // src/lib/convex-error.ts.
+  if (!isHttpsUrl(subscription.endpoint)) throw accessError('INVALID_PUSH_ENDPOINT')
+
   // UPSERT ON ENDPOINT. Convex has no unique constraints, and a browser hands
   // back the same endpoint with refreshed keys on renewal — so a blind insert
   // gives one device a row per sign-in, and that device N copies of every
@@ -55,15 +80,28 @@ export async function subscriptionsForPlayer(
     .collect()
 }
 
-export async function removeByEndpointFor(ctx: MutationCtx, endpoint: string): Promise<void> {
+export async function removeByEndpointFor(
+  ctx: MutationCtx,
+  playerId: Id<'players'>,
+  endpoint: string,
+): Promise<void> {
   const existing = await ctx.db
     .query('pushSubscriptions')
     .withIndex('by_endpoint', (q) => q.eq('endpoint', endpoint))
     .first()
-  // Absent is success, not failure. The 410 path can race a sign-out that
-  // already removed the row, and a throw would turn a completed cleanup into a
-  // failed action.
-  if (existing) await ctx.db.delete(existing._id)
+
+  // ABSENT, OR PRESENT BUT NOT YOURS: BOTH SILENT NO-OPS, never a throw.
+  // Absent is success, not failure — the 410 path can race a sign-out that
+  // already removed the row, and a throw would turn a completed cleanup into
+  // a failed action. "Not yours" gets the SAME treatment, on purpose, and not
+  // as a lesser version of the same idea: a caller who does not own the row
+  // must not be able to tell "this endpoint does not exist" apart from "this
+  // endpoint exists but is someone else's" by watching which one throws —
+  // that distinction is a probe for other players' endpoints, one call at a
+  // time. A row landing here that names no matching playerId simply is not
+  // this caller's to remove, and the function returns exactly as if it had
+  // found nothing at all.
+  if (existing && existing.playerId === playerId) await ctx.db.delete(existing._id)
 }
 
 /**
@@ -94,16 +132,16 @@ export const savePushSubscription = mutation({
 export const removePushSubscription = mutation({
   args: { endpoint: v.string() },
   handler: async (ctx, { endpoint }) => {
-    // requirePlayer BUYS AUTHENTICATION, NOT AUTHORIZATION, and the two must
-    // not be read as the same thing. It does stop an unauthenticated caller
-    // from unsubscribing a stranger's device by guessing or replaying an
-    // endpoint. It does NOT check that the endpoint belongs to the caller:
-    // removeByEndpointFor filters on nothing but the endpoint, so any
-    // signed-in player who obtains someone else's endpoint can remove that
-    // row. Whether that should be scoped to the caller's own subscriptions is
-    // an open question, not an oversight here — see wordle-teams-6k7.
-    await requirePlayer(ctx)
-    await removeByEndpointFor(ctx, endpoint)
+    // AUTHENTICATED AND SCOPED TO THE OWNER. requirePlayer stops an
+    // unauthenticated caller from unsubscribing anyone's device at all, and
+    // passing its `_id` into removeByEndpointFor is what stops an
+    // AUTHENTICATED one from removing a row that is not theirs: that function
+    // deletes only when the row's playerId matches. Absent, or present but
+    // owned by someone else, are both silent no-ops rather than a throw — see
+    // removeByEndpointFor's own comment for why a throw on "not yours" would
+    // be a probe, not just an inconsistency.
+    const player = await requirePlayer(ctx)
+    await removeByEndpointFor(ctx, player._id, endpoint)
   },
 })
 
@@ -112,7 +150,16 @@ export const subscriptionsFor = internalQuery({
   handler: async (ctx, { playerId }) => await subscriptionsForPlayer(ctx, playerId),
 })
 
+/**
+ * `playerId` HERE IS THE RIGHT ONE, NOT MERELY AN AVAILABLE ONE. This
+ * mutation's only caller is pushSend.ts's 404/410 branch inside `deliverTo`,
+ * which already has `playerId` in scope — it is the same id `deliverTo` was
+ * invoked with, and the same one `subscriptionsFor({ playerId })` used to
+ * fetch the very subscription that just 404/410'd. So the row being deleted
+ * is provably this player's own, not a value threaded through on the
+ * assumption that it would line up.
+ */
 export const removeByEndpoint = internalMutation({
-  args: { endpoint: v.string() },
-  handler: async (ctx, { endpoint }) => await removeByEndpointFor(ctx, endpoint),
+  args: { playerId: v.id('players'), endpoint: v.string() },
+  handler: async (ctx, { playerId, endpoint }) => await removeByEndpointFor(ctx, playerId, endpoint),
 })

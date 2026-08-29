@@ -28,7 +28,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'INVALID_NAME' ||
     code === 'INVALID_REMINDER_METHOD' ||
     code === 'INVALID_REMINDER_TIME' ||
-    code === 'INVALID_TIME_ZONE'
+    code === 'INVALID_TIME_ZONE' ||
+    code === 'INVALID_PUSH_ENDPOINT'
   ) {
     return code
   }
@@ -125,6 +126,14 @@ export function typedCodeMessage(code: AccessCode): string {
       // be lying about the cause — the same reason INVALID_DATE points at the
       // device clock instead of the input.
       return "We could not read your device's time zone, so reminders can't be scheduled yet."
+    case 'INVALID_PUSH_ENDPOINT':
+      // Thrown by saveSubscriptionFor (convex/push.ts) when the browser's own
+      // PushSubscription.endpoint is not a parseable https: URL. This should
+      // never happen from a real browser's Push API — it fires on a hand-built
+      // or tampered request — so the copy does not try to explain a cause the
+      // user can act on, and it does NOT echo the submitted value back: that
+      // value is exactly what this check exists to keep out of view.
+      return 'That push subscription is not valid.'
     default: {
       const _exhaustive: never = code
       return _exhaustive

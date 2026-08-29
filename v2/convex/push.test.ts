@@ -1,3 +1,4 @@
+import { ConvexError } from 'convex/values'
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema.ts'
@@ -73,6 +74,56 @@ describe('saveSubscriptionFor', () => {
   })
 })
 
+describe('saveSubscriptionFor: endpoint validation', () => {
+  test('a real https: endpoint is stored', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    await t.run(async (ctx) => saveSubscriptionFor(ctx, playerId, SUB))
+
+    const rows = await t.run(async (ctx) => ctx.db.query('pushSubscriptions').collect())
+    expect(rows).toHaveLength(1)
+  })
+
+  // THE SSRF SURFACE. pushSend.ts hands `endpoint` straight to
+  // webpush.sendNotification, which https.requests whatever host it parses
+  // out — so an endpoint that is not a genuine https: URL from a browser's
+  // Push API is a way to make this deployment issue a request to an
+  // arbitrary host of the caller's choosing, on a daily cron.
+  test.each([
+    ['http:, not https:', 'http://push.example/not-secure'],
+    ['not a URL at all', 'not-a-url'],
+    ['empty string', ''],
+  ])('rejects %s', async (_label, endpoint) => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+
+    await expect(
+      t.run(async (ctx) => saveSubscriptionFor(ctx, playerId, { ...SUB, endpoint })),
+    ).rejects.toThrow(ConvexError)
+
+    const rows = await t.run(async (ctx) => ctx.db.query('pushSubscriptions').collect())
+    expect(rows).toHaveLength(0)
+  })
+
+  // THE TYPED CODE, NOT JUST "IT THROWS". A plain Error's message is redacted
+  // in production and convex-test never redacts, so a test asserting only
+  // `.rejects.toThrow()` would not catch a regression to `throw new
+  // Error(...)` — the exact mistake accessError exists to make impossible at
+  // the call site. Matches the `.rejects.toMatchObject({ data: { code } })`
+  // pattern already used throughout this codebase (e.g. scores.test.ts,
+  // teams.test.ts) for the same reason.
+  test('the rejection carries the INVALID_PUSH_ENDPOINT code', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+
+    await expect(
+      t.run(async (ctx) =>
+        saveSubscriptionFor(ctx, playerId, { ...SUB, endpoint: 'http://push.example/insecure' }),
+      ),
+    ).rejects.toMatchObject({ data: { code: 'INVALID_PUSH_ENDPOINT' } })
+  })
+})
+
 describe('subscriptionsForPlayer', () => {
   test("returns only that player's", async () => {
     const t = convexTest(schema, modules)
@@ -92,7 +143,7 @@ describe('subscriptionsForPlayer', () => {
 })
 
 describe('removeByEndpointFor', () => {
-  test('deletes exactly the one row', async () => {
+  test('deletes exactly the one row, owned by the caller', async () => {
     const t = convexTest(schema, modules)
     const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
     await t.run(async (ctx) => saveSubscriptionFor(ctx, playerId, SUB))
@@ -100,7 +151,7 @@ describe('removeByEndpointFor', () => {
       saveSubscriptionFor(ctx, playerId, { ...SUB, endpoint: 'https://push.example/kept' }),
     )
 
-    await t.run(async (ctx) => removeByEndpointFor(ctx, SUB.endpoint))
+    await t.run(async (ctx) => removeByEndpointFor(ctx, playerId, SUB.endpoint))
 
     const rows = await t.run(async (ctx) => ctx.db.query('pushSubscriptions').collect())
     expect(rows).toHaveLength(1)
@@ -124,19 +175,42 @@ describe('removeByEndpointFor', () => {
       saveSubscriptionFor(ctx, playerId, { ...SUB, endpoint: 'https://push.example/kept' }),
     )
 
-    await t.run(async (ctx) => removeByEndpointFor(ctx, 'https://push.example/kept'))
+    await t.run(async (ctx) => removeByEndpointFor(ctx, playerId, 'https://push.example/kept'))
 
     const rows = await t.run(async (ctx) => ctx.db.query('pushSubscriptions').collect())
     expect(rows).toHaveLength(1)
     expect(rows[0].endpoint).toBe(SUB.endpoint)
   })
 
+  // THE SECURITY PROPERTY. Without the playerId check, any signed-in player
+  // who obtained someone else's endpoint could remove that row — see the
+  // comment on removeByEndpointFor itself for why the response has to be
+  // indistinguishable from "no such endpoint" rather than a distinguishing
+  // throw.
+  test("removing another player's endpoint is a no-op — the row survives", async () => {
+    const t = convexTest(schema, modules)
+    const owner = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    const intruder = await t.run(async (ctx) =>
+      ctx.db.insert('players', aPlayer({ email: 'intruder@example.com' })),
+    )
+    await t.run(async (ctx) => saveSubscriptionFor(ctx, owner, SUB))
+
+    await expect(
+      t.run(async (ctx) => removeByEndpointFor(ctx, intruder, SUB.endpoint)),
+    ).resolves.not.toThrow()
+
+    const rows = await t.run(async (ctx) => ctx.db.query('pushSubscriptions').collect())
+    expect(rows).toHaveLength(1)
+    expect(rows[0].playerId).toBe(owner)
+  })
+
   test('removing an endpoint that is not there is not an error', async () => {
     // The 410 path can race a sign-out that already removed the row. A throw
     // here would turn a successful cleanup into a failed action.
     const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
     await expect(
-      t.run(async (ctx) => removeByEndpointFor(ctx, 'https://push.example/ghost')),
+      t.run(async (ctx) => removeByEndpointFor(ctx, playerId, 'https://push.example/ghost')),
     ).resolves.not.toThrow()
   })
 })
