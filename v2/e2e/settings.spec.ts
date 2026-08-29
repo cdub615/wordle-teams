@@ -156,3 +156,38 @@ test('a time zone copied in its Postgres spelling displays correctly, and changi
   await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
   await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText('Eastern Standard Time (EST)')
 })
+
+test.describe('a brand-new signup with no stored zone', () => {
+  // Pins the browser's reported zone to one TIME_ZONE_GROUPS actually lists
+  // (time-zones.ts:21), so the assertion below can check a real display
+  // string instead of a mere absence.
+  test.use({ timezoneId: 'America/Denver' })
+
+  // THE ONLY THING STANDING BETWEEN THIS FEATURE AND SILENT INERTNESS. No
+  // gate (lint/typecheck/test/build) exercises useLocalCapture.ts's own
+  // wiring into Header.tsx — src/lib/use-local-capture.test.ts and
+  // use-local-capture.hook.test.ts pin the decision logic and the hook's
+  // internal behaviour, but nothing there fails if useLocalCapture() is ever
+  // deleted from Header.tsx, or Header stops being mounted where it can
+  // reach ConvexBetterAuthProvider. Delete that one call and every gate stays
+  // green while convex/reminders.ts:146 silently skips every new signup
+  // forever, because nothing ever wrote their timeZone. This spec is what
+  // actually notices.
+  test('signing in with no seeded zone captures the browser one, silently', async ({ page }) => {
+    // signInWithPlayer(page) with NO timeZone argument — e2eSeed.ensureTeamFor
+    // omits the field entirely (convex/e2eSeed.ts), so this player's row
+    // starts with no timeZone at all, exactly like a real v2 signup.
+    await signInWithPlayer(page)
+
+    await page.getByRole('button', { name: 'Account menu' }).click()
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
+
+    // 'Mountain Standard Time (MST)' is TIME_ZONE_GROUPS's label for
+    // 'America/Denver' (time-zones.ts:21) — what Intl resolves to under the
+    // timezoneId set above. If useLocalCapture never ran (or never landed),
+    // this reads notifications-tab.tsx's placeholder, "Select a time zone",
+    // instead — the same failure mode a deleted `useLocalCapture()` call
+    // produces for every real signup.
+    await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText('Mountain Standard Time (MST)')
+  })
+})

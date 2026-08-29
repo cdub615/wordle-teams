@@ -9,6 +9,7 @@ import { Badge } from '#/components/ui/badge.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import { pendingInviteLabel, portalOutcome } from '#/lib/billing-copy.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { useLocalCapture } from '#/lib/use-local-capture.ts'
 import { UserMenu } from './settings/user-menu.tsx'
 import ThemeToggle from './ThemeToggle'
 
@@ -50,6 +51,11 @@ import ThemeToggle from './ThemeToggle'
  * would otherwise have had a loader.
  */
 export default function Header() {
+  // Silent by design — see use-local-capture.ts. Placed first, and safe only
+  // because of the ConvexBetterAuthProvider positioning documented above: it
+  // is itself a Convex hook, no different from useConvexAuth below it.
+  useLocalCapture()
+
   const { isAuthenticated } = useConvexAuth()
   const openPortal = useConvexAction(api.polar.getCustomerPortalUrl)
   const [portalPending, setPortalPending] = useState(false)
