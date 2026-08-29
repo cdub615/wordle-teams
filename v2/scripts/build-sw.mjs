@@ -27,18 +27,34 @@
  *
  * THE LOUD-FAILURE ASSERTIONS ARE THE POINT OF THIS FILE.
  * S3's lesson is that the previous approach failed SILENTLY. This one exits
- * non-zero, with a message naming the specific problem, if any of these is
- * true — and each is named with the check that actually enforces it, because
- * the mapping is not one-to-one:
- *   1. dist/client/sw.js was not written        -> the `written` check.
+ * non-zero, with a message naming the specific problem. Each condition is
+ * listed with the check that actually enforces it — the mapping is not
+ * one-to-one — and with whether it is a LIVE risk or defence in depth, because
+ * treating them as equally likely misdirects whoever reads this next:
+ *
+ *   1. dist/client/sw.js was not written        -> the `written` check. LIVE:
+ *      this is S3's exact failure mode, and the reason the whole file exists.
  *   2. the output still contains the literal
  *      `self.__WB_MANIFEST`                     -> the `contents` check.
- *   3. the injected manifest has zero entries   -> the `count` check.
+ *      DEFENCE IN DEPTH. injectManifest asserts exactly one injection point and
+ *      String.replace()s it, and a MISSING placeholder throws
+ *      'injection-point-not-found', which main().catch already turns into a
+ *      non-zero exit. This check only catches a future where injection becomes
+ *      partial or conditional.
+ *   3. the injected manifest has zero entries   -> the `count` check. LIVE: a
+ *      globPatterns edit or a change to vite's output layout produces this
+ *      silently.
+ *   3b. offline.html is missing from the manifest -> the `offlineEntry` check.
+ *      LIVE, and the reason (3) is not enough: dropping just this one file
+ *      leaves count at 24 and the build green, while matchPrecache returns
+ *      undefined and users get the five-line inline stub instead of the
+ *      designed page — visible only when offline.
  *   4. the output landed anywhere other than
  *      dist/client/sw.js                        -> the `stray` check over
  *      injectManifest's OWN report of what it wrote, backed by the `written`
- *      check. Writing to the wrong path shows up as both: a file reported at a
- *      path we did not ask for, and nothing at the path we did.
+ *      check. LIVE if anyone edits swDest. Writing to the wrong path shows up
+ *      as both: a file reported at a path we did not ask for, and nothing at
+ *      the path we did.
  * The `swDest` comparison at the top of `assertSwBuild` is a separate,
  * defensive invariant rather than the enforcement of (4) — see its comment.
  *
@@ -65,6 +81,16 @@ export const EXPECTED_SW_DEST = path.join(CLIENT_DIR, 'sw.js')
 
 /** workbox-build's default `injectionPoint`, spelled out so the check below reads. */
 export const INJECTION_POINT = 'self.__WB_MANIFEST'
+
+/**
+ * The one precached file whose ABSENCE is invisible until the network dies.
+ *
+ * src/sw.ts's navigation fallback calls `matchPrecache(OFFLINE_URL)`; if this
+ * entry is not in the manifest that returns undefined and the user gets the
+ * terse inline stub instead of public/offline.html. A `count === 0` check does
+ * not catch it — losing one file of twenty-five still leaves twenty-four.
+ */
+export const REQUIRED_PRECACHE_URL = 'offline.html'
 
 /**
  * Every problem, not just the first, so one run tells you everything that is
@@ -126,8 +152,22 @@ export function assertSwBuild({ swDest, written, contents, count, filePaths }) {
   if (count === 0) {
     problems.push(
       `the injected precache manifest has ZERO entries. Check the globPatterns against what ` +
-        `${CLIENT_DIR} actually contains — offline.html in particular, without which the ` +
-        `offline fallback silently does not exist.`,
+        `${CLIENT_DIR} actually contains.`,
+    )
+  }
+
+  // 3b. Injected, non-empty, and MISSING THE ONE FILE THAT MATTERS OFFLINE.
+  //     The message on (3) used to name offline.html, which made this look
+  //     checked when it was not: dropping just that file leaves count at 24 and
+  //     the build green. The manifest is already in `contents`, so this is one
+  //     substring away.
+  if (written && !contents.includes(`"${REQUIRED_PRECACHE_URL}"`)) {
+    problems.push(
+      `the injected manifest does not contain ${REQUIRED_PRECACHE_URL}. src/sw.ts's offline ` +
+        `fallback calls matchPrecache('/${REQUIRED_PRECACHE_URL}'), which will return undefined, ` +
+        `so users offline get the terse inline stub instead of public/offline.html — a failure ` +
+        `that is invisible until someone loses connectivity. Check that public/offline.html ` +
+        `exists and that globPatterns still matches it.`,
     )
   }
 
@@ -190,10 +230,25 @@ async function main() {
       minify: true,
       sourcemap: false,
       charset: 'utf8',
-      // NOT OPTIONAL. 58 files across workbox-core/-precaching/-routing/
-      // -strategies branch on `process.env.NODE_ENV`, and `process` does not
-      // exist in a service worker. Without this define the worker throws
-      // ReferenceError on its first line and never installs.
+      // `process.env.NODE_ENV` MUST NOT SURVIVE INTO THE OUTPUT. 25 of the
+      // .js files across workbox-core/-precaching/-routing/-strategies branch
+      // on it, 72 times in total, and `process` does not exist in a service
+      // worker — a single surviving reference is a ReferenceError on install.
+      //
+      // THE LINE THAT ACTUALLY GUARANTEES THAT IS `platform: 'browser'` ABOVE,
+      // NOT THIS ONE. esbuild substitutes process.env.NODE_ENV automatically
+      // for the browser platform. Measured by bundling this entry point four
+      // ways and counting `process.env` in the output:
+      //     platform=browser define=yes -> 0
+      //     platform=browser define=no  -> 0
+      //     platform=neutral define=yes -> 0
+      //     platform=neutral define=no  -> 49
+      // So changing `platform` to 'neutral' and deleting this define is the
+      // combination that breaks, and an earlier version of this comment would
+      // have reassured whoever did it that they were covered.
+      //
+      // The define stays because it is explicit and free, and because it keeps
+      // the guarantee true independently of the platform setting.
       define: { 'process.env.NODE_ENV': '"production"' },
       logLevel: 'warning',
     })

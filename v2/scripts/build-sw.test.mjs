@@ -17,13 +17,23 @@
 // is what makes that claim in the script's header true.
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { assertSwBuild, EXPECTED_SW_DEST, INJECTION_POINT } from './build-sw.mjs'
+import {
+  assertSwBuild,
+  EXPECTED_SW_DEST,
+  INJECTION_POINT,
+  REQUIRED_PRECACHE_URL,
+} from './build-sw.mjs'
 
 /** The facts a sound build produces. Each test spoils exactly one of them. */
 const soundBuild = () => ({
   swDest: EXPECTED_SW_DEST,
   written: true,
-  contents: 'self.addEventListener("install",()=>{});const m=[{"url":"assets/a.js","revision":"1"}];',
+  // A realistic injected manifest: hashed assets plus offline.html, which the
+  // offline fallback depends on and guard 3b requires by name.
+  contents:
+    'self.addEventListener("install",()=>{});const m=[' +
+    '{"revision":null,"url":"assets/a-1234abcd.js"},' +
+    `{"revision":"c45b981f","url":"${REQUIRED_PRECACHE_URL}"}];`,
   count: 25,
   filePaths: [EXPECTED_SW_DEST],
 })
@@ -65,9 +75,14 @@ describe('assertSwBuild', () => {
         ...soundBuild(),
         contents: `precacheAndRoute(${INJECTION_POINT})`,
       })
-      expect(problems).toHaveLength(1)
-      expect(problems[0]).toContain(INJECTION_POINT)
-      expect(problems[0]).toContain('never injected')
+      // TWO problems, and both are correct: a file that still holds the
+      // placeholder has no manifest at all, so guard 3b legitimately fires too.
+      // Asserted by content rather than by count, so this test stays about
+      // guard 2.
+      expect(problems.some((p) => p.includes(INJECTION_POINT) && p.includes('never injected'))).toBe(
+        true,
+      )
+      expect(problems.some((p) => p.includes(REQUIRED_PRECACHE_URL))).toBe(true)
     })
 
     test('is NOT reported for a file that merely mentions precaching', () => {
@@ -75,15 +90,24 @@ describe('assertSwBuild', () => {
       // guess at what an injected file looks like. A false positive here would
       // fail every build.
       expect(
-        assertSwBuild({ ...soundBuild(), contents: 'precacheAndRoute([{"url":"a.js"}])' }),
+        assertSwBuild({
+          ...soundBuild(),
+          contents: `precacheAndRoute([{"url":"a.js"},{"url":"${REQUIRED_PRECACHE_URL}"}])`,
+        }),
       ).toEqual([])
     })
 
-    test('is not reported when nothing was written, because there is nothing to read', () => {
-      // `contents` is '' when the file is absent. Only the `written` problem
-      // should fire — two messages for one cause is noise at the moment
-      // somebody is trying to read a build log.
-      const problems = assertSwBuild({ ...soundBuild(), written: false, contents: '' })
+    test('is not reported when nothing was written, even if contents LOOK broken', () => {
+      // PINS THE `written &&` SHORT-CIRCUIT. The previous version of this test
+      // passed `contents: ''`, which never contains the injection point — so
+      // deleting `written &&` still passed and the test asserted nothing. The
+      // contents here DO contain the placeholder, so the only thing keeping
+      // this to one problem is the short-circuit itself.
+      const problems = assertSwBuild({
+        ...soundBuild(),
+        written: false,
+        contents: `precacheAndRoute(${INJECTION_POINT})`,
+      })
       expect(problems).toHaveLength(1)
       expect(problems[0]).toContain('does not exist')
     })
@@ -94,9 +118,10 @@ describe('assertSwBuild', () => {
       const problems = assertSwBuild({ ...soundBuild(), count: 0 })
       expect(problems).toHaveLength(1)
       expect(problems[0]).toContain('ZERO entries')
-      // The message has to name offline.html, because a manifest that lost it
-      // is the one case where everything still works until the network dies.
-      expect(problems[0]).toContain('offline.html')
+      // It no longer names offline.html: that read as though the file were
+      // checked when only emptiness was. Guard 3b checks it for real now, and
+      // the two messages are kept distinct on purpose.
+      expect(problems[0]).not.toContain(REQUIRED_PRECACHE_URL)
     })
 
     test('a single entry is not zero', () => {
@@ -137,10 +162,19 @@ describe('assertSwBuild', () => {
     })
 
     test('accepts a non-normalised path for the same file', () => {
-      // `filePaths` comes back from workbox via upath. Comparing resolved paths
-      // rather than raw strings is what stops a green build being reported as a
-      // stray write.
-      const wobbly = path.join(path.dirname(EXPECTED_SW_DEST), '.', 'assets', '..', 'sw.js')
+      // PINS `path.resolve` IN THE `stray` MAP. The previous version built the
+      // fixture with path.join, which normalises eagerly — so the string was
+      // already clean by the time it reached assertSwBuild and removing
+      // path.resolve still passed.
+      //
+      // Concatenated instead, so the '..' segment genuinely survives into the
+      // function. This is also closer to what workbox actually hands back:
+      // injectManifest returns upath-resolved, forward-slash paths, which on
+      // Windows do not match path.sep and are exactly where a raw string
+      // comparison reports a stray write on a perfectly good build.
+      const wobbly = `${path.dirname(EXPECTED_SW_DEST)}/assets/../sw.js`
+      expect(wobbly).toContain('..')
+      expect(wobbly).not.toBe(EXPECTED_SW_DEST)
       expect(assertSwBuild({ ...soundBuild(), filePaths: [wobbly] })).toEqual([])
     })
 
@@ -151,6 +185,42 @@ describe('assertSwBuild', () => {
       const problems = assertSwBuild({ ...soundBuild(), swDest: '/tmp/somewhere/sw.js' })
       expect(problems).toHaveLength(1)
       expect(problems[0]).toContain('but it must be')
+    })
+  })
+
+  describe('3b. offline.html is missing from the manifest', () => {
+    test('is reported even though the manifest is otherwise healthy', () => {
+      // The gap this guard closes: 24 entries instead of 25, count non-zero,
+      // build green, and matchPrecache returns undefined the first time
+      // somebody loses signal.
+      const problems = assertSwBuild({
+        ...soundBuild(),
+        contents: 'const m=[{"revision":null,"url":"assets/a-1234abcd.js"}];',
+        count: 24,
+      })
+      expect(problems).toHaveLength(1)
+      expect(problems[0]).toContain(REQUIRED_PRECACHE_URL)
+      expect(problems[0]).toContain('matchPrecache')
+    })
+
+    test('requires it as a QUOTED manifest url, not merely a mention', () => {
+      // The name appears in src/sw.ts as a string constant and in comments, so
+      // a bare `contents.includes('offline.html')` would pass on a manifest
+      // that does not list it. The check looks for the quoted JSON value.
+      const problems = assertSwBuild({
+        ...soundBuild(),
+        contents: 'const OFFLINE_URL="/offline.html";const m=[{"url":"assets/a.js"}];',
+        count: 24,
+      })
+      expect(problems).toHaveLength(1)
+      expect(problems[0]).toContain(REQUIRED_PRECACHE_URL)
+    })
+
+    test('is not reported when nothing was written', () => {
+      // Same short-circuit as guard 2: one cause, one message.
+      const problems = assertSwBuild({ ...soundBuild(), written: false, contents: '' })
+      expect(problems).toHaveLength(1)
+      expect(problems[0]).toContain('does not exist')
     })
   })
 

@@ -31,7 +31,14 @@
 import { matchPrecache, precacheAndRoute, type PrecacheEntry } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
 import { NetworkOnly } from 'workbox-strategies'
-import { staleCacheNames, workboxOwnedCacheNames } from './lib/sw-caches.ts'
+// RELATIVE, NOT THE `#/` ALIAS THE REST OF src/ USES, AND DELIBERATELY SO.
+// This is the one file under src/ that vite never sees: scripts/build-sw.mjs
+// bundles it with esbuild, which resolves imports on its own and does not read
+// vite.config.ts. A relative specifier is resolved identically by both, so it
+// keeps working whichever tool picks the file up. Do not "tidy" these to `#/`
+// along with the rest of src/ without checking that esbuild still resolves them.
+import { cachesToEvict } from './lib/sw-caches.ts'
+import { readReminder, resolveNotificationUrl } from './lib/sw-push.ts'
 
 const OFFLINE_URL = '/offline.html'
 
@@ -87,6 +94,9 @@ declare const self: {
   readonly location: { readonly origin: string }
   readonly registration: {
     showNotification(title: string, options?: SwNotificationOptions): Promise<void>
+    // Optional because it is absent on browsers without navigation preload,
+    // and the activate handler must not throw there.
+    readonly navigationPreload?: { disable(): Promise<void> }
   }
   readonly clients: {
     claim(): Promise<void>
@@ -182,73 +192,40 @@ registerRoute(
 // 3. Push notifications.
 // ---------------------------------------------------------------------------
 
-interface ReminderPayload {
-  title: string
-  body: string
-  url: string
-}
-
 /**
- * The one payload this app sends, from convex/pushSend.ts (the `payload` in
- * `deliverTo`, which carries the matching note):
+ * PUSH INPUT PARSING AND URL CLAMPING LIVE IN ./lib/sw-push.ts, lifted out for
+ * the same reason as ./lib/sw-caches.ts: nothing can import this file, so
+ * nothing here can be tested. Those two functions are the only place the app
+ * handles remote input, and one of them decides where to navigate a browser —
+ * src/lib/sw-push.test.ts pins both, including the origin clamp.
+ *
+ * The payload convex/pushSend.ts sends is
  *   { title: 'Wordle Teams', body: "You have not entered today's board yet…",
  *     url: '/' }
- *
- * THE `fallback` BELOW DUPLICATES THOSE THREE STRINGS VERBATIM, and nothing
- * mechanical keeps them in step. They are byte-identical today; editing the
- * server copy alone silently desynchronises what a user sees when a push body
- * arrives malformed from what they see the rest of the time. Deliberately not
- * shared: the sender is a Convex 'use node' action and this is a browser
- * service worker bundled separately by scripts/build-sw.mjs, so a shared module
- * would drag one runtime's dependencies into the other's bundle for the sake of
- * three string literals. A cross-reference on both sides is the cheaper
- * guarantee. CHANGE BOTH.
- *
- * Parsed defensively anyway. `event.data.json()` THROWS on a non-JSON body, and
- * v1's `event.data?.json() ?? {}` did not catch that — `??` only guards a null
- * `data`, not a parse failure — so a malformed or empty push would kill the
- * handler and show nothing at all. A push event that produces no notification
- * is also a visible penalty in Chrome, which shows its own "This site has been
- * updated in the background" notice, so silently swallowing it is not an
- * option: we always show something.
+ * and sw-push.ts's REMINDER_FALLBACK duplicates it verbatim for the case where
+ * the body cannot be parsed. Its test asserts the two are byte-identical, so
+ * the "CHANGE BOTH" note on each side is enforced rather than merely written.
  */
-function readReminder(event: SwPushEvent): ReminderPayload {
-  const fallback: ReminderPayload = {
-    title: 'Wordle Teams',
-    body: "You have not entered today's board yet. Don't miss out on those points!",
-    url: '/',
-  }
-
-  if (!event.data) return fallback
-
-  let parsed: unknown
-  try {
-    parsed = event.data.json()
-  } catch {
-    return fallback
-  }
-
-  if (typeof parsed !== 'object' || parsed === null) return fallback
-  const data = parsed as Partial<Record<keyof ReminderPayload, unknown>>
-
-  return {
-    title: typeof data.title === 'string' && data.title ? data.title : fallback.title,
-    body: typeof data.body === 'string' && data.body ? data.body : fallback.body,
-    url: typeof data.url === 'string' && data.url ? data.url : fallback.url,
-  }
-}
-
 self.addEventListener('push', (event) => {
-  const { title, body, url } = readReminder(event)
+  const { title, body, url } = readReminder(event.data)
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: NOTIFICATION_ICON,
-      badge: NOTIFICATION_BADGE,
-      // Carried through to the click handler so the destination is the sender's
-      // choice, not a constant hardcoded in two places.
-      data: { url },
-    }),
+    self.registration
+      .showNotification(title, {
+        body,
+        icon: NOTIFICATION_ICON,
+        badge: NOTIFICATION_BADGE,
+        // Carried through to the click handler so the destination is the
+        // sender's choice, not a constant hardcoded in two places.
+        data: { url },
+      })
+      // A rejected waitUntil does not crash the worker, but it does surface as
+      // an unhandled rejection in the service worker console and tells us
+      // nothing. There is no recovery — the notification permission was
+      // revoked, or the platform refused — so this only makes the failure
+      // legible.
+      .catch((error: unknown) => {
+        console.warn('[sw] showNotification failed', error)
+      }),
   )
 })
 
@@ -262,47 +239,60 @@ self.addEventListener('push', (event) => {
  * installs: `clients.claim()` below fixes it going forward, but a tab loaded
  * before this worker activated is not controlled by it, and without this flag
  * `matchAll` would not see it and we would open a duplicate anyway.
+ *
+ * EVERY STEP IS BRACKETED, because the failure mode of this handler is that THE
+ * TAP DOES NOTHING. A rejection inside waitUntil is invisible: no crash, no
+ * error surface, just a notification that vanishes and no window. So a failure
+ * to enumerate or focus falls through to `openWindow` rather than aborting, and
+ * `openWindow` itself is bracketed so the reason at least reaches the console.
  */
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
-  const data = event.notification.data
-  const requested =
-    typeof data === 'object' && data !== null && typeof (data as { url?: unknown }).url === 'string'
-      ? (data as { url: string }).url
-      : '/'
-
   event.waitUntil(
     (async () => {
-      const target = new URL(requested, self.location.origin)
+      // Always an http(s) URL on our own origin — see resolveNotificationUrl.
+      const target = resolveNotificationUrl(event.notification.data, self.location.origin)
+      let handled = false
 
-      // Only ever our own origin. `requested` arrives from a push payload,
-      // which is signed but still remote input; navigating a client to an
-      // arbitrary origin on its say-so is not something to leave open.
-      if (target.origin !== self.location.origin) {
-        target.href = self.location.origin + '/'
-      }
+      try {
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
 
-      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        for (const client of windows) {
+          if (new URL(client.url).origin !== self.location.origin) continue
 
-      for (const client of windows) {
-        if (new URL(client.url).origin !== self.location.origin) continue
-        await client.focus()
-        if (client.url !== target.href) {
-          // `navigate` needs the client to be controlled by this worker and
-          // rejects if it is not — which is exactly the uncontrolled first-visit
-          // tab above. A focused tab on the wrong page beats an unhandled
-          // rejection, so the failure is absorbed.
-          try {
-            await client.navigate(target.href)
-          } catch {
-            // Focused, not navigated. Good enough.
+          await client.focus()
+          // Set as soon as focus succeeds, so a later navigate failure cannot
+          // cause a SECOND window to be opened on top of the one now focused.
+          handled = true
+
+          if (client.url !== target) {
+            // `navigate` needs the client to be controlled by this worker and
+            // rejects if it is not — which is exactly the uncontrolled
+            // first-visit tab above. A focused tab on the wrong page beats an
+            // unhandled rejection.
+            try {
+              await client.navigate(target)
+            } catch {
+              // Focused, not navigated. Good enough.
+            }
           }
+          break
         }
-        return
+      } catch (error) {
+        // matchAll or focus failed. Fall through to openWindow: a new window is
+        // a worse outcome than reusing one, and a far better outcome than the
+        // tap doing nothing at all.
+        console.warn('[sw] notificationclick: could not reuse an open window', error)
       }
 
-      await self.clients.openWindow(target.href)
+      if (handled) return
+
+      try {
+        await self.clients.openWindow(target)
+      } catch (error) {
+        console.warn('[sw] notificationclick: openWindow failed', error)
+      }
     })(),
   )
 })
@@ -321,10 +311,32 @@ self.addEventListener('notificationclick', (event) => {
  * takeover needs every tab closed first, so a returning user would keep
  * serwist's behaviour — including its cached documents — for two more visits.
  *
- * Deleting the caches we do not own is the other half. serwist's `defaultCache`
- * leaves behind `others`, `pages-*`, `apis`, `static-*` and a
+ * Deleting the caches we do not own is the second half. serwist's
+ * `defaultCache` leaves behind `others`, `pages-*`, `apis`, `static-*` and a
  * `serwist-precache-v2-<scope>`, and nothing else will ever clear them: the
  * code that created them is gone.
+ *
+ * NAVIGATION PRELOAD IS THE THIRD HALF, and it is the one that is easy to miss
+ * because it is not in Cache Storage at all. v1's sw.ts constructs
+ * `new Serwist({ …, navigationPreload: true })`, and serwist's constructor then
+ * calls `enableNavigationPreload()`, which registers its own activate listener
+ * calling `self.registration.navigationPreload.enable()` (verified in
+ * serwist/dist/index.js and dist/chunks/printInstallDetails.js). Preload is
+ * STATE ON THE REGISTRATION, not on the worker script, so it survives the
+ * byte-compare update at cutover and outlives the code that switched it on.
+ *
+ * WHAT IT DOES *NOT* CAUSE, because the obvious claim is wrong and I checked:
+ * it does not produce a second, discarded document request. workbox-strategies'
+ * StrategyHandler.fetch consumes `event.preloadResponse` for any request whose
+ * mode is 'navigate' (StrategyHandler.js:123-127, and present verbatim in our
+ * built dist/client/sw.js), so a preloaded response would be used, not thrown
+ * away, and Chrome's "preload request was cancelled" warning does not appear.
+ *
+ * It is disabled anyway, for a smaller and more honest reason: it is leftover
+ * state from a worker that no longer exists, and leaving it makes v1 upgraders
+ * behave differently from everyone else running identical code. That divergence
+ * is invisible until something depends on it — and this worker's whole job is
+ * to leave every browser in the same state.
  *
  * THE KEEP-SET IS DERIVED FROM WORKBOX, NOT GUESSED, and both halves of that
  * decision live in ./lib/sw-caches.ts — lifted out of this file because
@@ -342,8 +354,18 @@ self.addEventListener('install', () => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      const stale = staleCacheNames(await self.caches.keys(), workboxOwnedCacheNames())
+      const stale = cachesToEvict(await self.caches.keys())
       await Promise.all(stale.map((name) => self.caches.delete(name)))
+
+      // Guarded: `navigationPreload` is absent on browsers that do not support
+      // it, and a throw here would abort the activate handler AFTER the cache
+      // eviction above but BEFORE clients.claim() below — leaving the takeover
+      // half-done. Nothing depends on the disable succeeding.
+      try {
+        await self.registration.navigationPreload?.disable()
+      } catch (error) {
+        console.warn('[sw] could not disable navigation preload', error)
+      }
 
       // After the eviction, so the first controlled fetch cannot race a cache
       // that is halfway deleted.
