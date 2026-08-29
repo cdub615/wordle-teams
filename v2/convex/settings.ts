@@ -1,7 +1,7 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, requirePlayer } from './access'
-import { REMINDER_TIMES } from './lib/reminders.ts'
+import { METHODS, REMINDER_TIMES } from './lib/reminders.ts'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 import type { DataModel } from './_generated/dataModel'
@@ -25,9 +25,6 @@ import type { GenericDatabaseReader } from 'convex/server'
  * convex-test cannot stand up a Better Auth session (wordle-teams-obw), so a
  * rule written into a mutation body is a rule no test can reach.
  */
-
-/** The only two delivery methods that exist. Case-sensitive: 'Email' is rejected. */
-const METHODS = ['email', 'push'] as const
 
 export async function updateReminderMethodsFor(
   ctx: MutationCtx,

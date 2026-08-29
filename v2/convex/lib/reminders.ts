@@ -42,6 +42,18 @@ export const REMINDER_TIMES: ReadonlyArray<LocalTime> = Array.from(
 )
 
 /**
+ * The only two delivery methods that exist. Case-sensitive: 'Email' is
+ * rejected. Lives here rather than in settings.ts, and settings.ts imports it
+ * from here — same reason REMINDER_TIMES does: `sweep` (convex/reminders.ts)
+ * needs the same list to decide who gets claimed and which literal to
+ * `.includes()` against, and a second copy in each module risks the exact
+ * shape of drift REMINDER_TIMES's own doc comment above warns about — a
+ * value that stores fine and looks right in the UI but silently never
+ * matches on the other side — just for methods instead of times.
+ */
+export const METHODS = ['email', 'push'] as const
+
+/**
  * Resolve an instant into a player's local calendar day and wall-clock time.
  *
  * `hourCycle: 'h23'` IS LOAD-BEARING, but not for the reason a first guess
@@ -108,7 +120,8 @@ export function localParts(
  * BOTH BOUNDS INCLUSIVE MEANS DOUBLE-MATCHING IS THE NORMAL CASE, not an edge
  * case. The cron ticks at :00 UTC. In any whole-hour-offset zone (measured:
  * America/Chicago, Australia/Sydney, Europe/London, Pacific/Honolulu — 7182
- * duplicate matches over 399 days) an on-the-hour reminder satisfies the upper
+ * duplicate matches PER ZONE over 399 days, i.e. 18 reminder times x 399 days
+ * exactly; 28,728 across the four) an on-the-hour reminder satisfies the upper
  * bound on one tick and the lower bound on the next. Half-hour zones like
  * Asia/Kolkata don't hit this. It is safe only because `alreadyRemindedToday`
  * absorbs it — which means the stamp MUST be written unconditionally, before
