@@ -20,7 +20,7 @@ export const Route = createFileRoute('/login')({
   // v1: src/app/login/layout.tsx metadata.title
   head: () => ({ meta: [{ title: pageTitle('Login / Signup') }] }),
   beforeLoad: ({ context }) => {
-    if (context.isAuthenticated) throw redirect({ to: '/' })
+    if (context.isAuthenticated) throw redirect({ to: '/app' })
   },
   component: LoginPage,
 })
@@ -96,7 +96,7 @@ function LoginPage() {
     // as a fresh document load anyway.
     const { error } = await authClient.signIn.social({
       provider,
-      callbackURL: `/?${SIGNIN_PARAM}=oauth`,
+      callbackURL: `/app?${SIGNIN_PARAM}=oauth`,
     })
     // Only reached if the redirect never happened.
     setPending(false)
@@ -135,7 +135,7 @@ function LoginPage() {
     setPending(false)
     if (error) return setError(error.message ?? 'Invalid code')
     // full reload — required with expectAuth
-    window.location.href = `/?${SIGNIN_PARAM}=otp`
+    window.location.href = `/app?${SIGNIN_PARAM}=otp`
   }
 
   return (

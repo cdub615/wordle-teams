@@ -7,7 +7,7 @@ import { cn } from '#/lib/utils.ts'
  * checkout. Never flips back: the marker is stripped on the way through, so
  * what ends the pending state below is `amIPro` going true, not this.
  *
- * A HOOK RATHER THAN STATE INSIDE THE NOTICE, because routes/index.tsx returns
+ * A HOOK RATHER THAN STATE INSIDE THE NOTICE, because routes/app.tsx returns
  * from three different places — the empty state, the pre-sync skeleton and the
  * dashboard grid — and a component mounted in all three would be a DIFFERENT
  * component in each, remounted with `returning` back to false the moment the
@@ -33,7 +33,7 @@ export function useCheckoutReturn(): boolean {
     if (stripped === null) return
     setReturning(true)
     // Drop the marker so a reload does not re-enter this state. Same
-    // replaceState the login-funnel effect in routes/index.tsx uses on
+    // replaceState the login-funnel effect in routes/app.tsx uses on
     // SIGNIN_PARAM, and for the same reason.
     window.history.replaceState({}, '', stripped)
   }, [])

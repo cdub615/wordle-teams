@@ -201,7 +201,7 @@ registerRoute(
  *
  * The payload convex/pushSend.ts sends is
  *   { title: 'Wordle Teams', body: "You have not entered today's board yet…",
- *     url: '/' }
+ *     url: '/app' }
  * and sw-push.ts's REMINDER_FALLBACK duplicates it verbatim for the case where
  * the body cannot be parsed. Its test asserts the two are byte-identical, so
  * the "CHANGE BOTH" note on each side is enforced rather than merely written.

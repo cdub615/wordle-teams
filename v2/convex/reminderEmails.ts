@@ -90,6 +90,12 @@ export function boardEntryReminderEmail({
   const site = escapeHtml(siteUrl)
   const titleImage = `${site}/wordle-teams-title.png`
   const iconImage = `${site}/wt-icon-192x192.png`
+  // `/app`, NOT THE BARE ORIGIN. This is the mail's only link, and the mail
+  // exists to send a player somewhere they can enter a board. It reached the
+  // dashboard for as long as `/` WAS the dashboard; Phase 7 Task 1 moved the
+  // dashboard to /app and gave `/` back to the marketing landing, so the bare
+  // origin would now deliver a just-reminded player to a sales page.
+  const appUrl = `${site}/app`
 
   // A plain-text part is not optional politeness: some clients render it by
   // preference, and a mail with no text alternative scores worse with spam
@@ -143,7 +149,7 @@ export function boardEntryReminderEmail({
                 <img src="${iconImage}" width="32" height="32" alt="" style="display:block;border-radius:9999px;" />
               </td>
               <td style="padding-left:8px;font-size:15px;line-height:1.6;vertical-align:middle;">
-                <a href="${site}" style="color:#1c2024;text-decoration:none;">Wordle Teams</a>
+                <a href="${appUrl}" style="color:#1c2024;text-decoration:none;">Wordle Teams</a>
               </td>
             </tr>
           </table>

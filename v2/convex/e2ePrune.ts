@@ -14,11 +14,11 @@ import type { MutationCtx } from './_generated/server'
  * 2026-08-26 via a snapshot export: 2520 players, 1680 teams, 7915 dailyScores,
  * 311 monthlyWinners — and every single row of it e2e debris, with no copied or
  * seed data present at all. `getMyTeamsFor` (teams.ts) collects the WHOLE teams
- * table on every call, because Convex cannot index array membership, and `/`'s
- * route loader awaits it before a post-sign-in navigation can finish — so the
- * size of that table sits on the critical path of every sign-in. The collect was
- * timed at ~260ms median (n=7, min 257, max 280) against 1680 teams, idle and
- * uncontended.
+ * table on every call, because Convex cannot index array membership, and the
+ * dashboard route's loader awaits it before a post-sign-in navigation can
+ * finish — so the size of that table sits on the critical path of every
+ * sign-in. The collect was timed at ~260ms median (n=7, min 257, max 280)
+ * against 1680 teams, idle and uncontended.
  *
  * NOT PRESENTED AS THE PROVEN CAUSE OF THAT FLAKE, and the comment would be a
  * defect if it were: 260ms idle is not the 5s the failing assertion waited for,

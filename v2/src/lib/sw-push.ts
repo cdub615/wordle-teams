@@ -35,7 +35,7 @@ export interface ReminderPayload {
 export const REMINDER_FALLBACK: ReminderPayload = {
   title: 'Wordle Teams',
   body: "You have not entered today's board yet. Don't miss out on those points!",
-  url: '/',
+  url: '/app',
 }
 
 /** The shape of `PushEvent.data`, structurally, so a test can supply one. */

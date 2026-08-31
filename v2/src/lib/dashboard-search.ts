@@ -1,7 +1,7 @@
 /**
  * Deciding what the dashboard URL should say, with no router and no clock.
  *
- * Extracted from routes/index.tsx (wordle-teams-lb9). The effect that consumed
+ * Extracted from routes/app.tsx (wordle-teams-lb9). The effect that consumed
  * this inline was the highest-risk code in the Phase 2 UI — it navigates to
  * fill in URL state while racing hydration, which is the shape an infinite
  * redirect takes. Pulling the decision out means the termination property can

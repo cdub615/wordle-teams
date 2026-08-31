@@ -90,7 +90,7 @@ export const sweep = internalMutation({
     // tick once the deployment is fixed.
     //
     // ALSO GATES PUSH, which does not itself need SITE_URL — pushSend.deliverTo's
-    // payload is a relative `url: '/'`. SITE_URL must be set for `convex
+    // payload is a relative `url: '/app'`. SITE_URL must be set for `convex
     // deploy` to succeed (auth.ts:16-17 throws at module scope) but NOT to
     // keep running: an operator can remove it from a live deployment
     // afterward, and reminders.ts never imports auth.ts, so nothing forces

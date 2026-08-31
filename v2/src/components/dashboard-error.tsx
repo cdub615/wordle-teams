@@ -5,7 +5,7 @@ import { Button } from '#/components/ui/button.tsx'
 
 /**
  * The dashboard route's error boundary (Amendment to Task 7, filed after Task
- * 6's review). Extracted out of routes/index.tsx (quality review, wt-ksh.3.10)
+ * 6's review). Extracted out of routes/app.tsx (quality review, wt-ksh.3.10)
  * once that file also grew the board entry wiring — Phase 3 adds team
  * management to the same route, so the error boundary earning its own file now
  * keeps that growth from compounding on top of it.
@@ -22,7 +22,7 @@ import { Button } from '#/components/ui/button.tsx'
  * was built to produce.
  *
  * DESIGN_SYSTEM.md §7 "Error state": `text-lg` headline, muted body, single
- * primary retry button. The retry navigates to `/` with no search params
+ * primary retry button. The retry navigates to `/app` with no search params
  * rather than just calling `reset()` — `reset()` alone would immediately
  * re-run the same query with the same bad `?team=` and throw again.
  *
@@ -49,7 +49,7 @@ export function DashboardError({ error, reset }: ErrorComponentProps) {
           onClick={() => {
             localStorage.removeItem(STORAGE_KEY)
             reset()
-            void navigate({ to: '/', search: {} })
+            void navigate({ to: '/app', search: {} })
           }}
         >
           Try again

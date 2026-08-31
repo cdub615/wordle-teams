@@ -194,8 +194,8 @@ test('an invited address joins the team after completing a profile', async ({ br
     await expect(pendingRow(owner, inviteeEmail)).toHaveCount(1)
 
     // The invitee's first ever sign-in. A brand-new account has no players row,
-    // so `/`'s beforeLoad guard bounces it to the onboarding form — the invite
-    // itself creates nothing.
+    // so `/app`'s beforeLoad guard bounces it to the onboarding form — the
+    // invite itself creates nothing.
     const joiner = await inviteeContext.newPage()
     await signIn(joiner, inviteeEmail)
     await expect(joiner).toHaveURL('/complete-profile')
@@ -209,7 +209,7 @@ test('an invited address joins the team after completing a profile', async ({ br
     // is part of the same mutation — so this account, which had no team a
     // moment ago, arrives on the dashboard already on one. `?team=` proves it:
     // with zero teams the dashboard renders the empty state and never writes
-    // that parameter (see index.tsx / dashboard-search.ts).
+    // that parameter (see app.tsx / dashboard-search.ts).
     await expect(joiner).toHaveURL(/\?team=/)
     const joinerCard = teamCard(joiner)
     await expect(joinerCard.getByRole('heading', { name: SEEDED_TEAM })).toBeVisible()
@@ -368,7 +368,7 @@ test('inviting someone who already has an account adds them to the team directly
     await newcomer.getByLabel('First Name').fill('Ada')
     await newcomer.getByLabel('Last Name').fill('Lovelace')
     await newcomer.getByRole('button', { name: 'Submit' }).click()
-    await expect(newcomer).toHaveURL('/')
+    await expect(newcomer).toHaveURL('/app')
     await expect(newcomer.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
   } finally {
     await newcomerContext.close()

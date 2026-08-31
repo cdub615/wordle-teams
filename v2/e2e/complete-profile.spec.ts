@@ -42,7 +42,7 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
   // predicate on this hop, so arriving here at all proves the mutation flipped
   // it; the empty state proves the page rendered through rather than dying on
   // NO_PLAYER.
-  await expect(page).toHaveURL('/')
+  await expect(page).toHaveURL('/app')
   await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
 
   // AND STAYS. A cached `true` surviving the hop would bounce the user back to
@@ -50,12 +50,12 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
   // slightly after arrival, so this reloads rather than merely re-reading the
   // URL a moment later.
   await page.reload()
-  await expect(page).toHaveURL('/')
+  await expect(page).toHaveURL('/app')
   await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
 
   // The guard runs the other way too: with a player, the form is unreachable.
   await page.goto('/complete-profile')
-  await expect(page).toHaveURL('/')
+  await expect(page).toHaveURL('/app')
 })
 
 test('a name of only whitespace is refused locally, with an error and no navigation', async ({
@@ -121,17 +121,17 @@ test('a one-character first and last name saves without bouncing back', async ({
   // wordle-teams-ckx. A reject-then-correct block used to sit here, claiming to
   // prove it. It did not: deleting `setError(null)` from the route leaves all
   // four of these tests green. The claim was also impossible as written, because
-  // the page unmounts on `navigate({ to: '/' })`, so the error state is
+  // the page unmounts on `navigate({ to: '/app' })`, so the error state is
   // destroyed whether or not it was cleared — the only observable window is
   // between the click and the navigation, and nothing asserts there.
   await page.getByLabel('First Name').fill('A')
   await page.getByLabel('Last Name').fill('B')
   await page.getByRole('button', { name: 'Submit' }).click()
 
-  await expect(page).toHaveURL('/')
+  await expect(page).toHaveURL('/app')
   await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
   await page.reload()
-  await expect(page).toHaveURL('/')
+  await expect(page).toHaveURL('/app')
 })
 
 test('without JavaScript the form cannot be submitted before it is interactive', async ({

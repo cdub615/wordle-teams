@@ -47,7 +47,7 @@ export function CurrentTeamCard({
   className,
 }: {
   // Id<'teams'>, not string: getMyTeamsFor returns `id: team._id`, so the
-  // index.tsx call site already has one. Typing this as `string` was the only
+  // app.tsx call site already has one. Typing this as `string` was the only
   // reason four mutateAsync calls below had to cast it straight back.
   teamId: Id<'teams'>
   name: string

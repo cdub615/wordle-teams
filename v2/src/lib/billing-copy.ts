@@ -4,7 +4,7 @@ import type { CheckoutResult, PortalResult } from '../../convex/polar.ts'
  * What the billing surface SAYS, separated from where it says it.
  *
  * Sibling of convex-error.ts, and here for the same reason: the copy is the
- * deliverable, the component is not. Header.tsx and routes/index.tsx can only
+ * deliverable, the component is not. Header.tsx and routes/app.tsx can only
  * be exercised end to end — a component test with a stubbed hook passes against
  * a broken integration — so anything decided in a component is a decision no
  * unit test can reach. The functions here hold every decision the billing UI
@@ -62,7 +62,7 @@ export const CHECKOUT_NOT_CONFIGURED =
 
 /**
  * The checkout's OPERATIONAL failure — and the fallback for a checkout that
- * threw before it could answer at all, which is what routes/index.tsx hands to
+ * threw before it could answer at all, which is what routes/app.tsx hands to
  * mutationErrorMessage. Declared above its two readers so nothing depends on
  * hoisting.
  */

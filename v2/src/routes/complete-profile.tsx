@@ -41,7 +41,7 @@ export const Route = createFileRoute('/complete-profile')({
       convexQuery(api.players.needsProfile, {}),
     )
     // Already have a player? Nothing to complete.
-    if (!needsProfile) throw redirect({ to: '/' })
+    if (!needsProfile) throw redirect({ to: '/app' })
   },
   // THE FIRST ROUTE TO AWAIT A CONVEX QUERY IN beforeLoad, so it is also the
   // first that needs its own boundary: without one, a throw from needsProfile
@@ -54,8 +54,8 @@ export const Route = createFileRoute('/complete-profile')({
 
 /**
  * This route's error boundary. NOT DashboardError, which is not a drop-in: it
- * clears `STORAGE_KEY` and navigates to `/` with empty search, both of which are
- * dashboard-specific repairs for a stale `?team=`. Nothing here has a bad
+ * clears `STORAGE_KEY` and navigates to `/app` with empty search, both of which
+ * are dashboard-specific repairs for a stale `?team=`. Nothing here has a bad
  * parameter to escape — the only thing that can throw is the needsProfile read
  * — so plain `reset()` is the right retry: it re-runs beforeLoad, which is
  * exactly the operation that failed.
@@ -141,7 +141,7 @@ function CompleteProfilePage() {
       await complete.mutateAsync({ firstName, lastName, today: toPuzzleDay(new Date()) })
       // NOTHING PRIMES THE CACHE BEFORE THIS HOP, AND NOTHING HAS TO — but the
       // reason is subtle enough to be worth stating, because getting it wrong
-      // is the redirect loop wordle-teams-obw warns about. `/`'s beforeLoad
+      // is the redirect loop wordle-teams-obw warns about. `/app`'s beforeLoad
       // asks ensureQueryData for this same needsProfile key, and ensureQueryData
       // returns cached data WITHOUT revalidating; a stale `true` left by this
       // route's own guard would bounce the user straight back here. It cannot
@@ -153,7 +153,7 @@ function CompleteProfilePage() {
       // Verified in the browser as well as reasoned about, and the round trip
       // is pinned by e2e/complete-profile.spec.ts so a regression cannot land
       // silently.
-      await navigate({ to: '/' })
+      await navigate({ to: '/app' })
     } catch (err) {
       // Inline rather than a toast, unlike the team dialogs: this page has one
       // action and one error surface, the alert is announced by a screen reader

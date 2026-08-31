@@ -29,7 +29,7 @@ import type { Id } from '../../convex/_generated/dataModel'
 
 type DashboardSearch = { team?: string; month?: string }
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute('/app')({
   head: () => ({ meta: [{ title: pageTitle('Dashboard') }] }),
   validateSearch: (search: Record<string, unknown>): DashboardSearch => ({
     team: typeof search.team === 'string' ? search.team : undefined,
@@ -145,7 +145,7 @@ function Dashboard() {
     teamParam,
     monthParam,
     teams,
-    navigate: (search) => void navigate({ to: '/', search, replace: true }),
+    navigate: (search) => void navigate({ to: Route.fullPath, search, replace: true }),
   })
 
   // ALL THREE RETURNS BELOW RENDER THE PENDING NOTICE, and the empty state is
@@ -162,7 +162,7 @@ function Dashboard() {
         <CreateTeamDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
-          onCreated={(team) => navigate({ to: '/', search: { team }, replace: true })}
+          onCreated={(team) => navigate({ to: Route.fullPath, search: { team }, replace: true })}
         />
       </main>
     )
@@ -203,21 +203,21 @@ function Dashboard() {
       <CreateTeamDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        onCreated={(team) => navigate({ to: '/', search: { team, month: monthParam } })}
+        onCreated={(team) => navigate({ to: Route.fullPath, search: { team, month: monthParam } })}
       />
       <div className="flex items-center gap-2 md:col-span-3">
         <TeamPicker
           teams={teams}
           value={teamParam}
           isPro={isPro}
-          onChange={(team) => navigate({ to: '/', search: { team, month: monthParam } })}
+          onChange={(team) => navigate({ to: Route.fullPath, search: { team, month: monthParam } })}
           onCreate={() => setCreateOpen(true)}
           onUpgrade={() => void startUpgrade()}
         />
         <MonthPicker
           currentMonth={currentMonth}
           value={monthParam}
-          onChange={(month) => navigate({ to: '/', search: { team: teamParam, month } })}
+          onChange={(month) => navigate({ to: Route.fullPath, search: { team: teamParam, month } })}
         />
         <div className="ml-auto">
           <BoardEntryButton teamId={teamParam as Id<'teams'>} month={monthParam} />
@@ -245,7 +245,7 @@ function Dashboard() {
             // selected team, so there is no other team it could have been.
             onLeft={() => {
               localStorage.removeItem(STORAGE_KEY)
-              void navigate({ to: '/', search: {}, replace: true })
+              void navigate({ to: Route.fullPath, search: {}, replace: true })
             }}
           />
           <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />
@@ -266,7 +266,7 @@ function Dashboard() {
         onDeleted={(deleted) => {
           if (deleted !== teamParam) return
           localStorage.removeItem(STORAGE_KEY)
-          void navigate({ to: '/', search: {}, replace: true })
+          void navigate({ to: Route.fullPath, search: {}, replace: true })
         }}
       />
     </main>

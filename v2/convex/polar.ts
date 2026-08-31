@@ -384,17 +384,18 @@ export type CheckoutResult =
  * `getCustomerPortalUrl` — and the v2 schema says not to reintroduce the column
  * v1 dropped.
  *
- * LANDS BACK ON `/`, WHICH RECONCILES IMMEDIATELY. v1 used `/me?checkout=success`
- * because that page re-read membership rather than waiting for a session
- * refresh; v2's index route reads `api.teams.amIPro` as a reactive Convex
- * subscription, so the webhook patching `playerMembership` updates the page on
- * its own. The `?checkout=success` param is what Task 12's return leg
- * (wordle-teams-wxg) reads to say something honest while that is in flight.
+ * LANDS BACK ON `/app`, WHICH RECONCILES IMMEDIATELY. v1 used
+ * `/me?checkout=success` because that page re-read membership rather than
+ * waiting for a session refresh; v2's dashboard route reads `api.teams.amIPro`
+ * as a reactive Convex subscription, so the webhook patching `playerMembership`
+ * updates the page on its own. The `?checkout=success` param is what Task 12's
+ * return leg (wordle-teams-wxg) reads to say something honest while that is in
+ * flight.
  *
  * A RESULT ON FAILURE RATHER THAN A THROW, so the UI can say something honest
  * instead of showing an error boundary. Every failure is logged with its own
  * line, because the log is how the owner diagnoses this: a caller with no
- * resolvable player is a routing bug, since the index route redirects a
+ * resolvable player is a routing bug, since the dashboard route redirects a
  * playerless account to /complete-profile before it can render an upgrade
  * button; an unconfigured deployment names what is wrong with it; a Polar
  * failure is an outage.
@@ -428,7 +429,7 @@ export const createProCheckout = action({
         metadata: { player_id: me.playerId },
         customerEmail: me.email,
         customerName: me.name ?? undefined,
-        successUrl: `${siteUrl()}/?checkout=success`,
+        successUrl: `${siteUrl()}/app?checkout=success`,
       })
 
       return { url: checkout.url }
@@ -626,9 +627,9 @@ export async function lookupPortal(
  *
  * `error` RATHER THAN `no-customer` WHEN THERE IS NO PLAYER. Both are "no
  * billing account" in a loose sense, but a caller reaching the portal without a
- * resolvable player is a routing bug — the index route redirects a playerless
- * account to /complete-profile — and answering `no-customer` would dress that
- * up as a normal state and hide it.
+ * resolvable player is a routing bug — the dashboard route redirects a
+ * playerless account to /complete-profile — and answering `no-customer` would
+ * dress that up as a normal state and hide it.
  */
 export const getCustomerPortalUrl = action({
   args: {},
@@ -650,7 +651,7 @@ export const getCustomerPortalUrl = action({
       return { url: null, reason: 'error' }
     }
 
-    const returnUrl = `${siteUrl()}/`
+    const returnUrl = `${siteUrl()}/app`
 
     const lookup = await lookupPortal(externalIdsFor(me), async (externalId) => {
       try {

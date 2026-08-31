@@ -305,7 +305,7 @@ export const completeProfile = mutation({
  * rule lives beside the mutation that clears it.
  *
  * TWO CONSUMERS, both route guards, and they are mirror images: src/routes/
- * index.tsx's beforeLoad sends a caller with no player TO /complete-profile,
+ * app.tsx's beforeLoad sends a caller with no player TO /complete-profile,
  * and src/routes/complete-profile.tsx's sends a caller who has one AWAY to the
  * dashboard. Inverting this predicate therefore breaks onboarding in one of two
  * ways — an endless redirect back to the form, or a form nobody who needs it

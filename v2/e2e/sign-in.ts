@@ -66,18 +66,19 @@ export async function signIn(
   // it this helper returned the instant the click was dispatched, so everything
   // the click sets in motion was billed to whatever the caller asserted next —
   // and that assertion carries Playwright's 5s default. login.tsx's verifyCode
-  // finishes with `window.location.href = '/?signin=otp'`, a FULL DOCUMENT
+  // finishes with `window.location.href = '/app?signin=otp'`, a FULL DOCUMENT
   // LOAD, so the caller's first assertion had to absorb: the Better Auth verify
-  // round-trip, a fresh SSR of '/' (its beforeLoad awaits players.needsProfile,
-  // then its loader awaits getMyTeams, amIPro and getMyPlayerId one after the
-  // other), several hundred module requests from the dev server, and hydration.
+  // round-trip, a fresh SSR of '/app' (its beforeLoad awaits
+  // players.needsProfile, then its loader awaits getMyTeams, amIPro and
+  // getMyPlayerId one after the other), several hundred module requests from
+  // the dev server, and hydration.
   //
   // MEASURED, 54 sign-ins over three full-suite runs: 0.76s to 3.96s, median
   // ~2.2s. Against a 5s ceiling that also had to cover the assertion itself,
   // which is why the failure was intermittent and why it landed on whichever
   // spec happened to be signing in while the others were — never on a faulty
   // spec. The call log said it plainly every time: "waiting for
-  // /?signin=otp navigation to finish".
+  // /app?signin=otp navigation to finish".
   //
   // NOT A CONVEX CONTENTION BUG, which was the other candidate. Six concurrent
   // sign-ins driven straight through /api/auth (no browser) took 1.2-1.5s each
@@ -91,8 +92,8 @@ export async function signIn(
   //
   // The predicate is "left /login" rather than the exact destination because
   // both are correct outcomes: an account with a players row lands on
-  // '/?signin=otp', one without is redirected to /complete-profile by index
-  // .tsx's beforeLoad. Callers still assert the destination they expect — see
+  // '/app?signin=otp', one without is redirected to /complete-profile by
+  // app.tsx's beforeLoad. Callers still assert the destination they expect — see
   // login.spec.ts's toHaveURL('/complete-profile') — so this weakens nothing.
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 20_000 })
 

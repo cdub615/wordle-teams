@@ -6,16 +6,16 @@ import { checkoutReturnUrl } from './checkout-return.ts'
  * `useState` and a `history.replaceState`; what can actually be wrong is which
  * URLs are treated as a successful return and what the URL is left as
  * afterwards. e2e/billing.spec.ts covers the wiring — that the notice appears
- * on `/?checkout=success` and is gone after a reload — and cannot cover the
+ * on `/app?checkout=success` and is gone after a reload — and cannot cover the
  * cases below, because reaching them needs a real cancelled checkout or a
  * dashboard already carrying `?team=` and `?month=` at the moment of return.
  */
 
-const RETURN = 'https://wordleteams.com/?checkout=success'
+const RETURN = 'https://wordleteams.com/app?checkout=success'
 
 describe('checkoutReturnUrl', () => {
   test('a success marker is a return, and the marker is what goes', () => {
-    expect(checkoutReturnUrl(RETURN)).toBe('/')
+    expect(checkoutReturnUrl(RETURN)).toBe('/app')
   })
 
   test('no query string at all is not a return', () => {
@@ -38,7 +38,7 @@ describe('checkoutReturnUrl', () => {
   })
 
   test('the dashboard keeps its own params', () => {
-    // ?team= and ?month= are what routes/index.tsx renders from. Losing them
+    // ?team= and ?month= are what routes/app.tsx renders from. Losing them
     // here would send the player back to their remembered team mid-upgrade.
     expect(checkoutReturnUrl('https://wordleteams.com/?team=abc&checkout=success&month=2026-08')).toBe(
       '/?team=abc&month=2026-08',
@@ -63,8 +63,8 @@ describe('checkoutReturnUrl', () => {
   })
 
   test('the last param leaves no dangling question mark', () => {
-    // `/?` and `/` are different strings in the address bar and the second is
-    // the one the router would have produced.
+    // `/app?` and `/app` are different strings in the address bar and the second
+    // is the one the router would have produced.
     expect(checkoutReturnUrl(RETURN)).not.toContain('?')
   })
 

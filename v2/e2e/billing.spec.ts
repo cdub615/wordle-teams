@@ -86,9 +86,9 @@ test('the billing link and the upgrade CTA each report their own failure', async
 
   const email = `e2e+billing-${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
   const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
-  // The team matters because `/` redirects an account with no `players` row to
-  // /complete-profile, and ensureTeamFor creates the row. Same helper shape as
-  // teams.spec.ts and invites.spec.ts, and deliberately not shared with them.
+  // The team matters because `/app` redirects an account with no `players` row
+  // to /complete-profile, and ensureTeamFor creates the row. Same helper shape
+  // as teams.spec.ts and invites.spec.ts, and deliberately not shared with them.
   await convex.mutation(api.e2eSeed.ensureTeamFor, { email })
   await signIn(page, email)
 
@@ -173,10 +173,10 @@ test('the billing link and the upgrade CTA each report their own failure', async
   // NO REAL CHECKOUT IS NEEDED TO REACH THIS, and none can be driven: with no
   // POLAR_* variable set, createProCheckout never returns a URL. But the state
   // Polar leaves the browser in is entirely a query parameter —
-  // `${SITE_URL}/?checkout=success`, convex/polar.ts — so visiting it is the
+  // `${SITE_URL}/app?checkout=success`, convex/polar.ts — so visiting it is the
   // real thing. This account is still free, which is precisely the case the
   // pending notice exists for.
-  await page.goto('/?checkout=success')
+  await page.goto('/app?checkout=success')
   const pending = page.getByText('Finishing your upgrade')
   await expect(pending).toBeVisible({ timeout: 20_000 })
 
@@ -198,7 +198,7 @@ test('the billing link and the upgrade CTA each report their own failure', async
   // ── On a phone ────────────────────────────────────────────────────────────
   // 390x844 is an iPhone 14. wordle-teams-ksh calls the phone the product's
   // primary device, and the header is the one bar every route carries —
-  // index.tsx's grid-cols-1 note records what a single over-wide child does to
+  // app.tsx's grid-cols-1 note records what a single over-wide child does to
   // this page: a document-wide horizontal scrollbar with everything pushed edge
   // to edge. Resized here rather than in a test of its own because the only
   // thing a separate test would add is another OTP sign-in.

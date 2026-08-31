@@ -89,7 +89,14 @@ describe('boardEntryReminderEmail', () => {
   test('links to the app itself in both parts, not just images from it', () => {
     // The mail asks the reader to go do something in the app; leaving siteUrl
     // wired only into <img src> gives them nowhere to click or paste.
-    expect(email().html).toMatch(/<a\s[^>]*href="https:\/\/beta\.wordleteams\.com"/)
+    //
+    // THE LINK IS `/app`, NOT THE BARE ORIGIN. Phase 7 Task 1 moved the
+    // dashboard off `/`, which becomes the marketing landing — so the one
+    // clickable thing in a board-entry reminder has to name the dashboard
+    // explicitly or it sends a reminded player to a sales page. The text
+    // part's origin is the signature block under "Wordle Teams", not a call
+    // to action, and stays bare.
+    expect(email().html).toMatch(/<a\s[^>]*href="https:\/\/beta\.wordleteams\.com\/app"/)
     expect(email().text).toContain('https://beta.wordleteams.com')
   })
 

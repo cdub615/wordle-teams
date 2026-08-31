@@ -42,7 +42,7 @@ import ThemeToggle from './ThemeToggle'
  * state. 'skip' is the one that actually skips, and convexQuery gives it its own
  * query key rather than just switching a flag.
  *
- * NOT useSuspenseQuery, WHICH IS THE ONE PLACE THIS DEPARTS FROM routes/index.tsx,
+ * NOT useSuspenseQuery, WHICH IS THE ONE PLACE THIS DEPARTS FROM routes/app.tsx,
  * AND IT IS ALSO WHY NEITHER READ IS PREFETCHED IN A LOADER. Suspending here
  * suspends the chrome of every route, including the two a signed-out visitor
  * can reach. With a plain useQuery nothing waits on either value — the badge is
@@ -108,7 +108,18 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-line-subtle bg-background/80 px-4 backdrop-blur-lg">
       <nav className="page-wrap flex flex-wrap items-center gap-x-4 gap-y-2 py-3 sm:py-4">
-        <Link to="/" className="flex-shrink-0 no-underline">
+        {/*
+          BOTH THIS AND "Home" BELOW POINT AT THE DASHBOARD, which is what they
+          did before Phase 7 Task 1 moved it off `/` — the destination is
+          unchanged, only its spelling is. `/` has no route at all until the
+          marketing landing lands, so `to="/"` does not even typecheck; and the
+          task that builds that page is the one holding the information needed
+          to decide whether the wordmark should point at it instead. v1's own
+          app bar links its wordmark to the marketing page (`/home`), so this is
+          a live question, not a settled one — it is deliberately left to the
+          task that can answer it rather than guessed at here.
+        */}
+        <Link to="/app" className="flex-shrink-0 no-underline">
           {/*
             v1 hardcodes this pair of gradients:
               from-green-600 via-green-500  to-yellow-400
@@ -124,7 +135,7 @@ export default function Header() {
         </Link>
 
         <div className="order-3 flex w-full flex-wrap items-center gap-x-4 gap-y-1 pb-1 text-sm font-semibold sm:order-none sm:w-auto sm:flex-nowrap sm:pb-0">
-          <Link to="/" className="nav-link" activeProps={{ className: 'nav-link is-active' }}>
+          <Link to="/app" className="nav-link" activeProps={{ className: 'nav-link is-active' }}>
             Home
           </Link>
           <Link to="/about" className="nav-link" activeProps={{ className: 'nav-link is-active' }}>

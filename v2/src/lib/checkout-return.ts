@@ -8,14 +8,14 @@
  * the Supabase token when it is issued: without a refresh the token still says
  * "free" no matter what the database holds, and the webhook races the browser
  * redirect. v2 reads membership through `api.teams.amIPro` as a reactive Convex
- * subscription (`routes/index.tsx`), so when the webhook patches
+ * subscription (`routes/app.tsx`), so when the webhook patches
  * `playerMembership` the page updates on its own. There is no token to refresh
  * and nothing to re-fetch, which also retires v1's `handled` ref — that guard
  * exists only to stop the refresh running twice under React Strict Mode, and
  * there is no refresh left to run.
  *
  * PURE, AND SEPARATE FROM THE COMPONENT, for the reason billing-copy.ts gives:
- * `routes/index.tsx` can only be exercised end to end, so anything decided
+ * `routes/app.tsx` can only be exercised end to end, so anything decided
  * inside it is a decision no unit test can reach. What is decided here is which
  * URLs count as a return from checkout and exactly what the URL becomes after.
  */
@@ -23,7 +23,7 @@
 /**
  * The marker `createProCheckout` sends the player back with.
  *
- * `convex/polar.ts` sets `successUrl` to `${siteUrl()}/?checkout=success`, so
+ * `convex/polar.ts` sets `successUrl` to `${siteUrl()}/app?checkout=success`, so
  * this pair is the whole of the return leg's input: one query parameter on the
  * dashboard route. Both halves are constants rather than a literal here because
  * they are the contract between that action and this module.

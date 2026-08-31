@@ -38,7 +38,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   },
   /*
    * NO LOADER, AND THE HEADER'S TWO QUERIES ARE DELIBERATELY NOT PREFETCHED
-   * HERE. routes/index.tsx prefetches with `ensureQueryData` because its reads
+   * HERE. routes/app.tsx prefetches with `ensureQueryData` because its reads
    * feed `useSuspenseQuery` — without the prefetch the component suspends and
    * the query only starts once the route renders, which is a real waterfall.
    * Header's reads feed a plain `useQuery`, so nothing waits on them: the badge
@@ -48,7 +48,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
    *
    * THE FIRST VERSION OF THIS TASK DID AWAIT THEM HERE, and a root loader runs
    * before every child loader on every route — so those two awaits sat in front
-   * of the dashboard's own three, on /about as well as on /. Removed on the
+   * of the dashboard's own three, on /about as well as on /app. Removed on the
    * argument above rather than on a measurement: taking the loader out did NOT
    * on its own settle `pnpm e2e`, which is why the flake that showed up
    * alongside it is written down where its real cause was found

@@ -90,7 +90,7 @@ export const deliverTo = internalAction({
     const payload = JSON.stringify({
       title: 'Wordle Teams',
       body: "You have not entered today's board yet. Don't miss out on those points!",
-      url: '/',
+      url: '/app',
     })
 
     // NOT "TRANSIENT" — the name would claim more than this loop can know.
