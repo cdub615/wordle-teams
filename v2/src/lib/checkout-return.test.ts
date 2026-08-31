@@ -40,9 +40,14 @@ describe('checkoutReturnUrl', () => {
   test('the dashboard keeps its own params', () => {
     // ?team= and ?month= are what routes/app.tsx renders from. Losing them
     // here would send the player back to their remembered team mid-upgrade.
-    expect(checkoutReturnUrl('https://wordleteams.com/?team=abc&checkout=success&month=2026-08')).toBe(
-      '/?team=abc&month=2026-08',
-    )
+    //
+    // The path is incidental to checkoutReturnUrl, which preserves whatever it
+    // is given — but this test says "the dashboard", so it spells the dashboard
+    // the way the app does. It read '/' until Phase 7 moved the dashboard to
+    // /app, which made the name and the literal disagree.
+    expect(
+      checkoutReturnUrl('https://wordleteams.com/app?team=abc&checkout=success&month=2026-08'),
+    ).toBe('/app?team=abc&month=2026-08')
   })
 
   test('the hash survives', () => {

@@ -186,7 +186,8 @@ bd close wordle-teams-lvv
 - Create: `v2/src/routes/me.tsx`
 - Modify: `v2/public/manifest.json`
 - Modify: `v2/convex/polar.ts` (`:387` comment, `:431`, `:653`)
-- Modify: `v2/convex/pushSend.ts:93`
+- Modify: `v2/convex/pushSend.ts:93` **and its enforced twin** `v2/src/lib/sw-push.ts`'s `REMINDER_FALLBACK.url` — a test reads the server file and asserts the two are byte-identical, so changing one alone fails
+- Modify: `v2/convex/reminderEmails.ts:146` — the wordmark anchor's bare-origin href becomes `/app`. Not a CTA button; that is Task 2
 - Modify: `v2/src/components/Header.tsx`, `v2/src/components/Footer.tsx`, and every internal `to="/"` that meant the dashboard
 - Modify: `v2/e2e/*.spec.ts` — every spec that asserts `toHaveURL('/')` for a signed-in page
 - Test: `v2/e2e/routes.spec.ts` (new)
@@ -207,9 +208,18 @@ import { test, expect } from '@playwright/test'
 // wiring in server.ts and the route tree is reachable from nowhere else. See
 // "the trap this phase is most likely to fall into" in the plan.
 test.describe('route shape', () => {
+  // CORRECTED 2026-08-31, after Task 1 ran. The obvious version of this test —
+  // goto('/me') then toHaveURL('/app') — CANNOT PASS, and the plan shipped it
+  // wrong. /app bounces an anonymous visitor onward to /login, so the browser's
+  // final URL is /login and the /me -> /app hop is invisible to toHaveURL.
+  // Assert on the redirect CHAIN, which is the hop that actually matters.
   test('/me redirects to /app, because installed PWAs carry start_url: /me', async ({ page }) => {
-    await page.goto('/me')
-    await expect(page).toHaveURL('/app')
+    const response = await page.goto('/me')
+    const chain = []
+    for (let r = response?.request(); r; r = r.redirectedFrom()) {
+      chain.unshift(new URL(r.url()).pathname)
+    }
+    expect(chain.slice(0, 2)).toEqual(['/me', '/app'])
   })
 
   test('/app is the dashboard and bounces an anonymous visitor to /login', async ({ page }) => {
@@ -293,6 +303,10 @@ export const Route = createFileRoute('/me')({
 ```
 
 **And correct the comment at `polar.ts:387`.** It currently says v1 used `/me?checkout=success` and v2 lands on `/`. The second half is now false. Comment accuracy is a defect here.
+
+**HEADER IS NOT OPTIONAL, AND THE PLAN WAS WRONG TO IMPLY IT WAS.** "Leave the marketing hits at `/`" cannot be honoured in this task: deleting `index.tsx` removes `'/'` from the router's `to` union, so `to="/"` becomes a type error with exactly one compiling alternative. Point Header's logo and Home at `/app` — which preserves today's behaviour, since those links already reached the dashboard — and leave a comment handing the question to Task 4. **v1's app bar points its wordmark at the marketing page**, so Task 4 should revisit it with `/` in hand.
+
+**`playwright.config.ts` needs changing too, and it is not in the file list.** Its `webServer.url` readiness probe is `http://localhost:3000`; once `/` has no route, Playwright reads the 404 as "server not ready" and fails the whole suite with a timeout naming the server rather than the route. Point it at `/about`, which is unauthenticated and really rendered.
 
 - [ ] **Step 6: Find every remaining internal link that meant the dashboard**
 
@@ -411,6 +425,8 @@ pnpm vitest run convex/reminderEmails.test.ts
 Expected: FAIL on all three.
 
 - [ ] **Step 3: Add the button to the HTML half**
+
+**Expect Step 3 to be partly pre-applied.** Task 1 already re-pointed the wordmark anchor at `/app` via a new `appUrl` const, because leaving it on the bare origin would have regressed the moment `/` became the marketing page. That is not a bad merge. What is left here is the button itself.
 
 Replace the wordmark table (`:139-150`, the `<table>` holding `iconImage` and the `<a href="${site}">`) with a button above it. Keep the icon row — it is branding and it is fine — but its link becomes the app too:
 
