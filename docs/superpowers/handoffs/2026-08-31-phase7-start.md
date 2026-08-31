@@ -32,8 +32,7 @@ route to `createProCheckout` (`team-picker.tsx:78`), rendered only when
 cap cannot reach checkout at all.
 
 **Phase 6 is CLOSED** as of 2026-08-31, verified on a real device — see the next
-section. It leaves one possible live safety item and `wt-ksh.7.32`, reparented
-here.
+section. It leaves `wt-ksh.7.32`, reparented here.
 
 **And there is a P1 that will break the audit itself:** `wordle-teams-b31`.
 `internal.migrate.counts` does six unbounded `.collect()` calls, one on
@@ -77,14 +76,19 @@ claim was written, and the fan-out reached both Resend and `pushSend.deliverTo`.
 
 It also resolves the ambiguity S2 left open, which no test could — see S2 below.
 
-**One safety item may still be live.** `REMINDERS_ENABLED` had to be set on beta
-for that verification. **Confirm it is back off, or that `REMINDERS_ALLOWLIST` is
-still narrowed to the owner's address**, before beta is left unattended. Beta
-holds copied production rows — real people who already receive reminders from v1
-— and `E2E_TEST_MODE` is not set there, so `sendEmail`'s throwaway filter
-suppresses nothing. The env gate is the only protection; the data is not a second
-layer, because the copy carries `reminderDeliveryMethods` and `timeZone`
-(`scripts/copy-from-supabase.mjs:151-155`).
+**The kill switch is back OFF** — the owner turned `REMINDERS_ENABLED` off
+immediately after the test, confirmed 2026-08-31. Beta is in its designed resting
+state: the cron fires hourly and returns having done nothing.
+
+**Keep it that way, and if you ever turn it on, set `REMINDERS_ALLOWLIST` first,
+in the same sitting.** Beta holds copied production rows — real people who already
+receive reminders from v1 and have never heard of this beta — and `E2E_TEST_MODE`
+is not set there, so `sendEmail`'s throwaway filter suppresses nothing. The env
+gate is the *only* protection; the data is not a second layer, because the copy
+carries `reminderDeliveryMethods` and `timeZone`
+(`scripts/copy-from-supabase.mjs:151-155`). At cutover the runbook does the
+opposite deliberately: `REMINDERS_ENABLED=true` on **production** with the
+allowlist left empty.
 
 **Do not treat a 2xx from `webpush.sendNotification` as proof of delivery** in any
 future work — not in a comment, a test, or an acceptance check. A push service
