@@ -214,6 +214,92 @@ export async function unsubscribeFromPush(browser: PushBrowser): Promise<Unsubsc
 }
 
 /**
+ * The five effects `applyPushToggle` needs. Injected rather than imported for
+ * the same reason `PushBrowser` is: three of them are Convex mutations, which
+ * no unit test in this repo can drive (convex-test cannot stand up a Better
+ * Auth session — see convex/settings.ts), and the other two touch a browser
+ * that does not exist under edge-runtime.
+ */
+export interface PushToggleEffects {
+  /** The player's stored `reminderDeliveryMethods`, as loaded. */
+  currentMethods: ReadonlyArray<string>
+  /**
+   * Subscribe this browser. Returns `{ ok: false, reason: 'unavailable' }`
+   * rather than throwing where there is no browser surface or no configured
+   * VAPID key — see the caller in notifications-tab.tsx.
+   */
+  subscribe(): Promise<SubscribeResult>
+  /**
+   * Tear the browser-side subscription down. MUST degrade to
+   * `{ endpoint: null, unsubscribeError: null }` where there is no browser
+   * surface, rather than refusing — see the ordering rules below.
+   */
+  unsubscribe(): Promise<UnsubscribeResult>
+  save(subscription: StoredSubscription): Promise<unknown>
+  removeStored(endpoint: string): Promise<unknown>
+  setMethods(methods: ReadonlyArray<string>): Promise<unknown>
+}
+
+export type PushToggleOutcome =
+  | { ok: true; unsubscribeError: unknown }
+  | { ok: false; reason: SubscribeFailureReason }
+
+/**
+ * The whole of the Push switch's policy, with every effect handed in.
+ *
+ * EXTRACTED FROM THE HANDLER BECAUSE THE ORDERING *IS* THE RULE, and inside a
+ * React event handler no test could reach it. Review of 58f0edf measured that
+ * directly: swapping `save` and `setMethods`, and turning the failed-subscribe
+ * early return into a fallthrough, BOTH left 859/859 green — and the second
+ * mutant writes 'push' into a player's delivery methods when the subscription
+ * failed, which is the single thing this switch exists to prevent. The e2e
+ * cannot reach it either, since that spec asserts the switch is absent. This
+ * is the third time this codebase has had to hand effects in to make a rule
+ * testable, after `registerServiceWorker` and `decideLocalCapture`.
+ *
+ * TURNING PUSH ON — `subscribe`, then `save`, THEN `setMethods`, and any
+ * failure before the last one returns or throws. 'push' in
+ * reminderDeliveryMethods is a promise to the reminder sweep that a delivery
+ * will work; writing it before the subscription is stored makes that promise
+ * against something that does not exist yet, and writing it when `subscribe`
+ * failed makes it against something that never will. A method the browser
+ * will never honour is worse than no method.
+ *
+ * TURNING PUSH OFF — NO EARLY RETURN EXISTS ON THIS PATH, deliberately, and
+ * that is the fix for a real bug in 58f0edf. That version bailed out above
+ * the on/off split whenever `browserPush()` returned null, so a player who
+ * subscribed on their phone and later opened settings on a browser without
+ * the Push API (an older iOS Safari, or any origin with site data blocked)
+ * saw the switch checked, clicked it off, and got told the browser cannot do
+ * push — while the method stayed in their row. The switch was unclearable
+ * from that device. Removing the stored row and the method is server-side
+ * work that has nothing to ask of the browser, so it happens regardless; the
+ * browser-side teardown is the only part that can be skipped, and
+ * `unsubscribe` reports that as `endpoint: null` rather than by refusing.
+ */
+export async function applyPushToggle(
+  enabled: boolean,
+  { currentMethods, subscribe, unsubscribe, save, removeStored, setMethods }: PushToggleEffects,
+): Promise<PushToggleOutcome> {
+  if (enabled) {
+    const result = await subscribe()
+    if (!result.ok) return { ok: false, reason: result.reason }
+    await save(result.subscription)
+    // Rebuilt from the CURRENT array, never from scratch: 'email' lives in the
+    // same field, and handleEmailToggle is symmetric for the same reason.
+    await setMethods(Array.from(new Set([...currentMethods, 'push'])))
+    return { ok: true, unsubscribeError: null }
+  }
+
+  const { endpoint, unsubscribeError } = await unsubscribe()
+  // Deleting the stored row is what actually stops delivery, so it happens
+  // even when the browser-side unsubscribe rejected — see unsubscribeFromPush.
+  if (endpoint) await removeStored(endpoint)
+  await setMethods(currentMethods.filter((method) => method !== 'push'))
+  return { ok: true, unsubscribeError }
+}
+
+/**
  * Resolves to `null` rather than hanging forever.
  *
  * `navigator.serviceWorker.ready` IS SPECIFIED NEVER TO REJECT AND NEVER TO
@@ -225,10 +311,15 @@ export async function unsubscribeFromPush(browser: PushBrowser): Promise<Unsubsc
  * for the rest of the session with nothing logged.
  */
 export function settledWithin<T>(pending: Promise<T>, milliseconds: number): Promise<T | null> {
+  // `| undefined` only because TypeScript cannot see that a Promise executor
+  // runs synchronously; by the time `finally` can fire it is always set.
+  let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
     pending,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), milliseconds)),
-  ])
+    new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), milliseconds)
+    }),
+  ]).finally(() => clearTimeout(timer))
 }
 
 /**
@@ -266,9 +357,15 @@ export function browserPush(): PushBrowser | null {
     requestPermission: () => Notification.requestPermission(),
     pushManager: async () => {
       const registration = await settledWithin(container.ready, READY_TIMEOUT_MS)
-      // iOS Safari below 16.4 registers service workers happily and has no
-      // PushManager at all, so this is a real browser rather than a
-      // hypothetical one.
+      // TWO CASES, AND NEITHER IS THE ONE IT IS TEMPTING TO CITE. `registration`
+      // is null when `settledWithin` timed out — no worker ever became ready.
+      // `pushManager` is absent on a registration in an engine that ships
+      // service workers without the Push API.
+      //
+      // NOT iOS Safari below 16.4: that browser has no `window.Notification`
+      // either, so `browserPush` already returned null above and this line is
+      // never reached for it. This is defensive against the ready timeout,
+      // which IS reachable, plus any future engine in that shape.
       return registration?.pushManager ?? null
     },
   }

@@ -18,7 +18,12 @@ import {
 import { Separator } from '#/components/ui/separator.tsx'
 import { Switch } from '#/components/ui/switch.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
-import { browserPush, subscribeToPush, unsubscribeFromPush } from '#/lib/push-subscribe.ts'
+import {
+  applyPushToggle,
+  browserPush,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from '#/lib/push-subscribe.ts'
 import { canonicalTimeZone, TIME_ZONE_GROUPS } from '#/lib/time-zones.ts'
 import { useMediaQuery } from '#/lib/use-media-query.ts'
 import type { SubscribeFailureReason } from '#/lib/push-subscribe.ts'
@@ -220,62 +225,57 @@ export default function NotificationsTab() {
   }
 
   /**
-   * RULE 2 IS THE ORDER OF THE TWO WRITES, not a branch anywhere below.
-   * `subscribeToPush` must succeed, and `savePushSubscription` must land,
-   * BEFORE 'push' is written into reminderDeliveryMethods — every failure
-   * before that point returns or throws, and the method is never written. The
-   * switch's own `checked` comes from the server's array, so nothing here
-   * flips it optimistically either: a refused permission leaves it visibly
-   * off, which is the truth.
+   * WIRING ONLY. Every rule this switch has lives in `applyPushToggle`
+   * (push-subscribe.ts), which takes its five effects as parameters so the
+   * ordering can be asserted — review of 58f0edf measured that two mutants in
+   * the version that lived here, one of which wrote 'push' after a FAILED
+   * subscribe, both left the whole suite green. What is left here is the three
+   * things a pure function cannot do: read the globals, own the pending flag,
+   * and turn an outcome into a toast.
    *
-   * The inverse for turning it off: the stored row goes first and the method
-   * goes with it unconditionally, so an off is honoured even on a browser that
-   * cannot subscribe at all.
+   * NOTE THE ASYMMETRY IN THE TWO CLOSURES, which is where rule 3 is enforced
+   * from this side: `subscribe` reports 'unavailable' when there is no browser
+   * surface or no VAPID key, while `unsubscribe` DEGRADES to "nothing to tear
+   * down" instead. Turning push off must work on a browser that could never
+   * have turned it on — the row and the method are server-side and this device
+   * may be the only one the player still has.
    */
   const handlePushToggle = async (checked: boolean) => {
     setPushPending(true)
     try {
       const browser = browserPush()
-      if (!browser) {
-        toast.error(pushFailureMessage('unavailable'))
-        return
-      }
-
-      if (checked) {
+      const outcome = await applyPushToggle(checked, {
+        currentMethods: reminderDeliveryMethods,
         // Not `vapidPublicKey!`: the switch only renders when this is a
         // string, but a narrowing that lives in JSX is not one TypeScript can
         // see here, and an assertion would turn a future regression into a
         // subscription bound to the string "undefined".
-        if (!vapidPublicKey) {
-          toast.error(pushFailureMessage('unavailable'))
-          return
-        }
-        const result = await subscribeToPush(browser, vapidPublicKey)
-        if (!result.ok) {
-          toast.error(pushFailureMessage(result.reason))
-          return
-        }
-        await savePushSubscription.mutateAsync(result.subscription)
-        await updateReminderMethods.mutateAsync({
-          methods: Array.from(new Set([...reminderDeliveryMethods, 'push'])),
+        subscribe: async () =>
+          browser && vapidPublicKey
+            ? await subscribeToPush(browser, vapidPublicKey)
+            : { ok: false, reason: 'unavailable' },
+        unsubscribe: async () =>
+          browser ? await unsubscribeFromPush(browser) : { endpoint: null, unsubscribeError: null },
+        save: (subscription) => savePushSubscription.mutateAsync(subscription),
+        removeStored: (endpoint) => removePushSubscription.mutateAsync({ endpoint }),
+        setMethods: (methods) => updateReminderMethods.mutateAsync({ methods: [...methods] }),
+      })
+
+      if (!outcome.ok) {
+        toast.error(pushFailureMessage(outcome.reason))
+        return
+      }
+      if (outcome.unsubscribeError) {
+        // Not a toast and not Sentry: the player asked for push off and push
+        // is off. What survives is an inert browser-side subscription that the
+        // next 'on' reuses. console.warn is what the eslint config leaves open
+        // in src/ for exactly this (see register-sw.ts).
+        console.warn('Push unsubscribe failed locally; the stored subscription was removed', {
+          message:
+            outcome.unsubscribeError instanceof Error
+              ? outcome.unsubscribeError.message
+              : String(outcome.unsubscribeError),
         })
-      } else {
-        const { endpoint, unsubscribeError } = await unsubscribeFromPush(browser)
-        // Deleting the row is what stops delivery, so it happens whether or
-        // not the browser-side unsubscribe worked — see unsubscribeFromPush.
-        if (endpoint) await removePushSubscription.mutateAsync({ endpoint })
-        await updateReminderMethods.mutateAsync({
-          methods: reminderDeliveryMethods.filter((method) => method !== 'push'),
-        })
-        if (unsubscribeError) {
-          // Not a toast and not Sentry: the player asked for push off and push
-          // is off. What survives is an inert browser-side subscription that
-          // the next 'on' reuses. console.warn is what the eslint config
-          // leaves open in src/ for exactly this (see register-sw.ts).
-          console.warn('Push unsubscribe failed locally; the stored subscription was removed', {
-            message: unsubscribeError instanceof Error ? unsubscribeError.message : String(unsubscribeError),
-          })
-        }
       }
       toast.success('Delivery methods updated')
     } catch (error) {
