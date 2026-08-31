@@ -191,3 +191,61 @@ test.describe('a brand-new signup with no stored zone', () => {
     await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText('Mountain Standard Time (MST)')
   })
 })
+
+/**
+ * Phase 6, Task 12 — rule 1 of the Push switch: hidden entirely where the
+ * deployment has no VAPID key.
+ *
+ * WHAT THIS SPEC DOES NOT COVER, AND WHY IT CANNOT. The subscribe path — a
+ * granted permission, `pushManager.subscribe`, and the subscription reaching
+ * `savePushSubscription` — is NOT exercised anywhere in e2e, and the plan's
+ * acceptance criterion asking for it is unreachable here. Three separate
+ * blockers, each measured rather than assumed:
+ *
+ *   1. `VAPID_PUBLIC_KEY` is not set on the local anonymous Convex deployment
+ *      (`convex env get` reports it not found), so `api.push.publicKey`
+ *      returns null and the switch this file looks for is correctly absent.
+ *   2. There is no service worker in dev at all. Registration is gated on
+ *      `import.meta.env.PROD` (register-sw.ts) and `/sw.js` is a build
+ *      artifact scripts/build-sw.mjs writes after `vite build`, which
+ *      `pnpm dev` never runs — and playwright.config.ts's `webServer` is
+ *      `pnpm dev`. `pushManager.subscribe` needs an active registration.
+ *   3. Headless Chromium cannot reach a real push service.
+ *
+ * A mocked subscribe would only prove the mock was called. The real coverage
+ * lives in src/lib/push-subscribe.test.ts, which drives every branch of the
+ * flow through injected browser surfaces, and in a human watching a
+ * notification arrive on a real device (Task 11).
+ *
+ * So this asserts the one rule a real deployment CAN check, and it is the rule
+ * that protects players: a control that cannot work is not shown at all.
+ */
+test('the Push switch is absent where no VAPID key is configured, and Email still works', async ({
+  page,
+}) => {
+  await signInWithPlayer(page)
+
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
+
+  // The tab really rendered its controls — without this the absence assertion
+  // below would pass just as happily on a crashed tab, a loading spinner, or
+  // the NO_PLAYER error state.
+  await expect(page.getByRole('heading', { name: 'Notification Settings' })).toBeVisible()
+  const emailSwitch = page.getByRole('switch', { name: 'Email' })
+  await expect(emailSwitch).toBeVisible()
+
+  // THE ASSERTION. `toHaveCount(0)` rather than `toBeHidden()`: the switch is
+  // not rendered at all, and `toBeHidden` also passes for an element that does
+  // not exist — which would keep this green if the locator name ever drifted.
+  // Counting pins that the Push control is genuinely absent from the tree.
+  await expect(page.getByRole('switch', { name: 'Push' })).toHaveCount(0)
+  await expect(page.getByText('Push', { exact: true })).toHaveCount(0)
+
+  // And Email is unaffected by the switch's absence — the shared
+  // reminderDeliveryMethods array and the shared `disabled` flags mean a
+  // mistake in the push branch is entirely capable of breaking this one.
+  await emailSwitch.click()
+  await expect(page.getByText('Delivery methods updated')).toBeVisible()
+  await expect(emailSwitch).toBeChecked()
+})

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { REMINDER_TIMES } from '../../../convex/lib/reminders.ts'
-import { label } from './notifications-tab.tsx'
+import { label, pushFailureMessage } from './notifications-tab.tsx'
 
 describe('label', () => {
   test('05:00:00, the lower bound of REMINDER_TIMES, formats as 5 AM', () => {
@@ -37,5 +37,38 @@ describe('label', () => {
   // The raw value, odd-looking as it is, is the honest answer.
   test('a time the picker never offers is shown raw, not rounded to a false hour', () => {
     expect(label('23:30:00')).toBe('23:30:00')
+  })
+})
+
+describe('pushFailureMessage', () => {
+  // THREE DISTINCT STRINGS IS THE POINT, not the wording. Each of the three
+  // ways subscribeToPush can fail without throwing needs a DIFFERENT action
+  // from the player — change a browser setting, give up and use email, or try
+  // again — and collapsing any two of them into one message (the obvious
+  // refactor, since all three are "push didn't work") would tell somebody to
+  // do a thing that cannot help them.
+  test('every reason gets its own message', () => {
+    const messages = (['denied', 'unavailable', 'no-keys'] as const).map(pushFailureMessage)
+    expect(new Set(messages).size).toBe(3)
+    for (const message of messages) expect(message.length).toBeGreaterThan(0)
+  })
+
+  // Covers a DISMISSED prompt as much as a refusal, and on a second attempt
+  // Chrome never re-prompts — so pointing at browser settings is the only
+  // useful thing this string can do. "You denied it" would be both wrong for
+  // the dismissed case and useless for the refused one.
+  test('the denied message points at browser settings rather than blaming the player', () => {
+    const message = pushFailureMessage('denied')
+    expect(message).toContain('browser settings')
+    expect(message.toLowerCase()).not.toContain('you denied')
+  })
+
+  // 'unavailable' is the one failure that CANNOT be fixed — an old iOS Safari,
+  // or a service worker that never registered — so it has to leave the player
+  // somewhere to go rather than inviting a retry that will fail identically.
+  test('the unavailable message offers email instead of a retry', () => {
+    const message = pushFailureMessage('unavailable')
+    expect(message).toContain('Email')
+    expect(message.toLowerCase()).not.toContain('try again')
   })
 })
