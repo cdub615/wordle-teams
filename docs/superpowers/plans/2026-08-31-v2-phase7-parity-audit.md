@@ -22,7 +22,7 @@ Read all of this. Each line below cost this project real time.
 
 3. **Run all four gates every time:** `pnpm lint`, `pnpm typecheck`, `pnpm test:once`, `pnpm build`. `build` does not typecheck, and lint reaches `public/*.js` that build only copies.
 
-4. **e2e is NOT one of the four gates.** Nothing in `lint`/`typecheck`/`test:once`/`build` runs Playwright, and CI does not either. Several protections in this codebase exist *only* in e2e. Run `pnpm e2e` deliberately. It needs a local Convex backend on `127.0.0.1:3210` — see Task 0.
+4. **e2e is NOT one of the four gates, and this is the sharpest illustration in the project.** Nothing in `lint`/`typecheck`/`test:once`/`build` runs Playwright, and CI does not either. In August the local Convex deployment was frozen for a day by a schema rejection and **all four gates stayed green the whole time**, because none of them talks to a backend — `convex-test` builds its own schema in memory. The only signal was e2e. Run `pnpm e2e` deliberately. It needs a local Convex backend on `127.0.0.1:3210` — see Task 0.
 
 5. **`convex codegen` needs Node 20/22/24.** This box defaults to v25.2.1 and the local backend rejects a `'use node'` push under it. Use `mise exec node@22 -- npx convex dev`.
 
@@ -108,21 +108,32 @@ Code blocks quoting v1 are from this repository at `src/`, which is untouched an
 
 ---
 
-## Task 0: Restore the local Convex backend (`wordle-teams-lvv`)
+## Task 0: Establish the e2e baseline (`wordle-teams-lvv`)
 
-Nothing else in this plan can be trusted until this is done. e2e drives the local backend, several protections in this codebase live only in e2e, and the backend has silently refused every push since the `creator`→`owner` rename.
+**CORRECTED 2026-08-31, after this task was run.** This task was originally written as "restore the local Convex backend", on the belief that it had silently refused every push since the `creator`→`owner` rename. **That premise was false.** The outage was real but lasted one day — from the schema drop landing (`2247b25`, 2026-08-26) until 16:56 the same day, when `migrate.backfillTeamOwner` and `migrate.clearTeamCreator` were run against local. `wordle-teams-lvv`'s description is written in the past tense about a live failure and was read as current state.
+
+**The task belongs first anyway, for the reason `lvv` itself records:** every one of the four gates stayed green for the whole outage, because none of them talks to a backend. A deployment can be frozen for an arbitrary period while `lint`, `typecheck`, `test:once` and `build` all report success. e2e was the only signal, and e2e is not a gate. So Phase 7 establishes the e2e baseline before it changes anything, rather than discovering mid-phase that it never had one.
+
+**OPERATIONAL GOTCHA, found running this task and worth more than the task itself:** killing the `convex dev` CLI leaves the `convex-local-backend` binary alive holding ports 3210 and 3211. The next `convex dev --once` then fails with
+
+```
+✖ A local backend is still running on port 3210. Please stop it and run this command again.
+```
+
+which looks exactly like a backend fault and is not one. Kill both processes, not just the CLI. This is very likely how this task's original premise was formed.
 
 **Files:**
 - Investigate: `v2/convex/schema.ts`, `v2/convex/teams.ts`
 - No production code change expected; if one is needed it belongs to this task
 
-- [ ] **Step 1: Reproduce the refusal**
+- [ ] **Step 1: Find out whether a watcher is already running**
 
 ```bash
-mise exec node@22 -- npx convex dev --once
+pgrep -af convex
+ss -ltn | grep -E '3210|3211'
 ```
 
-Expected: a non-zero exit with a schema or index error naming `creator` or `owner`. Capture the exact message — it goes in the bead.
+A live watcher is evidence of **health**, not of a problem — and it owns port 3210, so a `--once` against it will refuse with the port message above. If one is running and its log shows `Convex functions ready!` rather than `Schema validation failed`, the backend is fine; go straight to Step 5.
 
 - [ ] **Step 2: Read `wordle-teams-lvv` for what was already established**
 
