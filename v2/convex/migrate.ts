@@ -649,7 +649,10 @@ export const purgeCopiedData = internalMutation({
       deleted[table] = rows.length
       if (rows.length === batch) {
         remaining = true
-        break // stay well inside the read limit; the next call continues here
+        // Stops at one batch rather than continuing to the next table, so the
+        // execution stays far inside the 32,000-document / 16 MiB limits stated
+        // above whatever `batch` the caller passed. The next call resumes here.
+        break
       }
     }
     return { deleted, remaining }
@@ -768,8 +771,14 @@ export const playerScoreFingerprint = internalQuery({
  * that is the only writer — but it is a real property change. If you ever need
  * counts that are consistent with each other, this is not the function.
  *
- * `table` is a union of literals rather than a string so a typo is a compile
- * error at the call site instead of a runtime one mid-audit.
+ * `table` IS A UNION OF LITERALS RATHER THAN A STRING, but be precise about what
+ * that buys: every call site is .mjs and tsconfig.json covers only *.ts/*.tsx
+ * with no checkJs, so a typo there is caught by NOTHING at build time — measured,
+ * after an earlier draft of this comment claimed it was a compile error. What the
+ * union does is make a bad table name fail as a loud ArgumentValidationError
+ * rather than counting nothing and reporting a silent shortfall, which at the
+ * parity audit would read as lost data. scripts/lib/count-tables.test.mjs is what
+ * pins COUNTED_TABLES against this union; the compiler never sees them together.
  */
 export const countTable = internalQuery({
   args: {

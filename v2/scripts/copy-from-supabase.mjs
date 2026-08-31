@@ -313,9 +313,10 @@ const TABLES = [
 //
 // IT MUST NOT BE ABLE TO STOP THE COPY, which is what a bare top-level await
 // here would do. readCounts is not one call: it walks each of the six tables a
-// page at a time (lib/count-tables.mjs) — about ten round trips at production's
-// size, since daily scores alone take four pages — and any one of them can fail
-// where a single query could only fail once. The same read runs at the END of this
+// page at a time (lib/count-tables.mjs) — nine round trips at production's size,
+// four of them for daily scores and one each for the other five tables — and any
+// one of them can fail where a single query could only fail once. The same read
+// runs at the END of this
 // script, where a failure costs the closing summary of a copy that already
 // succeeded. In FRONT of the writes an unhandled failure costs the entire copy,
 // at cutover, to protect a report about it. So it degrades: the writes go ahead
@@ -378,6 +379,18 @@ console.log(`\n${formatClobberReport(talliesByTable)}`)
 const insertReport = formatInsertReport(talliesByTable, countsBefore)
 if (insertReport) console.log(`\n${insertReport}`)
 
-const counts = await readCounts(convex, internal)
-console.log('\nConvex now holds:')
-for (const [table, n] of Object.entries(counts)) console.log(`  ${table.padEnd(17)} ${n}`)
+// GUARDED FOR EXACTLY THE REASON THE PRE-WRITE READ ABOVE IS, which this block
+// was left out of until review caught it. This is the same ~nine round trips,
+// and it runs AFTER every write has landed: an unhandled failure here would exit
+// the script non-zero over a cosmetic summary, telling the operator at cutover
+// that a copy which fully succeeded had failed. A copy that wrote everything and
+// then could not read it back is still a copy that wrote everything, and the
+// write summary above is the record of it.
+try {
+  const counts = await readCounts(convex, internal)
+  console.log('\nConvex now holds:')
+  for (const [table, n] of Object.entries(counts)) console.log(`  ${table.padEnd(17)} ${n}`)
+} catch (err) {
+  console.log(`\n  Could not read the closing row counts: ${err.message}`)
+  console.log('  THE COPY ITSELF SUCCEEDED — the write summary above is what to trust.')
+}

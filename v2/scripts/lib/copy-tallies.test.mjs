@@ -502,7 +502,7 @@ describe('formatInsertReport', () => {
 
   test('says the check DID NOT RUN when the pre-write counts could not be read', () => {
     // The failure this replaced: a bare top-level await on the pre-write row
-    // counts. Those now come from lib/count-tables.mjs, which is about ten
+    // counts. Those now come from lib/count-tables.mjs, which is about nine
     // round trips rather than one query, so there is MORE to fail, not less.
     // (The 4,096 figure this comment used to cite as a "read cap" was a
     // misreading — it is Convex's limit on index ranges, i.e. calls to db.get

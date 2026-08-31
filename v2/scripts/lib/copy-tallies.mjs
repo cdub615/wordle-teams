@@ -309,10 +309,10 @@ const detailLines = (label, fields, width) => {
  * that matters most, being both deliberately undiffed (wordle-teams-r9d) and one
  * of the two confirmed resurrection paths.
  *
- * THE TRIGGER IS MEASURED, NOT FLAGGED. `countsBefore` is internal.migrate.counts
- * read BEFORE the writes, and a deployment that already holds rows is what makes
- * the run a re-run. A --expect-no-inserts flag would be a thing the operator
- * forgets at the one moment it matters.
+ * THE TRIGGER IS MEASURED, NOT FLAGGED. `countsBefore` is what readCounts
+ * (scripts/lib/count-tables.mjs) reported BEFORE the writes, and a deployment
+ * that already holds rows is what makes the run a re-run. A --expect-no-inserts
+ * flag would be a thing the operator forgets at the one moment it matters.
  *
  * SILENT ON A FIRST COPY, and that is what decides whether the detector is
  * usable at all. Every row is an insert into an empty deployment, legitimately;
@@ -340,13 +340,14 @@ const detailLines = (label, fields, width) => {
  *
  * @param {Record<string, Record<string, unknown>>} talliesByTable table label ->
  *   the tally mergeTally accumulated for it, in the order the copy wrote them.
- * @param {Record<string, number> | null} countsBefore internal.migrate.counts
- *   read before the writes: table -> rows the deployment already held. NULL
- *   MEANS THE READ FAILED and the caller carried on writing anyway, which it
- *   must — that query collects every row of every table and can exceed Convex's
- *   read cap, and a report about the copy may not be what kills the copy. Null
- *   is a state the report has to SPEAK about: with no trigger there is no way to
- *   tell a first copy from a re-run, and staying silent would be the first-copy
+ * @param {Record<string, number> | null} countsBefore what readCounts
+ *   (scripts/lib/count-tables.mjs) reported before the writes: table -> rows the
+ *   deployment already held. NULL MEANS THE READ FAILED and the caller carried
+ *   on writing anyway, which it must — readCounts walks six tables a page at a
+ *   time, about nine round trips at production's size, and any one of them can
+ *   fail; a report about the copy may not be what kills the copy. Null is a
+ *   state the report has to SPEAK about: with no trigger there is no way to tell
+ *   a first copy from a re-run, and staying silent would be the first-copy
  *   answer, i.e. an all-clear this run did not earn. Anything else non-record
  *   still throws, because it is a programming error rather than an outage.
  * @returns {string | null} null when the deployment was empty and this report has

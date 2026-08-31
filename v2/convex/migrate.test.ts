@@ -449,3 +449,108 @@ describe('upsertMonthlyWinners reports what a re-copy overwrites', () => {
     })
   })
 })
+
+describe('countTable', () => {
+  // THE HALF THE FAKE CLIENT CANNOT REACH. scripts/lib/count-tables.test.mjs
+  // drives readCounts against a fake whose paging behaviour it invents, so it
+  // pins the LOOP and nothing about the mapping from Convex's PaginationResult
+  // onto {count, cursor, isDone}. Get that mapping wrong and the loop is still
+  // perfect while the number is wrong.
+  //
+  // The failure worth spending a fixture on is `isDone` arriving TRUE TOO EARLY:
+  // readCounts stops, reports the first page only, and verify-parity prints
+  // `dailyScores  supabase=6951  convex=2000` — which at the cutover audit reads
+  // as LOST DATA rather than as a broken counter, and sends the operator to the
+  // wrong runbook step. An off-by-one on `count` has the same shape. A wrong
+  // cursor, by contrast, is self-announcing: readCounts hits MAX_PAGES and
+  // throws.
+  //
+  // CATCHING THAT NEEDS A PAGE THAT IS GENUINELY NOT THE LAST ONE, which is why
+  // the 2,001-row fixture below is worth its keep: every assertion that isDone
+  // is TRUE is satisfied by an isDone hard-wired to true, so only a legitimate
+  // FALSE can catch it. It costs ~120ms, measured, because convex-test inserts
+  // in memory.
+  const seedWebhooks = async (t: ReturnType<typeof convexTest>, n: number) =>
+    await t.run(async (ctx) => {
+      if (n === 0) return
+      const playerId = await ctx.db.insert('players', {
+        email: 'counted@a.test',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        hasPwa: false,
+        reminderDeliveryMethods: ['email'],
+        reminderDeliveryTime: '18:00:00',
+      })
+      for (let i = 0; i < n; i++) {
+        await ctx.db.insert('webhookEvents', {
+          playerId,
+          eventName: 'order.created',
+          body: {},
+          processed: true,
+        })
+      }
+    })
+
+  test('counts every row in one page and says it is done', async () => {
+    const t = convexTest(schema, modules)
+    await seedWebhooks(t, 3)
+    const page = await t.query(internal.migrate.countTable, {
+      table: 'webhookEvents',
+      cursor: null,
+    })
+    // `count` is the page LENGTH, not the table length and not a running total —
+    // adding up is the caller's job, and this is the number it adds.
+    expect(page.count).toBe(3)
+    expect(page.isDone).toBe(true)
+    expect(typeof page.cursor).toBe('string')
+  })
+
+  test('a table larger than one page reports isDone false, and the cursor reads the rest', async () => {
+    // 2,001 rows against countTable's numItems of 2,000. This is the only test
+    // in either suite that sees isDone FALSE, and therefore the only thing
+    // standing between a premature isDone and a parity audit that reports 2,000
+    // of 6,951 daily scores as missing data.
+    //
+    // It also pins the page size itself: `2000` here is countTable's numItems
+    // observed from outside, so changing that constant without meaning to fails
+    // here rather than quietly changing how many transactions a count costs.
+    const t = convexTest(schema, modules)
+    await seedWebhooks(t, 2001)
+
+    const first = await t.query(internal.migrate.countTable, {
+      table: 'webhookEvents',
+      cursor: null,
+    })
+    expect(first.count).toBe(2000)
+    expect(first.isDone).toBe(false)
+
+    const second = await t.query(internal.migrate.countTable, {
+      table: 'webhookEvents',
+      cursor: first.cursor,
+    })
+    expect(second.count).toBe(1)
+    expect(second.isDone).toBe(true)
+
+    // The whole point, stated as the caller states it: the pages add up to the
+    // table. Two transactions, one number.
+    expect(first.count + second.count).toBe(2001)
+  })
+
+  test('an empty table is 0 and done, from a null cursor', async () => {
+    const t = convexTest(schema, modules)
+    const page = await t.query(internal.migrate.countTable, { table: 'players', cursor: null })
+    expect(page).toMatchObject({ count: 0, isDone: true })
+  })
+
+  test('a table name outside the union is refused, loudly', async () => {
+    // The property the literal union actually buys. NOT a compile error — every
+    // call site is .mjs and nothing type-checks those strings — so this runtime
+    // refusal is the whole guarantee, and it is worth pinning that it throws
+    // rather than quietly counting zero. A silent 0 at the parity audit reads as
+    // a table the copy never wrote.
+    const t = convexTest(schema, modules)
+    await expect(
+      t.query(internal.migrate.countTable, { table: 'notATable' as never, cursor: null }),
+    ).rejects.toThrow()
+  })
+})

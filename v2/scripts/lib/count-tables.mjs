@@ -27,10 +27,23 @@
 
 /**
  * The six tables the Supabase copy writes, and therefore the six the copy report
- * and the parity verifier both count. Named once so the three call sites cannot
- * disagree about the set; the same six literals are the `table` argument's union
- * in convex/migrate.ts, so adding one here without adding it there is a
- * compile-time failure rather than a runtime one.
+ * and the parity verifier both count. Named once so the three readCounts callers
+ * cannot disagree about the set.
+ *
+ * THAT IS THE ONLY DRIFT IT CLOSES, and the list is not the only copy of this
+ * set: `TABLES` in copy-from-supabase.mjs, the `table` union in countTable, and
+ * purgeCopiedData's array in convex/migrate.ts each carry their own. A SEVENTH
+ * COPIED TABLE ADDED TO SOME BUT NOT THIS ONE drops silently out of the parity
+ * audit, and count-tables.test.mjs would not catch it — its fixture is derived
+ * from this list, so the list is always self-consistent. Deliberately not worth
+ * machinery for a set that has changed once; worth not pretending otherwise.
+ *
+ * NOR IS A TYPO HERE A COMPILE ERROR. Every caller is .mjs, tsconfig.json covers
+ * only *.ts/*.tsx with no checkJs, so nothing type-checks these strings — an
+ * earlier version of this comment claimed otherwise and was measured wrong. What
+ * the literal union in countTable buys is that a bad name fails LOUDLY, as a
+ * Convex ArgumentValidationError, instead of silently counting nothing; and what
+ * pins this list against that union is count-tables.test.mjs, not the compiler.
  */
 export const COUNTED_TABLES = [
   'players',
@@ -41,10 +54,13 @@ export const COUNTED_TABLES = [
   'webhookEvents',
 ]
 
-// A table would have to hold 2,000 * 10,000 = 20 million rows to reach this, and
-// production holds ~8,700. It is not a size limit, it is a liveness one: if a
-// deployment ever answered with isDone false and a cursor that does not advance,
-// the alternative to this is a script that hangs at cutover with no output.
+// At countTable's page size (numItems, convex/migrate.ts — 2,000 as of writing)
+// a table would have to hold 20 million rows to reach this, against production's
+// ~8,700. So it is not a size limit, it is a liveness one: if a deployment ever
+// answered with isDone false and a cursor that does not advance, the alternative
+// to this is a script that hangs at cutover with no output. Halving the page
+// size there does not invalidate it; only a four-order-of-magnitude change to
+// either number would.
 const MAX_PAGES = 10_000
 
 /**
