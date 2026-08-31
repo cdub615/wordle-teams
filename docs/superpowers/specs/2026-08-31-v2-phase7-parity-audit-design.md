@@ -212,14 +212,24 @@ Note `polar.ts:387` already carries a comment saying v1 used
 `/me?checkout=success` and v2 uses `/`. That comment becomes wrong and must move
 with the code — comment accuracy is a defect in this codebase, not a nit.
 
-**The reminder email has no CTA link to the board.** Its only link is the brand
-wordmark beside the icon (`reminderEmails.ts:146`), pointing at the bare origin.
-That reaches the dashboard today only because `/` currently *is* the dashboard.
-After the move it would land a player on the marketing page instead of the board
-the email just reminded them to enter, so the link must become `/app`. Adding a
-real call-to-action button is **not** in scope — this is a parity phase, and v1's
-reminder email was a Novu template that does not exist in this repo to compare
-against.
+**The reminder email has no CTA link to the board, and gets one.** Its only link
+today is the brand wordmark beside the icon (`reminderEmails.ts:146`), pointing
+at the bare origin. That reaches the dashboard only because `/` currently *is*
+the dashboard; after the move it would land a player on the marketing page
+instead of the board the email just reminded them to enter.
+
+Owner's decision, 2026-08-31: the email gets a **real call-to-action button to
+`/app`**, rather than the wordmark link merely being re-pointed. This is a
+deliberate departure from the parity rule, and a defensible one — the email's
+entire purpose is to get the reader to enter a board, and it has never given
+them anything to click that does that. v1's reminder email was a Novu template
+that does not exist in this repo, so there is no v1 rendering to diverge *from*.
+
+It is task **A1a**, and it is a change to **both halves** of the email. A CTA
+present in the HTML and absent from the plain-text alternative is a parity bug
+of its own: `reminderEmails.ts:101-118` builds a text part deliberately, with a
+comment recording that a mail with no text alternative scores worse with spam
+filters.
 
 ### Cache headers become route-aware
 
@@ -277,6 +287,16 @@ this phase produces is meaningless.
 *Done when:* every consumer in the blast-radius table points at `/app`, `/me`
 issues a permanent redirect, `polar.ts:387`'s comment is corrected, and a test
 covers the redirect.
+
+**A1a — a real CTA button in the reminder email, to `/app`.** Both halves: an
+HTML button and a plain-text URL line. The button follows the existing
+`bgcolor` + inline `background-color` pattern already used in this file, which
+`wordle-teams-cih` records as best-effort rather than guaranteed in dark mode —
+so it must remain legible if the background does not apply.
+*Done when:* a test asserts the HTML half contains a link whose href ends in
+`/app`, and asserts the text half contains the same URL. Assert on the emitted
+string, not a round trip — a codec you own both halves of will happily agree
+with itself about a wrong answer.
 
 **A2 — per-route cache headers.**
 *Done when:* static and authenticated classes are each asserted by a test, and a
@@ -484,4 +504,6 @@ Plus one recorded drop: **`/branding` is not ported.**
 10. §7a is accurate: twenty rows, correct header count, correct delete-site
     inventories, every row still true.
 11. The cutover runbook exists and carries every line listed in C3.
-12. All four gates green, and e2e run deliberately and green.
+12. The reminder email carries a working call-to-action to `/app` in both its
+    HTML and plain-text halves.
+13. All four gates green, and e2e run deliberately and green.
