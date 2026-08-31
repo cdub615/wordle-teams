@@ -122,18 +122,31 @@ export function resolveNotificationUrl(rawData: unknown, origin: string): string
       ? (rawData as { url: string }).url
       : REMINDER_FALLBACK.url
 
-  const root = new URL('/', origin).href
+  // WHERE A REFUSED URL LANDS: the reminder's own destination, not the bare
+  // origin. `/` is not the dashboard any more — Phase 7 Task 1 moved it to
+  // `/app` — so `new URL('/', origin)` opens a not-found page today and the
+  // marketing landing after that, which is a sales page for a player who was
+  // just reminded to enter a board. convex/reminderEmails.ts answers the same
+  // question the same way for the reminder mail's link.
+  //
+  // THIS IS NOT A WEAKENING OF THE CLAMP. The security property is that a
+  // refused URL cannot navigate off our origin; it never depended on the
+  // destination being `/`. REMINDER_FALLBACK.url is a hardcoded same-origin
+  // relative path in this module, not attacker input, so resolving it against
+  // `origin` is exactly as safe as resolving `'/'` was — and the tests below
+  // assert every refusal is on our origin rather than that it is any
+  // particular path.
+  const clamped = new URL(REMINDER_FALLBACK.url, origin).href
 
   let target: URL
   try {
     target = new URL(requested, origin)
   } catch {
-    // `new URL` throws on input the parser cannot make sense of at all. The
-    // app's root is always a safe answer.
-    return root
+    // `new URL` throws on input the parser cannot make sense of at all.
+    return clamped
   }
 
   const sameOrigin = target.origin === origin
   const navigable = target.protocol === 'https:' || target.protocol === 'http:'
-  return sameOrigin && navigable ? target.href : root
+  return sameOrigin && navigable ? target.href : clamped
 }

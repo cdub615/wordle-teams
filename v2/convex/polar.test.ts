@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { convexTest } from 'convex-test'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
@@ -452,5 +453,42 @@ describe('lookupPortal', () => {
       result: { url: null, reason: 'no-customer' },
     })
     expect(asked).toEqual([])
+  })
+})
+
+describe('the URLs Polar returns the browser to', () => {
+  // NEITHER HAD COVERAGE OF ANY KIND. Both are interpolated from SITE_URL at
+  // call time inside an SDK call that no test drives, so changing either to
+  // `/` was green on lint, typecheck, `vitest run` and build — and the Task 13
+  // sandbox pass is the only thing that would ever have exercised them. They
+  // are read as source, the pattern src/lib/sw-push.test.ts uses for the push
+  // payload, because that literal is the artefact that ships.
+  //
+  // successUrl's other half is pinned from the consuming side, in
+  // src/lib/checkout-return.test.ts, against that module's CHECKOUT_PARAM.
+  const source = readFileSync(new URL('./polar.ts', import.meta.url), 'utf8')
+
+  /**
+   * The rest of the line the named URL is built on — `successUrl:` is a
+   * property, `returnUrl =` a local, hence the two-character class. Bounded to
+   * that one line, so a later, unrelated occurrence of the same path cannot
+   * satisfy the assertion.
+   */
+  const urlLine = (name: string) => {
+    const line = source.match(new RegExp(`\\b${name}\\s*[:=][^\\n]*`))
+    expect(line, `${name} not found in convex/polar.ts`).not.toBeNull()
+    return line![0]
+  }
+
+  test('checkout comes back to the dashboard, carrying its marker', () => {
+    expect(urlLine('successUrl')).toContain('/app?checkout=success')
+  })
+
+  test('the customer portal comes back to the dashboard', () => {
+    // `/app`, not the bare origin. Phase 7 Task 1 moved the dashboard off `/`
+    // and gave `/` back to the marketing landing, so a player leaving the
+    // portal would otherwise be dropped on a sales page.
+    expect(urlLine('returnUrl')).toContain('/app')
+    expect(urlLine('returnUrl')).toMatch(/\$\{siteUrl\(\)\}\/app`/)
   })
 })

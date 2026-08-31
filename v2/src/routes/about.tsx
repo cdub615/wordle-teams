@@ -10,6 +10,13 @@ import { pageTitle } from '#/lib/seo'
  * static-page walk, and the carousel dependency is explicitly not being carried
  * over (wt-ksh.12.5). What matters here is that the page says what the product
  * is, in the product's own words, rather than describing a starter template.
+ *
+ * THE E2E SUITE CANNOT START WITHOUT THIS PAGE. playwright.config.ts points its
+ * webServer readiness probe at /about, because `/` has no route until the
+ * marketing landing lands and Playwright reads a 404 as "not ready yet". If
+ * this route stops rendering without a session, every spec fails with
+ * `Timed out waiting for config.webServer` — which names the dev server, not
+ * this file. Changing what the page needs is fine; needing a session is not.
  */
 export const Route = createFileRoute('/about')({
   head: () => ({ meta: [{ title: pageTitle('About') }] }),

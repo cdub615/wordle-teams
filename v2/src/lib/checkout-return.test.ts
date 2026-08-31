@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { checkoutReturnUrl } from './checkout-return.ts'
+import { CHECKOUT_PARAM, CHECKOUT_SUCCESS, checkoutReturnUrl } from './checkout-return.ts'
 
 /**
  * THE RETURN LEG'S ONLY TESTABLE SURFACE. Everything else it does is a
@@ -11,7 +12,7 @@ import { checkoutReturnUrl } from './checkout-return.ts'
  * dashboard already carrying `?team=` and `?month=` at the moment of return.
  */
 
-const RETURN = 'https://wordleteams.com/app?checkout=success'
+const RETURN = `https://wordleteams.com/app?${CHECKOUT_PARAM}=${CHECKOUT_SUCCESS}`
 
 describe('checkoutReturnUrl', () => {
   test('a success marker is a return, and the marker is what goes', () => {
@@ -85,5 +86,39 @@ describe('checkoutReturnUrl', () => {
     // URLSearchParams.delete removes every occurrence; if it only dropped the
     // first, the reload case above would re-enter the pending state forever.
     expect(checkoutReturnUrl('https://wordleteams.com/?checkout=success&checkout=success')).toBe('/')
+  })
+})
+
+describe('the URL convex/polar.ts actually sends the browser back to', () => {
+  test("createProCheckout's successUrl is the input this module claims it is", () => {
+    // THE OTHER END OF THE CONTRACT, which had no coverage of any kind. The
+    // header of checkout-return.ts states as fact that polar.ts sets
+    // `successUrl` to `${siteUrl()}/app?checkout=success`, and everything here
+    // is built on that; but changing that literal to `/` was green on lint,
+    // typecheck, `vitest run` and build. e2e cannot reach it either —
+    // e2e/billing.spec.ts types `/app?checkout=success` in by hand precisely
+    // because no real checkout can be driven with POLAR_* unset — so nothing
+    // at all connected the two halves.
+    //
+    // Read as a string, the same pattern src/lib/sw-push.test.ts uses to pin
+    // the push payload against its server copy: importing convex/polar.ts
+    // would run its module scope, and the value is interpolated at call time
+    // from an env var anyway. The path and the marker come from the constants
+    // above rather than a second hardcoded copy, so this fails if EITHER side
+    // moves.
+    const polar = readFileSync(new URL('../../convex/polar.ts', import.meta.url), 'utf8')
+    const at = polar.indexOf('successUrl:')
+    expect(at, 'successUrl not found in convex/polar.ts').toBeGreaterThan(-1)
+
+    // Bounded to its own line. An unbounded slice would be satisfied by any
+    // later occurrence of the string — the false negative sw-push.test.ts had.
+    const line = polar.slice(at, polar.indexOf('\n', at))
+    expect(line).toContain(`/app?${CHECKOUT_PARAM}=${CHECKOUT_SUCCESS}`)
+
+    // And that URL, run through this module, is the dashboard with the marker
+    // gone — the whole return leg, end to end, from the sender's own literal.
+    expect(checkoutReturnUrl(`https://wordleteams.com/app?${CHECKOUT_PARAM}=${CHECKOUT_SUCCESS}`)).toBe(
+      '/app',
+    )
   })
 })

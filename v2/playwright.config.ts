@@ -15,7 +15,10 @@ export default defineConfig({
     // all until the marketing landing lands, so probing `/` did exactly that.
     // /about is chosen because it is a real rendered page that needs no session
     // — so this still proves the app SERVES, not merely that the port is open —
-    // and because it is not the route this phase is busy moving around.
+    // and because its PATH is not moving. The page itself is very much in this
+    // phase's way: Task 9 adds v1's eight product screenshots to it. That is
+    // fine for a probe, which only asks for a 200. See the note in
+    // src/routes/about.tsx.
     url: 'http://localhost:3000/about',
     reuseExistingServer: true,
   },
