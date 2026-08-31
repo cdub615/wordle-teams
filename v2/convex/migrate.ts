@@ -616,9 +616,18 @@ export const upsertWebhookEvents = internalMutation({
 export const purgeCopiedData = internalMutation({
   args: {
     confirm: v.literal('yes-delete-all-copied-data'),
-    // Convex caps a single function execution at 4096 reads, and the copied
-    // scope alone is ~7000 daily scores. So this deletes a bounded slice per
-    // call and reports whether more remains; the caller loops until done.
+    // WHAT CONVEX ACTUALLY BOUNDS PER FUNCTION EXECUTION: 32,000 documents
+    // scanned, 16 MiB of data read, and 4,096 index ranges — where that last
+    // figure is the number of calls to db.get and db.query, NOT the number of
+    // rows they return. This comment used to read "4096 reads" and that was a
+    // misreading of the index-range limit as a row limit (wordle-teams-b31).
+    //
+    // The batching stays, on the real numbers. The copied scope is ~7,000 daily
+    // scores and production ~8,700 rows in total, which fits under 32,000 today
+    // but is the same order of magnitude, dailyScores and webhookEvents only
+    // grow, and a mutation is bounded on writes as well as reads. So this
+    // deletes a bounded slice per call and reports whether more remains; the
+    // caller loops until done.
     batch: v.optional(v.number()),
   },
   handler: async (ctx, { batch = 800 }) => {
@@ -650,17 +659,15 @@ export const purgeCopiedData = internalMutation({
 // --- verification ------------------------------------------------------------
 
 /**
- * Row counts per table. Used by the copy script to report what it produced, and
- * by the Phase 7 parity spot-check (wt-ksh.2.9) to compare against Supabase.
- * Collecting whole tables is fine at this size — production is ~530 players and
- * ~171 teams — and will need revisiting only if that changes by an order of
- * magnitude.
- */
-/**
  * Everything the parity check needs from the small tables in one call.
- * Deliberately excludes daily scores: there are ~7000 of them in the scoped copy
- * alone, and Convex bounds reads per execution. Those go through
- * playerScoreFingerprint, one player at a time.
+ *
+ * Deliberately excludes daily scores. Convex bounds one function execution at
+ * 32,000 documents scanned and 16 MiB read — the separate 4,096 limit is on
+ * index ranges, i.e. the number of db.get/db.query calls, not rows — and there
+ * are ~7,000 daily scores in the scoped copy against a few hundred rows across
+ * the four tables collected here. Putting the largest and fastest-growing table
+ * in the same transaction as the small ones would spend that budget for nothing.
+ * Daily scores go through playerScoreFingerprint, one player at a time.
  */
 export const parityProbe = internalQuery({
   args: {},
@@ -700,8 +707,11 @@ export const parityProbe = internalQuery({
 
 /**
  * Per-player daily-score fingerprint. One player at a time so a big copy cannot
- * blow the per-execution read limit — production's heaviest player has a few
- * hundred boards, and the scoped set as a whole has ~7000.
+ * approach the per-execution read limit — Convex allows 32,000 documents scanned
+ * and 16 MiB read per execution, production's heaviest player has a few hundred
+ * boards, and the scoped set as a whole has ~7,000. The point of per-player is
+ * that the transaction stays proportional to ONE PLAYER rather than to the
+ * table, so it is still correct after the table has grown an order of magnitude.
  *
  * Returns a puzzleDay histogram rather than raw rows: it is small, it catches a
  * board landing on the wrong day (which is the whole point of puzzleDay), and it
@@ -731,14 +741,56 @@ export const playerScoreFingerprint = internalQuery({
   },
 })
 
-export const counts = internalQuery({
-  args: {},
-  handler: async (ctx) => ({
-    players: (await ctx.db.query('players').collect()).length,
-    teams: (await ctx.db.query('teams').collect()).length,
-    dailyScores: (await ctx.db.query('dailyScores').collect()).length,
-    monthlyWinners: (await ctx.db.query('monthlyWinners').collect()).length,
-    playerMembership: (await ctx.db.query('playerMembership').collect()).length,
-    webhookEvents: (await ctx.db.query('webhookEvents').collect()).length,
-  }),
+/**
+ * One page of a row count. The caller adds the pages up: call with cursor null,
+ * keep calling with the cursor it hands back, stop when isDone.
+ *
+ * REPLACED `counts`, which collected all six tables unbounded in a single query
+ * (wordle-teams-b31). That query was NOT failing — measured against beta it
+ * scans 7,136 documents against a 32,000 limit, and production is ~8,700 — and
+ * the issue's claim that it would "blow Convex's 4096-read cap" read the 4,096
+ * index-range limit (calls to db.get/db.query, of which `counts` made six) as a
+ * row limit. The real defect is dated rather than live: dailyScores and
+ * webhookEvents grow monotonically, so 32,000 arrives on the order of a year.
+ * `counts` is gone rather than kept alongside this, because an unsafe path left
+ * reachable is a path someone reaches for.
+ *
+ * PAGINATING INSIDE ONE QUERY WOULD HAVE FIXED NOTHING: every page would still
+ * be scanned by the same transaction and charged against the same 32,000. The
+ * count has to accumulate ACROSS transactions, which is why the loop belongs to
+ * the caller — the same shape purgeCopiedData above already uses. The shared
+ * loop lives in scripts/lib/count-tables.mjs so the three call sites agree.
+ *
+ * IT IS THEREFORE NOT A CONSISTENT SNAPSHOT, and `counts` was. Each page is its
+ * own transaction, so a row written between pages can be counted twice or not at
+ * all, and the six tables are read at six different instants. That is fine for
+ * what this is for — a verifier against a quiescent deployment, and a copy script
+ * that is the only writer — but it is a real property change. If you ever need
+ * counts that are consistent with each other, this is not the function.
+ *
+ * `table` is a union of literals rather than a string so a typo is a compile
+ * error at the call site instead of a runtime one mid-audit.
+ */
+export const countTable = internalQuery({
+  args: {
+    table: v.union(
+      v.literal('players'),
+      v.literal('teams'),
+      v.literal('dailyScores'),
+      v.literal('monthlyWinners'),
+      v.literal('playerMembership'),
+      v.literal('webhookEvents'),
+    ),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, { table, cursor }) => {
+    // 2,000 rows a page. Chosen against the two limits that actually bind: it is
+    // 16x under the 32,000-document scan limit, and it would need an 8 KiB row to
+    // reach the 16 MiB read limit, where the widest table here (dailyScores,
+    // carrying a guesses array) is a few hundred bytes. The whole of production
+    // is ~8,700 rows, so no table costs more than a handful of round trips —
+    // there is nothing to gain from paging closer to the edge.
+    const page = await ctx.db.query(table).paginate({ cursor, numItems: 2000 })
+    return { count: page.page.length, cursor: page.continueCursor, isDone: page.isDone }
+  },
 })

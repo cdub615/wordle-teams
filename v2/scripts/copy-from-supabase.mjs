@@ -41,6 +41,7 @@ import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
 import { selectCopyable } from './lib/copy-filters.mjs'
+import { readCounts } from './lib/count-tables.mjs'
 import {
   formatClobberReport,
   formatInsertReport,
@@ -311,18 +312,22 @@ const TABLES = [
 // no values. Not reached under --dry-run, which exits above.
 //
 // IT MUST NOT BE ABLE TO STOP THE COPY, which is what a bare top-level await
-// here would do. This is NOT a cheap query: internal.migrate.counts collects
-// every row of every table unbounded, and migrate.ts:573-576 records that Convex
-// caps one function execution at 4096 reads while the copied scope alone is
-// ~7000 daily scores — the reason purgeCopiedData next to it is batched. The
-// same query runs at the END of this script, where a failure costs the closing
-// summary of a copy that already succeeded. In FRONT of the writes an unhandled
-// failure costs the entire copy, at cutover, to protect a report about it. So it
-// degrades: the writes go ahead and the insert check announces that it did not
-// run, rather than the operator reading its silence as a clean bill of health.
+// here would do. readCounts is not one call: it walks each of the six tables a
+// page at a time (lib/count-tables.mjs) — about ten round trips at production's
+// size, since daily scores alone take four pages — and any one of them can fail
+// where a single query could only fail once. The same read runs at the END of this
+// script, where a failure costs the closing summary of a copy that already
+// succeeded. In FRONT of the writes an unhandled failure costs the entire copy,
+// at cutover, to protect a report about it. So it degrades: the writes go ahead
+// and the insert check announces that it did not run, rather than the operator
+// reading its silence as a clean bill of health.
+//
+// It is also not a consistent snapshot — the pages are separate transactions —
+// which is fine precisely here: nothing else is writing to the deployment during
+// a copy, and this reads before the copy's own writes begin.
 let countsBefore = null
 try {
-  countsBefore = await convex.query(internal.migrate.counts, {})
+  countsBefore = await readCounts(convex, internal)
 } catch (err) {
   console.log(`\n  Could not read the deployment's row counts before writing: ${err.message}`)
   console.log('  The copy continues. See the insert check below the write summary.')
@@ -373,6 +378,6 @@ console.log(`\n${formatClobberReport(talliesByTable)}`)
 const insertReport = formatInsertReport(talliesByTable, countsBefore)
 if (insertReport) console.log(`\n${insertReport}`)
 
-const counts = await convex.query(internal.migrate.counts, {})
+const counts = await readCounts(convex, internal)
 console.log('\nConvex now holds:')
 for (const [table, n] of Object.entries(counts)) console.log(`  ${table.padEnd(17)} ${n}`)

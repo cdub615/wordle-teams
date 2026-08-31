@@ -501,12 +501,16 @@ describe('formatInsertReport', () => {
   })
 
   test('says the check DID NOT RUN when the pre-write counts could not be read', () => {
-    // The failure this replaced: a bare top-level await on
-    // internal.migrate.counts, which collects every row of every table and can
-    // exceed Convex's 4096-read cap (migrate.ts:573-576). Unhandled, in front
-    // of the writes, that turned a failed REPORT into a failed COPY. So the
-    // script degrades to null here — and null may not print as silence,
-    // because silence is the first-copy answer and would read as an all-clear.
+    // The failure this replaced: a bare top-level await on the pre-write row
+    // counts. Those now come from lib/count-tables.mjs, which is about ten
+    // round trips rather than one query, so there is MORE to fail, not less.
+    // (The 4,096 figure this comment used to cite as a "read cap" was a
+    // misreading — it is Convex's limit on index ranges, i.e. calls to db.get
+    // and db.query; the document scan limit is 32,000. See wordle-teams-b31 and
+    // countTable in convex/migrate.ts.) Unhandled, in front of the writes, a
+    // failure there turned a failed REPORT into a failed COPY. So the script
+    // degrades to null here — and null may not print as silence, because
+    // silence is the first-copy answer and would read as an all-clear.
     expect(formatInsertReport({ teams: { inserted: 1, updated: 0 } }, null)).toBe(
       '  Insert check DID NOT RUN — the pre-write row counts could not be read, ' +
         'so a resurrected row would be unseen. wt-ksh.9 step 2.',

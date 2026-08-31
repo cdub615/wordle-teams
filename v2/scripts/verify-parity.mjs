@@ -31,6 +31,7 @@ import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
 import { expectedMemberCount, narrowToCopied } from './lib/verify-filters.mjs'
+import { readCounts } from './lib/count-tables.mjs'
 
 const args = process.argv.slice(2)
 const scope = (args.find((a) => a.startsWith('--scope=')) ?? '--scope=mine').split('=')[1]
@@ -89,8 +90,16 @@ console.log(
 const convex = new ConvexHttpClient(CONVEX_URL)
 convex.setAdminAuth(CONVEX_MIGRATION_KEY)
 console.log('Reading Convex...')
+// readCounts walks each table a page at a time and adds the pages up across
+// separate transactions, because a single query may not scan a table larger than
+// one transaction's budget (lib/count-tables.mjs). CONSEQUENCE WORTH KNOWING
+// BEFORE YOU BELIEVE A FAILURE HERE: unlike its predecessor these six numbers
+// are not one snapshot, so a row written to Convex WHILE this runs can be
+// counted twice or not at all. Run the audit against a deployment nobody is
+// writing to — which the cutover window already guarantees — and if a count is
+// off by one or two, re-run before believing it.
 const [counts, probe] = await Promise.all([
-  convex.query(internal.migrate.counts, {}),
+  readCounts(convex, internal),
   convex.query(internal.migrate.parityProbe, {}),
 ])
 
