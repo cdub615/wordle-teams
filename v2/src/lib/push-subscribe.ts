@@ -121,6 +121,23 @@ export type SubscribeResult =
   | { ok: false; reason: SubscribeFailureReason }
 
 /**
+ * Whether `error` is the Push API's InvalidStateError.
+ *
+ * BY `name`, NOT `instanceof DOMException`. The error crosses a realm boundary
+ * on its way out of the service worker container in some engines, and this
+ * suite runs under edge-runtime where the constructor identity is not the
+ * page's anyway — an `instanceof` check would quietly stop matching and take
+ * the recovery path below with it.
+ */
+function isInvalidStateError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { name?: unknown }).name === 'InvalidStateError'
+  )
+}
+
+/**
  * Subscribes this browser to push and returns the record to store.
  *
  * ONLY `{ ok: true }` MAY WRITE 'push' INTO reminderDeliveryMethods. Every
@@ -144,10 +161,42 @@ export async function subscribeToPush(
   // `userVisibleOnly: true` is not optional in Chromium — it rejects a
   // silent subscription outright — and it is honest here regardless: every
   // push this app sends shows a notification (src/sw.ts's `push` handler).
-  const subscription = await pushManager.subscribe({
+  const options = {
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(applicationServerKey),
-  })
+  }
+
+  let subscription: PushSubscriptionLike
+  try {
+    subscription = await pushManager.subscribe(options)
+  } catch (error) {
+    if (!isInvalidStateError(error)) throw error
+    // A SUBSCRIPTION FROM A PREVIOUS APPLICATION SERVER KEY IS IN THE WAY.
+    // The Push API rejects `subscribe()` with InvalidStateError when one
+    // already exists under a DIFFERENT applicationServerKey — so rotating
+    // VAPID_PUBLIC_KEY bricks the switch on every device that had ever
+    // subscribed, permanently: the rejection propagates to a generic "Failed
+    // to update delivery methods" toast, and the only escape is toggling OFF
+    // first, which nothing tells the player to do. The handoff already
+    // records that regenerating VAPID keys kills existing subscriptions
+    // silently; this is the client-side face of it.
+    //
+    // RETRY RATHER THAN COMPARE `subscription.options.applicationServerKey`:
+    // a matching key needs no reconciliation at all (the spec returns the
+    // existing subscription), so the common path stays a single call, and
+    // `PushSubscriptionOptions` is not carried by every engine that ships
+    // the rest of this API — a comparison against a missing value would
+    // either resubscribe every time or never.
+    //
+    // The stale row left in Convex is not orphaned: the endpoint stops
+    // resolving and pushSend.ts's 404/410 branch prunes it on the next send.
+    const stale = await pushManager.getSubscription()
+    if (stale) await stale.unsubscribe()
+    // Not caught again. A second InvalidStateError is not something a third
+    // attempt fixes, and it must reach the caller rather than be reported as
+    // a subscription that worked.
+    subscription = await pushManager.subscribe(options)
+  }
 
   const p256dh = subscription.getKey('p256dh')
   const auth = subscription.getKey('auth')
@@ -214,27 +263,28 @@ export async function unsubscribeFromPush(browser: PushBrowser): Promise<Unsubsc
 }
 
 /**
- * The five effects `applyPushToggle` needs. Injected rather than imported for
- * the same reason `PushBrowser` is: three of them are Convex mutations, which
- * no unit test in this repo can drive (convex-test cannot stand up a Better
- * Auth session — see convex/settings.ts), and the other two touch a browser
- * that does not exist under edge-runtime.
+ * What `applyPushToggle` needs: two RAW INPUTS and three mutations.
+ *
+ * `browser` AND `applicationServerKey` ARE VALUES, NOT PRE-BUILT CLOSURES, and
+ * that distinction is the whole point of this shape. 159eab4 passed `subscribe`
+ * and `unsubscribe` closures instead, which meant the decision "can this
+ * browser do push, and does that block turning it OFF?" was made in the
+ * component, in wiring no test could execute — so an exact revert of that
+ * commit's fix reintroduced the bug with the entire suite still green. The
+ * decision belongs in here, where it is reachable. The caller is left with
+ * three mutation functions and two values, which is wiring rather than policy.
+ *
+ * The three mutations stay injected because convex-test cannot stand up a
+ * Better Auth session (see convex/settings.ts), so a Convex mutation is not
+ * callable from any unit test in this repo.
  */
 export interface PushToggleEffects {
   /** The player's stored `reminderDeliveryMethods`, as loaded. */
   currentMethods: ReadonlyArray<string>
-  /**
-   * Subscribe this browser. Returns `{ ok: false, reason: 'unavailable' }`
-   * rather than throwing where there is no browser surface or no configured
-   * VAPID key — see the caller in notifications-tab.tsx.
-   */
-  subscribe(): Promise<SubscribeResult>
-  /**
-   * Tear the browser-side subscription down. MUST degrade to
-   * `{ endpoint: null, unsubscribeError: null }` where there is no browser
-   * surface, rather than refusing — see the ordering rules below.
-   */
-  unsubscribe(): Promise<UnsubscribeResult>
+  /** `null` on a browser that cannot do push at all — see `browserPush()`. */
+  browser: PushBrowser | null
+  /** `null` where this deployment has no VAPID key configured. */
+  applicationServerKey: string | null
   save(subscription: StoredSubscription): Promise<unknown>
   removeStored(endpoint: string): Promise<unknown>
   setMethods(methods: ReadonlyArray<string>): Promise<unknown>
@@ -245,44 +295,54 @@ export type PushToggleOutcome =
   | { ok: false; reason: SubscribeFailureReason }
 
 /**
- * The whole of the Push switch's policy, with every effect handed in.
+ * The whole of the Push switch's policy, with the browser handed in.
  *
- * EXTRACTED FROM THE HANDLER BECAUSE THE ORDERING *IS* THE RULE, and inside a
- * React event handler no test could reach it. Review of 58f0edf measured that
- * directly: swapping `save` and `setMethods`, and turning the failed-subscribe
- * early return into a fallthrough, BOTH left 859/859 green — and the second
- * mutant writes 'push' into a player's delivery methods when the subscription
- * failed, which is the single thing this switch exists to prevent. The e2e
- * cannot reach it either, since that spec asserts the switch is absent. This
- * is the third time this codebase has had to hand effects in to make a rule
- * testable, after `registerServiceWorker` and `decideLocalCapture`.
+ * EXTRACTED FROM THE REACT HANDLER BECAUSE THE ORDERING *IS* THE RULE, and
+ * inside an event handler no test could reach it. Review of 58f0edf measured
+ * that directly: swapping `save` and `setMethods`, and turning the
+ * failed-subscribe early return into a fallthrough, BOTH left 859/859 green —
+ * and the second writes 'push' into a player's delivery methods when the
+ * subscription failed, which is the single thing this switch exists to
+ * prevent. This is the fourth time this codebase has had to hand inputs in to
+ * make a rule testable, after `registerServiceWorker` and `decideLocalCapture`.
  *
  * TURNING PUSH ON — `subscribe`, then `save`, THEN `setMethods`, and any
  * failure before the last one returns or throws. 'push' in
  * reminderDeliveryMethods is a promise to the reminder sweep that a delivery
  * will work; writing it before the subscription is stored makes that promise
- * against something that does not exist yet, and writing it when `subscribe`
- * failed makes it against something that never will. A method the browser
- * will never honour is worse than no method.
+ * against something that does not exist yet, and writing it when the subscribe
+ * failed makes it against something that never will. A method the browser will
+ * never honour is worse than no method.
  *
- * TURNING PUSH OFF — NO EARLY RETURN EXISTS ON THIS PATH, deliberately, and
- * that is the fix for a real bug in 58f0edf. That version bailed out above
- * the on/off split whenever `browserPush()` returned null, so a player who
- * subscribed on their phone and later opened settings on a browser without
- * the Push API (an older iOS Safari, or any origin with site data blocked)
- * saw the switch checked, clicked it off, and got told the browser cannot do
- * push — while the method stayed in their row. The switch was unclearable
- * from that device. Removing the stored row and the method is server-side
- * work that has nothing to ask of the browser, so it happens regardless; the
- * browser-side teardown is the only part that can be skipped, and
- * `unsubscribe` reports that as `endpoint: null` rather than by refusing.
+ * TURNING PUSH OFF IGNORES BOTH `browser` AND `applicationServerKey`, and has
+ * no early return at all. That is the fix for a real bug in 58f0edf: that
+ * version bailed out above the on/off split whenever `browserPush()` returned
+ * null, so a player who subscribed on their phone and later opened settings on
+ * a browser without the Push API (an older iOS Safari, or any origin with site
+ * data blocked) saw the switch CHECKED — it reads the server's array, which
+ * still held 'push' — clicked it off, was told the browser cannot do push, and
+ * the method stayed. The switch was UNCLEARABLE from that device. Deleting the
+ * stored row and the method is server-side work with nothing to ask of the
+ * browser, so it happens regardless; only the browser-side teardown is skipped.
  */
 export async function applyPushToggle(
   enabled: boolean,
-  { currentMethods, subscribe, unsubscribe, save, removeStored, setMethods }: PushToggleEffects,
+  {
+    currentMethods,
+    browser,
+    applicationServerKey,
+    save,
+    removeStored,
+    setMethods,
+  }: PushToggleEffects,
 ): Promise<PushToggleOutcome> {
   if (enabled) {
-    const result = await subscribe()
+    // THE ONLY PLACE `browser` BLOCKS ANYTHING. Reported as 'unavailable'
+    // rather than thrown, so the caller can say something useful instead of
+    // showing the generic mutation-failure copy.
+    if (!browser || !applicationServerKey) return { ok: false, reason: 'unavailable' }
+
+    const result = await subscribeToPush(browser, applicationServerKey)
     if (!result.ok) return { ok: false, reason: result.reason }
     await save(result.subscription)
     // Rebuilt from the CURRENT array, never from scratch: 'email' lives in the
@@ -291,7 +351,10 @@ export async function applyPushToggle(
     return { ok: true, unsubscribeError: null }
   }
 
-  const { endpoint, unsubscribeError } = await unsubscribe()
+  // No browser is not a refusal here, it is simply nothing to tear down.
+  const { endpoint, unsubscribeError } = browser
+    ? await unsubscribeFromPush(browser)
+    : { endpoint: null, unsubscribeError: null }
   // Deleting the stored row is what actually stops delivery, so it happens
   // even when the browser-side unsubscribe rejected — see unsubscribeFromPush.
   if (endpoint) await removeStored(endpoint)

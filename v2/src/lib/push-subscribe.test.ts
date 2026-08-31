@@ -8,8 +8,6 @@ import {
   urlBase64ToUint8Array,
   type PushBrowser,
   type PushToggleEffects,
-  type SubscribeResult,
-  type UnsubscribeResult,
   type PushManagerLike,
   type PushSubscriptionLike,
 } from './push-subscribe.ts'
@@ -68,9 +66,15 @@ describe('urlBase64ToUint8Array', () => {
     expect(Array.from(urlBase64ToUint8Array('--__'))).toEqual([251, 239, 255])
   })
 
-  test('a real VAPID application server key decodes to 65 bytes starting 0x04', () => {
-    // An uncompressed P-256 point. The length is the check that matters:
-    // pushManager rejects a key of any other size with an opaque error.
+  test('a VAPID-shaped application server key decodes to 65 bytes starting 0x04', () => {
+    // SHAPED LIKE an uncompressed P-256 point, and deliberately not called a
+    // real one: fed to `crypto.createECDH('prime256v1').setPublicKey()` these
+    // bytes are rejected — "Failed to convert Buffer to EC_POINT" — so they
+    // are 65 bytes behind an 0x04 prefix but not a point on the curve.
+    // Verified 2026-08-30. That is fine, because the assertion is about SHAPE:
+    // pushManager rejects a key of any other length with an opaque error, and
+    // the length is what this pins. Do not try this value against a real push
+    // service.
     const key =
       'BEl6dxjbRhIu1yTPy0iBk7-5eXVc4RRTVEnJcO3vBBUvSHhVJfKvXFB0Q0Mv8G7lQ0d5r6ThPNmQ0lYqTmFRPjA'
     const bytes = urlBase64ToUint8Array(key)
@@ -92,10 +96,11 @@ describe('uint8ArrayToUrlBase64', () => {
     expect(encoded.length).toBe(342)
   })
 
-  test.each([1, 2, 3, 16, 65])('strips padding for a %i-byte input', (length) => {
-    // 1 and 2 mod 3 are the only lengths that pad at all; 16 (the `auth`
-    // secret) and 65 (the `p256dh` point) are the two this app actually
-    // encodes, and they land on 1 and 2 respectively.
+  test.each([1, 2, 16, 65])('strips padding for a %i-byte input', (length) => {
+    // ONLY LENGTHS THAT ACTUALLY PAD. 1 and 2 mod 3 are the only ones that do,
+    // so a 3-byte case would pass under a mutant that keeps the padding and
+    // would be pinning nothing. 16 (the `auth` secret) and 65 (the `p256dh`
+    // point) are the two this app really encodes, landing on 1 and 2.
     const encoded = uint8ArrayToUrlBase64(ALL_BYTES.slice(0, length))
     expect(isUrlSafe(encoded)).toBe(true)
   })
@@ -217,7 +222,10 @@ describe('subscribeToPush', () => {
   })
 
   test('no push manager reports unavailable rather than throwing', async () => {
-    // iOS Safari below 16.4, or a service worker that never became ready.
+    // A service worker that never became ready — `settledWithin` timed out.
+    // NOT iOS Safari below 16.4, which is the browser it is tempting to name
+    // here: that one has no `window.Notification` either, so `browserPush`
+    // returns null before a PushBrowser is ever built. See its comment.
     const browser = fakeBrowser({ pushManager: null })
     await expect(subscribeToPush(browser, KEY)).resolves.toEqual({
       ok: false,
@@ -356,28 +364,144 @@ describe('settledWithin', () => {
   })
 })
 
+
+const VAPID_KEY =
+  'BEl6dxjbRhIu1yTPy0iBk7-5eXVc4RRTVEnJcO3vBBUvSHhVJfKvXFB0Q0Mv8G7lQ0d5r6ThPNmQ0lYqTmFRPjA'
+
 /**
- * THE TESTS THIS BLOCK EXISTS FOR ARE THE TWO MUTANTS THAT SURVIVED 58f0edf.
- * When this logic lived inside the React handler, swapping `save` and
- * `setMethods`, and turning the failed-subscribe early return into a
- * fallthrough, BOTH left the whole 859-test suite green — and the second
- * writes 'push' into a player's delivery methods when the subscription failed,
- * which is the single thing the switch exists to prevent. The e2e cannot reach
- * it either: that spec asserts the switch is absent. Hence effect injection,
- * and hence assertions on ORDER rather than only on outcome.
+ * ROTATING VAPID_PUBLIC_KEY MUST NOT BRICK THE SWITCH. Per the Push API,
+ * `subscribe()` rejects with InvalidStateError when a subscription already
+ * exists under a DIFFERENT applicationServerKey — so every device that had
+ * ever subscribed would hit it after a rotation, the rejection would surface
+ * as the generic "Failed to update delivery methods", and the only escape
+ * (toggle off, then on) is one nothing tells the player about.
+ */
+describe('subscribeToPush — a subscription left by a previous VAPID key', () => {
+  function invalidState(): Error {
+    const error = new Error('Registration failed - existing subscription differs in options')
+    error.name = 'InvalidStateError'
+    return error
+  }
+
+  test('clears the stale subscription and subscribes again', async () => {
+    const calls: Array<string> = []
+    const stale = fakeSubscription({
+      endpoint: 'https://push.example/stale',
+      unsubscribe: vi.fn(async () => {
+        calls.push('stale.unsubscribe')
+        return true
+      }),
+    })
+    const fresh = fakeSubscription({ endpoint: 'https://push.example/fresh' })
+
+    let attempt = 0
+    const pushManager: PushManagerLike = {
+      subscribe: vi.fn(async () => {
+        attempt += 1
+        calls.push(`subscribe#${attempt}`)
+        if (attempt === 1) throw invalidState()
+        return fresh
+      }),
+      getSubscription: vi.fn(async () => {
+        calls.push('getSubscription')
+        return stale
+      }),
+    }
+
+    const result = await subscribeToPush(fakeBrowser({ pushManager }), VAPID_KEY)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.subscription.endpoint).toBe('https://push.example/fresh')
+    // The recovery order is the whole rule: find it, drop it, then retry.
+    expect(calls).toEqual(['subscribe#1', 'getSubscription', 'stale.unsubscribe', 'subscribe#2'])
+  })
+
+  test('retries even when there is no stale subscription to find', async () => {
+    // getSubscription can legitimately come back null — the engine rejected on
+    // internal state we cannot see. The retry must still happen rather than
+    // being gated on having found something to remove.
+    let attempt = 0
+    const fresh = fakeSubscription({ endpoint: 'https://push.example/fresh' })
+    const pushManager: PushManagerLike = {
+      subscribe: vi.fn(async () => {
+        attempt += 1
+        if (attempt === 1) throw invalidState()
+        return fresh
+      }),
+      getSubscription: vi.fn().mockResolvedValue(null),
+    }
+
+    const result = await subscribeToPush(fakeBrowser({ pushManager }), VAPID_KEY)
+    expect(result.ok).toBe(true)
+    expect(pushManager.subscribe).toHaveBeenCalledTimes(2)
+  })
+
+  test('any OTHER rejection is not retried — it propagates on the first attempt', async () => {
+    // NotAllowedError, a push service outage, an aborted registration. Retrying
+    // those would unsubscribe a perfectly good subscription for nothing.
+    const pushManager: PushManagerLike = {
+      subscribe: vi.fn().mockRejectedValue(new TypeError('push service unreachable')),
+      getSubscription: vi.fn().mockResolvedValue(null),
+    }
+
+    await expect(subscribeToPush(fakeBrowser({ pushManager }), VAPID_KEY)).rejects.toThrow(
+      'push service unreachable',
+    )
+    expect(pushManager.subscribe).toHaveBeenCalledTimes(1)
+    expect(pushManager.getSubscription).not.toHaveBeenCalled()
+  })
+
+  test('a SECOND InvalidStateError propagates rather than looping', async () => {
+    const pushManager: PushManagerLike = {
+      subscribe: vi.fn().mockRejectedValue(invalidState()),
+      getSubscription: vi.fn().mockResolvedValue(fakeSubscription()),
+    }
+
+    await expect(subscribeToPush(fakeBrowser({ pushManager }), VAPID_KEY)).rejects.toThrow(
+      'existing subscription differs',
+    )
+    expect(pushManager.subscribe).toHaveBeenCalledTimes(2)
+  })
+})
+
+/**
+ * THE TESTS THIS BLOCK EXISTS FOR ARE MUTANTS THAT SURVIVED EARLIER COMMITS.
+ *
+ * At 58f0edf this logic lived inside the React handler, and swapping `save`
+ * with `setMethods`, or turning the failed-subscribe early return into a
+ * fallthrough, BOTH left the whole 859-test suite green — the second writes
+ * 'push' into a player's delivery methods when the subscription failed, which
+ * is the single thing the switch exists to prevent.
+ *
+ * At 159eab4 the ordering moved here but `browser` reached this function as a
+ * pair of pre-built CLOSURES, so the decision "does a missing browser block
+ * turning push OFF?" was still made in the component. An exact revert of that
+ * commit's fix reintroduced the original bug with 869/869 green. `browser` and
+ * `applicationServerKey` are values now, so that decision is reachable — which
+ * is what the `browser: null` tests below actually pin.
+ *
+ * Hence assertions on ORDER, not only on outcome.
  */
 function recordingEffects({
+  currentMethods = ['email'],
+  browser = 'available',
+  applicationServerKey = VAPID_KEY as string | null,
   subscribeResult,
-  unsubscribeResult,
-  ...overrides
-}: Partial<PushToggleEffects> & {
-  // Given as RESULTS rather than as replacement functions, so the injected
-  // effect still records itself and the order assertions stay meaningful.
-  subscribeResult?: SubscribeResult
-  unsubscribeResult?: UnsubscribeResult
+  existing = fakeSubscription(),
+  unsubscribeRejects,
+}: {
+  currentMethods?: ReadonlyArray<string>
+  /** 'available' builds a recording fake; 'none' is `browser: null`. */
+  browser?: 'available' | 'none'
+  applicationServerKey?: string | null
+  /** Drives what the browser does, so the effect still records itself. */
+  subscribeResult?: 'granted' | 'denied' | 'no-keys'
+  existing?: PushSubscriptionLike | null
+  unsubscribeRejects?: Error
 } = {}): { effects: PushToggleEffects; calls: Array<string> } {
   const calls: Array<string> = []
-  // `vi.fn` around it, not a bare closure: the assertions below check both the
+  // `vi.fn` around each, not a bare closure: the assertions check both the
   // ORDER (via `calls`) and the ARGUMENTS (via `toHaveBeenCalledWith`), and
   // only a spy can answer the second.
   const record = <A extends Array<unknown>>(name: string, fn?: (...args: A) => unknown) =>
@@ -386,27 +510,43 @@ function recordingEffects({
       return await fn?.(...args)
     })
 
-  const effects: PushToggleEffects = {
-    currentMethods: ['email'],
-    subscribe: record(
-      'subscribe',
-      () =>
-        subscribeResult ?? {
-          ok: true as const,
-          subscription: { endpoint: 'https://push.example/xyz', p256dh: 'p', auth: 'a' },
-        },
-    ) as PushToggleEffects['subscribe'],
-    unsubscribe: record(
-      'unsubscribe',
-      () =>
-        unsubscribeResult ?? { endpoint: 'https://push.example/xyz', unsubscribeError: null },
-    ) as PushToggleEffects['unsubscribe'],
-    save: record('save'),
-    removeStored: record('removeStored'),
-    setMethods: record('setMethods'),
-    ...overrides,
+  const fresh = fakeSubscription({
+    endpoint: 'https://push.example/xyz',
+    p256dh: subscribeResult === 'no-keys' ? null : undefined,
+  })
+
+  const pushManager: PushManagerLike = {
+    subscribe: record('subscribe', () => fresh) as PushManagerLike['subscribe'],
+    getSubscription: record('getSubscription', () =>
+      existing === null
+        ? null
+        : {
+            ...existing,
+            unsubscribe: record('browser.unsubscribe', () => {
+              if (unsubscribeRejects) throw unsubscribeRejects
+              return true
+            }) as PushSubscriptionLike['unsubscribe'],
+          },
+    ) as PushManagerLike['getSubscription'],
   }
-  return { effects, calls }
+
+  return {
+    calls,
+    effects: {
+      currentMethods,
+      browser:
+        browser === 'none'
+          ? null
+          : fakeBrowser({
+              permission: subscribeResult === 'denied' ? 'denied' : 'granted',
+              pushManager,
+            }),
+      applicationServerKey,
+      save: record('save'),
+      removeStored: record('removeStored'),
+      setMethods: record('setMethods'),
+    },
+  }
 }
 
 describe('applyPushToggle — turning push ON', () => {
@@ -421,42 +561,66 @@ describe('applyPushToggle — turning push ON', () => {
     // ORDER, not merely membership. 'push' in reminderDeliveryMethods is a
     // promise to the reminder sweep that a delivery will work; writing it
     // before the subscription is stored makes that promise against a row that
-    // does not exist yet. Swapping the last two lines is a mutant the whole
-    // suite missed until this assertion existed.
+    // does not exist yet. Swapping the last two is a mutant the whole suite
+    // missed until this assertion existed.
     expect(calls).toEqual(['subscribe', 'save', 'setMethods'])
     expect(effects.save).toHaveBeenCalledWith({
       endpoint: 'https://push.example/xyz',
-      p256dh: 'p',
-      auth: 'a',
+      p256dh: uint8ArrayToUrlBase64(ALL_BYTES.slice(0, 65)),
+      auth: uint8ArrayToUrlBase64(ALL_BYTES.slice(100, 116)),
     })
     // Rebuilt from the current array — 'email' survives.
     expect(effects.setMethods).toHaveBeenCalledWith(['email', 'push'])
   })
 
-  test.each(['denied', 'unavailable', 'no-keys'] as const)(
+  test.each(['denied', 'no-keys'] as const)(
     'a %s subscribe writes NOTHING — not the row, and above all not the method',
-    async (reason) => {
+    async (subscribeResult) => {
       // THE RULE THE WHOLE TASK IS NAMED FOR. A method the browser will never
       // honour is worse than no method, so a failed subscribe must not reach
       // setMethods at all. Deleting the early return leaves the outcome
       // looking identical and this assertion is the only thing that notices.
-      const { effects, calls } = recordingEffects({ subscribeResult: { ok: false, reason } })
+      const { effects } = recordingEffects({ subscribeResult })
 
-      await expect(applyPushToggle(true, effects)).resolves.toEqual({ ok: false, reason })
+      const outcome = await applyPushToggle(true, effects)
+      expect(outcome.ok).toBe(false)
 
-      // `subscribe` ran; NOTHING after it did.
-      expect(calls).toEqual(['subscribe'])
       expect(effects.save).not.toHaveBeenCalled()
       expect(effects.setMethods).not.toHaveBeenCalled()
     },
   )
 
+  test('NO BROWSER refuses, without touching anything', async () => {
+    // The switch is only rendered where a VAPID key exists, but the browser
+    // reading it may still have no Push API at all.
+    const { effects, calls } = recordingEffects({ browser: 'none' })
+
+    await expect(applyPushToggle(true, effects)).resolves.toEqual({
+      ok: false,
+      reason: 'unavailable',
+    })
+    expect(calls).toEqual([])
+  })
+
+  test('NO VAPID KEY refuses rather than subscribing against "null"', async () => {
+    // The caller passes `vapidPublicKey ?? null` rather than asserting it
+    // non-null, and this is what makes that safe: a regression that let the
+    // switch render without a key cannot produce a subscription bound to a
+    // key nobody holds — which fails at DELIVERY, hours later, not here.
+    const { effects, calls } = recordingEffects({ applicationServerKey: null })
+
+    await expect(applyPushToggle(true, effects)).resolves.toEqual({
+      ok: false,
+      reason: 'unavailable',
+    })
+    expect(calls).toEqual([])
+  })
+
   test('a save that rejects propagates BEFORE the method is written', async () => {
     // The store failing is the same hazard as the subscribe failing: 'push'
     // must not be promised against a row that never landed.
-    const { effects } = recordingEffects({
-      save: vi.fn().mockRejectedValue(new Error('NO_PLAYER')),
-    })
+    const { effects } = recordingEffects()
+    effects.save = vi.fn().mockRejectedValue(new Error('NO_PLAYER'))
 
     await expect(applyPushToggle(true, effects)).rejects.toThrow('NO_PLAYER')
     expect(effects.setMethods).not.toHaveBeenCalled()
@@ -481,8 +645,13 @@ describe('applyPushToggle — turning push OFF', () => {
       unsubscribeError: null,
     })
 
-    expect(calls).toEqual(['unsubscribe', 'removeStored', 'setMethods'])
-    expect(effects.removeStored).toHaveBeenCalledWith('https://push.example/xyz')
+    expect(calls).toEqual([
+      'getSubscription',
+      'browser.unsubscribe',
+      'removeStored',
+      'setMethods',
+    ])
+    expect(effects.removeStored).toHaveBeenCalledWith('https://fcm.googleapis.com/fcm/send/abc123')
     // 'email' survives, symmetric with handleEmailToggle.
     expect(effects.setMethods).toHaveBeenCalledWith(['email'])
   })
@@ -495,12 +664,12 @@ describe('applyPushToggle — turning push OFF', () => {
     //
     // 58f0edf bailed out above the on/off split in that case and told them the
     // browser cannot do push. The method stayed in the row and the switch was
-    // UNCLEARABLE from that device. Removing the row and the method asks
-    // nothing of the browser, so it must happen regardless — this path has no
-    // early return at all now, and this is the test that keeps it that way.
+    // UNCLEARABLE from that device. 159eab4 fixed the behaviour but left the
+    // decision in a component closure, where reverting it went unnoticed by
+    // every test. `browser` is a VALUE now, so this test executes the decision.
     const { effects, calls } = recordingEffects({
       currentMethods: ['email', 'push'],
-      unsubscribeResult: { endpoint: null, unsubscribeError: null },
+      browser: 'none',
     })
 
     await expect(applyPushToggle(false, effects)).resolves.toEqual({
@@ -508,18 +677,29 @@ describe('applyPushToggle — turning push OFF', () => {
       unsubscribeError: null,
     })
 
-    // Nothing to delete server-side — there is no endpoint to name — but the
-    // METHOD goes, which is what actually stops the reminder sweep.
-    expect(calls).toEqual(['unsubscribe', 'setMethods'])
+    // Nothing to tear down and no endpoint to name — but the METHOD goes,
+    // which is what actually stops the reminder sweep.
+    expect(calls).toEqual(['setMethods'])
     expect(effects.removeStored).not.toHaveBeenCalled()
     expect(effects.setMethods).toHaveBeenCalledWith(['email'])
+  })
+
+  test('NO VAPID KEY does not block turning it off either', async () => {
+    // Same asymmetry, second input: a deployment that has just had its key
+    // removed must still let the people already subscribed switch off.
+    const { effects } = recordingEffects({
+      currentMethods: ['push'],
+      applicationServerKey: null,
+    })
+    await expect(applyPushToggle(false, effects)).resolves.toMatchObject({ ok: true })
+    expect(effects.setMethods).toHaveBeenCalledWith([])
   })
 
   test('a browser-side unsubscribe that failed still removes the row and the method', async () => {
     const failure = new Error('unsubscribe failed')
     const { effects, calls } = recordingEffects({
       currentMethods: ['push'],
-      unsubscribeResult: { endpoint: 'https://push.example/xyz', unsubscribeError: failure },
+      unsubscribeRejects: failure,
     })
 
     await expect(applyPushToggle(false, effects)).resolves.toEqual({
@@ -527,16 +707,19 @@ describe('applyPushToggle — turning push OFF', () => {
       unsubscribeError: failure,
     })
 
-    expect(calls).toEqual(['unsubscribe', 'removeStored', 'setMethods'])
+    expect(calls).toEqual([
+      'getSubscription',
+      'browser.unsubscribe',
+      'removeStored',
+      'setMethods',
+    ])
     expect(effects.setMethods).toHaveBeenCalledWith([])
   })
 
   test('off on a player who never had push is still a clean no-op write', async () => {
-    const { effects } = recordingEffects({
-      currentMethods: ['email'],
-      unsubscribeResult: { endpoint: null, unsubscribeError: null },
-    })
+    const { effects } = recordingEffects({ currentMethods: ['email'], existing: null })
     await applyPushToggle(false, effects)
+    expect(effects.removeStored).not.toHaveBeenCalled()
     expect(effects.setMethods).toHaveBeenCalledWith(['email'])
   })
 })

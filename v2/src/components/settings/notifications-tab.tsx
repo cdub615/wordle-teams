@@ -18,12 +18,7 @@ import {
 import { Separator } from '#/components/ui/separator.tsx'
 import { Switch } from '#/components/ui/switch.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
-import {
-  applyPushToggle,
-  browserPush,
-  subscribeToPush,
-  unsubscribeFromPush,
-} from '#/lib/push-subscribe.ts'
+import { applyPushToggle, browserPush } from '#/lib/push-subscribe.ts'
 import { canonicalTimeZone, TIME_ZONE_GROUPS } from '#/lib/time-zones.ts'
 import { useMediaQuery } from '#/lib/use-media-query.ts'
 import type { SubscribeFailureReason } from '#/lib/push-subscribe.ts'
@@ -225,37 +220,32 @@ export default function NotificationsTab() {
   }
 
   /**
-   * WIRING ONLY. Every rule this switch has lives in `applyPushToggle`
-   * (push-subscribe.ts), which takes its five effects as parameters so the
-   * ordering can be asserted — review of 58f0edf measured that two mutants in
-   * the version that lived here, one of which wrote 'push' after a FAILED
-   * subscribe, both left the whole suite green. What is left here is the three
-   * things a pure function cannot do: read the globals, own the pending flag,
-   * and turn an outcome into a toast.
+   * WIRING ONLY — three mutations and two values. Every rule this switch has
+   * lives in `applyPushToggle` (push-subscribe.ts).
    *
-   * NOTE THE ASYMMETRY IN THE TWO CLOSURES, which is where rule 3 is enforced
-   * from this side: `subscribe` reports 'unavailable' when there is no browser
-   * surface or no VAPID key, while `unsubscribe` DEGRADES to "nothing to tear
-   * down" instead. Turning push off must work on a browser that could never
-   * have turned it on — the row and the method are server-side and this device
-   * may be the only one the player still has.
+   * NOTHING HERE DECIDES ANYTHING, and that is deliberate rather than tidy.
+   * 159eab4 left the browser-availability decision in this file, inside two
+   * closures, and the code-quality review reintroduced the whole bug by
+   * reverting them with 869/869 still green — because no test in the suite
+   * could execute a closure defined in a React handler. `browser` and
+   * `applicationServerKey` are now passed as VALUES, so the asymmetry between
+   * on (blocked without a browser) and off (never blocked) is enforced where
+   * it can be asserted. What is left is the three things a pure function
+   * cannot do: read the globals, own the pending flag, and turn an outcome
+   * into a toast.
    */
   const handlePushToggle = async (checked: boolean) => {
     setPushPending(true)
     try {
-      const browser = browserPush()
       const outcome = await applyPushToggle(checked, {
         currentMethods: reminderDeliveryMethods,
-        // Not `vapidPublicKey!`: the switch only renders when this is a
-        // string, but a narrowing that lives in JSX is not one TypeScript can
-        // see here, and an assertion would turn a future regression into a
-        // subscription bound to the string "undefined".
-        subscribe: async () =>
-          browser && vapidPublicKey
-            ? await subscribeToPush(browser, vapidPublicKey)
-            : { ok: false, reason: 'unavailable' },
-        unsubscribe: async () =>
-          browser ? await unsubscribeFromPush(browser) : { endpoint: null, unsubscribeError: null },
+        browser: browserPush(),
+        // `?? null`, never `vapidPublicKey!`: the switch only renders when
+        // this is a string, but a narrowing that lives in JSX is not one
+        // TypeScript can see here, and an assertion would turn a future
+        // regression into a subscription bound to the string "undefined".
+        // applyPushToggle rejects the null rather than trusting this.
+        applicationServerKey: vapidPublicKey ?? null,
         save: (subscription) => savePushSubscription.mutateAsync(subscription),
         removeStored: (endpoint) => removePushSubscription.mutateAsync({ endpoint }),
         setMethods: (methods) => updateReminderMethods.mutateAsync({ methods: [...methods] }),
@@ -270,6 +260,11 @@ export default function NotificationsTab() {
         // is off. What survives is an inert browser-side subscription that the
         // next 'on' reuses. console.warn is what the eslint config leaves open
         // in src/ for exactly this (see register-sw.ts).
+        //
+        // THE ENDPOINT IS NOT LOGGED, and must not be added. A push endpoint
+        // is a capability URL: anyone holding it can send this player
+        // notifications until it expires. The console is copied into bug
+        // reports and read over shoulders.
         console.warn('Push unsubscribe failed locally; the stored subscription was removed', {
           message:
             outcome.unsubscribeError instanceof Error
