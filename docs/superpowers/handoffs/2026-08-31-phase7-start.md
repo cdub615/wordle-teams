@@ -31,8 +31,9 @@ route to `createProCheckout` (`team-picker.tsx:78`), rendered only when
 `atFreeLimit` (`team-picker.tsx:48`), so a player who is not already at the team
 cap cannot reach checkout at all.
 
-**Phase 6 is code-complete but three acceptance criteria need the owner and a real
-device** — see "What Phase 6 left for a human" below.
+**Phase 6 is CLOSED** as of 2026-08-31, verified on a real device — see the next
+section. It leaves one possible live safety item and `wt-ksh.7.32`, reparented
+here.
 
 **And there is a P1 that will break the audit itself:** `wordle-teams-b31`.
 `internal.migrate.counts` does six unbounded `.collect()` calls, one on
@@ -53,8 +54,8 @@ Resend and schedules a `'use node'` action for web push. A service worker makes
 the app installable, serves a static offline page, and evicts v1's serwist caches
 at cutover. A settings dialog gives players the controls all of that reads.
 
-Fourteen of fifteen tasks are closed or code-complete. **887 tests across 56
-files** (up from 705/43 at the phase's start), all four gates green, the full
+All fifteen tasks are closed. **887 tests across 56 files** (up from 705/43 at
+the phase's start), all four gates green, the full
 suite also green under `TZ=UTC`, and **e2e 22 passed**. Branch `feat/v2-replatform`
 is deployed and healthy on beta.
 
@@ -65,37 +66,29 @@ should *expect* to differ.
 
 ---
 
-## What Phase 6 left for a human — do these first, they close three issues
+## Phase 6 is CLOSED — the owner verified it on a real device
 
-**`wt-ksh.7.26` (the sweep) and `wt-ksh.7.28`/`wt-ksh.7.29` (push) cannot close on
-tests.** They need:
+**Confirmed 2026-08-31.** Wordle Teams installed as a PWA from beta, a reminder
+**email** arrived, and a **push** notification arrived and opened the app when
+tapped — **both deliveries from the hourly sweep**, not a manual trigger. That
+last detail is what makes it a phase acceptance rather than a component test: it
+proves the cron fired, eligibility was decided in the player's own timezone, the
+claim was written, and the fan-out reached both Resend and `pushSend.deliverTo`.
 
-1. **A real reminder email on beta.** On the **beta** Convex deployment set
-   `REMINDERS_ALLOWLIST` to your own address **first**, then
-   `REMINDERS_ENABLED=true`. Set your reminder time to the next hour with Email
-   on. Turn `REMINDERS_ENABLED` back off afterwards.
+It also resolves the ambiguity S2 left open, which no test could — see S2 below.
 
-   **The allowlist first, in the same sitting, is not a nicety.** Beta holds
-   copied production rows — real people who do not know this beta exists and who
-   already receive real reminders from v1. `E2E_TEST_MODE` is not set on beta, so
-   `sendEmail`'s throwaway filter suppresses nothing there. The env gate is the
-   **only** protection: the copy script carries `reminderDeliveryMethods` and
-   `timeZone` (`scripts/copy-from-supabase.mjs:151-155`), so the data alone is not
-   a second layer.
+**One safety item may still be live.** `REMINDERS_ENABLED` had to be set on beta
+for that verification. **Confirm it is back off, or that `REMINDERS_ALLOWLIST` is
+still narrowed to the owner's address**, before beta is left unattended. Beta
+holds copied production rows — real people who already receive reminders from v1
+— and `E2E_TEST_MODE` is not set there, so `sendEmail`'s throwaway filter
+suppresses nothing. The env gate is the only protection; the data is not a second
+layer, because the copy carries `reminderDeliveryMethods` and `timeZone`
+(`scripts/copy-from-supabase.mjs:151-155`).
 
-2. **A real push notification on a real phone**, and tapping it opens the app.
-   Turn the Push switch on in the settings dialog on beta.
-
-3. **Install to a phone home screen** from beta and confirm it opens standalone,
-   portrait.
-
-**Do not treat a 2xx from `webpush.sendNotification` as proof of delivery** — not
-in a comment, a test, or an acceptance check. A push service returns **201 without
-decrypting**, so a payload encrypted against the wrong `p256dh`/`auth` looks
-exactly like success from the server side. That is why criterion 4 requires a
-notification *rendering*.
-
----
+**Do not treat a 2xx from `webpush.sendNotification` as proof of delivery** in any
+future work — not in a comment, a test, or an acceptance check. A push service
+returns **201 without decrypting**.
 
 ## What the three spikes actually returned
 
