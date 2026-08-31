@@ -12,9 +12,9 @@ prompt. You do not need any previous conversation.
 Run `bd prime`. Then `bd show wt-ksh.8` (this phase's epic) and `bd show wt-ksh`
 (the re-platform epic). Phase 6's epic is `wt-ksh.7`.
 
-**Before planning any work, read the "Phase 7 is blocked on two phases" section
-below.** Two things are unfinished behind you, and one of them is a P1 that would
-fail the audit on its first query.
+**Before planning any work, read "What is still unfinished behind you" below.**
+Phase 5 never completed its verification, and one issue you may have heard called
+a blocking P1 turned out to rest on a misread limit.
 
 **Do not start building.** This project's global instructions require a planning
 gate: clarifying questions, scope boundaries, a Beads epic with the spec as its
@@ -22,7 +22,7 @@ body, child issues, and explicit owner approval before any code.
 
 ---
 
-## Phase 7 is blocked on two phases, not one
+## What is still unfinished behind you
 
 **Phase 5 never finished its verification.** `wordle-teams-02c` (Phase 5's closing
 task — divergences 8/12/13, sandbox verification, phase close) is still **open**.
@@ -34,14 +34,26 @@ cap cannot reach checkout at all.
 **Phase 6 is CLOSED** as of 2026-08-31, verified on a real device — see the next
 section. It leaves `wt-ksh.7.32`, reparented here.
 
-**And there is a P1 that will break the audit itself:** `wordle-teams-b31`.
-`internal.migrate.counts` does six unbounded `.collect()` calls, one on
-`dailyScores`, and Convex caps a function execution at 4096 reads.
-`verify-parity.mjs:59` calls it as its **first** query. At `--scope=all` — which is
-what this phase's audit runs — the verifier fails before comparing a single row.
-Beta already holds ~6950 daily scores. **Settle this before the audit, not during
-it.** Quickest first step: run `verify-parity.mjs` against beta and see whether it
-is already failing.
+**`wordle-teams-b31` is CLOSED, and its premise was wrong** — worth knowing,
+because the same misreading may sit in your head too. It claimed Convex "caps a
+single function execution at 4096 reads" and that the parity verifier would fail
+before comparing a row. Measured 2026-08-31 against beta: the old `counts`
+**succeeded**, scanning 7,136 documents. The real limits are **32,000 documents
+scanned**, **16 MiB read**, and **4,096 index ranges — which is the number of
+`db.get`/`db.query` calls, not rows.** `counts` made six.
+
+So the verifier was never broken. The real risk was milder and dated —
+`dailyScores` and `webhookEvents` grow monotonically, so 32,000 arrives in about
+a year — and it is now fixed: `counts` is replaced by `countTable`, which
+paginates, with `readCounts` in `scripts/lib/count-tables.mjs` looping **across
+transactions** (pagination *inside* one query would have fixed nothing, since it
+still scans everything in one transaction). Verified against beta at real scale:
+`dailyScores` spans four transactions and totals the same 6,951.
+
+**One property changed:** the old `counts` was a single transaction and therefore
+a consistent snapshot. The looped count is not — rows can change between pages.
+`verify-parity.mjs` says so at the call site. If a count is off by one or two,
+re-run before believing it.
 
 ---
 
@@ -184,8 +196,6 @@ Phase 7 should decide whether to fix or to document the exception.
 
 ## Open issues Phase 7 inherits
 
-- `wordle-teams-b31` (**P1**) — the parity verifier's first query exceeds Convex's
-  read cap at `--scope=all`. **Blocks the audit.**
 - `wordle-teams-02c` (P2) — Phase 5's unfinished close-out and sandbox pass.
 - `wordle-teams-6tp` (P2) — one upgrade entry point, gated behind the team cap.
 - `wt-ksh.7.32` (P1) — the copy script carries reminder settings; expected to
