@@ -562,6 +562,99 @@ Not a divergence, and worth stating so it is not filed as one: the midnight-wrap
 13. Divergences 14-18 are written into `docs/design-system/V2-ADDENDUM.md` §7a before the phase
     closes.
 
+## Acceptance Criteria — the walk, 2026-08-31
+
+Task 14's close-out. Every line below names the command that was run or the thing that was
+observed. **Nothing here is green by reasoning**, which is the failure mode this spec was written
+against; where the only available evidence was measured by somebody else it says so, with the
+date, and where a criterion cannot be met from a terminal it is left not-met rather than argued
+into green.
+
+Two criteria are recorded as something other than pass/fail — **2 is partially met** and **12 is
+written too broadly** — and neither is rounded up.
+
+| # | Verdict | Evidence |
+|---|---|---|
+| 1 | **GREEN** | All four gates run from inside `v2/`, sequentially, each redirected to its own file with `$?` read on the next line — never piped, because zsh's `PIPESTATUS` is empty and a piped check reports a false green. `pnpm lint` → 0. `pnpm typecheck` → 0. `pnpm test:once` → 0, **56 files / 887 tests passed**. `pnpm build` → 0, ending `[build-sw] wrote dist/client/sw.js — precaching 25 files, 1032.8 kB. Scope: / (served at /sw.js).` |
+| 2 | **PARTIAL** | The criterion asks for all three spikes answered **on beta, by command output**. Two were; one was not. **S1** (`wt-ksh.7.18`, `Intl` timezone support) was answered on the **LOCAL** backend, not beta — its own correction note of 2026-08-28 says so plainly, because `v2/.env.local` sets `CONVEX_DEPLOYMENT=anonymous:anonymous-v2` (confirmed here) so `convex run --prod` silently falls back to `127.0.0.1:3210`, and `convex run` cannot reach beta at all (`deployment:functions:runTestQuery` denied against `fabulous-goldfish-949`). The answer stands **for the purpose it served** — full ICU is present on that runtime binary, the local backend is the same binary, and Task 3 needed no redesign — but **beta's own ICU data is not independently established**. **S2** (`wt-ksh.7.27`) *was* answered on beta, by a dashboard probe against `fabulous-goldfish-949`: `{ ok: true, stage: "sent", statusCode: 201, env: { hasBuffer: true, … } }`. **S3** (`wt-ksh.7.19`) was answered, negatively, and confirmed over the wire on beta (`/sw.js` → 404 after the deploy, because `vite-plugin-pwa` emitted nothing). Two of three on beta, so: partially met |
+| 3 | **NOT MET — needs the owner** | No real reminder email has been sent on beta. `REMINDERS_ENABLED` and `REMINDERS_ALLOWLIST` are deliberately unset there (recorded in `wt-ksh.7.27`'s notes), and `sweep` claims nobody without them — pinned by *"claims nobody when `REMINDERS_ENABLED` is unset"* (`convex/reminders.test.ts:437`). This could not be re-verified from here either: `pnpm exec convex env list --prod` returned the **local** backend's four variables with `SITE_URL=http://localhost:3000`, which is the same anonymous-deployment fallback S1 hit. **Still needs:** the owner to set both variables on beta, with the allowlist narrowed to their own address, and to confirm the mail arrived at the right local hour with no Supabase URL in it |
+| 4 | **NOT MET — needs a real device** | No push notification has been delivered to a real phone from the reminder path. What *is* established is the layer beneath it: S2 got `statusCode: 201` from a real push service on beta, which means VAPID signing and AES128GCM encryption both executed on Convex's Node runtime. Whether the notification **renders**, and whether **tapping it opens the app**, is a property of the device and the worker's `notificationclick` handler and cannot be observed from a terminal. **Still needs:** the owner to subscribe on a phone against beta and receive one |
+| 5 | **GREEN** | `convex/reminders.test.ts:135`, *"skips a player already reminded earlier in their local day"*, and `:329`, *"a player matching twice in one day — the normal case, not an edge case — is reminded only once"*. Both passed in the `pnpm test:once` run above. The second is the one that matters: it is the double-match this design absorbs by claiming before it sends, not a hypothetical |
+| 6 | **GREEN** | `convex/reminders.test.ts:125`, *"skips a player who already entered today"*. Passed in the same run |
+| 7 | **GREEN** | Both directions, `convex/reminders.test.ts:155` *"on a Saturday, skips a player whose only team does not play weekends"* and `:164` *"on a Saturday, reminds a player on a team that does play weekends"*. Passed in the same run. Note that v2 asks the question in the **player's** zone where v1 asks it in the server's — see divergence 14 |
+| 8 | **GREEN** | `pnpm exec playwright test` against the local Convex backend on `127.0.0.1:3210`: **22 passed**, exit 0. Three of them cover this criterion directly — `e2e/settings.spec.ts:95` *"changing the reminder time and toggling Email each report success and persist"* (which does a real `page.reload()` and re-asserts), `:126` *"a time zone copied in its Postgres spelling displays correctly, and changing it persists"*, and `:28` *"the hamburger opens the menu, and each item opens the dialog on its own tab"*, which asserts the **Install Guide** tab reaches `data-state="active"`. The **Push** toggle is covered by `:223` in its absent-VAPID-key form only, which is the local backend's configuration |
+| 9 | **NOT MET — needs a real device** | Nothing about a home-screen install can be observed from a terminal. The preconditions are all in place and were checked here: `https://beta.wordleteams.com/manifest.json` → **200, `application/json`**, and beta's document head really does carry `<link rel="manifest" href="/manifest.json"/>` alongside `<meta name="theme-color" content="#0a0a0a"/>` — which is what `wt-ksh.7.1` was reopened for, since the manifest existed for weeks with nothing linking it. `/sw.js` → **200, `text/javascript`, `cache-control: public, max-age=0, must-revalidate`**. **Still needs:** the owner to install it on a phone and confirm it opens standalone rather than in a browser tab |
+| 10 | **GREEN — measured by the controller, 2026-08-29** | Verified in a real Chromium against beta via Playwright `context.setOffline(true)` followed by a navigation. Title was `Offline · Wordle Teams`; the body read *"You're offline — Wordle Teams needs a connection to load…"*. Both strings were re-checked here against `v2/public/offline.html`, which is the file that gets precached, and they match it. The same run found **no document in Cache Storage** (`text/html` entries excluding the offline page: none), exactly one service worker registration at scope `https://beta.wordleteams.com/`, and `caches.keys()` = `["workbox-precache-v2-https://beta.wordleteams.com/"]`. The precache entry is `{"revision":"c45b981fdce28ce1857bb2bf6940a8ca","url":"offline.html"}`, confirmed unchanged in the build output here — `v2/public/offline.html` has not been touched since `f71d183`. **One correction:** the size is **3781 bytes**, not 3779 — that is what the file measures on disk and what `https://beta.wordleteams.com/offline.html` returns over the wire today. (That URL 307s to `/offline` before serving; irrelevant to the criterion, since the worker serves the page from the precache and never asks the network) |
+| 11 | **GREEN** | `convex/e2ePrune.test.ts`, the three tests under `describe('push subscriptions')` at `:335` — all of an e2e player's subscriptions counted and deleted, a non-e2e player's subscription surviving, and the dry run predicting the exact count the write then deletes. Plus `:169`/`:181`, where `pushSubscriptionsDeleted` is `1` and the table is empty after a full-player prune, and `:240`/`:251`, where a real player's subscription is not collateral damage. All passed in the `pnpm test:once` run |
+| 12 | **WRITTEN TOO BROADLY — not passed, and not failed** | See the section below. As written the criterion is **false**, and it was false before this phase began |
+| 13 | **GREEN** | Divergences 14-18 are in `docs/design-system/V2-ADDENDUM.md` §7a, the section header's count is updated from thirteen to eighteen, the two owner-approved divergences from *this phase's own plan* (commit `79bda50`) are recorded beneath the table, and the midnight-wrapping hour window is recorded in the same section's non-divergence list. Every file path, line number and figure written into that section was verified against source while writing it |
+
+### Criterion 12 is false as written, and the real rule is narrower
+
+The criterion says *"No Convex function throws a plain `Error`; every thrown failure is a
+`ConvexError` via `accessError`."* `grep -rn "throw new Error" convex/*.ts convex/lib/*.ts` returns
+**eleven** sites in non-test modules:
+
+| Site | Condition | Reachable by a caller? |
+|---|---|---|
+| `convex/auth.ts:18` | `SITE_URL` unset | No — module scope, fails the deploy |
+| `convex/email.ts:59` | `sendEmail` given no recipients | No — a caller bug, not an input |
+| `convex/billing.ts:574` | unhandled `MembershipEffect` | No — a `never` exhaustiveness check |
+| `convex/polar.ts:129` | required `POLAR_*` variable missing | No — user-facing actions call `polarEnvProblem()` first |
+| `convex/polar.ts:205` | `POLAR_SERVER` names neither instance | No — same |
+| `convex/polar.ts:270` | `SITE_URL` unset | **Yes, in one of two callers** — see below |
+| `convex/teams.ts:686` | `SITE_URL` unset | **Yes** — inside the `invitePlayer` mutation |
+| `convex/reminders.ts:102` | `SITE_URL` unset | No — cron only, deliberately hoisted above the claim loop |
+| `convex/e2eSeed.ts:37`, `:119` | not in E2E test mode | No — e2e-only modules |
+| `convex/testOtps.ts:37` | not in E2E test mode | No — same |
+
+Most of these predate Phase 6. `convex/reminders.ts:102` is this phase's, and it is deliberate.
+
+**The rule the codebase actually follows** — and the one worth writing down in place of the
+criterion — is:
+
+> Anything **a caller sees** must be a `ConvexError` carrying a code, via `accessError`.
+> Operator-facing failures with no user-facing caller correctly use a plain `Error`, so that they
+> fail loudly in the logs.
+
+That distinction is load-bearing rather than stylistic, and for a reason this repo has already
+been bitten by: a plain `Error`'s message is **redacted in production**, while `convex-test`
+**never** redacts — so a test can read a message the user will never see, and no test can catch
+the mistake of putting a user-actionable sentence in a plain `Error`. `ConvexError`'s `data`
+survives redaction, which is why every code the UI switches on travels that way.
+
+**Two user-facing paths do violate the real rule**, both conditioned on exactly one thing —
+`SITE_URL` missing from a live deployment:
+
+- `convex/teams.ts:686`, inside the `invitePlayer` **mutation**. The check is at the top level of
+  the handler, so the plain `Error` propagates to the client.
+- `convex/polar.ts:270` via `getCustomerPortalUrl`, where `const returnUrl = siteUrl()` at
+  `:653` sits **outside** every `try` in the handler. The other caller, `createProCheckout`, is
+  safe by accident of placement: its `siteUrl()` call at `:431` is *inside* the try, so the
+  failure is caught and returned as `{ url: null, reason: 'error' }` rather than thrown.
+
+Neither is triggerable by user input — both require an operator to have removed `SITE_URL` from a
+running deployment, which `convex deploy` itself will not let you ship into (`auth.ts:18` throws at
+module scope). In that state the user sees a redacted server error and the operator sees the real
+message in the logs, which is arguably the intended outcome. But it **is** an exception to the
+rule as stated, it is not currently written down anywhere, and the audit should know it exists
+rather than discovering it. Filing it is Phase 7's call, not a Phase 6 fix.
+
+### What still needs the owner
+
+Three criteria cannot close from a terminal, and none of them should be marked green on anyone's
+reasoning:
+
+1. **Criterion 3** — set `REMINDERS_ENABLED=true` and a single-address `REMINDERS_ALLOWLIST` on
+   beta, wait for the hour, and confirm the email arrives at the right local time with no
+   Supabase URL in it. Both variables are deliberately unset today.
+2. **Criterion 4** — subscribe on a real phone against beta, receive one push, and tap it.
+3. **Criterion 9** — install from beta to a phone home screen and confirm it opens standalone.
+
+`wt-ksh.4`'s done-when — the owner's side-by-side comparison on a real phone — is in the same
+category and is **not** closed by this task.
+
+
 ## Task Breakdown
 
 Sequential unless noted. One implementer per task, reviewed before closing, and reviewers run

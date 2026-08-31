@@ -303,7 +303,7 @@ asserting that no letter is ever lit more times than it appears in the answer.
 
 ## 7a. The full divergence list for Phase 7's parity audit
 
-**Thirteen known differences from production, all deliberate. Anything else the
+**Eighteen known differences from production, all deliberate. Anything else the
 audit finds is a bug.**
 
 | # | Divergence | Added | Why |
@@ -322,6 +322,11 @@ audit finds is a bug.**
 
 | 12 | A downgrade never deletes an occupied team | Phase 5 (`wordle-teams-stf`) | v1's `handle_downgrade_team_removal` keeps 2 teams and then **DELETES the teams the downgraded player created** beyond the keep list — taking every other member's scores and monthly-winner history with them. A billing event on one account destroying a third party's data is not behaviour worth porting. v2 keeps 2 (owner-held first, then oldest), removes the player from the rest, **reassigns `owner` to the earliest-joined remaining member** on a team they owned and left, and deletes only a team nobody is left in — through `cascadeDeleteTeam`, so its `monthlyWinners` and `scoringSystems` go with it rather than being orphaned. Ported from `20240501193430`, **not** the `20240501191728` the plan first named: that earlier version's `id != any(teams_to_keep)` is true whenever id differs from *at least one* element, so with two kept ids **every** id qualifies and it deletes the teams it just decided to keep. Only bites a player owning 3+ teams. This is also why `teams.creator` was renamed to `teams.owner` — reassignment makes "creator" plainly false |
 | 13 | A failed webhook is retried instead of swallowed | Phase 5 (`wordle-teams-p8m`) | v1's replay guard keys on **"a row exists for this webhook id"**. It inserts before processing, and `markProcessed` sets `processed: true` *along with* the error — so a failure returns 500, Polar retries, the retry hits the unique index, is mapped to `duplicate`, and is answered **200**. The event is lost permanently, recorded as processed with an error string. v2 keys the guard on **`processed`**, and writes the failure row from a **separate** mutation outside the rolled-back transaction — Convex mutations are transactional, so the rollback that makes v2 correct would otherwise erase the evidence too. A row that exists but failed is picked up and finished. Pinned by a control that reproduces v1's exact bug: guarding on row existence fails precisely one test, *"a previously FAILED event IS reprocessed on redelivery"*, while the duplicate test correctly stays green |
+| 14 | The weekend rule is evaluated in the player's zone, not the server's | Phase 6 (`wt-ksh.7.20`) | v1's live `get_players_for_reminder` asks `EXTRACT(DOW FROM CURRENT_DATE) NOT IN (0, 6)` (`supabase/migrations/20250416172516_limit_daily_reminders.sql:17`). `CURRENT_DATE` is the **database server's** date, so "is it the weekend" is answered once in UTC and then applied to every player wherever they are. In `Australia/Sydney` that is wrong for the first ten or eleven hours of the local day, twice a week and in opposite directions: on their Saturday morning UTC still reads Friday, so a `playWeekends: false` player **is** reminded; on their Monday morning UTC still reads Sunday, so the same player is **suppressed** on a working day. `Pacific/Honolulu` gets the mirror image. v2 asks `needsWeekendOptIn(localDay)` (`v2/convex/lib/reminders.ts:176-178`) against the day resolved in the player's own `timeZone`. **This is the same defect class `puzzleDay` was created to fix.** Measured at planning time, from production, and not re-run for this row: **733 of production's 7468 score rows fall on a different calendar day in UTC than in `America/Chicago`, across 57 distinct player timezones** (581 of them also differ from the player's own zone) — recorded at `v2/convex/schema.ts:176-191`. Pinned by *"on a Saturday, skips a player whose only team does not play weekends"* and *"on a Saturday, reminds a player on a team that does play weekends"* (`v2/convex/reminders.test.ts:155,164`). Note that v1's **"did they enter today"** clause is already correct — lines 7-9 apply `AT TIME ZONE p.time_zone` on both sides — so two of v1's three day-resolutions are wrong here, not all three |
+| 15 | The ten-day activity window is evaluated in the player's zone, not the server's | Phase 6 (`wt-ksh.7.20`) | The same function, seven lines down: `ds.date >= CURRENT_DATE - INTERVAL '10 days'` (`supabase/migrations/20250416172516_limit_daily_reminders.sql:24`) builds the floor from the **server's** date and compares it against a raw `timestamptz`, so both sides of the window land in UTC for a player in every zone. v2's `hasRecentActivity` derives the floor with `addDays(localDay, -10)` from the day resolved in the player's own zone and compares `puzzleDay` strings — the day the player was living in when the board was entered — so nothing is re-resolved on either side (`v2/convex/lib/reminders.ts:162-165`). Same planning-time measurement as row 14, and the same caveat: it was taken during planning, not re-run here. The effect is small and one-sided — a player dormant for close to ten days is dropped or reinstated a day early depending on the sign of their offset — but it is the difference between being reminded and not. Both edges are pinned: *"a score exactly ten days old still counts as recent activity"* and *"a score eleven days old is too old to count"* (`v2/convex/reminders.test.ts:277,286`) |
+| 16 | `lastBoardEntryReminder` is written **before** delivery, not after | Phase 6 (`wt-ksh.7.26`) | v1 stamps it after the send and only if the send worked: `src/app/api/process-board-entry-reminder/route.ts` triggers Novu at lines 32-49, returns **500 without stamping** if that throws (line 47), and calls `update_last_board_entry_reminder` at line 52. v2's `sweep` patches the claim unconditionally, in the same transaction that decided eligibility, before anything is sent or scheduled. **This is not tidiness — it is the only thing between the majority of players and two emails a day.** Both bounds of the hour window are inclusive in v1 (`...20250416172516_limit_daily_reminders.sql:11-12`) and in the port (`isDueThisHour`, `v2/convex/lib/reminders.ts:130-136`), and the cron ticks at `minuteUTC: 0` (`v2/convex/crons.ts:22`) — so in any whole-hour-offset zone an on-the-hour reminder satisfies the **upper** bound on one tick and the **lower** bound on the next. Measured over 399 days: **7182 double-matches per zone**, which is exactly 18 reminder times × 399 days, in each of `America/Chicago`, `Australia/Sydney`, `Europe/London` and `Pacific/Honolulu` (28,728 across the four — the 7182 is **per zone**, not the total); **zero** in half-hour zones such as `Asia/Kolkata`; and **nobody was ever missed**, including across DST transitions. `alreadyRemindedToday` absorbs every one of those duplicates and can only do so if the stamp is already there. Pinned by *"a player matching twice in one day — the normal case, not an edge case — is reminded only once"* and by *"claims a player even when `sendEmail` reports every recipient was suppressed"* (`v2/convex/reminders.test.ts:329,345`). The one deliberate exception is hoisted **above** the per-player loop rather than being a conditional inside it: a missing `SITE_URL` throws before anybody is claimed, so the whole transaction rolls back and everyone matches again on the next tick (`v2/convex/reminders.ts:100-103`), pinned by *"a due player is not claimed when SITE_URL is unset"* (`reminders.test.ts:518`) |
+| 17 | Web push actually delivers | Phase 6 (`wt-ksh.7.27`, `wt-ksh.7.28`, `wt-ksh.7.29`, `wt-ksh.7.30`) | **This is not "v2 fixed a bug" — v1 never built the feature**, and the audit must not go looking for a production behaviour to compare against. All four halves are missing, each verified against the v1 files in this repo: the subscribe route returns `{ message: 'Subscription successful' }` on its **first statement**, with every line that would have done something commented out beneath it (`src/app/api/subscribe/route.ts:5`); the button that posts to it passes the literal string `'YOUR_PUBLIC_VAPID_KEY'` as `applicationServerKey` (`src/components/push-subscribe-button.tsx:15`), which cannot produce a subscription in any browser; the Push switch is commented out of the reminders UI (`src/components/app-bar/board-entry-reminders.tsx:121-134`), so the setting is unreachable; and only the **email** workflow was ever registered with Novu — `serve({ workflows: [BoardEntryReminderEmailWorkflow] })` (`src/app/api/novu/route.ts:5`). So a production player holding `reminder_delivery_methods: ['push']` — and copied rows carry that value — is silently notified by no channel at all. v2 stores real subscriptions (`v2/convex/push.ts`), signs and encrypts through `web-push` under `'use node'` (`v2/convex/pushSend.ts`), schedules one delivery per push-eligible player from the same sweep, and prunes an endpoint on 404/410. Established on beta **before** anything was built on it, by spike S2 (`wt-ksh.7.27`) against `fabulous-goldfish-949`: `{ ok: true, stage: "sent", statusCode: 201, env: { hasBuffer: true, … } }`. `hasBuffer` is `false` on Convex's default runtime, so the `'use node'` directive is load-bearing rather than precautionary |
+| 18 | Navigations are never cached, and there is one static offline page | Phase 6 (`wt-ksh.7.30`, `wordle-teams-bpt`) | v1 hands serwist's `defaultCache` straight to `runtimeCaching` (`src/app/sw.ts:20`). That array's HTML rule matches on **`request.headers.get('Content-Type')`** — the *request's* content type, which a navigation `GET` has no body to set — so the rule is dead code and its `pages` cache is permanently empty. Every same-origin document falls through instead to the catch-all (`sameOrigin && !pathname.startsWith('/api/')`), handled by `NetworkFirst` into a cache named `others` with `maxEntries: 32`. The consequence is not theoretical: **one user's rendered `/me` dashboard sits in Cache Storage for up to 24 hours**, and on a shared device an offline load can serve it to the next person after sign-out — v1's sign-out path has no cache teardown. v2 registers a `NavigationRoute` wrapping `NetworkOnly` (`v2/src/sw.ts:172-174`), a strategy with no `cachePut` path at all, so a document cannot reach Cache Storage even in principle; its `handlerDidError` serves a precached, self-contained `v2/public/offline.html` resolved through `matchPrecache`, because the precache key is revisioned and a plain `caches.match('/offline.html')` would miss at exactly the moment nobody is watching. The precache glob is narrowed to `['assets/**/*.{js,css}', 'offline.html']` (`v2/scripts/build-sw.mjs:269`), so a future prerendered document cannot silently start being cached either. Verified in a real Chromium against beta on 2026-08-29: `caches.keys()` returned only `["workbox-precache-v2-https://beta.wordleteams.com/"]`, Cache Storage held no `text/html` entry other than the offline page, and exactly one service worker was registered at scope `https://beta.wordleteams.com/`. **v1 is still affected in production and is not being fixed there** — v2's worker is the kill switch: its `activate` deletes every cache it does not own, including `serwist-precache-v2-*`, `others` and `pages-*`, unit-tested against serwist 9.2.1's real cache names in `v2/src/lib/sw-caches.test.ts` |
 
 Two Phase 5 notes that are **not** divergences, recorded because they look like
 ones. Identity resolution accepts **both** id namespaces — a Convex `Id` and a
@@ -342,6 +347,43 @@ route-by-route comparison will meet them; 7 and 8 will not show up that way at
 all, and take a look at the copied row counts and an invite to a third team
 respectively. All four invite outcomes are pinned by `v2/e2e/invites.spec.ts`,
 which is the only automated coverage the invite UI has at any layer.
+
+Of the Phase 6 five, **only 18 is visible in a browser**, and only with DevTools
+open on Cache Storage. 14, 15 and 16 live entirely inside an hourly cron and
+cannot be reached from any UI — exercising them takes a player row in a
+non-UTC zone, a reminder time an hour out, and a clock. 17 has no v1 behaviour
+to compare against at all, so the audit must check that push *works*, not that
+it matches.
+
+**Two more, which diverge from Phase 6's own plan rather than from v1.** Both
+were raised by Task 11's code-quality review and approved by the owner on
+2026-08-28; both shipped in commit `79bda50`. They are recorded here because
+the audit's expectations come from this list, and the plan says something
+different:
+
+- **`removePushSubscription` is scoped to the calling player, not merely
+  authenticated.** The plan had it run `requirePlayer` and then discard the
+  result, so any signed-in player holding somebody else's endpoint could delete
+  that row — and, paired with `saveSubscriptionFor`'s **deliberate**
+  reassignment of an endpoint to whoever last saved it (`v2/convex/push.ts:55-61`,
+  which exists so a shared device migrating between accounts on sign-in works),
+  re-point it at themselves: the victim's device would then receive the
+  attacker's reminders and stop receiving their own. `removeByEndpointFor` now
+  takes the `playerId` and deletes only on a match
+  (`v2/convex/push.ts:83-105`). **Absent and "present but not yours" are both
+  silent no-ops, not throws, and that symmetry is the point**: a throw on "not
+  yours" would let a caller tell a non-existent endpoint apart from someone
+  else's, one call at a time, which is a probe. The no-op on absent is
+  unchanged — it is what makes the 410 cleanup race with sign-out safe.
+- **`savePushSubscription` rejects an endpoint that is not a parseable `https:`
+  URL**, through the new `INVALID_PUSH_ENDPOINT` access code
+  (`v2/convex/access.ts:51`) and its case in `v2/src/lib/convex-error.ts:129`.
+  The plan stored the endpoint unvalidated, and `pushSend.ts` hands it to
+  `webpush.sendNotification`, which `https.request`s whatever host it parses
+  out — a blind SSRF primitive with an attacker-chosen destination, fired
+  from a daily cron. The check lives in `saveSubscriptionFor`
+  (`v2/convex/push.ts:44`) rather than at the public mutation, so every writer
+  inherits it, and the rejected value is never logged or echoed back.
 
 Not divergences from v1, but recorded because they look like ones:
 
@@ -373,6 +415,20 @@ Not divergences from v1, but recorded because they look like ones:
 - **`NO_PLAYER` says "Finish setting up your profile", not "Your session
   expired".** The code and the condition are unchanged; only the copy, which was
   describing the wrong problem.
+- **The reminder hour window still cannot be satisfied when it spans midnight.**
+  v1's `reminder_delivery_time <= (now)::time AND >= (now - 1 hour)::time`
+  (`supabase/migrations/20250416172516_limit_daily_reminders.sql:11-12`) is
+  unsatisfiable across midnight, because the lower bound wraps to `23:xx` while
+  the upper stays at `00:xx`, and `isDueThisHour` ports that arithmetic
+  unchanged (`v2/convex/lib/reminders.ts:130-136`). It is **deliberately not
+  fixed**: the picker offers exactly eighteen times, `05:00:00` through
+  `22:00:00` (`src/components/app-bar/board-entry-reminders.tsx:86-103`, and
+  `REMINDER_TIMES` in `v2/convex/lib/reminders.ts:39-42`, which the settings UI
+  renders from and the server validates against), so no reachable value spans
+  midnight in either version. Leaving it alone keeps the ported rule comparable
+  with production; it is pinned in `v2/convex/reminders.test.ts` so that
+  widening the picker fails loudly instead of quietly dropping reminders. Fixing
+  it is listed as out of scope in the Phase 6 spec.
 
 ---
 
