@@ -35,7 +35,7 @@
  * written to fix, and MIGRATION.md claims 4.6:1 for it. Renamed here to
  * --accent-solid-foreground so both survive.
  *
- * FOUR VALUES DEVIATE FROM tokens.json ON PURPOSE. Do not "restore" them.
+ * FIVE VALUES DEVIATE FROM tokens.json ON PURPOSE. Do not "restore" them.
  * MIGRATION.md's contrast table does not match the bundle's own hex values —
  * 5 of 7 pairs are wrong in light, 6 of 7 in dark — and three pairs missed
  * WCAG AA for the text sizes they are actually used at. Measured, then fixed:
@@ -44,13 +44,38 @@
  *   --accent-solid   light  #16a34a -> #15803d   3.30 -> 5.02 on white
  *   --text-subtle    light  #9f9fa8 -> #767680   2.52 -> 4.31
  *   --danger         dark   #ef4444 -> #dc2626   3.76 -> 4.83 on white
+ *   --text-muted     light  #71717a -> #6b6b74   4.40 -> 4.80 on
+ *                                                --surface-sunken
  *
  * Six of the seven reference pairs now clear AA (4.5:1) in BOTH themes.
- * text-subtle is the exception at 4.31 light / 4.18 dark: it cannot reach 4.5
- * and still read as a rank below text-muted, which is itself only 4.63. Treat
- * it as large-text/decorative. Anything normal-sized that must be legible —
- * N/A cells, timestamps — should use text-muted, despite what tokens.json's
- * usage note says.
+ * text-subtle is the exception at 4.31 light / 4.18 dark. Treat it as
+ * large-text/decorative. Anything normal-sized that must be legible — N/A
+ * cells, timestamps — should use text-muted, despite what tokens.json's usage
+ * note says.
+ *
+ * THE text-muted DEVIATION IS THE ONE THAT IS NOT ABOUT tokens.json BEING
+ * WRONG. It is about WHICH BACKGROUND THE RATIO WAS MEASURED AGAINST, and it
+ * was added by the review of Phase 7 Task 4. #71717a is 4.63 on --background
+ * #fafafa — the figure this file used to record, and a pass. On
+ * --surface-sunken #f4f4f5 the identical grey is 4.40, which is not. Layer 3
+ * below maps --muted to --surface-sunken and --muted-foreground to
+ * --text-muted, so `bg-muted text-muted-foreground` is a pairing shadcn hands
+ * out by default: it was already live in ui/tabs.tsx's TabsList and
+ * ui/sonner.tsx's toast description before the marketing landing put six
+ * paragraphs of body copy on that band (components/home/feature-cards.tsx).
+ *
+ * #6b6b74 measures 4.80 on --surface-sunken, 5.05 on --background and 5.28 on
+ * --surface, so the token clears AA on every light surface it is used on
+ * rather than on the one it happened to be measured against. DARKENING CAN
+ * ONLY RAISE CONTRAST HERE, which is why the global change is safe: every
+ * consumer of text-muted sits on --background, --surface, --card, --popover or
+ * --surface-sunken, all light in light mode — --surface-inverse, the only dark
+ * light-mode surface in the set, has no consumer in src/ at all. Dark mode was
+ * never affected (#a3a3a3 is 6.76 on --surface-sunken) and is unchanged.
+ *
+ * src/styles.test.ts now measures these pairs out of this file, so the next
+ * value that is only checked against one background fails a gate instead of a
+ * review.
  *
  * #16a34a IS DELIBERATELY STILL HERE as --brand-from, the wordmark gradient
  * and --wordle-correct (light). Those carry only large text; white on it is
@@ -132,7 +157,7 @@
   --surface-sunken: #f4f4f5;
   --surface-inverse: #18181b;
   --text: #0a0a0b;
-  --text-muted: #71717a;
+  --text-muted: #6b6b74;
   --text-subtle: #767680;
   --border-subtle: #e4e4e7;
   --border-strong: #c9c9cf;

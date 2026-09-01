@@ -21,16 +21,47 @@ import { Button } from '#/components/ui/button.tsx'
  * paragraph individually (DESIGN_SYSTEM.md section 3, drift #5). v2 has Geist as
  * the `font-display` token in src/styles.css; that is what it is for.
  *
- * THE HIGHLIGHT'S FOREGROUND IS `text-warning-foreground`, WHICH IS NOT AN
- * ARBITRARY PICK. The band runs green (--brand-from #16a34a) to yellow
- * (--brand-to #facc15) and BOTH of those tokens hold the same value in light and
- * dark, so the text on top must not fork by theme either — v1's
- * `text-black dark:text-white` puts white on #facc15 in dark mode, which is
- * about 1.1:1 and unreadable. --warning-foreground is #111113 in both themes:
- * 5.72:1 on the green end (the figure src/styles.css records for that exact
- * pair) and far more on the yellow. It is also the token that already pairs with
- * --warning/--brand-to, so this obeys the "background and foreground travel
- * together" rule rather than hand-picking a neutral.
+ * THE HIGHLIGHT RUNS `from-brand-from via-brand-from to-warning` UNDER
+ * `text-warning-foreground`. Both halves were re-decided by this task's review,
+ * and every figure below was recomputed for it rather than quoted.
+ *
+ * v1's band is `from-green-600 via-green-600 to-yellow-400 dark:to-yellow-500`
+ * (src/components/ui/aceternity/hero-highlight.tsx:79) under
+ * `text-black dark:text-white` — so its yellow end is #facc15 light and #eab308
+ * dark, and its foreground forks by theme. Measured:
+ *
+ *   light  #000000 on #16a34a   6.37:1     on #facc15  13.71:1
+ *   dark   #ffffff on #16a34a   3.30:1     on #eab308   1.92:1
+ *
+ * v1's dark highlight fails AA at BOTH ends and is essentially invisible at the
+ * yellow one. (The gradient's luminance rises monotonically from green to
+ * yellow, so the green end is the worst case for dark text and the yellow end
+ * for light text. Those two are what decide it.)
+ *
+ * --warning-foreground is #111113 in both themes and --warning is #facc15 light
+ * / #eab308 dark, which is exactly v1's pair of yellows. Measured:
+ *
+ *   light  #111113 on #16a34a   5.72:1     on #facc15  12.32:1
+ *   dark   #111113 on #16a34a   5.72:1     on #eab308   9.83:1
+ *
+ * Worst case 5.72:1 in both themes. SAY THE REGRESSION OUT LOUD RATHER THAN THE
+ * WIN ALONE: light mode gets slightly WORSE, 6.37 -> 5.72, because #111113 is
+ * not #000000. It is still the right trade — it buys 1.92 -> 5.72 in dark — but
+ * it is a real change to a case that already passed, and it is recorded as such
+ * in V2-ADDENDUM.md section 7a alongside the theme-invariant foreground it
+ * comes from.
+ *
+ * `to-warning`, NOT `to-brand-to`, AND THAT IS THE HALF THE REVIEW CHANGED.
+ * --brand-to is #facc15 in BOTH themes, so ending the band there made v2's dark
+ * highlight brighter than production's — an undocumented divergence introduced
+ * by a token choice whose stated purpose was avoiding one. --warning is the
+ * token --warning-foreground actually pairs with, so "background and foreground
+ * travel together" is now literally true here instead of approximately, and the
+ * colours match v1 in both themes. The cost is that in dark mode this yellow
+ * (#eab308) differs from the header wordmark's --brand-to (#facc15) — which is
+ * also v1's behaviour: its app bar ends at yellow-400 in both themes
+ * (src/components/app-bar/app-bar-base.tsx:73) while its highlight ends at
+ * yellow-500 in dark.
  */
 export function Title() {
   return (
@@ -47,7 +78,7 @@ export function Title() {
       </h1>
       <p className="font-display m-0 max-w-2xl px-2 text-lg text-muted-foreground md:text-3xl md:leading-10">
         Keep score to establish bragging rights in the{' '}
-        <span className="rounded bg-gradient-to-r from-brand-from via-brand-from to-brand-to px-1 font-bold text-warning-foreground">
+        <span className="rounded bg-gradient-to-r from-brand-from via-brand-from to-warning px-1 font-bold text-warning-foreground">
           ultimate app for Wordle enthusiasts
         </span>
       </p>

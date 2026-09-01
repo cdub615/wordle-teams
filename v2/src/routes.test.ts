@@ -78,3 +78,54 @@ describe('/me, the route v1 PWA installs open on', () => {
     expect(tree).toMatch(/path:\s*['"]\/me['"]/)
   })
 })
+
+/**
+ * THE ASYMMETRY BETWEEN `/` AND `/home`, WHICH IS THE MOST-ARGUED DECISION IN
+ * PHASE 7 TASK 4 AND HAD NO TEST AT ALL.
+ *
+ * v1's `welcomePaths` (src/lib/supabase/middleware.ts:7) is exactly
+ * `['/', '/login']`. `/home` is deliberately absent, so a signed-in visitor who
+ * follows a link there gets the marketing page rather than a bounce — the
+ * bounce exists to keep a relaunching iOS PWA off the welcome screen, and no
+ * PWA relaunches onto /home. Both route files carry paragraphs about this.
+ *
+ * MUTATION FOUND THE HOLE: adding a `beforeLoad` to src/routes/home.tsx left
+ * all 39 e2e specs green, because the only /home test navigated anonymously and
+ * a signed-in-only redirect is invisible to an anonymous visit. e2e/routes.spec
+ * .ts now signs in and walks the redirect chain, which is the BEHAVIOURAL half.
+ * This is the half CI can see — .github/workflows/deploy-v2.yml runs lint,
+ * typecheck, `vitest run` and build, and no e2e.
+ *
+ * Same string-reading rationale as the /me block above: createFileRoute cannot
+ * be imported under vitest, and a thrown `redirect()` needs a running router to
+ * be observable.
+ */
+describe('/ bounces a signed-in visitor and /home deliberately does not', () => {
+  const home = () => codeOf(read('./routes/home.tsx'))
+  const index = () => codeOf(read('./routes/index.tsx'))
+
+  test('/home declares no beforeLoad, so nothing can redirect off it', () => {
+    expect(
+      home(),
+      'src/routes/home.tsx has grown a beforeLoad. That is not a hardening — it ' +
+        'is v1 welcomePaths parity being dropped; see the note at the top of that file.',
+    ).not.toMatch(/beforeLoad/)
+  })
+
+  test('/ declares one, and /app is the only place it sends anyone', () => {
+    expect(index()).toMatch(/beforeLoad/)
+    // Every `to:` in the file, for the reason spelled out in the /me block: a
+    // `toContain` keeps passing when the real target moves and an /app is left
+    // behind in a branch nothing reaches.
+    const targets = [...index().matchAll(/to:\s*['"]([^'"]*)['"]/g)].map((match) => match[1])
+    expect(targets).toEqual(['/app'])
+  })
+
+  test('both paths are in the generated route tree', () => {
+    // `/home` is here for inbound links and v1's sitemap, so — exactly like
+    // /me — nothing in the app linking to it makes it look like dead code.
+    const tree = read('./routeTree.gen.ts')
+    expect(tree).toMatch(/path:\s*['"]\/home['"]/)
+    expect(tree).toMatch(/path:\s*['"]\/['"]/)
+  })
+})

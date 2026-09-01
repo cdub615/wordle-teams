@@ -84,25 +84,112 @@ test.describe('route shape', () => {
     ).toBeVisible()
   })
 
-  test('/home renders the marketing landing too', async ({ page }) => {
+  test('/home renders the whole landing — hero, all six feature cards, both CTAs', async ({
+    page,
+  }) => {
     // v1's src/app/sitemap.ts lists /home at priority 0.9 and v1's own app bar
     // links its wordmark there, so the path is advertised to crawlers and
-    // carried by inbound links. It renders the same component as `/` — the only
-    // thing that differs is that `/home` does NOT bounce a signed-in visitor,
-    // matching v1's welcomePaths.
+    // carried by inbound links. src/routes/home.tsx's claim is not "renders a
+    // landing" but "IT IS THE SAME PAGE, NOT A VARIANT", so this asserts the
+    // whole surface rather than the h1 alone — the h1 is the one thing a
+    // hero-only /home would also satisfy, which is what the old, wider-named
+    // version of this test would have passed on.
+    //
+    // THE SIX CARDS ARE PINNED HERE AND NOWHERE ELSE IN THIS FILE. Their COPY
+    // is src/components/home/feature-cards.test.ts's job — v2 has no DOM under
+    // vitest, so that suite reads the exported FEATURES array. What only a
+    // browser can say is that they reach the page at all, and `/home` is the
+    // route whose entire justification is being identical to `/`.
     await page.goto('/home')
     await expect(page).toHaveURL('/home')
     await expect(
       page.getByRole('heading', { level: 1, name: 'Compete with friends', exact: true }),
     ).toBeVisible()
+
+    // toEqual on the whole list: a deleted card, a reorder and a reworded title
+    // all have to fail. `toHaveCount(6)` would miss two of the three.
+    await expect(page.getByRole('heading', { level: 3 })).toHaveText([
+      'Create Teams',
+      'Wordle Boards',
+      'Competitive Scoring',
+      'Go Pro',
+      'Easy Sign In',
+      'Privacy',
+    ])
+
+    await expect(page.getByRole('link', { name: 'Get Started', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Sign In', exact: true })).toBeVisible()
   })
 
-  test('the landing\'s "Get Started" button links to /login', async ({ page }) => {
-    // The one link the landing exists to hand over, asserted as the resolved
-    // href of that single element — not as "/login appears somewhere in the
-    // document", which the Header's own markup would satisfy on its own.
+  test('a signed-in visitor to /home stays on /home', async ({ page }) => {
+    // THE OTHER HALF OF THE `/` BOUNCE, AND THE MOST-ARGUED DECISION IN PHASE 7
+    // TASK 4. v1's welcomePaths (src/lib/supabase/middleware.ts:7) is exactly
+    // ['/', '/login']; `/home` is deliberately absent, so in v1 a signed-in
+    // user who follows a link there — including the app bar wordmark, which in
+    // v1 points at /home — SEES the marketing page. src/routes/home.tsx has no
+    // beforeLoad for that reason and writes four sentences about it.
+    //
+    // NOTHING TESTED IT. Adding a beforeLoad to home.tsx left all 39 specs
+    // green: the /home test above navigates anonymously, and a signed-in-only
+    // redirect is invisible to an anonymous visit. src/routes.test.ts pins the
+    // absence in the source, which is the half CI can see; this is the half
+    // that says what a user experiences.
+    //
+    // THE PROFILE IS COMPLETED FIRST for the same reason as the `/` test below
+    // — it makes this account's state identical to that one's, so the pair is a
+    // true A/B on the route and not on the account.
+    await signIn(page)
+    await expect(page).toHaveURL('/complete-profile')
+    await page.getByLabel('First Name').fill('E2E')
+    await page.getByLabel('Last Name').fill('Home')
+    await page.getByRole('button', { name: 'Submit' }).click()
+    await expect(page).toHaveURL('/app')
+
+    // The WHOLE chain: one entry is the assertion. A beforeLoad here would make
+    // it ['/home', '/app'], exactly as `/`'s does.
+    const chain = await redirectChain(page, '/home')
+    expect(chain).toEqual(['/home'])
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Compete with friends', exact: true }),
+    ).toBeVisible()
+  })
+
+  test('/ and /home both carry the site-wide default title', async ({ page }) => {
+    // BOTH ROUTE FILES REASON ABOUT THIS AND NEITHER WAS PINNED. Each declares
+    // `head: () => ({ meta: [{ title: pageTitle() }] })` with NO SEGMENT,
+    // because v1's src/app/page.tsx and src/app/home/page.tsx declare no
+    // metadata of their own and so inherit the Next.js default. Passing a
+    // segment to either would produce "X - Wordle Teams" and silently diverge
+    // from production's apex title, which is a real SEO artefact on the URL
+    // v1's sitemap ranks first.
+    //
+    // THE LITERAL, NOT APP_DEFAULT_TITLE IMPORTED FROM #/lib/seo. Importing the
+    // constant would make this pass no matter what the constant became; the
+    // string is what ships in the document.
+    await page.goto('/')
+    await expect(page).toHaveTitle('Wordle Teams: The ultimate app for Wordle enthusiasts')
+
+    await page.goto('/home')
+    await expect(page).toHaveTitle('Wordle Teams: The ultimate app for Wordle enthusiasts')
+  })
+
+  test('both of the landing\'s CTAs link to /login', async ({ page }) => {
+    // The links the landing exists to hand over, asserted as the resolved href
+    // of each element — not as "/login appears somewhere in the document",
+    // which the Header's own markup would satisfy on its own.
+    //
+    // BOTH, BECAUSE PINNING ONE WAS AN ASYMMETRY AND MUTATION FOUND IT. The
+    // hero's "Get Started" was covered from the start; dashboard-preview.tsx's
+    // "Sign In" could be re-pointed at /app with every gate and every spec
+    // still green. They are two CTAs to the same destination on purpose — the
+    // comment in dashboard-preview.tsx says so, v1 has both — so the second one
+    // drifting is exactly the change nothing would have looked at.
     await page.goto('/')
     await expect(page.getByRole('link', { name: 'Get Started', exact: true })).toHaveAttribute(
+      'href',
+      '/login',
+    )
+    await expect(page.getByRole('link', { name: 'Sign In', exact: true })).toHaveAttribute(
       'href',
       '/login',
     )
@@ -155,20 +242,30 @@ test.describe('route shape', () => {
     await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('href', '/')
   })
 
+  /*
+   * THE HAZARD THE "Home" LINK ACQUIRED BY POINTING AT `/`. TanStack matches an
+   * active Link fuzzily by default and `/` is a prefix of every path in the
+   * app, so the underline could plausibly sit under "Home" everywhere — a nav
+   * that always claims you are on the home page. Measured on
+   * @tanstack/react-router 1.170 it does not, so Header.tsx carries no
+   * `activeOptions={{ exact: true }}`; these are what would notice if a router
+   * upgrade changed that default, and they are the only things that would.
+   *
+   * TWO TESTS, NOT ONE, AND THAT IS THIS PHASE'S RULE RATHER THAN A STYLE
+   * PREFERENCE: a test's name must match exactly what it asserts. The single
+   * test these replace was named for the negative case and quietly asserted the
+   * positive one underneath it, so a failure named the wrong half of the
+   * behaviour. Both halves are still required — asserting only the negative
+   * would be satisfied by `is-active` never appearing at all.
+   */
   test('the Home link is not marked active on a route that is not the landing', async ({ page }) => {
-    // THE HAZARD THE "Home" LINK ACQUIRED BY POINTING AT `/`. TanStack matches
-    // an active Link fuzzily by default and `/` is a prefix of every path in
-    // the app, so the underline could plausibly sit under "Home" everywhere — a
-    // nav that always claims you are on the home page. Measured on
-    // @tanstack/react-router 1.170 it does not, so Header.tsx carries no
-    // `activeOptions={{ exact: true }}`; this is what would notice if a router
-    // upgrade changed that default, and it is the only thing that would.
     await page.goto('/about')
     await expect(page.getByRole('link', { name: 'Home', exact: true })).not.toHaveClass(
       /is-active/,
     )
-    // The other half, so this is pinning `exact`, not "is-active never appears":
-    // on the landing itself the same link IS active.
+  })
+
+  test('the Home link is marked active on the landing itself', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveClass(/is-active/)
   })
@@ -200,6 +297,26 @@ test.describe('document cache headers', () => {
     // cutover and the one v1's sitemap ranks first, is now published to the edge
     // for a day. That flip is worth its own assertion.
     const response = await request.get('/')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe(
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
+  })
+
+  test('an anonymous GET /home is edge-cacheable too', async ({ request }) => {
+    // /home WENT LIVE IN THE SAME COMMIT AS `/` AND WAS THE ONLY HALF LEFT
+    // UNASSERTED. It is in cache-policy.ts's STATIC_DOCUMENTS for the same
+    // reason `/` is, and it was inert for the same reason — it 404'd, and
+    // src/server.ts applies the static policy to a 200 and nothing else.
+    //
+    // AND IT IS THE PATH THE ORIGINAL BUG WAS MEASURED ON, which is why this is
+    // not a third copy of the /about case: cache-policy.ts's header names /home
+    // first — v1 emitted `public, max-age=0, must-revalidate` here and 28-41% of
+    // requests missed the edge and woke a ~1.9s cold function
+    // (wordle-teams-jcj). This is the assertion that says v2 did not re-create
+    // it on the very route where it was found.
+    const response = await request.get('/home')
     expect(response.status()).toBe(200)
     expect(response.headers()['content-type']).toContain('text/html')
     expect(response.headers()['cache-control']).toBe(

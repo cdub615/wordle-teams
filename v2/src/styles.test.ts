@@ -1,0 +1,144 @@
+import { readFileSync } from 'node:fs'
+import { describe, expect, test } from 'vitest'
+
+/**
+ * WCAG CONTRAST, MEASURED OUT OF styles.css ITSELF.
+ *
+ * THIS FILE EXISTS BECAUSE A COMMENT IS NOT A MEASUREMENT. The contrast figures
+ * in this repo have gone wrong the same way three times now: a ratio is
+ * computed once, against one background, and then quoted somewhere the pairing
+ * is different. V2-ADDENDUM.md section 2 is a whole section about the bundle
+ * doing it (5 of 7 pairs wrong in light, 6 of 7 in dark). Phase 7 Task 4 then
+ * did it again in miniature — components/home/feature-cards.tsx asserted "both
+ * greys clear AA" on --surface-sunken while the 4.63 it was leaning on had been
+ * measured on --background, and the real figure on the sunken band was 4.40.
+ *
+ * A prose ratio cannot fail a gate. These can. Every number in this file is
+ * recomputed from the hex values that ship, so changing a token changes the
+ * verdict rather than the documentation.
+ *
+ * IT PARSES THE CSS RATHER THAN IMPORTING IT, which is the pattern
+ * src/routes.test.ts uses on the route files and src/lib/sw-push.test.ts uses
+ * on the push payload: there is no CSSOM under `environment: 'edge-runtime'`,
+ * and the text is the artefact that ships anyway.
+ *
+ * IT IS DELIBERATELY NOT EXHAUSTIVE, and the omission is named rather than
+ * implied. --text-subtle is a KNOWN, DOCUMENTED failure at 4.31 light / 4.18
+ * dark — see the note in styles.css — so asserting every text token against
+ * every surface would encode a lie or a skip. What is pinned below is the set
+ * of pairs the app actually renders normal-sized copy at.
+ */
+
+const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
+
+/** The declarations inside one top-level block, as a token -> hex map. */
+function tokensIn(selector: string): Record<string, string> {
+  const opened = css.indexOf(`\n${selector} {`)
+  expect(opened, `no top-level \`${selector} {\` block in styles.css`).toBeGreaterThan(-1)
+  const body = css.slice(opened, css.indexOf('\n}', opened))
+
+  const declarations: Record<string, string> = {}
+  for (const [, name, value] of body.matchAll(/(--[a-z-]+):\s*(#[0-9a-fA-F]{6})\s*;/g)) {
+    declarations[name] = value.toLowerCase()
+  }
+  return declarations
+}
+
+const LIGHT = tokensIn(':root')
+// Layer 2 only forks by theme; `.dark` restates the semantics and inherits
+// layer 3 through var(), which is why every value read here is a literal hex.
+const DARK = { ...LIGHT, ...tokensIn('.dark') }
+
+/** WCAG 2.1 relative luminance of an sRGB channel. */
+const channel = (byte: number) => {
+  const c = byte / 255
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+}
+
+const luminance = (hex: string) =>
+  0.2126 * channel(parseInt(hex.slice(1, 3), 16)) +
+  0.7152 * channel(parseInt(hex.slice(3, 5), 16)) +
+  0.0722 * channel(parseInt(hex.slice(5, 7), 16))
+
+const ratio = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+function expectRatio(
+  theme: 'light' | 'dark',
+  fg: string,
+  bg: string,
+  minimum: number,
+) {
+  const tokens = theme === 'light' ? LIGHT : DARK
+  const [fgHex, bgHex] = [tokens[fg], tokens[bg]]
+  expect(fgHex, `${fg} is not a literal hex in the ${theme} block`).toBeDefined()
+  expect(bgHex, `${bg} is not a literal hex in the ${theme} block`).toBeDefined()
+
+  // The COMPARISON is on the unrounded value; the two places are only so the
+  // message reads the way every recorded ratio in this repo is written.
+  const measured = ratio(fgHex, bgHex)
+  expect(
+    measured,
+    `${theme}: ${fg} ${fgHex} on ${bg} ${bgHex} is ${measured.toFixed(2)}:1, below ${minimum}:1`,
+  ).toBeGreaterThanOrEqual(minimum)
+}
+
+// Every surface normal-sized body copy is actually set on. --surface-inverse is
+// absent on purpose: it has no consumer in src/, and it is the one surface
+// where darkening a text token would HURT — which is the fact that made the
+// --text-muted change safe to make globally.
+const TEXT_SURFACES = ['--background', '--surface', '--surface-sunken'] as const
+
+describe('AA contrast for the text tokens, in both themes', () => {
+  // 4.5:1 is AA for normal-sized text. Both of these carry it: --text is body
+  // and headings, --text-muted is descriptions, table headers, the footer and
+  // the six feature-card paragraphs.
+  for (const theme of ['light', 'dark'] as const) {
+    for (const surface of TEXT_SURFACES) {
+      test(`${theme}: --text on ${surface}`, () => {
+        expectRatio(theme, '--text', surface, 4.5)
+      })
+
+      test(`${theme}: --text-muted on ${surface}`, () => {
+        // THE REGRESSION THIS FILE WAS WRITTEN FOR. --text-muted #71717a passes
+        // on --background (4.63) and fails on --surface-sunken (4.40); it was
+        // shipped and reviewed as a pass because only the first was measured.
+        expectRatio(theme, '--text-muted', surface, 4.5)
+      })
+    }
+  }
+
+  test('--text-subtle is still the documented exception, and still only that', () => {
+    // Pinned as a FAILURE so the exception cannot quietly widen. If someone
+    // darkens --text-subtle to clear AA this test goes red, and the right
+    // response is to delete it and add --text-subtle to TEXT_SURFACES above —
+    // there is room to now that --text-muted sits at 5.05 on --background.
+    expect(ratio(LIGHT['--text-subtle'], LIGHT['--background'])).toBeLessThan(4.5)
+    expect(ratio(DARK['--text-subtle'], DARK['--background'])).toBeLessThan(4.5)
+  })
+})
+
+describe('AA contrast for the two coloured pairs the marketing landing renders', () => {
+  test('the hero highlight clears AA at both ends of its gradient, in both themes', () => {
+    // components/home/title.tsx: `from-brand-from via-brand-from to-warning`
+    // under `text-warning-foreground`. Luminance rises monotonically from the
+    // green end to the yellow one, so checking the two ends bounds the whole
+    // band. v1's equivalent is 3.30 and 1.92 in dark — see that file's note.
+    for (const theme of ['light', 'dark'] as const) {
+      expectRatio(theme, '--warning-foreground', '--brand-from', 4.5)
+      expectRatio(theme, '--warning-foreground', '--warning', 4.5)
+    }
+  })
+
+  test('the feature-card icons clear the 3:1 graphics bar on the sunken band', () => {
+    // 3:1, not 4.5: components/home/feature-cards.tsx renders --accent-solid as
+    // an aria-hidden icon, which is a non-text contrast case. It measures 4.56
+    // light and 7.48 dark, so this is headroom rather than a margin — but the
+    // bar it has to clear is the graphics one, and asserting 4.5 here would be
+    // asserting a rule that does not apply.
+    expectRatio('light', '--accent-solid', '--surface-sunken', 3)
+    expectRatio('dark', '--accent-solid', '--surface-sunken', 3)
+  })
+})
