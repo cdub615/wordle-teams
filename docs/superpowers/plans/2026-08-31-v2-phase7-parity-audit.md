@@ -48,6 +48,22 @@ This phase is unusually exposed to it, because **v2 has no component-rendering t
 
 **Every task in Stage A that changes behaviour visible over HTTP therefore requires an assertion on a real response**, in `e2e/`, in addition to any unit test of the extracted logic. A unit test alone does not close a Stage A task.
 
+### The specific mistake this phase keeps making: an assertion scoped wider than the thing it names
+
+Three instances in the first two tasks, each found only by mutation:
+
+| Where | The assertion | What slipped through |
+| --- | --- | --- |
+| `sw-push.test.ts` | `server.slice(server.indexOf(x))` — one argument, so it ran to end of file | a real payload of `/` plus any later `/app` string in the file |
+| `reminderEmails.test.ts` | a 500-character window sliced back from the button label | the window swallowed the anchor's **own** inline style, so the `<td>`'s fill was never pinned |
+| `reminderEmails.test.ts` | `toContain('color:#1c2024')` | matched the `color:` inside `background-**color**:#1c2024`, so a dark fill with no explicit ink — an invisible label — passed |
+
+The third one is the lesson. It sat *in the same test* as the second and survived the round that fixed it, because the fix was applied to the assertion that failed rather than to the technique. So, as a rule:
+
+**Assert on a bounded, parsed thing, never on a substring of a larger blob.** Slice with both ends. Parse the style attribute into declarations and look up the key. Match a regex anchored on delimiters. If the assertion's scope is larger than the thing its name promises, it will eventually pass for the wrong reason — and the tests most at risk are exactly the ones whose comments say "this is the one property that cannot be eyeballed", because those are the ones nothing else covers.
+
+A corollary worth its own line: **nothing pins ordering unless you pin ordering.** Moving a call to action below the unsubscribe copy left every content assertion green.
+
 ### Snippet provenance
 
 Code blocks quoting v1 are from this repository at `src/`, which is untouched and remains the reference. Where a task says "port the prose from `<path>`", the prose is the deliverable and the markup is to be rewritten against v2's tokens — v1's pages hardcode `text-gray-50`, `bg-gray-50`, `dark:bg-background` and `GeistSans`, none of which exist in v2's Tailwind 4 token set (`v2/src/styles.css`).

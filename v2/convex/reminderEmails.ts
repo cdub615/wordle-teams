@@ -23,7 +23,8 @@ import { escapeHtml } from './lib/html.ts'
  * teamInviteEmail from its single caller.
  *
  * ESCAPED EVERYWHERE IT LANDS IN THE HTML — both `<img src>` attributes and
- * the closing link — for the same reason inviteEmails.ts escapes `signInUrl`:
+ * both links, the call-to-action button and the wordmark below it — for the
+ * same reason inviteEmails.ts escapes `signInUrl`:
  * escaping stops the value breaking OUT of the attribute, it does not
  * validate what the attribute then means, so a hostile scheme or a stray
  * quote would still emerge intact rather than being rejected. That gap is
@@ -75,11 +76,8 @@ const PANEL_COLOR = '#0d0d0d'
  * 3:1 at the same 16.39:1. The fill itself is 1.07:1 against the card, which
  * is why the border is load-bearing rather than decorative.
  *
- * And the "no single colour reads on both" claim above is true, but only just:
- * sweeping all 256 greys (contrast depends only on luminance, so that is a
- * complete search) the best achievable against BOTH `#ffffff` and `#0d0d0d`
- * is `#787878` at 4.40:1 — a 2% miss on AA, not a comfortable one. If someone
- * later wants a single-colour button here, that is the number to beat.
+ * The "no single colour reads on both" claim is true but close: the best of
+ * all 256 greys is `#787878` at 4.40:1, a 2% miss on AA.
  */
 const BUTTON_BG = '#f6f7f9'
 const BUTTON_INK = '#1c2024'

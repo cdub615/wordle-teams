@@ -278,9 +278,55 @@ describe('boardEntryReminderEmail', () => {
         /<a\s[^>]*href="https:\/\/beta\.wordleteams\.com\/app"[^>]*>Enter your board<\/a>/,
       )?.[0]
       expect(anchor).toBeDefined()
-      expect(anchor).toContain('color:#1c2024')
-      expect(anchor).toContain('border:2px solid #1c2024')
-      expect(anchor).not.toContain('color:#ffffff')
+
+      // PARSE THE DECLARATIONS; DO NOT SUBSTRING THE STYLE ATTRIBUTE. The
+      // obvious `toContain('color:#1c2024')` is satisfied by the `color:` inside
+      // `background-color:#1c2024`, so an anchor with a dark FILL and no
+      // explicit ink -- inheriting the body's dark text onto a dark button --
+      // passed this test while rendering an invisible label. That is the exact
+      // outcome the paragraph above claims this is the last defence against.
+      // The `not.toContain('color:#ffffff')` had the mirror bug: it would have
+      // fired falsely on a legitimate `background-color:#ffffff`.
+      //
+      // This is the THIRD assertion in Phase 7 to scope wider than the thing it
+      // names -- see the note in the plan's "Before you start". Match on the
+      // declaration list, not on the raw string.
+      const declarations = new Map(
+        (anchor?.match(/style="([^"]*)"/)?.[1] ?? '')
+          .split(';')
+          .map((d) => d.trim())
+          .filter(Boolean)
+          .map((d) => {
+            const at = d.indexOf(':')
+            return [d.slice(0, at).trim(), d.slice(at + 1).trim()]
+          }),
+      )
+      expect(declarations.get('color')).toBe('#1c2024')
+      expect(declarations.get('border')).toBe('2px solid #1c2024')
+    })
+
+    test('the call to action sits above the sign-off in both halves', () => {
+      // POSITION IS PART OF BEING A CALL TO ACTION. Every other assertion here
+      // is satisfied by a CTA placed anywhere at all -- review moved the text
+      // line below the unsubscribe copy and the button below the footer rule,
+      // and the whole suite stayed green. A button under the unsubscribe rule
+      // is not a button anyone will press.
+      //
+      // Ordinals, not exact offsets: this pins the ORDER, so restyling or
+      // rewording between them stays free.
+      const { html, text } = email()
+
+      const textCta = text.indexOf('Enter your board: ')
+      const textSignOff = text.indexOf('\nWordle Teams\n')
+      expect(textCta).toBeGreaterThan(-1)
+      expect(textSignOff).toBeGreaterThan(-1)
+      expect(textCta).toBeLessThan(textSignOff)
+
+      const htmlCta = html.indexOf('>Enter your board</a>')
+      const footerRule = html.indexOf('<hr')
+      expect(htmlCta).toBeGreaterThan(-1)
+      expect(footerRule).toBeGreaterThan(-1)
+      expect(htmlCta).toBeLessThan(footerRule)
     })
 
     test('the text half leaves the URL unescaped, like the rest of that part', () => {
