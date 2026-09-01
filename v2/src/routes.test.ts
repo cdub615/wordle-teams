@@ -161,7 +161,24 @@ describe('/ bounces a signed-in visitor and /home deliberately does not', () => 
 describe('/privacy and /terms, and the footer links that reach them', () => {
   const privacy = () => codeOf(read('./routes/privacy.tsx'))
   const terms = () => codeOf(read('./routes/terms.tsx'))
-  const footer = () => codeOf(read('./components/Footer.tsx'))
+  /**
+   * NOT `codeOf`, AND THE REASON IS THE WHOLE POINT OF THIS TEST. `codeOf`
+   * strips `//` to end of line, and every external href in the footer contains
+   * `//` — so read through it, `href="https://feedback…"` becomes `href="https:`
+   * and four of the five `<a>`s simply are not there. That is the same shape of
+   * blindness the test below grew to close, one layer down, and it is why the
+   * `<a>` half could not have been added by pointing the old pattern at the old
+   * reader.
+   *
+   * Comments still have to go — a source assertion must not be satisfied by the
+   * file's own prose about itself, and Footer.tsx's header now quotes both the
+   * live URL and the dead one. So: block comments, plus line comments whose
+   * `//` starts a token rather than sitting inside `https://`.
+   */
+  const footer = () =>
+    read('./components/Footer.tsx')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|\s)\/\/[^\n]*/g, '$1')
 
   /** Every pageTitle('...') argument in a file, in source order. */
   const titlesIn = (source: string) =>
@@ -183,23 +200,48 @@ describe('/privacy and /terms, and the footer links that reach them', () => {
     expect(titlesIn(terms())).toEqual(['Terms of Service'])
   })
 
-  test('the footer sends each label to the page it names', () => {
+  test('the footer sends each label to the destination it names', () => {
     // LABEL AND TARGET AS A PAIR. Asserting that /privacy and /terms both
     // appear somewhere in the footer is satisfied by two links that have been
     // swapped with each other, which is precisely the mutation that shipped
     // green. v1's src/components/home/footer.tsx:25-28 pairs them the same way.
     //
-    // Exhaustive over the internal links, so deleting one is a failure here and
-    // not merely a shorter list — the footer's <Link>s are the only navigation
-    // to either legal page in the whole app.
-    const pairs = [...footer().matchAll(/<Link to=["']([^"']+)["']>\s*([^<]+?)\s*<\/Link>/g)].map(
-      (match) => [match[2], match[1]],
-    )
-    expect(pairs).toEqual([
+    // BOTH KINDS OF LINK, WHICH IS THE POINT OF THIS VERSION. Until Task 9's
+    // review this test read `<Link to=` only. It was genuinely exhaustive over
+    // the three router links — and structurally blind to the five `<a href>`s
+    // beside them, which is the class the footer's one real defect was in:
+    // "Source Code" pointed at github.com/cdub615/wordleteams, which 404s, on
+    // every page of the site (wordle-teams-xmk). A test can be bounded, parsed
+    // AND exhaustive and still be exhaustive over a set the bug cannot appear
+    // in. Its old name, "sends each label to the page it names", read as
+    // covering the whole footer.
+    const pairs = (pattern: RegExp) =>
+      [...footer().matchAll(pattern)].map((match) => [match[2], match[1]])
+
+    expect(pairs(/<Link to=["']([^"']+)["']>\s*([^<]+?)\s*<\/Link>/g)).toEqual([
       ['About', '/about'],
       ['Privacy Policy', '/privacy'],
       ['Terms', '/terms'],
     ])
+    expect(pairs(/<a href=["']([^"']+)["']>\s*([^<]+?)\s*<\/a>/g)).toEqual([
+      ['Feedback', 'https://feedback.wordleteams.com/feedback'],
+      ['Changelog', 'https://feedback.wordleteams.com/changelog'],
+      ['Support', 'mailto:support@wordleteams.com'],
+      ['Source Code', 'https://github.com/cdub615/wordle-teams'],
+      ['X', 'https://twitter.com/wordleteams'],
+    ])
+
+    // AND THAT THE TWO LISTS ABOVE ARE THE WHOLE FOOTER. Both patterns require
+    // the tag, the attribute and the text on one parseable shape; a link
+    // wrapped across lines by a formatter, or one carrying a className, matches
+    // NEITHER and would vanish from both lists without failing either
+    // assertion — the same blindness in a new place. Counting the opening tags
+    // is what makes "exhaustive" mean exhaustive rather than "exhaustive over
+    // whatever the regex could read".
+    expect(footer().match(/<Link\b/g) ?? [], 'a <Link> the pattern above cannot read').toHaveLength(
+      3,
+    )
+    expect(footer().match(/<a\b/g) ?? [], 'an <a> the pattern above cannot read').toHaveLength(5)
   })
 })
 

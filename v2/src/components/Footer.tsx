@@ -12,6 +12,25 @@ import { Link } from '@tanstack/react-router'
  * opposite the two links; v2's already carried `© {year} Wordle Teams` on its
  * own line. Merging them keeps v1's layout (identity left, legal right) without
  * printing the name twice.
+ *
+ * "SOURCE CODE" DOES NOT POINT WHERE v1 POINTS IT, and that is the one link
+ * here that is deliberately not a faithful port. v1's own footer links
+ * github.com/cdub615/wordleteams, which 404s — the repository is
+ * cdub615/wordle-teams, with the hyphen, which is what v1's OWN About page
+ * links (src/components/about.tsx) and what this file now links too
+ * (wordle-teams-xmk, measured: 404 against the first, 200 against the second).
+ * It matters more in v2 than it did in v1: v1 imports its footer only from the
+ * home component, so the dead link sat on one page, while __root.tsx renders
+ * this under every route. Recorded in §7a of
+ * docs/design-system/V2-ADDENDUM.md so the parity audit does not read the
+ * difference as a regression.
+ *
+ * EVERY LABEL/TARGET PAIR BELOW IS PINNED, both the `<Link>`s and the `<a>`s,
+ * by *"the footer sends each label to the destination it names"* in
+ * src/routes.test.ts. It is worth saying why that test grew: it existed, it was
+ * exhaustive, and it read `<Link to=` only — so it was structurally incapable
+ * of seeing the class of link the dead URL was in. A one-character error
+ * survived a whole parity phase inside a file that had a test.
  */
 export default function Footer() {
   const year = new Date().getFullYear()
@@ -27,7 +46,7 @@ export default function Footer() {
           </div>
           <div className="flex flex-col gap-2">
             <Link to="/about">About</Link>
-            <a href="https://github.com/cdub615/wordleteams">Source Code</a>
+            <a href="https://github.com/cdub615/wordle-teams">Source Code</a>
             <a href="https://twitter.com/wordleteams">X</a>
           </div>
         </div>

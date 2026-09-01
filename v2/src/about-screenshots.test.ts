@@ -175,6 +175,100 @@ describe('visibleElements, on what a user can and cannot see', () => {
   })
 })
 
+/**
+ * THE SECOND EXTRACTOR, PINNED TO THE SAME STANDARD AS THE FIRST.
+ *
+ * The block above exists because everything under it is only as good as
+ * `visibleElements`. Exactly the same is true of `importedModulesOf`: the one
+ * guarantee wt-ksh.12.5 actually asks this file for — that the aceternity
+ * carousel stays out — is a single `toEqual` over whatever that helper returns,
+ * and until this block existed the helper had one call site and no contract
+ * anywhere in the repo.
+ *
+ * THE EXPLOIT THAT MOTIVATES IT, which is not a straw man but the most
+ * plausible refinement anyone would make to it: skip module specifiers starting
+ * with `.`, on the grounds that only package imports are interesting. That
+ * turns the carousel guarantee off completely and leaves the whole suite green,
+ * because RELATIVE IS THE SHAPE THAT MATTERS HERE — v1 imports it as
+ * `'./ui/aceternity/infinite-moving-cards'` (src/components/about.tsx:14), not
+ * from a package at all.
+ *
+ * Hand-written source strings rather than files on disk, so each import FORM is
+ * named and isolated. `importedModulesOf` takes the text and a name for it,
+ * which is what makes that possible.
+ */
+describe('importedModulesOf, on every import form a file can carry', () => {
+  const modules = (source: string) => importedModulesOf('fixture.tsx', source)
+
+  test('a relative specifier is reported — the case the carousel guarantee rests on', () => {
+    // THE MUTATION THIS BLOCK WAS WRITTEN AGAINST. A helper that reported only
+    // package imports would make `'./ui/aceternity/infinite-moving-cards'`
+    // invisible, and the one test wt-ksh.12.5 asks for would pass on a page
+    // that renders the carousel.
+    expect(modules("import { InfiniteMovingCards } from './ui/aceternity/infinite-moving-cards'")).toEqual([
+      './ui/aceternity/infinite-moving-cards',
+    ])
+    expect(modules("import x from '../lib/x'")).toEqual(['../lib/x'])
+  })
+
+  test('an aliased import is reported under its MODULE, not its local name', () => {
+    // The other half of why this is not `not.toContain('aceternity')`: renaming
+    // the binding changes nothing about what the file depends on.
+    expect(modules("import { InfiniteMovingCards as Cards } from '#/carousel'")).toEqual([
+      '#/carousel',
+    ])
+  })
+
+  test('a namespace import is reported', () => {
+    expect(modules("import * as carousel from 'aceternity-ui'")).toEqual(['aceternity-ui'])
+  })
+
+  test('a side-effect import with no bindings at all is reported', () => {
+    // `import 'x'` has no clause to look at, and a helper reading the import
+    // clause rather than the specifier would drop it silently.
+    expect(modules("import 'aceternity-ui/styles.css'")).toEqual(['aceternity-ui/styles.css'])
+  })
+
+  test('a type-only import is reported, because it is still a line naming a module', () => {
+    expect(modules("import type { Props } from './ui/aceternity/infinite-moving-cards'")).toEqual([
+      './ui/aceternity/infinite-moving-cards',
+    ])
+  })
+
+  test('every specifier in the file, in source order, and nothing else', () => {
+    // The property the carousel test relies on: a BOUNDED, ORDERED list, so an
+    // added dependency fails as loudly as a removed one. `export ... from` is
+    // deliberately not an import and must not appear.
+    const source = [
+      "import a from 'zeta'",
+      "import 'alpha'",
+      "export { b } from './re-exported'",
+      "const c = 'not-an-import'",
+      "import d from './local'",
+    ].join('\n')
+    expect(modules(source)).toEqual(['zeta', 'alpha', './local'])
+  })
+
+  test('a dynamic import() is NOT reported — a documented gap, not an oversight', () => {
+    // OUT OF SCOPE ON PURPOSE, and stated here so the gap is a decision rather
+    // than a surprise. `import('x')` is a CallExpression, not an
+    // ImportDeclaration, and reporting it would mean deciding what to do with a
+    // non-literal specifier — `import(name)` has no module to name. Nothing in
+    // src/routes uses dynamic import, and /about is a static page with two
+    // imports; a caller that needs to care must extend the helper and say so
+    // here. THE COST IF THAT CHANGES: a carousel loaded through `import()`
+    // would not appear in the list, so this test is also the note telling the
+    // next reader that the /about guarantee assumes static imports.
+    expect(modules("const Cards = await import('./ui/aceternity/infinite-moving-cards')")).toEqual(
+      [],
+    )
+  })
+
+  test('a file with no imports is an empty list, not a throw', () => {
+    expect(modules('export const x = 1')).toEqual([])
+  })
+})
+
 // ---------------------------------------------------------------------------
 // The eight screenshots.
 // ---------------------------------------------------------------------------
@@ -242,13 +336,69 @@ describe('the eight product screenshots v1 annotates its About page with', () =>
     ])
   })
 
-  test('every one of them defers, because none of them is the page’s first paint', () => {
+  test('all eight declare loading="lazy"', () => {
     // 462 KiB across eight files on a marketing page whose whole job is to load
     // fast — wordle-teams-jcj is this project's open wound about exactly that.
     // Seven are below the fold at any viewport and the eighth is at it, so the
-    // browser's own lazy threshold decides that one. Nothing but this notices
-    // `loading` being dropped.
+    // browser's own lazy threshold decides that one — which is why the name
+    // above claims only what the assertion checks, and not that none of these
+    // is the page's first paint. Nothing but this notices `loading` being
+    // dropped.
     expect(shots.map((shot) => shot.loading)).toEqual(Array(8).fill('lazy'))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The desktop zig-zag, which is what makes the DOM reorder defensible.
+// ---------------------------------------------------------------------------
+
+/**
+ * src/routes/about.tsx's header justifies putting the text ahead of the image
+ * on every row — where v1 uses `flex-col-reverse` and so leads with the image
+ * on two of four — with two claims: reading order matches DOM order, and THE
+ * DESKTOP ZIG-ZAG IS UNCHANGED. The first falls out of the ordering itself. The
+ * second is the half that makes the divergence a layout-neutral one, and until
+ * this block existed nothing asserted it: replacing every `md:flex-row-reverse`
+ * with `md:flex-row` stacks all four rows the same way — a layout v1 explicitly
+ * does not have — and the whole suite stays green.
+ */
+describe('the four annotated rows', () => {
+  const DIRECTIONS = ['md:flex-row', 'md:flex-row-reverse']
+
+  /** The rows, each as [the alt text it frames, the side its image sits on]. */
+  const rows = rendered
+    .filter((element) =>
+      String(element.props?.className ?? '')
+        .split(/\s+/)
+        .some((token) => DIRECTIONS.includes(token)),
+    )
+    .map((element) => {
+      const direction = String(element.props?.className)
+        .split(/\s+/)
+        .filter((token) => DIRECTIONS.includes(token))
+      const alts = visibleElements(element)
+        .filter((node) => node.type === 'img')
+        .map((node) => String(node.props?.alt))
+      return [alts.join(' + '), direction.join(' + ')]
+    })
+
+  test('alternate sides on desktop, as v1’s do', () => {
+    // TOKEN-WISE AND PAIRED, not a substring count. `md:flex-row-reverse`
+    // CONTAINS `md:flex-row`, so a substring test cannot tell the two apart at
+    // all; and a bare count of each would be satisfied by two rows that had
+    // swapped sides. Each row is named by the screenshot it frames, off the
+    // same rendered tree the rest of this file walks, so the list is exhaustive
+    // over the page: a fifth row, a deleted row, and a row that stopped
+    // alternating are each red here.
+    //
+    // The community grid is deliberately absent — it is a `grid`, not a row,
+    // and v1 has a carousel there rather than a side.
+    expect(rows).toEqual([
+      ['board entry screenshot', 'md:flex-row'],
+      ['install button screenshot', 'md:flex-row-reverse'],
+      ['create team screenshot', 'md:flex-row'],
+      ['upgrade button screenshot', 'md:flex-row-reverse'],
+    ])
   })
 })
 
@@ -353,25 +503,35 @@ describe('the annotations beside the screenshots', () => {
 // ---------------------------------------------------------------------------
 
 describe('the route file’s own notes', () => {
+  /**
+   * The COMMENT TEXT, extracted, not the whole file: an assertion over the blob
+   * would be satisfied — or broken — by the code underneath it. `codeOf` does
+   * the opposite job and is no use here.
+   */
+  const comments = () => {
+    const source = read(ABOUT_SOURCE)
+    const text = [...source.matchAll(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g)]
+      .map((match) => match[0])
+      .join('\n')
+    expect(text.length, 'no comments parsed out of the route file').toBeGreaterThan(500)
+    return text
+  }
+
   test('no comment still claims the screenshots are missing', () => {
     // COMMENT ACCURACY IS TREATED AS A DEFECT IN THIS CODEBASE, and the note
     // this replaces — "this is the SUBSTANCE of v1's About page, not the whole
     // thing ... porting that marketing surface belongs to Phase 7" — was true
     // right up until the commit that added the images, at which point nothing
-    // would have flagged it. `codeOf` strips comments, so this asserts on the
-    // part of the file it removed: the prose, and only the prose.
-    // The COMMENT TEXT, extracted, not the whole file: an assertion over the
-    // blob would be satisfied — or broken — by the code underneath it.
-    const source = read(ABOUT_SOURCE)
-    const comments = [...source.matchAll(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g)]
-      .map((match) => match[0])
-      .join('\n')
-    expect(comments.length, 'no comments parsed out of the route file').toBeGreaterThan(500)
-    expect(comments).not.toContain('SUBSTANCE of v1')
-    expect(comments).not.toContain('belongs to Phase 7')
-    // The note that is STILL true stays. wt-ksh.12.5's decision is the reason
+    // would have flagged it.
+    expect(comments()).not.toContain('SUBSTANCE of v1')
+    expect(comments()).not.toContain('belongs to Phase 7')
+  })
+
+  test('the reason the carousel is out is still written down', () => {
+    // ITS OWN TEST, because it is the opposite assertion to the one above and
+    // the name up there described only that one. wt-ksh.12.5's decision is why
     // the four community images are a grid, and deleting the reason is how the
     // carousel comes back.
-    expect(comments).toContain('wt-ksh.12.5')
+    expect(comments()).toContain('wt-ksh.12.5')
   })
 })

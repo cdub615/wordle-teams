@@ -27,16 +27,46 @@ import { pageTitle } from '#/lib/seo'
  *
  * TEXT FIRST IN THE DOM ON EVERY ROW, with `md:flex-row-reverse` alternating
  * the sides. v1 alternates with `flex-col-reverse` instead, which puts the
- * image ahead of its own annotation in the document for two of the four rows.
- * Reading order and DOM order agree here; the desktop zig-zag is unchanged.
+ * image ahead of its own annotation in the document for two of the four rows —
+ * a WCAG 1.3.2 meaningful-sequence problem, since the sentence is what the
+ * picture is captioned by. Reading order and DOM order agree here, and the
+ * desktop zig-zag is unchanged. BOTH HALVES OF THAT SENTENCE ARE ASSERTED,
+ * because the second is the half that makes the reorder defensible and it is
+ * one class edit from being false: see *“the four annotated rows alternate
+ * sides on desktop, as v1's do”* in src/about-screenshots.test.ts.
  *
- * v1's `md:rotate-3` / `md:-rotate-6` tilts are dropped. A rotated element
- * still reserves its UNROTATED box, so a tilted screenshot and its outline
- * overhang a column the layout has not made room for — which is a thing to
- * tune by hand at every breakpoint, for an effect the rest of v2 does not use.
- * The green outline is kept, as
- * `outline-accent-solid` rather than v1's raw `outline-green-600` — a raw
- * palette colour outside src/styles.css is a missing token (rule 1 there).
+ * v1's TILTS ARE DROPPED — the `md:` rotate utilities it puts on all four
+ * shots, three degrees on the odd rows and minus six on the even ones
+ * (src/components/about.tsx:40,48,65,73). A rotated element still reserves its
+ * UNROTATED box, so a tilted screenshot and its outline overhang a column the
+ * layout has not made room for — which is a thing to tune by hand at every
+ * breakpoint, for an effect the rest of v2 does not use.
+ *
+ * THE GREEN OUTLINE IS KEPT, RETOKENISED AND HALVED.
+ *
+ *   Retokenised: `outline-accent-solid` in place of v1's raw palette utility
+ *   (`outline-green-` plus the shade), because a raw palette colour outside
+ *   src/styles.css is a missing token (rule 1 there).
+ *
+ *   Halved: `outline-2` where v1 writes `outline` + the 4px width utility. That
+ *   is deliberate, not a port slip, and it is NOT the frame shrinking with the
+ *   image — v2 draws these at v1's own rendered widths. v1's board shot is
+ *   `height={400}`, which at 518×708 is 293px wide, and that is this page's
+ *   `max-w-[293px]`; the other three carry no height in v1 and so render at
+ *   their intrinsic widths, which are this page's other three max-widths. At
+ *   the same drawn size a 4px green rule is simply the heaviest border anywhere
+ *   in v2: every other framed surface on this page, the four community shots
+ *   directly below included, is a 1px `border-line-subtle`. Recorded in §7a of
+ *   docs/design-system/V2-ADDENDUM.md, because the audit reads that table.
+ *
+ * THE UTILITY NAMES IN THIS COMMENT ARE SPELLED AROUND ON PURPOSE. Tailwind v4
+ * scans this file as source TEXT, comments included, so a dropped or banned
+ * utility named here in full is compiled into the shipped stylesheet as a rule
+ * no element in the app carries. Measured, not feared: before this was
+ * reworded, three such rules — v1's two tilts and its raw green outline — were
+ * in dist/client/assets/styles-*.css, emitted by the comment that explains why
+ * v2 does not use them. The comment banning a class was the only thing shipping
+ * it.
  *
  * TWO DIVERGENCES FROM v1's TEXT, both because v1's sentence is not true of
  * this page:
@@ -74,10 +104,17 @@ export const Route = createFileRoute('/about')({
 })
 
 /**
- * The shared frame for a product shot: v1's green outline, and the two rules
- * that make the declared width/height do their job — `w-full` so the image
- * scales down inside its column, `h-auto` so the browser derives the height
- * from the intrinsic aspect ratio instead of stretching to the attribute.
+ * The shared frame for a product shot: v1's green outline, retokenised and
+ * halved as the header explains, plus the two sizing rules.
+ *
+ * ONLY ONE OF THOSE TWO DOES WORK. `w-full` is what makes the image fill its
+ * column, so the declared width/height act as an aspect ratio to scale by
+ * rather than as a fixed box. `h-auto` RESTATES A DEFAULT: Tailwind's preflight
+ * already emits `img,video{max-width:100%;height:auto}` for every image on the
+ * page, so deleting it changes nothing that renders and no test here notices.
+ * It is kept so the height rule is legible in the class string that governs
+ * these images rather than being an invisible inherited one — and so that an
+ * `h-` utility added to this string reads as the conflict it would be.
  */
 const SHOT = 'h-auto w-full rounded-xl outline-2 outline-offset-2 outline-accent-solid'
 
