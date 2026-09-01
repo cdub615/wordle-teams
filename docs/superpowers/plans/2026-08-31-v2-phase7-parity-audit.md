@@ -44,7 +44,11 @@ Phase 6's reviews found this three times, and it is worth stating plainly:
 
 Twice a pure function was pulled out and thoroughly tested while the wiring that decides whether it is ever called stayed uncovered — and in one case an exact revert of the fix passed every gate.
 
-This phase is unusually exposed to it, because **v2 has no component-rendering tests at all.** Every file under `src/**/*.test.ts` is a `.ts` test of a pure function or an extracted hook; the vitest environment is `edge-runtime`, not jsdom, so there is no DOM and no React Testing Library. That means a task like "per-route cache headers" naturally decomposes into a pure `cachePolicyFor()` that is trivially unit-tested and a `server.ts` wiring that is not tested at all — which is the trap exactly.
+This phase is exposed to it because most of `v2`'s tests are of pure functions or extracted hooks.
+
+**CORRECTED 2026-09-01, and it had been repeated in ten task briefs before anyone checked.** The claim here used to be "v2 has no component-rendering tests at all … there is no DOM and no React Testing Library." That is **false**. `vitest.config.ts` sets `environment: 'edge-runtime'` as the *default*, and an individual file overrides it with a `@vitest-environment jsdom` docblock — four already did before Phase 7 started (`notifications-tab.hook.test.ts`, `use-local-capture.hook.test.ts`, `register-sw.test.ts`, and now `team-boards.hook.test.ts`). Task 10's implementer caught it.
+
+The consequence of the wrong version was not nothing: it steered ten tasks toward source-reading and element-tree assertions when a hook-level render was available. Those tests are good and several caught real defects — but "there is no DOM" was never the reason to write them, and a hydration mismatch, an effect, or a state transition is testable at gate level here. That means a task like "per-route cache headers" naturally decomposes into a pure `cachePolicyFor()` that is trivially unit-tested and a `server.ts` wiring that is not tested at all — which is the trap exactly.
 
 **Every task in Stage A that changes behaviour visible over HTTP therefore requires an assertion on a real response**, in `e2e/`, in addition to any unit test of the extracted logic. A unit test alone does not close a Stage A task.
 
