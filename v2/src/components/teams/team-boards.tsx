@@ -63,7 +63,12 @@ export function TeamBoards({
   const dayIndex = day ? days.indexOf(day) : -1
 
   const trackRef = useRef<HTMLDivElement>(null)
-  const [slide, setSlide] = useState(0)
+  // A REF, NOT STATE, and that is the point of the whole scroll handler below.
+  // Nothing in the returned JSX reads this index; its only consumer is
+  // goToSlide, at click time. As state it re-rendered the panel — and re-ran
+  // teamBoardsView over the whole roster — on every scroll event, which a
+  // smooth scrollTo fires once per animation frame.
+  const slideRef = useRef(0)
 
   // `!today` is redundant at runtime — `day` cannot resolve without it — but it
   // is what narrows `today` to a PuzzleDay for teamBoardsView below, whose
@@ -92,20 +97,29 @@ export function TeamBoards({
   }
 
   const { boards } = teamBoardsView({ players, day, today, myPlayerId })
-  // Clamped rather than reset: switching to a team with fewer members must not
-  // leave the track scrolled past its last slide.
-  const active = Math.min(slide, Math.max(boards.length - 1, 0))
 
   const goToSlide = (delta: number) => {
+    // Clamped rather than reset: switching to a team with fewer members must
+    // not leave the arrows stepping from an index that no longer exists.
+    const active = Math.min(slideRef.current, Math.max(boards.length - 1, 0))
     const next = wrapSlide(active, delta, boards.length)
-    setSlide(next)
+    slideRef.current = next
     const track = trackRef.current
     const child = track?.children[next]
     if (!track || !(child instanceof HTMLElement)) return
+    // prefers-reduced-motion is asked here rather than left to the browser.
+    // Whether a UA damps an EXPLICIT `behavior: 'smooth'` is not uniformly
+    // specified — the claim that scroll-snap got this for free was retracted on
+    // wordle-teams-ry1 — so the panel decides for itself. Optional-called
+    // because matchMedia is not guaranteed to exist on every host.
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
     // offsetLeft is relative to the offsetParent, which the track is not
     // guaranteed to be; subtracting its own offsetLeft makes the difference a
     // scroll offset either way.
-    track.scrollTo({ left: child.offsetLeft - track.offsetLeft, behavior: 'smooth' })
+    track.scrollTo({
+      left: child.offsetLeft - track.offsetLeft,
+      behavior: reduced ? 'auto' : 'smooth',
+    })
   }
 
   return (
@@ -155,9 +169,12 @@ export function TeamBoards({
             aria-label="Team boards, scrollable by player"
             className="flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             onScroll={(event) => {
+              // Keeps the arrows stepping from where a TOUCH SWIPE left the
+              // track, which the arrows never hear about otherwise. Writes a
+              // ref, so it costs no render.
               const track = event.currentTarget
               if (track.clientWidth === 0) return
-              setSlide(Math.round(track.scrollLeft / track.clientWidth))
+              slideRef.current = Math.round(track.scrollLeft / track.clientWidth)
             }}
           >
             {boards.map((board) => (

@@ -34,6 +34,7 @@ import { api } from '../../../convex/_generated/api'
 import TeamBoards from './team-boards.tsx'
 import { CONCEALED_MESSAGE, MISSING_MESSAGE } from './team-boards-model.ts'
 import { codeOf, parseSource } from '#/test-support/source-ast.ts'
+import { daysOfMonth } from '../../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /** Set per test, read by the mocked `useSuspenseQuery`. */
@@ -61,6 +62,14 @@ vi.mock('@tanstack/react-query', () => ({
 
 const TEAM_ID = 'team_1' as Id<'teams'>
 const MONTH = '2026-08'
+/**
+ * Written out here rather than exported from the component, which is the same
+ * choice made for every other literal in this file: the assertions are about
+ * what a viewer READS, so importing the string would let a reworded message
+ * pass. CONCEALED_MESSAGE and MISSING_MESSAGE are imported because they are
+ * v1's strings verbatim and the model already owns them.
+ */
+const EMPTY_MONTH_MESSAGE = 'No days to show in this month yet'
 
 const board = (puzzleDay: string, answer: string) => ({
   puzzleDay,
@@ -73,7 +82,7 @@ const board = (puzzleDay: string, answer: string) => ({
 // so there are days on both sides of it inside the month.
 const NOW = new Date(2026, 7, 20, 10, 0, 0)
 
-const panel = () => createElement(TeamBoards, { teamId: TEAM_ID, month: MONTH })
+const panel = (month: string = MONTH) => createElement(TeamBoards, { teamId: TEAM_ID, month })
 
 // react-dom/client's own act() checks this flag; @testing-library/react sets it
 // for its render(), but the hand-rolled hydrateRoot below is outside that.
@@ -139,8 +148,23 @@ describe('the SSR/client date divergence — v1 team-boards.tsx lines 28-33', ()
     expect(container.querySelectorAll('[data-slot="wordle-board"]')).toHaveLength(0)
     expect(container.textContent).not.toContain('Ada')
     expect(container.textContent).not.toContain('Alan')
-    // ...but it did render — otherwise the four absences above are vacuous.
+    // And no DATE, which is the most day-derived string the panel has: the
+    // picker's own label. A server that resolved a day would print one here.
+    expect(container.textContent).not.toMatch(/August \d+, 2026/)
+    // ...but it did render — otherwise the five absences above are vacuous.
     expect(container.textContent).toContain('Team Boards')
+  })
+
+  test('before hydration the panel is a SKELETON, not the empty-month message', () => {
+    // The two placeholder branches are deliberately different states (see the
+    // component's comment at the early return) and nothing distinguished them:
+    // swapping the two branches over left the whole suite green, which made
+    // both the skeleton and the message dead as far as the gates could see.
+    const container = document.createElement('div')
+    container.innerHTML = renderToStaticMarkup(panel())
+
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(1)
+    expect(container.textContent).not.toContain(EMPTY_MONTH_MESSAGE)
   })
 
   // Torn down here rather than at the end of the test below, and that is not
@@ -197,18 +221,24 @@ describe('the SSR/client date divergence — v1 team-boards.tsx lines 28-33', ()
 })
 
 describe('what the panel shows once hydrated', () => {
-  test('opens on today and renders one slide per member, in roster order', () => {
+  test("opens on today with one slide per member in roster order, and a 'no board' message rather than an empty grid", () => {
     render(panel())
     expect(dayLabel('August 20, 2026')).toBeTruthy()
-    expect(slides().map((slide) => slide.name)).toEqual(['Ada Lovelace', 'Alan Turing'])
-  })
-
-  test("a member with no board for the day gets the 'no board' message, not an empty grid", () => {
-    render(panel())
     expect(slides()).toEqual([
       { name: 'Ada Lovelace', message: null, hasBoard: true, letters: 'CRANESPEED' },
       { name: 'Alan Turing', message: MISSING_MESSAGE, hasBoard: false, letters: '' },
     ])
+  })
+
+  test('a month with nothing playable in it yet says so, rather than spinning forever', () => {
+    // September, from an August "today": every day of it is in the future, so
+    // `navigableDays` is empty AFTER hydration too. Only reachable by hand —
+    // the month picker offers this month and the two before it — but the
+    // alternative branch is a skeleton that never resolves.
+    const { container } = render(panel('2026-09'))
+
+    expect(screen.getByText(EMPTY_MONTH_MESSAGE)).toBeTruthy()
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0)
   })
 
   test("the team's showLetters:false setting reaches the board", () => {
@@ -281,6 +311,50 @@ describe('day navigation', () => {
   })
 })
 
+describe('the date picker is the other half of day navigation, and is bounded to the month', () => {
+  // THE HALF THE ARROW TESTS ABOVE ARE BLIND TO. Every day-navigation test
+  // clicks an arrow; nothing reached the picker, so `onSelect={setPicked}`
+  // could be replaced by a no-op, and `minDay`/`maxDay` deleted from the call
+  // site, with the suite still green. Row 32 documents both as parity
+  // behaviour. src/components/date-picker.hook.test.ts pins what the props DO;
+  // these two pin that this panel passes them and listens to the result.
+
+  /** Every day the open calendar offers, read off its `data-day` cells. */
+  const offeredDays = () =>
+    Array.from(screen.getByRole('grid').querySelectorAll<HTMLElement>('td[data-day]'))
+      .filter((cell) => cell.querySelector('button')?.hasAttribute('disabled') === false)
+      .map((cell) => cell.dataset.day)
+
+  test('the calendar offers the viewed month and NOTHING outside it', () => {
+    // July, viewed from an August "today", so both bounds are observable at
+    // once: without minDay the grid's June days open up, and without maxDay so
+    // do its August ones — both of them days `scores.getTeamMonth` has no data
+    // for, which is what row 32 calls reading as data loss.
+    render(panel('2026-07'))
+    fireEvent.click(dayLabel('July 31, 2026'))
+    // The calendar opens on the CLOCK'S month, not on the selected day's:
+    // date-picker.tsx passes no `defaultMonth`, and react-day-picker's default
+    // is today. Pre-existing and shared with v1, which renders the same
+    // component — filed as wordle-teams-p5mw, not fixed here.
+    fireEvent.click(screen.getByRole('button', { name: 'Go to the Previous Month' }))
+
+    expect(offeredDays()).toEqual(daysOfMonth('2026-07'))
+  })
+
+  test('picking a day from the calendar moves the panel to it', () => {
+    render(panel())
+    fireEvent.click(dayLabel('August 20, 2026'))
+    fireEvent.click(screen.getByRole('grid').querySelector('td[data-day="2026-08-19"] button')!)
+
+    expect(dayLabel('August 19, 2026')).toBeTruthy()
+    // And the boards moved with it: on the 20th Alan has none, on the 19th he does.
+    expect(slides()).toEqual([
+      { name: 'Ada Lovelace', message: null, hasBoard: true, letters: 'CRANECRANE' },
+      { name: 'Alan Turing', message: null, hasBoard: true, letters: 'CRANECRANE' },
+    ])
+  })
+})
+
 describe('the carousel, without a carousel library', () => {
   // jsdom lays nothing out: every offsetLeft is 0 and Element.scrollTo does not
   // exist. Both are stubbed so the SLIDE THE ARROWS TARGET is observable —
@@ -318,6 +392,94 @@ describe('the carousel, without a carousel library', () => {
     // Three slides, so the last one sits at 200. A non-wrapping implementation
     // clamps to 0 here and this is the assertion that catches it.
     expect(scrollTo).toHaveBeenCalledWith({ left: 200, behavior: 'smooth' })
+  })
+
+  test('THE SNAP ITSELF: the track and EVERY slide carry the scroll-snap classes', () => {
+    // The whole of V2-ADDENDUM §7a row 31 rests on this. "The two things v1's
+    // carousel actually does are the snap and opts={{loop:true}}" — the loop is
+    // pinned twice (wrapSlide directly, and the two arrow tests above), and
+    // before this test the snap was pinned nowhere: stripping `snap-x
+    // snap-mandatory` from the track, or `snap-center` from the slides, left
+    // the suite green and the panel a free-scrolling div.
+    //
+    // jsdom lays nothing out, so snapping BEHAVIOUR is out of reach here; what
+    // is in reach is that the classes are on the elements, over the track's
+    // whole child list rather than a sample of it.
+    teamMonth.players.push({ id: 'p3', firstName: 'Grace', lastName: 'Hopper', scores: [] })
+    render(panel())
+    const track = screen.getByLabelText('Team boards, scrollable by player')
+
+    expect(track.className).toContain('overflow-x-auto')
+    expect(track.className).toContain('snap-x')
+    expect(track.className).toContain('snap-mandatory')
+
+    const children = Array.from(track.children)
+    expect(children).toHaveLength(3)
+    // basis-full is half of it: one slide exactly fills the track, which is
+    // also what makes the scroll handler's scrollLeft / clientWidth an index
+    // rather than an approximation.
+    expect(children.map((slide) => [slide.className.includes('snap-center'), slide.className.includes('basis-full')])).toEqual([
+      [true, true],
+      [true, true],
+      [true, true],
+    ])
+  })
+
+  test('a swipe moves the index the ARROWS step from', () => {
+    // Nothing else in this file fires a scroll, so deleting the onScroll
+    // handler outright was green. It is the only thing that tells the arrows
+    // where a touch swipe left the track; without it they step from a stale
+    // index, which on a two-member team means the arrow does nothing visible.
+    render(panel())
+    const track = screen.getByLabelText('Team boards, scrollable by player')
+    // jsdom reports 0 for both, and the handler's own guard bails on a zero
+    // width, so the track is given the geometry the offsetLeft stub implies.
+    Object.defineProperty(track, 'clientWidth', { configurable: true, value: 100 })
+    track.scrollLeft = 100
+
+    fireEvent.scroll(track)
+    fireEvent.click(screen.getByRole('button', { name: 'Next player' }))
+
+    // Two slides, and the swipe left us on the second: Next WRAPS to the first.
+    // Without the handler the arrows still think they are on the first and
+    // target 100.
+    expect(scrollTo).toHaveBeenCalledWith({ left: 0, behavior: 'smooth' })
+  })
+
+  test('switching to a smaller team clamps the index the arrows step from', () => {
+    // The hazard the clamp's comment names, exercised. Three members, swipe to
+    // the last, then the viewer switches team and the roster shrinks under it.
+    teamMonth.players.push({ id: 'p3', firstName: 'Grace', lastName: 'Hopper', scores: [] })
+    const view = render(panel())
+    const track = screen.getByLabelText('Team boards, scrollable by player')
+    Object.defineProperty(track, 'clientWidth', { configurable: true, value: 100 })
+    track.scrollLeft = 200
+    fireEvent.scroll(track)
+
+    teamMonth.players = teamMonth.players.slice(0, 2)
+    view.rerender(panel())
+    fireEvent.click(screen.getByRole('button', { name: 'Next player' }))
+
+    // Clamped to the last of two slides, Next wraps to the first. Unclamped,
+    // index 2 of a 2-slide track steps to 1 and targets 100 instead.
+    expect(scrollTo).toHaveBeenCalledWith({ left: 0, behavior: 'smooth' })
+  })
+
+  test('a viewer who asked for reduced motion gets an instant jump, not a smooth one', () => {
+    // `behavior: 'smooth'` in a scripted scrollTo is not reliably damped by the
+    // UA — the claim that scroll-snap got this for free was retracted on
+    // wordle-teams-ry1 — so the panel asks. jsdom ships no matchMedia at all,
+    // which is why the component optional-calls it and why the other tests in
+    // this describe are the 'smooth' half of this pair.
+    const matchMedia = vi.fn((query: string) => ({ matches: query.includes('reduce') }))
+    vi.stubGlobal('matchMedia', matchMedia)
+
+    render(panel())
+    fireEvent.click(screen.getByRole('button', { name: 'Next player' }))
+
+    expect(matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)')
+    expect(scrollTo).toHaveBeenCalledWith({ left: 100, behavior: 'auto' })
+    vi.unstubAllGlobals()
   })
 
   test('a one-member team has no player arrows at all', () => {

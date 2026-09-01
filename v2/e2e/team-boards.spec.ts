@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
-import { CONCEALED_MESSAGE } from '../src/components/teams/team-boards-model'
+import { CONCEALED_MESSAGE } from '../src/components/teams/team-boards-model.ts'
 
 /**
  * The Team Boards panel, on the real dashboard.
