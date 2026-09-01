@@ -8,15 +8,13 @@
 // and the case is worth making again; see the note at the top of inviteEmails.ts,
 // which is the live version of this decision.
 
-/**
- * How long a code is valid. ONE constant, used both to configure the plugin and
- * to write the sentence in the email — they were previously independent, so the
- * email could have promised five minutes while the plugin enforced something
- * else, and nothing would have caught it.
- */
-export const OTP_EXPIRY_SEC = 300
-
-const expiryMinutes = Math.round(OTP_EXPIRY_SEC / 60)
+// How long a code is valid, and the phrase for it, both from convex/lib/
+// otpExpiry.ts. The constant used to live here and the minutes were computed
+// with `Math.round(OTP_EXPIRY_SEC / 60)` in this file AND again on
+// /login-error — consistent with each other and wrong together below two
+// minutes. See that module for why the phrase is not a rounded number, and why
+// it sits in convex/lib/ now that a browser route reads it.
+import { OTP_EXPIRY_LABEL } from './lib/otpExpiry.ts'
 
 export function signInCodeEmail(otp: string) {
   const subject = `Your Wordle Teams sign-in code: ${otp}`
@@ -28,7 +26,7 @@ export function signInCodeEmail(otp: string) {
   const text = [
     `Your Wordle Teams sign-in code is ${otp}`,
     '',
-    `It expires in ${expiryMinutes} minutes.`,
+    `It expires in ${OTP_EXPIRY_LABEL}.`,
     '',
     "If you didn't request this, you can ignore this email — someone may have",
     'typed your address by mistake, and no one can sign in without the code.',
@@ -47,7 +45,7 @@ export function signInCodeEmail(otp: string) {
           <h1 style="margin:0 0 24px;font-size:20px;font-weight:600;">Your sign-in code</h1>
           <p style="margin:0 0 8px;font-size:15px;line-height:1.6;">Enter this code to finish signing in:</p>
           <p style="margin:0 0 24px;font-size:32px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${otp}</p>
-          <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#6b7280;">It expires in ${expiryMinutes} minutes.</p>
+          <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#6b7280;">It expires in ${OTP_EXPIRY_LABEL}.</p>
           <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">
             If you didn&rsquo;t request this, you can ignore this email &mdash; someone may have
             typed your address by mistake, and no one can sign in without the code.

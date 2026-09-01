@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { pageTitle } from '#/lib/seo'
 import { Button } from '#/components/ui/button.tsx'
-import { OTP_EXPIRY_SEC } from '../../convex/authEmails.ts'
+import { OTP_EXPIRY_LABEL } from '../../convex/lib/otpExpiry.ts'
 
 /**
  * Ported from v1's src/app/login-error/page.tsx.
@@ -9,20 +9,22 @@ import { OTP_EXPIRY_SEC } from '../../convex/authEmails.ts'
  * THE COPY IS v1'S, WITH ONE DELIBERATE CHANGE, RECORDED BELOW. The two
  * asterisked notes are the whole value of this page: they name the two things
  * that actually go wrong, to a user who has just had one of them go wrong.
- * src/login-error-copy.test.ts pins every visible line of it.
+ * src/login-error.test.ts pins every visible line of it.
  *
  * THE ONE CHANGE: v1 says the passcode "will expire after 1 hour". ON v2 IT
- * EXPIRES IN FIVE MINUTES — convex/authEmails.ts sets OTP_EXPIRY_SEC to 300,
+ * EXPIRES IN FIVE MINUTES — convex/lib/otpExpiry.ts sets OTP_EXPIRY_SEC to 300,
  * and that one constant configures the emailOTP plugin AND writes the "It
  * expires in 5 minutes" sentence in the code email itself. Porting "1 hour"
  * verbatim would have this page contradict the email the user is looking at,
  * and would tell someone whose code is forty minutes old that it should still
  * work — the exact opposite of the guidance the note exists to give. So the
- * duration is INTERPOLATED FROM THE SAME CONSTANT rather than written out,
- * which is the reason that constant exists (see its comment: the email and the
- * plugin "were previously independent, so the email could have promised five
- * minutes while the plugin enforced something else"). This page is now the
- * third consumer and cannot drift from the other two either.
+ * duration is INTERPOLATED FROM THE SAME MODULE rather than written out, which
+ * is the reason that module exists (the email and the plugin "were previously
+ * independent, so the email could have promised five minutes while the plugin
+ * enforced something else"). This page is the third consumer and cannot drift
+ * from the other two either — and it reads OTP_EXPIRY_LABEL rather than
+ * dividing by 60 itself, because two call sites each rounding the same number
+ * is how one off-by-a-minute bug came to exist in two places at once.
  *
  * v1 ALSO CALLED clearAllCookies() IN A useEffect ON MOUNT. IT IS NOT PORTED,
  * and the reason is not "v2 is different" — it is that the same code would be a
@@ -50,9 +52,6 @@ import { OTP_EXPIRY_SEC } from '../../convex/authEmails.ts'
  *
  * So: nothing runs on mount. The page renders and offers the way back.
  */
-
-/** v1's copy says "1 hour"; this deployment says five minutes. See above. */
-const EXPIRY_MINUTES = Math.round(OTP_EXPIRY_SEC / 60)
 
 /**
  * THE `wordle-teams-vjh` DECISION: THE PROVIDER'S ERROR IS CARRIED THROUGH.
@@ -92,6 +91,21 @@ const EXPIRY_MINUTES = Math.round(OTP_EXPIRY_SEC / 60)
  * the provider, and in the observed production hit a full AADSTS sentence — is
  * NOT READ AT ALL, here or in validateSearch.
  */
+
+/**
+ * The sentence for BOTH of Better Auth's parseState failures, which are one
+ * situation to a user.
+ *
+ * `state_mismatch` is thrown when the state cookie is missing (dist/state.mjs,
+ * the `!encryptedData` branch); `state_invalid` is thrown a few lines later
+ * when the cookie is there but will not decrypt or parse. Different causes,
+ * identical advice: the attempt is no longer usable and starting again is what
+ * fixes it. Written once so the two cannot drift into saying different things
+ * about the same failure.
+ */
+const STALE_ATTEMPT =
+  'This sign in attempt expired, or it was started in a different browser or tab. Starting again from the sign in page usually works.'
+
 const REASONS = new Map<string, string>([
   [
     // The provider said the user declined. This is the code from the production
@@ -100,10 +114,24 @@ const REASONS = new Map<string, string>([
     'You cancelled at your sign in provider, or declined the permissions it asked for. You can try again, choose a different provider, or use a one time passcode instead.',
   ],
   [
+    // access_denied's cousin in the OAuth2 spec, and the one Microsoft in
+    // particular sends: the provider WOULD sign the user in but has no consent
+    // on record and was not able to ask for it. Distinct from access_denied,
+    // where the user was asked and said no, but the way out is the same one.
+    'consent_required',
+    'Your sign in provider needs your permission before it can sign you in, and it did not get it. Try again and accept the permissions it asks for, or use a one time passcode instead.',
+  ],
+  [
     // parseState could not match the callback's state to the cookie it stored,
     // or the attempt aged out. This is the first asterisked note, named.
     'state_mismatch',
-    'This sign in attempt expired, or it was started in a different browser or tab. Starting again from the sign in page usually works.',
+    STALE_ATTEMPT,
+  ],
+  [
+    // The same note's other half: the state cookie came back but could not be
+    // decrypted or parsed. See STALE_ATTEMPT above.
+    'state_invalid',
+    STALE_ATTEMPT,
   ],
   [
     // No state parameter came back at all — the shape of the paramless callback
@@ -130,7 +158,7 @@ export const Route = createFileRoute('/login-error')({
   head: () => ({ meta: [{ title: pageTitle('Login / Signup') }] }),
   validateSearch: (search: Record<string, unknown>): LoginErrorSearch => ({
     // An allowlist, not a sanitiser. Anything not spelled exactly like one of
-    // the four codes above is dropped here and never reaches the component, so
+    // the six codes above is dropped here and never reaches the component, so
     // there is no path by which a query string can become page content.
     error:
       typeof search.error === 'string' && REASONS.has(search.error) ? search.error : undefined,
@@ -149,7 +177,7 @@ function LoginErrorRoute() {
  * SPLIT FROM THE ROUTE COMPONENT SO THE COPY IS TESTABLE. `Route.useSearch()`
  * needs a running router, which does not exist under vitest — the same
  * constraint src/routes.test.ts and src/legal-prose.test.ts are both written
- * around. With the search read one level up, src/login-error-copy.test.ts can
+ * around. With the search read one level up, src/login-error.test.ts can
  * call this as the plain function it is and walk the element tree it returns,
  * which is the only way the two asterisked notes get a gate-level assertion.
  */
@@ -182,8 +210,8 @@ export function LoginErrorPage({ error }: { error?: string }) {
             Wordle Teams.
           </p>
           <p className="m-0">
-            <b>*</b> a One Time Passcode (OTP) will expire after {EXPIRY_MINUTES} minutes. If your
-            email has been delayed you may need to try again.
+            <b>*</b> a One Time Passcode (OTP) will expire after {OTP_EXPIRY_LABEL}. If your email
+            has been delayed you may need to try again.
           </p>
         </div>
 

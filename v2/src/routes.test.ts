@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
+import ts from 'typescript'
 import { describe, expect, test } from 'vitest'
 
 /**
@@ -43,6 +44,67 @@ const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf
  */
 const codeOf = (source: string) =>
   source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+
+/**
+ * THE OPTIONS A NAMED CALL IS ACTUALLY GIVEN — parsed, not matched.
+ *
+ * Everything else in this file reads a file as a string, which is the right
+ * tool when the claim is "this literal is in this file". It is the WRONG tool
+ * for "this option is passed to this call": a `toMatch` for
+ * `errorCallbackURL: '/login-error'` is satisfied by that text sitting in a
+ * `const` nothing reads, so deleting the real option from the `signIn.social`
+ * call survived all four gates AND all 54 e2e tests. The same trick worked on
+ * `onAPIError` in the betterAuth config.
+ *
+ * A regex that spans the call would fix the specific mutation and pin
+ * INDENTATION and property order along with it. The compiler already has an
+ * exact answer, and `typescript` is already a devDependency, so this asks it:
+ * find the call by its callee, take its object-literal argument, and return
+ * that literal's OWN top-level properties. A detached literal is not one of
+ * them at any indentation, and reformatting the file changes nothing here.
+ */
+const parse = (path: string) =>
+  ts.createSourceFile(
+    path,
+    read(path),
+    ts.ScriptTarget.ESNext,
+    /* setParentNodes */ true,
+    path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+
+/** The top-level properties of an object literal, by name. */
+const propertiesOf = (node: ts.Node): Map<string, ts.Expression> => {
+  if (!ts.isObjectLiteralExpression(node))
+    throw new Error(`expected an object literal, got ${ts.SyntaxKind[node.kind]}`)
+  return new Map(
+    node.properties.flatMap((property) =>
+      ts.isPropertyAssignment(property) && property.name
+        ? [[property.name.getText(), property.initializer] as const]
+        : [],
+    ),
+  )
+}
+
+/**
+ * The object literal passed to `callee(...)`, by the callee's exact source
+ * text — `betterAuth`, `authClient.signIn.social`. Throws rather than returning
+ * an empty map, so a renamed or deleted call is a named failure and not a
+ * silent pass on `undefined`.
+ */
+const optionsPassedTo = (path: string, callee: string): Map<string, ts.Expression> => {
+  const found: ts.ObjectLiteralExpression[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.getText() === callee) {
+      const literal = node.arguments.find(ts.isObjectLiteralExpression)
+      if (literal) found.push(literal)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parse(path))
+  if (found.length !== 1)
+    throw new Error(`expected exactly one ${callee}({...}) in ${path}, found ${found.length}`)
+  return propertiesOf(found[0])
+}
 
 const ME = './routes/me.tsx'
 
@@ -219,7 +281,6 @@ describe('/privacy and /terms, and the footer links that reach them', () => {
 describe('/login-error, and the two config strings that are the only way to it', () => {
   const loginError = () => codeOf(read('./routes/login-error.tsx'))
   const login = () => codeOf(read('./routes/login.tsx'))
-  const convexAuth = () => codeOf(read('../convex/auth.ts'))
 
   /** Every pageTitle('...') argument in a file, in source order. */
   const titlesIn = (source: string) =>
@@ -257,7 +318,7 @@ describe('/login-error, and the two config strings that are the only way to it',
     expect(tree).toMatch(/path:\s*['"]\/login-error['"]/)
   })
 
-  test('both of the redirects that reach it name this exact path', () => {
+  test('both redirects that reach it are options ON their call, naming this path', () => {
     // THE PAIRING, and the reason this whole block exists. Neither string is
     // route-typed, so either can be misspelled or repointed with all four gates
     // green and the page simply never appearing again.
@@ -267,33 +328,46 @@ describe('/login-error, and the two config strings that are the only way to it',
     // once that state has parsed; `onAPIError.errorURL` is the default used
     // when parsing the state is itself what failed. See the note in
     // src/routes/login-error.tsx.
-    expect(login()).toMatch(/errorCallbackURL:\s*['"]\/login-error['"]/)
-    expect(convexAuth()).toMatch(/errorURL:\s*`\$\{siteUrl\}\/login-error`/)
+    //
+    // PARSED, NOT MATCHED — see optionsPassedTo above. This used to be two
+    // `toMatch` calls over the whole file, and both mutations that lift the
+    // option out of its call into a dead `const` survived every gate and every
+    // e2e test: the literal was still in the file, and nothing asserted it was
+    // still wired to anything.
+    const social = optionsPassedTo('./routes/login.tsx', 'authClient.signIn.social')
+    expect(social.get('errorCallbackURL')?.getText()).toBe("'/login-error'")
+
+    // Two levels, because the claim is about a nested option: `onAPIError` is a
+    // top-level option of the betterAuth config, and `errorURL` is a property
+    // of it. ABSOLUTE, via the template — this handler runs on the Convex
+    // deployment, where a bare '/login-error' has no origin to resolve against.
+    const onAPIError = optionsPassedTo('../convex/auth.ts', 'betterAuth').get('onAPIError')
+    expect(onAPIError, 'onAPIError is no longer an option on betterAuth({...})').toBeDefined()
+    expect(propertiesOf(onAPIError!).get('errorURL')?.getText()).toBe('`${siteUrl}/login-error`')
   })
 
-  test('it is in STATIC_DOCUMENTS, which is what makes it edge-cacheable', () => {
-    // Listed since Phase 0 and inert the whole time — src/server.ts shares only
-    // a 200 and this path 404'd. Landing the route is the moment the listing
-    // takes effect, which is the flip e2e/routes.spec.ts measures on a real
-    // response. Pinned here too because dropping the entry is a silent latency
-    // regression with every gate green.
-    expect(codeOf(read('./lib/cache-policy.ts'))).toMatch(/['"]\/login-error['"]/)
-  })
-
-  test('the passcode expiry is interpolated from OTP_EXPIRY_SEC, never written out', () => {
+  test('the passcode expiry is interpolated from OTP_EXPIRY_LABEL, never written out', () => {
     // v1's copy says "1 hour". THIS DEPLOYMENT EXPIRES A CODE IN FIVE MINUTES —
-    // convex/authEmails.ts sets OTP_EXPIRY_SEC to 300, and that one constant
+    // convex/lib/otpExpiry.ts sets OTP_EXPIRY_SEC to 300, and that one module
     // both configures the emailOTP plugin and writes "It expires in 5 minutes"
     // in the code email. A number typed into this page instead would pass
     // src/login-error.test.ts today and start lying to users the day the
     // constant moves, telling someone with a forty-minute-old code that it
     // should still work.
     //
-    // The SENTENCE, not "OTP_EXPIRY_SEC appears somewhere in the file": the
-    // import surviving while the sentence hardcodes a digit is exactly the
-    // mutation this is written against.
-    expect(loginError()).toMatch(/expire after \{EXPIRY_MINUTES\} minutes/)
-    expect(loginError()).toMatch(/import \{ OTP_EXPIRY_SEC \} from/)
+    // The SENTENCE, not "the label appears somewhere in the file": the import
+    // surviving while the sentence hardcodes a digit is exactly the mutation
+    // this is written against.
+    //
+    // THE IMPORT IS PINNED TO convex/lib/ AND NOT TO authEmails.ts. convex/lib/
+    // is the directory that marks isomorphic code, and it is where every other
+    // cross-boundary import in src/ comes from; reaching into a module that
+    // also builds email HTML is how a server-only dependency ends up on a
+    // browser route without anyone deciding to put it there.
+    expect(loginError()).toMatch(/expire after \{OTP_EXPIRY_LABEL\}\./)
+    expect(loginError()).toMatch(
+      /import \{ OTP_EXPIRY_LABEL \} from '\.\.\/\.\.\/convex\/lib\/otpExpiry\.ts'/,
+    )
   })
 
   test('nothing reads error_description, the one provider-supplied string here', () => {

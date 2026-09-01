@@ -23,6 +23,7 @@ import type * as lib_board from "../lib/board.js";
 import type * as lib_e2e from "../lib/e2e.js";
 import type * as lib_html from "../lib/html.js";
 import type * as lib_invite from "../lib/invite.js";
+import type * as lib_otpExpiry from "../lib/otpExpiry.js";
 import type * as lib_polarErrors from "../lib/polarErrors.js";
 import type * as lib_polarEvents from "../lib/polarEvents.js";
 import type * as lib_polarIdentity from "../lib/polarIdentity.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   "lib/e2e": typeof lib_e2e;
   "lib/html": typeof lib_html;
   "lib/invite": typeof lib_invite;
+  "lib/otpExpiry": typeof lib_otpExpiry;
   "lib/polarErrors": typeof lib_polarErrors;
   "lib/polarEvents": typeof lib_polarEvents;
   "lib/polarIdentity": typeof lib_polarIdentity;
