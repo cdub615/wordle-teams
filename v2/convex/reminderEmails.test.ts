@@ -250,9 +250,18 @@ describe('boardEntryReminderEmail', () => {
       const html = email().html
       const idx = html.indexOf('>Enter your board</a>')
       expect(idx).toBeGreaterThan(-1)
-      const enclosing = html.slice(Math.max(0, idx - 500), idx)
-      expect(enclosing).toContain('bgcolor="#f6f7f9"')
-      expect(enclosing).toContain('background-color:#f6f7f9')
+
+      // THE ASSERTION IS ON THE <td> TAG ITSELF, NOT A WINDOW BEFORE THE
+      // ANCHOR. It used to slice 500 characters back from the label, which
+      // swallowed the anchor's OWN inline background-color -- so deleting the
+      // td's inline style left this test green, which is the one thing it
+      // exists to catch. Found by Phase 7's spec review, which deleted that
+      // style and watched all 25 tests pass.
+      const tdStart = html.lastIndexOf('<td', idx)
+      expect(tdStart).toBeGreaterThan(-1)
+      const tdTag = html.slice(tdStart, html.indexOf('>', tdStart) + 1)
+      expect(tdTag).toContain('bgcolor="#f6f7f9"')
+      expect(tdTag).toContain('background-color:#f6f7f9')
     })
 
     test("the button's label survives a background that never applies", () => {

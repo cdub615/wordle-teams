@@ -66,6 +66,20 @@ const PANEL_COLOR = '#0d0d0d'
  *
  * `BUTTON_INK` doubles as a 2px border so the button still reads as a button
  * against the white card, where its own fill is nearly invisible.
+ *
+ * MEASURED, not asserted — this file's own §2 lesson in
+ * docs/design-system/V2-ADDENDUM.md is that a plausible contrast table was
+ * wrong in 5 of 7 light pairs, and following it would have made a PASSING
+ * badge fail. So: `#1c2024` on `#f6f7f9` is 15.29:1, and on `#ffffff` — the
+ * case that matters, the fill stripped — 16.39:1. The border clears 1.4.11's
+ * 3:1 at the same 16.39:1. The fill itself is 1.07:1 against the card, which
+ * is why the border is load-bearing rather than decorative.
+ *
+ * And the "no single colour reads on both" claim above is true, but only just:
+ * sweeping all 256 greys (contrast depends only on luminance, so that is a
+ * complete search) the best achievable against BOTH `#ffffff` and `#0d0d0d`
+ * is `#787878` at 4.40:1 — a 2% miss on AA, not a comfortable one. If someone
+ * later wants a single-colour button here, that is the number to beat.
  */
 const BUTTON_BG = '#f6f7f9'
 const BUTTON_INK = '#1c2024'
