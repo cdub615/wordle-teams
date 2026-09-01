@@ -1,0 +1,212 @@
+import { useRef, useState } from 'react'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react'
+import { convexQuery } from '@convex-dev/react-query'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { api } from '../../../convex/_generated/api'
+import { Button } from '#/components/ui/button.tsx'
+import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+import { Skeleton } from '#/components/ui/skeleton.tsx'
+import { DatePicker } from '#/components/date-picker.tsx'
+import { WordleBoard } from '#/components/wordle-board.tsx'
+import { useHydrated } from '#/lib/use-hydrated.ts'
+import { cn } from '#/lib/utils.ts'
+import { toPuzzleDay, type PuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { navigableDays, resolveDay, teamBoardsView, wrapSlide } from './team-boards-model.ts'
+import type { Id } from '../../../convex/_generated/dataModel'
+
+/**
+ * One teammate's board per slide, for a chosen day, with day navigation.
+ * Ported from v1's src/components/app-grid-items/team-boards.tsx.
+ *
+ * NO CAROUSEL LIBRARY. v1 uses shadcn's `Carousel`, which is a wrapper around
+ * embla-carousel-react; v2 has neither, and adding embla for one panel would
+ * run against the direction Phase 7 has already taken twice — aceternity,
+ * magicui and framer-motion all came out on the same reasoning, and
+ * V2-ADDENDUM §7a row 25 is the /about carousel going the same way. The two
+ * things v1's carousel actually does — snap one slide at a time, and wrap at
+ * the ends — are `snap-x snap-mandatory` plus `wrapSlide`, below. Touch and
+ * trackpad swiping and their momentum then come from the browser's own
+ * overflow scrolling, with nothing here to implement or test.
+ *
+ * ALL DAY RESOLUTION HAPPENS AFTER HYDRATION, which is the whole trap in this
+ * component and the reason v1 carries two comments about it. This renders on
+ * the server, where "now" is UTC; `useHydrated()` is false on the server AND on
+ * the client's first render, so `today` is undefined on both and the panel
+ * renders an identical placeholder on each. v1 got to the same place by
+ * starting four pieces of state undefined and reconciling them in three
+ * effects. There are no effects here: `today` gates `navigableDays`, which
+ * feeds `resolveDay`, and the placeholder falls out of there being no day.
+ */
+export function TeamBoards({
+  teamId,
+  month,
+  className,
+}: {
+  teamId: Id<'teams'>
+  month: string
+  className?: string
+}) {
+  const hydrated = useHydrated()
+  const { data } = useSuspenseQuery(convexQuery(api.scores.getTeamMonth, { teamId, month }))
+  const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
+  const { team, players } = data
+
+  // The viewer's own midnight, never the server's. See the model's header.
+  const today = hydrated ? toPuzzleDay(new Date()) : undefined
+
+  // What the viewer last chose, NOT what is being shown — resolveDay decides
+  // that. Holding the choice rather than the result is what makes a month or
+  // team switch re-default on the same render instead of one effect later.
+  const [picked, setPicked] = useState<PuzzleDay | undefined>(undefined)
+  const days = navigableDays({ month, playWeekends: team.playWeekends, today })
+  const day = resolveDay(days, picked)
+  const dayIndex = day ? days.indexOf(day) : -1
+
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [slide, setSlide] = useState(0)
+
+  // `!today` is redundant at runtime — `day` cannot resolve without it — but it
+  // is what narrows `today` to a PuzzleDay for teamBoardsView below, whose
+  // signature deliberately refuses an unknown one.
+  if (!day || !today) {
+    return (
+      <Card className={cn('h-fit w-full max-w-[96vw]', className)}>
+        <CardHeader>
+          <CardTitle>Team Boards</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {/* Two distinguishable states, deliberately. Before hydration there
+              IS a day, it just isn't knowable yet, so a skeleton is honest.
+              After hydration an empty `days` means the viewed month has no
+              playable day that has happened — only reachable by hand-editing
+              ?month= to the future, since the month picker offers this month
+              and the two before it — and a spinner forever would be a lie. */}
+          {hydrated ? (
+            <p className="py-8 text-center text-muted-foreground">No days to show in this month yet</p>
+          ) : (
+            <Skeleton className="h-[450px] w-full" />
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const { boards } = teamBoardsView({ players, day, today, myPlayerId })
+  // Clamped rather than reset: switching to a team with fewer members must not
+  // leave the track scrolled past its last slide.
+  const active = Math.min(slide, Math.max(boards.length - 1, 0))
+
+  const goToSlide = (delta: number) => {
+    const next = wrapSlide(active, delta, boards.length)
+    setSlide(next)
+    const track = trackRef.current
+    const child = track?.children[next]
+    if (!track || !(child instanceof HTMLElement)) return
+    // offsetLeft is relative to the offsetParent, which the track is not
+    // guaranteed to be; subtracting its own offsetLeft makes the difference a
+    // scroll offset either way.
+    track.scrollTo({ left: child.offsetLeft - track.offsetLeft, behavior: 'smooth' })
+  }
+
+  return (
+    <Card className={cn('h-fit w-full max-w-[96vw]', className)}>
+      <CardHeader>
+        <CardTitle>Team Boards</CardTitle>
+        <div className="flex pt-2">
+          <Button
+            className="text-sm font-normal"
+            variant="outline"
+            onClick={() => setPicked(days[dayIndex - 1])}
+            disabled={dayIndex <= 0}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span className="sr-only">Previous day</span>
+          </Button>
+          <div className="mx-auto">
+            <DatePicker
+              day={day}
+              onSelect={setPicked}
+              playWeekends={team.playWeekends}
+              minDay={days[0]}
+              maxDay={days[days.length - 1]}
+              className="w-52 md:w-56"
+            />
+          </div>
+          <Button
+            className="text-sm font-normal"
+            variant="outline"
+            onClick={() => setPicked(days[dayIndex + 1])}
+            disabled={dayIndex >= days.length - 1}
+          >
+            <ArrowRight className="h-4 w-4" />
+            <span className="sr-only">Next day</span>
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="relative" role="group" aria-roledescription="carousel" aria-label="Team boards">
+          {/* overflow-x-auto + snap-x snap-mandatory IS the carousel. Each slide
+              is basis-full so exactly one is in view, which is also what makes
+              the scroll handler's `scrollLeft / clientWidth` an exact index
+              rather than an approximation. */}
+          <div
+            ref={trackRef}
+            tabIndex={0}
+            aria-label="Team boards, scrollable by player"
+            className="flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            onScroll={(event) => {
+              const track = event.currentTarget
+              if (track.clientWidth === 0) return
+              setSlide(Math.round(track.scrollLeft / track.clientWidth))
+            }}
+          >
+            {boards.map((board) => (
+              <div key={board.playerId} className="h-[450px] min-w-0 shrink-0 basis-full snap-center">
+                <div className="mb-2 h-[24px] text-center font-semibold">{board.playerName}</div>
+                <div className="flex h-full justify-center">
+                  {board.message ? (
+                    <p className="w-auto pt-[180px] text-center text-muted-foreground">{board.message}</p>
+                  ) : (
+                    <WordleBoard
+                      answer={board.answer}
+                      guesses={board.guesses}
+                      showLetters={team.showLetters}
+                      boardEntry={false}
+                    />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Hidden below two members: there is nothing to move between, and
+              v1's looping arrows on a one-player team scrolled to the slide
+              already on screen. */}
+          {boards.length > 1 && (
+            <>
+              <Button
+                variant="outline"
+                size="icon"
+                className="absolute top-1/2 -left-3 h-8 w-8 -translate-y-1/2 rounded-md md:-left-4"
+                onClick={() => goToSlide(-1)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span className="sr-only">Previous player</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                className="absolute top-1/2 -right-3 h-8 w-8 -translate-y-1/2 rounded-md md:-right-4"
+                onClick={() => goToSlide(1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+                <span className="sr-only">Next player</span>
+              </Button>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+export default TeamBoards

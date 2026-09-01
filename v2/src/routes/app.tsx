@@ -21,6 +21,7 @@ import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
 import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
+import { TeamBoards } from '#/components/teams/team-boards.tsx'
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
@@ -224,6 +225,12 @@ function Dashboard() {
         </div>
       </div>
       <ScoresTable teamId={teamParam as Id<'teams'>} month={monthParam} className="md:col-span-3" />
+      {/* Column 1, three rows deep, immediately under the scores table — the
+          slot v1 gives it (src/app/me/page.tsx, `md:row-span-3`). Outside the
+          `selectedTeam &&` block below because it reads the team it needs from
+          scores.getTeamMonth itself, the same already-cached query the table
+          above suspends on. */}
+      <TeamBoards teamId={teamParam as Id<'teams'>} month={monthParam} className="md:row-span-3" />
       {selectedTeam && (
         <>
           {/* Every member renders, including the caller's own row — see

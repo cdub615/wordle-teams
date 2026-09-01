@@ -18,20 +18,39 @@ export function DatePicker({
   day,
   onSelect,
   playWeekends,
+  minDay,
+  maxDay,
   tabIndex,
   className,
 }: {
   day: PuzzleDay | undefined
   onSelect: (day: PuzzleDay) => void
   playWeekends?: boolean
+  /**
+   * Optional inclusive bounds. Both are additive and both default to v1's
+   * behaviour when omitted, so board entry (the original caller) is unchanged.
+   *
+   * team-boards.tsx needs them because its data is scoped to ONE month
+   * (scores.getTeamMonth): a day outside that month has no boards to show, so
+   * offering it in the calendar would hand the viewer a panel that reads as
+   * data loss. Enforced by disabling the days rather than by silently clamping
+   * whatever gets picked, which would move the selection under the pointer.
+   */
+  minDay?: PuzzleDay
+  maxDay?: PuzzleDay
   tabIndex?: number
   className?: string
 }) {
   const [open, setOpen] = useState(false)
   const selected = day ? fromPuzzleDay(day) : undefined
 
-  // Same matchers as v1: no future days, and no weekends unless the team plays them.
-  const disabled: Array<Matcher> = [{ after: new Date() }]
+  // Same matchers as v1: no future days, and no weekends unless the team plays
+  // them. `maxDay` narrows the future bound; it can never widen it, because a
+  // caller passing a maxDay in the future would otherwise open up days the app
+  // has no scores for at all.
+  const upperBound = maxDay ? fromPuzzleDay(maxDay) : new Date()
+  const disabled: Array<Matcher> = [{ after: upperBound < new Date() ? upperBound : new Date() }]
+  if (minDay) disabled.push({ before: fromPuzzleDay(minDay) })
   if (!playWeekends) disabled.push({ dayOfWeek: [0, 6] })
 
   return (
