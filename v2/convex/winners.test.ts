@@ -3,7 +3,13 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
-import { monthsWithWinners, recomputeTeamMonth, recomputeTeamMonths } from './winners.ts'
+import {
+  lastMonthWinnerFor,
+  markCelebrationSeenFor,
+  monthsWithWinners,
+  recomputeTeamMonth,
+  recomputeTeamMonths,
+} from './winners.ts'
 
 const today = toPuzzleDay(new Date())
 const modules = import.meta.glob('./**/*.ts')
@@ -327,6 +333,237 @@ describe('recomputeTeamMonth — scoring version resolution', () => {
         .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId).eq('year', 2026).eq('month', 6))
         .first()
       expect(row?.playerId).toBe(ada)
+    })
+  })
+})
+
+/**
+ * THE CELEBRATION DIALOG'S TWO PUBLIC FUNCTIONS (`wordle-teams-k7w`).
+ *
+ * Everything above exercises the write side, which existed with no reader. The
+ * two suites below are the first tests of anything that can be CALLED from a
+ * browser, and the append test in particular is the one that fails if v1's
+ * read-modify-write shape is ported: v1 sends a whole array computed in the
+ * client from a value it read earlier, so the last writer wins and every
+ * teammate who dismissed the dialog in between is dropped from the row.
+ */
+describe('markCelebrationSeenFor', () => {
+  test('APPENDS to the seen list rather than replacing it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob] }))
+      // Bob has already dismissed it. Ada dismisses it now.
+      const rowId = await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [bob],
+      })
+
+      await markCelebrationSeenFor(ctx, ada, teamId, '2026-08')
+
+      // BOTH, in the order they dismissed. An implementation that wrote
+      // `[playerId]`, or that trusted a client-supplied array built before
+      // Bob's write landed, produces `[ada]` here.
+      expect((await ctx.db.get(rowId))?.hasSeenCelebration).toEqual([bob, ada])
+    })
+  })
+
+  test('marking it seen twice does not duplicate the player', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      const rowId = await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+
+      // The dialog can mount twice on a fast remount — a route transition back
+      // to /app, a re-render that restarts the effect. Nothing reads this array
+      // by length, so a duplicate would not misbehave; it would grow the row
+      // by one entry per remount, forever.
+      await markCelebrationSeenFor(ctx, ada, teamId, '2026-08')
+      await markCelebrationSeenFor(ctx, ada, teamId, '2026-08')
+
+      expect((await ctx.db.get(rowId))?.hasSeenCelebration).toEqual([ada])
+    })
+  })
+
+  test('is a silent no-op when the month has no winner row', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+
+      // A board entered between the query resolving and this call can change
+      // the winner or remove the row. The dialog is already on screen; a throw
+      // would turn that race into an error the viewer cannot act on.
+      await expect(markCelebrationSeenFor(ctx, ada, teamId, '2026-08')).resolves.toBeUndefined()
+      expect(await ctx.db.query('monthlyWinners').collect()).toHaveLength(0)
+    })
+  })
+
+  test('refuses a caller who is not on the team, and writes nothing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const outsider = await ctx.db.insert(
+        'players',
+        aPlayer({
+          legacyId: '22222222-2222-4222-8222-222222222222',
+          email: 'outsider@example.com',
+        }),
+      )
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      const rowId = await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+
+      await expect(markCelebrationSeenFor(ctx, outsider, teamId, '2026-08')).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+      // The access check must run BEFORE the patch, not merely somewhere in the
+      // function: an outsider's id must not end up in another team's row.
+      expect((await ctx.db.get(rowId))?.hasSeenCelebration).toEqual([])
+    })
+  })
+})
+
+describe('lastMonthWinnerFor', () => {
+  test("returns the WINNER's name, the team's name, and whether the caller has seen it", async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ name: 'Wordlers', playerIds: [ada, bob] }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+
+      // Asked BY BOB, who did not win. The name in the answer is Ada's, which
+      // is the whole of v1's misnamed-winner bug (§7a row 35): v1 never asks
+      // the server who won, it renders the viewer's own name.
+      expect(await lastMonthWinnerFor(ctx, bob, teamId, '2026-08')).toEqual({
+        teamName: 'Wordlers',
+        winner: { id: ada, firstName: 'Ada', lastName: 'Lovelace' },
+        hasSeen: false,
+      })
+    })
+  })
+
+  test('hasSeen is about the CALLER, not about anyone else in the list', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob] }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [ada],
+      })
+
+      // Ada has dismissed it; Bob has not. A `hasSeenCelebration.length > 0`
+      // would answer true for both, and Bob would never see the dialog.
+      expect((await lastMonthWinnerFor(ctx, ada, teamId, '2026-08'))?.hasSeen).toBe(true)
+      expect((await lastMonthWinnerFor(ctx, bob, teamId, '2026-08'))?.hasSeen).toBe(false)
+    })
+  })
+
+  test('answers about the month it was ASKED for, not about any other', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob] }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 7,
+        hasSeenCelebration: [],
+      })
+      await ctx.db.insert('monthlyWinners', {
+        playerId: bob,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+
+      expect((await lastMonthWinnerFor(ctx, ada, teamId, '2026-07'))?.winner.id).toBe(ada)
+      expect((await lastMonthWinnerFor(ctx, ada, teamId, '2026-08'))?.winner.id).toBe(bob)
+      // Nothing at all for a month with no row — the common case, since a month
+      // nobody played produces none.
+      expect(await lastMonthWinnerFor(ctx, ada, teamId, '2026-06')).toBeNull()
+    })
+  })
+
+  test('is null when the winning player document is gone', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const ghost = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, ghost] }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ghost,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+      await ctx.db.delete(ghost)
+
+      // Convex ids are not foreign keys, so the row can outlive its winner.
+      // Dereferencing without the guard throws on `winner.firstName` and takes
+      // the dashboard down; null just means no celebration.
+      expect(await lastMonthWinnerFor(ctx, ada, teamId, '2026-08')).toBeNull()
+    })
+  })
+
+  test('refuses a caller who is not on the team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const outsider = await ctx.db.insert(
+        'players',
+        aPlayer({
+          legacyId: '22222222-2222-4222-8222-222222222222',
+          email: 'outsider@example.com',
+        }),
+      )
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+
+      // NOT_A_MEMBER rather than null, and a ConvexError rather than a plain
+      // one — a plain Error's message is redacted in production, so the client
+      // could not tell this apart from a crash.
+      await expect(lastMonthWinnerFor(ctx, outsider, teamId, '2026-08')).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
     })
   })
 })

@@ -358,3 +358,39 @@
     bottom: -4px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Monthly-winner celebration confetti (wordle-teams-k7w)
+ *
+ * v1 renders this with react-confetti-explosion. v2 has no such dependency and
+ * is not gaining one — see V2-ADDENDUM §7a row 36 and the doc comment on
+ * ConfettiBurst in src/components/monthly-winner-celebration.tsx. Every
+ * per-piece value (column, drift, spin, delay, duration) arrives as an inline
+ * custom property from that component, so only the motion lives here.
+ *
+ * DELIBERATELY NO `@media (prefers-reduced-motion: reduce)` BLOCK. The
+ * component asks matchMedia and renders no pieces at all, which is the honest
+ * answer for an element whose entire content is motion — and, unlike a media
+ * query in this file, it is a rule a vitest gate can actually observe.
+ * ------------------------------------------------------------------------ */
+@keyframes confetti-fall {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(var(--confetti-drift), 340px, 0) rotate(var(--confetti-spin));
+  }
+}
+
+.confetti-piece {
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 12px;
+  border-radius: 1px;
+  opacity: 0;
+  animation: confetti-fall var(--confetti-duration) cubic-bezier(0.2, 0.6, 0.5, 1)
+    var(--confetti-delay) forwards;
+}

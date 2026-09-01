@@ -1,9 +1,12 @@
+import { v } from 'convex/values'
+import { mutation, query } from './_generated/server'
+import { requirePlayer, requireTeamMemberFor } from './access'
 import { monthRange } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { systemFor } from './lib/scoringSystem.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
-import type { GenericDatabaseWriter } from 'convex/server'
+import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
 
 /**
  * Monthly-winner recomputation, extracted from scores.ts (wordle-teams-4gj).
@@ -44,6 +47,50 @@ import type { GenericDatabaseWriter } from 'convex/server'
 export type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
 
 /**
+ * Anything with a `db` reader. Mirrors access.ts's and scores.ts's own copies
+ * for the identical reason: `lastMonthWinnerFor` below only touches `ctx.db`,
+ * so convex-test's `t.run` callback ctx satisfies it with no cast.
+ */
+export type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
+
+/**
+ * 'YYYY-MM' split into the two NUMBERS the monthlyWinners row stores.
+ *
+ * The table keys on `year` and `month` as separate numeric columns — v1's
+ * shape, kept — while every other month-shaped value in this codebase is the
+ * 'YYYY-MM' string `PuzzleMonth` names. Every read and write of the
+ * by_team_year_month index therefore has to cross that boundary, and it was
+ * being crossed by an open-coded `split('-').map(Number)` in each place. Three
+ * call sites is where two copies of the same conversion start to drift.
+ *
+ * DELIBERATELY NOT VALIDATING. A caller-supplied month that is not a month
+ * yields NaN here, and a NaN index lookup simply matches nothing — the query
+ * returns null and the mutation writes nothing, which is the same answer a
+ * real month with no winner gets. scores.ts's getTeamMonth takes `v.string()`
+ * on the same reasoning; adding a code for it would be inventing a failure the
+ * UI has no way to reach.
+ */
+function yearAndMonth(month: PuzzleMonth): { year: number; monthNum: number } {
+  const [year, monthNum] = month.split('-').map(Number)
+  return { year, monthNum }
+}
+
+/** The team's winner row for one month, or null. */
+async function winnerRow(
+  ctx: ReaderCtx,
+  teamId: Id<'teams'>,
+  month: PuzzleMonth,
+): Promise<Doc<'monthlyWinners'> | null> {
+  const { year, monthNum } = yearAndMonth(month)
+  return await ctx.db
+    .query('monthlyWinners')
+    .withIndex('by_team_year_month', (q) =>
+      q.eq('teamId', teamId).eq('year', year).eq('month', monthNum),
+    )
+    .first()
+}
+
+/**
  * Load the scoring system that governed one month for one team.
  *
  * Reads every version row for the team — a team accumulates one per month it
@@ -82,7 +129,7 @@ export async function recomputeTeamMonth(
   month: PuzzleMonth,
   today: PuzzleDay,
 ): Promise<void> {
-  const [year, monthNum] = month.split('-').map(Number)
+  const { year, monthNum } = yearAndMonth(month)
   const { start, end } = monthRange(month)
   // Resolved INSIDE this function, so recomputeTeamMonths — which loops over
   // months — resolves each month against its own version rather than hoisting
@@ -137,12 +184,7 @@ export async function recomputeTeamMonth(
   }
 
   const winnerId = winnerOf(totals) as Id<'players'> | null
-  const existing = await ctx.db
-    .query('monthlyWinners')
-    .withIndex('by_team_year_month', (q) =>
-      q.eq('teamId', team._id).eq('year', year).eq('month', monthNum),
-    )
-    .first()
+  const existing = await winnerRow(ctx, team._id, month)
 
   if (!winnerId) {
     // Matches the SQL, which deletes unconditionally and re-inserts only where
@@ -228,3 +270,116 @@ export async function recomputePlayerMonth(
     await recomputeTeamMonth(ctx, team, month, today)
   }
 }
+
+/**
+ * ------------------------------------------------------------------------
+ * THE CELEBRATION DIALOG'S TWO PUBLIC FUNCTIONS (`wordle-teams-k7w`).
+ *
+ * Everything above this line is internal: helpers that take a `ctx` and are
+ * called from mutations in scores.ts, teams.ts and scoringSystems.ts. Nothing
+ * a browser could call read `monthlyWinners` at all, which is why divergence 3
+ * in V2-ADDENDUM §7a — hasSeenCelebration surviving a winner rewrite — was a
+ * careful rule about a field no code had ever read. These two are what read it.
+ * ------------------------------------------------------------------------
+ */
+
+/**
+ * One team's winner for one month, shaped for the celebration dialog.
+ *
+ * WHY THE MONTH IS AN ARGUMENT rather than derived from the server's clock:
+ * "last month" is a question about the VIEWER's calendar, and Convex runs in
+ * UTC. Resolving it here would fire the celebration on the wrong day for
+ * everyone west of Greenwich for the first hours of the month, and stop firing
+ * it a day early for everyone east — V2-ADDENDUM §7a rows 14-15's defect class,
+ * which Task 10 spent a whole component avoiding. The client resolves the month
+ * in its own zone and asks for it by name.
+ *
+ * IT RETURNS THE WINNER'S NAME, NOT JUST THE ID, and that is not convenience:
+ * it is the fix for v1's misnamed-winner bug. See the component's doc comment
+ * and §7a row 35. Nothing on the dashboard already holds other members' names
+ * in a form this could look up — getTeamMonth's roster is a different query
+ * with a different lifecycle — and resolving the name client-side is exactly
+ * the join v1 got wrong.
+ *
+ * `hasSeen` IS A BOOLEAN, NOT THE ARRAY. The stored array is every teammate
+ * who has dismissed the dialog; the caller only needs to know about itself, and
+ * shipping the rest would put "who has read what" on the wire for no reason.
+ *
+ * Null in three cases, all of which the dialog treats the same — no row for
+ * that month, and a row whose winner document no longer resolves (Convex ids
+ * are not foreign keys; the same guard scores.ts's getTeamMonthFor and
+ * recomputeTeamMonth above both carry). The third is the caller not being on
+ * the team, which is a throw rather than a null — see requireTeamMemberFor.
+ */
+export async function lastMonthWinnerFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  month: PuzzleMonth,
+) {
+  const team = await requireTeamMemberFor(ctx, playerId, teamId)
+  const row = await winnerRow(ctx, teamId, month)
+  if (!row) return null
+  const winner = await ctx.db.get(row.playerId)
+  if (!winner) return null
+
+  return {
+    teamName: team.name,
+    winner: { id: winner._id, firstName: winner.firstName, lastName: winner.lastName },
+    hasSeen: row.hasSeenCelebration.includes(playerId),
+  }
+}
+
+export const getLastMonthWinner = query({
+  args: { teamId: v.id('teams'), month: v.string() },
+  handler: async (ctx, { teamId, month }) => {
+    const player = await requirePlayer(ctx)
+    return await lastMonthWinnerFor(ctx, player._id, teamId, month)
+  },
+})
+
+/**
+ * Record that this player has now seen the celebration for that month.
+ *
+ * THE APPEND HAPPENS HERE, INSIDE THE TRANSACTION. v1 does a read-modify-write
+ * across the network — the browser SELECTs the array, pushes its own id onto
+ * the copy it holds, and UPDATEs the whole column back — so two members
+ * dismissing the dialog at the same time each write an array built from the
+ * value they read before the other wrote, and the second write silently drops
+ * the first. `wordle-teams-069` is the open issue for that exact pattern
+ * elsewhere in this codebase. A Convex mutation is a serializable transaction,
+ * so reading and appending in the same handler cannot interleave; the client
+ * sends no array at all, which also means it cannot send one it made up.
+ *
+ * BOTH EARLY RETURNS ARE SILENT SUCCESSES, not swallowed errors:
+ *
+ * - NO ROW. A board entered for that month between the query resolving and
+ *   this call can change the winner, which resets the row, or remove it. The
+ *   dialog is already on screen and there is nothing to mark; refusing would
+ *   turn a race into a toast.
+ * - ALREADY PRESENT. The dialog can mount twice on a fast remount — a
+ *   re-render that restarts the effect, a route transition back to /app — and
+ *   an unconditional push would put the same id in twice. Nothing reads the
+ *   array by length, so a duplicate would not misbehave; it would just grow
+ *   without bound, one entry per remount, forever.
+ */
+export async function markCelebrationSeenFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  month: PuzzleMonth,
+): Promise<void> {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+  const row = await winnerRow(ctx, teamId, month)
+  if (!row) return
+  if (row.hasSeenCelebration.includes(playerId)) return
+  await ctx.db.patch(row._id, { hasSeenCelebration: [...row.hasSeenCelebration, playerId] })
+}
+
+export const markCelebrationSeen = mutation({
+  args: { teamId: v.id('teams'), month: v.string() },
+  handler: async (ctx, { teamId, month }) => {
+    const player = await requirePlayer(ctx)
+    await markCelebrationSeenFor(ctx, player._id, teamId, month)
+  },
+})

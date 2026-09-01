@@ -22,6 +22,7 @@ import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { TeamBoards } from '#/components/teams/team-boards.tsx'
+import { MonthlyWinnerCelebration } from '#/components/monthly-winner-celebration.tsx'
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
@@ -206,6 +207,12 @@ function Dashboard() {
         onOpenChange={setCreateOpen}
         onCreated={(team) => navigate({ to: Route.fullPath, search: { team, month: monthParam } })}
       />
+      {/* v1 mounts this at the top of the same grid, and only on the branch
+          that has teams (src/app/me/page.tsx:58). It renders no element of its
+          own — a Radix Dialog Root is not a DOM node — so its position here is
+          about WHEN it mounts, not where it lands. It reads last month's winner
+          for the SELECTED team, which is v1's behaviour too. */}
+      <MonthlyWinnerCelebration teamId={teamParam as Id<'teams'>} />
       <div className="flex items-center gap-2 md:col-span-3">
         <TeamPicker
           teams={teams}
