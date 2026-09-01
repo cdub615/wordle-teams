@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { signIn } from './sign-in'
 
 // REAL RESPONSES, NOT UNIT TESTS. v2 has no component-rendering tests — the
 // vitest environment is edge-runtime, so there is no DOM — which means the
@@ -64,5 +65,72 @@ test.describe('route shape', () => {
     // signed-in player is covered by e2e/complete-profile.spec.ts.
     await page.goto('/app')
     await expect(page).toHaveURL('/login')
+  })
+})
+
+/*
+ * CACHE HEADERS ON REAL RESPONSES.
+ *
+ * src/lib/cache-policy.test.ts covers the policy function exhaustively and
+ * covers src/server.ts NOT AT ALL — deleting the `doc.headers.set(...)` line
+ * there leaves every unit test green. These three tests are the only thing
+ * that fails when the worker stops applying the policy it computes.
+ *
+ * EVERY ASSERTION COMPARES THE WHOLE HEADER WITH toBe. `toContain('public')`
+ * is satisfied by a header that also says no-store, which is precisely the
+ * class of over-wide assertion that has slipped through this phase three times
+ * already.
+ */
+test.describe('document cache headers', () => {
+  test('an anonymous static document is edge-cacheable', async ({ request }) => {
+    // /about, NOT /privacy: /privacy is in cache-policy.ts's static set but the
+    // route itself does not exist until a later task in this phase, and a 404
+    // is not a document. /about exists today and is not moving — the same
+    // reason playwright.config.ts probes it.
+    const response = await request.get('/about')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe(
+      'public, s-maxage=86400, stale-while-revalidate=604800',
+    )
+  })
+
+  test('an anonymous authenticated route is never cached', async ({ request }) => {
+    // /app answers a 307 to /login for an anonymous visitor, so follow it and
+    // assert on the document that actually comes back rather than on a
+    // redirect with no body. Either way the answer must be no-store: /login is
+    // deliberately absent from the static set.
+    const response = await request.get('/app')
+    expect(response.headers()['cache-control']).toBe('private, no-store')
+  })
+
+  test('a SIGNED-IN request for a static document is not cached', async ({ page, context }) => {
+    // The second dimension, end to end. A signed-in GET /about embeds
+    // `{isAuthenticated:!0,token:"eyJ..."}` in its dehydrated router state —
+    // verified against this very server, where the embedded string was
+    // byte-identical to the request's better-auth.convex_jwt cookie. A public
+    // copy of that document is one visitor's bearer token served to the next.
+    await signIn(page)
+
+    const cookies = await context.cookies()
+    expect(
+      cookies.some((c) => c.name === 'better-auth.session_token'),
+      'sign-in did not set better-auth.session_token — if the cookie was renamed, ' +
+        'hasSessionCookie() in src/lib/cache-policy.ts must be updated with it',
+    ).toBe(true)
+
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ')
+    const response = await page.request.get('/about', { headers: { cookie: cookieHeader } })
+
+    expect(response.status()).toBe(200)
+    expect(response.headers()['cache-control']).toBe('private, no-store')
+
+    // Pins the PREMISE the policy rests on, not just the header: if TanStack
+    // Start ever stopped serialising root context into the document, this
+    // assertion would fail and the session dimension could be revisited. It
+    // failing is a prompt to re-measure, never to relax the header.
+    expect(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/.test(
+      await response.text(),
+    )).toBe(true)
   })
 })

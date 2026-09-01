@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/cloudflare'
 import { wrapFetchWithSentry } from '@sentry/tanstackstart-react'
 import handler from '@tanstack/react-start/server-entry'
+import { cachePolicyFor, hasSessionCookie } from './lib/cache-policy'
 import { TRACES_SAMPLE_RATE } from './lib/sentry-config'
 
 // @ts-expect-error handler type mismatch between TanStack Start and the Sentry
@@ -18,19 +19,37 @@ type WorkerFetch = (
 const sentryFetch = sentryHandler.fetch as unknown as WorkerFetch
 
 /**
- * SSR document responses embed the dehydrated router/query state, which
- * includes the auth JWT — they must never land in any shared cache. Static
- * assets (JS/CSS/images) are served by the Workers assets layer and don't
- * pass through this handler, and the content-type guard keeps this from
- * touching anything but HTML documents. (wt-ksh.1.13)
+ * Sets the cache policy on SSR document responses.
+ *
+ * An SSR document embeds the dehydrated router/query state, and root context
+ * carries the auth JWT — so a document rendered FOR A SESSION must never land
+ * in any shared cache. That is wt-ksh.1.13, and it is still true; what changed
+ * is that it was being applied unconditionally, to anonymous renders of the
+ * marketing routes as well. Unconditional no-store on those is v1's
+ * wordle-teams-jcj rebuilt on a new platform: 28-41% of requests to the static
+ * pages missing the edge and waking a cold function.
+ *
+ * The rule now has two dimensions — static route AND no session — and both
+ * live in lib/cache-policy.ts, where they are unit-tested. This function is
+ * only the wiring: compute, and set. Note that the policy needs the REQUEST
+ * (its path and its cookies), not the response, which is why it is derived
+ * here rather than anywhere the route itself could reach.
+ *
+ * Static assets (JS/CSS/images) are served by the Workers assets layer and
+ * don't pass through this handler, and the content-type guard keeps this from
+ * touching anything but HTML documents.
  */
-const withNoStoreOnDocuments = {
+const withCachePolicyOnDocuments = {
   async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
     const response = await sentryFetch(request, env, ctx)
     const contentType = response.headers.get('content-type') ?? ''
     if (!contentType.includes('text/html')) return response
+    const policy = cachePolicyFor(
+      new URL(request.url).pathname,
+      hasSessionCookie(request.headers.get('cookie')),
+    )
     const doc = new Response(response.body, response)
-    doc.headers.set('cache-control', 'private, no-store')
+    doc.headers.set('cache-control', policy)
     return doc
   },
 }
@@ -40,5 +59,5 @@ export default Sentry.withSentry(
     dsn: env.SENTRY_DSN,
     tracesSampleRate: TRACES_SAMPLE_RATE,
   }),
-  withNoStoreOnDocuments,
+  withCachePolicyOnDocuments,
 )
