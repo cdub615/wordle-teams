@@ -537,6 +537,14 @@ MSG
 
 `wordle-teams-jcj`: v1's marketing pages emitted `must-revalidate` despite being prerendered, so 28–41% of requests to `/home`, `/privacy` and `/terms` missed the edge and invoked a cold function at roughly 1.9s.
 
+### A cache header must be gated on `response.status === 200` — the first version of this plan missed it
+
+**Task 3 shipped without the status gate and it was a Critical.** `STATIC_DOCUMENTS` lists seven paths; six of them are created by *later* tasks, so at the moment Task 3 landed, `/`, `/home`, `/privacy`, `/terms`, `/maintenance` and `/login-error` each answered **404 with `public, s-maxage=86400, stale-while-revalidate=604800`** — including the site root.
+
+**A `wrangler deploy` does not purge Cloudflare's cache.** So there was no event that would evict those 404s when the real routes landed: the edge could serve a cached 404 for `/` fresh for a day and stale for a week *after* the landing page shipped.
+
+The lesson outlives this task. Once every route exists, a transient 5xx or a 404 on `/home` must still not earn a day of public caching. Only a successful document may be shared.
+
 ### The rule is two-dimensional, and this is the part that is easy to get wrong
 
 **A static route is not unconditionally cacheable.** `__root.tsx`'s `beforeLoad` returns `{ isAuthenticated, token }` into router context, and TanStack Start serializes route context into the SSR document for hydration. That is what `server.ts`'s existing comment means by "the dehydrated router/query state, which includes the auth JWT".
@@ -657,6 +665,10 @@ Create `v2/src/lib/cache-policy.ts`:
  * cold function at ~1.9s, because Next emitted must-revalidate on prerendered
  * pages. They get the fast path here. A signed-in visitor gets no-store
  * everywhere, which costs them nothing they were not already paying.
+ *
+ * ONLY A 200 MAY BE SHARED — see the note above. A listed path that 404s must
+ * get no-store, or the edge caches the 404 for a day with a week's stale tail
+ * and no deploy will evict it.
  */
 
 /** Routes whose anonymous rendering contains nothing user-specific. */
@@ -675,8 +687,11 @@ export const NO_STORE = 'private, no-store'
 /**
  * A day at the edge, a week of serving stale while revalidating behind it.
  * Matches the shape v1's `export const revalidate = 86400` produced, which is
- * the fix wordle-teams-jcj landed on. Deploys invalidate, so the window only
- * bounds how stale a between-deploy edge can get.
+ * the fix wordle-teams-jcj landed on. NOTE the obvious reassurance here is
+ * FALSE on this platform: on Vercel a deploy purged the ISR cache, but a
+ * wrangler deploy does not purge Cloudflare's, so nothing evicts a stale
+ * document when a fix ships. Filed as wt-ksh.8.46; and whether the header
+ * reaches the edge at all is wt-ksh.8.45.
  */
 export const STATIC_CACHE = 'public, s-maxage=86400, stale-while-revalidate=604800'
 
