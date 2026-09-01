@@ -190,4 +190,98 @@ describe('boardEntryReminderEmail', () => {
     expect(email().html).not.toContain('user dropdown')
     expect(email().text).toContain('Account menu')
   })
+
+  describe('the call to action', () => {
+    // The mail exists to get the reader to enter a board, and until now it gave
+    // them nothing to click that took them to one: its only link was the
+    // wordmark beside the sign-off icon, which reached the dashboard purely
+    // because `/` USED to be the dashboard. Phase 7 Task 1 moved the dashboard
+    // to /app, so that accident is gone and the button is deliberate.
+    //
+    // Every assertion below reads the EMITTED STRING rather than rebuilding the
+    // URL with the same helper the template uses. A codec you own both halves
+    // of will happily agree with itself about a wrong answer — that is how the
+    // base64url substitution bug survived a green decode(encode(x)) test in
+    // Phase 6.
+
+    test('the HTML half links to /app on the configured origin', () => {
+      expect(email().html).toContain('href="https://beta.wordleteams.com/app"')
+    })
+
+    test('the plain-text half carries the same URL', () => {
+      // A call to action present in the HTML and absent from the text is a
+      // parity bug of its own. This template builds a text part on purpose
+      // (spam scoring, and clients that render text by preference), so a
+      // text-only reader has to be able to copy the same link.
+      expect(email().text).toContain('https://beta.wordleteams.com/app')
+    })
+
+    test('the button is a second link, not the wordmark re-pointed', () => {
+      // BOTH TESTS ABOVE PASS FOR THE WORDMARK ALONE — the wordmark anchor
+      // already carried /app before this button existed. They are necessary
+      // and not sufficient. This one fails unless a distinct call-to-action
+      // anchor is really there: the /app href appears twice, and one of the
+      // two carries a visible label telling the reader what it does.
+      const html = email().html
+      const hrefs = html.match(/href="https:\/\/beta\.wordleteams\.com\/app"/g) ?? []
+      expect(hrefs).toHaveLength(2)
+      expect(html).toMatch(
+        /<a\s[^>]*href="https:\/\/beta\.wordleteams\.com\/app"[^>]*>Enter your board<\/a>/,
+      )
+    })
+
+    test('the text half labels its link instead of leaving a naked URL', () => {
+      // Two bare origins one under the other would read as a repeated
+      // signature, not as "go here and do the thing".
+      expect(email().text).toContain('Enter your board: https://beta.wordleteams.com/app')
+    })
+
+    test('the sign-off keeps its bare origin', () => {
+      // The origin under "Wordle Teams" is branding — the sign-off — not the
+      // call to action. Re-pointing it at /app would change the sign-off, and
+      // dropping it would delete it; the new line is an addition, not a move.
+      expect(email().text).toContain('\nWordle Teams\nhttps://beta.wordleteams.com\n')
+    })
+
+    test('the button sets its background twice, the way the image panels do', () => {
+      // Same reasoning as the image panels above: Outlook honours the
+      // `bgcolor` attribute where it can drop an inline style, so setting only
+      // one leaves the other client with no fill at all.
+      const html = email().html
+      const idx = html.indexOf('>Enter your board</a>')
+      expect(idx).toBeGreaterThan(-1)
+      const enclosing = html.slice(Math.max(0, idx - 500), idx)
+      expect(enclosing).toContain('bgcolor="#f6f7f9"')
+      expect(enclosing).toContain('background-color:#f6f7f9')
+    })
+
+    test("the button's label survives a background that never applies", () => {
+      // wordle-teams-cih records that the bgcolor + inline background-color
+      // pairing is best-effort rather than guaranteed — dark-mode clients
+      // rewrite backgrounds. When the fill is lost the label falls back onto
+      // the email's own white card, so a button styled white-on-dark would
+      // become a WHITE-ON-WHITE button: invisible, and no other assertion in
+      // this file would notice. The label is dark ink and the anchor carries
+      // its own border, so losing the fill costs the button its fill and
+      // nothing else. This is the one property here that cannot be eyeballed
+      // from a screenshot of a client that renders it correctly.
+      const anchor = email().html.match(
+        /<a\s[^>]*href="https:\/\/beta\.wordleteams\.com\/app"[^>]*>Enter your board<\/a>/,
+      )?.[0]
+      expect(anchor).toBeDefined()
+      expect(anchor).toContain('color:#1c2024')
+      expect(anchor).toContain('border:2px solid #1c2024')
+      expect(anchor).not.toContain('color:#ffffff')
+    })
+
+    test('the text half leaves the URL unescaped, like the rest of that part', () => {
+      // The text part is not markup: escaping it would show the reader a
+      // literal &amp; in a URL that contains an ampersand, and a URL a reader
+      // has to hand-correct before pasting is not a call to action. The HTML
+      // half escapes the same value, because it lands in an attribute there.
+      const amped = boardEntryReminderEmail({ firstName: 'Ada', siteUrl: 'https://x.test/a&b' })
+      expect(amped.text).toContain('Enter your board: https://x.test/a&b/app')
+      expect(amped.html).toContain('href="https://x.test/a&amp;b/app"')
+    })
+  })
 })

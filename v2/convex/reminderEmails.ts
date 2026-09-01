@@ -50,6 +50,26 @@ import { escapeHtml } from './lib/html.ts'
  */
 const PANEL_COLOR = '#0d0d0d'
 
+/**
+ * The call-to-action button's fill and ink.
+ *
+ * THE FILL IS LIGHT ON PURPOSE, which is the opposite of inviteEmails.ts's
+ * solid dark "Join the team" button, and not a style preference.
+ * `wordle-teams-cih` records that the `bgcolor` + inline `background-color`
+ * pairing is best-effort rather than guaranteed: a dark-mode client can
+ * rewrite either one. When the fill is lost the label falls back onto the
+ * white card, so the label colour has to be legible THERE, not only on the
+ * fill — and no single colour reads on both `#ffffff` and a near-black fill,
+ * so the fill is the half that has to give. Dark ink on a light fill is
+ * legible whether the fill applies, is dropped, or is inverted along with the
+ * ink; white-on-dark is a white-on-white button the moment the fill goes.
+ *
+ * `BUTTON_INK` doubles as a 2px border so the button still reads as a button
+ * against the white card, where its own fill is nearly invisible.
+ */
+const BUTTON_BG = '#f6f7f9'
+const BUTTON_INK = '#1c2024'
+
 export function boardEntryReminderEmail({
   firstName,
   siteUrl,
@@ -90,14 +110,22 @@ export function boardEntryReminderEmail({
   const site = escapeHtml(siteUrl)
   const titleImage = `${site}/wordle-teams-title.png`
   const iconImage = `${site}/wt-icon-192x192.png`
-  // `/app`, NOT THE BARE ORIGIN. This is the HTML part's only link — the text
-  // part below still emits a bare `siteUrl`, which mail clients autolink; a
-  // separate task owns that — and the mail exists to send a player somewhere
+  // `/app`, NOT THE BARE ORIGIN. The mail exists to send a player somewhere
   // they can enter a board. It reached the dashboard for as long as `/` WAS
   // the dashboard; Phase 7 Task 1 moved the dashboard to /app and gave `/`
   // back to the marketing landing, so the bare origin would now deliver a
   // just-reminded player to a sales page.
+  //
+  // TWO LINKS CARRY IT IN THE HTML — the call-to-action button and the
+  // wordmark beside the sign-off icon — and the text part carries the same
+  // URL on its own labelled line. The wordmark alone was never a call to
+  // action: the owner's call (2026-08-31) is that a mail whose entire purpose
+  // is "go enter your board" gets a real button, which it had never had.
+  //
+  // Escaped for the HTML, raw for the text part, for the reason the text
+  // block below gives.
   const appUrl = `${site}/app`
+  const appUrlText = `${siteUrl}/app`
 
   // A plain-text part is not optional politeness: some clients render it by
   // preference, and a mail with no text alternative scores worse with spam
@@ -110,6 +138,12 @@ export function boardEntryReminderEmail({
     greeting,
     '',
     "It looks like you have not yet entered your Wordle board for today. Don't miss out on those potential points!",
+    '',
+    // The text half of the call to action. A mail that asks the reader to go
+    // do something and gives a text-only client nothing to copy has the same
+    // hole the HTML half had. Labelled rather than naked, so it doesn't read
+    // as a second copy of the signature's origin two lines further down.
+    `Enter your board: ${appUrlText}`,
     '',
     'Best of luck!',
     '',
@@ -144,6 +178,13 @@ export function boardEntryReminderEmail({
           <h1 style="margin:0 0 24px;font-size:20px;font-weight:600;">Reminder to enter your Wordle board into Wordle Teams</h1>
           <p style="margin:0 0 8px;font-size:15px;line-height:1.6;">${escapedGreeting}</p>
           <p style="margin:0 0 24px;font-size:15px;line-height:1.6;">It looks like you have not yet entered your Wordle board for today. Don&rsquo;t miss out on those potential points!</p>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+            <tr>
+              <td bgcolor="${BUTTON_BG}" style="background-color:${BUTTON_BG};border-radius:8px;">
+                <a href="${appUrl}" style="display:inline-block;background-color:${BUTTON_BG};color:${BUTTON_INK};border:2px solid ${BUTTON_INK};border-radius:8px;padding:10px 20px;text-decoration:none;font-size:15px;font-weight:600;">Enter your board</a>
+              </td>
+            </tr>
+          </table>
           <p style="margin:0 0 8px;font-size:15px;line-height:1.6;">Best of luck!</p>
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
             <tr>
