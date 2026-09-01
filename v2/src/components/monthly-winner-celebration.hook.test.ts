@@ -102,6 +102,11 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  // The two matchMedia tests below unstub at the end of their own bodies; this
+  // is the belt to that braces, since a failed assertion would otherwise leave
+  // a stubbed matchMedia standing for every test after it and turn one red into
+  // a file full of them.
+  vi.unstubAllGlobals()
 })
 
 describe('the hydration gate — "last month" is the VIEWER\'s month, never the server\'s', () => {
@@ -178,6 +183,14 @@ describe('opening, marking seen, and staying open', () => {
     // Convex push to either query it subscribes to.
     view.rerender(dialog())
     expect(markSeen).toHaveBeenCalledTimes(1)
+
+    // NOR DOES THE DISMISS. Marking seen is ON OPEN — v1's timing, kept — so
+    // closing writes nothing; a handler that also marked on dismiss would be a
+    // wasted round-trip rather than a wrong answer (the mutation's `includes`
+    // guard makes the second write a no-op), but "exactly once" is the claim in
+    // this test's name and a re-render alone does not carry it.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(markSeen).toHaveBeenCalledTimes(1)
   })
 
   test('THE LATCH: it stays open when the subscription re-pushes with hasSeen true', () => {
@@ -225,6 +238,8 @@ describe('opening, marking seen, and staying open', () => {
     const view = render(dialog())
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('dialog')).toBeNull()
+    // The open write, and no dismiss write on top of it.
+    expect(markSeen).toHaveBeenCalledTimes(1)
 
     // Any write anywhere on the team re-pushes this query. Reopening on one
     // would make the dialog impossible to get rid of.
@@ -299,6 +314,11 @@ describe('the confetti, without react-confetti-explosion', () => {
     render(dialog())
     expect(confetti()).toHaveLength(CONFETTI_PIECES.length)
     expect(CONFETTI_PIECES).toHaveLength(24)
+    // AND THE BURST IS HIDDEN FROM ASSISTIVE TECHNOLOGY. 24 empty spans are
+    // pure decoration; without this a screen reader walks them. The attribute
+    // is invisible on screen, so nothing but an assertion can notice it going.
+    const burst = document.querySelector('[data-slot="confetti"]')
+    expect(burst?.getAttribute('aria-hidden')).toBe('true')
   })
 
   test('THE STYLESHEET HALF: the class and the keyframe exist, and read exactly what is set', () => {
@@ -342,10 +362,11 @@ describe('the confetti, without react-confetti-explosion', () => {
     // The animation names the keyframe above, rather than merely existing.
     expect(declared.get('animation')?.split(' ')[0]).toBe('confetti-fall')
 
-    // THE SET, BOTH WAYS. Every --confetti-* the CSS reads is one the component
-    // writes, and every one the component writes is read by the CSS. A renamed
-    // property, a dropped `var()`, or a fifth one nothing supplies is a change
-    // to one of these two lists.
+    // ONE DIRECTION OF THE SET: every --confetti-* the CSS reads is one the
+    // component writes. The other direction — every one the component writes is
+    // read by the CSS — is the next test's last assertion, on the inline style's
+    // own list; the pair is what makes a renamed property, a dropped `var()`, or
+    // a fifth one nothing supplies a change to one of these two lists.
     const readByCss = [
       ...new Set([...`${rule}${keyframe}`.matchAll(/var\((--confetti-[a-z]+)\)/g)].map((m) => m[1])),
     ].sort()
@@ -411,6 +432,30 @@ describe('the confetti, without react-confetti-explosion', () => {
     expect(confetti()).toHaveLength(0)
     // The message itself is not motion and must survive.
     expect(screen.getByText('You won last month for Wordlers. Nice work! 🎉')).toBeTruthy()
+    vi.unstubAllGlobals()
+  })
+
+  test('and a viewer who has NOT asked for reduced motion still gets every piece', () => {
+    // THE POSITIVE CASE, ASSERTED IN PRODUCTION'S ENVIRONMENT AND NOT ONLY IN
+    // jsdom'S. Every other test in this describe renders under jsdom, which
+    // ships no matchMedia at all, so it is the `?? false` — not the `.matches`
+    // — that lets the pieces through. Drop the `.matches` and the burst becomes
+    // `matchMedia?.(query) ?? false`, a truthy MediaQueryList: the whole suite
+    // stays green while the winner gets zero confetti in every real browser,
+    // forever and silently (measured: the mutant survived all 1171 tests).
+    // "matchMedia exists and answers false" is the configuration of every real
+    // browser, and until this test it was the one configuration nothing here
+    // ran under. The same trap applies to any matchMedia, navigator.* or
+    // window.* capability check pinned only under jsdom — assert the positive
+    // branch with the capability PRESENT, not merely absent.
+    const matchMedia = vi.fn(() => ({ matches: false }))
+    vi.stubGlobal('matchMedia', matchMedia)
+    myPlayerId = ADA
+
+    render(dialog())
+
+    expect(matchMedia).toHaveBeenCalledWith(REDUCED_MOTION_QUERY)
+    expect(confetti()).toHaveLength(CONFETTI_PIECES.length)
     vi.unstubAllGlobals()
   })
 })

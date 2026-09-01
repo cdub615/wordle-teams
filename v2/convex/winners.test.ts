@@ -396,6 +396,50 @@ describe('markCelebrationSeenFor', () => {
     })
   })
 
+  test('writes to the month it was ASKED for, not to any other', async () => {
+    // THE MUTATION HALF OF `lastMonthWinnerFor`'s "answers about the month it
+    // was ASKED for" below, and it was missing: every other test in this
+    // describe inserts its row at 2026-08 and calls with '2026-08', so
+    // `winnerRow(ctx, teamId, '2026-08')` — the month argument dropped on the
+    // floor — passed all of them (measured: the mutant survived all 44).
+    //
+    // The defect that admits is asymmetric and nasty in both directions. The
+    // month the dialog is actually showing never gets marked seen, so it
+    // reappears on every load forever; some other month is silently marked for
+    // a viewer who was never shown it, so when that month's dialog is due it
+    // never comes.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      const july = await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 7,
+        hasSeenCelebration: [],
+      })
+      const august = await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+
+      await markCelebrationSeenFor(ctx, ada, teamId, '2026-07')
+
+      expect((await ctx.db.get(july))?.hasSeenCelebration).toEqual([ada])
+      expect((await ctx.db.get(august))?.hasSeenCelebration).toEqual([])
+
+      // And the other way round, so neither month is the one a hardcoded
+      // constant could happen to be.
+      await markCelebrationSeenFor(ctx, ada, teamId, '2026-08')
+
+      expect((await ctx.db.get(august))?.hasSeenCelebration).toEqual([ada])
+    })
+  })
+
   test('is a silent no-op when the month has no winner row', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

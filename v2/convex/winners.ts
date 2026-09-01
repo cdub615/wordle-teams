@@ -63,12 +63,20 @@ export type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
  * being crossed by an open-coded `split('-').map(Number)` in each place. Three
  * call sites is where two copies of the same conversion start to drift.
  *
- * DELIBERATELY NOT VALIDATING. A caller-supplied month that is not a month
- * yields NaN here, and a NaN index lookup simply matches nothing — the query
- * returns null and the mutation writes nothing, which is the same answer a
- * real month with no winner gets. scores.ts's getTeamMonth takes `v.string()`
- * on the same reasoning; adding a code for it would be inventing a failure the
- * UI has no way to reach.
+ * DELIBERATELY NOT VALIDATING, WHICH PERMITS TWO THINGS AND NOT ONE.
+ *
+ * - NOT A MONTH AT ALL yields NaN here, and a NaN index lookup simply matches
+ *   nothing — the query returns null and the mutation writes nothing, which is
+ *   the same answer a real month with no winner gets.
+ * - A LONGER DATE STRING ALIASES TO ITS MONTH. `split('-')` is destructured at
+ *   two elements, so '2026-08-15' is read as 2026-08 and answers for the whole
+ *   month rather than being rejected. Harmless here: the only thing reachable
+ *   through it is a month of the caller's OWN team — `requireTeamMemberFor`
+ *   has already run at every call site — so the widest thing a malformed
+ *   argument can buy is an answer the caller could have asked for correctly.
+ *
+ * scores.ts's getTeamMonth takes `v.string()` on the same reasoning; adding a
+ * code for either case would be inventing a failure the UI has no way to reach.
  */
 function yearAndMonth(month: PuzzleMonth): { year: number; monthNum: number } {
   const [year, monthNum] = month.split('-').map(Number)

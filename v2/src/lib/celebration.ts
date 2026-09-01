@@ -20,8 +20,16 @@
  * It is a defect and not a behaviour: nobody decided the dialog should misname
  * the winner, there is no data or UI that depends on it, and the correct name
  * costs one extra field on a query that had to exist anyway. `winner` below is
- * the winner and there is no viewer name in this module at all, which is what
- * makes the mistake unrepresentable rather than merely fixed.
+ * the winner and there is no viewer name in this module at all, which keeps the
+ * viewer's name out of scope where the copy is built.
+ *
+ * THAT IS A SCOPE PROPERTY, NOT AN IMPOSSIBILITY. One layer down,
+ * `winners.lastMonthWinnerFor` resolving the CALLER's player document instead
+ * of the row's would hand this module the viewer under the name `winner` with
+ * no type error, and the copy would be v1's again. So the strings are pinned
+ * whole here and in the component's suite, and the winner's identity is pinned
+ * against a non-winning caller in convex/winners.test.ts, rather than the fix
+ * being trusted to the shape.
  */
 
 /**

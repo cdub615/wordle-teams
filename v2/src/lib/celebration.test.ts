@@ -40,9 +40,11 @@ describe('celebrationView', () => {
       title: 'Ada Lovelace won!',
       message: 'Ada Lovelace won last month for Wordlers. Better luck next time!',
     })
-    // celebrationView is not given a viewer NAME at all, which is what makes
-    // v1's mistake unrepresentable rather than merely absent. This pins that
-    // the id it is given is used for the comparison and nothing else.
+    // celebrationView is not given a viewer NAME at all, which puts v1's
+    // substitution out of THIS module's reach — a scope property and not an
+    // impossibility, since the query one layer down could still resolve the
+    // viewer into `winner`. This pins that the id it is given is used for the
+    // comparison and nothing else.
     expect(view?.title.includes('p_grace')).toBe(false)
     expect(view?.message.includes('p_grace')).toBe(false)
   })
