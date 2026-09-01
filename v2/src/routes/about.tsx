@@ -11,12 +11,15 @@ import { pageTitle } from '#/lib/seo'
  * over (wt-ksh.12.5). What matters here is that the page says what the product
  * is, in the product's own words, rather than describing a starter template.
  *
- * THE E2E SUITE CANNOT START WITHOUT THIS PAGE. playwright.config.ts points its
- * webServer readiness probe at /about, because `/` has no route until the
- * marketing landing lands and Playwright reads a 404 as "not ready yet". If
- * this route stops rendering without a session, every spec fails with
- * `Timed out waiting for config.webServer` — which names the dev server, not
- * this file. Changing what the page needs is fine; needing a session is not.
+ * THE E2E SUITE NO LONGER DEPENDS ON THIS PAGE, as of Phase 7 Task 4.
+ * playwright.config.ts pointed its webServer readiness probe at /about for as
+ * long as `/` had no route — Playwright reads a 404 as "not ready yet" and
+ * fails the whole run with `Timed out waiting for config.webServer`, naming the
+ * dev server rather than the route. The marketing landing now renders at `/`
+ * and the probe has moved back there, which is also the better home for it
+ * while Task 9 is still adding v1's eight product screenshots to this page.
+ * Recorded here because the dependency ran both ways and someone reading only
+ * this file would otherwise still believe it exists.
  */
 export const Route = createFileRoute('/about')({
   head: () => ({ meta: [{ title: pageTitle('About') }] }),

@@ -11,9 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as HomeRouteImport } from './routes/home'
 import { Route as CompleteProfileRouteImport } from './routes/complete-profile'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiFunnelRouteImport } from './routes/api/funnel'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -25,6 +27,11 @@ const MeRoute = MeRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HomeRoute = HomeRouteImport.update({
+  id: '/home',
+  path: '/home',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CompleteProfileRoute = CompleteProfileRouteImport.update({
@@ -42,6 +49,11 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiFunnelRoute = ApiFunnelRouteImport.update({
   id: '/api/funnel',
   path: '/api/funnel',
@@ -54,18 +66,22 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/app': typeof AppRoute
   '/complete-profile': typeof CompleteProfileRoute
+  '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/api/funnel': typeof ApiFunnelRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/app': typeof AppRoute
   '/complete-profile': typeof CompleteProfileRoute
+  '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/api/funnel': typeof ApiFunnelRoute
@@ -73,9 +89,11 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/app': typeof AppRoute
   '/complete-profile': typeof CompleteProfileRoute
+  '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
   '/api/funnel': typeof ApiFunnelRoute
@@ -84,27 +102,33 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
+    | '/'
     | '/about'
     | '/app'
     | '/complete-profile'
+    | '/home'
     | '/login'
     | '/me'
     | '/api/funnel'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/about'
     | '/app'
     | '/complete-profile'
+    | '/home'
     | '/login'
     | '/me'
     | '/api/funnel'
     | '/api/auth/$'
   id:
     | '__root__'
+    | '/'
     | '/about'
     | '/app'
     | '/complete-profile'
+    | '/home'
     | '/login'
     | '/me'
     | '/api/funnel'
@@ -112,9 +136,11 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   AppRoute: typeof AppRoute
   CompleteProfileRoute: typeof CompleteProfileRoute
+  HomeRoute: typeof HomeRoute
   LoginRoute: typeof LoginRoute
   MeRoute: typeof MeRoute
   ApiFunnelRoute: typeof ApiFunnelRoute
@@ -135,6 +161,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/home': {
+      id: '/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/complete-profile': {
@@ -158,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/funnel': {
       id: '/api/funnel'
       path: '/api/funnel'
@@ -176,9 +216,11 @@ declare module '@tanstack/react-router' {
 }
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   AppRoute: AppRoute,
   CompleteProfileRoute: CompleteProfileRoute,
+  HomeRoute: HomeRoute,
   LoginRoute: LoginRoute,
   MeRoute: MeRoute,
   ApiFunnelRoute: ApiFunnelRoute,

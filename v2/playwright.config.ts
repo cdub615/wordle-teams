@@ -7,19 +7,25 @@ export default defineConfig({
   use: { baseURL: 'http://localhost:3000' },
   webServer: {
     command: 'pnpm dev',
-    // /about, NOT `/`. This is a readiness probe, and Playwright treats a 404
-    // as "not ready yet" — it retries until the 60s timeout and then fails the
-    // whole run with `Timed out waiting for config.webServer`, which names the
-    // server rather than the route and reads like the dev server never came up.
-    // Phase 7 Task 1 moved the dashboard to /app and left `/` with no route at
-    // all until the marketing landing lands, so probing `/` did exactly that.
-    // /about is chosen because it is a real rendered page that needs no session
-    // — so this still proves the app SERVES, not merely that the port is open —
-    // and because its PATH is not moving. The page itself is very much in this
-    // phase's way: Task 9 adds v1's eight product screenshots to it. That is
-    // fine for a probe, which only asks for a 200. See the note in
-    // src/routes/about.tsx.
-    url: 'http://localhost:3000/about',
+    // BACK ON `/` AS OF PHASE 7 TASK 4, which built the marketing landing there.
+    //
+    // WHAT THIS HAS TO SATISFY: Playwright treats a 404 as "not ready yet", so
+    // it retries a missing route until the 60s timeout and then fails the WHOLE
+    // run with `Timed out waiting for config.webServer` — a message that names
+    // the dev server rather than the route and reads like the server never came
+    // up. The probe target must therefore be a real page that answers 200 with
+    // no session (which also makes this prove the app SERVES, not merely that
+    // the port is open), and it must be one that stays.
+    //
+    // Task 1 moved this to /about only because it had deleted the dashboard off
+    // `/` and left the path with no route at all. That reason is gone. `/` is
+    // the apex, it is the route whose failure means the product is down, and it
+    // is finished; /about is the one this phase is still editing (Task 9 adds
+    // v1's eight product screenshots to it). Probing the page under active
+    // construction is the arrangement more likely to produce that confusing
+    // failure, so the workaround goes back where it came from rather than
+    // outliving its cause. See the reciprocal note in src/routes/about.tsx.
+    url: 'http://localhost:3000/',
     reuseExistingServer: true,
   },
 })

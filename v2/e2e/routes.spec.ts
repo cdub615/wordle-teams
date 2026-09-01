@@ -66,6 +66,112 @@ test.describe('route shape', () => {
     await page.goto('/app')
     await expect(page).toHaveURL('/login')
   })
+
+  test('an anonymous visitor to / gets the marketing landing, not a login wall', async ({
+    page,
+  }) => {
+    // THE WHOLE POINT OF PHASE 7 TASK 4. Between Phase 0 and that task `/` was
+    // the dashboard and 307'd an anonymous visitor to /login, so v2 had no
+    // page that said what the product is — while v1's sitemap advertises this
+    // exact URL at priority 1 and ~93% of /login arrivals never finish signing
+    // in (wordle-teams-390). Both halves are asserted: the h1 the landing
+    // renders, AND that the address bar is still `/`, which is what says no
+    // bounce happened.
+    await page.goto('/')
+    await expect(page).toHaveURL('/')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Compete with friends', exact: true }),
+    ).toBeVisible()
+  })
+
+  test('/home renders the marketing landing too', async ({ page }) => {
+    // v1's src/app/sitemap.ts lists /home at priority 0.9 and v1's own app bar
+    // links its wordmark there, so the path is advertised to crawlers and
+    // carried by inbound links. It renders the same component as `/` — the only
+    // thing that differs is that `/home` does NOT bounce a signed-in visitor,
+    // matching v1's welcomePaths.
+    await page.goto('/home')
+    await expect(page).toHaveURL('/home')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Compete with friends', exact: true }),
+    ).toBeVisible()
+  })
+
+  test('the landing\'s "Get Started" button links to /login', async ({ page }) => {
+    // The one link the landing exists to hand over, asserted as the resolved
+    // href of that single element — not as "/login appears somewhere in the
+    // document", which the Header's own markup would satisfy on its own.
+    await page.goto('/')
+    await expect(page.getByRole('link', { name: 'Get Started', exact: true })).toHaveAttribute(
+      'href',
+      '/login',
+    )
+  })
+
+  test('a signed-in visitor to / is bounced to /app', async ({ page }) => {
+    // v1's src/lib/supabase/middleware.ts puts `/` in `welcomePaths`: "A
+    // signed-in user should never land here (e.g. an iOS PWA relaunch that
+    // ignores manifest start_url and restores the welcome page)". src/routes/
+    // index.tsx's beforeLoad is that rule, and this is the only place it is
+    // observable.
+    //
+    // THE PROFILE IS COMPLETED FIRST, DELIBERATELY. signIn() mints a brand-new
+    // account with no `players` row, so /app's own beforeLoad would send it on
+    // to /complete-profile and the chain would be three long — this test would
+    // then be pinning that bounce as well as this one. Naming the account makes
+    // /app terminal, and it is exactly how e2e/complete-profile.spec.ts drives
+    // the same form rather than a second mechanism invented here.
+    await signIn(page)
+    await expect(page).toHaveURL('/complete-profile')
+    await page.getByLabel('First Name').fill('E2E')
+    await page.getByLabel('Last Name').fill('Landing')
+    await page.getByRole('button', { name: 'Submit' }).click()
+    await expect(page).toHaveURL('/app')
+
+    // The WHOLE chain, not a slice: two entries is the assertion. A third hop
+    // would mean the bounce landed somewhere that bounced again.
+    const chain = await redirectChain(page, '/')
+    expect(chain).toEqual(['/', '/app'])
+  })
+
+  test('the app bar wordmark and Home link both point at the landing', async ({ page }) => {
+    // THIS DESTINATION HAS ALREADY BEEN CHANGED ONCE BY ACCIDENT, which is the
+    // reason it is pinned. Phase 7 Task 1 deleted the old index route, which
+    // took `'/'` out of the router's `to` union and left /app as the only
+    // spelling that compiled — so both links silently became dashboard links,
+    // and all four CI gates stayed green. Task 4 put them back on `/` on parity
+    // with v1's own app bar (src/components/app-bar/app-bar-base.tsx:73 links
+    // its wordmark to the marketing page). Nothing but this notices if they
+    // move again.
+    //
+    // ON /about RATHER THAN ON `/`: hrefs read the same either way, but a link
+    // to the page you are already on is the one place a wrong destination is
+    // least visible, and the next test needs this page anyway.
+    await page.goto('/about')
+    await expect(page.getByRole('link', { name: 'Wordle Teams', exact: true })).toHaveAttribute(
+      'href',
+      '/',
+    )
+    await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('href', '/')
+  })
+
+  test('the Home link is not marked active on a route that is not the landing', async ({ page }) => {
+    // THE HAZARD THE "Home" LINK ACQUIRED BY POINTING AT `/`. TanStack matches
+    // an active Link fuzzily by default and `/` is a prefix of every path in
+    // the app, so the underline could plausibly sit under "Home" everywhere — a
+    // nav that always claims you are on the home page. Measured on
+    // @tanstack/react-router 1.170 it does not, so Header.tsx carries no
+    // `activeOptions={{ exact: true }}`; this is what would notice if a router
+    // upgrade changed that default, and it is the only thing that would.
+    await page.goto('/about')
+    await expect(page.getByRole('link', { name: 'Home', exact: true })).not.toHaveClass(
+      /is-active/,
+    )
+    // The other half, so this is pinning `exact`, not "is-active never appears":
+    // on the landing itself the same link IS active.
+    await page.goto('/')
+    await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveClass(/is-active/)
+  })
 })
 
 /*
@@ -84,11 +190,28 @@ test.describe('route shape', () => {
  * already.
  */
 test.describe('document cache headers', () => {
+  test('an anonymous GET / is edge-cacheable now that the landing renders', async ({ request }) => {
+    // NEW WITH THE LANDING, AND IT IS A REAL CHANGE OF BEHAVIOUR RATHER THAN A
+    // SECOND COPY OF THE /about CASE BELOW. `/` has been in cache-policy.ts's
+    // STATIC_DOCUMENTS since Phase 0, but src/server.ts shares only a 200 and
+    // `/` answered 404 — so the listing was inert and this path correctly got
+    // `private, no-store`. Phase 7 Task 4 made it a 200, which is the moment the
+    // listing takes effect: the apex, the single most-requested document at
+    // cutover and the one v1's sitemap ranks first, is now published to the edge
+    // for a day. That flip is worth its own assertion.
+    const response = await request.get('/')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe(
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
+  })
+
   test('an anonymous static document is edge-cacheable', async ({ request }) => {
     // /about, NOT /privacy: /privacy is in cache-policy.ts's static set but its
     // route does not exist until a later task in this phase, so it 404s and is
-    // deliberately NOT shared — see the next test. /about exists today and is
-    // not moving, the same reason playwright.config.ts probes it.
+    // deliberately NOT shared — see the next test. /about exists today and its
+    // path is not moving.
     const response = await request.get('/about')
     expect(response.status()).toBe(200)
     expect(response.headers()['content-type']).toContain('text/html')
@@ -139,6 +262,30 @@ test.describe('document cache headers', () => {
     expect(new URL(response.url()).pathname).toBe('/login')
     expect(response.headers()['content-type']).toContain('text/html')
     expect(response.headers()['cache-control']).toBe('private, no-store')
+  })
+
+  test('/ emits its SIGNED-IN redirect with no cache-control at all', async ({ page, context }) => {
+    // THE ONE COMBINATION THIS TASK CREATED THAT NOTHING ELSE COVERS. `/` is in
+    // STATIC_DOCUMENTS — unlike /app, whose identical-looking test above is on a
+    // path the policy would never share anyway — so if src/server.ts ever
+    // computed a policy for a status other than 200, this response is the one
+    // that would go out `public, s-maxage=86400`: a cached instruction sending
+    // every anonymous visitor to the apex into the dashboard for a day, which
+    // `wrangler deploy` could not purge. The content-type guard is what actually
+    // prevents it (a 307 carries none), and the status gate behind it is the
+    // belt to that braces.
+    await signIn(page)
+    const cookieHeader = (await context.cookies())
+      .map((c) => `${c.name}=${c.value}`)
+      .join('; ')
+
+    const response = await page.request.get('/', {
+      maxRedirects: 0,
+      headers: { cookie: cookieHeader },
+    })
+    expect(response.status()).toBe(307)
+    expect(response.headers()['location']).toBe('/app')
+    expect(response.headers()['cache-control']).toBeUndefined()
   })
 
   test('a non-HTML response keeps whatever cache-control it set for itself', async ({

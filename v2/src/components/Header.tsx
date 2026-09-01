@@ -109,17 +109,30 @@ export default function Header() {
     <header className="sticky top-0 z-50 border-b border-line-subtle bg-background/80 px-4 backdrop-blur-lg">
       <nav className="page-wrap flex flex-wrap items-center gap-x-4 gap-y-2 py-3 sm:py-4">
         {/*
-          BOTH THIS AND "Home" BELOW POINT AT THE DASHBOARD, which is what they
-          did before Phase 7 Task 1 moved it off `/` — the destination is
-          unchanged, only its spelling is. `/` has no route at all until the
-          marketing landing lands, so `to="/"` does not even typecheck; and the
-          task that builds that page is the one holding the information needed
-          to decide whether the wordmark should point at it instead. v1's own
-          app bar links its wordmark to the marketing page (`/home`), so this is
-          a live question, not a settled one — it is deliberately left to the
-          task that can answer it rather than guessed at here.
+          BOTH THIS AND "Home" BELOW POINT AT `/`, DECIDED IN PHASE 7 TASK 4 AND
+          NO LONGER OPEN. Task 1 had them on /app only because deleting the old
+          index route took `'/'` out of the router's `to` union and /app was the
+          one alternative that compiled; the landing now exists, so the question
+          is a real one again and this is the answer.
+
+          PARITY, WHICH IS THE STANDARD THIS PHASE IS HELD TO: v1's app bar
+          (src/components/app-bar/app-bar-base.tsx:73) links its wordmark to the
+          MARKETING page, not the dashboard. `/` is v2's marketing page.
+
+          AND `/` IS THE RIGHT SPELLING OF IT, not /home. The two render the
+          identical component; `/` is the canonical apex (v1's sitemap puts it at
+          priority 1 and /home at 0.9) and /home exists only to catch v1's
+          inbound links. Linking internally to the duplicate would advertise the
+          non-canonical copy of a page we serve twice.
+
+          IT IS ALSO THE ONLY DESTINATION THAT IS CORRECT FOR BOTH AUDIENCES,
+          which /app is not. `/`'s beforeLoad bounces a signed-in visitor to
+          /app, so they get the dashboard exactly as they do today; an anonymous
+          visitor gets the page that explains the product instead of the /login
+          wall /app 307s them to. Sending a curious visitor from "Home" to a
+          login form is the specific behaviour wordle-teams-390 is about.
         */}
-        <Link to="/app" className="flex-shrink-0 no-underline">
+        <Link to="/" className="flex-shrink-0 no-underline">
           {/*
             v1 hardcodes this pair of gradients:
               from-green-600 via-green-500  to-yellow-400
@@ -135,7 +148,22 @@ export default function Header() {
         </Link>
 
         <div className="order-3 flex w-full flex-wrap items-center gap-x-4 gap-y-1 pb-1 text-sm font-semibold sm:order-none sm:w-auto sm:flex-nowrap sm:pb-0">
-          <Link to="/app" className="nav-link" activeProps={{ className: 'nav-link is-active' }}>
+          {/*
+            `/`, for the reasons above — this link carried no marker before and
+            read as settled, but it was deferred by the same Task 1 constraint
+            as the wordmark and is decided here with it.
+
+            NO `activeOptions={{ exact: true }}`, WHICH WAS CHECKED RATHER THAN
+            ASSUMED. TanStack matches an active Link fuzzily by default and `/`
+            is a prefix of every path in the app, so the underline could
+            plausibly sit under "Home" everywhere. MEASURED on @tanstack/
+            react-router 1.170: it does not — `is-active` appears on `/` and on
+            no other route, /home and /about included. The option would be a
+            no-op, so it is not here; e2e/routes.spec.ts asserts the outcome in
+            both directions instead, which is what would catch a router upgrade
+            changing that default.
+          */}
+          <Link to="/" className="nav-link" activeProps={{ className: 'nav-link is-active' }}>
             Home
           </Link>
           <Link to="/about" className="nav-link" activeProps={{ className: 'nav-link is-active' }}>
