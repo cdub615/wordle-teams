@@ -9,6 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TermsRouteImport } from './routes/terms'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HomeRouteImport } from './routes/home'
@@ -19,6 +21,16 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiFunnelRouteImport } from './routes/api/funnel'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MeRoute = MeRouteImport.update({
   id: '/me',
   path: '/me',
@@ -73,6 +85,8 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -84,6 +98,8 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -96,6 +112,8 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -109,6 +127,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/me'
+    | '/privacy'
+    | '/terms'
     | '/api/funnel'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +140,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/me'
+    | '/privacy'
+    | '/terms'
     | '/api/funnel'
     | '/api/auth/$'
   id:
@@ -131,6 +153,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/me'
+    | '/privacy'
+    | '/terms'
     | '/api/funnel'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -143,12 +167,28 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   LoginRoute: typeof LoginRoute
   MeRoute: typeof MeRoute
+  PrivacyRoute: typeof PrivacyRoute
+  TermsRoute: typeof TermsRoute
   ApiFunnelRoute: typeof ApiFunnelRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/me': {
       id: '/me'
       path: '/me'
@@ -223,6 +263,8 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   LoginRoute: LoginRoute,
   MeRoute: MeRoute,
+  PrivacyRoute: PrivacyRoute,
+  TermsRoute: TermsRoute,
   ApiFunnelRoute: ApiFunnelRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

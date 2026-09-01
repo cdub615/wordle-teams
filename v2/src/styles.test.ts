@@ -142,3 +142,26 @@ describe('AA contrast for the two coloured pairs the marketing landing renders',
     expectRatio('dark', '--accent-solid', '--surface-sunken', 3)
   })
 })
+
+describe('AA contrast for --accent-solid, which every link in the app is', () => {
+  test('an inline link clears AA as TEXT on both surfaces one appears on', () => {
+    // 4.5, NOT the 3 the block above asserts for the SAME TOKEN. styles.css's
+    // base layer sets
+    // `a { color: var(--accent-solid) }`, so every link in the app is
+    // --accent-solid rendered at normal body size — a TEXT contrast case, not a
+    // graphics one, and a different bar from the same token used as an icon.
+    //
+    // ADDED WITH PHASE 7 TASK 5, which is the first time that pairing carries
+    // real reading. src/routes/privacy.tsx and src/routes/terms.tsx each set a
+    // mailto inside island-shell body copy — island-shell's background is
+    // `var(--surface)` — and the footer's newly restored Privacy Policy / Terms
+    // links sit on the page's --background. Measured 5.02 and 4.81 in light,
+    // 8.22 and 8.69 in dark. --surface-sunken is deliberately absent: no link
+    // is rendered on that band, and quoting a figure for a pairing that does
+    // not ship is the exact mistake the header of this file is about.
+    for (const theme of ['light', 'dark'] as const) {
+      expectRatio(theme, '--accent-solid', '--surface', 4.5)
+      expectRatio(theme, '--accent-solid', '--background', 4.5)
+    }
+  })
+})

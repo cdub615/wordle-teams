@@ -3,9 +3,15 @@ import { Link } from '@tanstack/react-router'
 /**
  * Ported from v1's src/components/home/footer.tsx.
  *
- * DELIBERATELY OMITTED: v1's Privacy Policy and Terms links. Those routes do
- * not exist in v2 yet, and a footer full of 404s is worse than a shorter
- * footer. Porting v1's static pages is Phase 7's route-by-route walk.
+ * THE LEGAL LINKS ARE BACK. They were omitted from Phase 0 through Phase 7
+ * Task 4 because /privacy and /terms had no route in v2 and a footer full of
+ * 404s is worse than a shorter footer; Task 5 landed both routes, so the
+ * omission — and the comment recording it — are gone.
+ *
+ * ONE COPYRIGHT ROW, NOT TWO. v1's bottom row is a bare "Wordle Teams" span
+ * opposite the two links; v2's already carried `© {year} Wordle Teams` on its
+ * own line. Merging them keeps v1's layout (identity left, legal right) without
+ * printing the name twice.
  */
 export default function Footer() {
   const year = new Date().getFullYear()
@@ -25,7 +31,13 @@ export default function Footer() {
             <a href="https://twitter.com/wordleteams">X</a>
           </div>
         </div>
-        <p className="m-0 text-xs">&copy; {year} Wordle Teams</p>
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-xs">
+          <p className="m-0">&copy; {year} Wordle Teams</p>
+          <div className="flex gap-6">
+            <Link to="/privacy">Privacy Policy</Link>
+            <Link to="/terms">Terms</Link>
+          </div>
+        </div>
       </div>
     </footer>
   )

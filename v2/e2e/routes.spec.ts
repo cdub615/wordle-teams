@@ -269,6 +269,74 @@ test.describe('route shape', () => {
     await page.goto('/')
     await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveClass(/is-active/)
   })
+
+  /*
+   * V1'S TWO LEGAL PAGES (Phase 7 Task 5).
+   *
+   * ASSERTED AS A PARSED HEADING, NEVER AS A SUBSTRING OF THE DOCUMENT. Both
+   * pages quote their own title inside their prose — "This Privacy Policy
+   * explains...", "you agree to be bound by these Terms of Service" — so
+   * `expect(await page.content()).toContain('Privacy Policy')` passes on a page
+   * that renders the text and no heading at all, and passes on /terms as well
+   * once the footer links are there. `getByRole('heading', { level: 1 })` is
+   * the only form that distinguishes the page from a mention of it.
+   */
+  test('/privacy renders the Privacy Policy as its h1', async ({ page }) => {
+    await page.goto('/privacy')
+    await expect(page).toHaveURL('/privacy')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Privacy Policy', exact: true }),
+    ).toBeVisible()
+  })
+
+  test('/terms renders the Terms of Service as its h1', async ({ page }) => {
+    await page.goto('/terms')
+    await expect(page).toHaveURL('/terms')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Terms of Service', exact: true }),
+    ).toBeVisible()
+  })
+
+  test('/privacy and /terms carry v1\'s own page titles', async ({ page }) => {
+    // v1 sets these in src/app/privacy/layout.tsx and src/app/terms/layout.tsx
+    // as `metadata.title`, which Next runs through the root layout's
+    // `title.template` of '%s - Wordle Teams'. src/lib/seo.ts's pageTitle() is
+    // that interpolation done by hand, and the whole point of it is that these
+    // two strings are byte-identical to what production serves today — they are
+    // the <title> on two URLs v1's sitemap advertises.
+    //
+    // THE LITERALS, NOT pageTitle() IMPORTED — same reason as the '/ and /home'
+    // title test above: importing the helper would make this pass whatever the
+    // helper became.
+    await page.goto('/privacy')
+    await expect(page).toHaveTitle('Privacy Policy - Wordle Teams')
+
+    await page.goto('/terms')
+    await expect(page).toHaveTitle('Terms of Service - Wordle Teams')
+  })
+
+  test('the footer links to /privacy and /terms', async ({ page }) => {
+    // THE LINKS ARE THE REASON THE ROUTES WERE PORTED. Footer.tsx omitted both
+    // from Phase 0 until Task 5 because they would have been 404s, and the
+    // comment recording that omission is gone with them.
+    //
+    // RESOLVED hrefs on the named links, not "the string /privacy appears in
+    // the document" — the document contains that string anyway, in the router's
+    // dehydrated state and in the route manifest. And BOTH, because one is
+    // exactly the asymmetry mutation found on the landing's two CTAs: deleting
+    // either <Link> here has to go red.
+    //
+    // ON /about: the footer renders under every route (__root.tsx), and reading
+    // it from a third page keeps the assertion off the pages being linked to.
+    await page.goto('/about')
+    await expect(
+      page.getByRole('link', { name: 'Privacy Policy', exact: true }),
+    ).toHaveAttribute('href', '/privacy')
+    await expect(page.getByRole('link', { name: 'Terms', exact: true })).toHaveAttribute(
+      'href',
+      '/terms',
+    )
+  })
 })
 
 /*
@@ -325,10 +393,10 @@ test.describe('document cache headers', () => {
   })
 
   test('an anonymous static document is edge-cacheable', async ({ request }) => {
-    // /about, NOT /privacy: /privacy is in cache-policy.ts's static set but its
-    // route does not exist until a later task in this phase, so it 404s and is
-    // deliberately NOT shared — see the next test. /about exists today and its
-    // path is not moving.
+    // /about is the oldest static route in v2 and its path is not moving. It
+    // was the subject here from the start because it was, for several tasks,
+    // the ONLY listed path that answered 200; /privacy and /terms joined it in
+    // Phase 7 Task 5 and have their own cases below.
     const response = await request.get('/about')
     expect(response.status()).toBe(200)
     expect(response.headers()['content-type']).toContain('text/html')
@@ -337,21 +405,62 @@ test.describe('document cache headers', () => {
     )
   })
 
-  test('a listed route that does not exist yet is not cached', async ({ request }) => {
-    // /privacy IS in cache-policy.ts's STATIC_DOCUMENTS but has no route until a
-    // later task in this phase, so it 404s today — and src/server.ts refuses to
-    // share anything that is not a 200. Without that gate the edge takes a day
-    // of `s-maxage` on a 404 that `wrangler deploy` will never purge.
+  test('an anonymous GET /privacy is edge-cacheable now that the policy page renders', async ({
+    request,
+  }) => {
+    // THE OTHER HALF OF WHAT PHASE 7 TASK 5 CHANGED, and the half a route test
+    // cannot see. /privacy has been in cache-policy.ts's STATIC_DOCUMENTS since
+    // Phase 0 and was inert the whole time — src/server.ts shares only a 200 and
+    // this path 404'd, so it correctly got `private, no-store` and the case
+    // below asserted exactly that. Landing src/routes/privacy.tsx is the moment
+    // the listing takes effect.
     //
-    // WHEN A LATER TASK LANDS THE REAL /privacy THIS FLIPS. The route starts
-    // answering 200 and the expected header becomes the STATIC_CACHE value
-    // asserted above. Change this assertion to match — that is the correct
-    // response, and the test is still pinning the same rule. Do NOT delete it:
-    // the status gate it guards outlives the missing routes, because a
-    // transient 5xx on a route that does exist is the identical hazard. If you
-    // are the one landing /privacy, consider swapping the 404 subject here for
-    // whichever listed path is still unbuilt, so the gate keeps a live example.
+    // It is worth its own assertion rather than folding into the /about case:
+    // /privacy and /terms are v1's two prerendered legal pages, and they are
+    // named in cache-policy.ts's header as two of the three routes where
+    // wordle-teams-jcj was measured. Re-creating that bug here is the specific
+    // regression this file exists to prevent.
     const response = await request.get('/privacy')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe(
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
+  })
+
+  test('an anonymous GET /terms is edge-cacheable too', async ({ request }) => {
+    // /terms went live in the same commit as /privacy and is the other half of
+    // the same flip. Both are asserted because both are listed, and a route
+    // dropped from STATIC_DOCUMENTS silently loses the edge with every gate
+    // green — which is what makes a missing entry a latency bug nobody sees.
+    const response = await request.get('/terms')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe(
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
+  })
+
+  test('a listed route that does not exist yet is not cached', async ({ request }) => {
+    // /maintenance IS in cache-policy.ts's STATIC_DOCUMENTS but has no route
+    // yet, so it 404s — and src/server.ts refuses to share anything that is not
+    // a 200. Without that gate the edge takes a day of `s-maxage` on a 404 that
+    // `wrangler deploy` will never purge.
+    //
+    // THE SUBJECT USED TO BE /privacy AND MOVED HERE IN PHASE 7 TASK 5, which
+    // is exactly what the old comment asked whoever landed that route to do:
+    // /privacy started answering 200 and its expectation flipped to the
+    // STATIC_CACHE value asserted above, so the 404 needed a listed path that
+    // is still unbuilt to keep testing anything. THE SAME APPLIES AGAIN — when
+    // /maintenance lands, re-point this at /login-error, and when that lands
+    // too, at whichever listed path is missing then. Do NOT delete it: the
+    // status gate outlives the missing routes, because a transient 5xx on a
+    // route that DOES exist is the identical hazard, and nothing else reaches
+    // it. If every listed path exists, keep the test and assert a 404 on an
+    // unlisted path instead — that pins the STATIC_DOCUMENTS lookup rather than
+    // the status gate, and losing the status gate is worth saying out loud in
+    // whatever replaces this comment.
+    const response = await request.get('/maintenance')
     expect(response.status()).toBe(404)
     expect(response.headers()['content-type']).toContain('text/html')
     expect(response.headers()['cache-control']).toBe('private, no-store')
