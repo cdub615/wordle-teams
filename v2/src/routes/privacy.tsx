@@ -45,7 +45,19 @@ function Privacy() {
   return (
     <main className="page-wrap px-4 py-12">
       <article className="island-shell rounded-2xl p-6 sm:p-8">
-        <p className="island-kicker mb-2">Legal</p>
+        {/*
+          v2-ONLY CHROME — v1's legal pages carry no kicker, and this is the one
+          visible string on the page that is not ported prose (§7a row 22).
+
+          aria-hidden because it sits INSIDE the <article>, so a screen reader
+          would otherwise announce "Legal" before the document's own title. It
+          is decoration: the h1 immediately below says which legal document this
+          is, and says it better. Hidden rather than hoisted above the <article>
+          so the island's padding still holds it where it is drawn.
+        */}
+        <p className="island-kicker mb-2" aria-hidden="true">
+          Legal
+        </p>
         <h1 className="font-display mb-6 text-4xl font-bold text-foreground sm:text-5xl">
           Privacy Policy
         </h1>

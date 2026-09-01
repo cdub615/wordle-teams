@@ -129,3 +129,71 @@ describe('/ bounces a signed-in visitor and /home deliberately does not', () => 
     expect(tree).toMatch(/path:\s*['"]\/['"]/)
   })
 })
+
+/**
+ * THE TWO LEGAL PAGES' TITLES, AND THE FOOTER LINKS THAT ARE THE ONLY WAY TO
+ * THEM — the half of Phase 7 Task 5 that CI could not see.
+ *
+ * Task 5's behavioural coverage is entirely in e2e/routes.spec.ts, and
+ * .github/workflows/deploy-v2.yml runs no e2e: it is lint, typecheck,
+ * `vitest run` and build, then a deploy and a smoke test of /login. The Task 5
+ * review measured the consequence rather than assuming it — SWAPPING THE TWO
+ * PAGES' <title>s AND POINTING THE FOOTER'S "Privacy Policy" LINK AT /terms
+ * PASSED ALL FOUR GATES AND DEPLOYED TO BETA GREEN. A user following the
+ * footer to read the privacy policy would have been handed the terms of
+ * service, under a tab reading "Terms of Service - Wordle Teams", and nothing
+ * in CI would have said a word.
+ *
+ * ROUTE EXISTENCE IS ALREADY PROTECTED and is deliberately not re-asserted
+ * here: Footer.tsx's `<Link to>` is typed against the generated route tree, so
+ * deleting either route file fails typecheck at the link, and
+ * src/legal-prose.test.ts imports both modules by path. What neither of those
+ * can see is which title sits on which page and which label points where —
+ * both are plain strings, and both are what a reader actually navigates by.
+ *
+ * Same string-reading rationale as every block above.
+ */
+describe('/privacy and /terms, and the footer links that reach them', () => {
+  const privacy = () => codeOf(read('./routes/privacy.tsx'))
+  const terms = () => codeOf(read('./routes/terms.tsx'))
+  const footer = () => codeOf(read('./components/Footer.tsx'))
+
+  /** Every pageTitle('...') argument in a file, in source order. */
+  const titlesIn = (source: string) =>
+    [...source.matchAll(/pageTitle\(\s*['"]([^'"]*)['"]\s*\)/g)].map((match) => match[1])
+
+  test('each legal page carries its own v1 title, and not the other one', () => {
+    // v1's src/app/privacy/layout.tsx and src/app/terms/layout.tsx set these as
+    // `metadata.title`; src/lib/seo.ts interpolates the '%s - Wordle Teams'
+    // template Next applied automatically. THE LITERALS, not pageTitle()
+    // imported — importing the helper would make this pass whatever the helper
+    // became, which is the same reason e2e/routes.spec.ts spells the full
+    // strings out.
+    //
+    // Every occurrence in each file, not "the right title is in here
+    // somewhere": the mutation this is written against SWAPS them, and a
+    // `toContain` on each file separately would still be satisfied by a second,
+    // unreached head().
+    expect(titlesIn(privacy())).toEqual(['Privacy Policy'])
+    expect(titlesIn(terms())).toEqual(['Terms of Service'])
+  })
+
+  test('the footer sends each label to the page it names', () => {
+    // LABEL AND TARGET AS A PAIR. Asserting that /privacy and /terms both
+    // appear somewhere in the footer is satisfied by two links that have been
+    // swapped with each other, which is precisely the mutation that shipped
+    // green. v1's src/components/home/footer.tsx:25-28 pairs them the same way.
+    //
+    // Exhaustive over the internal links, so deleting one is a failure here and
+    // not merely a shorter list — the footer's <Link>s are the only navigation
+    // to either legal page in the whole app.
+    const pairs = [...footer().matchAll(/<Link to=["']([^"']+)["']>\s*([^<]+?)\s*<\/Link>/g)].map(
+      (match) => [match[2], match[1]],
+    )
+    expect(pairs).toEqual([
+      ['About', '/about'],
+      ['Privacy Policy', '/privacy'],
+      ['Terms', '/terms'],
+    ])
+  })
+})
