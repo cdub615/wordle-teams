@@ -57,6 +57,40 @@
 		"ENVIRONMENT": "beta",
 
 		/**
+		 * THE MAINTENANCE SWITCH. Read at runtime by src/server.ts, which
+		 * answers every app route with a 307 to /maintenance while this says
+		 * exactly "true". src/lib/maintenance.ts holds both halves of the
+		 * decision — what counts as on, and which paths are covered.
+		 *
+		 * ONLY THE EXACT STRING "true" TURNS IT ON. A var is a string, so
+		 * "false" here is not a subtle way of saying on: it is off, and so is
+		 * every other value, and so is deleting this line. That matters more
+		 * than it looks, because the field is edited by a human under pressure.
+		 *
+		 * A PLAIN VAR IS THE REPLACEMENT FOR VERCEL EDGE CONFIG, which v1 read
+		 * a `maintenance_${ENVIRONMENT}` flag out of and which has no successor
+		 * on this platform. The property being replaced is not "a flag store" —
+		 * it is that the value can be changed in the Cloudflare dashboard
+		 * (Workers & Pages -> this Worker -> Settings -> Variables) and takes
+		 * effect WITHOUT A CODE DEPLOY. Reach for the dashboard during an
+		 * incident; this file is the value the next deploy resets it to, so
+		 * flipping it here and shipping is how it goes back off for good.
+		 *
+		 * v1'S EQUIVALENT NEVER RAN. Its middleware sat at the repo root while
+		 * Next resolves src/middleware.ts, so the flag was read by nothing for
+		 * the life of the project. v2's is exercised by src/server.test.ts on
+		 * the composed Worker fetch, and was verified against a real
+		 * `wrangler dev` on and off before it landed.
+		 *
+		 * `MAINTENANCE=true wrangler dev` DOES NOT TURN IT ON. A shell variable
+		 * does not override a `vars` entry in this file — wrangler prints
+		 * `env.MAINTENANCE ("false")` in its bindings table and serves the site
+		 * normally, which is how that was caught rather than assumed. To
+		 * exercise it locally, pass `--var MAINTENANCE:true`.
+		 */
+		"MAINTENANCE": "false",
+
+		/**
 		 * Read at RUNTIME by src/lib/auth-server.ts, which prefers process.env
 		 * over import.meta.env. Also in .env.production, because the client
 		 * bundle inlines them at build time and never sees a wrangler var. Two

@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/cloudflare'
 import { wrapFetchWithSentry } from '@sentry/tanstackstart-react'
 import handler from '@tanstack/react-start/server-entry'
 import { NO_STORE, cachePolicyFor, hasSessionCookie } from './lib/cache-policy'
+import { MAINTENANCE_PATH, isMaintenanceGated, maintenanceEnabled } from './lib/maintenance'
 import { TRACES_SAMPLE_RATE } from './lib/sentry-config'
 
 // @ts-expect-error handler type mismatch between TanStack Start and the Sentry
@@ -64,10 +65,77 @@ const withCachePolicyOnDocuments = {
   },
 }
 
+/**
+ * MAINTENANCE MODE, IN FRONT OF THE CACHE POLICY.
+ *
+ * THE ORDER IS THE POINT. `/`, `/home` and the other static paths are in
+ * STATIC_DOCUMENTS, so a maintenance response produced downstream of the policy
+ * would be published with `s-maxage=86400` — a day of a shared "Coming Soon" on
+ * the marketing landing, outliving an outage that lasted twenty minutes, and
+ * `wrangler deploy` purges nothing. Gating first means the response never
+ * reaches cachePolicyFor at all and carries NO_STORE unconditionally. The
+ * redirect needs that explicitly: it has no content-type, so the policy below
+ * would have skipped it entirely and let a browser cache it for the day.
+ *
+ * IT IS A REDIRECT, AND v1 REWROTE. THAT IS A MEASURED CHANGE, NOT A
+ * PREFERENCE. v1's middleware calls `NextResponse.rewrite`, which keeps the
+ * visitor's URL and swaps only what is rendered, and that shape was built here
+ * first because keeping the URL is genuinely nicer. IT DOES NOT SURVIVE
+ * HYDRATION ON THIS PLATFORM. Measured against `wrangler dev` with the flag on,
+ * GET /app served the maintenance document and then, about a second later:
+ *
+ *     url  : http://localhost:8788/login
+ *     h1   : Sign in
+ *     error: Minified React error #418 (hydration mismatch)
+ *
+ * The document is SSR'd for /maintenance while `window.location` says /app, so
+ * the client router hydrates, disagrees, re-matches /app, runs its anonymous
+ * bounce and lands on /login — with the app fully alive underneath. Maintenance
+ * mode would have been visible for one frame and then gone, which is worse than
+ * not having it: it would have looked like it worked. A 307 to /maintenance
+ * makes the URL and the SSR'd route agree, so the router has nothing to
+ * disagree with, and it is the shape that was verified end to end.
+ *
+ * 307, NOT 301 OR 302: a permanent redirect is exactly the thing a browser
+ * remembers after the outage, and this response is `private, no-store` for the
+ * same reason. The query string is deliberately dropped — the path it belonged
+ * to is not where the visitor is any more, and `?checkout=success` on the
+ * outage page is a promise about a page that is not being rendered.
+ *
+ * IT FAILS OPEN, and the try/catch is not decoration. v1's comment is the one
+ * to keep: "A transient Edge Config or Supabase outage must degrade to 'let the
+ * request through', never to a 500. This middleware has never run in production
+ * before, so it gets no benefit of the doubt." v2's read is a property lookup
+ * on `env` rather than a network call, so the surface that can throw is
+ * smaller — but "smaller" is exactly the reasoning that left v1's version
+ * unexercised for the life of the project. A missing binding, a Proxy'd env, a
+ * URL this runtime will not parse: any of them takes the site down for everyone
+ * if this throws, on the one day nobody wants a second incident.
+ * src/server.test.ts exercises the catch with an env that throws on read.
+ */
+const withMaintenanceGate = {
+  async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
+    let gated = false
+    try {
+      gated =
+        maintenanceEnabled((env as { MAINTENANCE?: string }).MAINTENANCE) &&
+        isMaintenanceGated(new URL(request.url).pathname)
+    } catch (error) {
+      console.warn('maintenance gate unreadable, continuing', error)
+    }
+    if (!gated) return withCachePolicyOnDocuments.fetch(request, env, ctx)
+
+    return new Response(null, {
+      status: 307,
+      headers: { location: MAINTENANCE_PATH, 'cache-control': NO_STORE },
+    })
+  },
+}
+
 export default Sentry.withSentry(
   (env: { SENTRY_DSN?: string }) => ({
     dsn: env.SENTRY_DSN,
     tracesSampleRate: TRACES_SAMPLE_RATE,
   }),
-  withCachePolicyOnDocuments,
+  withMaintenanceGate,
 )

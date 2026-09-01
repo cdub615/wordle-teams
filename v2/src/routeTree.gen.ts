@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MeRouteImport } from './routes/me'
+import { Route as MaintenanceRouteImport } from './routes/maintenance'
 import { Route as LoginErrorRouteImport } from './routes/login-error'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HomeRouteImport } from './routes/home'
@@ -35,6 +36,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const MeRoute = MeRouteImport.update({
   id: '/me',
   path: '/me',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MaintenanceRoute = MaintenanceRouteImport.update({
+  id: '/maintenance',
+  path: '/maintenance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginErrorRoute = LoginErrorRouteImport.update({
@@ -91,6 +97,7 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/login-error': typeof LoginErrorRoute
+  '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/login-error': typeof LoginErrorRoute
+  '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/login-error': typeof LoginErrorRoute
+  '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/login-error'
+    | '/maintenance'
     | '/me'
     | '/privacy'
     | '/terms'
@@ -150,6 +160,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/login-error'
+    | '/maintenance'
     | '/me'
     | '/privacy'
     | '/terms'
@@ -164,6 +175,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/login-error'
+    | '/maintenance'
     | '/me'
     | '/privacy'
     | '/terms'
@@ -179,6 +191,7 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   LoginRoute: typeof LoginRoute
   LoginErrorRoute: typeof LoginErrorRoute
+  MaintenanceRoute: typeof MaintenanceRoute
   MeRoute: typeof MeRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
@@ -207,6 +220,13 @@ declare module '@tanstack/react-router' {
       path: '/me'
       fullPath: '/me'
       preLoaderRoute: typeof MeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/maintenance': {
+      id: '/maintenance'
+      path: '/maintenance'
+      fullPath: '/maintenance'
+      preLoaderRoute: typeof MaintenanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login-error': {
@@ -283,6 +303,7 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   LoginRoute: LoginRoute,
   LoginErrorRoute: LoginErrorRoute,
+  MaintenanceRoute: MaintenanceRoute,
   MeRoute: MeRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,

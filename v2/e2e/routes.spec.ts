@@ -522,29 +522,49 @@ test.describe('document cache headers', () => {
     )
   })
 
-  test('a listed route that does not exist yet is not cached', async ({ request }) => {
-    // /maintenance IS in cache-policy.ts's STATIC_DOCUMENTS but has no route
-    // yet, so it 404s — and src/server.ts refuses to share anything that is not
-    // a 200. Without that gate the edge takes a day of `s-maxage` on a 404 that
-    // `wrangler deploy` will never purge.
+  test('an unlisted route is not cached, even when it 404s', async ({ request }) => {
+    // THE SUBJECT HAS MOVED TWICE AND HAS NOW RUN OUT OF LISTED PATHS. This
+    // case was /privacy, then /maintenance, each time picking whichever path
+    // was in cache-policy.ts's STATIC_DOCUMENTS while still 404ing — which
+    // pinned src/server.ts's rule that ONLY A 200 MAY BE SHARED. Phase 7 Task 7
+    // landed src/routes/maintenance.tsx, and with it every one of the seven
+    // listed paths now answers 200. There is no listed-but-missing path left to
+    // point this at.
     //
-    // THE SUBJECT USED TO BE /privacy AND MOVED HERE IN PHASE 7 TASK 5, which
-    // is exactly what the old comment asked whoever landed that route to do:
-    // /privacy started answering 200 and its expectation flipped to the
-    // STATIC_CACHE value asserted above, so the 404 needed a listed path that
-    // is still unbuilt to keep testing anything. THE SAME APPLIES AGAIN — when
-    // /maintenance lands, re-point this at /login-error, and when that lands
-    // too, at whichever listed path is missing then. Do NOT delete it: the
-    // status gate outlives the missing routes, because a transient 5xx on a
-    // route that DOES exist is the identical hazard, and nothing else reaches
-    // it. If every listed path exists, keep the test and assert a 404 on an
-    // unlisted path instead — that pins the STATIC_DOCUMENTS lookup rather than
-    // the status gate, and losing the status gate is worth saying out loud in
-    // whatever replaces this comment.
-    const response = await request.get('/maintenance')
+    // So it does what the previous comment said to do in exactly this case:
+    // keeps the test and asserts a 404 on an UNLISTED path instead. SAY THE
+    // COST OUT LOUD — that is a different assertion. This now pins the
+    // STATIC_DOCUMENTS lookup (an unrecognised path defaults to no-store) and
+    // NOT the status gate, and nothing else in this file reaches the status
+    // gate any more. The gate is still load-bearing: a transient 5xx on a route
+    // that DOES exist is the identical hazard, and `wrangler deploy` purges
+    // nothing. Its cover is now src/server.test.ts, which calls the composed
+    // Worker fetch directly and can hand it any status it likes — and unlike
+    // this file, that one runs in CI.
+    //
+    // If a listed path is ever added ahead of its route again, move this back
+    // to it: a real 404 on a listed path tests strictly more than this does.
+    const response = await request.get('/no-such-page-exists')
     expect(response.status()).toBe(404)
     expect(response.headers()['content-type']).toContain('text/html')
     expect(response.headers()['cache-control']).toBe('private, no-store')
+  })
+
+  test('/maintenance renders, and is edge-cacheable like the other static pages', async ({
+    request,
+  }) => {
+    // The page every gated route is sent to while MAINTENANCE is on. It is in
+    // STATIC_DOCUMENTS and always renders the same, so a direct request for it
+    // keeps the static policy — unlike the 307 that points here, which
+    // src/server.ts marks `private, no-store` so a transient state cannot
+    // outlive itself in a cache. Both live in src/server.test.ts, which is a
+    // gate; this asserts the page is actually reachable and rendering.
+    const response = await request.get('/maintenance')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe(
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
   })
 
   test('/app emits its anonymous redirect with no cache-control at all', async ({ request }) => {
