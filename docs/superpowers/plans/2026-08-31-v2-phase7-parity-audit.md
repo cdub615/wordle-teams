@@ -48,6 +48,16 @@ This phase is unusually exposed to it, because **v2 has no component-rendering t
 
 **Every task in Stage A that changes behaviour visible over HTTP therefore requires an assertion on a real response**, in `e2e/`, in addition to any unit test of the extracted logic. A unit test alone does not close a Stage A task.
 
+### A grep against a fetched page silently finds nothing -- this app's SSR documents are "binary"
+
+**Every SSR document v2 serves contains NUL bytes.** TanStack serializes route ids with a trailing NUL into the dehydrated payload, so it is structural and present on every rendered route -- a `GET /` carries five. GNU grep therefore classifies the response as binary and **reports no matches, with no error and no warning**. `file` calls it `data`.
+
+This already produced a confident wrong answer once. Verifying Task 4, greps for the `<h1>`, for `Compete with friends`, and for the feature-card copy all came back empty against a page that was **fully server-rendered** -- and the natural reading was "the landing is client-only, so crawlers see nothing", which is both alarming and false, about the exact property the page exists to provide.
+
+**So: never inspect a fetched document with grep.** Parse the HTML, strip NULs first (`tr -d` with the octal escape for NUL), or pass `grep -a`. This matters most for **Task 13**'s parity harness and **Task 17**'s walk: a harness that gets this wrong reports every route on beta as missing every meta tag, which reads as a catastrophic parity failure and is not one. Filed as `wt-ksh.8.44` (P1).
+
+The related source-file case -- `v2/src/lib/sw-push.test.ts` carrying a literal NUL, making it invisible to recursive source greps and rendering its `git diff` as `Bin 8175 -> 8811 bytes` -- is separately fixable. The SSR half is not: it is how the framework serializes, so the tooling is what has to stop assuming text.
+
 ### The specific mistake this phase keeps making: an assertion scoped wider than the thing it names
 
 Three instances in the first two tasks, each found only by mutation:
