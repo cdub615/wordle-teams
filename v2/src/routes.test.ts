@@ -197,3 +197,114 @@ describe('/privacy and /terms, and the footer links that reach them', () => {
     ])
   })
 })
+
+/**
+ * `/login-error`, THE PAGE NOBODY ARRIVES AT ON PURPOSE — Phase 7 Task 6.
+ *
+ * NOTHING IN THE APP LINKS HERE. It is reached only by a redirect issued from
+ * inside Better Auth, configured in two places that are both a single option:
+ * `errorCallbackURL` on signIn.social (src/routes/login.tsx) and
+ * `onAPIError.errorURL` (convex/auth.ts). So this route is invisible to
+ * typecheck the way /me and /home are — there is no `<Link to>` anywhere whose
+ * type would break if it vanished — and it is worse than those two, because the
+ * things pointing at it are STRINGS IN CONFIG rather than route-typed links.
+ * The pairing between them is what this block pins.
+ *
+ * Same string-reading rationale as every block above: createFileRoute cannot be
+ * imported under a router-less vitest. src/login-error.test.ts covers what the
+ * page RENDERS, by walking the real element tree; this covers what the SOURCE
+ * commits to, which is the half CI can see — .github/workflows/deploy-v2.yml is
+ * lint, typecheck, `vitest run` and build, and no e2e.
+ */
+describe('/login-error, and the two config strings that are the only way to it', () => {
+  const loginError = () => codeOf(read('./routes/login-error.tsx'))
+  const login = () => codeOf(read('./routes/login.tsx'))
+  const convexAuth = () => codeOf(read('../convex/auth.ts'))
+
+  /** Every pageTitle('...') argument in a file, in source order. */
+  const titlesIn = (source: string) =>
+    [...source.matchAll(/pageTitle\(\s*['"]([^'"]*)['"]\s*\)/g)].map((match) => match[1])
+
+  test('carries v1\'s own title, which is /login\'s title and not a new one', () => {
+    // v1's src/app/login-error/layout.tsx sets `metadata.title` to
+    // 'Login / Signup' — the SAME string as src/app/login/layout.tsx, because
+    // this page is a step in the sign-in flow rather than a destination.
+    // THE LITERAL, not pageTitle() imported: importing the helper would make
+    // this pass whatever the helper became.
+    //
+    // Every occurrence in the file, not "the right title is in here somewhere":
+    // a `toContain` stays satisfied by a second, unreached head().
+    expect(titlesIn(loginError())).toEqual(['Login / Signup'])
+    // Asserted as a PAIR with /login's, because "same as /login" is the actual
+    // claim and it is only true while /login still says it.
+    expect(titlesIn(login())).toEqual(['Login / Signup'])
+  })
+
+  test('the only place it sends anyone is /login', () => {
+    // v1's page renders one control, a "Head to Sign In" button wrapping
+    // `<Link href='/login'>`. Exhaustive over every `to:` and `to=` in the
+    // file for the reason spelled out in the /me block: a `toContain` keeps
+    // passing when the real target moves to /app and a /login is left behind in
+    // a branch nothing reaches.
+    const targets = [...loginError().matchAll(/\bto[:=]\s*['"]([^'"]*)['"]/g)].map(
+      (match) => match[1],
+    )
+    expect(targets).toEqual(['/login'])
+  })
+
+  test('is in the generated route tree, whatever the source file is called', () => {
+    const tree = read('./routeTree.gen.ts')
+    expect(tree).toMatch(/path:\s*['"]\/login-error['"]/)
+  })
+
+  test('both of the redirects that reach it name this exact path', () => {
+    // THE PAIRING, and the reason this whole block exists. Neither string is
+    // route-typed, so either can be misspelled or repointed with all four gates
+    // green and the page simply never appearing again.
+    //
+    // They are NOT redundant with each other and both are required:
+    // `errorCallbackURL` travels in the OAuth state, so it is only available
+    // once that state has parsed; `onAPIError.errorURL` is the default used
+    // when parsing the state is itself what failed. See the note in
+    // src/routes/login-error.tsx.
+    expect(login()).toMatch(/errorCallbackURL:\s*['"]\/login-error['"]/)
+    expect(convexAuth()).toMatch(/errorURL:\s*`\$\{siteUrl\}\/login-error`/)
+  })
+
+  test('it is in STATIC_DOCUMENTS, which is what makes it edge-cacheable', () => {
+    // Listed since Phase 0 and inert the whole time — src/server.ts shares only
+    // a 200 and this path 404'd. Landing the route is the moment the listing
+    // takes effect, which is the flip e2e/routes.spec.ts measures on a real
+    // response. Pinned here too because dropping the entry is a silent latency
+    // regression with every gate green.
+    expect(codeOf(read('./lib/cache-policy.ts'))).toMatch(/['"]\/login-error['"]/)
+  })
+
+  test('the passcode expiry is interpolated from OTP_EXPIRY_SEC, never written out', () => {
+    // v1's copy says "1 hour". THIS DEPLOYMENT EXPIRES A CODE IN FIVE MINUTES —
+    // convex/authEmails.ts sets OTP_EXPIRY_SEC to 300, and that one constant
+    // both configures the emailOTP plugin and writes "It expires in 5 minutes"
+    // in the code email. A number typed into this page instead would pass
+    // src/login-error.test.ts today and start lying to users the day the
+    // constant moves, telling someone with a forty-minute-old code that it
+    // should still work.
+    //
+    // The SENTENCE, not "OTP_EXPIRY_SEC appears somewhere in the file": the
+    // import surviving while the sentence hardcodes a digit is exactly the
+    // mutation this is written against.
+    expect(loginError()).toMatch(/expire after \{EXPIRY_MINUTES\} minutes/)
+    expect(loginError()).toMatch(/import \{ OTP_EXPIRY_SEC \} from/)
+  })
+
+  test('nothing reads error_description, the one provider-supplied string here', () => {
+    // Better Auth attaches BOTH `error` and `error_description` to the redirect
+    // (dist/oauth2/errors.mjs). The code is machine-readable and matched
+    // against an allowlist; the description is free text written by the
+    // provider — in the production hit recorded on wordle-teams-vjh it was a
+    // full AADSTS sentence. Reading it at all is the first step toward
+    // rendering it, so the assertion is that the identifier does not appear in
+    // the code at all. Comments are stripped by codeOf, and this file's prose
+    // names it repeatedly, so a match here would be a real read.
+    expect(loginError()).not.toMatch(/error_description/)
+  })
+})

@@ -156,6 +156,35 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
     socialProviders,
 
     /**
+     * WHERE A FAILED SIGN-IN LANDS (wordle-teams-vjh).
+     *
+     * Better Auth's default is its own /api/auth/error page — and in production
+     * that page does not render: dist/api/routes/error.mjs 302s onward to `/`
+     * with the code in the query string and no message anywhere. So a user who
+     * declined consent at their provider ended up silently on the marketing
+     * landing. This points the same redirect at the page whose entire job is to
+     * explain a failed sign-in, with the machine-readable code still attached.
+     *
+     * NOT REDUNDANT with the `errorCallbackURL` src/routes/login.tsx passes to
+     * signIn.social, which is the same destination reached by a different
+     * route: THAT one is read out of the OAuth state, so it is only available
+     * once the state has been parsed. This one is the default used when parsing
+     * the state is itself what failed — a mismatched or missing state cookie,
+     * which is exactly the failure the first asterisked note on /login-error
+     * describes ("sometimes the first login with a sign in provider fails when
+     * redirecting"). Neither covers the other's case.
+     *
+     * ABSOLUTE, not '/login-error': this handler runs on the Convex deployment,
+     * and only `siteUrl` knows the browser-facing origin.
+     *
+     * Blast radius is error paths only. `onAPIError.errorURL` is read in
+     * callback.mjs, oauth2/state.mjs, oauth2/link-account.mjs and the error
+     * route; it does not change the shape of any API response, which is
+     * `onAPIError.throw` / `.onError` and is left unset.
+     */
+    onAPIError: { errorURL: `${siteUrl}/login-error` },
+
+    /**
      * Account linking is what makes the migration survivable. Copied players are
      * keyed by email (`players.by_email`), so a user who signed in with OTP and
      * later uses Google must land on the SAME Better Auth user — otherwise they

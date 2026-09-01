@@ -337,6 +337,87 @@ test.describe('route shape', () => {
       '/terms',
     )
   })
+
+  test('/login-error renders the failure page and offers a way back to sign in', async ({
+    page,
+  }) => {
+    // THE ROUTE PHASE 7 TASK 6 CREATED. Nothing in the app links here — it is
+    // reached only by a redirect issued inside Better Auth — so this is the
+    // first navigation that has ever proved the path resolves at all.
+    //
+    // The h1 AND the link, because either alone is a page that half works: v1's
+    // src/app/login-error/page.tsx renders exactly one control, and a heading
+    // with no way out of it is the dead end wordle-teams-vjh was filed about.
+    await page.goto('/login-error')
+    await expect(page).toHaveURL('/login-error')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Sign In Failed', exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: 'Head to Sign In', exact: true }),
+    ).toHaveAttribute('href', '/login')
+  })
+
+  test('/login-error carries v1\'s title, which is /login\'s own title', async ({ page }) => {
+    // v1's src/app/login-error/layout.tsx sets `metadata.title` to the SAME
+    // string as src/app/login/layout.tsx, because this page is a step in the
+    // sign-in flow and not a destination. Asserted as a pair so "the same as
+    // /login" stays a fact about both pages rather than a comment on one.
+    //
+    // THE LITERAL, not pageTitle() imported — same reason as the '/privacy and
+    // /terms' title test above.
+    await page.goto('/login-error')
+    await expect(page).toHaveTitle('Login / Signup - Wordle Teams')
+
+    await page.goto('/login')
+    await expect(page).toHaveTitle('Login / Signup - Wordle Teams')
+  })
+
+  test('/login-error names the failure when the provider sent a code for it', async ({ page }) => {
+    // THE wordle-teams-vjh DECISION, END TO END AND IN A REAL BROWSER. The
+    // unit tests call the component; this is the only thing that proves
+    // `validateSearch` is actually wired into the route the router built, which
+    // is where an allowlist would silently stop being consulted.
+    //
+    // BOTH DIRECTIONS IN ONE TEST, because the claim is a difference: the point
+    // of the issue is that a declined consent and an expired passcode used to
+    // look identical. One assertion on its own cannot say that they no longer
+    // do.
+    await page.goto('/login-error?error=access_denied')
+    await expect(
+      page.getByText(
+        'You cancelled at your sign in provider, or declined the permissions it asked for.',
+        { exact: false },
+      ),
+    ).toBeVisible()
+
+    // A code with no sentence of its own, and the raw string of an unknown one,
+    // both fall back to the generic page rather than rendering anything from
+    // the query string.
+    await page.goto('/login-error?error=%3Cscript%3Ealert(1)%3C%2Fscript%3E')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Sign In Failed', exact: true }),
+    ).toBeVisible()
+    await expect(page.getByText('alert(1)', { exact: false })).toHaveCount(0)
+  })
+
+  test('/login-error tells the user how long a passcode actually lasts', async ({ page }) => {
+    // v1's copy promises "1 hour". convex/authEmails.ts sets OTP_EXPIRY_SEC to
+    // 300 and writes "It expires in 5 minutes" into the code email from it, so
+    // porting v1's sentence unchanged would have this page contradict the email
+    // the reader is holding — and tell someone with a forty-minute-old code
+    // that it should still work.
+    //
+    // THE WHOLE SENTENCE, not the number: '5' appears elsewhere in a rendered
+    // document, and it is the promise that matters rather than the digit.
+    await page.goto('/login-error')
+    await expect(
+      page.getByText(
+        'a One Time Passcode (OTP) will expire after 5 minutes. If your email has been delayed you may need to try again.',
+        { exact: false },
+      ),
+    ).toBeVisible()
+  })
 })
 
 /*
@@ -564,5 +645,30 @@ test.describe('document cache headers', () => {
     expect(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/.test(
       await response.text(),
     )).toBe(true)
+  })
+
+  test('an anonymous GET /login-error is edge-cacheable now that the page renders', async ({
+    request,
+  }) => {
+    // THE FLIP PHASE 7 TASK 6 CAUSED, and the half no unit test can see.
+    // '/login-error' has been in cache-policy.ts's STATIC_DOCUMENTS since Phase
+    // 0 and was inert the whole time — src/server.ts shares only a 200 and this
+    // path 404'd, so it correctly answered `private, no-store`. MEASURED BEFORE
+    // AND AFTER: `curl -sI` returned `404` + `private, no-store` before the
+    // route existed and `200` + the value below immediately after.
+    //
+    // Worth its own case rather than folding into /about: this page is the one
+    // static document a user only ever reaches mid-authentication, so it is the
+    // one where "is it really safe to share this?" deserves an answer on the
+    // record. It is — the anonymous rendering is four fixed sentences and a
+    // link, the provider's code lives in the query string and Cloudflare keys
+    // on the full URL, and a signed-in request gets `private, no-store` from
+    // the session dimension like every other route.
+    const response = await request.get('/login-error')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe(
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
   })
 })

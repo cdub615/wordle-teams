@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MeRouteImport } from './routes/me'
+import { Route as LoginErrorRouteImport } from './routes/login-error'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as CompleteProfileRouteImport } from './routes/complete-profile'
@@ -34,6 +35,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const MeRoute = MeRouteImport.update({
   id: '/me',
   path: '/me',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginErrorRoute = LoginErrorRouteImport.update({
+  id: '/login-error',
+  path: '/login-error',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/complete-profile': typeof CompleteProfileRoute
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
+  '/login-error': typeof LoginErrorRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -97,6 +104,7 @@ export interface FileRoutesByTo {
   '/complete-profile': typeof CompleteProfileRoute
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
+  '/login-error': typeof LoginErrorRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -111,6 +119,7 @@ export interface FileRoutesById {
   '/complete-profile': typeof CompleteProfileRoute
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
+  '/login-error': typeof LoginErrorRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -126,6 +135,7 @@ export interface FileRouteTypes {
     | '/complete-profile'
     | '/home'
     | '/login'
+    | '/login-error'
     | '/me'
     | '/privacy'
     | '/terms'
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/complete-profile'
     | '/home'
     | '/login'
+    | '/login-error'
     | '/me'
     | '/privacy'
     | '/terms'
@@ -152,6 +163,7 @@ export interface FileRouteTypes {
     | '/complete-profile'
     | '/home'
     | '/login'
+    | '/login-error'
     | '/me'
     | '/privacy'
     | '/terms'
@@ -166,6 +178,7 @@ export interface RootRouteChildren {
   CompleteProfileRoute: typeof CompleteProfileRoute
   HomeRoute: typeof HomeRoute
   LoginRoute: typeof LoginRoute
+  LoginErrorRoute: typeof LoginErrorRoute
   MeRoute: typeof MeRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
@@ -194,6 +207,13 @@ declare module '@tanstack/react-router' {
       path: '/me'
       fullPath: '/me'
       preLoaderRoute: typeof MeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login-error': {
+      id: '/login-error'
+      path: '/login-error'
+      fullPath: '/login-error'
+      preLoaderRoute: typeof LoginErrorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -262,6 +282,7 @@ const rootRouteChildren: RootRouteChildren = {
   CompleteProfileRoute: CompleteProfileRoute,
   HomeRoute: HomeRoute,
   LoginRoute: LoginRoute,
+  LoginErrorRoute: LoginErrorRoute,
   MeRoute: MeRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,

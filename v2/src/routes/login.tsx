@@ -97,6 +97,15 @@ function LoginPage() {
     const { error } = await authClient.signIn.social({
       provider,
       callbackURL: `/app?${SIGNIN_PARAM}=oauth`,
+      // THE FAILURE HALF OF THE SAME HANDOFF (wordle-teams-vjh). Better Auth
+      // stores this in the OAuth state and redirects here — with the provider's
+      // own code on the query string — when the provider comes back with an
+      // error instead of a code. Without it the flow falls back to Better
+      // Auth's built-in /api/auth/error page, which in production 302s onward
+      // to `/` and shows nothing: a user who declined consent landed silently
+      // on the marketing page. src/routes/login-error.tsx carries the full
+      // reasoning and the allowlist of codes it will show a sentence for.
+      errorCallbackURL: '/login-error',
     })
     // Only reached if the redirect never happened.
     setPending(false)
