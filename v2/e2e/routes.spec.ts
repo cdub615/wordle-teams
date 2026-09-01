@@ -73,8 +73,10 @@ test.describe('route shape', () => {
  *
  * src/lib/cache-policy.test.ts covers the policy function exhaustively and
  * covers src/server.ts NOT AT ALL — deleting the `doc.headers.set(...)` line
- * there leaves every unit test green. These three tests are the only thing
- * that fails when the worker stops applying the policy it computes.
+ * there leaves every unit test green. These tests are the only thing that fails
+ * when the worker stops applying the policy it computes, or applies it to
+ * something it should not: the status gate and the content-type guard are both
+ * unreachable from any unit test and are each pinned by exactly one case below.
  *
  * EVERY ASSERTION COMPARES THE WHOLE HEADER WITH toBe. `toContain('public')`
  * is satisfied by a header that also says no-store, which is precisely the
@@ -83,25 +85,82 @@ test.describe('route shape', () => {
  */
 test.describe('document cache headers', () => {
   test('an anonymous static document is edge-cacheable', async ({ request }) => {
-    // /about, NOT /privacy: /privacy is in cache-policy.ts's static set but the
-    // route itself does not exist until a later task in this phase, and a 404
-    // is not a document. /about exists today and is not moving — the same
-    // reason playwright.config.ts probes it.
+    // /about, NOT /privacy: /privacy is in cache-policy.ts's static set but its
+    // route does not exist until a later task in this phase, so it 404s and is
+    // deliberately NOT shared — see the next test. /about exists today and is
+    // not moving, the same reason playwright.config.ts probes it.
     const response = await request.get('/about')
     expect(response.status()).toBe(200)
     expect(response.headers()['content-type']).toContain('text/html')
     expect(response.headers()['cache-control']).toBe(
-      'public, s-maxage=86400, stale-while-revalidate=604800',
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
     )
   })
 
-  test('an anonymous authenticated route is never cached', async ({ request }) => {
-    // /app answers a 307 to /login for an anonymous visitor, so follow it and
-    // assert on the document that actually comes back rather than on a
-    // redirect with no body. Either way the answer must be no-store: /login is
-    // deliberately absent from the static set.
-    const response = await request.get('/app')
+  test('a listed route that does not exist yet is not cached', async ({ request }) => {
+    // /privacy IS in cache-policy.ts's STATIC_DOCUMENTS but has no route until a
+    // later task in this phase, so it 404s today — and src/server.ts refuses to
+    // share anything that is not a 200. Without that gate the edge takes a day
+    // of `s-maxage` on a 404 that `wrangler deploy` will never purge.
+    //
+    // WHEN A LATER TASK LANDS THE REAL /privacy THIS FLIPS. The route starts
+    // answering 200 and the expected header becomes the STATIC_CACHE value
+    // asserted above. Change this assertion to match — that is the correct
+    // response, and the test is still pinning the same rule. Do NOT delete it:
+    // the status gate it guards outlives the missing routes, because a
+    // transient 5xx on a route that does exist is the identical hazard. If you
+    // are the one landing /privacy, consider swapping the 404 subject here for
+    // whichever listed path is still unbuilt, so the gate keeps a live example.
+    const response = await request.get('/privacy')
+    expect(response.status()).toBe(404)
+    expect(response.headers()['content-type']).toContain('text/html')
     expect(response.headers()['cache-control']).toBe('private, no-store')
+  })
+
+  test('/app emits its anonymous redirect with no cache-control at all', async ({ request }) => {
+    // The 307 ITSELF, with redirects off. It carries no content-type, so the
+    // guard in src/server.ts returns before any policy is computed and the
+    // redirect goes out unheadered. That is fine — there is no body to cache —
+    // but it means the followed-redirect test below is asserting /login's
+    // headers and not /app's, which is why these are two tests and not one.
+    const response = await request.get('/app', { maxRedirects: 0 })
+    expect(response.status()).toBe(307)
+    expect(response.headers()['location']).toBe('/login')
+    expect(response.headers()['cache-control']).toBeUndefined()
+  })
+
+  test('/login, at the end of the anonymous /app bounce, is never cached', async ({ request }) => {
+    // Named for /login because /login is what this asserts: request.get follows
+    // the 307 and the headers that come back are the destination's. /login is
+    // the one deliberate omission from the static set — it is the top of the
+    // funnel and its job is to START a session — so no-store is the point of
+    // the test, not an incidental.
+    const response = await request.get('/app')
+    expect(new URL(response.url()).pathname).toBe('/login')
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe('private, no-store')
+  })
+
+  test('a non-HTML response keeps whatever cache-control it set for itself', async ({
+    request,
+  }) => {
+    // The content-type guard, which nothing else reaches: delete it and 935
+    // unit tests plus every other case here stay green.
+    //
+    // /api/funnel POST is the subject because it is the most stable non-HTML
+    // response in the app — it is documented to ALWAYS answer 204 whatever
+    // happens downstream (see src/routes/api/funnel.ts: a vendor outage
+    // blocking sign-in was wordle-teams-4ov), so it cannot start returning a
+    // different status and quietly stop testing this. An empty body is an
+    // unknown event name, which is `dropped`: no LogSnag call, no network
+    // dependency in the assertion.
+    const response = await request.post('/api/funnel', { data: {} })
+    expect(response.status()).toBe(204)
+    expect(response.headers()['x-funnel']).toBe('dropped')
+    // Untouched means ABSENT here — the route sets none. If it ever sets one,
+    // this becomes a toBe on that value; what must never appear is the document
+    // policy, which for this path would be 'private, no-store'.
+    expect(response.headers()['cache-control']).toBeUndefined()
   })
 
   test('a SIGNED-IN request for a static document is not cached', async ({ page, context }) => {

@@ -33,9 +33,17 @@
  * Routes whose anonymous rendering contains nothing user-specific.
  *
  * Several of these do not exist yet — later tasks in this phase create /,
- * /home, /privacy, /terms, /maintenance and /login-error. They are listed now
- * deliberately: an unlisted path is merely slow (see the default below), so
- * listing early is safe and listing late is a silent performance regression.
+ * /home, /privacy, /terms, /maintenance and /login-error. Listing them early is
+ * safe ONLY BECAUSE src/server.ts consults this policy for a 200 and no other
+ * status. Without that gate it is actively dangerous, and was: a listed path
+ * with no route 404s, and the 404 was being published with a day of shared
+ * freshness and a week of stale-while-revalidate. `wrangler deploy` purges
+ * nothing, so the edge would have kept serving that 404 long after the real
+ * route shipped, with no event able to evict it. The same hazard outlives the
+ * missing routes — a transient 5xx on /home would earn the same day.
+ *
+ * The default below still makes listing LATE a silent performance regression.
+ * Listing early is now merely inert until the route exists.
  *
  * /login IS DELIBERATELY ABSENT. It renders the same for every anonymous
  * visitor, so it would be legal to cache — but it is the top of the funnel and
@@ -54,7 +62,8 @@ const STATIC_DOCUMENTS = new Set([
 ])
 
 export const NO_STORE = 'private, no-store'
-export const STATIC_CACHE = 'public, s-maxage=86400, stale-while-revalidate=604800'
+export const STATIC_CACHE =
+  'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800'
 
 /**
  * THE DEFAULT FOR AN UNRECOGNISED PATH IS `NO_STORE`, and that is the most
@@ -66,6 +75,7 @@ export const STATIC_CACHE = 'public, s-maxage=86400, stale-while-revalidate=6048
 export function cachePolicyFor(pathname: string, hasSession: boolean): string {
   if (hasSession) return NO_STORE
   // `/foo/` and `/foo` are the same document; `/` must survive the trim.
+  // Defence in depth only: TanStack 307s `/about/` to `/about` before this runs.
   const normalised = pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname
   return STATIC_DOCUMENTS.has(normalised) ? STATIC_CACHE : NO_STORE
 }
@@ -96,13 +106,27 @@ const SESSION_COOKIE_NAMES = ['better-auth.session_token', 'better-auth.convex_j
 
 /**
  * Matches a session cookie at a NAME position only — start of the header, or
- * immediately after a `;` separator — so the word appearing inside some other
+ * immediately after a separator — so the word appearing inside some other
  * cookie's VALUE cannot flip the policy to no-store, and more importantly
  * cannot be relied on to. Escaped because the names contain `.`, which would
  * otherwise match any character.
+ *
+ * A COMMA IS A SEPARATOR HERE AS WELL AS `;`. HTTP/2 permits a client to send
+ * the cookie as several field lines, and `Headers.get('cookie')` rejoins
+ * duplicates with `", "` — so `a=1, better-auth.session_token=x` is a real
+ * shape this can be handed. Anchoring on `;` alone MISSES it, and missing is
+ * the dangerous direction: a signed-in request read as anonymous publishes a
+ * token-bearing document to a shared cache. RFC 9113 requires the rejoin to use
+ * `"; "` and Cloudflare does that at the edge, so this is unlikely in practice;
+ * it costs one character to stop being unlikely.
+ *
+ * A comma is legal inside a cookie VALUE, so accepting it as a separator can
+ * only ever OVER-match — an anonymous visitor whose cookie value contains
+ * `, better-auth.session_token=` loses the edge cache. That is the acceptable
+ * direction: the failure is slow, not shared.
  */
 const SESSION_COOKIE_RE = new RegExp(
-  `(?:^|;)\\s*(?:__Secure-)?(?:${SESSION_COOKIE_NAMES.map((n) => n.replace(/\./g, '\\.')).join('|')})=`,
+  `(?:^|[;,])\\s*(?:__Secure-)?(?:${SESSION_COOKIE_NAMES.map((n) => n.replace(/\./g, '\\.')).join('|')})=`,
 )
 
 export function hasSessionCookie(cookieHeader: string | null): boolean {

@@ -6,10 +6,6 @@ import { NO_STORE, STATIC_CACHE, cachePolicyFor, hasSessionCookie } from './cach
 // mistake this phase has already made three times in other files.
 
 describe('cachePolicyFor', () => {
-  test('an anonymous request for a static document is edge-cacheable', () => {
-    expect(cachePolicyFor('/about', false)).toBe(STATIC_CACHE)
-  })
-
   test('every route in the static set is cacheable anonymously', () => {
     // Named individually rather than iterating the module's own set, which
     // would assert nothing: a set that lost an entry would lose the case too.
@@ -20,10 +16,20 @@ describe('cachePolicyFor', () => {
   })
 
   test('the static cache header names a shared cache and a long stale window', () => {
-    // Pins the value itself, so a hand-edit to `max-age` (browser-private, not
-    // the edge) or a shortened window is a failing test rather than a silent
-    // return to jcj's 28-41% miss rate.
-    expect(STATIC_CACHE).toBe('public, s-maxage=86400, stale-while-revalidate=604800')
+    // Pins the value itself as a LITERAL, never as `STATIC_CACHE` compared to
+    // itself: a self-reference would assert nothing, and this is the only thing
+    // in vitest that kills an `s-maxage` -> `max-age` edit — browser-private,
+    // not the edge, and a silent return to jcj's 28-41% miss rate. (The /about
+    // case in e2e/routes.spec.ts pins the same literal on a real response, but
+    // e2e does not run in the four gates.)
+    //
+    // `max-age=0` is deliberate and not redundant with `s-maxage`. Without it a
+    // shared cache has an explicit lifetime and a private one has none, so the
+    // browser falls back to HEURISTIC freshness — and a full reload right after
+    // sign-in could paint the signed-out shell from the browser's own cache.
+    // Edge behaviour is unchanged: `s-maxage` overrides `max-age` for shared
+    // caches.
+    expect(STATIC_CACHE).toBe('public, max-age=0, s-maxage=86400, stale-while-revalidate=604800')
     expect(NO_STORE).toBe('private, no-store')
   })
 
@@ -113,6 +119,20 @@ describe('hasSessionCookie', () => {
 
   test('tolerates the space after the separator being absent', () => {
     expect(hasSessionCookie('theme=dark;better-auth.session_token=abc')).toBe(true)
+  })
+
+  test('finds the session cookie after an HTTP/2 comma-joined separator', () => {
+    // HTTP/2 permits the cookie to arrive as several field lines, and
+    // `Headers.get('cookie')` rejoins duplicates with `", "`. Anchoring on `;`
+    // alone MISSES this, and missing is the dangerous direction — a signed-in
+    // request read as anonymous publishes a token-bearing document to a shared
+    // cache.
+    //
+    // A comma is legal inside a cookie VALUE, so treating it as a separator can
+    // only ever OVER-match: the worst case is an anonymous visitor losing the
+    // edge cache. Slow, not shared, is the acceptable direction.
+    expect(hasSessionCookie('theme=dark, better-auth.session_token=abc')).toBe(true)
+    expect(hasSessionCookie('theme=dark,better-auth.convex_jwt=abc')).toBe(true)
   })
 
   test('a mention inside another cookie VALUE does not count', () => {
