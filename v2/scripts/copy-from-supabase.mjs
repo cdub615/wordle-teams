@@ -25,6 +25,21 @@
  *   --scope=mine  (default) teams ME_EMAIL belongs to, and everyone in them.
  *   --scope=all             every team and player.
  *
+ * Reminders:
+ *   --with-reminders        carry the reminder settings across. CUTOVER ONLY.
+ *
+ * REMINDER SETTINGS ARE HELD BACK BY DEFAULT (wt-ksh.7.32), and that default is
+ * a decision, not an oversight: a re-copy must not be able to switch reminders
+ * on for someone who does not know this beta exists and who already gets real
+ * reminders from v1. Two of the five reminder fields are withheld, three still
+ * cross, and one of those three SUPPRESSES a send rather than enabling one.
+ * lib/copy-reminder-policy.mjs holds the ranking and the tests.
+ *
+ * So beta legitimately differs from production on reminder_delivery_methods and
+ * time_zone until cutover. That is an EXPECTED §7a divergence. The cutover
+ * runbook restores it by running the final copy with --with-reminders, and that
+ * single step is the whole restoration.
+ *
  * NOT EVERY ROW IN SCOPE IS COPIED, since Phase 4. Nameless players and teams
  * left with no members are skipped — see lib/copy-filters.mjs for both rules and
  * why they are safe. The run summary reports both counts.
@@ -41,6 +56,7 @@ import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
 import { selectCopyable } from './lib/copy-filters.mjs'
+import { reminderFieldsFor } from './lib/copy-reminder-policy.mjs'
 import { readCounts } from './lib/count-tables.mjs'
 import {
   formatClobberReport,
@@ -53,6 +69,22 @@ const args = process.argv.slice(2)
 const has = (flag) => args.includes(flag)
 const scope = (args.find((a) => a.startsWith('--scope=')) ?? '--scope=mine').split('=')[1]
 const dryRun = has('--dry-run')
+
+/**
+ * THE CUTOVER FLAG (wt-ksh.7.32). Off by default, and that default is the whole
+ * protection: reminder settings arrive at cutover, not before, so a Phase 7
+ * re-copy cannot switch reminders on for someone who does not know this beta
+ * exists and who already gets real reminders from v1.
+ *
+ * The cutover runbook (wt-ksh.8.43) runs the FINAL copy with --with-reminders,
+ * and that one step is the entire restoration. Until then, beta legitimately
+ * differs from production on reminder_delivery_methods and time_zone, which is
+ * an EXPECTED §7a divergence rather than a defect.
+ *
+ * See lib/copy-reminder-policy.mjs: three of the five fields cross either way,
+ * and one of those three suppresses a send rather than enabling one.
+ */
+const withReminders = has('--with-reminders')
 
 if (!['mine', 'all'].includes(scope)) {
   console.error(`Unknown --scope=${scope}. Use 'mine' or 'all'.`)
@@ -77,6 +109,15 @@ const supabase = connect()
 const ms = (t) => (t ? new Date(t).getTime() : undefined)
 const opt = (s) => (s === null || s === undefined || s === '' ? undefined : s)
 
+// Announced on every run, in both directions. A silent default is how a
+// cutover-only flag ends up either forgotten at cutover or set by accident
+// before it — and this one decides whether real people start getting reminders
+// from a deployment they have never heard of.
+console.log(
+  withReminders
+    ? '\nREMINDER SETTINGS: CARRIED (--with-reminders). This is a CUTOVER-ONLY mode.'
+    : '\nReminder settings: held back (wt-ksh.7.32). Pass --with-reminders at cutover.',
+)
 console.log(`Reading Supabase (scope=${scope})...`)
 const src = await readScoped(supabase, scope, ME)
 const {
@@ -149,11 +190,24 @@ const playerRows = copyable.players.map((p) => ({
   // regresses, this is what makes it fail loudly instead of quietly.
   firstName: opt(p.first_name),
   lastName: opt(p.last_name),
-  hasPwa: !!p.has_pwa,
-  timeZone: opt(p.time_zone),
-  reminderDeliveryMethods: p.reminder_delivery_methods || [],
-  reminderDeliveryTime: p.reminder_delivery_time,
-  lastBoardEntryReminder: ms(p.last_board_entry_reminder),
+  // THE FIVE REMINDER FIELDS GO THROUGH A POLICY, NOT STRAIGHT ACROSS
+  // (wt-ksh.7.32). Before cutover two of them are held back, because together
+  // they decide whether the reminder sweep picks a player up, and beta holds
+  // copied production rows belonging to people who do not know this beta exists
+  // and who already get real reminders from v1. The other three still cross —
+  // one of them SUPPRESSES a send and would make things worse if withheld.
+  // lib/copy-reminder-policy.mjs has the ranking, both halves of the omission,
+  // and the tests.
+  ...reminderFieldsFor(
+    {
+      hasPwa: !!p.has_pwa,
+      timeZone: opt(p.time_zone),
+      reminderDeliveryMethods: p.reminder_delivery_methods || [],
+      reminderDeliveryTime: p.reminder_delivery_time,
+      lastBoardEntryReminder: ms(p.last_board_entry_reminder),
+    },
+    { includeReminderSettings: withReminders },
+  ),
   createdAt: ms(p.created_at),
 }))
 
