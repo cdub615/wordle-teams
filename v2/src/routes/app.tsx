@@ -1,16 +1,14 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
-import { convexQuery, useConvexAction } from '@convex-dev/react-query'
+import { convexQuery } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
-import { CHECKOUT_FAILED, checkoutOutcome } from '#/lib/billing-copy.ts'
-import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
 import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
@@ -72,7 +70,21 @@ function Dashboard() {
   const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const [createOpen, setCreateOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const createCheckout = useConvexAction(api.polar.createProCheckout)
+  /**
+   * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
+   *
+   * NO LONGER THE ONLY ENTRY POINT, AND NO LONGER THE ONLY COPY OF THIS LOGIC.
+   * wordle-teams-6tp: a free player holding ONE team could not reach checkout
+   * at all, so Header.tsx now offers the same action unconditionally. The body
+   * that used to sit here — the outcome branching, the full-page navigation and
+   * the two distinct failures — moved to lib/use-start-upgrade.ts whole, so
+   * both callers share one, and its doc comment carries every reason.
+   *
+   * `pending` IS DELIBERATELY DROPPED HERE. A DropdownMenu closes on select, so
+   * there is no control left on screen for a spinner to sit in; the header's
+   * button, which stays put, uses it.
+   */
+  const { startUpgrade } = useStartUpgrade()
 
   /**
    * The return leg from checkout (wordle-teams-wxg, decision L).
@@ -91,44 +103,6 @@ function Dashboard() {
    * all, which is correct: the upgrade is not pending.
    */
   const upgradePending = useCheckoutReturn() && !isPro
-
-  /**
-   * The upgrade path, behind team-picker.tsx's existing "Upgrade for more".
-   *
-   * ONE ENTRY POINT, NOT A SECOND BUTTON. The CTA is already there, gated on
-   * `atFreeLimit`; wiring it is the whole change. v1's three upgrade buttons
-   * are identical to each other and take no plan, because the customer chooses
-   * monthly or annual on Polar's hosted page — proProductIds passes both.
-   *
-   * A FULL-PAGE NAVIGATION, NOT the router: the URL is on polar.sh, and
-   * `navigate` only knows this app's routes.
-   *
-   * A URL-LESS CheckoutResult IS THE ONLY FAILURE SHAPE createProCheckout HAS —
-   * it catches its own Polar errors, and an unset SITE_URL with them, since
-   * that read is inside its `try` — so the catch below is for the transport or
-   * for the identity query throwing before the action could answer at all. Both
-   * must say something; a dead menu item is indistinguishable from a broken one.
-   *
-   * AND THE TWO FAILURES IT REPORTS ARE NOT THE SAME FAILURE, which is why this
-   * asks billing-copy.ts rather than testing for a URL. `not-configured` cannot
-   * be retried into working, so it must not be shown the sentence that says to
-   * try — see checkoutOutcome, and wordle-teams-9fm, where this treated every
-   * cause alike.
-   */
-  const startUpgrade = async () => {
-    try {
-      const outcome = checkoutOutcome(await createCheckout({}))
-      if (outcome.action === 'navigate') {
-        window.location.href = outcome.url
-        return
-      }
-      // Header.tsx's portal does the same thing with the same reasoning: the
-      // level is chosen in billing-copy.ts, where a test can see it.
-      toast[outcome.level](outcome.message)
-    } catch (error) {
-      toast.error(mutationErrorMessage(error, CHECKOUT_FAILED))
-    }
-  }
 
   // Bottom of the login funnel (wt-ksh.12.7). Reaching here authenticated is the
   // only reliable "they made it" signal: the OAuth round-trip finishes as a fresh

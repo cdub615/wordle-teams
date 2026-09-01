@@ -8,11 +8,13 @@ import type { Locator, Page } from '@playwright/test'
  * The billing surface, end to end (wordle-teams-ksh, Task 11).
  *
  * THIS FILE EXISTS BECAUSE THE WIRING IS THE ONLY PART THAT CAN BREAK SILENTLY.
- * The copy is unit-tested (src/lib/billing-copy.test.ts) and the pending-invite
- * count is unit-tested (convex/billing.test.ts); what neither can see is a
- * button that calls nothing, a Convex hook mounted outside the provider, or a
- * failure swallowed into a menu item that simply does not respond. All three
- * are invisible to lint, tsc, the whole unit suite and `pnpm build`.
+ * The copy is unit-tested (src/lib/billing-copy.test.ts), the pending-invite
+ * count is unit-tested (convex/billing.test.ts), and since Task 12 the header's
+ * own three states and both handlers are too (src/components/Header.hook.test.ts,
+ * src/lib/use-start-upgrade.hook.test.ts); what none of them can see is a
+ * Convex hook mounted outside the provider, or a real action answering a real
+ * deployment. Those are invisible to lint, tsc, the whole unit suite and
+ * `pnpm build`.
  *
  * IT ALSO GUARDS THE MOVE THIS TASK MADE. Header.tsx used to be rendered by the
  * root route's `shellComponent`, which @tanstack/react-router mounts OUTSIDE
@@ -47,10 +49,24 @@ import type { Locator, Page } from '@playwright/test'
  * (wordle-teams-02c) does the sandbox pass; when POLAR_* lands here, test 1
  * becomes a redirect assertion.
  *
- * WHICH MAKES THIS THE ONLY PLACE THE `not-configured` BRANCH IS PROVEN END TO
- * END, and it is proven against a deployment that genuinely is not configured
- * rather than a stub. billing-copy.test.ts pins the sentence's properties and
- * polar.test.ts pins the classification; only this can see the two joined up.
+ * WHICH MAKES THIS THE ONLY PLACE THE CHECKOUT'S `not-configured` BRANCH IS
+ * PROVEN END TO END, and it is proven against a deployment that genuinely is
+ * not configured rather than a stub. billing-copy.test.ts pins the sentence's
+ * properties and polar.test.ts pins the classification; only this can see the
+ * two joined up.
+ *
+ * THE PORTAL'S IS NO LONGER PROVEN HERE, AND THAT IS A KNOWN COST OF TASK 12
+ * (wordle-teams-6tp), NOT AN OVERSIGHT. Header.tsx renders Billing only for a
+ * subscriber now, and every account this file can mint is free — reaching the
+ * portal button would take a second OTP sign-in AND a way to comp an account
+ * pro, which convex/e2eSeed.ts has no mutation for, against a sign-in budget
+ * this file's own header explains. What survives it: billing-copy.test.ts pins
+ * PORTAL_NOT_CONFIGURED's three properties, polar.test.ts pins lookupPortal's
+ * classification, and src/components/Header.hook.test.ts pins the Billing
+ * button reaching getCustomerPortalUrl and reporting that sentence — all three
+ * at gate level, which e2e is not. What is lost is only the join between the
+ * real action and the real toast for the portal specifically. Tracked as
+ * wordle-teams-dyvt; Task 18's sandbox pass exercises the portal for real.
  *
  * NOR THE BADGE ABOVE ZERO. Reaching one pending invite needs a SECOND account
  * that owns a team, since the count only rises when somebody else's invite is
@@ -75,10 +91,29 @@ const toastWith = (page: Page, text: string): Locator =>
  * comes from an aria-label rather than the text, because the visible label is
  * hidden below the `sm` breakpoint — so this locator works at both viewport
  * sizes this file uses.
+ *
+ * IT IS NOW A SLOT WITH TWO OCCUPANTS, not one button that is always there
+ * (wordle-teams-6tp, Phase 7 Task 12). Header.tsx renders Billing for a
+ * subscriber and Upgrade for everybody else, and never both — so a FREE account,
+ * which is every account this file can mint, sees `upgradeButton` and no
+ * `billingButton` at all. The three states are pinned at gate level in
+ * src/components/Header.hook.test.ts; what only this file can see is the click
+ * reaching a real Convex action.
  */
 const billingButton = (page: Page): Locator => page.getByRole('button', { name: 'Billing' })
 
-test('the billing link and the upgrade CTA each report their own failure', async ({ page }) => {
+/** The same slot's other occupant: the always-reachable upgrade entry point. */
+const upgradeButton = (page: Page): Locator => page.getByRole('button', { name: 'Upgrade' })
+
+/** Waits for sonner to clear, so the NEXT assertion cannot pass on a stale toast. */
+const noToasts = async (page: Page): Promise<void> => {
+  // Both upgrade entry points produce the SAME sentence, unlike the portal's,
+  // so "visible" after the second click is satisfied by the first click's toast
+  // if it has not aged out. Sonner's default duration is 4s.
+  await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15_000 })
+}
+
+test('both upgrade entry points reach checkout and report its failure', async ({ page }) => {
   // One OTP sign-in plus a team creation. sign-in.ts alone polls for a code for
   // up to 15s, which does not fit Playwright's 30s default with a dashboard
   // load and two Polar round trips after it.
@@ -106,26 +141,31 @@ test('the billing link and the upgrade CTA each report their own failure', async
   // the failure a `pendingInviteLabel` with no guard in front of it produces.
   await expect(page.getByText(/Invites? Pending/)).toHaveCount(0)
 
-  // ── The portal ────────────────────────────────────────────────────────────
-  const billing = billingButton(page)
-  await expect(billing).toBeEnabled()
-  await billing.click()
+  // ── The header's upgrade entry point ──────────────────────────────────────
+  // WHAT wordle-teams-6tp FIXED, AND THE STATE THIS ACCOUNT IS IN IS THE WHOLE
+  // BUG: one team, not pro. Until Task 12 the only route to createProCheckout
+  // was the team-picker CTA below, which needs TWO teams first — so this player
+  // could not pay, and the owner, comped pro, could not reach checkout as
+  // himself to test it at all.
+  const upgrade = upgradeButton(page)
+  await expect(upgrade).toBeEnabled()
+  // The swap, from the free side. A subscriber sees the mirror of this.
+  await expect(billingButton(page)).toHaveCount(0)
+  await upgrade.click()
 
   // THE `not-configured` BRANCH, AND THE OTHER TWO ARE THE POINT OF ASSERTING
   // IT. This deployment has no POLAR_* variable (measured with `convex env
-  // list`), so polarEnvProblem answers before any network call and the portal
+  // list`), so polarEnvProblem answers before any network call and the checkout
   // reports a misconfiguration — which is the literal truth here.
   //
-  // wordle-teams-9fm IS WHAT THE TWO NEGATIVE ASSERTIONS CATCH, and this is the
-  // only place in the repo that can catch it end to end. `no-customer` would
-  // mean the reasons had been collapsed between the action and the toast, as
-  // before. `error` — "Could not open the billing portal. Please try again." —
-  // is what this ACTUALLY SAID until wordle-teams-9fm: a sentence inviting a
-  // retry that could never work, for a deployment that is simply not set up.
-  await expect(toastWith(page, 'Billing is unavailable.')).toBeVisible({
+  // wordle-teams-9fm IS WHAT THE NEGATIVE ASSERTION CATCHES, and this is the
+  // only place in the repo that can catch it end to end. "Could not start
+  // checkout. Please try again." is the OPERATIONAL sentence and is the wrong
+  // answer for a deployment that is simply not set up: a retry cannot set an
+  // access token.
+  await expect(toastWith(page, 'Upgrades are unavailable.')).toBeVisible({
     timeout: 15_000,
   })
-  await expect(toastWith(page, 'You do not have a billing account yet.')).toHaveCount(0)
   await expect(toastWith(page, 'Please try again')).toHaveCount(0)
 
   // AND NOTHING NAMES A VARIABLE. The server knows exactly which of the five are
@@ -136,12 +176,14 @@ test('the billing link and the upgrade CTA each report their own failure', async
 
   // The button comes back rather than staying stuck pending: a failure the
   // player cannot retry is the same dead end as no message at all.
-  await expect(billing).toBeEnabled()
+  await expect(upgrade).toBeEnabled()
 
-  // ── The upgrade CTA ───────────────────────────────────────────────────────
-  // FREE_TEAM_LIMIT is 2 and the seed gives one team, so one more is what swaps
-  // team-picker.tsx's "New Team" for "Upgrade for more" (it gates on
-  // `!isPro && teams.length >= FREE_TEAM_LIMIT`).
+  // ── The team-picker CTA, which is the SECOND entry point ──────────────────
+  // Both reach the same action, and both stay: two entry points to one upgrade
+  // is what v1 had in the equivalent places. FREE_TEAM_LIMIT is 2 and the seed
+  // gives one team, so one more is what swaps team-picker.tsx's "New Team" for
+  // "Upgrade for more" (it gates on `!isPro && teams.length >= FREE_TEAM_LIMIT`).
+  await noToasts(page)
   const second = `Second Team ${Date.now()}`
   await page.getByRole('button', { name: 'Team: E2E Team' }).click()
   await page.getByRole('menuitem', { name: 'New Team' }).click()
@@ -161,10 +203,10 @@ test('the billing link and the upgrade CTA each report their own failure', async
   // reaches createProCheckout and reports what it answers is exactly what
   // distinguishes the wired button from the placeholder it replaced.
   //
-  // AND IT REPORTS THE SAME MISCONFIGURATION THE PORTAL DID, in its own words:
-  // both paths had this bug (wordle-teams-9fm) and both were fixed. "Could not
-  // start checkout. Please try again." is the operational sentence and is the
-  // wrong answer on a deployment holding no access token.
+  // THE SAME SENTENCE THE HEADER GAVE, because Task 12 made both call one
+  // shared lib/use-start-upgrade.ts rather than two hand-written copies — and
+  // `noToasts` above is what stops this assertion passing on the header's toast
+  // instead of this one's.
   await expect(toastWith(page, 'Upgrades are unavailable.')).toBeVisible({ timeout: 15_000 })
   await expect(toastWith(page, 'Coming soon')).toHaveCount(0)
   await expect(toastWith(page, 'Please try again')).toHaveCount(0)
@@ -203,7 +245,7 @@ test('the billing link and the upgrade CTA each report their own failure', async
   // to edge. Resized here rather than in a test of its own because the only
   // thing a separate test would add is another OTP sign-in.
   await page.setViewportSize({ width: 390, height: 844 })
-  await expect(billingButton(page)).toBeVisible()
+  await expect(upgradeButton(page)).toBeVisible()
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
@@ -219,5 +261,10 @@ test('a signed-out visitor is offered no billing link and no badge', async ({ pa
   await expect(page.getByRole('heading', { name: /sign in/i })).toBeVisible()
 
   await expect(billingButton(page)).toHaveCount(0)
+  // NEITHER OCCUPANT OF THE SLOT, which is the assertion Task 12 added: the
+  // upgrade entry point is unconditional for a signed-in player, and `isPro` is
+  // undefined for a signed-out one — so a `!isPro` spelling of its condition
+  // would offer checkout to a visitor with no account.
+  await expect(upgradeButton(page)).toHaveCount(0)
   await expect(page.getByText(/Invites? Pending/)).toHaveCount(0)
 })
