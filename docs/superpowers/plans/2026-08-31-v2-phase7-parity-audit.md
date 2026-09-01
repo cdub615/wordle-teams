@@ -74,6 +74,8 @@ Three instances in the first two tasks, each found only by mutation:
 
 The third one is the lesson. It sat *in the same test* as the second and survived the round that fixed it, because the fix was applied to the assertion that failed rather than to the technique. So, as a rule:
 
+**A note for whoever runs the mutations, controller included.** This codebase is comment-dense enough that **the first textual occurrence of almost any code string is prose about that code**, so a naive `replace(x, y, 1)` or an unanchored `sed` mutates the comment and leaves the code untouched. The test then passes, correctly, and the green reads as coverage. That happened four times in one session — twice on a token value, once on an href, once on a Tailwind class list — and each time the honest reading was "this mutation was a no-op", not "this assertion is weak". **Anchor the mutation on syntax the comment cannot contain** (`--token:`, `href="`, `className="flex `), and confirm the file actually changed where you meant before believing a green run.
+
 **Assert on a bounded, parsed thing, never on a substring of a larger blob.** Slice with both ends. Parse the style attribute into declarations and look up the key. Match a regex anchored on delimiters. If the assertion's scope is larger than the thing its name promises, it will eventually pass for the wrong reason — and the tests most at risk are exactly the ones whose comments say "this is the one property that cannot be eyeballed", because those are the ones nothing else covers.
 
 A corollary worth its own line: **nothing pins ordering unless you pin ordering.** Moving a call to action below the unsubscribe copy left every content assertion green.
