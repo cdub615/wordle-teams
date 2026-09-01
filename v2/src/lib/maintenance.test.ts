@@ -22,12 +22,14 @@ describe('maintenanceEnabled', () => {
     expect(maintenanceEnabled(undefined)).toBe(false)
   })
 
-  test("the string 'false' is off, and so is every other truthy non-'true' value", () => {
+  test("the string 'false' is off, and so is every other non-'true' value", () => {
     // THE REASON THIS FUNCTION EXISTS. A wrangler var is a string, so
-    // `if (env.MAINTENANCE)` is TRUE for every one of these — the site goes
-    // dark the moment somebody types the word "false" into the dashboard field
-    // meaning to turn it off. Each is named rather than looped so a failure
-    // says which value let a site down.
+    // `if (env.MAINTENANCE)` is TRUE for the first four of these — the site
+    // goes dark the moment somebody types the word "false" into the dashboard
+    // field meaning to turn it off. The empty string is the one that is falsy
+    // anyway, and it is here because a dashboard field cleared rather than
+    // deleted is a real state and must read as off. Each is named rather than
+    // looped so a failure says which value let a site down.
     expect(maintenanceEnabled('false')).toBe(false)
     expect(maintenanceEnabled('0')).toBe(false)
     expect(maintenanceEnabled('no')).toBe(false)

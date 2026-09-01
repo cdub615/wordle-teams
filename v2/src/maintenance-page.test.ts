@@ -106,11 +106,26 @@ describe('the page a visitor gets during an outage', () => {
     expect(out).toEqual(['h1: Coming Soon', 'p: Site is under construction'])
   })
 
-  test('inherits the site default title rather than declaring one', () => {
-    // v1's src/app/maintenance/ has page.tsx and error.tsx and NO layout.tsx,
-    // so the page inherits the root metadata title. Pinned because the obvious
-    // "improvement" is to add head: () => pageTitle('Maintenance') — which is
-    // the string a browser then autocompletes for months after the outage.
+  test('the route is wired to THIS component, not to some other one', () => {
+    // THE TIE BETWEEN THE TWO HALVES OF THIS FILE. Every case around it calls
+    // MaintenancePage() directly, and the case below counts the route's option
+    // keys — neither notices if `component:` stops naming this function.
+    // Measured: replacing it with `() => null` left all four gates and every
+    // test green while the outage page rendered nothing at all. That is the
+    // same class as the config-literal-in-a-dead-const bug src/server.test.ts
+    // opens by describing, one file over.
+    expect(
+      (Route as unknown as { options: { component: unknown } }).options.component,
+    ).toBe(MaintenancePage)
+  })
+
+  test('declares no route option but that component — no head, no loader, no beforeLoad', () => {
+    // The key set is asserted exhaustively, so this is red for ANY option
+    // added. The one that matters is head(): v1's src/app/maintenance/ has
+    // page.tsx and error.tsx and NO layout.tsx, so the page inherits the root
+    // metadata title, and the obvious "improvement" is to add
+    // head: () => pageTitle('Maintenance') — which is the string a browser then
+    // autocompletes for months after the outage.
     expect(Object.keys((Route as unknown as { options: object }).options)).toEqual(['component'])
   })
 

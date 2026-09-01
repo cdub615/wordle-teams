@@ -47,13 +47,17 @@ const ctx = {
   passThroughOnException: () => {},
 } as unknown as ExecutionContext
 
+const url = (path: string) => `https://beta.wordleteams.com${path}`
+
 /** One request through the real Worker entry, with the env it would be given. */
-const get = (path: string, env: unknown) =>
+const send = (request: Request, env: unknown) =>
   (worker as { fetch: (r: Request, e: unknown, c: ExecutionContext) => Promise<Response> }).fetch(
-    new Request(`https://beta.wordleteams.com${path}`),
+    request,
     env,
     ctx,
   )
+
+const get = (path: string, env: unknown) => send(new Request(url(path)), env)
 
 /** The single path the app was asked to render for the request just made. */
 const renderedPath = () => {
@@ -89,9 +93,11 @@ describe('the maintenance switch is OFF', () => {
     })
   }
 
-  test('the static pages keep their edge cache when nothing is gated', async () => {
+  test('a static page keeps its edge cache when nothing is gated', async () => {
     // Pins that the gate did not displace the cache policy on the way past. A
     // gate that returns early for everything would still pass the case above.
+    // One path is enough for THAT claim; the per-page walk is the ON block's
+    // 'the static pages are still served' case below.
     const response = await get('/privacy', {})
     expect(renderedPath()).toBe('/privacy')
     expect(response.headers.get('cache-control')).toBe(STATIC_CACHE)
@@ -124,7 +130,6 @@ describe('the maintenance switch is ON', () => {
     const response = await get('/', ON)
     expect(response.status).toBe(307)
     expect(response.headers.get('cache-control')).toBe(NO_STORE)
-    expect(response.headers.get('cache-control')).not.toBe(STATIC_CACHE)
   })
 
   test('307 and not a permanent redirect, which would outlive the outage', async () => {
@@ -133,7 +138,20 @@ describe('the maintenance switch is ON', () => {
     // rather than `response.redirected`, which cannot tell them apart.
     const response = await get('/me', ON)
     expect(response.status).toBe(307)
-    expect([301, 308]).not.toContain(response.status)
+  })
+
+  test('a POST to a gated path is turned around too, not only a GET', async () => {
+    // MEASURED: adding `request.method === 'GET' &&` to the gate in
+    // src/server.ts left every other test in this file green. The gate reads
+    // the URL and nothing else, and that is deliberate — a server-function
+    // POST is exactly the shape that arrives wanting to WRITE to the app, so
+    // it is the one that must not slip past into a dark one while every GET is
+    // being turned around. Confirmed against a live `wrangler dev` Worker with
+    // --var MAINTENANCE:true as well: POST /app and HEAD /app both answer 307.
+    const response = await send(new Request(url('/app'), { method: 'POST' }), ON)
+    expect(rendered.paths).toEqual([])
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe(MAINTENANCE_PATH)
   })
 
   test('the query string does not travel to the outage page', async () => {

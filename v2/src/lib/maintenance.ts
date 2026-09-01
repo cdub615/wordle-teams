@@ -91,6 +91,29 @@ const GATED_SUBTREES = ['/app', '/me', '/complete-profile'] as const
  *     there except mid sign-in, and by then /login itself has already stopped
  *     them.
  *
+ * `/` IS IN BOTH SETS, AND THAT INTERSECTION IS A RUNBOOK STEP (wt-ksh.8.52).
+ * It is the ONLY path that is both gated here and listed in
+ * lib/cache-policy.ts's STATIC_DOCUMENTS, so while maintenance is OFF the
+ * landing page goes out `public, max-age=0, s-maxage=86400,
+ * stale-while-revalidate=604800`. src/server.ts reasons about the OUTBOUND
+ * direction and gets it right — the gate runs in front of the cache policy, so
+ * a maintenance response is never published with shared freshness. It can do
+ * nothing about the INBOUND one: a shared cache still holding the pre-outage
+ * copy of `/` keeps serving it for up to a day fresh and a week stale, and THE
+ * GATE NEVER SEES THOSE REQUESTS, because a cache hit does not invoke the
+ * Worker. `wrangler deploy` purges nothing.
+ *
+ * SO FLIPPING THE VAR IS NOT SUFFICIENT FOR `/`. Turning maintenance on is two
+ * steps: set MAINTENANCE to 'true', then purge the Cloudflare cache for the
+ * apex. That is procedure, not code — neither set is the wrong one to be in.
+ * Dropping `/` from STATIC_DOCUMENTS would cost the highest-traffic anonymous
+ * route the edge cache wordle-teams-jcj exists to buy back; ungating `/` would
+ * leave the landing page up during an outage, which is a behaviour change
+ * nobody asked for. (wt-ksh.8.45 has not yet established that `s-maxage` on a
+ * Worker response reaches Cloudflare's edge cache at all — no caches.default,
+ * no cacheEverything, no Cache Rule. If nothing is cached there, the purge is
+ * a no-op and this costs nothing today.)
+ *
  * MAINTENANCE_PATH IS NOT IN THIS SET, AND THAT ABSENCE IS LOAD-BEARING. It is
  * where src/server.ts sends a gated request; adding it here is an infinite
  * redirect. Its absence is what protects that, so it is pinned by a named test
