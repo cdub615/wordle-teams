@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as MaintenanceRouteImport } from './routes/maintenance'
@@ -26,6 +27,11 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -100,6 +106,7 @@ export interface FileRoutesByFullPath {
   '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -131,6 +139,7 @@ export interface FileRoutesById {
   '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -148,6 +157,7 @@ export interface FileRouteTypes {
     | '/maintenance'
     | '/me'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/api/funnel'
     | '/api/auth/$'
@@ -163,6 +173,7 @@ export interface FileRouteTypes {
     | '/maintenance'
     | '/me'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/api/funnel'
     | '/api/auth/$'
@@ -178,6 +189,7 @@ export interface FileRouteTypes {
     | '/maintenance'
     | '/me'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/api/funnel'
     | '/api/auth/$'
@@ -194,6 +206,7 @@ export interface RootRouteChildren {
   MaintenanceRoute: typeof MaintenanceRoute
   MeRoute: typeof MeRoute
   PrivacyRoute: typeof PrivacyRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   ApiFunnelRoute: typeof ApiFunnelRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -206,6 +219,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -306,6 +326,7 @@ const rootRouteChildren: RootRouteChildren = {
   MaintenanceRoute: MaintenanceRoute,
   MeRoute: MeRoute,
   PrivacyRoute: PrivacyRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
   ApiFunnelRoute: ApiFunnelRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

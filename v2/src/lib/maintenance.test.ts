@@ -151,6 +151,7 @@ describe('every route the app has, sorted into gated and not', () => {
       '/maintenance',
       '/me',
       '/privacy',
+      '/sitemap.xml',
       '/terms',
     ])
   })
@@ -174,6 +175,12 @@ describe('every route the app has, sorted into gated and not', () => {
       '/login-error',
       '/maintenance',
       '/privacy',
+      // NOT GATED, added by Phase 7 Task 8. It renders from a compile-time
+      // constant and touches nothing that can be down, so it is ungated for the
+      // same reason the legal pages are. Gating it would also answer an XML URL
+      // with a 307 to an HTML page, and fetch() follows a redirect by default —
+      // the shape the /api note in maintenance.ts rules out.
+      '/sitemap.xml',
       '/terms',
     ])
   })

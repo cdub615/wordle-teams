@@ -692,3 +692,102 @@ test.describe('document cache headers', () => {
     )
   })
 })
+
+/**
+ * THE CRAWLER SURFACE OVER REAL HTTP.
+ *
+ * src/crawler-metadata.test.ts already pins the CONTENT of all three artefacts,
+ * and it is the important half: it runs under `vitest run`, which CI runs, and
+ * this file does not (wt-ksh.8.49). What is left here is what only a real
+ * server can answer — that the assets layer serves public/robots.txt and the
+ * PNG at all and with the right content types, that the `[.]` in
+ * `sitemap[.]xml.ts` really produced /sitemap.xml, and that the OG tags survive
+ * the round trip into the rendered document.
+ *
+ * DELIBERATELY NOT RE-ASSERTING THE VALUES. Restating the nineteen meta tags or
+ * the seven sitemap URLs here would be a second copy to keep in step, and the
+ * copy nobody runs.
+ */
+test.describe('crawler and social metadata', () => {
+  test('robots.txt is served as text and disallows the app', async ({ request }) => {
+    const response = await request.get('/robots.txt')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/plain')
+
+    // PARSED, NOT `toContain`. A `toContain('Disallow: /app')` passes on a file
+    // that says `Allow: /app` two lines lower and on one where the rule is
+    // inside a comment. Comments go first, for the same reason.
+    const directives = (await response.text())
+      .split('\n')
+      .map((line) => line.replace(/#.*$/, '').trim())
+      .filter(Boolean)
+      .map((line) => [
+        line.slice(0, line.indexOf(':')).trim().toLowerCase(),
+        line.slice(line.indexOf(':') + 1).trim(),
+      ])
+
+    const valuesOf = (field: string) =>
+      directives.filter(([name]) => name === field).map(([, value]) => value)
+
+    expect(valuesOf('disallow').sort()).toEqual(['/api', '/app', '/complete-profile', '/me'])
+    expect(valuesOf('sitemap')).toEqual(['https://wordleteams.com/sitemap.xml'])
+  })
+
+  test('/sitemap.xml is a real route serving XML', async ({ request }) => {
+    // The route file is named `sitemap[.]xml.ts`; without the brackets TanStack
+    // reads the dot as a separator and registers /sitemap/xml, and every unit
+    // test still passes. This is where that shows.
+    const response = await request.get('/sitemap.xml')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('application/xml')
+
+    // Not a document, so src/server.ts's content-type guard must have left the
+    // header the route set. If this ever reads 'private, no-store' the guard
+    // has started matching more than text/html.
+    expect(response.headers()['cache-control']).toBe(
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
+
+    const locs = [...(await response.text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])
+    expect(locs.length).toBeGreaterThan(0)
+    // The one claim worth restating over HTTP: no URL the crawler is sent to is
+    // one robots.txt just told it not to fetch.
+    for (const loc of locs) {
+      expect(new URL(loc).pathname).not.toMatch(/^\/(app|me|complete-profile|api)/)
+    }
+  })
+
+  test('the OpenGraph image is served as a PNG', async ({ request }) => {
+    const response = await request.get('/opengraph-image.png')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('image/png')
+    expect((await response.body()).byteLength).toBeGreaterThan(0)
+  })
+
+  test('the rendered document carries the social card, and its image resolves', async ({
+    page,
+    request,
+  }) => {
+    // THE ROUND TRIP. The unit test proves lib/seo.ts holds the right values
+    // and that __root.tsx spreads them; only a rendered document proves
+    // TanStack emits `property="og:..."` rather than dropping an attribute
+    // React's meta typings do not list.
+    await page.goto('/home')
+    const content = (name: string) =>
+      page.locator(`meta[property="${name}"], meta[name="${name}"]`).getAttribute('content')
+
+    expect(await content('description')).toBeTruthy()
+    expect(await content('og:type')).toBe('website')
+    expect(await content('twitter:card')).toBe('summary_large_image')
+
+    // og:image is absolute and points at the production origin on beta too —
+    // it names where the site canonically lives. So it is fetched from THIS
+    // server by path, which is what has to exist for the card to render after
+    // cutover.
+    const image = await content('og:image')
+    expect(image).not.toBeNull()
+    const url = new URL(image!)
+    expect(url.origin).toBe('https://wordleteams.com')
+    expect((await request.get(url.pathname)).status()).toBe(200)
+  })
+})

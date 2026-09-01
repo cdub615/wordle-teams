@@ -1,3 +1,47 @@
-# https://www.robotstxt.org/robotstxt.html
+# Crawler policy, ported from v1's src/app/robots.ts.
+#
+# v1 generates this from a Next MetadataRoute.Robots handler. v2 serves it as a
+# static file off the Workers assets layer, because nothing in it varies by
+# request and a route would only add a way for it to be wrong.
+#
+# THE Sitemap: URL IS THE PRODUCTION ORIGIN, ON BETA AS WELL. That is v1's
+# behaviour and it is the correct one: the directive names the canonical
+# location of the site's sitemap, not the sitemap of whichever host served this
+# file. src/lib/sitemap.ts builds its <loc> values from the same origin for the
+# same reason, and src/crawler-metadata.test.ts asserts the two agree.
+#
+# WHAT IS EXCLUDED, AND WHY EACH ONE:
+#   /app              the dashboard. Signed-in only; an anonymous visit bounces
+#                     to /login, so there is nothing here for a crawler.
+#   /me               v1's dashboard path, kept forever as a redirect to /app
+#                     because production PWA installs carry start_url: /me and
+#                     an installed iOS PWA never adopts a new one. It IS /app,
+#                     so it is excluded like /app.
+#   /complete-profile a step inside sign-up. Meaningless without a session.
+#   /api              /api/auth/$ is Better Auth's proxy to Convex and
+#                     /api/funnel takes analytics beacons. Neither speaks HTML.
+#
+# NOTE THE MISSING TRAILING SLASH ON /me, WHICH IS A FIX AND NOT A TYPO. v1
+# publishes `Disallow: /me/`, and these rules are PREFIX matches — `/me/` does
+# not match `/me`, so v1's dashboard is crawlable in production today and has
+# been for the life of the project. `/me` covers both the path and anything
+# under it.
+#
+# v1 ALSO DISALLOWED /branding AND /novu. Both are dropped rather than carried
+# across: neither route exists in v2 — /branding was ruled out in Phase 7 and
+# Novu was replaced by Convex + Resend — and a rule for a path that 404s is
+# noise that outlives everyone who could explain it.
+#
+# THESE ARE PREFIX RULES ON THE STRING, so `/app` would also cover a future
+# /apple-anything. There is no such route; src/crawler-metadata.test.ts walks
+# src/routeTree.gen.ts and fails if any route is neither listed in the sitemap
+# nor covered here nor named as a deliberate exclusion, so one could not be
+# added and quietly swallowed.
 User-agent: *
-Disallow:
+Allow: /
+Disallow: /app
+Disallow: /me
+Disallow: /complete-profile
+Disallow: /api
+
+Sitemap: https://wordleteams.com/sitemap.xml

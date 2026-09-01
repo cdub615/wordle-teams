@@ -7,7 +7,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { ConvexQueryClient } from '@convex-dev/react-query'
 import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
-import { pageTitle } from '#/lib/seo'
+import { pageTitle, socialMetaTags } from '#/lib/seo'
 import { useServiceWorkerRegistration } from '#/lib/register-sw.ts'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
@@ -78,6 +78,22 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         // which is exactly how Next's title.default behaved.
         title: pageTitle(),
       },
+      /*
+        THE DESCRIPTION AND THE SOCIAL CARD, SPREAD RATHER THAN SPELLED OUT.
+        Nineteen tags matched against what production emits today, tag for tag;
+        the list and the argument for every value live in lib/seo.ts. They are
+        a data structure there because that is the only shape `vitest run` can
+        read — v2 has no component-rendering tests (the vitest environment is
+        edge-runtime, so no DOM) and CI runs no Playwright, so tags written
+        inline here would be pinned by nothing that CI executes.
+
+        SITE-WIDE, LIKE v1's. Next put openGraph and twitter in the root
+        layout's metadata with no page overriding them, so every route in
+        production carries this same card. Nothing here varies by route, which
+        is a known limitation of v1 carried across deliberately — see the
+        og:url note in lib/seo.ts.
+      */
+      ...socialMetaTags,
     ],
     links: [
       {

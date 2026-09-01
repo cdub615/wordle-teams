@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
-import ts from 'typescript'
 import { describe, expect, test } from 'vitest'
+import { codeOf, optionsPassedTo, propertiesOf } from './test-support/source-ast'
 
 /**
  * THE ROUTES THAT EXIST BECAUSE SOMETHING OUTSIDE THIS REPO POINTS AT THEM.
@@ -38,73 +38,16 @@ import { describe, expect, test } from 'vitest'
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 /**
- * Comments stripped, so the assertions below read the CODE. me.tsx is mostly
- * prose explaining why it exists, and that prose quotes the very literals being
- * pinned — a match inside it would prove nothing.
- */
-const codeOf = (source: string) =>
-  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-
-/**
- * THE OPTIONS A NAMED CALL IS ACTUALLY GIVEN — parsed, not matched.
+ * codeOf, propertiesOf and optionsPassedTo MOVED to src/test-support/source-ast
+ * when src/crawler-metadata.test.ts needed the same three. The reasoning that
+ * used to sit here — why a `toMatch` over a whole file is the wrong tool for
+ * "this option is passed to this call", and the mutation that proved it —
+ * moved with them and is unchanged.
  *
- * Everything else in this file reads a file as a string, which is the right
- * tool when the claim is "this literal is in this file". It is the WRONG tool
- * for "this option is passed to this call": a `toMatch` for
- * `errorCallbackURL: '/login-error'` is satisfied by that text sitting in a
- * `const` nothing reads, so deleting the real option from the `signIn.social`
- * call survived all four gates AND all 54 e2e tests. The same trick worked on
- * `onAPIError` in the betterAuth config.
- *
- * A regex that spans the call would fix the specific mutation and pin
- * INDENTATION and property order along with it. The compiler already has an
- * exact answer, and `typescript` is already a devDependency, so this asks it:
- * find the call by its callee, take its object-literal argument, and return
- * that literal's OWN top-level properties. A detached literal is not one of
- * them at any indentation, and reformatting the file changes nothing here.
+ * They take source TEXT rather than a path, because each suite resolves its
+ * own paths relative to its own file. Hence `parsed(path)` below.
  */
-const parse = (path: string) =>
-  ts.createSourceFile(
-    path,
-    read(path),
-    ts.ScriptTarget.ESNext,
-    /* setParentNodes */ true,
-    path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  )
-
-/** The top-level properties of an object literal, by name. */
-const propertiesOf = (node: ts.Node): Map<string, ts.Expression> => {
-  if (!ts.isObjectLiteralExpression(node))
-    throw new Error(`expected an object literal, got ${ts.SyntaxKind[node.kind]}`)
-  return new Map(
-    node.properties.flatMap((property) =>
-      ts.isPropertyAssignment(property) && property.name
-        ? [[property.name.getText(), property.initializer] as const]
-        : [],
-    ),
-  )
-}
-
-/**
- * The object literal passed to `callee(...)`, by the callee's exact source
- * text — `betterAuth`, `authClient.signIn.social`. Throws rather than returning
- * an empty map, so a renamed or deleted call is a named failure and not a
- * silent pass on `undefined`.
- */
-const optionsPassedTo = (path: string, callee: string): Map<string, ts.Expression> => {
-  const found: ts.ObjectLiteralExpression[] = []
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && node.expression.getText() === callee) {
-      const literal = node.arguments.find(ts.isObjectLiteralExpression)
-      if (literal) found.push(literal)
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(parse(path))
-  if (found.length !== 1)
-    throw new Error(`expected exactly one ${callee}({...}) in ${path}, found ${found.length}`)
-  return propertiesOf(found[0])
-}
+const parsed = (path: string, callee: string) => optionsPassedTo(path, read(path), callee)
 
 const ME = './routes/me.tsx'
 
@@ -329,19 +272,19 @@ describe('/login-error, and the two config strings that are the only way to it',
     // when parsing the state is itself what failed. See the note in
     // src/routes/login-error.tsx.
     //
-    // PARSED, NOT MATCHED — see optionsPassedTo above. This used to be two
+    // PARSED, NOT MATCHED — see test-support/source-ast.ts. This used to be two
     // `toMatch` calls over the whole file, and both mutations that lift the
     // option out of its call into a dead `const` survived every gate and every
     // e2e test: the literal was still in the file, and nothing asserted it was
     // still wired to anything.
-    const social = optionsPassedTo('./routes/login.tsx', 'authClient.signIn.social')
+    const social = parsed('./routes/login.tsx', 'authClient.signIn.social')
     expect(social.get('errorCallbackURL')?.getText()).toBe("'/login-error'")
 
     // Two levels, because the claim is about a nested option: `onAPIError` is a
     // top-level option of the betterAuth config, and `errorURL` is a property
     // of it. ABSOLUTE, via the template — this handler runs on the Convex
     // deployment, where a bare '/login-error' has no origin to resolve against.
-    const onAPIError = optionsPassedTo('../convex/auth.ts', 'betterAuth').get('onAPIError')
+    const onAPIError = parsed('../convex/auth.ts', 'betterAuth').get('onAPIError')
     expect(onAPIError, 'onAPIError is no longer an option on betterAuth({...})').toBeDefined()
     expect(propertiesOf(onAPIError!).get('errorURL')?.getText()).toBe('`${siteUrl}/login-error`')
   })
