@@ -372,15 +372,23 @@ audit finds is a bug.**
 | 37 | The confetti **respects `prefers-reduced-motion`**; v1 animates regardless | Phase 7 Task 11 (`wordle-teams-k7w`) | `react-confetti-explosion` has no reduced-motion behaviour, so v1 throws paper at a viewer who has asked the operating system for less of it. v2 renders **no pieces at all** — the whole content of the element is motion, so a static pile of paper stuck to the top of the dialog is not the smaller version of it — while the title and the message, which are the actual content, are untouched. Asked in JavaScript via `matchMedia` rather than in a `@media` block, deliberately: **there is no CSSOM under vitest**, so a media query in `styles.css` would be a rule no gate this repo runs could observe (`wt-ksh.8.49`) |
 | 38 | Dismissing the dialog **appends to `hasSeenCelebration` inside the mutation**, where v1 writes the whole array from the browser | Phase 7 Task 11 (`wordle-teams-k7w`) | The read half of row 3, and a different failure from it. v1 SELECTs the array, pushes its own id onto the copy it holds, and UPDATEs the whole column back (`src/app/me/monthly-winner-celebration.tsx:53-60`), so two members dismissing at the same time each write an array built from the value they read before the other wrote — the second write silently drops the first, and the dropped member is shown the celebration again. `wordle-teams-069` is the open issue for that pattern elsewhere in this codebase. v2's `markCelebrationSeen` reads and appends in one serializable transaction and the client sends **no array at all**, so it cannot lose a write and cannot forge one either |
 
+| 39 | The header's **Billing button is shown to every signed-in player**, where v1 shows it only to someone who has ever subscribed | Phase 7 Task 12 review (`wordle-teams-6tp`) | v1's `src/components/app-bar/user-dropdown.tsx:55-59` computes `hasBillingAccount = ['pro', 'cancelled', 'expired'].includes(user.memberStatus)` and renders the Billing entry behind it (`:168`), so a player who has NEVER subscribed — `'new'` or `'free'` — is not offered the customer portal at all. **v2 has no equivalent to that predicate.** `api.teams.amIPro` is a boolean and `convex/access.ts`'s `isProFor` answers `membershipStatus === 'pro'`; "has a Polar customer record" is a different question, and answering it would mean a second Convex query, a second subscription on every page of the app, and a new server-side read, added in a parity phase purely to hide a button. **The alternative that was actually tried is the one this row replaces, and it was worse:** Task 12 first gated Billing on `isPro === true`, which is neither v1's rule nor a widening but a NARROWING — it took the portal away from every lapsed subscriber ('cancelled' and 'expired' are in `convex/schema.ts`, `convex/lib/polarEvents.ts` maps `subscription.revoked` to 'expired', and `convex/migrate.ts` copies both out of Supabase, so real players arrive in those states at cutover) and `src/components/Header.tsx` holds the only `getCustomerPortalUrl` call site in v2. So the widening is deliberate: the never-subscribed player who presses it gets `PortalResult`'s `no-customer` branch, which exists for exactly this reader and answers with an **info** toast — "You do not have a billing account yet." — not an error. **What the audit will see:** a `'new'` or `'free'` account showing a Billing button v1's dropdown does not show, and an Upgrade button beside it rather than instead of it. The second half is v1's own behaviour for a lapsed player (`:168` and `:175` are both true for 'cancelled' and 'expired'), which v1's source comments on directly |
+
 
 **Rows 19-21 were appended by the Phase 7 Task 4 review, rows 22-24 by Task 5's,
-rows 25-30 by Task 9's, rows 31-34 by Task 10's and rows 35-38 by Task 11's, and
-the header above still says eighteen.** That is deliberate, not an oversight:
-**Task 16** owns the parity audit and will add rows of its own, so it reconciles
-the total in one place rather than the count drifting a task at a time on the
-way there. Task 16 must fold all twenty into the header count. Nothing above
-them was renumbered, and no row was renumbered when 22-24, 25-30, 31-34 or 35-38
-were added.
+rows 25-30 by Task 9's, rows 31-34 by Task 10's, rows 35-38 by Task 11's and row
+39 by Task 12's, and the header above still says eighteen.** That is deliberate,
+not an oversight: **Task 16** owns the parity audit and will add rows of its own,
+so it reconciles the total in one place rather than the count drifting a task at
+a time on the way there. Task 16 must fold all twenty-one into the header count.
+Nothing above them was renumbered, and no row was renumbered when 22-24, 25-30,
+31-34, 35-38 or 39 were added.
+
+Row 39 is the only row here that describes v2 being **more permissive in the UI
+than v1**, and it is recorded that way on purpose: the audit will find a Billing
+button where v1's dropdown has none, and the honest reason is that v2 has no
+`hasBillingAccount` to gate it with. It is also the row that exists because a
+review caught a wrong one — see its entry.
 
 Rows 35-38 are all one DIALOG — the monthly-winner celebration — and they exist
 for the reason rows 31-34 do, one task later: Task 11 built the second of the

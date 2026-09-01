@@ -92,6 +92,49 @@ export const optionsPassedTo = (
 }
 
 /**
+ * The attributes of exactly one JSX element, by name, each rendered as the
+ * source text of its VALUE — `<TeamPicker onUpgrade={...} />`.
+ *
+ * THE JSX SIBLING OF `optionsPassedTo`, AND IT EXISTS FOR THE SAME MUTATION.
+ * A handler wired to a component is a prop, not an option on a call, so the
+ * helper above cannot see one; a `toMatch` over the file is satisfied by the
+ * handler's text sitting anywhere, including in a prop nothing renders or a
+ * const nothing passes. Making routes/app.tsx's "Upgrade for more" dead —
+ * `onUpgrade={() => {}}` — passed lint, typecheck and the whole suite.
+ *
+ * The braces are unwrapped, so `onUpgrade={() => void startUpgrade()}` reads
+ * back as `() => void startUpgrade()`; a string attribute reads back with its
+ * quotes, as `getText()` gives them. A valueless attribute (`<X disabled />`)
+ * is not reported — nothing here needs one, and a caller that does must say so.
+ *
+ * Exactly one element, for `optionsPassedTo`'s reason: a second `<TeamPicker>`
+ * appearing in a branch this does not read is a change worth failing on.
+ */
+export const jsxPropsOf = (name: string, source: string, tag: string): Map<string, string> => {
+  const found: ts.JsxAttributes[] = []
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      node.tagName.getText() === tag
+    ) {
+      found.push(node.attributes)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parseSource(name, source))
+  if (found.length !== 1)
+    throw new Error(`expected exactly one <${tag}> in ${name}, found ${found.length}`)
+  return new Map(
+    found[0].properties.flatMap((property) => {
+      if (!ts.isJsxAttribute(property) || !property.initializer) return []
+      const value = property.initializer
+      const inner = ts.isJsxExpression(value) ? value.expression : value
+      return inner ? [[property.name.getText(), inner.getText()] as const] : []
+    }),
+  )
+}
+
+/**
  * The elements of an array-literal expression, each rendered as its own source
  * text. Bounded to that one array: an element is an element, never "a line that
  * happens to sit somewhere in the file".

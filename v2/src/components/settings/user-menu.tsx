@@ -83,9 +83,11 @@ export function UserMenu() {
           <DropdownMenuTrigger asChild>
             {/*
               "Account menu", not just "Menu" — the header already has a
-              Billing button and a theme toggle sharing this same row, and a
-              screen-reader user tabbing across all three deserves more than
-              one of them being ambiguously named "Menu".
+              Billing button and a theme toggle sharing this same row, plus an
+              Upgrade button beside them for anyone amIPro says is not pro
+              (Header.tsx, wordle-teams-6tp), and a screen-reader user tabbing
+              across three or four controls deserves more than one of them
+              being ambiguously named "Menu".
             */}
             <Button variant="ghost" size="sm" aria-label="Account menu" className="px-2">
               <Menu className="h-4 w-4" aria-hidden="true" />

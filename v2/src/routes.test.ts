@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { codeOf, optionsPassedTo, propertiesOf } from './test-support/source-ast'
+import { codeOf, jsxPropsOf, optionsPassedTo, propertiesOf } from './test-support/source-ast'
 
 /**
  * THE ROUTES THAT EXIST BECAUSE SOMETHING OUTSIDE THIS REPO POINTS AT THEM.
@@ -48,6 +48,14 @@ const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf
  * own paths relative to its own file. Hence `parsed(path)` below.
  */
 const parsed = (path: string, callee: string) => optionsPassedTo(path, read(path), callee)
+
+/**
+ * The same, for a JSX element's props. The RAW source, not `codeOf`'s stripped
+ * copy: the compiler wants a parseable file, and an expression's `getText()`
+ * starts after its leading trivia, so comments cannot reach an assertion here
+ * the way they can reach a `toMatch`.
+ */
+const jsxProps = (path: string, tag: string) => jsxPropsOf(path, read(path), tag)
 
 const ME = './routes/me.tsx'
 
@@ -365,5 +373,51 @@ describe('/login-error, and the two config strings that are the only way to it',
     // the code at all. Comments are stripped by codeOf, and this file's prose
     // names it repeatedly, so a match here would be a real read.
     expect(loginError()).not.toMatch(/error_description/)
+  })
+})
+
+/**
+ * THE OTHER UPGRADE ENTRY POINT, WHICH HAD NO GATE AT ALL.
+ *
+ * Phase 7 Task 12 (`wordle-teams-6tp`) put an Upgrade button in the header and
+ * wrote a jsdom suite for it, on the stated rule that "an entry point protected
+ * only by e2e/billing.spec.ts can be deleted by a green pipeline"
+ * (src/components/Header.hook.test.ts). team-picker.tsx's "Upgrade for more" —
+ * the OLDER of the two, and still the only one a player at the free team limit
+ * is looking at — was left in exactly that position.
+ *
+ * MEASURED, NOT ASSUMED. Two mutations of routes/app.tsx passed lint, typecheck
+ * AND the full unit suite: replacing the handler with `() => {}`, which makes
+ * the CTA a button that does nothing; and repointing it at
+ * `api.polar.getCustomerPortalUrl`, which type-checks (both polar actions take
+ * no arguments and answer a url-or-reason) and, on a deployment with no POLAR_*
+ * set, produces an almost identical failure toast.
+ *
+ * THE PROP, NOT A `toMatch` OVER THE FILE — see test-support/source-ast.ts.
+ * The dead-handler mutation leaves `startUpgrade` in the file, called from
+ * nowhere, so a file-wide match keeps passing. Route modules cannot be imported
+ * under vitest either (createFileRoute registers against a router that does not
+ * exist), which is the constraint every block above works within.
+ */
+describe('the dashboard CTA reaches the CHECKOUT, and app.tsx is where that is decided', () => {
+  const APP = './routes/app.tsx'
+  const source = () => codeOf(read(APP))
+
+  test("TeamPicker's onUpgrade is useStartUpgrade's startUpgrade", () => {
+    // The prop as it is actually passed. `void` because the handler is sync and
+    // startUpgrade returns a promise; that is app.tsx's spelling and it is
+    // pinned here whole rather than matched loosely.
+    expect(jsxProps(APP, 'TeamPicker').get('onUpgrade')).toBe('() => void startUpgrade()')
+  })
+
+  test('and `startUpgrade` is the shared hook, not a local pointed somewhere else', () => {
+    // WITHOUT THIS, THE PROP ASSERTION ABOVE IS DEFEATED BY A RENAME: a local
+    // `const startUpgrade = useConvexAction(api.polar.getCustomerPortalUrl)`
+    // leaves the prop's text untouched. Both halves are needed, and neither is
+    // the other's duplicate.
+    expect(source()).toMatch(/const \{ startUpgrade \} = useStartUpgrade\(\)/)
+    // The action this must never be. Header.tsx is the only place in v2 that
+    // legitimately names it, and it is not this file.
+    expect(source()).not.toMatch(/getCustomerPortalUrl/)
   })
 })

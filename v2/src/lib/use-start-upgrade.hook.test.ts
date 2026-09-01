@@ -82,7 +82,18 @@ const upgrade = async () => {
   return result
 }
 
-/** The single toast this call produced, as `[level, message]`. Throws otherwise. */
+/**
+ * The single toast this call produced, as `[level, message]`. Throws otherwise.
+ *
+ * THE `info` ARM CANNOT FIRE TODAY, AND IT STAYS ANYWAY. `checkoutOutcome`
+ * (billing-copy.ts) has two url-less branches and both are `level: 'error'`,
+ * so `toast[outcome.level]` in the hook can only ever index `error` — which
+ * makes swapping it for a literal `toast.error` an EQUIVALENT mutant, recorded
+ * as such in use-start-upgrade.ts's own note rather than chased. This helper
+ * reports the level it actually saw instead of assuming one, so the day a
+ * checkout branch does answer `info` the assertions above go red naming the
+ * level rather than silently passing.
+ */
 const toasted = (): [string, string] => {
   const calls = [
     ...toastInfo.mock.calls.map((call) => ['info', call[0] as string] as [string, string]),
@@ -126,33 +137,29 @@ describe('the two failures are NOT the same failure — wordle-teams-9fm', () =>
 
     await upgrade()
 
+    // THE WHOLE TOAST, LEVEL INCLUDED. The properties of the sentence itself —
+    // no retry wording, no variable name — are billing-copy.test.ts's, and
+    // asserting them again about a string this line has already pinned with
+    // `toEqual` cannot fail.
     expect(toasted()).toEqual(['error', CHECKOUT_NOT_CONFIGURED])
-    // The property, not the sentence (billing-copy.test.ts's standard): an
-    // unset access token does not clear by clicking again, so this is the one
-    // branch the retry wording is a lie for.
-    expect(toasted()[1]).not.toMatch(/try(ing)? again/i)
-    // And no variable name reaches the browser. This repo is public.
-    expect(toasted()[1]).not.toMatch(/POLAR_/)
     // Nothing navigated: a url-less result must leave the page where it is.
     expect(location.href).toBe('http://localhost:3000/app')
   })
 
-  test('error is the operational one, and it DOES invite a retry', async () => {
+  test('error is the operational one, and gets the sentence that invites a retry', async () => {
     createCheckout.mockResolvedValue({ url: null, reason: 'error' } satisfies CheckoutResult)
 
     await upgrade()
 
     expect(toasted()).toEqual(['error', CHECKOUT_FAILED])
-    expect(toasted()[1]).toMatch(/try(ing)? again/i)
     expect(location.href).toBe('http://localhost:3000/app')
   })
 
-  test('and they are different sentences, which is the point of having two', () => {
-    // A guard on the pair rather than on either one: folding them back together
-    // is the shape of the bug, and it survives any test that only checks each
-    // message in isolation against itself.
-    expect(CHECKOUT_NOT_CONFIGURED).not.toBe(CHECKOUT_FAILED)
-  })
+  // THE PAIR ITSELF — `expect(CHECKOUT_NOT_CONFIGURED).not.toBe(
+  // CHECKOUT_FAILED)` — IS NOT ASSERTED HERE. It is a bare comparison of two
+  // constants with no hook in it, so no mutation of use-start-upgrade.ts can
+  // kill it, and billing-copy.test.ts already owns it. What this file adds is
+  // that the two REACH the player from the two branches, which is above.
 })
 
 describe('a THROW is a fourth outcome, and it must still say something', () => {
@@ -180,14 +187,10 @@ describe('a THROW is a fourth outcome, and it must still say something', () => {
     expect(toasted()[1]).not.toBe(CHECKOUT_FAILED)
   })
 
-  test('the raw throw never reaches the player', async () => {
-    // The message could name a deployment URL or an internal function path.
-    createCheckout.mockRejectedValue(new Error('ws://backend.internal:3210 refused'))
-
-    await upgrade()
-
-    expect(toasted()[1]).not.toMatch(/backend\.internal/)
-  })
+  // "THE RAW THROW NEVER REACHES THE PLAYER" USED TO BE A THIRD TEST HERE and
+  // is gone: every mutant it could kill is killed first by the transport test
+  // above, which pins the whole toast with `toEqual` — a message containing
+  // `backend.internal` is already not CHECKOUT_FAILED.
 })
 
 describe('the pending flag', () => {

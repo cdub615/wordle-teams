@@ -18,9 +18,9 @@ import ThemeToggle from './ThemeToggle'
  * The app bar. DESIGN_SYSTEM.md section 8 describes the shape — gradient
  * wordmark left, user affordance right, separator underneath. Phase 5 added the
  * first two pieces of the right-hand side that need app state: the billing
- * link and the pending-invite badge. Phase 7 Task 12 added the third and split
- * the first — the billing slot now holds Billing for a subscriber and Upgrade
- * for everybody else (wordle-teams-6tp); see `showBilling`/`showUpgrade`.
+ * link and the pending-invite badge. Phase 7 Task 12 added the third — an
+ * Upgrade button that renders beside Billing for anybody amIPro says is not
+ * pro (wordle-teams-6tp); see `showUpgrade`.
  *
  * The wordmark is a Link, not a heading. v1 makes it an <h1> in the app bar,
  * which means every page has an h1 that describes the site rather than the
@@ -112,15 +112,21 @@ export default function Header() {
   const showInviteBadge = isPro === false && (pendingInvites ?? 0) > 0
 
   /**
-   * THE ALWAYS-REACHABLE UPGRADE ENTRY POINT (wordle-teams-6tp), and the reason
-   * these are two booleans rather than one ternary.
+   * THE ALWAYS-REACHABLE UPGRADE ENTRY POINT (wordle-teams-6tp).
    *
    * Until this, v2's ONLY route to createProCheckout was team-picker.tsx's
    * "Upgrade for more", which renders only at `!isPro && teams.length >=
-   * FREE_TEAM_LIMIT` — so a free player holding one team could not pay at all,
-   * and the owner, whose account is comped pro, could not reach checkout as
-   * himself to test it. That is what blocked Phase 5's Polar sandbox pass
-   * (wordle-teams-02c) from 2026-08-27.
+   * FREE_TEAM_LIMIT` — so a free player holding one team could not pay at all.
+   * Any non-pro account can now reach checkout from here having created no
+   * teams whatsoever, and that is the half of wordle-teams-6tp this closes.
+   *
+   * WHAT IT DOES NOT CLOSE, AND THE COMMENT HERE CLAIMED OTHERWISE UNTIL THE
+   * TASK 12 REVIEW: the owner's account is comped pro, so `isPro` is true for
+   * him, this button does not render, and he STILL cannot reach checkout as
+   * himself. That is correct behaviour rather than a leftover gap — offering a
+   * subscriber a second subscription is the thing the condition exists to
+   * prevent — and it is why Task 18's Polar sandbox pass (wordle-teams-02c)
+   * has to mint a fresh non-pro account instead of using his.
    *
    * ONE MORE ENTRY POINT, NOT v1'S THREE. v1 had an upgrade button in the user
    * dropdown, the teams dropdown and the month dropdown — lib/polar/checkout.ts
@@ -128,20 +134,44 @@ export default function Header() {
    * experiment and this is a parity phase. team-picker.tsx's gated CTA stays;
    * two entry points to one action is what v1 had in the equivalent places.
    *
-   * A SWAP, WHICH IS ALSO v1'S SHAPE: user-dropdown.tsx renders Billing behind
-   * `hasBillingAccount` and Upgrade behind `!proMember`, so no one sees both.
-   * Here the pro player gets the portal and the free player gets the checkout.
+   * BESIDE BILLING, NOT INSTEAD OF IT — WHICH IS v1'S SHAPE, AND THE EXACT
+   * OPPOSITE OF WHAT THIS COMMENT USED TO SAY. v1's user-dropdown.tsx:55-59
+   * renders Billing behind `hasBillingAccount = ['pro', 'cancelled',
+   * 'expired'].includes(user.memberStatus)` (:168) and Upgrade behind
+   * `!proMember` (:175). For 'cancelled' and 'expired' BOTH are true and both
+   * render, deliberately; v1's own comment gives the reason — "Anyone who has
+   * ever subscribed has a Polar customer record worth linking to, even once
+   * the subscription has lapsed."
    *
-   * `=== true` AND `=== false`, NOT `isPro` AND `!isPro`, FOR THE REASON THE
-   * BADGE ABOVE GIVES AND ONE MORE. `isPro` is undefined while amIPro is in
-   * flight, and the loose pair would then render BOTH branches wrong at once:
-   * `!undefined` is true, so a cold load would flash "Upgrade" at a paying
-   * subscriber. Spelling both comparisons out makes the in-flight state its own
-   * case — neither button renders until the answer arrives, which is the same
-   * thing the badge does and the same reason: a wrong label is worse than a
-   * late one. Header.hook.test.ts pins all three states.
+   * THOSE TWO STATUSES ARE LIVE IN v2, so this is not a hypothetical.
+   * schema.ts carries 'cancelled' and 'expired', lib/polarEvents.ts maps
+   * `subscription.revoked` to 'expired' (every lapse lands there), access.ts's
+   * `isProFor` answers `membershipStatus === 'pro'` so amIPro is FALSE for
+   * them, and migrate.ts copies both statuses out of Supabase — real players
+   * arrive in this state at cutover. Gating Billing on `isPro === true` took
+   * the portal away from every one of them, because this component holds the
+   * ONLY getCustomerPortalUrl call site in v2, and it also stranded
+   * PortalResult's `no-customer` branch, which exists precisely to answer
+   * somebody who reaches the portal with no Polar customer behind them.
+   *
+   * SO BILLING IS UNCONDITIONAL FOR AN AUTHENTICATED PLAYER, WHICH IS WIDER
+   * THAN v1 AND IS A DELIBERATE WIDENING. `amIPro` is a boolean and v2 has no
+   * `hasBillingAccount` equivalent, so the choice was between showing the
+   * portal to everyone signed in and building a second Convex query, in a
+   * parity phase, purely to hide it from the never-subscribed. The first: the
+   * branch that answers them already exists and tells them the truth without
+   * dressing it as a failure ("You do not have a billing account yet.", an
+   * info toast). Recorded as V2-ADDENDUM.md §7a row 39.
+   *
+   * `=== false`, NOT `!isPro`, FOR THE REASON THE BADGE ABOVE GIVES. `isPro` is
+   * undefined while amIPro is in flight and `!undefined` is true, so the loose
+   * spelling would flash "Upgrade" at a paying subscriber on every cold load
+   * and then take it away again. Spelling it out makes the in-flight state its
+   * own case: Billing does not depend on the answer and is there from the first
+   * frame, Upgrade appears only once amIPro has actually said no. A wrong label
+   * is worse than a late one. Header.hook.test.ts pins all three states, and
+   * the signed-out one, as the exact SET of buttons in the bar.
    */
-  const showBilling = isPro === true
   const showUpgrade = isPro === false
 
   return (
@@ -223,35 +253,41 @@ export default function Header() {
           )}
           {isAuthenticated && (
             <>
-              {showBilling && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  // Same word as the visible label, so unlike team-picker.tsx's
-                  // trigger this hides nothing from a screen reader — it is here
-                  // because the label itself is hidden below `sm`, where the button
-                  // would otherwise have no accessible name at all.
-                  aria-label="Billing"
-                  disabled={portalPending}
-                  onClick={() => void manageBilling()}
-                  className="px-2 sm:px-3"
-                >
-                  {portalPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <CreditCard className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  <span className="hidden sm:inline">Billing</span>
-                </Button>
-              )}
+              {/*
+                NO CONDITION OF ITS OWN — every authenticated player gets this,
+                including the lapsed subscriber v1 built `hasBillingAccount`
+                for. See the note above `showUpgrade`; it is the only place in
+                v2 that reaches the customer portal.
+              */}
+              <Button
+                variant="ghost"
+                size="sm"
+                // Same word as the visible label, so unlike team-picker.tsx's
+                // trigger this hides nothing from a screen reader — it is here
+                // because the label itself is hidden below `sm`, where the button
+                // would otherwise have no accessible name at all.
+                aria-label="Billing"
+                disabled={portalPending}
+                onClick={() => void manageBilling()}
+                className="px-2 sm:px-3"
+              >
+                {portalPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <CreditCard className="h-4 w-4" aria-hidden="true" />
+                )}
+                <span className="hidden sm:inline">Billing</span>
+              </Button>
               {showUpgrade && (
                 // Sparkles and the bare word "Upgrade", both taken from v1's
                 // user-dropdown.tsx menu item; team-picker.tsx's CTA uses the
                 // same icon for the same action. Deliberately the SAME shape as
-                // the Billing button it replaces — ghost, sm, icon-only below
-                // `sm` — because it occupies the same slot, and a differently
+                // the Billing button beside it — ghost, sm, icon-only below
+                // `sm` — because the two sit in one row, and a differently
                 // sized control there would move UserMenu and ThemeToggle
-                // depending on who is signed in.
+                // depending on who is signed in. BELOW `sm` THE ICON IS THE
+                // ONLY THING TELLING THE TWO APART, since the label is
+                // `hidden sm:inline`; Header.hook.test.ts pins both icons.
                 <Button
                   variant="ghost"
                   size="sm"

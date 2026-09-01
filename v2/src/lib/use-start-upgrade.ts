@@ -58,6 +58,16 @@ export function useStartUpgrade(): { startUpgrade: () => Promise<void>; pending:
       // level is 'info' or 'error', and sonner has a method for each. Indexing
       // rather than branching keeps the two-way choice in billing-copy.ts,
       // where the test can see it.
+      //
+      // TODAY THE INDEX CAN ONLY EVER BE 'error', WHICH MAKES THIS AN
+      // EQUIVALENT MUTANT AND IS RECORDED RATHER THAN CHASED. `checkoutOutcome`
+      // has two url-less branches and both are `level: 'error'`; the portal's
+      // mapping is the one with an `info` branch, and BillingOutcome is shared
+      // between them. So rewriting this as `toast.error(outcome.message)` is
+      // behaviour-identical and no test can kill it. It stays indexed because
+      // the day `checkoutOutcome` grows an `info` branch — the shape of it is
+      // already legal in the return type — the literal would quietly report it
+      // as a failure, which is exactly the class of bug wordle-teams-9fm was.
       toast[outcome.level](outcome.message)
     } catch (error) {
       toast.error(mutationErrorMessage(error, CHECKOUT_FAILED))
