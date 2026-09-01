@@ -85,7 +85,11 @@ export const OG_IMAGE_ALT = 'Wordle Teams'
  *   - The `?826b6e40d0d7ffa6` cache-busting query Next appends to both image
  *     URLs is dropped. It is Next's build fingerprint for a generated asset and
  *     there is no equivalent here — the file is served from the Workers assets
- *     layer under a stable name.
+ *     layer under a stable name. THE TRADEOFF, which the fingerprint was what
+ *     bought off: Facebook's and LinkedIn's scrapers cache the card image BY
+ *     URL, so if this picture is ever redrawn under the same name they will go
+ *     on serving the old one indefinitely. Redrawing it therefore means
+ *     shipping it under a new filename, not overwriting this one.
  *
  * og:url IS THE APEX ON EVERY ROUTE, which is what v1 does and is not right.
  * The property is meant to name the canonical URL of the page being shared, so
