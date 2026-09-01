@@ -20,11 +20,12 @@ export default defineConfig({
     // Task 1 moved this to /about only because it had deleted the dashboard off
     // `/` and left the path with no route at all. That reason is gone. `/` is
     // the apex, it is the route whose failure means the product is down, and it
-    // is finished; /about is the one this phase is still editing (Task 9 adds
-    // v1's eight product screenshots to it). Probing the page under active
-    // construction is the arrangement more likely to produce that confusing
-    // failure, so the workaround goes back where it came from rather than
-    // outliving its cause. See the reciprocal note in src/routes/about.tsx.
+    // is finished; /about was the one this phase was still editing at the time
+    // (Task 9 has since added v1's eight product screenshots to it). Probing a
+    // page under active construction is the arrangement more likely to produce
+    // that confusing failure, so the workaround goes back where it came from
+    // rather than outliving its cause. See the reciprocal note in
+    // src/routes/about.tsx.
     url: 'http://localhost:3000/',
     reuseExistingServer: true,
   },

@@ -117,3 +117,28 @@ export const returnedObjectOf = (node: ts.Node): ts.ObjectLiteralExpression => {
     throw new Error(`expected an object-returning arrow, got a body of ${ts.SyntaxKind[body.kind]}`)
   return body
 }
+
+/**
+ * Every module specifier the file imports, in source order — the strings after
+ * `from`, plus any bare `import 'x'` side-effect import.
+ *
+ * A BOUNDED LIST, WHICH IS THE WHOLE POINT. "this file does not mention
+ * aceternity" is a substring test over a blob: it is satisfied by a file that
+ * imports the component under an alias, and it goes red on a comment that
+ * merely names the thing being ruled out — which the file whose dependency was
+ * ruled out is exactly the file most likely to contain. The import list is a
+ * short array a test can assert with `toEqual`, so an ADDED dependency fails as
+ * loudly as a removed one.
+ *
+ * Dynamic `import()` is not an ImportDeclaration and is not reported here.
+ * Nothing in src/routes uses it; a caller that needs to care must say so.
+ */
+export const importedModulesOf = (name: string, source: string): string[] => {
+  const out: string[] = []
+  for (const statement of parseSource(name, source).statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+      out.push(statement.moduleSpecifier.text)
+    }
+  }
+  return out
+}

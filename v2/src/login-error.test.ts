@@ -44,25 +44,10 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { LoginErrorPage, Route } from './routes/login-error'
 import { OTP_EXPIRY_LABEL } from '../convex/lib/otpExpiry.ts'
+import { inlineText, isHidden, type Element } from './test-support/element-tree'
 
 /** The tags that get a line of their own. Everything else is inline. */
 const BLOCKS = new Set(['h1', 'h2', 'h3', 'p', 'li'])
-
-type Element = { type?: unknown; props?: Record<string, unknown> }
-
-/** Concatenates every text leaf under a node, in document order. */
-function inlineText(node: unknown, out: string[]): void {
-  if (node == null || typeof node === 'boolean') return
-  if (typeof node === 'string' || typeof node === 'number') {
-    out.push(String(node))
-    return
-  }
-  if (Array.isArray(node)) {
-    for (const child of node) inlineText(child, out)
-    return
-  }
-  inlineText((node as Element).props?.children, out)
-}
 
 /**
  * One line per block element (`tag: text`), plus one per link
@@ -88,23 +73,17 @@ function inlineText(node: unknown, out: string[]): void {
  */
 
 /**
- * Whether an element is hidden from the rendered page — the `hidden` DOM
- * attribute, or a Tailwind utility that hides it at any viewport.
+ * `isHidden` AND `inlineText` NOW LIVE IN src/test-support/element-tree.ts.
  *
- * TOKEN-WISE, not a substring test: `overflow-hidden` and `sm:overflow-hidden`
- * are visible elements and must not be dropped, while `hidden`, `sm:hidden` and
- * the `hidden` in `hidden sm:flex` must be. `aria-hidden` is a DIFFERENT KEY
- * and deliberately not matched — the kicker carries it, the sentence is still
- * on the page, and GENERIC below still expects it.
+ * They were written here and src/about-screenshots.test.ts needs the same two —
+ * the same definition of "hidden", in particular, since that page's four
+ * community screenshots are a `.map()` inside one container that a single
+ * `hidden` class would delete. A copy in each file is how one predicate becomes
+ * two behaviours. `aria-hidden` is deliberately NOT matched: the kicker on this
+ * page carries it, the sentence is still on the page, and GENERIC below still
+ * expects it. The extractor contract asserted below still exercises both
+ * through `lines`.
  */
-function isHidden(props: Record<string, unknown> | undefined): boolean {
-  if (props?.hidden) return true
-  const className = props?.className
-  if (typeof className !== 'string') return false
-  return className
-    .split(/\s+/)
-    .some((token) => token === 'hidden' || token.endsWith(':hidden'))
-}
 
 function lines(node: unknown, out: string[]): void {
   if (node == null || typeof node === 'boolean') return
@@ -120,15 +99,11 @@ function lines(node: unknown, out: string[]): void {
   const element = node as Element
   if (isHidden(element.props)) return
   if (element.type === 'a') {
-    const parts: string[] = []
-    inlineText(element, parts)
-    out.push(`link: ${parts.join('')} -> ${String(element.props?.to)}`)
+    out.push(`link: ${inlineText(element)} -> ${String(element.props?.to)}`)
     return
   }
   if (typeof element.type === 'string' && BLOCKS.has(element.type)) {
-    const parts: string[] = []
-    inlineText(element, parts)
-    out.push(`${element.type}: ${parts.join('')}`)
+    out.push(`${element.type}: ${inlineText(element)}`)
     return
   }
   lines(element.props?.children, out)
