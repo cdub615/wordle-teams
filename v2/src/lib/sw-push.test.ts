@@ -176,7 +176,12 @@ describe('resolveNotificationUrl', () => {
   })
 
   test('never throws, whatever the payload holds', () => {
-    for (const url of ['', ' ', 'http://', '::::', ' ', 'https://[', 'x'.repeat(5000)]) {
+    // The NUL is written as an escape, NOT as a literal byte. A literal one
+    // makes this whole file `data` to grep, so a recursive source search
+    // silently skips it and `git diff` renders it as binary. Phase 7 is a
+    // grep-driven audit and that cost it real time (wt-ksh.8.44). The escape
+    // is the same one-character string to the test.
+    for (const url of ['', ' ', 'http://', '::::', '\u0000', 'https://[', 'x'.repeat(5000)]) {
       expect(() => resolveNotificationUrl({ url }, ORIGIN)).not.toThrow()
       expect(resolveNotificationUrl({ url }, ORIGIN).startsWith(ORIGIN)).toBe(true)
     }
