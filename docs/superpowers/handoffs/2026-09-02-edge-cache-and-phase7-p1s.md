@@ -87,6 +87,47 @@ exception is flagged for revisiting rather than inherited.
 
 ---
 
+## Later the same day: 4yt, 7jpo, and a guard that had stopped running
+
+**`wordle-teams-q79o` (P0) — the PII guard had not been running.** beads sets
+`core.hooksPath` to `.beads/hooks`, which overrides `.git/hooks` entirely, and
+that directory's pre-commit never called `check-no-pii.mjs`. Proven by probe: a
+commit carrying a third-party address succeeded with **exit 0**. Re-wired after
+beads' END marker (so `bd hooks install` cannot overwrite it) and re-probed —
+blocked. Full-tree scan clean at 620 files, so nothing leaked. **Nothing asserts
+the wiring**, which is the remaining gap on that issue.
+
+**`wordle-teams-4yt` — both legal documents reissued**, in v2 and in v1. The v1
+half is on branch **`fix/legal-copy-providers`** (off `main`), ready to PR —
+that is one of tomorrow's manual jobs. v1 names its own six providers and v2 its
+four, deliberately: each document describes the product actually serving it, and
+they are never served at the same time. `legal-copy.test.ts` pins the list
+against `convex/auth.ts` so it cannot go stale again.
+
+**`wordle-teams-7jpo` — the account address is now shown** in the account menu
+and the settings dialog (with the display name above it). Recorded as §7a row
+53, an **addition** — v1 shows the address nowhere, contrary to that issue's
+premise.
+
+**§7a's count had drifted again**, header saying forty-three against a table of
+fifty-two. Corrected to fifty-three and filed as `wordle-teams-4m2t`; nothing
+checks it, which is why it has now gone stale twice.
+
+### Two styling bugs that every gate passed
+
+Both were invisible to test, lint, typecheck and build, and in both cases the
+only signal was the owner looking at the screen. `styles-utilities.test.ts` now
+pins both invariants.
+
+- **`text-muted` is a valid utility that does the wrong thing.** `--color-muted`
+  maps to `--muted`, which is `--surface-sunken` — a *background* token — so it
+  painted the menu's address in the muted background colour, unreadable in
+  **both** themes. The token is `--text-muted`; the utility is
+  `text-muted-foreground`.
+- **The settings dialog was the only inset panel with square corners.**
+  `ui/dialog.tsx` rounds at `sm:` and up, which is right for a full-width sheet;
+  four of five `w-11/12` dialogs pair it with `rounded-lg` and this one did not.
+
 ## What is left, and all of it needs you
 
 **Owner-only, in the order that unblocks the most:**
@@ -100,19 +141,27 @@ exception is flagged for revisiting rather than inherited.
 - **`wt-ksh.7.32`** — needs a probe query on beta, or measurement during the
   cutover run.
 
-**Decisions I deliberately did not make:**
+- **PR `fix/legal-copy-providers` into `main`.** The v1 legal correction. Dated
+  September 2 2026 on the assumption it ships that day; tell me if it slips and
+  I will bump both documents. Note the branch also carries the beads export,
+  which the pre-commit hook regenerates on every commit — harmless, but ~330
+  lines of noise in the diff.
 
-- **`wordle-teams-4yt`** — the legal copy names Apple and Facebook as sign-in
-  providers and a username that does not exist. Its DONE-WHEN is explicitly to
-  reissue both published documents (bumping the Effective Date, deciding whether
-  users need notice under the Changes clauses) or to leave them. Amending
-  published legal text is not a thing to do unattended.
-- **`wordle-teams-7jpo`** — where to show a player their own email address. The
-  issue says outright it is a decision, not a ticket to implement one, and the
-  weighing is about shoulder-surfing and screenshots.
+**Still open, needing nothing from me:**
+
 - **`wordle-teams-jcjj`** — settled with data and **not a defect**; left open
   only because its DONE-WHEN asks for the badge to be *shown* to render. The
   recipe is on the issue.
+- **`wordle-teams-c0f`** — the owner asked about pull-to-refresh for the PWA and
+  it was parked here. Worth knowing before it is picked up: **data is not
+  stale** (Convex pushes it, proven by `e2e/teams.spec.ts:94`) and documents are
+  `NetworkOnly`. What goes stale is the **code** — assets are precached, and
+  `skipWaiting()` + `clients.claim()` make a new worker take control without
+  reloading the page, so an installed PWA runs the old bundle until it is killed
+  and reopened. There is no `controllerchange` listener anywhere in `src/`. The
+  targeted fix is an update prompt or a safe auto-reload; pull-to-refresh is a
+  separate affordance question, and iOS standalone genuinely has no reload
+  gesture at all.
 
 ---
 
