@@ -150,3 +150,46 @@ describe('what a selection does', () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * THE SIZING, WHICH WAS DEAD CSS RATHER THAN SMALL CSS (wordle-teams-5p9).
+ *
+ * ui/calendar.tsx is stock shadcn written for Tailwind 3, where an arbitrary
+ * value holding a bare custom property resolved it as `var(...)`. Tailwind 4
+ * does not, so ten utilities in that file compiled to invalid declarations that
+ * every browser dropped: `--cell-size` was DEFINED and never READ. The cells had
+ * no size at all, the month caption lost the padding keeping the nav chevrons
+ * off the label, and the weekday cells were too narrow for "Mo" and "We".
+ *
+ * ASSERTED ON THE CLASS ATTRIBUTES, WHICH IS WHAT jsdom CAN SEE. There is no
+ * CSSOM for the project stylesheet here, so this cannot measure a rendered
+ * pixel; what it CAN do is pin the spelling, and the spelling was the defect.
+ * The catch-all twin lives in styles.test.ts (wordle-teams-krhp) and reads the
+ * COMPILED output, where an invalid declaration is visible as itself.
+ */
+describe('the calendar reads its cell size instead of only declaring it', () => {
+  /** The calendar root, which is where --cell-size is set. */
+  const calendarRoot = () => document.querySelector('[data-slot="calendar"]')
+
+  test('the cell size is a 44px touch target on a phone', () => {
+    // 2.75rem = 44px: WCAG 2.5.5 Enhanced, and Apple's HIG minimum. The value
+    // this replaced was 2rem/32px, which is below the 36px `sm` button that is
+    // this app's own smallest control (DESIGN_SYSTEM.md section 7) — and which
+    // never applied anyway.
+    open()
+
+    expect(calendarRoot()?.className).toContain('[--cell-size:2.75rem]')
+  })
+
+  test('and every day button actually READS it, in Tailwind 4 spelling', () => {
+    // THE WHOLE BUG IN ONE ASSERTION. `min-w-` around a bare custom property
+    // compiles to `min-width:--cell-size`, which is invalid and dropped; the
+    // var() form compiles to a real declaration. Both spellings type-check,
+    // lint, build, and render an element with a plausible-looking class — the
+    // difference is only visible in the CSS or on a screen.
+    open()
+
+    const dayButton = screen.getByRole('grid').querySelector('td[data-day] button')
+    expect(dayButton?.className).toContain('min-w-[var(--cell-size)]')
+  })
+})

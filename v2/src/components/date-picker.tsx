@@ -60,7 +60,13 @@ export function DatePicker({
           tabIndex={tabIndex}
           variant="outline"
           className={cn(
-            'justify-start px-2 text-left text-xs font-normal sm:text-sm md:px-4',
+            // `text-sm` AT EVERY WIDTH (wordle-teams-5p9). This was
+            // `text-xs sm:text-sm`, so the phone — the product's primary device
+            // — got the 12px version of a label reading "September 1, 2026".
+            // The trigger is the only thing showing the selected day when the
+            // popover is shut, and shrinking it on the device with the least
+            // room to read it is backwards.
+            'justify-start px-2 text-left text-sm font-normal md:px-4',
             !day && 'text-muted-foreground',
             className,
           )}
