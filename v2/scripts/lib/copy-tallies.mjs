@@ -320,15 +320,39 @@ const detailLines = (label, fields, width) => {
  * The blind spot that buys is narrow and worth naming: a deployment can only be
  * empty because it was never copied to, or because purgeCopiedData emptied it
  * (convex/migrate.ts) — an explicit operator wipe, after which every row IS new.
- * No v2 code path can empty it, and the check is
- * `git grep -n "db\.delete(" convex/`. As of 2026-08-25 that prints fourteen
- * hits and only three of them are relevant, so the full breakdown matters more
- * than the short version: winners.ts, scores.ts and teams.ts are the deletes
- * that touch a COPIED table, and none of the three touches players,
- * playerMembership or webhookEvents. The rest are testOtps.ts (three hits,
- * including the exported `takeFor` mutation, all against the `testOtps` table,
- * which the copy never writes), migrate.ts (purgeCopiedData itself) and four
- * *.test.ts files.
+ * No v2 code path can empty it unattended, and the check is
+ * `git grep -c "db\.delete(" convex/`.
+ *
+ * THE NUMBER IS DATED BECAUSE IT KEEPS MOVING: fourteen hits on 2026-08-25,
+ * twenty-one on 2026-08-26 (`wordle-teams-c68`), and TWENTY-SIX on 2026-09-01.
+ * Run the command; do not trust the figure. What follows is the 2026-09-01
+ * breakdown, and the shape of it is what matters rather than the total.
+ *
+ * SIXTEEN ARE PRODUCTION CODE, ten are *.test.ts (winners, teams, e2ePrune and
+ * billing two each; scores and access one each).
+ *
+ * FOUR PRODUCTION SITES TOUCH A COPIED TABLE, not three — and the fourth is the
+ * correction this paragraph exists to make. It used to say the three were
+ * winners.ts, scores.ts and teams.ts and that "none of the three touches
+ * players, playerMembership or webhookEvents". `convex/e2ePrune.ts` has since
+ * landed and it deletes from BOTH of the first two: dailyScores (:338),
+ * monthlyWinners (:351), playerMembership (:361), pushSubscriptions (:372) and
+ * players (:378). webhookEvents is still touched by no delete anywhere.
+ *
+ * IT STILL CANNOT EMPTY A DEPLOYMENT, and that is a guarantee with two
+ * independent halves rather than an observation: `pruneBatch` is an
+ * `internalMutation`, so nothing public can reach it, and it throws outright
+ * unless `E2E_TEST_MODE === 'true'` (`convex/e2ePrune.ts:183`), which is unset
+ * on beta — measured 2026-09-01, `wordle-teams-cd8`. Even running, it deletes
+ * only rows matching `e2e+*@wordleteams.com` (`isE2ePlayerRow`, `lib/e2e.ts`).
+ * If that flag is ever set on the deployment that becomes production, this
+ * paragraph's guarantee is void — which is one more reason `wordle-teams-7az`
+ * puts a re-confirm step in the cutover runbook.
+ *
+ * The remaining production sites touch nothing the copy writes: testOtps.ts
+ * (three, including the exported `takeFor`, all against `testOtps`), push.ts
+ * (one, pruning a subscription on 404/410) and migrate.ts (purgeCopiedData
+ * itself, the explicit operator wipe).
  *
  * LOUD WHEN NON-ZERO, ONE LINE WHEN ZERO, following formatClobberReport and the
  * skip report: a zero states the check ran, where silence could equally mean it
