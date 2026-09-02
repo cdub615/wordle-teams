@@ -1,0 +1,46 @@
+# Cache policy for the STATIC ASSETS, which src/server.ts never sees.
+#
+# Workers Assets serves these without entering the Worker's fetch handler, so
+# lib/cache-policy.ts — which only reaches text/html documents — covers none of
+# them. Until this file existed there was no policy at all and everything got
+# Workers Assets' default of `public, max-age=0, must-revalidate`, including
+# content-hashed bundles. That is wordle-teams-82zq, and it was measured wider
+# than the issue described: /assets/index-*.js was revalidating on every
+# request too, not just the OpenGraph image.
+#
+# THE APEX INHERITS WHATEVER THIS SAYS at cutover, so the values are chosen to
+# be right for production rather than convenient for beta.
+#
+# WHAT IS DELIBERATELY NOT LISTED, because immutable is the wrong answer for it:
+#
+#   /sw.js          THE ONE THAT MUST NEVER BE IMMUTABLE. The service worker is
+#                   the file that controls every future update; a browser
+#                   holding a year-old copy cannot be reached by shipping a new
+#                   one. It keeps Workers Assets' revalidate-always default,
+#                   which is correct.
+#   /manifest.json  Production serves this immutable, but a manifest that can
+#                   never change means the app name, theme colour and icons are
+#                   frozen for a year in any browser that fetched it. Left on
+#                   the default pending a decision — see the follow-up issue.
+#   /robots.txt     A policy file. Short-lived is the point.
+#   /favicon.ico    Production also serves this on the default, so leaving it is
+#                   parity rather than an omission.
+#   the /about screenshots  Stable names like the OpenGraph image, but far less
+#                   load-bearing, and freezing eight PNGs for a year to save a
+#                   revalidation on one page is not a trade worth making
+#                   without asking.
+
+# CONTENT-HASHED BY VITE, so the filename changes whenever the bytes do. This is
+# the case immutable exists for and it carries no risk at all: a stale copy can
+# never be requested, because a new build produces a new URL. Highest value here
+# too — these are the JS and CSS every visitor fetches.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# EXACTLY WHAT PRODUCTION SENDS, byte for byte, which is the parity this issue
+# asked for. Safe for the same reason lib/seo.ts already records: Facebook's and
+# LinkedIn's scrapers cache the card image BY URL, so redrawing it means
+# shipping it under a NEW FILENAME rather than overwriting this one. That
+# constraint is pre-existing and is what makes a year of immutability free.
+/opengraph-image.png
+  Cache-Control: public, immutable, no-transform, max-age=31536000
