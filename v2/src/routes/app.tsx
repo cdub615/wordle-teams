@@ -1,4 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
+import { Suspense } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
@@ -24,6 +25,12 @@ import { MonthlyWinnerCelebration } from '#/components/monthly-winner-celebratio
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
+import {
+  DashboardSkeleton,
+  ScoresTableSkeleton,
+  ScoringSystemCardSkeleton,
+  TeamBoardsSkeleton,
+} from '#/components/dashboard-skeletons.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -90,6 +97,16 @@ export const Route = createFileRoute('/app')({
     ])
   },
   errorComponent: DashboardError,
+  /**
+   * v1's `src/app/me/loading.tsx`, which v2 never ported (wordle-teams-9ahw).
+   *
+   * COVERS THE NAVIGATION INTO /app, NOT A TEAM OR MONTH SWITCH — the two are
+   * different moments and both needed fixing. The loader above prefetches
+   * getMyTeams, amIPro and getMyPlayerId, none of which depend on team or
+   * month, so it does NOT re-run when either changes; that case is handled by
+   * the Suspense boundaries in the component below.
+   */
+  pendingComponent: DashboardSkeleton,
   component: Dashboard,
 })
 
@@ -237,13 +254,35 @@ function Dashboard() {
           <BoardEntryButton teamId={teamParam as Id<'teams'>} month={monthParam} />
         </div>
       </div>
-      <ScoresTable teamId={teamParam as Id<'teams'>} month={monthParam} className="md:col-span-3" />
+      {/*
+        THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
+        This component, TeamBoards below it and ScoringSystemCard further down
+        all `useSuspenseQuery(api.scores.getTeamMonth, { teamId, month })`, so
+        every team or month change re-keys all three at once and suspends them
+        together. With no boundary here the suspension bubbled past the route —
+        router.tsx sets no defaultPendingComponent either — and unmounted the
+        whole grid.
+
+        ONE BOUNDARY PER COMPONENT RATHER THAN ONE AROUND ALL THREE, so a panel
+        that resolves early is not held back by its neighbours, and so each
+        fallback can be the shape of the thing it replaces rather than a
+        generic block.
+
+        THE FALLBACK CARRIES THE SAME `className` AS THE COMPONENT. Dropping it
+        would collapse the grid on every switch and shove it back on arrival,
+        which is the reported problem with extra steps.
+      */}
+      <Suspense fallback={<ScoresTableSkeleton month={monthParam} className="md:col-span-3" />}>
+        <ScoresTable teamId={teamParam as Id<'teams'>} month={monthParam} className="md:col-span-3" />
+      </Suspense>
       {/* Column 1, three rows deep, immediately under the scores table — the
           slot v1 gives it (src/app/me/page.tsx, `md:row-span-3`). Outside the
           `selectedTeam &&` block below because it reads the team it needs from
           scores.getTeamMonth itself, the same already-cached query the table
           above suspends on. */}
-      <TeamBoards teamId={teamParam as Id<'teams'>} month={monthParam} className="md:row-span-3" />
+      <Suspense fallback={<TeamBoardsSkeleton className="md:row-span-3" />}>
+        <TeamBoards teamId={teamParam as Id<'teams'>} month={monthParam} className="md:row-span-3" />
+      </Suspense>
       {selectedTeam && (
         <>
           {/* Every member renders, including the caller's own row — see
@@ -269,12 +308,15 @@ function Dashboard() {
             }}
           />
           <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />
-          <ScoringSystemCard
-            teamId={teamParam as Id<'teams'>}
-            month={monthParam}
-            isPro={isPro}
-            isOwner={selectedTeam.isOwner}
-          />
+          {/* The third getTeamMonth consumer — see the boundary above. */}
+          <Suspense fallback={<ScoringSystemCardSkeleton />}>
+            <ScoringSystemCard
+              teamId={teamParam as Id<'teams'>}
+              month={monthParam}
+              isPro={isPro}
+              isOwner={selectedTeam.isOwner}
+            />
+          </Suspense>
         </>
       )}
       {/* Deleting the team you were looking at leaves ?team= pointing at a gone

@@ -1,0 +1,261 @@
+import { ArrowLeft, ArrowRight } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+import { Skeleton } from '#/components/ui/skeleton.tsx'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '#/components/ui/table.tsx'
+import { cn } from '#/lib/utils.ts'
+import { SYSTEM_FIELDS } from '../../convex/lib/scoringSystem.ts'
+import { daysOfMonth, type PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
+
+/**
+ * THE DASHBOARD'S LOADING STATES (wordle-teams-9ahw).
+ *
+ * WHAT WAS WRONG. Three components on the dashboard call `useSuspenseQuery` on
+ * the SAME query — `api.scores.getTeamMonth`, keyed by `(teamId, month)`:
+ * scores-table.tsx, teams/team-boards.tsx and scoring-system-card.tsx. Changing
+ * team or month changes that key, so all three suspend at once — and there was
+ * no Suspense boundary anywhere on the dashboard, nor a `defaultPendingComponent`
+ * in router.tsx, so the suspension bubbled past the route and unmounted the whole
+ * grid. Every switch blanked the page.
+ *
+ * v1 HAD THIS AND v2 LOST IT, WHICH IS WHY IT IS A PARITY GAP RATHER THAN A
+ * FEATURE. `src/app/me/page.tsx:60` wraps its scores table in
+ * `<Suspense fallback={<SkeletonTable/>}>`, and `src/app/me/loading.tsx` is a
+ * route-level skeleton of the whole grid. v2 ported neither.
+ *
+ * THIS GOES FURTHER THAN v1 ON PURPOSE. v1 wrapped ONLY the scores table, so
+ * its Team Boards panel and Scoring System card blanked on a switch too — the
+ * same defect, just less noticeable next to the table. All three are covered
+ * here. Owner's decision, 2026-09-02.
+ *
+ * EVERY SKELETON CARRIES ITS COMPONENT'S GRID CLASSES, WHICH IS NOT DECORATION.
+ * `md:col-span-3` and `md:row-span-3` decide the shape of the whole grid; a
+ * fallback that omits them collapses its neighbours into the gap and then
+ * shoves them back when the real content arrives — a layout jump on every
+ * switch, which is the reported problem restated rather than fixed. The
+ * `className` prop on each of these exists for that and should always be passed
+ * the same value its component gets.
+ *
+ * SIZES ARE DERIVED, NOT HARDCODED, wherever the real component derives them.
+ * The day-column count comes from `daysOfMonth(month)` — v1's skeleton hardcodes
+ * 30 columns and is visibly wrong in February — and the scoring row count from
+ * `SYSTEM_FIELDS`, the same array the card maps over, so it cannot drift from
+ * it.
+ *
+ * ALL PULSING COMES FROM ui/skeleton.tsx (`animate-pulse bg-muted`), which is
+ * the same primitive v1 used. No second implementation.
+ */
+
+/** Body rows in the table skeleton. v1 shows three; a team is usually 2-6. */
+const SKELETON_ROWS = 3
+
+/**
+ * The scores table, at rest.
+ *
+ * BUILT FROM THE REAL TABLE PRIMITIVES rather than a single grey block, because
+ * the thing being replaced is horizontally scrollable and 28-31 columns wide.
+ * A plain rectangle of the same height would collapse the horizontal scroll
+ * position on every switch and change the page's width as it came and went.
+ *
+ * THE PINNED COLUMNS ARE REPRODUCED for the same reason they exist in
+ * scores-table.tsx: `sticky` cells have no z-index of their own, so without
+ * `z-10` and an opaque background the day columns show through them while
+ * scrolling. A skeleton that scrolls differently from the table it stands in
+ * for is its own small lie.
+ */
+export function ScoresTableSkeleton({
+  month,
+  className,
+}: {
+  month: PuzzleMonth
+  className?: string
+}) {
+  // The real column count for the month being loaded — 28, 29, 30 or 31.
+  const days = daysOfMonth(month)
+
+  const pinnedLeft = 'sticky left-0 z-10 bg-background'
+  const pinnedRight = 'sticky right-0 z-10 bg-background'
+
+  return (
+    <div className={className} data-slot="scores-table-skeleton" aria-hidden="true">
+      <div className="max-w-[96vw] rounded-md border text-xs md:text-base">
+        {/* `w-max min-w-full` for the reason scores-table.tsx gives at length:
+            at 100% width, `table-layout: auto` treats that as a cap and
+            compresses every column to fit instead of scrolling. */}
+        <Table className="relative w-max min-w-full">
+          <TableHeader>
+            <TableRow>
+              <TableHead className={cn(pinnedLeft, 'rounded-tl-md px-2 md:px-4')}>
+                <Skeleton className="h-4 w-[55px]" />
+              </TableHead>
+              {days.map((day) => (
+                <TableHead key={day}>
+                  <Skeleton className="mx-auto h-4 w-[30px]" />
+                </TableHead>
+              ))}
+              <TableHead className={cn(pinnedRight, 'rounded-tr-md px-2 md:px-4')}>
+                <Skeleton className="ml-auto h-4 w-[30px]" />
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className="[&_tr:last-child>td:first-child]:rounded-bl-md [&_tr:last-child>td:last-child]:rounded-br-md">
+            {Array.from({ length: SKELETON_ROWS }, (_, row) => (
+              <TableRow key={row}>
+                <TableCell className={pinnedLeft}>
+                  <Skeleton className="h-4 w-[55px]" />
+                </TableCell>
+                {days.map((day) => (
+                  <TableCell key={day}>
+                    <Skeleton className="mx-auto h-4 w-[30px] rounded-full" />
+                  </TableCell>
+                ))}
+                <TableCell className={pinnedRight}>
+                  <Skeleton className="ml-auto h-4 w-[30px]" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The Team Boards panel, at rest.
+ *
+ * KEEPS THE REAL TITLE AND THE SHAPE OF THE DAY-NAV ROW, so the card does not
+ * change height when the panel arrives. The 450px block matches the slide
+ * height in team-boards.tsx; the arrows are rendered as disabled buttons rather
+ * than as skeletons because they are ALWAYS there in the real panel and their
+ * dimensions are what the row's height depends on.
+ */
+export function TeamBoardsSkeleton({ className }: { className?: string }) {
+  return (
+    <Card className={className} data-slot="team-boards-skeleton" aria-hidden="true">
+      <CardHeader>
+        <CardTitle>Team Boards</CardTitle>
+        <div className="flex pt-2">
+          <Skeleton className="h-9 w-9">
+            <ArrowLeft className="invisible h-4 w-4" />
+          </Skeleton>
+          <div className="mx-auto">
+            <Skeleton className="h-9 w-52 md:w-56" />
+          </div>
+          <Skeleton className="h-9 w-9">
+            <ArrowRight className="invisible h-4 w-4" />
+          </Skeleton>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-[450px] w-full" />
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * The Scoring System card, at rest.
+ *
+ * ONE ROW PER `SYSTEM_FIELDS` ENTRY — the same array scoring-system-card.tsx
+ * maps over — so adding a scoring field changes both together and this cannot
+ * silently become the wrong height.
+ */
+export function ScoringSystemCardSkeleton({ className }: { className?: string }) {
+  return (
+    <Card className={className} data-slot="scoring-system-skeleton" aria-hidden="true">
+      <CardHeader>
+        <CardTitle asChild>
+          <div className="flex items-center justify-between">
+            <h2>Scoring System</h2>
+          </div>
+        </CardTitle>
+        <Skeleton className="h-4 w-56" />
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <Skeleton className="h-4 w-20" />
+              </TableHead>
+              <TableHead className="text-right">
+                <Skeleton className="ml-auto h-4 w-12" />
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {SYSTEM_FIELDS.map((field) => (
+              <TableRow key={field}>
+                <TableCell>
+                  <Skeleton className="h-4 w-24" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="ml-auto h-4 w-8" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * The whole dashboard grid, for the route's `pendingComponent` — v1's
+ * `src/app/me/loading.tsx`, which v2 never ported.
+ *
+ * THIS COVERS A DIFFERENT MOMENT FROM THE THREE ABOVE, and both are needed. The
+ * boundaries above catch a team or month switch, where the route does NOT
+ * re-run its loader — that loader prefetches getMyTeams, amIPro and
+ * getMyPlayerId, none of which depend on team or month. This one catches the
+ * client-side navigation INTO /app, where the loader does run and there is no
+ * grid on screen yet to keep.
+ *
+ * NO `month` TO SIZE THE TABLE WITH, which is why the top block is a plain
+ * rectangle rather than ScoresTableSkeleton: at this point the route has not
+ * resolved its search params, and useDashboardSearchSync has not yet filled
+ * them in. Guessing a column count here would be a guess about a month nobody
+ * has chosen.
+ *
+ * THE GRID CLASSES MIRROR routes/app.tsx's OWN, including the `grid-cols-1`
+ * that file's comment calls load-bearing: without it the single implicit column
+ * is `auto`, whose max sizing is max-content, and one long team name widens the
+ * whole page.
+ */
+export function DashboardSkeleton() {
+  return (
+    <main
+      className="mb-12 grid grid-cols-1 gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12"
+      data-slot="dashboard-skeleton"
+      aria-hidden="true"
+    >
+      {/* The picker row: team, month, and the board-entry button pushed right. */}
+      <div className="flex items-center gap-2 md:col-span-3">
+        <Skeleton className="h-10 w-28 md:w-32" />
+        <Skeleton className="h-10 w-28 md:w-32" />
+        <Skeleton className="ml-auto h-10 w-28 md:w-32" />
+      </div>
+      {/*
+        THE ORDER AND THE GRID CLASSES MIRROR routes/app.tsx's OWN CHILDREN,
+        checked against it rather than adapted from v1's loading.tsx: scores
+        table (col-span-3), Team Boards (row-span-3), then the current-team,
+        scoring-system and my-teams cards, none of which carry a grid class.
+        A skeleton whose shape disagrees with the page it precedes produces the
+        jump it exists to prevent.
+      */}
+      <Skeleton className="h-[175px] w-full rounded-xl md:col-span-3" />
+      <TeamBoardsSkeleton className="md:row-span-3" />
+      <Skeleton className="h-[175px] w-full rounded-xl" />
+      <ScoringSystemCardSkeleton />
+      <Skeleton className="h-[175px] w-full rounded-xl" />
+    </main>
+  )
+}

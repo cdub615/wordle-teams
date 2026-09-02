@@ -148,3 +148,78 @@ test('the boards carousel has no vertical overflow to trap a downward drag', asy
   // that cannot move.
   expect(metrics.overflowX).toBe('auto')
 })
+
+/**
+ * THE GRID STAYS ON SCREEN THROUGH A MONTH SWITCH (wordle-teams-9ahw).
+ *
+ * Owner-reported: switching team or month blanked most of the dashboard while
+ * the new data loaded. Three panels — ScoresTable, TeamBoards and
+ * ScoringSystemCard — all `useSuspenseQuery` the same `getTeamMonth` keyed by
+ * (teamId, month), so a switch re-keys and suspends all three at once. With no
+ * Suspense boundary the suspension bubbled past the route, and the nearest
+ * boundary above it hid everything below — the pickers included, though they
+ * read no month-keyed query.
+ *
+ * IT SAMPLES EVERY ANIMATION FRAME, AND TWO SIMPLER FORMS OF THIS TEST WERE
+ * TRIED AND DISCARDED FIRST. Both are worth recording, because both LOOK right
+ * and both pass against the broken code:
+ *
+ *   1. Switch, then `expect(picker).toBeVisible()`. Against a local backend the
+ *      blank frames are gone long before Playwright's first sample, so it goes
+ *      green either way. Verified against app.tsx at the commit before the fix.
+ *
+ *   2. Hold an element handle across the switch and assert `node.isConnected`.
+ *      Also green either way, for a more interesting reason: React does not
+ *      UNMOUNT a suspended subtree, it hides it with `display: none` and keeps
+ *      the nodes. So the node never leaves the document even while nothing is
+ *      on screen, and "is it still in the DOM" is the wrong question entirely.
+ *
+ * What actually distinguishes the two states is whether the element has a box
+ * on any frame DURING the switch, which is not observable by sampling after it.
+ * So this installs a requestAnimationFrame recorder before the click and reads
+ * it afterwards: one measurement per painted frame, so a blank that lasts two
+ * frames is still caught. Verified in both directions.
+ */
+test('switching month keeps the dashboard on screen instead of blanking it', async ({ page }) => {
+  await signInWithTeam(page)
+
+  const monthPicker = page.getByRole('button', { name: /^\w{3} \d{4}$/ })
+  await expect(monthPicker).toBeVisible()
+
+  // Record, every frame, whether the team picker is painting anything. It sits
+  // OUTSIDE every Suspense boundary and reads no month-keyed query, so a switch
+  // should never take it off screen.
+  await page.evaluate(() => {
+    const state = { blankFrames: 0, frames: 0 }
+    ;(window as unknown as { __gridWatch: typeof state }).__gridWatch = state
+    const tick = () => {
+      const picker = document.querySelector('main button')
+      if (picker) {
+        state.frames += 1
+        const box = picker.getBoundingClientRect()
+        if (box.width === 0 || box.height === 0) state.blankFrames += 1
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+
+  await monthPicker.click()
+  const previousMonth = page.getByRole('menuitemradio').nth(1)
+  const previousLabel = await previousMonth.textContent()
+  await previousMonth.click()
+
+  // The real panel arrives, so this is not asserting survival across a no-op.
+  await expect(page.getByLabel('Team boards, scrollable by player')).toBeVisible({
+    timeout: 15_000,
+  })
+  await expect(monthPicker).toHaveText(previousLabel!.trim())
+
+  const watch = await page.evaluate(
+    () => (window as unknown as { __gridWatch: { blankFrames: number; frames: number } }).__gridWatch,
+  )
+
+  // The recorder has to have actually run, or zero blank frames means nothing.
+  expect(watch.frames).toBeGreaterThan(5)
+  expect(watch.blankFrames).toBe(0)
+})
