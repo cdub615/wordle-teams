@@ -100,9 +100,25 @@ async function byLegacyId<T extends 'players' | 'teams' | 'playerMembership' | '
  *     out because it is a decision about dual-running rules before it is code:
  *     if boards are only ever entered in v1 during the window, re-importing v1's
  *     truth is correct. wordle-teams-r9d.
- *   - NOT AT RISK TODAY: playerMembership and webhookEvents. Nothing in v2
- *     writes either table yet, so there is no edit for a re-copy to revert.
- *     Phase 5's Polar work is what would change that.
+ *   - playerMembership and webhookEvents. THIS ENTRY USED TO READ "not at risk
+ *     today: nothing in v2 writes either table yet, so there is no edit for a
+ *     re-copy to revert — Phase 5's Polar work is what would change that."
+ *     PHASE 5 HAS LANDED AND IT DID CHANGE THAT. `convex/billing.ts` inserts
+ *     playerMembership at :549 and webhookEvents at :523 and :638, so both are
+ *     now written by v2 and both are therefore at the same risk the other
+ *     tables are: a re-copy can take back a v2-written row on a copied player.
+ *
+ *     NEITHER IS DIFFED, which is what makes this worth stating rather than
+ *     just deleting. `partition()` in scripts/lib/copy-tallies.mjs routes any
+ *     table whose tally carries no `clobbered` key straight to "Not diffed",
+ *     and only players, teams and monthlyWinners return one — so a lost edit on
+ *     these two is invisible to the overwrite report BY CONSTRUCTION. The
+ *     insert report (wt-ksh.13.10) covers all six tables and is the only place
+ *     either one shows up at all.
+ *
+ *     Corrected 2026-09-02 (Phase 7, wordle-teams-c68). It was the fourth of
+ *     four sites asserting this and the last to be found, because the other
+ *     three phrase it in terms of DELETES and this one in terms of WRITES.
  */
 type Clobbered = Record<string, number>
 
