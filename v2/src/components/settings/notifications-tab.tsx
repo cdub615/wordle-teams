@@ -120,7 +120,7 @@ export default function NotificationsTab() {
 
   const updateTimeZone = useMutation({ mutationFn: useConvexMutation(api.settings.updateTimeZone) })
   const updateReminderTime = useMutation({ mutationFn: useConvexMutation(api.settings.updateReminderTime) })
-  const updateReminderMethods = useMutation({ mutationFn: useConvexMutation(api.settings.updateReminderMethods) })
+  const setReminderMethod = useMutation({ mutationFn: useConvexMutation(api.settings.setReminderMethod) })
 
   // THE WHOLE OF RULE 1: no key, no switch. `publicKey` is a query rather than
   // a `VITE_` variable precisely so this can be decided from the deployment
@@ -200,19 +200,21 @@ export default function NotificationsTab() {
     }
   }
 
-  // Rebuilds the array from the CURRENT one rather than constructing ['email']
-  // / [] from scratch, because 'push' now lives in the same field and the Push
-  // switch below writes it. A from-scratch array here would silently drop a
-  // player's push subscription from their delivery methods the first time they
-  // touched the Email switch — leaving the subscription stored, the switch
-  // showing off on the next load, and no notification ever sent. The push
-  // handler is symmetric for the same reason.
+  // SENDS INTENT, NOT AN ARRAY (`wordle-teams-069`). Both switches write the
+  // same field, so this used to rebuild `reminderDeliveryMethods` from the copy
+  // it had rendered with — which lost an update whenever the OTHER switch was
+  // touched in between, and the window is long: the Push switch's permission
+  // prompt is MODAL and can stay open for minutes.
+  //
+  // `setReminderMethodFor` composes the array against the current row inside the
+  // mutation instead, so the from-scratch hazard this comment used to warn about
+  // — dropping a player's push method the first time they touched Email, leaving
+  // the subscription stored and nothing ever sent — is now unrepresentable
+  // rather than avoided by hand. The push handler is symmetric for the same
+  // reason.
   const handleEmailToggle = async (checked: boolean) => {
-    const methods = checked
-      ? Array.from(new Set([...reminderDeliveryMethods, 'email']))
-      : reminderDeliveryMethods.filter((method) => method !== 'email')
     try {
-      await updateReminderMethods.mutateAsync({ methods })
+      await setReminderMethod.mutateAsync({ method: 'email', enabled: checked })
       toast.success('Delivery methods updated')
     } catch (error) {
       toast.error(mutationErrorMessage(error, 'Failed to update delivery methods'))
@@ -238,7 +240,6 @@ export default function NotificationsTab() {
     setPushPending(true)
     try {
       const outcome = await applyPushToggle(checked, {
-        currentMethods: reminderDeliveryMethods,
         browser: browserPush(),
         // `?? null`, never `vapidPublicKey!`: the switch only renders when
         // this is a string, but a narrowing that lives in JSX is not one
@@ -248,7 +249,7 @@ export default function NotificationsTab() {
         applicationServerKey: vapidPublicKey ?? null,
         save: (subscription) => savePushSubscription.mutateAsync(subscription),
         removeStored: (endpoint) => removePushSubscription.mutateAsync({ endpoint }),
-        setMethods: (methods) => updateReminderMethods.mutateAsync({ methods: [...methods] }),
+        setMethod: (enabled) => setReminderMethod.mutateAsync({ method: 'push', enabled }),
       })
 
       if (!outcome.ok) {
@@ -355,9 +356,9 @@ export default function NotificationsTab() {
               id="email-reminders"
               checked={reminderDeliveryMethods.includes('email')}
               onCheckedChange={handleEmailToggle}
-              disabled={updateReminderMethods.isPending || pushPending}
+              disabled={setReminderMethod.isPending || pushPending}
             />
-            {updateReminderMethods.isPending && !pushPending && (
+            {setReminderMethod.isPending && !pushPending && (
               <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
             )}
           </div>
@@ -383,7 +384,7 @@ export default function NotificationsTab() {
                 // for this to read back.
                 checked={reminderDeliveryMethods.includes('push')}
                 onCheckedChange={handlePushToggle}
-                disabled={pushPending || updateReminderMethods.isPending}
+                disabled={pushPending || setReminderMethod.isPending}
               />
               {pushPending && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
             </div>

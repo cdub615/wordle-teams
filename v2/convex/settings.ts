@@ -47,6 +47,57 @@ export async function updateReminderMethodsFor(
   await ctx.db.patch(playerId, { reminderDeliveryMethods: methods })
 }
 
+/**
+ * Turn ONE delivery method on or off, composed against the row as it is now.
+ *
+ * WHY THIS EXISTS AND `updateReminderMethodsFor` IS NO LONGER CALLED FROM THE
+ * UI (`wordle-teams-069`). The settings tab used to compute the whole array
+ * from the render it was showing and send that. Between the render and the
+ * write sits the browser's push permission prompt, which is MODAL and can stay
+ * open for minutes — so if the player toggled Email in another tab during that
+ * window, the push write carried a stale view of Email and silently resurrected
+ * or dropped it. A lost update, pre-existing, one boolean wide.
+ *
+ * The read and the write are in the SAME transaction here, so what is stored is
+ * composed from the current row and the client sends only its own intent. This
+ * is the shape `markCelebrationSeen` uses for `hasSeenCelebration`, and for the
+ * same reason.
+ *
+ * IT ALSO RETIRES A HAZARD THE CALLERS WERE GUARDING BY HAND. Both toggles
+ * carried a comment about never building the array from scratch, because doing
+ * so would drop a player's push method the first time they touched the Email
+ * switch — subscription still stored, switch still on, nothing ever sent. That
+ * mistake is now unrepresentable: there is no array to build.
+ *
+ * VALIDATED ON THE METHOD, not only on the result. Disabling an unknown method
+ * yields an array that is itself valid — the filter matches nothing — so
+ * delegating to `updateReminderMethodsFor` alone would accept a typo in exactly
+ * one direction and answer with a silent no-op.
+ */
+export async function setReminderMethodFor(
+  ctx: MutationCtx,
+  playerId: Id<'players'>,
+  method: string,
+  enabled: boolean,
+): Promise<void> {
+  if (!(METHODS as ReadonlyArray<string>).includes(method)) {
+    throw accessError('INVALID_REMINDER_METHOD')
+  }
+  const player = await ctx.db.get(playerId)
+  if (!player) throw accessError('NO_PLAYER')
+
+  const current = player.reminderDeliveryMethods
+  const next = enabled
+    ? current.includes(method)
+      ? current
+      : [...current, method]
+    : current.filter((m) => m !== method)
+
+  // Still through the array helper rather than patching directly, so the
+  // unknown-method and duplicate rules stay in ONE place and cannot drift.
+  await updateReminderMethodsFor(ctx, playerId, next)
+}
+
 export async function updateReminderTimeFor(
   ctx: MutationCtx,
   playerId: Id<'players'>,
@@ -112,11 +163,11 @@ export const mySettings = query({
   },
 })
 
-export const updateReminderMethods = mutation({
-  args: { methods: v.array(v.string()) },
-  handler: async (ctx, { methods }) => {
+export const setReminderMethod = mutation({
+  args: { method: v.string(), enabled: v.boolean() },
+  handler: async (ctx, { method, enabled }) => {
     const player = await requirePlayer(ctx)
-    await updateReminderMethodsFor(ctx, player._id, methods)
+    await setReminderMethodFor(ctx, player._id, method, enabled)
   },
 })
 

@@ -23,9 +23,9 @@ import { api } from '../../../convex/_generated/api'
 import NotificationsTab from './notifications-tab.tsx'
 import type { PushManagerLike, PushSubscriptionLike } from '#/lib/push-subscribe.ts'
 
-const { updateMethodsMock, savePushMock, removePushMock, toastSuccess, toastError } = vi.hoisted(
+const { setMethodMock, savePushMock, removePushMock, toastSuccess, toastError } = vi.hoisted(
   () => ({
-    updateMethodsMock: vi.fn().mockResolvedValue(null),
+    setMethodMock: vi.fn().mockResolvedValue(null),
     savePushMock: vi.fn().mockResolvedValue(null),
     removePushMock: vi.fn().mockResolvedValue(null),
     toastSuccess: vi.fn(),
@@ -46,7 +46,7 @@ vi.mock('@convex-dev/react-query', () => ({
   convexQuery: (ref: FunctionReference<'query'>) => ({ queryKey: [getFunctionName(ref)] }),
   useConvexMutation: (ref: FunctionReference<'mutation'>) => {
     const name = getFunctionName(ref)
-    if (name === getFunctionName(api.settings.updateReminderMethods)) return updateMethodsMock
+    if (name === getFunctionName(api.settings.setReminderMethod)) return setMethodMock
     if (name === getFunctionName(api.push.savePushSubscription)) return savePushMock
     if (name === getFunctionName(api.push.removePushSubscription)) return removePushMock
     // The time-zone and reminder-time mutations are not exercised here.
@@ -164,8 +164,8 @@ describe('the Push switch — rule 3, turning it OFF', () => {
     expect(isChecked()).toBe('true')
     fireEvent.click(pushSwitch())
 
-    await waitFor(() => expect(updateMethodsMock).toHaveBeenCalled())
-    expect(updateMethodsMock).toHaveBeenCalledWith({ methods: ['email'] })
+    await waitFor(() => expect(setMethodMock).toHaveBeenCalled())
+    expect(setMethodMock).toHaveBeenCalledWith({ method: 'push', enabled: false })
     // Nothing to remove server-side: this device never held the subscription.
     expect(removePushMock).not.toHaveBeenCalled()
     expect(toastSuccess).toHaveBeenCalledWith('Delivery methods updated')
@@ -182,9 +182,9 @@ describe('the Push switch — rule 3, turning it OFF', () => {
 
     fireEvent.click(pushSwitch())
 
-    await waitFor(() => expect(updateMethodsMock).toHaveBeenCalled())
+    await waitFor(() => expect(setMethodMock).toHaveBeenCalled())
     expect(removePushMock).toHaveBeenCalledWith({ endpoint: ENDPOINT })
-    expect(updateMethodsMock).toHaveBeenCalledWith({ methods: ['email'] })
+    expect(setMethodMock).toHaveBeenCalledWith({ method: 'push', enabled: false })
   })
 
   test('a failed browser-side unsubscribe warns WITHOUT logging the endpoint', async () => {
@@ -211,7 +211,7 @@ describe('the Push switch — rule 3, turning it OFF', () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain(ENDPOINT)
     expect(JSON.stringify(warn.mock.calls)).not.toContain('CAPABILITY-URL')
     // And the switch still went off, which is what the player asked for.
-    expect(updateMethodsMock).toHaveBeenCalledWith({ methods: [] })
+    expect(setMethodMock).toHaveBeenCalledWith({ method: 'push', enabled: false })
     expect(toastSuccess).toHaveBeenCalledWith('Delivery methods updated')
   })
 })
@@ -235,7 +235,7 @@ describe('the Push switch — rule 2, a permission it will not get', () => {
     )
     expect(isChecked()).toBe('false')
     expect(savePushMock).not.toHaveBeenCalled()
-    expect(updateMethodsMock).not.toHaveBeenCalled()
+    expect(setMethodMock).not.toHaveBeenCalled()
     expect(toastSuccess).not.toHaveBeenCalled()
   })
 
@@ -247,7 +247,7 @@ describe('the Push switch — rule 2, a permission it will not get', () => {
 
     await waitFor(() => expect(toastError).toHaveBeenCalled())
     expect(isChecked()).toBe('false')
-    expect(updateMethodsMock).not.toHaveBeenCalled()
+    expect(setMethodMock).not.toHaveBeenCalled()
   })
 
   test('turning ON with no browser reports it rather than writing the method', async () => {
@@ -260,7 +260,7 @@ describe('the Push switch — rule 2, a permission it will not get', () => {
     expect(toastError).toHaveBeenCalledWith(
       "This browser can't deliver push notifications. Email reminders still work.",
     )
-    expect(updateMethodsMock).not.toHaveBeenCalled()
+    expect(setMethodMock).not.toHaveBeenCalled()
   })
 })
 
@@ -275,16 +275,20 @@ describe('the Push switch — turning it ON', () => {
 
     fireEvent.click(pushSwitch())
 
-    await waitFor(() => expect(updateMethodsMock).toHaveBeenCalled())
+    await waitFor(() => expect(setMethodMock).toHaveBeenCalled())
     expect(savePushMock).toHaveBeenCalledWith({
       endpoint: ENDPOINT,
       p256dh: 'AQIDBA',
       auth: 'AQIDBA',
     })
-    // 'email' survives — the array is rebuilt from the current one.
-    expect(updateMethodsMock).toHaveBeenCalledWith({ methods: ['email', 'push'] })
+    // INTENT ONLY. 'email' surviving is no longer this component's promise to
+    // keep: the array is composed server-side against the current row
+    // (setReminderMethodFor), and convex/settings.test.ts pins that it leaves
+    // the other method alone. What is asserted here is that the switch asks
+    // for the right thing.
+    expect(setMethodMock).toHaveBeenCalledWith({ method: 'push', enabled: true })
     expect(savePushMock.mock.invocationCallOrder[0]).toBeLessThan(
-      updateMethodsMock.mock.invocationCallOrder[0],
+      setMethodMock.mock.invocationCallOrder[0],
     )
     expect(toastSuccess).toHaveBeenCalledWith('Delivery methods updated')
   })
@@ -300,7 +304,7 @@ describe('the Push switch — turning it ON', () => {
     fireEvent.click(pushSwitch())
 
     await waitFor(() => expect(toastError).toHaveBeenCalled())
-    expect(updateMethodsMock).not.toHaveBeenCalled()
+    expect(setMethodMock).not.toHaveBeenCalled()
   })
 
   test('the switch is disabled while a toggle is in flight, so a second click cannot start one', async () => {
@@ -329,21 +333,26 @@ describe('the Push switch — turning it ON', () => {
     expect(requestPermission).toHaveBeenCalledTimes(1)
 
     release('granted')
-    await waitFor(() => expect(updateMethodsMock).toHaveBeenCalled())
+    await waitFor(() => expect(setMethodMock).toHaveBeenCalled())
   })
 })
 
 describe('the Email switch is unaffected by any of it', () => {
   test('toggling Email preserves a stored push method', async () => {
-    // Symmetry with handlePushToggle: a from-scratch ['email'] here would drop
-    // 'push' and silently stop every notification while the subscription
-    // stayed stored and the switch kept showing on.
+    // THE HAZARD THIS TEST WAS WRITTEN FOR IS NOW UNREPRESENTABLE. It used to
+    // guard against a from-scratch ['email'] dropping 'push' — silently stopping
+    // every notification while the subscription stayed stored and the switch
+    // kept showing on. The client no longer builds an array at all
+    // (wordle-teams-069), so there is nothing to get wrong here; the preserving
+    // half is asserted in convex/settings.test.ts. Kept because the SWITCH still
+    // has to send the right intent, and because a regression to array-sending
+    // would fail here first.
     settings.reminderDeliveryMethods = ['push']
     render(createElement(NotificationsTab))
 
     fireEvent.click(screen.getByRole('switch', { name: 'Email' }))
 
-    await waitFor(() => expect(updateMethodsMock).toHaveBeenCalled())
-    expect(updateMethodsMock).toHaveBeenCalledWith({ methods: ['push', 'email'] })
+    await waitFor(() => expect(setMethodMock).toHaveBeenCalled())
+    expect(setMethodMock).toHaveBeenCalledWith({ method: 'email', enabled: true })
   })
 })

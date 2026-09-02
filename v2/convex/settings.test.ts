@@ -4,6 +4,7 @@ import schema from './schema'
 import { aPlayer } from './fixtures.ts'
 import {
   mySettingsFor,
+  setReminderMethodFor,
   updateReminderMethodsFor,
   updateReminderTimeFor,
   updateTimeZoneFor,
@@ -165,5 +166,86 @@ describe('mySettingsFor', () => {
     )
     const settings = await t.run(async (ctx) => mySettingsFor(ctx, playerId))
     expect(settings.timeZone).toBe('America/Chicago')
+  })
+})
+
+describe('setReminderMethodFor', () => {
+  // wordle-teams-069. The client used to compute the whole array from the row
+  // it had rendered with and send that, so a write issued after a slow browser
+  // flow carried a stale view of the OTHER method. The push permission prompt
+  // is MODAL and can stay open for minutes, which is the window.
+  //
+  // These tests exercise the fix at the level the bug lives at: the read and
+  // the write are in ONE transaction, so what is stored is composed from the
+  // current row rather than from whatever the client last saw.
+
+  // STARTING STATE IS ALWAYS EXPLICIT. aPlayer() defaults to ['email'], and a
+  // first draft of these tests leaned on that without saying so — which made
+  // 'adds a method' pass while its email half was a no-op against a value that
+  // was already there.
+  const player = async (methods: Array<string> = []) => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', aPlayer({ reminderDeliveryMethods: methods })),
+    )
+    return {
+      t,
+      playerId,
+      methods: async () =>
+        (await t.run(async (ctx) => ctx.db.get(playerId)))!.reminderDeliveryMethods,
+    }
+  }
+
+  test('adds a method without disturbing the other one', async () => {
+    const { t, playerId, methods } = await player()
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'email', true))
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'push', true))
+    expect(await methods()).toEqual(['email', 'push'])
+  })
+
+  test('removes a method without disturbing the other one', async () => {
+    const { t, playerId, methods } = await player(['email', 'push'])
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'push', false))
+    expect(await methods()).toEqual(['email'])
+  })
+
+  // THE LOST UPDATE THIS EXISTS TO PREVENT, written as the sequence that used to
+  // produce it: the client renders with ['email'], the player turns Email OFF in
+  // another tab, and only THEN does the slow push flow complete. The old code
+  // sent `[...currentMethods, 'push']` built from the stale render and put
+  // 'email' back. Composing from the row cannot.
+  test('a write issued against a stale view does not resurrect a removed method', async () => {
+    const { t, playerId, methods } = await player(['email'])
+
+    // The other tab wins the race.
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'email', false))
+    // The slow flow finally lands, knowing only that PUSH should go on.
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'push', true))
+
+    expect(await methods()).toEqual(['push'])
+  })
+
+  test('enabling twice is idempotent rather than a duplicate', async () => {
+    const { t, playerId, methods } = await player()
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'email', true))
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'email', true))
+    expect(await methods()).toEqual(['email'])
+  })
+
+  test('disabling one that is already off is a no-op, not an error', async () => {
+    const { t, playerId, methods } = await player()
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'push', false))
+    expect(await methods()).toEqual([])
+  })
+
+  // Validated on the METHOD, not only on the resulting array. Disabling an
+  // unknown method produces an array that is itself valid — the filter simply
+  // matches nothing — so delegating validation to updateReminderMethodsFor
+  // alone would let a typo through silently in exactly one direction.
+  test.each([true, false])('rejects an unknown method when enabled=%s', async (enabled) => {
+    const { t, playerId } = await player()
+    await expect(
+      t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'carrier-pigeon', enabled)),
+    ).rejects.toThrow()
   })
 })

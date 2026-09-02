@@ -279,15 +279,24 @@ export async function unsubscribeFromPush(browser: PushBrowser): Promise<Unsubsc
  * callable from any unit test in this repo.
  */
 export interface PushToggleEffects {
-  /** The player's stored `reminderDeliveryMethods`, as loaded. */
-  currentMethods: ReadonlyArray<string>
   /** `null` on a browser that cannot do push at all — see `browserPush()`. */
   browser: PushBrowser | null
   /** `null` where this deployment has no VAPID key configured. */
   applicationServerKey: string | null
   save(subscription: StoredSubscription): Promise<unknown>
   removeStored(endpoint: string): Promise<unknown>
-  setMethods(methods: ReadonlyArray<string>): Promise<unknown>
+  /**
+   * Turn the PUSH method on or off. Intent only — the array is composed
+   * server-side against the current row (`setReminderMethodFor`), so this
+   * function no longer needs to know what the other methods are.
+   *
+   * IT USED TO TAKE THE WHOLE ARRAY, built here from a `currentMethods` the
+   * caller had captured at render time. Between that render and this call sits
+   * the browser's push permission prompt, which is MODAL and can stay open for
+   * minutes — so a player toggling Email in another tab had their change
+   * silently reverted (`wordle-teams-069`).
+   */
+  setMethod(enabled: boolean): Promise<unknown>
 }
 
 export type PushToggleOutcome =
@@ -299,14 +308,14 @@ export type PushToggleOutcome =
  *
  * EXTRACTED FROM THE REACT HANDLER BECAUSE THE ORDERING *IS* THE RULE, and
  * inside an event handler no test could reach it. Review of 58f0edf measured
- * that directly: swapping `save` and `setMethods`, and turning the
+ * that directly: swapping `save` and `setMethod`, and turning the
  * failed-subscribe early return into a fallthrough, BOTH left 859/859 green —
  * and the second writes 'push' into a player's delivery methods when the
  * subscription failed, which is the single thing this switch exists to
  * prevent. This is the fourth time this codebase has had to hand inputs in to
  * make a rule testable, after `registerServiceWorker` and `decideLocalCapture`.
  *
- * TURNING PUSH ON — `subscribe`, then `save`, THEN `setMethods`, and any
+ * TURNING PUSH ON — `subscribe`, then `save`, THEN `setMethod`, and any
  * failure before the last one returns or throws. 'push' in
  * reminderDeliveryMethods is a promise to the reminder sweep that a delivery
  * will work; writing it before the subscription is stored makes that promise
@@ -328,12 +337,11 @@ export type PushToggleOutcome =
 export async function applyPushToggle(
   enabled: boolean,
   {
-    currentMethods,
     browser,
     applicationServerKey,
     save,
     removeStored,
-    setMethods,
+    setMethod,
   }: PushToggleEffects,
 ): Promise<PushToggleOutcome> {
   if (enabled) {
@@ -345,9 +353,7 @@ export async function applyPushToggle(
     const result = await subscribeToPush(browser, applicationServerKey)
     if (!result.ok) return { ok: false, reason: result.reason }
     await save(result.subscription)
-    // Rebuilt from the CURRENT array, never from scratch: 'email' lives in the
-    // same field, and handleEmailToggle is symmetric for the same reason.
-    await setMethods(Array.from(new Set([...currentMethods, 'push'])))
+    await setMethod(true)
     return { ok: true, unsubscribeError: null }
   }
 
@@ -358,7 +364,7 @@ export async function applyPushToggle(
   // Deleting the stored row is what actually stops delivery, so it happens
   // even when the browser-side unsubscribe rejected — see unsubscribeFromPush.
   if (endpoint) await removeStored(endpoint)
-  await setMethods(currentMethods.filter((method) => method !== 'push'))
+  await setMethod(false)
   return { ok: true, unsubscribeError }
 }
 
