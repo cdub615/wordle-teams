@@ -96,3 +96,45 @@ describe('no component paints TEXT with a BACKGROUND token', () => {
     })
   }
 })
+
+
+/**
+ * AN INSET DIALOG MUST ROUND ITS OWN CORNERS.
+ *
+ * ui/dialog.tsx rounds at `sm:` and above only. That is stock shadcn and it is
+ * RIGHT for a dialog left at full width on a phone — a full-bleed sheet meeting
+ * the screen edge squarely is the intended look, and two dialogs rely on it.
+ *
+ * But the moment a caller narrows the panel (`w-11/12`), it is inset from the
+ * edges and square corners just look broken. Four of the five inset dialogs
+ * paired `w-11/12` with `rounded-lg`; settings-dialog.tsx did not, and was the
+ * only surface in the app with unrounded corners.
+ *
+ * NOTHING ELSE CAN SEE THIS. It type-checks, lints and builds identically
+ * either way, and styles.test.ts measures colour tokens. Like the text-muted
+ * bug above it, the only signal was a person looking at the screen — which is
+ * the argument for pinning it here rather than trusting the next author to
+ * notice.
+ */
+describe('a dialog that narrows itself also rounds itself', () => {
+  const dialogs = sources.filter((file) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8').includes('<DialogContent'))
+
+  test('there are dialogs to check, so this cannot pass vacuously', () => {
+    expect(dialogs.length).toBeGreaterThan(3)
+  })
+
+  for (const file of dialogs) {
+    test(file, () => {
+      const source = codeOf(readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'))
+      // Each <DialogContent ...> opening tag, attributes and all, up to the
+      // first `>` that is not inside a brace expression.
+      for (const [tag] of source.matchAll(/<DialogContent[^>]*>/g)) {
+        if (!/\bw-\d+\/\d+\b/.test(tag)) continue
+        expect(
+          tag,
+          `${file} narrows a DialogContent without rounding it — pair w-N/M with rounded-lg`,
+        ).toMatch(/\brounded-/)
+      }
+    })
+  }
+})

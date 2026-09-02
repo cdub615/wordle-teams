@@ -48,8 +48,23 @@ export function SettingsDialog({
   email?: string | null
   displayName?: string | null
 }) {
+  /*
+   * `rounded-lg` IS NOT OPTIONAL ONCE `w-11/12` IS SET, and this dialog shipped
+   * without it. ui/dialog.tsx rounds at `sm:` and above only, which is stock
+   * shadcn and correct for a dialog that is FULL WIDTH on a phone: a full-bleed
+   * sheet with square corners against the screen edge is the intended look, and
+   * board-entry/button.tsx and monthly-winner-celebration.tsx both rely on it.
+   * Narrowing to 11/12 pulls the panel off the edges, and square corners on an
+   * inset panel just look broken.
+   *
+   * The other four inset dialogs already pair them — scoring-system-editor,
+   * create-team, invite-player and update-team all pass `w-11/12 rounded-lg`.
+   * This one was the single exception. styles-utilities.test.ts pins the
+   * pairing, because nothing else can see it: it type-checks, lints and builds
+   * either way.
+   */
   return (
-    <DialogContent className="w-11/12 px-3 py-4 md:p-6">
+    <DialogContent className="w-11/12 rounded-lg px-3 py-4 md:p-6">
       <VisuallyHidden.Root>
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
