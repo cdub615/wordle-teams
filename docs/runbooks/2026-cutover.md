@@ -206,11 +206,33 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
   record outranks it — but **if any hostname ever serves a Vercel 404 again,
   suspect that wildcard first.** It is the reason beta resolved before it existed.
 
-- [ ] **3.4 — If beta was ever given a `noindex`, remove it.** Vercel supplied
-      `X-Robots-Tag` on previews automatically; Cloudflare supplies nothing, and
-      beta serves the full marketing surface on a real hostname
-      (`wt-ksh.8.54`). Whatever is decided there, **the production deployment
-      must not carry it** — and it is the same deployment.
+- [ ] **3.4 — The `noindex` needs NO action, and that is deliberate. Verify it
+      rather than change it.** Beta sends `X-Robots-Tag: noindex, nofollow`;
+      production must not, and **it is the same deployment** — which is exactly
+      why this is keyed on the REQUEST HOSTNAME rather than on the `ENVIRONMENT`
+      var (`v2/src/lib/robots-policy.ts`, `wt-ksh.8.54`). A var is a property of
+      the deployment and cannot tell two hostnames apart on the day this Worker
+      answers on both; the hostname can, so the apex is indexable the moment it
+      is added and beta stays suppressed, with nothing to flip.
+
+      **It is a deny-list and must stay one.** An unrecognised host is
+      indexable. The two mistakes are not equals: indexing beta is recoverable
+      through Search Console, while noindexing production removes the site from
+      search silently. If anyone ever rewrites this as "index only on
+      wordleteams.com", the catastrophic outcome moves one typo away.
+
+      Confirm both directions AFTER the apex is live — the second command is the
+      one that matters:
+
+  ```
+  curl -sI https://beta.wordleteams.com/  | grep -i x-robots-tag   # noindex, nofollow
+  curl -sI https://wordleteams.com/       | grep -i x-robots-tag   # NOTHING
+  ```
+
+      **Static assets are not covered.** `/favicon.ico` and `/opengraph-image.png`
+      are served by the Workers assets layer without entering the Worker, so
+      they remain indexable on beta. The exposure `wt-ksh.8.54` was filed about
+      is the marketing documents, which are covered.
 
 ---
 
@@ -353,6 +375,8 @@ and before the DNS flip**, then re-read the counts. There is no tombstone.
 
 - [ ] DNS to the Worker (see §3.3 on the wildcard).
 - [ ] `ENVIRONMENT` → `production` (§3.1).
+- [ ] `X-Robots-Tag` verified in BOTH directions — present on beta, absent on the
+      apex (§3.4). No change to make; this is a check, not a step.
 - [ ] All five `POLAR_*` → production, as a set (§2.2).
 - [ ] `SITE_URL` → production origin.
 - [ ] `MAINTENANCE` → `"false"`, **and purge** (§4.1).

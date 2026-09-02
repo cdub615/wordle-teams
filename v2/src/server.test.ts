@@ -25,7 +25,15 @@ import { MAINTENANCE_PATH } from './lib/maintenance.ts'
  * mock echoes the pathname it was handed as an HTML document, which is what
  * makes "what did the app get asked to render" observable.
  */
-const rendered = vi.hoisted(() => ({ paths: [] as string[], status: 200 }))
+const rendered = vi.hoisted(() => ({
+  paths: [] as string[],
+  status: 200,
+  // Settable, because the content-type guard in server.ts is a real branch:
+  // /sitemap.xml and the /api routes are not HTML and skip the document
+  // handler entirely. A fixed 'text/html' here would let a test that means to
+  // exercise that branch pass without ever reaching it.
+  contentType: 'text/html',
+}))
 
 vi.mock('@tanstack/react-start/server-entry', () => ({
   default: {
@@ -34,7 +42,7 @@ vi.mock('@tanstack/react-start/server-entry', () => ({
       rendered.paths.push(`${url.pathname}${url.search}`)
       return new Response(`<html>rendered ${url.pathname}</html>`, {
         status: rendered.status,
-        headers: { 'content-type': 'text/html' },
+        headers: { 'content-type': rendered.contentType },
       })
     },
   },
@@ -80,6 +88,7 @@ const renderedPath = () => {
 beforeEach(() => {
   rendered.paths = []
   rendered.status = 200
+  rendered.contentType = 'text/html'
   deferred.length = 0
   edgeStore.clear()
   installEdgeCache()
@@ -439,4 +448,65 @@ describe('the edge cache', () => {
       warn.mockRestore()
     }
   })
+})
+
+
+/**
+ * X-Robots-Tag (wt-ksh.8.54).
+ *
+ * lib/robots-policy.test.ts proves the hostname predicate answers correctly.
+ * That is a different claim from "the Worker consults it", which is the gap
+ * this file's header exists for and the one that left v1's maintenance mode
+ * dead for the life of the project. These tests are about the WIRING, and in
+ * particular about the three response shapes that never reach the document
+ * handler and would silently miss a header set there.
+ *
+ * NOTE THAT EVERY OTHER TEST IN THIS FILE REQUESTS A BETA URL, so they are all
+ * now exercising the tagged path incidentally. That is not coverage — none of
+ * them asserts the header — which is why it is asserted explicitly here.
+ */
+describe('the staging noindex header', () => {
+  const prod = (path: string) => new Request(`https://wordleteams.com${path}`)
+
+  test('a beta document is tagged', async () => {
+    const response = await get('/about', VERSIONED)
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow')
+  })
+
+  test('the SAME request on the production host is NOT tagged', async () => {
+    // The control, and the one that matters. Without it every assertion above
+    // passes on a Worker that tags unconditionally — which would remove
+    // production from search the day the apex is added to this deployment.
+    const response = await send(prod('/about'), VERSIONED)
+    expect(response.headers.get('x-robots-tag')).toBeNull()
+  })
+
+  test('the maintenance redirect is tagged, though it never reaches the document handler', async () => {
+    const response = await send(new Request(url('/app')), { MAINTENANCE: 'true' })
+    expect(response.status).toBe(307)
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow')
+  })
+
+  test('a response served from the edge cache is tagged', async () => {
+    // A cache hit returns before the document handler runs, so an inner
+    // placement would tag the first request and not the second.
+    await get('/about', VERSIONED)
+    await settle()
+    const second = await get('/about', VERSIONED)
+    expect(second.headers.get('x-doc-cache')).toBe('HIT')
+    expect(second.headers.get('x-robots-tag')).toBe('noindex, nofollow')
+  })
+
+  test('a non-HTML response is tagged too', async () => {
+    // The content-type guard skips these entirely, and /sitemap.xml is a
+    // document a crawler is specifically invited to fetch.
+    rendered.contentType = 'application/xml; charset=utf-8'
+    try {
+      const response = await get('/sitemap.xml', VERSIONED)
+      expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow')
+    } finally {
+      rendered.contentType = 'text/html'
+    }
+  })
+
 })

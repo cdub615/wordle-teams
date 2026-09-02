@@ -3,6 +3,7 @@ import { wrapFetchWithSentry } from '@sentry/tanstackstart-react'
 import handler from '@tanstack/react-start/server-entry'
 import { NO_STORE, STATIC_CACHE, cachePolicyFor, hasSessionCookie } from './lib/cache-policy'
 import { MAINTENANCE_PATH, isMaintenanceGated, maintenanceEnabled } from './lib/maintenance'
+import { NOINDEX_VALUE, shouldNoindex } from './lib/robots-policy'
 import { TRACES_SAMPLE_RATE } from './lib/sentry-config'
 
 // @ts-expect-error handler type mismatch between TanStack Start and the Sentry
@@ -277,10 +278,59 @@ const withMaintenanceGate = {
   },
 }
 
+/**
+ * X-Robots-Tag ON THE STAGING HOSTNAMES, AND IT IS THE OUTERMOST LAYER.
+ *
+ * Vercel gave v1 an automatic `noindex` on every preview; Cloudflare gives
+ * nothing, so beta served the whole marketing surface on a real hostname with
+ * no canonical link to production (wt-ksh.8.54). lib/robots-policy.ts holds the
+ * decision and the argument for keying it on the HOSTNAME rather than the
+ * ENVIRONMENT var — briefly, beta and production are the SAME DEPLOYMENT, so a
+ * var cannot tell them apart on the day the apex is added.
+ *
+ * OUTERMOST FOR THREE REASONS, each of which is a way an inner placement leaks:
+ *   - THE MAINTENANCE REDIRECT. Gated below, it never reaches the document
+ *     handler, so a header set there would miss the 307 entirely.
+ *   - THE EDGE CACHE. A cache hit returns before the document handler runs.
+ *     Setting the header here means a stored response cannot carry the wrong
+ *     answer even if it were somehow written under a different hostname.
+ *   - EVERY NON-HTML RESPONSE. /sitemap.xml and the /api routes are documents a
+ *     crawler can reach and are skipped by the content-type guard below.
+ *
+ * IT DOES NOT REACH THE STATIC ASSETS, and that is a real limit rather than an
+ * oversight: /favicon.ico and /opengraph-image.png are served by the Workers
+ * assets layer without entering this handler at all (measured on wt-ksh.8.45,
+ * where they were the paths that DID report cf-cache-status). Images are not
+ * what wt-ksh.8.54 is about — the exposure is the marketing pages, and those
+ * are documents — but an asset on beta remains indexable. Fixing that needs a
+ * headers rule on the assets layer, which is not this file.
+ *
+ * A RESPONSE IS COPIED ONLY WHEN THE HEADER IS ACTUALLY ADDED. On production
+ * this wrapper is a hostname lookup and a pass-through, so the common path pays
+ * one Set lookup and allocates nothing.
+ */
+const withRobotsPolicy = {
+  async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
+    const response = await withMaintenanceGate.fetch(request, env, ctx)
+    // NO try/catch HERE, UNLIKE THE MAINTENANCE GATE BELOW, and the difference
+    // is real rather than an oversight. That one guards a property read on
+    // `env`, which can be a binding that never arrived or a Proxy that throws,
+    // and catching lets the request through. There is nothing equivalent to
+    // catch here: `new URL(request.url)` is the same call the cache-policy
+    // layer already made to serve this request, so a URL this cannot parse has
+    // already failed further down and no handling here can rescue it. A
+    // try/catch would read as a safety property the code does not have.
+    if (!shouldNoindex(new URL(request.url).hostname)) return response
+    const tagged = new Response(response.body, response)
+    tagged.headers.set('x-robots-tag', NOINDEX_VALUE)
+    return tagged
+  },
+}
+
 export default Sentry.withSentry(
   (env: { SENTRY_DSN?: string }) => ({
     dsn: env.SENTRY_DSN,
     tracesSampleRate: TRACES_SAMPLE_RATE,
   }),
-  withMaintenanceGate,
+  withRobotsPolicy,
 )
