@@ -64,11 +64,14 @@ exception is flagged for revisiting rather than inherited.
 
 - **`wordle-teams-9mjm` (P1)** — above. The fix is a judgement about developer
   ergonomics; three options are on the issue.
-- **`wordle-teams-g1cd` (P2)** — the zone's Browser Cache TTL rewrites
-  `max-age=0` to **14400** on cached documents, so a returning browser can hold
-  a marketing page for four hours across a deploy. **The version-keyed edge
-  invalidation does not reach a browser cache.** A dashboard setting, invisible
-  from the repo; `cache-policy.ts` now names the cause.
+- **`wordle-teams-g1cd` — FIXED, same session.** The zone's Browser Cache TTL
+  defaults to 4 hours and overrides a *lower* origin `max-age`, so the
+  documents' deliberate `max-age=0` was shipping as `max-age=14400` — four hours
+  of browser cache that the version-keyed edge key cannot reach. The owner set
+  the zone to **Respect Existing Headers**; all five documents verified back to
+  `max-age=0` with the edge cache still HITting, and every asset class
+  unchanged. **Runbook §3.5 checks it**, because dashboard state cannot be
+  asserted from the repository and the apex inherits it.
 - **`wordle-teams-jtvx` (P2)** — re-measured on a clean server: **two** of three
   invite tests fail under full-suite load, all three pass in isolation. A
   contention signature. The final run of the session was 66/66, so it is
@@ -96,7 +99,6 @@ exception is flagged for revisiting rather than inherited.
 - **`wt-ksh.8.40`** — Task 17's walk. Read `wordle-teams-9mjm` first.
 - **`wt-ksh.7.32`** — needs a probe query on beta, or measurement during the
   cutover run.
-- **`wordle-teams-g1cd`** — a Cloudflare dashboard decision.
 
 **Decisions I deliberately did not make:**
 
