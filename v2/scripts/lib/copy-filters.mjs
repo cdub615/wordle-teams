@@ -75,3 +75,56 @@ export function selectCopyable(players, teams) {
     skippedTeams: teams.length - copyableTeams.length,
   }
 }
+
+/**
+ * How many of a copy's dropped team memberships the filters ALREADY EXPLAIN.
+ *
+ * WHY THIS EXISTS. copy-from-supabase.mjs used to print, whenever
+ * `teams.droppedMembers > 0`:
+ *
+ *   Expected with --scope=mine. It would be a real problem with --scope=all.
+ *
+ * That sentence predates the skip filters above and is wrong because of them. A
+ * real `--scope=all` run against beta on 2026-09-02 dropped 6 memberships and
+ * told the operator it was "a real problem" — at cutover, under time pressure,
+ * which is the worst available moment to send someone chasing a non-issue.
+ * (wordle-teams-vlve)
+ *
+ * THE DROPS ARE STRUCTURAL UNDER BOTH SCOPES. upsertTeams resolves each member
+ * uuid against the players actually written and counts what it cannot resolve.
+ * Two things make a uuid unresolvable, and NEITHER is a fault:
+ *
+ *   - NAMELESS. The player was read, and isNamed() left it behind. 151 of 543
+ *     on production's data, so under `--scope=all` this is the whole story.
+ *   - OUT OF SCOPE. Under `--scope=mine` the player was never read at all.
+ *
+ * So the honest question is not "were any dropped" but "were MORE dropped than
+ * these two rules account for", and only that remainder is worth an alarm.
+ *
+ * COUNTED OVER copyableTeams, NOT EVERY SCOPED TEAM, because a team the copy is
+ * skipping is never handed to upsertTeams and cannot contribute a drop. Counting
+ * the others would inflate the prediction and mask a real anomaly underneath it.
+ *
+ * DUPLICATES ARE NOT DEDUPED, deliberately: upsertTeams walks the roster array
+ * and increments once per ENTRY, so a uuid listed twice on one team is two
+ * drops. The prediction has to count the same way or it cannot be subtracted.
+ *
+ * @returns counts that sum to `total`, the number of drops the filters predict.
+ */
+export function explainTeamMemberDrops(scopedPlayers, copyable) {
+  const scopedIds = new Set(scopedPlayers.map((p) => p.id))
+  const copiedIds = new Set(copyable.players.map((p) => p.id))
+
+  let nameless = 0
+  let outOfScope = 0
+  for (const team of copyable.teams) {
+    for (const id of team.player_ids || []) {
+      if (copiedIds.has(id)) continue
+      // Read but not copied means the name filter took it; never read at all
+      // means the scope did.
+      if (scopedIds.has(id)) nameless++
+      else outOfScope++
+    }
+  }
+  return { nameless, outOfScope, total: nameless + outOfScope }
+}

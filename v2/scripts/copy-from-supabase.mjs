@@ -55,7 +55,7 @@
 import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
-import { selectCopyable } from './lib/copy-filters.mjs'
+import { explainTeamMemberDrops, selectCopyable } from './lib/copy-filters.mjs'
 import { reminderFieldsFor } from './lib/copy-reminder-policy.mjs'
 import { readCounts } from './lib/count-tables.mjs'
 import {
@@ -394,11 +394,42 @@ for (const [label, fn, rows] of TABLES) {
   talliesByTable[label] = await writeAll(label, fn, rows)
 }
 
+/**
+ * DROPPED MEMBERSHIPS, ACCOUNTED FOR RATHER THAN MERELY COUNTED.
+ *
+ * The previous version of this note said "Expected with --scope=mine. It would
+ * be a real problem with --scope=all." That predated the skip filters and was
+ * measurably wrong: a real --scope=all run against beta dropped 6 and was told
+ * it had a real problem (wordle-teams-vlve). Under --scope=all the nameless
+ * filter alone accounts for them, because a member the copy did not write is a
+ * uuid upsertTeams cannot resolve.
+ *
+ * So the drops are predicted here from the same two rules that cause them, and
+ * only the REMAINDER is an alarm. A remainder means upsertTeams failed to
+ * resolve a uuid belonging to a player this copy did write, which is the one
+ * shape that would be a genuine fault — and which the old note could never have
+ * distinguished from the 151 routine ones.
+ */
 if (talliesByTable.teams.droppedMembers > 0) {
+  const explained = explainTeamMemberDrops(scopedPlayers, copyable)
+  const unexplained = talliesByTable.teams.droppedMembers - explained.total
+  const causes = [
+    explained.nameless > 0 ? `${explained.nameless} nameless` : null,
+    explained.outOfScope > 0 ? `${explained.outOfScope} out of scope` : null,
+  ].filter(Boolean)
+
   console.log(
-    `\n  note: ${talliesByTable.teams.droppedMembers} team membership(s) referenced a player outside the copied scope and were dropped.`,
+    `\n  note: ${talliesByTable.teams.droppedMembers} team membership(s) were dropped; ` +
+      `${explained.total} accounted for (${causes.join(', ')}).`,
   )
-  console.log('  Expected with --scope=mine. It would be a real problem with --scope=all.')
+  if (unexplained > 0) {
+    // THE ONLY LINE HERE THAT IS AN ALARM, and it is deliberately the only one
+    // phrased as one. Everything above is arithmetic the operator can check.
+    console.log(
+      `  PROBLEM: ${unexplained} dropped membership(s) are NOT explained by the ` +
+        'nameless filter or the scope. A member this copy DID write failed to resolve.',
+    )
+  }
 }
 
 // WHAT THIS COPY OVERWROTE — first of the run's two report blocks, and near the

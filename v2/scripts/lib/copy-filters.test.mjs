@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isNamed, selectCopyable } from './copy-filters.mjs'
+import { explainTeamMemberDrops, isNamed, selectCopyable } from './copy-filters.mjs'
 
 // The copy script's two exclusion rules, pinned. copy-from-supabase.mjs itself
 // cannot be tested — it runs against a live deployment at module scope — so
@@ -92,5 +92,89 @@ describe('selectCopyable', () => {
     expect(got.teams).toHaveLength(2)
     expect(got.skippedPlayers).toBe(0)
     expect(got.skippedTeams).toBe(0)
+  })
+})
+
+describe('explainTeamMemberDrops', () => {
+  const named = (id) => ({ id, first_name: 'A', last_name: 'B' })
+  const nameless = (id) => ({ id, first_name: null, last_name: null })
+
+  test('a roster of copied members predicts no drops', () => {
+    const scoped = [named('a'), named('b')]
+    const copyable = selectCopyable(scoped, [{ id: 't', player_ids: ['a', 'b'] }])
+    expect(explainTeamMemberDrops(scoped, copyable)).toEqual({
+      nameless: 0,
+      outOfScope: 0,
+      total: 0,
+    })
+  })
+
+  test('a nameless member is attributed to the name filter, not to the scope', () => {
+    // The --scope=all case, and the whole reason this exists: the player WAS
+    // read, so calling it "outside the copied scope" is the wrong explanation.
+    const scoped = [named('a'), nameless('b')]
+    const copyable = selectCopyable(scoped, [{ id: 't', player_ids: ['a', 'b'] }])
+    expect(explainTeamMemberDrops(scoped, copyable)).toEqual({
+      nameless: 1,
+      outOfScope: 0,
+      total: 1,
+    })
+  })
+
+  test('a member never read at all is attributed to the scope', () => {
+    // The --scope=mine case. 'z' is on the roster and is not among the scoped
+    // players, so it was never a candidate.
+    const scoped = [named('a')]
+    const copyable = selectCopyable(scoped, [{ id: 't', player_ids: ['a', 'z'] }])
+    expect(explainTeamMemberDrops(scoped, copyable)).toEqual({
+      nameless: 0,
+      outOfScope: 1,
+      total: 1,
+    })
+  })
+
+  test('both causes are counted separately in one run', () => {
+    const scoped = [named('a'), nameless('b')]
+    const copyable = selectCopyable(scoped, [{ id: 't', player_ids: ['a', 'b', 'z'] }])
+    expect(explainTeamMemberDrops(scoped, copyable)).toEqual({
+      nameless: 1,
+      outOfScope: 1,
+      total: 2,
+    })
+  })
+
+  test('a team the copy is SKIPPING contributes nothing', () => {
+    // It is never handed to upsertTeams, so it cannot produce a drop. Counting
+    // it would inflate the prediction and hide a real anomaly underneath.
+    //
+    // THIS IS PINNED BY THE SIGNATURE MORE THAN BY THIS TEST, and saying so is
+    // the honest version: explainTeamMemberDrops only ever receives `copyable`,
+    // which has no skipped teams in it, so today there is no mutation of the
+    // body that makes this fail — confirmed by trying. It stays because it
+    // documents the property and would catch a future change that widened the
+    // parameter to every scoped team, which is the plausible way to break it.
+    const scoped = [named('a'), nameless('b')]
+    const teams = [
+      { id: 'kept', player_ids: ['a'] },
+      // Every member nameless, so selectCopyable drops the whole team.
+      { id: 'skipped', player_ids: ['b', 'z'] },
+    ]
+    const copyable = selectCopyable(scoped, teams)
+    expect(copyable.teams.map((t) => t.id)).toEqual(['kept'])
+    expect(explainTeamMemberDrops(scoped, copyable).total).toBe(0)
+  })
+
+  test('a uuid listed twice on one team counts twice', () => {
+    // upsertTeams walks the array and increments per ENTRY, so the prediction
+    // has to count the same way or subtracting it reports a false remainder.
+    const scoped = [named('a'), nameless('b')]
+    const copyable = selectCopyable(scoped, [{ id: 't', player_ids: ['a', 'b', 'b'] }])
+    expect(explainTeamMemberDrops(scoped, copyable).nameless).toBe(2)
+  })
+
+  test('a team with no player_ids array at all does not throw', () => {
+    const scoped = [named('a')]
+    const copyable = { players: scoped, teams: [{ id: 't' }] }
+    expect(() => explainTeamMemberDrops(scoped, copyable)).not.toThrow()
   })
 })
