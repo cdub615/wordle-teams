@@ -817,4 +817,42 @@ test.describe('crawler and social metadata', () => {
     expect(url.origin).toBe('https://wordleteams.com')
     expect((await request.get(url.pathname)).status()).toBe(200)
   })
+
+  test('every advertised route renders exactly one canonical, and og:url agrees', async ({
+    page,
+  }) => {
+    /**
+     * THE ROUND TRIP FOR wt-ksh.8.55, and the only place the claim can be
+     * checked at all. The unit tests prove lib/seo.ts computes the right URLs
+     * and that each route file calls publicRouteHead with its own path. They
+     * cannot prove TanStack RENDERS a route-level `links:` entry, nor that
+     * removing og:url from the root actually leaves one tag rather than none.
+     *
+     * EXACTLY ONE OF EACH IS THE ASSERTION. Two canonicals is the failure mode
+     * that would follow from putting og:url back in the root as well, and a
+     * document with two canonical links has none as far as Google is concerned.
+     */
+    const expected: Readonly<Record<string, string>> = {
+      '/': 'https://wordleteams.com',
+      // The duplicate-content case: /home renders the same component as / and
+      // points at it rather than at itself.
+      '/home': 'https://wordleteams.com',
+      '/about': 'https://wordleteams.com/about',
+      '/privacy': 'https://wordleteams.com/privacy',
+      '/terms': 'https://wordleteams.com/terms',
+      '/login': 'https://wordleteams.com/login',
+      '/maintenance': 'https://wordleteams.com/maintenance',
+    }
+
+    for (const [path, canonical] of Object.entries(expected)) {
+      await page.goto(path)
+      const links = page.locator('link[rel="canonical"]')
+      await expect(links, `${path} canonical count`).toHaveCount(1)
+      expect(await links.getAttribute('href'), `${path} canonical`).toBe(canonical)
+
+      const ogUrls = page.locator('meta[property="og:url"]')
+      await expect(ogUrls, `${path} og:url count`).toHaveCount(1)
+      expect(await ogUrls.getAttribute('content'), `${path} og:url`).toBe(canonical)
+    }
+  })
 })

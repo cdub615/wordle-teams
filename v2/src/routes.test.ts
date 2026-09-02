@@ -189,8 +189,17 @@ describe('/privacy and /terms, and the footer links that reach them', () => {
       .replace(/(^|\s)\/\/[^\n]*/g, '$1')
 
   /** Every pageTitle('...') argument in a file, in source order. */
+  // BOTH CALL SHAPES, since wt-ksh.8.55. A public route now states its title as
+  // the second argument to publicRouteHead(path, title) rather than calling
+  // pageTitle() itself, and matching only the old shape would return [] for
+  // those files — which reads as "the title is missing" when it is merely
+  // spelled differently, and would have been satisfied by deleting it.
   const titlesIn = (source: string) =>
-    [...source.matchAll(/pageTitle\(\s*['"]([^'"]*)['"]\s*\)/g)].map((match) => match[1])
+    [
+      ...source.matchAll(
+        /pageTitle\(\s*['"]([^'"]*)['"]\s*\)|publicRouteHead\(\s*['"][^'"]*['"]\s*,\s*['"]([^'"]*)['"]\s*\)/g,
+      ),
+    ].map((match) => match[1] ?? match[2])
 
   test('each legal page carries its own v1 title, and not the other one', () => {
     // v1's src/app/privacy/layout.tsx and src/app/terms/layout.tsx set these as
@@ -276,8 +285,17 @@ describe('/login-error, and the two config strings that are the only way to it',
   const login = () => codeOf(read('./routes/login.tsx'))
 
   /** Every pageTitle('...') argument in a file, in source order. */
+  // BOTH CALL SHAPES, since wt-ksh.8.55. A public route now states its title as
+  // the second argument to publicRouteHead(path, title) rather than calling
+  // pageTitle() itself, and matching only the old shape would return [] for
+  // those files — which reads as "the title is missing" when it is merely
+  // spelled differently, and would have been satisfied by deleting it.
   const titlesIn = (source: string) =>
-    [...source.matchAll(/pageTitle\(\s*['"]([^'"]*)['"]\s*\)/g)].map((match) => match[1])
+    [
+      ...source.matchAll(
+        /pageTitle\(\s*['"]([^'"]*)['"]\s*\)|publicRouteHead\(\s*['"][^'"]*['"]\s*,\s*['"]([^'"]*)['"]\s*\)/g,
+      ),
+    ].map((match) => match[1] ?? match[2])
 
   test('carries v1\'s own title, which is /login\'s title and not a new one', () => {
     // v1's src/app/login-error/layout.tsx sets `metadata.title` to

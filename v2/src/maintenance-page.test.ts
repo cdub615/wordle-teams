@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test, vi } from 'vitest'
+import { SITE_ORIGIN, pageTitle } from './lib/seo'
 
 /**
  * WHAT /maintenance SAYS, AND THE UNDEFINED-TOKEN TRAP IT WAS PORTED OUT OF.
@@ -119,14 +120,39 @@ describe('the page a visitor gets during an outage', () => {
     ).toBe(MaintenancePage)
   })
 
-  test('declares no route option but that component — no head, no loader, no beforeLoad', () => {
+  test('declares no route option but head and component — no loader, no beforeLoad', () => {
     // The key set is asserted exhaustively, so this is red for ANY option
-    // added. The one that matters is head(): v1's src/app/maintenance/ has
-    // page.tsx and error.tsx and NO layout.tsx, so the page inherits the root
-    // metadata title, and the obvious "improvement" is to add
-    // head: () => pageTitle('Maintenance') — which is the string a browser then
-    // autocompletes for months after the outage.
-    expect(Object.keys((Route as unknown as { options: object }).options)).toEqual(['component'])
+    // added.
+    //
+    // IT GAINED head() IN wt-ksh.8.55, FOR THE CANONICAL AND NOTHING ELSE, and
+    // the test below is what now carries the concern this one used to. The
+    // route is advertised in lib/sitemap.ts, so it needs to say which URL it
+    // is; that is a different question from what it is CALLED.
+    expect(Object.keys((Route as unknown as { options: object }).options)).toEqual([
+      'head',
+      'component',
+    ])
+  })
+
+  test('its head() sets the canonical and does NOT give the page a title of its own', () => {
+    // THE CLAIM THE PREVIOUS TEST WAS REALLY MAKING, now asserted directly
+    // instead of through the proxy of "there is no head at all". v1's
+    // src/app/maintenance/ has page.tsx and error.tsx and NO layout.tsx, so the
+    // page inherits the root metadata title. The obvious "improvement" is
+    // pageTitle('Maintenance') — which is the string a browser autocompletes
+    // for months after the outage is over.
+    const head = (
+      Route as unknown as {
+        options: { head: () => { meta: { title?: string }[]; links: { rel: string; href: string }[] } }
+      }
+    ).options.head()
+
+    // pageTitle() with no segment IS the site-wide default, which is exactly
+    // what inheriting used to produce. Compared against the helper rather than
+    // the literal, so this stays true if the default is ever reworded.
+    expect(head.meta.find((tag) => 'title' in tag)?.title).toBe(pageTitle())
+    expect(head.meta.find((tag) => 'title' in tag)?.title).not.toContain('Maintenance')
+    expect(head.links).toEqual([{ rel: 'canonical', href: `${SITE_ORIGIN}/maintenance` }])
   })
 
   test('the icon is decorative and takes its colour from the text token', () => {

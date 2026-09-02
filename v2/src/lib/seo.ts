@@ -91,11 +91,19 @@ export const OG_IMAGE_ALT = 'Wordle Teams'
  *     on serving the old one indefinitely. Redrawing it therefore means
  *     shipping it under a new filename, not overwriting this one.
  *
- * og:url IS THE APEX ON EVERY ROUTE, which is what v1 does and is not right.
- * The property is meant to name the canonical URL of the page being shared, so
- * sharing /privacy today announces itself as the home page. Fixing it needs
- * per-route head() overrides, which is a behaviour change well outside a task
- * about robots.txt — filed rather than smuggled in here.
+ * og:url IS DELIBERATELY ABSENT FROM THIS LIST, and its absence is the fix for
+ * wt-ksh.8.55 rather than an omission. v1 sets it site-wide in the root layout
+ * and no page overrides it, so production announces every URL as the home page
+ * and a scraper that dedupes on og:url treats the whole site as one document.
+ * It is now per-route, next to the canonical it has to agree with — see
+ * publicRouteHead below.
+ *
+ * IT IS REMOVED FROM THE ROOT RATHER THAN OVERRIDDEN THERE. Relying on a child
+ * route's meta to win a merge would make the correctness of every page depend
+ * on TanStack's dedupe rule for `property`, and the failure mode of that rule
+ * changing is TWO og:url tags rather than a visibly wrong one. Absent from the
+ * root, a route either declares its own or emits none, and none is strictly
+ * better than a wrong one.
  *
  * IT IS A DATA STRUCTURE AND NOT JSX so that `vitest run` can import it and
  * read the real values. Spelled into __root.tsx's head() by hand, these tags
@@ -108,7 +116,6 @@ export const socialMetaTags = [
   { name: 'description', content: APP_DESCRIPTION },
   { property: 'og:title', content: APP_DEFAULT_TITLE },
   { property: 'og:description', content: APP_DESCRIPTION },
-  { property: 'og:url', content: SITE_ORIGIN },
   { property: 'og:site_name', content: APP_NAME },
   { property: 'og:image:type', content: OG_IMAGE_TYPE },
   { property: 'og:image:width', content: String(OG_IMAGE_WIDTH) },
@@ -125,3 +132,71 @@ export const socialMetaTags = [
   { name: 'twitter:image:alt', content: OG_IMAGE_ALT },
   { name: 'twitter:image', content: OG_IMAGE_URL },
 ] as const
+
+
+/**
+ * WHAT EACH PUBLIC ROUTE DECLARES AS ITS CANONICAL URL.
+ *
+ * Keyed by the route's own path so a route passes what it IS and this table
+ * decides what it CLAIMS — a route cannot give itself the wrong canonical by
+ * mistyping a string, which is the whole failure mode a canonical has.
+ *
+ * `/home` IS THE ONE THAT IS NOT SELF-REFERENTIAL, and it is the reason this is
+ * a table instead of a concatenation. src/routes/index.tsx and
+ * src/routes/home.tsx render the same component, and lib/sitemap.ts advertises
+ * both — v1's behaviour, carried over — so the pair is duplicate content
+ * submitted twice with nothing saying which one is meant to win. Google ignores
+ * the sitemap `priority` that is currently the only hint.
+ *
+ * /home CANNOT SIMPLY BE DROPPED: routes.test.ts and the route file both record
+ * that it exists for inbound links and for v1's sitemap, and it is deliberately
+ * exempt from the signed-in bounce that `/` has. So it stays listed and points
+ * at the apex instead.
+ *
+ * og:url MOVES WITH THE CANONICAL, NOT WITH THE ROUTE. Both properties answer
+ * the same question — "what URL is this page, really" — so /home shares to
+ * social as the apex for exactly the reason it canonicalises there. Two tags
+ * disagreeing about that would be worse than either answer alone.
+ *
+ * ROUTES ABSENT FROM THIS TABLE EMIT NEITHER TAG, deliberately: /app, /me,
+ * /complete-profile and /login-error are either disallowed in robots.txt or
+ * unadvertised, and a canonical on a page nobody should index does nothing.
+ * src/crawler-metadata.test.ts pins this table against SITEMAP_ENTRIES so a
+ * route added to one and not the other cannot go unnoticed.
+ */
+export const CANONICAL_PATH_BY_ROUTE: Readonly<Record<string, string>> = {
+  '': '',
+  '/home': '',
+  '/about': '/about',
+  '/privacy': '/privacy',
+  '/terms': '/terms',
+  '/login': '/login',
+  '/maintenance': '/maintenance',
+}
+
+/** The absolute canonical URL a route declares. Always on SITE_ORIGIN. */
+export function canonicalUrlFor(routePath: string): string {
+  const canonicalPath = CANONICAL_PATH_BY_ROUTE[routePath]
+  if (canonicalPath === undefined) {
+    throw new Error(`No canonical declared for route "${routePath}" — add it to CANONICAL_PATH_BY_ROUTE`)
+  }
+  return `${SITE_ORIGIN}${canonicalPath}`
+}
+
+/**
+ * The complete head() for a public route: its title, its og:url and its
+ * rel=canonical, which are the three things that must not disagree.
+ *
+ * THE TITLE SEGMENT IS OPTIONAL and omitting it yields the site-wide default,
+ * which is what `/`, `/home` and `/maintenance` already emitted. So adopting
+ * this changes no title anywhere — worth stating because /maintenance's route
+ * file records having NO head() as deliberate v1 parity, and it now has one.
+ * That note was about the TITLE, and the title it produces is unchanged.
+ */
+export function publicRouteHead(routePath: string, titleSegment?: string) {
+  const href = canonicalUrlFor(routePath)
+  return {
+    meta: [{ title: pageTitle(titleSegment) }, { property: 'og:url', content: href }],
+    links: [{ rel: 'canonical', href }],
+  }
+}

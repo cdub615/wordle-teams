@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { pageTitle } from '#/lib/seo'
+import { publicRouteHead } from '#/lib/seo'
 
 /**
  * Ported from v1's src/app/terms/page.tsx.
@@ -29,7 +29,7 @@ import { pageTitle } from '#/lib/seo'
  */
 export const Route = createFileRoute('/terms')({
   // v1: src/app/terms/layout.tsx metadata.title -> 'Terms of Service'
-  head: () => ({ meta: [{ title: pageTitle('Terms of Service') }] }),
+  head: () => publicRouteHead('/terms', 'Terms of Service'),
   component: Terms,
 })
 

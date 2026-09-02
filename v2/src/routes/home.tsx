@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { pageTitle } from '#/lib/seo'
+import { publicRouteHead } from '#/lib/seo'
 import { Landing } from '#/components/home/landing.tsx'
 
 /**
@@ -29,6 +29,6 @@ import { Landing } from '#/components/home/landing.tsx'
 export const Route = createFileRoute('/home')({
   // Same as `/`: v1's src/app/home/page.tsx declares no metadata, so it inherits
   // the site-wide default title.
-  head: () => ({ meta: [{ title: pageTitle() }] }),
+  head: () => publicRouteHead('/home'),
   component: Landing,
 })

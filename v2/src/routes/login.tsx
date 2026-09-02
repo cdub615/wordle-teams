@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useEffect, useState, type FormEvent } from 'react'
 import { authClient } from '#/lib/auth-client'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
-import { pageTitle } from '#/lib/seo'
+import { publicRouteHead } from '#/lib/seo'
 import { useHydrated } from '#/lib/use-hydrated'
 import { Button } from '#/components/ui/button.tsx'
 import {
@@ -18,7 +18,7 @@ import { Label } from '#/components/ui/label.tsx'
 
 export const Route = createFileRoute('/login')({
   // v1: src/app/login/layout.tsx metadata.title
-  head: () => ({ meta: [{ title: pageTitle('Login / Signup') }] }),
+  head: () => publicRouteHead('/login', 'Login / Signup'),
   beforeLoad: ({ context }) => {
     if (context.isAuthenticated) throw redirect({ to: '/app' })
   },

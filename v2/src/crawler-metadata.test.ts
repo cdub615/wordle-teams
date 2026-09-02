@@ -4,6 +4,9 @@ import {
   APP_DEFAULT_TITLE,
   APP_DESCRIPTION,
   APP_NAME,
+  CANONICAL_PATH_BY_ROUTE,
+  canonicalUrlFor,
+  publicRouteHead,
   OG_IMAGE_ALT,
   OG_IMAGE_HEIGHT,
   OG_IMAGE_TYPE,
@@ -388,14 +391,22 @@ describe('the OpenGraph and Twitter card', () => {
     // card silently loses its picture. Nothing else in the repo can see it:
     // metaKey() below flattens the two attributes into one key by design, and
     // the e2e locator is `meta[property="x"], meta[name="x"]`, which matches
-    // either by construction. So the pair is asserted, in order, all nineteen.
+    // either by construction. So the pair is asserted, in order, all eighteen.
+    //
+    // EIGHTEEN, NOT NINETEEN, SINCE wt-ksh.8.55: og:url has left this list.
+    // THE RENDERED DOCUMENT STILL CARRIES IT, so this is still a parity port of
+    // production's OUTPUT — what changed is that the tag is now declared by the
+    // route rather than site-wide, because v1's single site-wide value made
+    // every page announce itself as the home page. It is asserted per route in
+    // "publicRouteHead emits og:url and rel=canonical, and they agree" below,
+    // and its absence HERE is asserted too, so it cannot quietly come back and
+    // ship two of them.
     expect(
       socialMetaTags.map((tag) => ('name' in tag ? ['name', tag.name] : ['property', tag.property])),
     ).toEqual([
       ['name', 'description'],
       ['property', 'og:title'],
       ['property', 'og:description'],
-      ['property', 'og:url'],
       ['property', 'og:site_name'],
       ['property', 'og:image:type'],
       ['property', 'og:image:width'],
@@ -418,7 +429,6 @@ describe('the OpenGraph and Twitter card', () => {
       description: PROD_DESCRIPTION,
       'og:title': PROD_TITLE,
       'og:description': PROD_DESCRIPTION,
-      'og:url': 'https://wordleteams.com',
       'og:site_name': 'Wordle Teams',
       'og:image:type': 'image/png',
       'og:image:width': '1200',
@@ -582,4 +592,119 @@ describe('robots.txt and the sitemap cannot contradict each other', () => {
     // that 404s is the one sitemap error Search Console actually reports.
     expect(sitemapPaths.filter((path) => !routes.includes(path))).toEqual([])
   })
+})
+
+
+// ---------------------------------------------------------------------------
+// Canonical URLs and og:url (wt-ksh.8.55).
+// ---------------------------------------------------------------------------
+
+/**
+ * THE THREE WAYS THIS GOES WRONG, one describe block each.
+ *
+ * v1 set og:url site-wide and let every page claim to be the home page, so a
+ * scraper that dedupes on it treats the whole site as one document. And `/` and
+ * /home render the same component and are both advertised, which is duplicate
+ * content submitted twice with nothing saying which wins.
+ *
+ * The assertions below are on the DATA and on the ROUTE SOURCE, not on a
+ * rendered document, for the reason this whole file exists: vitest is the CI
+ * gate and there is no DOM in it. e2e/routes.spec.ts checks the rendered head.
+ */
+describe('the site-wide card no longer claims a URL', () => {
+  test('og:url is absent from socialMetaTags', () => {
+    // If it comes back, every route ships two og:url tags — the root's and its
+    // own — which is worse than the single wrong one this replaced.
+    //
+    // WIDENED TO string[] ON PURPOSE. socialMetaTags is `as const`, so with
+    // og:url removed TypeScript knows the comparison can never be true and
+    // rejects it as an error rather than compiling a test that always passes.
+    // That is a stronger guarantee than this assertion — the type is now the
+    // real gate — but it only holds while the array stays literal, so the
+    // runtime check stays as the one that survives someone typing the list.
+    const keys: readonly string[] = socialMetaTags.map(metaKey)
+    expect(keys).not.toContain('og:url')
+  })
+})
+
+describe('every advertised URL declares a canonical', () => {
+  test('the canonical table covers exactly the sitemap, no more and no less', () => {
+    // A route added to one and not the other is the drift this pins. Sorted
+    // rather than set-compared so the failure message names the difference.
+    expect(Object.keys(CANONICAL_PATH_BY_ROUTE).sort()).toEqual(
+      SITEMAP_ENTRIES.map((entry) => entry.path).sort(),
+    )
+  })
+
+  test('each route canonicalises to its own sitemap <loc>, except /home', () => {
+    for (const pathname of sitemapPaths) {
+      const routePath = pathname === '/' ? '' : pathname
+      if (routePath === '/home') continue
+      const loc = sitemap.find((entry) => new URL(entry.loc).pathname === pathname)!.loc
+      expect(canonicalUrlFor(routePath), `${pathname} canonical`).toBe(loc)
+    }
+  })
+
+  test('/home canonicalises to the apex, because it is the same page as /', () => {
+    // The one deliberate non-self-reference, and the reason the mapping is a
+    // table. Asserted against `/`'s own canonical rather than a retyped literal
+    // so the two cannot drift.
+    expect(canonicalUrlFor('/home')).toBe(canonicalUrlFor(''))
+    expect(canonicalUrlFor('/home')).toBe(SITE_ORIGIN)
+  })
+
+  test('an undeclared route throws rather than guessing', () => {
+    // Silently returning SITE_ORIGIN + path would hand a new app route a
+    // canonical it should not have. Failing loudly at the call site is the
+    // point of the table.
+    expect(() => canonicalUrlFor('/app')).toThrow(/No canonical declared/)
+  })
+})
+
+describe('publicRouteHead emits og:url and rel=canonical, and they agree', () => {
+  for (const routePath of Object.keys(CANONICAL_PATH_BY_ROUTE)) {
+    test(`"${routePath || '/'}" declares one canonical and one matching og:url`, () => {
+      const head = publicRouteHead(routePath)
+      const ogUrl = head.meta.filter((tag) => 'property' in tag && tag.property === 'og:url')
+      const canonical = head.links.filter((link) => link.rel === 'canonical')
+      expect(ogUrl).toHaveLength(1)
+      expect(canonical).toHaveLength(1)
+      // THE ASSERTION THAT MATTERS: the two tags answer the same question, so
+      // disagreeing is worse than either answer alone.
+      expect(ogUrl[0].content).toBe(canonical[0].href)
+      expect(canonical[0].href).toBe(canonicalUrlFor(routePath))
+    })
+  }
+})
+
+describe('the route files really call it', () => {
+  /**
+   * THE UNIMPORTED LINK IN THE CHAIN, exactly as the __root.tsx spread test
+   * above. Everything else here asserts a pure function that no route has to
+   * use. Deleting `head:` from a route file leaves all of it green and ships a
+   * page with no canonical at all.
+   */
+  const ROUTE_FILES: Readonly<Record<string, string>> = {
+    '': './routes/index.tsx',
+    '/home': './routes/home.tsx',
+    '/about': './routes/about.tsx',
+    '/privacy': './routes/privacy.tsx',
+    '/terms': './routes/terms.tsx',
+    '/login': './routes/login.tsx',
+    '/maintenance': './routes/maintenance.tsx',
+  }
+
+  test('every route in the canonical table has a file listed here', () => {
+    expect(Object.keys(ROUTE_FILES).sort()).toEqual(Object.keys(CANONICAL_PATH_BY_ROUTE).sort())
+  })
+
+  for (const [routePath, file] of Object.entries(ROUTE_FILES)) {
+    test(`${file} calls publicRouteHead('${routePath}')`, () => {
+      const source = read(file)
+      // Matched on the CALL WITH ITS OWN PATH, not merely on the identifier:
+      // passing another route's path is the mistake that produces a confidently
+      // wrong canonical, and it is invisible in a rendered page.
+      expect(source).toContain(`publicRouteHead('${routePath}'`)
+    })
+  }
 })

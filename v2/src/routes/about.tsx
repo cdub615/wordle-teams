@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { pageTitle } from '#/lib/seo'
+import { publicRouteHead } from '#/lib/seo'
 
 /**
  * Copy and screenshots ported from v1's src/components/about.tsx.
@@ -99,7 +99,7 @@ import { pageTitle } from '#/lib/seo'
  * nothing about its headers.
  */
 export const Route = createFileRoute('/about')({
-  head: () => ({ meta: [{ title: pageTitle('About') }] }),
+  head: () => publicRouteHead('/about', 'About'),
   component: About,
 })
 

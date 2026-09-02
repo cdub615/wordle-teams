@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { pageTitle } from '#/lib/seo'
+import { publicRouteHead } from '#/lib/seo'
 
 /**
  * Ported from v1's src/app/privacy/page.tsx.
@@ -37,7 +37,7 @@ import { pageTitle } from '#/lib/seo'
  */
 export const Route = createFileRoute('/privacy')({
   // v1: src/app/privacy/layout.tsx metadata.title -> 'Privacy Policy'
-  head: () => ({ meta: [{ title: pageTitle('Privacy Policy') }] }),
+  head: () => publicRouteHead('/privacy', 'Privacy Policy'),
   component: Privacy,
 })
 

@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { publicRouteHead } from '#/lib/seo'
 
 /**
  * Ported from v1's src/components/maintenance.tsx (rendered by
@@ -12,12 +13,18 @@ import { createFileRoute } from '@tanstack/react-router'
  * somewhere to point, and being reachable directly is how you check the page
  * still looks right without taking the site down to do it.
  *
- * NO head(), WHICH IS v1 PARITY AND NOT AN OVERSIGHT. v1's src/app/maintenance/
- * contains page.tsx and error.tsx and no layout.tsx, so the page inherits the
- * root metadata title — 'Wordle Teams: The ultimate app for Wordle enthusiasts'
- * — exactly as this inherits __root.tsx's pageTitle() default. A title of
- * "Maintenance - Wordle Teams" would also be the string a browser keeps in
+ * NO TITLE OF ITS OWN, WHICH IS v1 PARITY AND NOT AN OVERSIGHT. v1's
+ * src/app/maintenance/ contains page.tsx and error.tsx and no layout.tsx, so
+ * the page inherits the root metadata title — 'Wordle Teams: The ultimate app
+ * for Wordle enthusiasts'. publicRouteHead() is called with no title segment
+ * below, which yields exactly that same default, so this is unchanged. A title
+ * of "Maintenance - Wordle Teams" would also be the string a browser keeps in
  * history and autocompletes for months after the outage.
+ *
+ * IT DOES NOW HAVE A head(), for the canonical and og:url alone (wt-ksh.8.55).
+ * The route is in lib/sitemap.ts — advertising the outage page is v1's
+ * behaviour and its own uncomfortable decision, argued there — and a URL that
+ * is advertised should say what it is.
  *
  * THE COPY IS v1'S, VERBATIM: "Coming Soon" and "Site is under construction".
  * It is deliberately vague about duration, which is the right call for a
@@ -41,6 +48,7 @@ import { createFileRoute } from '@tanstack/react-router'
  * assistive technology; the h1 says what the page is.
  */
 export const Route = createFileRoute('/maintenance')({
+  head: () => publicRouteHead('/maintenance'),
   component: MaintenancePage,
 })
 

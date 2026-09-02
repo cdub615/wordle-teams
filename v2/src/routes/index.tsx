@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { pageTitle } from '#/lib/seo'
+import { publicRouteHead } from '#/lib/seo'
 import { Landing } from '#/components/home/landing.tsx'
 
 /**
@@ -50,7 +50,7 @@ import { Landing } from '#/components/home/landing.tsx'
 export const Route = createFileRoute('/')({
   // No segment: the apex takes the site-wide default title, which is what v1's
   // src/app/page.tsx does by declaring no metadata of its own.
-  head: () => ({ meta: [{ title: pageTitle() }] }),
+  head: () => publicRouteHead(''),
   beforeLoad: ({ context }) => {
     if (context.isAuthenticated) throw redirect({ to: '/app' })
   },
