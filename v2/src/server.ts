@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/cloudflare'
 import { wrapFetchWithSentry } from '@sentry/tanstackstart-react'
 import handler from '@tanstack/react-start/server-entry'
-import { NO_STORE, cachePolicyFor, hasSessionCookie } from './lib/cache-policy'
+import { NO_STORE, STATIC_CACHE, cachePolicyFor, hasSessionCookie } from './lib/cache-policy'
 import { MAINTENANCE_PATH, isMaintenanceGated, maintenanceEnabled } from './lib/maintenance'
 import { TRACES_SAMPLE_RATE } from './lib/sentry-config'
 
@@ -47,20 +47,165 @@ const sentryFetch = sentryHandler.fetch as unknown as WorkerFetch
  * nothing either. A transient 5xx on a route that DOES exist is the same bug
  * with a shorter fuse. Everything that is not a 200 gets NO_STORE.
  */
+/**
+ * The header that makes the edge cache OBSERVABLE, because nothing else does.
+ *
+ * `cf-cache-status` is NOT emitted for a Cache API hit. That header is added by
+ * the CDN cache layer a `fetch()` passes through; a response we return out of
+ * `caches.default` is returned by the Worker, and Cloudflare does not annotate
+ * it. So a curl against beta cannot otherwise tell "served from the edge" from
+ * "rendered again", which is exactly the mistake wt-ksh.8.45 was filed to stop
+ * anyone making twice.
+ *
+ * The value is baked into the STORED copy as HIT and set on the LIVE copy as
+ * MISS, so two consecutive GETs report MISS then HIT. That is a stronger signal
+ * than cf-cache-status would have been: it can only be produced by our own
+ * put/match round-trip.
+ */
+const DOC_CACHE_HEADER = 'x-doc-cache'
+
+/**
+ * The edge cache and the key to use, or null when caching must not happen.
+ *
+ * RETURNING NULL IS THE SAFE ANSWER AND IT IS RETURNED OFTEN. `caches` does not
+ * exist under plain vitest (the test script is `vitest`, not
+ * @cloudflare/vitest-pool-workers), and CF_VERSION_METADATA is absent anywhere
+ * the Worker is not a deployed version. Both degrade to "render it", which
+ * costs latency and nothing else — the same direction cache-policy.ts's default
+ * chooses, for the same reason: the failure mode must be a SLOW page and never
+ * a SHARED one.
+ *
+ * WITHOUT A VERSION WE DO NOT CACHE AT ALL, deliberately. The version IS the
+ * invalidation mechanism (see wrangler.jsonc): `wrangler deploy` purges
+ * nothing, so an unversioned key would leave the previous build's marketing
+ * pages at the edge for a day of freshness and a week of stale-while-
+ * revalidate with no event able to evict them. A missing version means we
+ * cannot promise that, so we decline rather than cache something we cannot
+ * later displace.
+ *
+ * THE KEY IS ON OUR OWN ORIGIN, under a path no route can ever occupy.
+ * Cloudflare's docs do not state whether an off-zone hostname is honoured as a
+ * cache key, and the answer does not need to be discovered here — keying on
+ * `${origin}/__doc-cache/${version}${pathname}` is correct either way, cannot
+ * collide with a real document, and keeps every version's entries distinct.
+ *
+ * IT IS A SYNTHETIC KEY RATHER THAN THE REQUEST ITSELF, because the request
+ * carries cookies and an Accept-Encoding and the stored entry must depend on
+ * neither. The caller has already established there is no session; the key must
+ * not quietly reintroduce one as a dimension.
+ *
+ * IT FAILS OPEN, like the maintenance gate above it and for the same reason: a
+ * missing binding or a Proxy'd env must degrade to serving the site, not to a
+ * 500 on every marketing page at once.
+ */
+type DocumentCache = {
+  match(key: Request): Promise<Response | undefined>
+  put(key: Request, response: Response): Promise<void>
+}
+
+/**
+ * `caches.default` IS NOT REACHABLE THROUGH THE GLOBAL TYPES HERE, and the two
+ * lines below are the whole reason this alias exists rather than a cast.
+ * tsconfig's `lib` includes "DOM", so the DOM's `CacheStorage` and Cloudflare's
+ * both declare `caches` and the DOM one wins — and the DOM's has no `default`.
+ * Naming only the two methods this file calls keeps that from being papered
+ * over with an `any` on the whole object, and makes the surface we depend on
+ * obvious if the runtime ever changes underneath it.
+ */
+function edgeCacheFor(env: unknown, url: URL): { cache: DocumentCache; key: Request } | null {
+  try {
+    if (typeof caches === 'undefined') return null
+    const cache = (caches as unknown as { default?: DocumentCache }).default
+    if (!cache) return null
+    const version = (env as { CF_VERSION_METADATA?: { id?: string } } | null)?.CF_VERSION_METADATA
+      ?.id
+    if (!version) return null
+    return {
+      cache,
+      key: new Request(`${url.origin}/__doc-cache/${version}${url.pathname}`),
+    }
+  } catch (error) {
+    console.warn('edge cache unavailable, rendering', error)
+    return null
+  }
+}
+
 const withCachePolicyOnDocuments = {
   async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url)
+
+    /**
+     * ONE PREDICATE GATES BOTH DIRECTIONS, and that is the whole safety
+     * argument. cache-policy.ts decides what the HEADER says; until now nothing
+     * was stored, so that was the only question it had to answer. Storing makes
+     * two new ones — what may be WRITTEN, and what may be SERVED FROM STORE —
+     * and both are dangerous in the way that module's comments already spell
+     * out: a document rendered for a session embeds a bearer JWT in its
+     * dehydrated router state (verified empirically there, not assumed), so
+     * writing one would publish a credential, and reading before the session
+     * check would hand it to the next visitor.
+     *
+     * Computing the policy ONCE, from the request, and consulting the cache
+     * only when it comes back STATIC_CACHE means both new questions are already
+     * answered by the tested predicate. There is deliberately no second
+     * condition here restating "and no session" — a restatement is a thing that
+     * can drift from what it restates.
+     *
+     * GET ONLY: cache.put rejects anything else outright.
+     *
+     * NO QUERY STRING. The key is the pathname, so serving a document rendered
+     * for `/about?x=1` to a later bare `/about` would be cache poisoning by
+     * construction. Declining to cache a query-bearing request is the fix and
+     * costs nothing real — these are marketing routes reached without one, and
+     * the maintenance gate's comment already notes query strings do turn up on
+     * these paths.
+     */
+    const policy = cachePolicyFor(url.pathname, hasSessionCookie(request.headers.get('cookie')))
+    const edge =
+      policy === STATIC_CACHE && request.method === 'GET' && url.search === ''
+        ? edgeCacheFor(env, url)
+        : null
+
+    if (edge) {
+      try {
+        const hit = await edge.cache.match(edge.key)
+        if (hit) return hit
+      } catch (error) {
+        console.warn('edge cache read failed, rendering', error)
+      }
+    }
+
     const response = await sentryFetch(request, env, ctx)
     const contentType = response.headers.get('content-type') ?? ''
     if (!contentType.includes('text/html')) return response
-    const policy =
-      response.status === 200
-        ? cachePolicyFor(
-            new URL(request.url).pathname,
-            hasSessionCookie(request.headers.get('cookie')),
-          )
-        : NO_STORE
     const doc = new Response(response.body, response)
-    doc.headers.set('cache-control', policy)
+    doc.headers.set('cache-control', response.status === 200 ? policy : NO_STORE)
+
+    /**
+     * ONLY A 200 IS STORED, mirroring the header rule above it and resting on
+     * the same reasoning the module comment gives: a 404 or a transient 5xx is
+     * an HTML document too, and publishing one would hand the edge a day of a
+     * wrong page that no deploy can evict. The version in the key bounds that
+     * to a single deployment now, which shortens the fuse without removing it.
+     *
+     * THE STORED COPY IS TAKEN BEFORE THE LIVE ONE IS LABELLED, so the two
+     * carry different values of DOC_CACHE_HEADER. server.test.ts asserts both
+     * halves rather than trusting clone()'s header semantics.
+     *
+     * waitUntil, so the put never delays the response, and a rejected put is
+     * caught rather than left to surface as an unhandled rejection: failing to
+     * populate the cache is a slow next request, not an error worth an event.
+     */
+    if (edge && response.status === 200) {
+      const stored = doc.clone()
+      stored.headers.set(DOC_CACHE_HEADER, 'HIT')
+      ctx.waitUntil(
+        edge.cache.put(edge.key, stored).catch((error: unknown) => {
+          console.warn('edge cache write failed', error)
+        }),
+      )
+      doc.headers.set(DOC_CACHE_HEADER, 'MISS')
+    }
     return doc
   },
 }

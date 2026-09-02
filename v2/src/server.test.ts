@@ -42,10 +42,22 @@ vi.mock('@tanstack/react-start/server-entry', () => ({
 
 const { default: worker } = await import('./server.ts')
 
+/**
+ * waitUntil COLLECTS RATHER THAN DISCARDS, because the edge-cache write happens
+ * inside it. A no-op here would let every "it was stored" assertion below race
+ * the put and pass or fail on timing. `settle()` is what makes the write
+ * observable at a defined point.
+ */
+const deferred: Promise<unknown>[] = []
 const ctx = {
-  waitUntil: () => {},
+  waitUntil: (promise: Promise<unknown>) => deferred.push(promise),
   passThroughOnException: () => {},
 } as unknown as ExecutionContext
+
+/** Wait for everything the Worker handed to waitUntil during this request. */
+const settle = async () => {
+  await Promise.all(deferred.splice(0))
+}
 
 const url = (path: string) => `https://beta.wordleteams.com${path}`
 
@@ -68,7 +80,37 @@ const renderedPath = () => {
 beforeEach(() => {
   rendered.paths = []
   rendered.status = 200
+  deferred.length = 0
+  edgeStore.clear()
+  installEdgeCache()
 })
+
+/**
+ * A REAL MAP BEHIND A FAKE `caches`, not a spy.
+ *
+ * `caches` does not exist under plain vitest — the test script is `vitest`, not
+ * @cloudflare/vitest-pool-workers — so without this the Worker's edgeCacheFor
+ * returns null and EVERY assertion below would pass against a handler that
+ * caches nothing whatsoever. That is the exact shape of the un-wired-feature
+ * bug this file's header describes being caught by more than once, so the store
+ * is a real one and the tests read back out of it.
+ *
+ * Keyed by the key Request's url, which is what the Worker actually varies:
+ * the deploy version and the pathname.
+ */
+const edgeStore = new Map<string, Response>()
+const installEdgeCache = (): void => {
+  const cache = {
+    match: async (key: Request) => edgeStore.get(key.url)?.clone(),
+    put: async (key: Request, response: Response) => {
+      edgeStore.set(key.url, response)
+    },
+  }
+  ;(globalThis as unknown as { caches: unknown }).caches = { default: cache }
+}
+
+/** The env a deployed version is given: a real CF_VERSION_METADATA id. */
+const VERSIONED = { CF_VERSION_METADATA: { id: 'v1' } }
 
 describe('the maintenance switch is OFF', () => {
   // Both of the off states, because only one of them is the interesting one.
@@ -260,6 +302,138 @@ describe('the maintenance switch cannot be read', () => {
       expect(renderedPath()).toBe('/app')
       // The outage is logged rather than swallowed silently — an unexplained
       // "maintenance mode did nothing" is the shape of bug this file exists for.
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+
+/**
+ * THE EDGE CACHE (wordle-teams-fqeq).
+ *
+ * wt-ksh.8.45 measured that `s-maxage` alone reaches nothing: a Worker that
+ * renders its own response, with no origin subrequest, is not eligible for the
+ * CDN cache, and Cache Rules run ahead of the Worker and cannot reach it. So
+ * the header was correct and the edge win was zero. These tests pin the Cache
+ * API round-trip that actually buys it.
+ *
+ * THE DANGEROUS DIRECTION IS SHARING, NOT MISSING, and that is why the four
+ * negative cases outnumber the positive one. cache-policy.ts documents, from
+ * measurement rather than assumption, that a document rendered for a session
+ * carries a bearer JWT in its dehydrated router state — so a write that skips
+ * the session check publishes a credential, and a read that skips it hands one
+ * to the next visitor.
+ */
+describe('the edge cache', () => {
+  test('an anonymous static document is stored, then served from the store', async () => {
+    const first = await get('/about', VERSIONED)
+    expect(first.headers.get('x-doc-cache')).toBe('MISS')
+    expect(first.headers.get('cache-control')).toBe(STATIC_CACHE)
+    expect(renderedPath()).toBe('/about')
+    await settle()
+
+    rendered.paths = []
+    const second = await get('/about', VERSIONED)
+    expect(second.headers.get('x-doc-cache')).toBe('HIT')
+    // THE ASSERTION THAT MATTERS. A HIT header on a response the app rendered
+    // again would be a lie that still passes every other check here.
+    expect(rendered.paths, 'the app was rendered again on a cache hit').toEqual([])
+    expect(await second.text()).toBe('<html>rendered /about</html>')
+  })
+
+  test('the stored copy says HIT while the live one says MISS', async () => {
+    // Pinned rather than trusted: this rests on Response.clone() copying the
+    // header list rather than sharing it, and a shared list would make the
+    // FIRST response claim HIT — which is precisely the reading that would send
+    // someone verifying beta to the wrong conclusion.
+    const live = await get('/about', VERSIONED)
+    await settle()
+    expect(live.headers.get('x-doc-cache')).toBe('MISS')
+    expect([...edgeStore.values()][0].headers.get('x-doc-cache')).toBe('HIT')
+  })
+
+  test('a signed-in request is neither served from nor written to the cache', async () => {
+    // Populate it anonymously first, so "not served from" is a real claim
+    // rather than an empty-cache tautology.
+    await get('/about', VERSIONED)
+    await settle()
+    expect(edgeStore.size).toBe(1)
+
+    rendered.paths = []
+    const signedIn = await send(
+      new Request(url('/about'), { headers: { cookie: 'better-auth.session_token=abc' } }),
+      VERSIONED,
+    )
+    expect(signedIn.headers.get('cache-control')).toBe(NO_STORE)
+    expect(signedIn.headers.get('x-doc-cache')).toBeNull()
+    // It was RENDERED for them, not handed the shared copy.
+    expect(renderedPath()).toBe('/about')
+    await settle()
+    // And their document did not displace or join the shared one.
+    expect(edgeStore.size).toBe(1)
+  })
+
+  test('a non-static path is never stored, however anonymous', async () => {
+    const response = await get('/app', VERSIONED)
+    await settle()
+    expect(response.headers.get('cache-control')).toBe(NO_STORE)
+    expect(edgeStore.size).toBe(0)
+  })
+
+  for (const status of [404, 500] as const) {
+    test(`a ${status} on a listed path is not stored`, async () => {
+      rendered.status = status
+      await get('/privacy', VERSIONED)
+      await settle()
+      expect(edgeStore.size, 'a non-200 reached the edge').toBe(0)
+    })
+  }
+
+  test('a query string is never cached, so a bare path cannot be poisoned', async () => {
+    // The key is the pathname, so storing /about?x=1 under /about would serve
+    // it to the next visitor asking for /about.
+    await send(new Request(url('/about?utm_source=x')), VERSIONED)
+    await settle()
+    expect(edgeStore.size).toBe(0)
+  })
+
+  test('without a deploy version nothing is cached at all', async () => {
+    // The version IS the invalidation mechanism: `wrangler deploy` purges
+    // nothing, so an unversioned key would strand the previous build's pages at
+    // the edge with no event able to evict them. Declining is the safe answer.
+    const response = await get('/about', {})
+    await settle()
+    expect(response.headers.get('cache-control')).toBe(STATIC_CACHE)
+    expect(response.headers.get('x-doc-cache')).toBeNull()
+    expect(edgeStore.size).toBe(0)
+  })
+
+  test('a new deploy version does not serve the document the previous one stored', async () => {
+    await get('/about', { CF_VERSION_METADATA: { id: 'old' } })
+    await settle()
+    expect(edgeStore.size).toBe(1)
+
+    rendered.paths = []
+    const afterDeploy = await get('/about', { CF_VERSION_METADATA: { id: 'new' } })
+    expect(afterDeploy.headers.get('x-doc-cache')).toBe('MISS')
+    expect(renderedPath(), 'the new version served a page from the old build').toBe('/about')
+  })
+
+  test('a cache that throws degrades to rendering rather than to a 500', async () => {
+    // Same posture as the maintenance gate above: the marketing pages must not
+    // all fail at once because the cache had a bad day.
+    ;(globalThis as unknown as { caches: unknown }).caches = {
+      get default(): never {
+        throw new Error('cache unavailable')
+      },
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const response = await get('/about', VERSIONED)
+      expect(response.status).toBe(200)
+      expect(renderedPath()).toBe('/about')
       expect(warn).toHaveBeenCalled()
     } finally {
       warn.mockRestore()

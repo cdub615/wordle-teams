@@ -14,6 +14,26 @@
 		"enabled": true
 	},
 	"upload_source_maps": true,
+
+	/**
+	 * THE DEPLOY IDENTITY, AND IT IS THE EDGE CACHE'S INVALIDATION MECHANISM.
+	 *
+	 * src/server.ts stores anonymous static documents in the Cloudflare Cache
+	 * API, and `wrangler deploy` purges nothing — so without this a deploy would
+	 * leave the PREVIOUS build's marketing pages at the edge for a day of
+	 * freshness and a week of stale-while-revalidate, with no event able to
+	 * evict them. The cache key carries `CF_VERSION_METADATA.id`, so a new
+	 * version simply MISSES and renders fresh, and the orphaned entries age out
+	 * unread. Nothing has to be remembered or run at deploy time, which is the
+	 * whole reason this is preferred over a purge API call — that would also
+	 * need a zone token this repo does not hold.
+	 *
+	 * Cloudflare populates this binding itself; there is no value to set.
+	 * (wordle-teams-fqeq)
+	 */
+	"version_metadata": {
+		"binding": "CF_VERSION_METADATA"
+	},
 	/**
 	 * Custom Domain, not a Route: Cloudflare provisions the DNS record and the
 	 * TLS certificate itself and sends the whole hostname to this Worker.
