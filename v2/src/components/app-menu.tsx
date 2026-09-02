@@ -393,7 +393,7 @@ export function AppMenu() {
         tabs' queries either way — but nothing should be able to open a
         settings dialog that has no settings behind it.
       */}
-      {isAuthenticated && <SettingsDialog defaultTab={defaultTab} email={user?.email} />}
+      {isAuthenticated && <SettingsDialog defaultTab={defaultTab} email={user?.email} displayName={displayName} />}
     </Dialog>
   )
 }

@@ -34,16 +34,19 @@ export type SettingsTab = 'notifications' | 'install'
  * it out of the painted layout rather than duplicating either tab's heading
  * on screen.
  *
- * `email` IS OPTIONAL AND RENDERS NOTHING WHEN ABSENT, which is the honest
- * shape: app-menu.tsx reads it from a query that is briefly undefined on a cold
- * load, and a row reading "Signed in as undefined" would be worse than no row.
+ * `email` AND `displayName` ARE OPTIONAL AND EACH RENDERS NOTHING WHEN ABSENT,
+ * which is the honest shape: app-menu.tsx reads both from queries that are
+ * briefly undefined on a cold load, and a row reading "Signed in as undefined"
+ * would be worse than no row.
  */
 export function SettingsDialog({
   defaultTab,
   email,
+  displayName,
 }: {
   defaultTab: SettingsTab
   email?: string | null
+  displayName?: string | null
 }) {
   return (
     <DialogContent className="w-11/12 px-3 py-4 md:p-6">
@@ -67,7 +70,21 @@ export function SettingsDialog({
         READ-ONLY ON PURPOSE. Changing the address means changing the account —
         convex/access.ts resolves a session to a player by email alone — so an
         editable field here would imply something this app cannot do.
+
+        THE NAME SITS ABOVE THE ADDRESS, mirroring the account menu's label
+        exactly: name first, address beneath it in the muted rank. An address on
+        its own at the top of a settings dialog reads as a stray field — it is
+        not obvious whose it is or why it is there — where the pair reads as an
+        identity, which is what it is.
+
+        THE NAME IS SUPPRESSED WHEN IT WOULD REPEAT THE ADDRESS, the same guard
+        and the same reason as the menu's: displayName falls back to the email
+        for an account with no name at all, and stacking the same string twice
+        looks like a bug and tells that player nothing.
       */}
+      {displayName && displayName !== email && (
+        <p className="text-foreground mt-1 truncate text-sm font-medium">{displayName}</p>
+      )}
       {email && (
         <p className="text-muted-foreground mt-1 mb-3 truncate text-xs">
           Signed in as <span className="text-foreground select-text">{email}</span>

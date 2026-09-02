@@ -23,9 +23,13 @@ vi.mock('./install-guide-tab.tsx', () => ({ default: () => null }))
 afterEach(cleanup)
 
 /** DialogContent needs a Dialog root for Radix's context, and an open one. */
-const mount = (email?: string | null) =>
+const mount = (email?: string | null, displayName?: string | null) =>
   render(
-    createElement(Dialog, { open: true }, createElement(SettingsDialog, { defaultTab: 'notifications', email })),
+    createElement(
+      Dialog,
+      { open: true },
+      createElement(SettingsDialog, { defaultTab: 'notifications', email, displayName }),
+    ),
   )
 
 describe('the dialog says which account this is (wordle-teams-7jpo)', () => {
@@ -61,5 +65,40 @@ describe('the dialog says which account this is (wordle-teams-7jpo)', () => {
     mount('ada@example.com')
     expect(screen.queryByRole('tab', { name: 'Notifications' })).not.toBeNull()
     expect(screen.queryByRole('tab', { name: 'Install Guide' })).not.toBeNull()
+  })
+})
+
+
+describe('the name sits above the address', () => {
+  test('both are shown, name first', () => {
+    // Order matters: an address alone at the top of a settings dialog reads as
+    // a stray field. The pair reads as an identity.
+    mount('ada@example.com', 'Ada Lovelace')
+    const name = screen.getByText('Ada Lovelace')
+    const address = screen.getByText('ada@example.com')
+    expect(name).not.toBeNull()
+    expect(address).not.toBeNull()
+    // DOCUMENT_POSITION_FOLLOWING === 4: `address` comes after `name`.
+    expect(name.compareDocumentPosition(address) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test('the address still shows on its own when there is no name yet', () => {
+    // A cold load resolves the two queries independently, and the address is
+    // the half that matters — suppressing it while waiting for a name would
+    // hide the thing this feature exists for.
+    mount('ada@example.com', undefined)
+    expect(screen.queryByText('ada@example.com')).not.toBeNull()
+  })
+
+  test('the name is NOT repeated when it has fallen back to the address', () => {
+    /**
+     * THE MUTATION THIS KILLS: dropping `displayName !== email`. app-menu.tsx's
+     * displayName falls back to the email for an account with no name at all,
+     * so without the guard that player sees the same string stacked twice —
+     * once as a name, once as the address. The menu carries the identical
+     * guard for the identical reason.
+     */
+    mount('ada@example.com', 'ada@example.com')
+    expect(screen.queryAllByText('ada@example.com')).toHaveLength(1)
   })
 })
