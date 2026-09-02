@@ -61,6 +61,11 @@ const PORTAL_FAILED = 'Could not open the billing portal.'
 /** Set per test, read by the mocked hooks below. */
 let isAuthenticated: boolean
 let isPro: boolean | undefined
+// Settable so the identity line can be exercised in the state that actually
+// produces its edge case: an account with no name, where displayName falls back
+// to the address and printing it a second time would be a bug.
+let currentUser: { name: string | null; email: string; image: string | null }
+let playerName: { firstName: string; lastName: string }
 /** What the stubbed matchMedia answers for the reduced-motion query. */
 let reducedMotion: boolean
 
@@ -129,9 +134,9 @@ vi.mock('@tanstack/react-query', () => ({
     if (args === 'skip') return { data: undefined }
     if (queryKey[0] === getFunctionName(api.teams.amIPro)) return { data: isPro }
     if (queryKey[0] === getFunctionName(api.auth.getCurrentUser)) {
-      return { data: { name: 'Ada Lovelace', email: 'ada@example.com', image: null } }
+      return { data: currentUser }
     }
-    return { data: { firstName: 'Ada', lastName: 'Lovelace' } }
+    return { data: playerName }
   },
   useQueryClient: () => ({ clear: queryClientClear }),
 }))
@@ -178,6 +183,8 @@ let location: { href: string }
 
 beforeEach(() => {
   isAuthenticated = true
+  currentUser = { name: 'Ada Lovelace', email: 'ada@example.com', image: null }
+  playerName = { firstName: 'Ada', lastName: 'Lovelace' }
   isPro = false
   location = { href: 'http://localhost:3000/app' }
   vi.stubGlobal('location', location)
@@ -284,6 +291,55 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
 
     expect(screen.queryByText('Ada Lovelace')).toBeNull()
     expect(screen.queryByText('Free')).toBeNull()
+  })
+})
+
+describe('the menu says which account this is (wordle-teams-7jpo)', () => {
+  /**
+   * WHY THIS IS WORTH A TEST AT ALL. convex/access.ts resolves a session to a
+   * player PURELY BY EMAIL, so the address IS the account identity. With four
+   * social providers and OTP against the same address, a provider returning a
+   * different address silently produces a DIFFERENT account with an empty
+   * dashboard — and this line is the only thing in the app a player can compare
+   * against. It matters most at cutover, when every migrated player signs in on
+   * the new stack for the first time.
+   *
+   * It is an ADDITION, not parity: v1 shows the address nowhere.
+   */
+  test('a signed-in player sees the address their account is under', () => {
+    render(createElement(AppMenu))
+    openMenu()
+
+    expect(screen.queryByText('ada@example.com')).not.toBeNull()
+  })
+
+  test('it is not shown to a signed-out visitor', () => {
+    // Same leak the identity-label test guards: the address sits inside
+    // `isAuthenticated &&`, and a stranger on /login must not be shown one.
+    isAuthenticated = false
+    render(createElement(AppMenu))
+    openMenu()
+
+    expect(screen.queryByText('ada@example.com')).toBeNull()
+  })
+
+  test('it is NOT repeated when the display name is already the address', () => {
+    /**
+     * THE MUTATION THIS KILLS: dropping `user.email !== displayName`.
+     * displayName already falls back to the email for an account with no name
+     * at all — someone caught between sign-up and completing onboarding — and
+     * without the guard that player sees the same string twice, once styled as
+     * a name and once as the address. It looks like a rendering bug and tells
+     * them nothing.
+     *
+     * The name queries answer empty here, which is exactly that state.
+     */
+    playerName = { firstName: '', lastName: '' }
+    currentUser = { name: null, email: 'ada@example.com', image: null }
+    render(createElement(AppMenu))
+    openMenu()
+
+    expect(screen.queryAllByText('ada@example.com')).toHaveLength(1)
   })
 })
 

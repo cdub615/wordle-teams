@@ -33,8 +33,18 @@ export type SettingsTab = 'notifications' | 'install'
  * umbrella package — see board-entry/button.tsx for the same pattern) keeps
  * it out of the painted layout rather than duplicating either tab's heading
  * on screen.
+ *
+ * `email` IS OPTIONAL AND RENDERS NOTHING WHEN ABSENT, which is the honest
+ * shape: app-menu.tsx reads it from a query that is briefly undefined on a cold
+ * load, and a row reading "Signed in as undefined" would be worse than no row.
  */
-export function SettingsDialog({ defaultTab }: { defaultTab: SettingsTab }) {
+export function SettingsDialog({
+  defaultTab,
+  email,
+}: {
+  defaultTab: SettingsTab
+  email?: string | null
+}) {
   return (
     <DialogContent className="w-11/12 px-3 py-4 md:p-6">
       <VisuallyHidden.Root>
@@ -42,6 +52,27 @@ export function SettingsDialog({ defaultTab }: { defaultTab: SettingsTab }) {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
       </VisuallyHidden.Root>
+      {/*
+        WHICH ACCOUNT THIS IS (wordle-teams-7jpo). The same fact the account
+        menu now shows, in the place someone goes when they are deliberately
+        looking rather than glancing.
+
+        ABOVE THE TABS RATHER THAN INSIDE ONE, and that is the whole reason it
+        is here and not in NotificationsTab: it is true of the dialog, not of a
+        tab, and burying it under "Notifications" would make the answer to
+        "which account am I?" depend on which tab happened to be open. There is
+        no Account tab to put it in and adding one for a single read-only line
+        would be a bigger change than the question deserves.
+
+        READ-ONLY ON PURPOSE. Changing the address means changing the account —
+        convex/access.ts resolves a session to a player by email alone — so an
+        editable field here would imply something this app cannot do.
+      */}
+      {email && (
+        <p className="text-muted mt-1 mb-3 truncate text-xs">
+          Signed in as <span className="text-foreground select-text">{email}</span>
+        </p>
+      )}
       <Tabs defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>

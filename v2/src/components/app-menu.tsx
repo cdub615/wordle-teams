@@ -219,6 +219,43 @@ export function AppMenu() {
                     </Badge>
                   )}
                 </DropdownMenuLabel>
+                {/*
+                  WHICH ACCOUNT THIS IS, AND IT IS NOT DECORATION (wordle-teams-7jpo).
+                  convex/access.ts resolves a session to a player PURELY BY EMAIL
+                  (playerForEmail, :111) — so the address IS the account identity
+                  here. With four social providers and OTP against the same
+                  address, a provider that returns a DIFFERENT address silently
+                  creates a DIFFERENT account with an empty dashboard, and until
+                  this line existed the player had nothing to compare against.
+                  That is sharpest at cutover, when every migrated player signs
+                  in on the new stack for the first time.
+
+                  AN ADDITION, NOT PARITY. v1 shows the address nowhere at all —
+                  its user-dropdown.tsx renders the name and a Pro/Free badge and
+                  that is all — so this is a deliberate divergence and earns a
+                  §7a row. The issue that filed it claimed the opposite; the
+                  claim was checked and is wrong.
+
+                  SUPPRESSED WHEN IT WOULD REPEAT ITSELF. displayName already
+                  falls back to the email for an account with no name at all, and
+                  printing it twice tells that player nothing while looking like
+                  a bug.
+
+                  `select-text` because the entire point is that it can be read
+                  and compared; a menu label is not selectable by default.
+
+                  text-muted, NOT text-subtle, and styles.css is explicit about
+                  why: text-subtle is the documented sub-AA exception and is for
+                  large or decorative text, while "anything normal-sized that
+                  must be legible" takes text-muted. An address whose whole
+                  purpose is being read and compared character by character is
+                  the clearest possible case of the latter.
+                */}
+                {user?.email && user.email !== displayName && (
+                  <DropdownMenuLabel className="-mt-1 pt-0 text-xs font-normal text-muted">
+                    <span className="block select-text truncate">{user.email}</span>
+                  </DropdownMenuLabel>
+                )}
                 <DropdownMenuSeparator />
                 {/*
                   `/app`, NOT `/me`. v1's item pointed at /me because that was
@@ -348,7 +385,7 @@ export function AppMenu() {
         tabs' queries either way — but nothing should be able to open a
         settings dialog that has no settings behind it.
       */}
-      {isAuthenticated && <SettingsDialog defaultTab={defaultTab} />}
+      {isAuthenticated && <SettingsDialog defaultTab={defaultTab} email={user?.email} />}
     </Dialog>
   )
 }
