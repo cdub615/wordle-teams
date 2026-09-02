@@ -19,7 +19,7 @@ import { Separator } from '#/components/ui/separator.tsx'
 import { Switch } from '#/components/ui/switch.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { applyPushToggle, browserPush } from '#/lib/push-subscribe.ts'
-import { canonicalTimeZone, TIME_ZONE_GROUPS } from '#/lib/time-zones.ts'
+import { canonicalTimeZone, TIME_ZONE_GROUPS, unlistedZoneOption } from '#/lib/time-zones.ts'
 import { useMediaQuery } from '#/lib/use-media-query.ts'
 import type { SubscribeFailureReason } from '#/lib/push-subscribe.ts'
 
@@ -60,6 +60,12 @@ function timeZoneDisplay(canonicalZone: string | null, isSmallScreen: boolean): 
     const found = group.items.find((item) => item.value === canonicalZone)
     if (found) return isSmallScreen ? found.shortLabel : found.label
   }
+  // A STORED ZONE THE CURATED LIST DOES NOT OFFER STILL GETS SHOWN, derived from
+  // the identifier itself (wordle-teams-54s). Reaching the placeholder below
+  // used to tell 57-zones-worth of copied players their time zone was unset
+  // when it was set and working.
+  const unlisted = unlistedZoneOption(canonicalZone)
+  if (unlisted) return isSmallScreen ? unlisted.shortLabel : unlisted.label
   return 'Select a time zone'
 }
 
@@ -181,6 +187,7 @@ export default function NotificationsTab() {
 
   const { timeZone, reminderDeliveryTime, reminderDeliveryMethods } = settings
   const canonicalZone = canonicalTimeZone(timeZone)
+  const unlistedZone = unlistedZoneOption(canonicalZone)
 
   const handleTimeZoneChange = async (value: string) => {
     try {
@@ -300,6 +307,19 @@ export default function NotificationsTab() {
               <SelectValue>{timeZoneDisplay(canonicalZone, isSmallScreen)}</SelectValue>
             </SelectTrigger>
             <SelectContent className="max-h-[300px] overflow-y-auto">
+              {/*
+                THE PLAYER'S OWN ZONE FIRST, WHEN THE CURATED LIST OMITS IT.
+                Without an option carrying this value the Select has nothing
+                matching `defaultValue`, so the stored zone is unrepresented and
+                any interaction replaces it with a neighbouring one — silently
+                moving when the daily reminder fires (wordle-teams-54s).
+              */}
+              {unlistedZone && (
+                <SelectGroup>
+                  <SelectLabel>Your time zone</SelectLabel>
+                  <SelectItem value={unlistedZone.value}>{unlistedZone.label}</SelectItem>
+                </SelectGroup>
+              )}
               {TIME_ZONE_GROUPS.map((group) => (
                 <SelectGroup key={group.label}>
                   <SelectLabel>{group.label}</SelectLabel>

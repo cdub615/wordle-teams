@@ -123,3 +123,66 @@ export function canonicalTimeZone(zone: string | null): string | null {
   if (zone === null) return null
   return timeZoneMapping[zone] ?? zone
 }
+
+/**
+ * The stored zone as a pickable option, WHEN THE CURATED LIST DOES NOT OFFER IT.
+ *
+ * WHY THIS EXISTS (wordle-teams-54s). The picker offers 27 zones; production
+ * players span 57. A copied player whose zone is not one of the 27 opened the
+ * Notifications tab and saw "Select a time zone" — the placeholder, as though
+ * nothing were configured — even though a zone IS set and the reminder sweep
+ * resolves it correctly. The placeholder then invited them to pick, and picking
+ * REPLACED a correct zone with a neighbouring one, silently moving when their
+ * daily email arrives.
+ *
+ * Inherited from v1 rather than introduced here, but it matters more now: Phase
+ * 6 made the stored zone decide when a reminder fires, where in v1 the setting
+ * was largely decorative for anyone who never opened the dialog.
+ *
+ * THIS IS THE SMALLEST OF THE THREE OPTIONS ON THAT ISSUE and deliberately so.
+ * Widening the list toward full IANA, or grouping by offset, are product
+ * decisions about a curated list; showing a player the zone they actually have
+ * is a correctness fix, and it is what the acceptance criteria asks for.
+ *
+ * IT IS NOT THE CANONICALISATION FIX. canonicalTimeZone above translates v1's
+ * Postgres spellings, and of the five aliased pairs only Asia/Calcutta lands in
+ * the picker. Asia/Katmandu, Asia/Rangoon, Europe/Kyiv and Pacific/Kanton
+ * normalise correctly and STILL had no option to select, because the list never
+ * offered them in either version. This is what covers those.
+ *
+ * THE LABEL IS DERIVED, NOT INVENTED. The city comes off the IANA identifier
+ * and the offset from Intl, so it describes the zone the player actually has
+ * rather than approximating it with a nearby curated one — the whole failure
+ * being fixed. Shape matches the curated entries: "Name (ABBR)".
+ *
+ * @returns null when the zone is unset or already offered — the caller then
+ *          behaves exactly as before.
+ */
+export function unlistedZoneOption(canonicalZone: string | null): TimeZoneOption | null {
+  if (!canonicalZone) return null
+  if (TIME_ZONE_GROUPS.some((group) => group.items.some((i) => i.value === canonicalZone))) {
+    return null
+  }
+
+  // 'America/Indiana/Indianapolis' -> 'Indianapolis'. The last segment is the
+  // locality in every IANA identifier shape, including the three-part ones.
+  const city = (canonicalZone.split('/').pop() ?? canonicalZone).replace(/_/g, ' ')
+
+  let offset = ''
+  try {
+    offset =
+      new Intl.DateTimeFormat('en-US', { timeZone: canonicalZone, timeZoneName: 'shortOffset' })
+        .formatToParts(new Date())
+        .find((part) => part.type === 'timeZoneName')?.value ?? ''
+  } catch {
+    // An identifier this runtime does not know. Intl THROWS on those rather
+    // than returning anything, and the honest answer is still the stored name —
+    // falling through to the placeholder is the bug this function exists for.
+  }
+
+  return {
+    value: canonicalZone,
+    label: offset ? `${city} (${offset})` : city,
+    shortLabel: offset || city,
+  }
+}
