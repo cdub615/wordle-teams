@@ -64,6 +64,21 @@ const PROVIDER_OPTIONS: Record<string, Record<string, unknown>> = {
     disableProfilePhoto: true,
 
     /**
+     * THE ONE PROVIDER THAT OPTS OUT OF THE REFRESH (wordle-teams-wdp1). The
+     * builder below turns `overrideUserInfoOnSignIn` on by default so a social
+     * sign-in updates the stored profile image; this switches it back off here,
+     * and the reason is three lines up — `disableProfilePhoto: true`.
+     *
+     * Microsoft NEVER returns an image for this app, deliberately: fetching one
+     * needs the `User.Read` Graph scope, which is an admin-consent gate on
+     * tenants that restrict user consent to Graph, and the note above this
+     * object records that as unacceptable for the 15 work/school users. So the
+     * refresh has nothing to gain here and would still rewrite `name` and
+     * `email` from the ID token on every single sign-in. Cost with no benefit.
+     */
+    overrideUserInfoOnSignIn: false,
+
+    /**
      * Decide `emailVerified` ourselves, because Better Auth's default says
      * false whenever Microsoft omits the claim — and a false here does NOT
      * produce a duplicate account, it REFUSES the sign-in with
@@ -132,21 +147,84 @@ const PROVIDER_OPTIONS: Record<string, Record<string, unknown>> = {
  * still renders, so clicking it fails loudly during the per-provider check that
  * wt-ksh.2.7 requires.
  */
-const socialProviders = Object.fromEntries(
+/**
+ * EXPORTED, AND TAKING ITS ENV AS AN ARGUMENT, PURELY SO A TEST CAN REACH IT.
+ *
+ * Nothing in this module was covered before wordle-teams-wdp1 — `createAuth`
+ * needs a Convex ctx and convex-test cannot stand up a Better Auth session
+ * (wordle-teams-obw), so the whole auth surface was unpinned. This assembly
+ * step is pure, which makes it the part that CAN be pinned, and it is worth
+ * pinning: the Microsoft scope list below has already broken sign-in once for
+ * the 15 work/school users, and `overrideUserInfoOnSignIn` is a single flag
+ * whose absence is invisible until somebody notices a blank avatar weeks later.
+ *
+ * Reading `process.env` through a parameter rather than directly is the only
+ * concession to testability, and it costs one default.
+ */
+export function buildSocialProviders(
+  env: Record<string, string | undefined> = process.env,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
   Object.entries(PROVIDER_ENV)
     .map(([id, [idVar, secretVar]]) => {
-      const clientId = process.env[idVar]
-      const clientSecret = process.env[secretVar]
+      const clientId = env[idVar]
+      const clientSecret = env[secretVar]
       if (!clientId || !clientSecret) {
         console.warn(
           `[auth] social provider '${id}' is not configured; ${idVar}/${secretVar} missing on this deployment`,
         )
         return null
       }
-      return [id, { clientId, clientSecret, ...(PROVIDER_OPTIONS[id] ?? {}) }] as const
+      return [
+        id,
+        {
+          clientId,
+          clientSecret,
+          /**
+           * THE STORED PROFILE IMAGE IS ONLY EVER WRITTEN AT USER CREATION
+           * WITHOUT THIS (wordle-teams-wdp1).
+           *
+           * better-auth sets `image` in `createOAuthUser` — the brand-new-user
+           * path — and on any LATER sign-in updates it only when
+           * `overrideUserInfo` is true (`oauth2/link-account.mjs:67-77`), which
+           * comes from precisely this option (`api/routes/callback.mjs:151`).
+           * It was unset, so it was undefined, so the update never ran.
+           *
+           * WHICH BROKE THE COMMON CASE RATHER THAN AN EDGE ONE. `migrate.ts`
+           * creates `players` rows keyed by email and no Better Auth users at
+           * all, so a migrated player's account is CREATED by whatever they
+           * sign in with first — and for the OTP path that is a user with
+           * `image: null`. Linking Google, GitHub or Discord afterwards
+           * attached the account and left the image null permanently. The
+           * header fell back to initials forever.
+           *
+           * IT IS WIDER THAN THE IMAGE, WHICH IS WORTH KNOWING RATHER THAN
+           * DISCOVERING. The same branch rewrites `name` and `email` from the
+           * provider on every social sign-in. Both are acceptable here and
+           * neither is incidental: the header's initials come from the
+           * `players` row and not from Better Auth's `name` (see
+           * lib/initials.ts), so a refreshed `name` changes nothing anyone
+           * reads; and account linking already requires a verified email
+           * matching on both sides, so the rewritten address is the one that
+           * was matched on.
+           *
+           * BEFORE THE SPREAD, SO A PROVIDER CAN SAY NO. Microsoft does — see
+           * `PROVIDER_OPTIONS.microsoft`, which cannot return an image at all.
+           *
+           * IT TAKES EFFECT ON THE NEXT SOCIAL SIGN-IN AND BACKFILLS NOTHING.
+           * Accounts already holding a null image keep it until their owner
+           * signs in socially again, which is accepted rather than overlooked.
+           */
+          overrideUserInfoOnSignIn: true,
+          ...(PROVIDER_OPTIONS[id] ?? {}),
+        },
+      ] as const
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
-)
+  )
+}
+
+const socialProviders = buildSocialProviders()
 
 export const authComponent = createClient<DataModel>(components.betterAuth)
 
