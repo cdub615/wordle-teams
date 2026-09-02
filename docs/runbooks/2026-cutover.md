@@ -12,6 +12,16 @@ is created at cutover.** The domain moves and the configuration changes.
 `wt-ksh.9`'s description, two bullets of which are now factually wrong — see
 §7.3 for what changed and why, if you want to know before trusting this.
 
+> **PHASE 7.5 LANDS BEFORE THIS RUNBOOK RUNS** (owner's decision, 2026-09-02).
+> `wordle-teams-wty4` moved the seven post-v2 roadmap epics inside the v2
+> release, so v2 and all seven go live in one flip and the announcement email
+> covers everything at once. `wt-ksh.9` is now blocked by it.
+>
+> **What that adds to the day:** the features in Phase 7.5 are part of what goes
+> live here, so §5's smoke test covers them too, and §1.3's dry run should
+> happen after they have landed rather than before. Nothing else in this file
+> changes — the flip, the copy and the rollback are the same either way.
+
 ---
 
 ## 0. THE MEASUREMENT RULE — read this before anything else

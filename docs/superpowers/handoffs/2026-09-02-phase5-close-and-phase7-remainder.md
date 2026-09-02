@@ -7,6 +7,13 @@ Run `bd prime` first. Branch `feat/v2-replatform`, in sync with origin, tree
 clean, four gates green (**1335 tests / 79 files**), e2e **60/60**, last beta
 deploy green.
 
+> **Ordering changed on 2026-09-02: cutover is NOT what follows Phase 7.**
+> A new Phase 7.5 (`wordle-teams-wty4`) now sits between them — the seven
+> post-v2 roadmap epics, moved inside the v2 release so they ship with it. See
+> the Phase 7.5 section below before planning anything that assumes Phase 8 is
+> next. It does not change this session's scope, but it changes what "done"
+> leads to.
+
 ---
 
 ## The one thing that decides this whole session
@@ -149,6 +156,65 @@ Everything is parented under `wt-ksh.8`. Twenty-two open children.
   to beta returning a COUNT, or measuring during the cutover run itself. When
   measuring: beta holds **one v2-born player**; count rows with a `legacyId`
   separately or the answer is ambiguous in the direction that matters.
+
+---
+
+## Phase 7.5 — what now sits between Phase 7 and cutover
+
+**This is new as of 2026-09-02 and it changes what "done" means for this
+session. Cutover is no longer what follows Phase 7.**
+
+`wordle-teams-wty4` is Phase 7.5: the seven post-v2 roadmap epics, moved INSIDE
+the v2 release. The owner's decision is that they land **before** Phase 8's DNS
+flip, so v2 and all seven go live together and the announcement email describes
+the whole thing at once.
+
+**The reason is the email, and it should shape how the work is judged.** It goes
+to every existing player, including people who hit early friction or confusion
+and gave up — a re-engagement moment that happens once. It must not say "new
+features are on the way": someone who comes back because of it has to find the
+value already in front of them.
+
+```
+Phase 7 (wt-ksh.8) -> Phase 7.5 (wty4) -> Phase 8 cutover (wt-ksh.9)
+```
+
+In roadmap priority order, kept as a serial chain:
+
+| # | Epic | |
+| --- | --- | --- |
+| 1 | `wordle-teams-qix` | Team chat (free) — **unblocked, ready to start** |
+| 2 | `wordle-teams-418` | Board import from a pasted screenshot (paid) |
+| 3 | `wordle-teams-4s0` | Insights from global guess/answer data (paid) |
+| 4 | `wordle-teams-qt4` | App onboarding tour |
+| 5 | `wordle-teams-0hx` | SEO |
+| 6 | `wordle-teams-c0f` | PWA launch screen and startup speed |
+| 7 | `wordle-teams-iht` | Monetization and marketing |
+
+Plus `wordle-teams-efrc` — brainstorm which further paid features are worth
+building. The paid tier's only real substance today is the team cap, and the
+relaunch is when the most people will meet the paywall for the first time.
+
+**TWO THINGS TO RAISE RATHER THAN ABSORB.**
+
+**The launch date is now the sum of seven serial epics.** That is the direct
+consequence of the sequencing decision, and it is written into `wty4` on
+purpose. If it turns out to be longer than the owner will hold v2 unlaunched,
+the honest options are parallelising the chain, cutting items from the launch
+set, or revisiting the split — cut over quietly, land the rest, then email. **Do
+not silently reorder or drop anything.**
+
+**Two of the seven cannot carry the email.** #5 SEO and #7 monetization serve
+acquisition and conversion, not the returning player; #6 PWA speed is felt but
+not announceable. What the email actually has to talk about is #1, #2, #3 and
+#4 — and #4, the onboarding tour, is aimed squarely at the population being won
+back, since confusion is why they left.
+
+**DO NOT START PHASE 7.5 IN THIS SESSION** unless the owner says so. It is
+gated on Phase 7 finishing, and Phase 7's remaining P1s need the owner. The
+scope of this session is Phase 5's close and Phase 7's remainder; 7.5 is here so
+you know what "next" is and do not plan cutover work that cannot happen yet.
+
 
 ---
 
