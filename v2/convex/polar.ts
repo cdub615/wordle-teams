@@ -265,6 +265,41 @@ export function proProductIds(): string[] {
  * uses and with the same message `convex/auth.ts` throws: a missing SITE_URL
  * must fail loudly rather than send somebody to `undefined/?checkout=success`.
  */
+/**
+ * A PLAIN `Error`, DELIBERATELY, AND THE EXCEPTION IS DOCUMENTED RATHER THAN
+ * FIXED (`wordle-teams-p37`, decided in Phase 7).
+ *
+ * The rule this codebase follows is that anything a caller SEES must be a
+ * `ConvexError` via `accessError`, because a plain message is redacted in
+ * production. That rule is about states a user can be in and act on. This is not
+ * one: `SITE_URL` unset is an operator misconfiguration of the deployment, and
+ * there is no copy that would help the person who met it.
+ *
+ * WHAT THE THREE OUTCOMES ACTUALLY ARE, which is why redaction is the right
+ * behaviour and not a gap:
+ *   - the logs get the real message, loudly, which is who needs it;
+ *   - production redacts it to a generic server error, so an internal
+ *     configuration detail is not handed to a browser;
+ *   - the UI already says something. `Header.tsx`'s catch turns it into a toast,
+ *     and `Header.hook.test.ts`'s "the portal handler says something when the
+ *     action THROWS" pins exactly that, naming an unset SITE_URL as the case.
+ *
+ * Giving it an `accessError` code would mean inventing user-facing copy for a
+ * state no user can resolve, and would make a deployment fault QUIETER in the
+ * one place it has to be loud.
+ *
+ * IT IS ALSO WHY THIS CALL SITS OUTSIDE THE `try` IN `getCustomerPortalUrl`.
+ * A missing Polar credential is answered gracefully as
+ * `{ url: null, reason: 'not-configured' }` because the credential can only be
+ * found wrong by asking Polar. A missing SITE_URL is knowable up front and is
+ * not a Polar outcome, so folding it into that branch would report a local
+ * configuration error as a vendor one.
+ *
+ * NO TEST CAN CATCH A REGRESSION HERE, which is the other half of `p37`:
+ * `convex-test` never redacts, so a plain `Error` and a `ConvexError` are
+ * indistinguishable to the suite. This is a review-only invariant, and this
+ * comment is the review.
+ */
 function siteUrl(): string {
   const url = process.env.SITE_URL
   if (!url) throw new Error('SITE_URL is not set on this deployment')

@@ -682,6 +682,23 @@ export const invitePlayer = mutation({
       // Read here rather than at module scope, but checked with the same reflex
       // auth.ts uses: a missing SITE_URL must fail loudly, not silently mail
       // somebody a link to 'undefined/login'.
+      //
+      // A PLAIN `Error`, DELIBERATELY (`wordle-teams-p37`, decided in Phase 7).
+      // The rule is that anything a caller sees is a `ConvexError` via
+      // `accessError`, and that rule is about states a user can act on. This is
+      // an operator misconfiguration of the deployment, so the logs get the real
+      // message and production redacts it — which is the behaviour wanted.
+      //
+      // AND THE THROW IS LOAD-BEARING BEYOND THE MESSAGE. It happens after
+      // `invitePlayerFor` has already written the invite row, inside the same
+      // Convex transaction — so throwing ROLLS THE INVITE BACK. Answering
+      // gracefully instead would leave the row written and no mail sent, which
+      // is the one outcome worse than failing: the invite exists, the person
+      // never hears, and `invitePlayer` reported success. See
+      // `convex/inviteEmails.ts` for the mail itself.
+      //
+      // No test can tell this from a `ConvexError`: `convex-test` never redacts.
+      // Review-only, and this comment is the review.
       const siteUrl = process.env.SITE_URL
       if (!siteUrl) throw new Error('SITE_URL is not set on this deployment')
       const { subject, text, html } = teamInviteEmail({
