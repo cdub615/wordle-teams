@@ -102,6 +102,36 @@ export function useLocalCapture() {
   const attemptedZone = useRef(false)
   const attemptedPwa = useRef(false)
 
+  /**
+   * RESET WHEN THE SESSION ENDS (`wordle-teams-uhx`).
+   *
+   * The refs above are per-MOUNT, and `Header` mounts once in `__root.tsx` and
+   * never unmounts — so without this they live as long as the tab, not as long
+   * as the account. Sign out and back in as a DIFFERENT account with no full
+   * page reload and `attemptedZone` is still `true`, so the second brand-new
+   * account never gets a `timeZone` written.
+   *
+   * THAT FAILURE IS SILENT AND PERMANENT, which is why this is worth five lines
+   * for a path that does not exist yet: `convex/reminders.ts` skips any player
+   * without a `timeZone`, so that account is never reminded, forever, with
+   * nothing logged and nothing in the UI to suggest why.
+   *
+   * NOT REACHABLE TODAY — v2 has no sign-out (nothing in `src/` calls
+   * `signOut`). This is armed ahead of the feature rather than left as a note
+   * for whoever adds it, because the person adding sign-out has no reason to
+   * look here and every reason to assume a hook resets itself.
+   *
+   * KEYED ON `isAuthenticated` GOING FALSE, not on a player identity, because
+   * `mySettings` does not return one — so the hook cannot see an account SWAP
+   * directly. The sign-out that must sit between two sessions is what it can
+   * see, and it is sufficient: any switch passes through it.
+   */
+  useEffect(() => {
+    if (isAuthenticated) return
+    attemptedZone.current = false
+    attemptedPwa.current = false
+  }, [isAuthenticated])
+
   useEffect(() => {
     if (!settings) return
 

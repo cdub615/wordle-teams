@@ -37,8 +37,11 @@ const { updateTimeZoneMock, markPwaInstalledMock, captureErrorMock } = vi.hoiste
 // they'd pass by accident because the mock handed back the same object twice.
 let currentSettings: { timeZone: string | null; hasPwa: boolean } | undefined
 
+/** Mutable so a test can drive a sign-out; see the uhx block below. */
+let authed = true
+
 vi.mock('@convex-dev/react-query', () => ({
-  useConvexAuth: () => ({ isAuthenticated: true }),
+  useConvexAuth: () => ({ isAuthenticated: authed }),
   convexQuery: (ref: unknown, args: unknown) => ({ ref, args }),
   useConvexMutation: (ref: FunctionReference<'mutation'>) => {
     const name = getFunctionName(ref)
@@ -71,6 +74,7 @@ function stubStandalone({
 describe('useLocalCapture', () => {
   beforeEach(() => {
     currentSettings = undefined
+    authed = true
     stubStandalone()
   })
 
@@ -160,6 +164,66 @@ describe('useLocalCapture', () => {
     expect(captureErrorMock).toHaveBeenCalledWith(rejection, {
       where: 'useLocalCapture.timeZone',
       resolved: resolvedZone,
+    })
+  })
+
+  // wordle-teams-uhx. The guards above are per-MOUNT, and Header mounts once in
+  // __root.tsx and never unmounts - so they live as long as the TAB, not as long
+  // as the account. NOT REACHABLE TODAY: v2 has no sign-out. Armed ahead of the
+  // feature because the failure is silent and permanent - convex/reminders.ts
+  // skips any player without a timeZone, so the second account is never
+  // reminded, forever, with nothing logged.
+  describe('a second account in the same tab', () => {
+    test('gets its own zone written after a sign-out, where it used to be skipped', async () => {
+      currentSettings = { timeZone: null, hasPwa: false }
+      const { rerender } = renderHook(() => useLocalCapture())
+      await waitFor(() => expect(updateTimeZoneMock).toHaveBeenCalledTimes(1))
+
+      // Sign out. The hook sees isAuthenticated go false and nothing else.
+      authed = false
+      currentSettings = undefined
+      rerender()
+
+      // A DIFFERENT account signs in, also with no stored zone.
+      authed = true
+      currentSettings = { timeZone: null, hasPwa: false }
+      rerender()
+
+      await waitFor(() => expect(updateTimeZoneMock).toHaveBeenCalledTimes(2))
+    })
+
+    test('and the same is true of the PWA flag', async () => {
+      stubStandalone({ displayMode: true })
+      currentSettings = { timeZone: 'America/Chicago', hasPwa: false }
+      const { rerender } = renderHook(() => useLocalCapture())
+      await waitFor(() => expect(markPwaInstalledMock).toHaveBeenCalledTimes(1))
+
+      authed = false
+      currentSettings = undefined
+      rerender()
+
+      authed = true
+      currentSettings = { timeZone: 'America/Chicago', hasPwa: false }
+      rerender()
+
+      await waitFor(() => expect(markPwaInstalledMock).toHaveBeenCalledTimes(2))
+    })
+
+    // The guard must still hold WITHIN one session, or the reset has simply
+    // disabled it. This is the assertion that keeps the fix from being a
+    // regression dressed as one.
+    test('but a new settings object with no sign-out still writes only once', async () => {
+      currentSettings = { timeZone: null, hasPwa: false }
+      const { rerender } = renderHook(() => useLocalCapture())
+      await waitFor(() => expect(updateTimeZoneMock).toHaveBeenCalledTimes(1))
+
+      currentSettings = { timeZone: null, hasPwa: false }
+      rerender()
+      currentSettings = { timeZone: null, hasPwa: false }
+      rerender()
+
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(updateTimeZoneMock).toHaveBeenCalledTimes(1)
     })
   })
 })
