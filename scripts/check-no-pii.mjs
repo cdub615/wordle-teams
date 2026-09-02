@@ -6,9 +6,23 @@
 //   node scripts/check-no-pii.mjs            # scan staged changes (pre-commit)
 //   node scripts/check-no-pii.mjs --all      # scan the whole working tree
 //
-// Wire it up as a pre-commit hook:
-//   echo 'node scripts/check-no-pii.mjs || exit 1' >> .git/hooks/pre-commit
-//   chmod +x .git/hooks/pre-commit
+// WHERE IT IS WIRED, AND WHY NOT WHERE YOU WOULD EXPECT. It is called from
+// .beads/hooks/pre-commit, NOT .git/hooks/pre-commit, because beads sets
+// `core.hooksPath` to .beads/hooks — which OVERRIDES .git/hooks ENTIRELY.
+//
+// THE COPY IN .git/hooks STOPPED RUNNING THE MOMENT beads INSTALLED ITS HOOKS,
+// and nothing announced it. Verified by probe on 2026-09-02: a commit carrying
+// a third-party address succeeded with exit 0. (The probe address is not quoted
+// here — this file is scanned like any other, and doing so failed the check,
+// which is its own small proof that the guard works.) The project's CLAUDE.md said
+// "--no-verify chains to the PII guard", which had quietly become false, and
+// the note further down this file about Phase 4 being committed with
+// --no-verify describes the same guard failing open a second way.
+//
+// So if this ever needs re-wiring, do NOT reach for .git/hooks. Check:
+//   git config --get core.hooksPath
+// and add the call to THAT directory's pre-commit, after beads' own END marker
+// so `bd hooks install` does not overwrite it.
 
 import { execSync } from 'node:child_process'
 
