@@ -48,6 +48,7 @@
 // already carries a comment about. Nothing but a test that renders the
 // in-flight state can see it: it type-checks, it lints, it builds, and by the
 // time a human looks at the bar the query has answered.
+import { readFileSync } from 'node:fs'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ConvexError } from 'convex/values'
 import { getFunctionName, type FunctionReference } from 'convex/server'
@@ -385,5 +386,66 @@ describe('the buttons reach the action their label promises', () => {
 
     release({ url: null, reason: 'error' })
     await waitFor(() => expect(upgrade.disabled).toBe(false))
+  })
+})
+
+/**
+ * THE CHROME'S LINK TARGETS, AND THE GATE-LEVEL TWIN `wt-ksh.8.49` ASKS FOR.
+ *
+ * These two invariants were protected ONLY by e2e/routes.spec.ts:221,258,265,
+ * and e2e is not a CI gate — so the wordmark could be repointed at `/home` and
+ * all four gates would pass. §7a row 19 claimed "plus the source guard in
+ * v2/src/routes.test.ts", which was wrong: that file guards `/` and `/home`
+ * ROUTE behaviour (their beforeLoad), and never reads Header.tsx's links.
+ *
+ * WHY BOTH POINT AT `/` AND NOT `/home`: the two render the identical Landing,
+ * sitemap.ts ranks `/` at priority 1 against `/home` at 0.9, and linking
+ * internally to the duplicate advertises the non-canonical copy of a page we
+ * serve twice. A repoint is therefore an SEO regression that nothing else here
+ * would catch.
+ */
+describe('the app bar links at the landing, and says so on the landing', () => {
+  // Rendered, not read: the Link mock at the top of this file emits a real
+  // <a href={to}>, so this asserts the value the component actually passes
+  // rather than a string that happens to appear in the source.
+  const linkTargets = () => screen.queryAllByRole('link').map((a) => a.getAttribute('href'))
+
+  test('the wordmark and the Home link both point at the canonical landing', () => {
+    isPro = false
+    render(createElement(Header))
+
+    // EXHAUSTIVE over the anchors, not `toContain`. A link that quietly starts
+    // pointing at /home is the regression, and toContain('/') cannot see it —
+    // the Phase 7 footer test made exactly this mistake over `<Link to=` while
+    // five `<a href>` links went unchecked. The third entry is the About link,
+    // and it is listed rather than filtered out so that ADDING a link is a
+    // change here too.
+    //
+    // The first draft of this test asserted ['/', '/'] and failed on the real
+    // component, which is the exhaustive form earning its keep immediately.
+    expect(linkTargets()).toEqual(['/', '/', '/about'])
+    expect(linkTargets()).not.toContain('/home')
+  })
+
+  // The mock deliberately drops `activeProps`, so this half cannot be asserted
+  // by rendering without testing the mock instead of the app. Read from source,
+  // with comments stripped first — Header.tsx's own prose discusses both the
+  // active class and /home, and a source assertion must not be satisfiable by a
+  // file's commentary about itself.
+  test('the Home link declares its active styling, so the landing marks itself', () => {
+    const source = readFileSync('src/components/Header.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|\s)\/\/[^\n]*/g, '')
+
+    // BOUNDED AT BOTH ENDS, and the start is asserted before it is used:
+    // `slice(indexOf(x))` on a miss is slice(-1), which silently returns the
+    // last character and would make every assertion below pass or fail for the
+    // wrong reason.
+    const at = source.indexOf('<Link to="/" className="nav-link"')
+    expect(at).toBeGreaterThan(-1)
+    const openingTag = source.slice(at, source.indexOf('>', at) + 1)
+
+    expect(openingTag).toContain('activeProps')
+    expect(openingTag).toContain('is-active')
   })
 })

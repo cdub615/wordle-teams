@@ -52,6 +52,81 @@ The consequence of the wrong version was not nothing: it steered ten tasks towar
 
 **Every task in Stage A that changes behaviour visible over HTTP therefore requires an assertion on a real response**, in `e2e/`, in addition to any unit test of the extracted logic. A unit test alone does not close a Stage A task.
 
+### e2e is not a gate, so every e2e-only protection needs a gate-level twin
+
+**Adopted deliberately by Task 16's follow-on (`wt-ksh.8.49`), 2026-09-02. The
+phase had already converged on it by accident; this is the rule written down so
+later tasks stop rediscovering it.**
+
+`deploy-v2.yml` runs lint, typecheck, `test:once`, build, deploy, then smoke-tests
+`/login`. **It never runs Playwright.** So every protection that lives only in
+`e2e/` holds exactly as long as a human remembers to run `pnpm e2e` — and this
+phase has twice shipped a change that all four gates passed and e2e would have
+caught:
+
+- Task 5's review swapped the two legal pages' `<title>` elements **and**
+  mispointed the footer's "Privacy Policy" link at `/terms`. Four green gates.
+- Deleting `src/routes/me.tsx` — the redirect that exists because production PWA
+  installs carry `start_url: /me` and can never be updated — also passed all four.
+
+**THE RULE.** When a task adds a protection that only e2e can see, ask what a
+`vitest` test could assert about the same invariant, and add it. The twin does not
+have to be as good as the e2e test; it has to fail when the invariant breaks.
+Three forms, in descending order of strength:
+
+1. **Render it.** `// @vitest-environment jsdom` plus `@testing-library/react`.
+   `vitest.config.ts` defaults to `edge-runtime` and an individual file overrides
+   it with that docblock — six files already do. This asserts what the component
+   actually passes, not what its source happens to say.
+2. **Parse it.** `src/test-support/source-ast.ts` — `jsxPropsOf`, `optionsPassedTo`,
+   `propertiesOf`, `elementsOf`. A parsed node is bounded by construction.
+3. **Read it as a string**, last. `src/routes.test.ts`, `src/styles.test.ts`,
+   `src/legal-prose.test.ts`, `src/crawler-metadata.test.ts`.
+
+**IF YOU READ SOURCE, STRIP THE COMMENTS FIRST.** This codebase is comment-dense
+enough that **the first textual occurrence of almost any code string is prose
+about that code**, so an assertion over a raw file can be satisfied by the file's
+own commentary about itself. `src/routes.test.ts`'s footer block does this and
+says why.
+
+**AND BOUND IT AT BOTH ENDS.** `slice(indexOf(x))` with one argument runs to
+end-of-file, and on a miss `indexOf` returns `-1`, so `slice(-1)` silently yields
+the last character — an assertion that then passes or fails for a reason
+unrelated to what it names. Assert the index was found before you use it.
+
+**A TWIN IS ONLY REAL IF A MUTATION KILLS IT.** Anchor the mutation on syntax a
+comment cannot contain, and confirm the code line moved before believing a green
+run. Writing `wt-ksh.8.49`'s own twin, the first two mutation anchors matched
+*twice* — there was a second nav link — and reporting those as kills would have
+been wrong.
+
+**REVIEWED 2026-09-02, and the coverage is better than the issue assumed.**
+`routes.test.ts`, `server.test.ts`, `cache-policy.test.ts`, `crawler-metadata.test.ts`,
+`legal-prose.test.ts`, `login-error.test.ts`, `maintenance-page.test.ts`,
+`styles.test.ts`, `about-screenshots.test.ts` and `feature-cards.test.ts` already
+twin the route, cache-header, metadata, legal-prose and landing-content
+protections. **One real gap was found and closed:** the app bar's link targets and
+the Home link's active state were protected only by `e2e/routes.spec.ts:221,258,265`.
+§7a row 19 claimed a source guard in `routes.test.ts` that did not exist — that
+file guards `/` and `/home`'s `beforeLoad`, never `Header.tsx`'s links. The twin is
+now in `src/components/Header.hook.test.ts`.
+
+**WHY NOT JUST RUN e2e IN CI.** It needs a Convex backend in the workflow, which
+is why it is absent: the suite drives a local anonymous backend with
+`E2E_TEST_MODE=true`, and that flag must never be set on the deployment CI
+deploys to (`wordle-teams-7az`). Standing up a second backend inside the deploy
+job is real work with a new failure surface, and it would gate every beta deploy
+on a browser suite. The twins are cheaper and they fail *faster*. This is a
+deliberate trade, not an oversight — revisit it if the twin set stops keeping up.
+
+**e2e IS STILL WORTH RUNNING, and it is now reliable enough to trust.**
+`wt-ksh.8.51` fixed three separate causes of its flakiness on 2026-09-02 — a
+read-set conflict in `convex/e2eSeed.ts`, an unwaited profile submit, and eleven
+Playwright workers saturating one dev server — and the suite went from 2-3
+failures of 60 to five consecutive 60/60 runs. Run it deliberately before closing
+any task that changes behaviour visible over HTTP.
+
+
 ### A grep against a fetched page silently finds nothing -- this app's SSR documents are "binary"
 
 **Every SSR document v2 serves contains NUL bytes.** TanStack serializes route ids with a trailing NUL into the dehydrated payload, so it is structural and present on every rendered route -- a `GET /` carries five. GNU grep therefore classifies the response as binary and **reports no matches, with no error and no warning**. `file` calls it `data`.
