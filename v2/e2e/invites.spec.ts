@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
+import { completeProfile } from './complete-profile'
 import type { Locator, Page } from '@playwright/test'
 
 /**
@@ -200,9 +201,7 @@ test('an invited address joins the team after completing a profile', async ({ br
     await signIn(joiner, inviteeEmail)
     await expect(joiner).toHaveURL('/complete-profile')
 
-    await joiner.getByLabel('First Name').fill('Iva')
-    await joiner.getByLabel('Last Name').fill('Joiner')
-    await joiner.getByRole('button', { name: 'Submit' }).click()
+    await completeProfile(joiner, { firstName: 'Iva', lastName: 'Joiner' })
 
     // THE POINT OF THE WHOLE FEATURE. completeProfile is the only thing in v2
     // that creates a player, and claiming every invite waiting on that address
@@ -365,9 +364,7 @@ test('inviting someone who already has an account adds them to the team directly
     const newcomer = await newcomerContext.newPage()
     await signIn(newcomer, existingEmail)
     await expect(newcomer).toHaveURL('/complete-profile')
-    await newcomer.getByLabel('First Name').fill('Ada')
-    await newcomer.getByLabel('Last Name').fill('Lovelace')
-    await newcomer.getByRole('button', { name: 'Submit' }).click()
+    await completeProfile(newcomer, { firstName: 'Ada', lastName: 'Lovelace' })
     await expect(newcomer).toHaveURL('/app')
     await expect(newcomer.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
   } finally {

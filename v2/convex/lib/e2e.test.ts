@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isE2eEmail, isE2ePlayerRow, isE2eTraffic, realRecipients } from './e2e.ts'
+import { e2eTeamLegacyId, isE2eEmail, isE2ePlayerRow, isE2eTraffic, realRecipients } from './e2e.ts'
 
 // The addresses here are throwaway e2e shapes and example.test, never anybody's
 // real address — this repository is public.
@@ -158,5 +158,53 @@ describe('isE2ePlayerRow', () => {
     ['an e2e+ tag on somebody else’s domain', { email: 'e2e+abc@example.test' }],
   ])('leaves %s alone', (_label, row) => {
     expect(isE2ePlayerRow(row)).toBe(false)
+  })
+})
+
+describe('e2eTeamLegacyId', () => {
+  // WHY THIS EXISTS AT ALL. e2eSeed.ensureTeamFor used to find the account's
+  // team with `ctx.db.query('teams').collect()` — a filter over the WHOLE table,
+  // which put every team in the mutation's read set. Under parallel Playwright
+  // workers any concurrent insert then invalidated it, and Convex failed the
+  // mutation outright:
+  //
+  //   OptimisticConcurrencyControlFailure: Documents read from or written to the
+  //   "teams" table changed while this mutation was being run and on every
+  //   subsequent retry.
+  //
+  // Observed 2026-09-01 on e2e/invites.spec.ts:119. Six specs call the seed, and
+  // the cost is quadratic in the number of callers, so it worsened as the suite
+  // grew (wt-ksh.8.51). A deterministic id per address makes the lookup an
+  // indexed `by_legacyId` point read, so the read set is one document.
+
+  test('is stable for the same address', () => {
+    expect(e2eTeamLegacyId(E2E)).toBe(e2eTeamLegacyId(E2E))
+  })
+
+  test('is case- and whitespace-insensitive, because the seed lowercases too', () => {
+    expect(e2eTeamLegacyId('  E2E+ABC123@WordleTeams.com  ')).toBe(e2eTeamLegacyId(E2E))
+  })
+
+  test('differs between addresses', () => {
+    expect(e2eTeamLegacyId('e2e+one@wordleteams.com')).not.toBe(e2eTeamLegacyId('e2e+two@wordleteams.com'))
+  })
+
+  // THE BAND IS THE SAFETY PROPERTY, and it is what the old `Date.now()` was
+  // really buying. schema.ts defines `legacyId === undefined` as "born in v2,
+  // not copied", so a seeded row must carry SOME value or it inflates Phase 7's
+  // reconciliation bucket — but that value must never match a real Supabase
+  // team id, or `by_legacyId` could adopt a seeded row into the copy.
+  test('lands far above any real Supabase team id, and above the old Date.now() band', () => {
+    for (const address of ['e2e+a@wordleteams.com', 'e2e+b@wordleteams.com', 'e2e+zzz@wordleteams.com']) {
+      const id = e2eTeamLegacyId(address)
+      expect(id).toBeGreaterThanOrEqual(9_000_000_000_000)
+      expect(id).toBeLessThan(9_001_000_000_000)
+      // Comfortably inside the range Convex and JSON can carry exactly.
+      expect(Number.isSafeInteger(id)).toBe(true)
+    }
+  })
+
+  test('is an integer, never a float', () => {
+    expect(Number.isInteger(e2eTeamLegacyId(E2E))).toBe(true)
   })
 })

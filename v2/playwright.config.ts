@@ -4,6 +4,37 @@ dotenv.config({ path: '.env.local' }) // VITE_CONVEX_URL for the OTP-capture cli
 
 export default defineConfig({
   testDir: './e2e',
+
+  /**
+   * PINNED, AND IT IS THE LAST HALF OF THE `wt-ksh.8.51` FLAKE FIX.
+   *
+   * Playwright's default is `cpus/2`, which on this box is ELEVEN browsers
+   * against ONE Vite dev server. The product is not slow; the harness was
+   * oversubscribed, and every worker's few-hundred module requests queued behind
+   * the others'. Whole-test durations ran 3-4x their isolated figures —
+   * complete-profile.spec.ts:25 takes 5.8s alone and was measured at 15.9s and
+   * 23.2s under eleven — so assertions carrying Playwright's 5s default failed
+   * intermittently, always on whichever spec happened to be landing a navigation
+   * while the others were, never on a faulty spec.
+   *
+   * MEASURED BOTH WAYS on 2026-09-02, four full-suite runs each:
+   *   11 workers, 5s expect ceiling   2-3 failures of 60, different specs each run
+   *   11 workers, 20s expect ceiling  60/60, but the ceiling now hides a real stall
+   *    4 workers, 5s expect ceiling   60/60, and the SAME 1.1-1.2m wall clock
+   *
+   * The wall clock is the part that decides it. The extra parallelism was buying
+   * nothing — these tests are waiting on the dev server, not on CPU — so cutting
+   * workers costs no time and removes the CAUSE, where raising the ceiling would
+   * only have accommodated it. `wt-ksh.8.51` is explicit that `wordle-teams-1cd`'s
+   * fix was the helper's contract rather than the timeout, and the same rule
+   * applies here: 5s stays meaningful, so a genuine stall still fails fast.
+   *
+   * A LITERAL, NOT A FRACTION, so the suite behaves the same on a 4-core CI
+   * runner as on a 22-core workstation. `cpus/2` made the flake rate a property
+   * of the machine, which is why this was so hard to pin down.
+   */
+  workers: 4,
+
   use: { baseURL: 'http://localhost:3000' },
   webServer: {
     command: 'pnpm dev',

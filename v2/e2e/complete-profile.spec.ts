@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { signIn } from './sign-in'
+import { completeProfile } from './complete-profile'
 
 /**
  * Onboarding, end to end (wt-ksh.5.18).
@@ -33,9 +34,7 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
   await expect(page).toHaveURL('/complete-profile')
   await expect(page.getByRole('heading', { name: /complete your profile/i })).toBeVisible()
 
-  await page.getByLabel('First Name').fill('E2E')
-  await page.getByLabel('Last Name').fill('Onboarder')
-  await page.getByRole('button', { name: 'Submit' }).click()
+  await completeProfile(page, { lastName: 'Onboarder' })
 
   // DIRECTION TWO — needsProfile false, which is the half that cannot be
   // asserted anywhere else. The dashboard's own beforeLoad re-reads the
@@ -124,9 +123,7 @@ test('a one-character first and last name saves without bouncing back', async ({
   // the page unmounts on `navigate({ to: '/app' })`, so the error state is
   // destroyed whether or not it was cleared — the only observable window is
   // between the click and the navigation, and nothing asserts there.
-  await page.getByLabel('First Name').fill('A')
-  await page.getByLabel('Last Name').fill('B')
-  await page.getByRole('button', { name: 'Submit' }).click()
+  await completeProfile(page, { firstName: 'A', lastName: 'B' })
 
   await expect(page).toHaveURL('/app')
   await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()

@@ -128,3 +128,44 @@ export function realRecipients(
   const all = typeof recipients === 'string' ? [recipients] : recipients
   return all.filter((address) => !isE2eTraffic(address, e2eTestMode))
 }
+
+/**
+ * A deterministic, unmistakably-synthetic `teams.legacyId` for an e2e address.
+ *
+ * WHAT THIS REPLACED, AND WHY IT IS NOT A MICRO-OPTIMISATION.
+ * `e2eSeed.ensureTeamFor` used to find the account's team by
+ * `ctx.db.query('teams').collect()` and filtering in JS. That is correct and
+ * cheap at e2e scale on its own — but it puts EVERY team in the mutation's read
+ * set, so any concurrent insert by another Playwright worker invalidates it and
+ * Convex retries; exhaust the retries and the mutation fails outright with
+ * `OptimisticConcurrencyControlFailure`. Six specs call the seed, so the
+ * collision rate is quadratic in callers and got worse as the suite grew: the
+ * flake count went 2 -> 4 -> 5 -> 6 across Phase 7 and one run failed six of
+ * sixty (`wt-ksh.8.51`). Everything passed in isolation, which is exactly what a
+ * read-set conflict looks like.
+ *
+ * Keying the team on a value derived from the address makes the lookup an
+ * indexed point read on `by_legacyId`, so the read set is ONE document and two
+ * workers seeding different addresses cannot conflict at all.
+ *
+ * THE BAND IS THE SAFETY PROPERTY. `schema.ts` defines `legacyId === undefined`
+ * as "born in v2, not copied", the bucket Phase 7's row-count reconciliation
+ * leans on, so a seeded row must carry a value rather than omit one. That value
+ * must also never match a real Supabase team id, or `by_legacyId` could adopt a
+ * seeded row into the copy. `9e12` is far above both v1's team ids and the
+ * `Date.now()` this replaced (~1.76e12), and stays a safe integer.
+ *
+ * FNV-1a rather than anything cryptographic: this needs to be stable and
+ * well-spread across a handful of test addresses, not unforgeable.
+ */
+export function e2eTeamLegacyId(email: string): number {
+  const normalized = email.trim().toLowerCase()
+  let hash = 0x811c9dc5
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i)
+    // >>> 0 after each step keeps this in unsigned 32-bit space; Math.imul is
+    // the only multiply that does not lose precision at that width.
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return 9_000_000_000_000 + (hash % 1_000_000_000)
+}

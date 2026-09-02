@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { signIn } from './sign-in'
+import { completeProfile } from './complete-profile'
 
 // REAL RESPONSES, NOT UNIT TESTS. v2 has no component-rendering tests — the
 // vitest environment is edge-runtime, so there is no DOM — which means the
@@ -140,9 +141,7 @@ test.describe('route shape', () => {
     // true A/B on the route and not on the account.
     await signIn(page)
     await expect(page).toHaveURL('/complete-profile')
-    await page.getByLabel('First Name').fill('E2E')
-    await page.getByLabel('Last Name').fill('Home')
-    await page.getByRole('button', { name: 'Submit' }).click()
+    await completeProfile(page, { lastName: 'Home' })
     await expect(page).toHaveURL('/app')
 
     // The WHOLE chain: one entry is the assertion. A beforeLoad here would make
@@ -210,9 +209,7 @@ test.describe('route shape', () => {
     // the same form rather than a second mechanism invented here.
     await signIn(page)
     await expect(page).toHaveURL('/complete-profile')
-    await page.getByLabel('First Name').fill('E2E')
-    await page.getByLabel('Last Name').fill('Landing')
-    await page.getByRole('button', { name: 'Submit' }).click()
+    await completeProfile(page, { lastName: 'Landing' })
     await expect(page).toHaveURL('/app')
 
     // The WHOLE chain, not a slice: two entries is the assertion. A third hop

@@ -1,6 +1,6 @@
 import { mutation } from './_generated/server'
 import { v } from 'convex/values'
-import { isE2eTraffic } from './lib/e2e.ts'
+import { e2eTeamLegacyId, isE2eTraffic } from './lib/e2e.ts'
 
 /**
  * Gives an e2e test account a team, so the dashboard clears its "not on a
@@ -27,8 +27,14 @@ import { isE2eTraffic } from './lib/e2e.ts'
  * row is not a real v2 signup, so letting it fall into that bucket would
  * quietly inflate the count. A synthetic value marks the row as test data on
  * sight instead, and cannot be adopted by the copy: `e2e-<email>` is not a
- * Supabase uuid, and the teams' `Date.now()` is far outside v1's team-id range,
- * so by_legacyId can never match either one to a real Supabase row.
+ * Supabase uuid, and the teams' id comes from `e2eTeamLegacyId` in the 9e12
+ * band, far outside v1's team-id range, so by_legacyId can never match either
+ * one to a real Supabase row.
+ *
+ * THAT TEAM ID IS DERIVED FROM THE ADDRESS RATHER THAN FROM THE CLOCK, and it
+ * used to be `Date.now()`. Deriving it is what lets the lookup below be an
+ * indexed point read instead of a scan of the whole `teams` table — see the
+ * comment at the lookup, and `wt-ksh.8.51`.
  */
 export const ensureTeamFor = mutation({
   args: { email: v.string(), timeZone: v.optional(v.string()) },
@@ -64,14 +70,30 @@ export const ensureTeamFor = mutation({
         ...(timeZone !== undefined ? { timeZone } : {}),
       }))
 
-    // No index for "teams containing player X" — same collect-and-filter as
-    // teams.ts's getMyTeams, and just as fine at e2e scale.
-    const teams = await ctx.db.query('teams').collect()
-    const existingTeam = teams.find((team) => team.playerIds.includes(playerId))
+    // AN INDEXED POINT READ, NOT A TABLE SCAN, AND THE DIFFERENCE IS THE FLAKE.
+    // This used to be `ctx.db.query('teams').collect()` filtered in JS — fine at
+    // e2e scale as a cost, but it put EVERY team in this mutation's read set, so
+    // a concurrent insert by another Playwright worker invalidated it and Convex
+    // retried; exhaust the retries and the mutation fails outright with
+    // OptimisticConcurrencyControlFailure. Six specs call this seed, so the
+    // collision rate is quadratic in callers and grew with the suite
+    // (`wt-ksh.8.51`). Keying on the address makes the read set ONE document.
+    //
+    // IT IS ALSO THE CONTRACT THE CALLERS ALREADY ASSUMED. Every caller wants
+    // "this account's OWN team" — e2e/invites.spec.ts:47 says so outright, since
+    // being `owner` is what unlocks the invite controls. The old scan returned
+    // ANY team whose playerIds contained the account, which after an invite flow
+    // can be the INVITER's team, where this account is not the owner. So this is
+    // a narrowing to what was meant, not only a cheaper lookup.
+    const legacyId = e2eTeamLegacyId(lower)
+    const existingTeam = await ctx.db
+      .query('teams')
+      .withIndex('by_legacyId', (q) => q.eq('legacyId', legacyId))
+      .first()
     if (existingTeam) return existingTeam._id
 
     return await ctx.db.insert('teams', {
-      legacyId: Date.now(),
+      legacyId,
       name: 'E2E Team',
       owner: playerId,
       playerIds: [playerId],
@@ -142,17 +164,23 @@ export const ensureSharedTeamFor = mutation({
     const playerA = await ensurePlayer(emailA, 'PlayerA')
     const playerB = await ensurePlayer(emailB, 'PlayerB')
 
-    // No index for "teams containing player X" — same collect-and-filter as
-    // ensureTeamFor above and teams.ts's getMyTeams, and just as fine at e2e
-    // scale.
-    const teams = await ctx.db.query('teams').collect()
-    const existing = teams.find(
-      (team) => team.playerIds.includes(playerA) && team.playerIds.includes(playerB),
-    )
+    // Indexed for the same reason ensureTeamFor above is — this is the SECOND
+    // full-table read that was feeding `wt-ksh.8.51`'s OptimisticConcurrency
+    // failures, and fixing only the first would have left the flake in place via
+    // e2e/teams.spec.ts.
+    //
+    // KEYED ON THE PAIR, SORTED, so that the shared team is the same document
+    // whichever order the two addresses arrive in and a caller cannot seed two
+    // rival "shared" teams by swapping its arguments.
+    const legacyId = e2eTeamLegacyId([emailA.toLowerCase(), emailB.toLowerCase()].sort().join('|'))
+    const existing = await ctx.db
+      .query('teams')
+      .withIndex('by_legacyId', (q) => q.eq('legacyId', legacyId))
+      .first()
     if (existing) return existing._id
 
     return await ctx.db.insert('teams', {
-      legacyId: Date.now(),
+      legacyId,
       name: 'E2E Live Update Team',
       owner: playerA,
       playerIds: [playerA, playerB],
