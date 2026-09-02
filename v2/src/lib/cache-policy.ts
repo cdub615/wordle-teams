@@ -62,6 +62,23 @@ const STATIC_DOCUMENTS = new Set([
 ])
 
 export const NO_STORE = 'private, no-store'
+
+/**
+ * `max-age=0` IS NOT WHAT THE VISITOR ACTUALLY RECEIVES, and nothing in this
+ * repository would tell you that. Measured on beta 2026-09-02: the first
+ * response carries this string verbatim, and every response served from the
+ * edge cache afterwards comes back as `max-age=14400`. The zone's Browser
+ * Cache TTL (Caching -> Configuration, a dashboard setting) rewrites max-age
+ * on anything Cloudflare caches, and since wordle-teams-fqeq these documents
+ * are cached, so it now applies to them.
+ *
+ * The intent of `max-age=0` is that the browser always revalidates, leaving
+ * the edge as the only long-lived copy and the version-keyed key in server.ts
+ * in full control of what anyone sees after a deploy. Four hours of private
+ * browser cache is outside that control. Whether to change the zone setting,
+ * scope it with a Cache Rule, or accept it is wordle-teams-g1cd; this comment
+ * exists so the next person does not have to rediscover the cause.
+ */
 export const STATIC_CACHE =
   'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800'
 
