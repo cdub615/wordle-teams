@@ -10,7 +10,7 @@ import { DatePicker } from '#/components/date-picker.tsx'
 import { WordleBoard } from '#/components/wordle-board.tsx'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { cn } from '#/lib/utils.ts'
-import { toPuzzleDay, type PuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { monthOf, toPuzzleDay, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
 import { navigableDays, resolveDay, teamBoardsView, wrapSlide } from './team-boards-model.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -40,10 +40,33 @@ import type { Id } from '../../../convex/_generated/dataModel'
 export function TeamBoards({
   teamId,
   month,
+  months,
+  onMonthChange,
   className,
 }: {
   teamId: Id<'teams'>
   month: string
+  /**
+   * Every month the MONTH DROPDOWN offers, newest first — `monthOptions`' own
+   * output, passed down rather than recomputed (wordle-teams-5vv3).
+   *
+   * IT BOUNDS THE DAY PICKER, which is the whole point: the picker reaches
+   * exactly the months the dropdown does and no further. The owner's decision,
+   * and the reason is that v2 has NO pro month gate yet — `monthOptions`
+   * returns three months for everyone — so an unbounded picker would hand every
+   * player unlimited history now and the pro expansion would later have to take
+   * it away. Sharing one source means both widen together when it lands, and
+   * the two controls cannot disagree about what exists.
+   */
+  months: Array<PuzzleMonth>
+  /**
+   * Called when a picked day falls OUTSIDE the month currently loaded.
+   *
+   * `getTeamMonth` loads one month, so reaching a day in another one is a
+   * navigation rather than a local state change — the parent moves `?month=`
+   * and this component re-renders against the new data. See the picker below.
+   */
+  onMonthChange: (month: PuzzleMonth) => void
   className?: string
 }) {
   const hydrated = useHydrated()
@@ -137,12 +160,40 @@ export function TeamBoards({
             <span className="sr-only">Previous day</span>
           </Button>
           <div className="mx-auto">
+            {/*
+              THE PICKER REACHES EVERY MONTH THE DROPDOWN DOES, not just the one
+              loaded (wordle-teams-5vv3). It used to be clamped to
+              `days[0]`..`days[days.length - 1]` — the loaded month — so viewing
+              an earlier day meant going up to the month dropdown first, while
+              board entry's picker (the same component) had no such restriction.
+
+              `minDay` IS THE FIRST DAY OF THE OLDEST MONTH ON OFFER. `months`
+              is monthOptions' output and is newest-first, so the last entry is
+              the oldest.
+
+              NO `maxDay` AT ALL, WHICH IS A DELETION RATHER THAN AN OMISSION.
+              date-picker.tsx already refuses every future day on its own; the
+              old `maxDay` narrowed that further to the end of the loaded month,
+              which is exactly what stopped a viewer in July returning to
+              September without the dropdown. Its own doc comment says maxDay
+              "can never widen" the future bound, so dropping it restores the
+              default rather than loosening anything.
+            */}
             <DatePicker
               day={day}
-              onSelect={setPicked}
+              onSelect={(chosen) => {
+                setPicked(chosen)
+                // A day outside the loaded month is a navigation, not a local
+                // change. `picked` is set FIRST and deliberately: after the
+                // parent moves `?month=`, `navigableDays` is the new month's
+                // and `resolveDay` honours `picked` because it is now one of
+                // them — so the day the viewer actually clicked is the one that
+                // renders, rather than that month's default last day.
+                const chosenMonth = monthOf(chosen)
+                if (chosenMonth !== month) onMonthChange(chosenMonth)
+              }}
               playWeekends={team.playWeekends}
-              minDay={days[0]}
-              maxDay={days[days.length - 1]}
+              minDay={months.length > 0 ? `${months[months.length - 1]}-01` : days[0]}
               className="w-52 md:w-56"
             />
           </div>

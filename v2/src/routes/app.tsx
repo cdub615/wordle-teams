@@ -11,7 +11,7 @@ import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
-import { MonthPicker } from '#/components/month-picker.tsx'
+import { MonthPicker, monthOptions } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { TeamsEmptyState } from '#/components/teams/empty-state.tsx'
@@ -294,7 +294,23 @@ function Dashboard() {
           scores.getTeamMonth itself, the same already-cached query the table
           above suspends on. */}
       <Suspense fallback={<TeamBoardsSkeleton className="md:row-span-3" />}>
-        <TeamBoards teamId={teamParam as Id<'teams'>} month={monthParam} className="md:row-span-3" />
+        {/*
+          `months` AND `onMonthChange` MAKE THE DAY PICKER REACH PAST THE LOADED
+          MONTH (wordle-teams-5vv3). It was clamped to the month on screen, so
+          viewing an earlier day meant going up to the dropdown first. The SAME
+          array the MonthPicker above is driven by bounds it, so the two
+          controls offer exactly the same months and widen together when the pro
+          expansion lands.
+        */}
+        <TeamBoards
+          teamId={teamParam as Id<'teams'>}
+          month={monthParam}
+          months={monthOptions(currentMonth)}
+          onMonthChange={(month) =>
+            navigate({ to: Route.fullPath, search: { team: teamParam, month } })
+          }
+          className="md:row-span-3"
+        />
       </Suspense>
       {selectedTeam && (
         <>

@@ -223,3 +223,71 @@ test('switching month keeps the dashboard on screen instead of blanking it', asy
   expect(watch.frames).toBeGreaterThan(5)
   expect(watch.blankFrames).toBe(0)
 })
+
+/**
+ * THE DAY PICKER REACHES AN EARLIER MONTH, AND OPENS WHERE IT IS LOOKING
+ * (wordle-teams-5vv3).
+ *
+ * Two owner complaints, both about the same control. The picker was clamped to
+ * the loaded month, so viewing an earlier day meant going up to the month
+ * dropdown first; and it opened on the CLOCK'S month whatever day was selected,
+ * because react-day-picker resolves its initial month as
+ * `month || defaultMonth || today` and never consults `selected`
+ * (wordle-teams-p5mw, open since the Task 10 review and closed by this).
+ *
+ * ONLY A BROWSER SEES THE ROUND TRIP. team-boards.hook.test.ts pins the panel's
+ * side — which days the calendar offers, and that picking an outside one calls
+ * back — against a recorded callback. What it cannot see is what happens next:
+ * that the callback actually moves `?month=`, that the route reloads against the
+ * new month, and that the day the viewer clicked survives that rather than being
+ * replaced by the new month's default.
+ *
+ * WHAT THIS TEST DOES *NOT* COVER, stated because its name reads as though it
+ * might: the `defaultMonth` half. This starts on the CURRENT month, where the
+ * selected day's month and the clock's month are the same, so deleting
+ * `defaultMonth` from date-picker.tsx leaves it green — verified by mutation.
+ * The guard for that half is team-boards.hook.test.ts's "it OPENS on the day
+ * being viewed", which renders the panel pointed at July from an August clock
+ * and is red without it. Reaching the same state here would need a signed-in
+ * account with scores in a previous month, which this suite's seed does not
+ * create.
+ */
+test('a day in an earlier month can be picked, and the month follows it', async ({ page }) => {
+  await signInWithTeam(page)
+
+  const monthPicker = page.getByRole('button', { name: /^\w{3} \d{4}$/ })
+  await expect(monthPicker).toBeVisible()
+  const startingMonth = (await monthPicker.textContent())!.trim()
+
+  // The boards picker, which carries the full date as its label.
+  const dayPicker = page.getByRole('button', { name: /^\w+ \d{1,2}, \d{4}$/ })
+  await dayPicker.click()
+
+  // IT OPENED ON THE SELECTED DAY'S MONTH. Before the fix this grid was the
+  // clock's month with every day disabled by the old maxDay bound.
+  const grid = page.getByRole('grid')
+  await expect(grid).toBeVisible()
+
+  // Page back one month and take the 15th, which exists in every month and is
+  // never a weekend edge case.
+  await page.getByRole('button', { name: 'Go to the Previous Month' }).click()
+  const fifteenth = grid.locator('td[data-day$="-15"] button')
+  await expect(fifteenth).toBeEnabled()
+  const targetDay = await grid.locator('td[data-day$="-15"]').getAttribute('data-day')
+  await fifteenth.click()
+
+  // THE MONTH DROPDOWN MOVED WITH IT — the callback reached the router.
+  await expect(monthPicker).not.toHaveText(startingMonth)
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('month'))
+    .toBe(targetDay!.slice(0, 7))
+
+  // AND THE DAY THE VIEWER CLICKED SURVIVED THE NAVIGATION, rather than the new
+  // month's default last day. `picked` is set before the callback precisely so
+  // resolveDay honours it once the new month's days arrive; setting it after
+  // would land on the wrong day and look almost right.
+  await expect(dayPicker).toBeVisible()
+  const [, monthPart, dayPart] = targetDay!.split('-')
+  await expect(dayPicker).toHaveText(new RegExp(`${Number(dayPart)}, `))
+  expect(monthPart).toBe(targetDay!.slice(5, 7))
+})

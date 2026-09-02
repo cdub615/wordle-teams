@@ -83,6 +83,34 @@ export function DatePicker({
         <Calendar
           mode="single"
           selected={selected}
+          /**
+           * OPEN ON THE DAY BEING SHOWN, NOT ON TODAY (wordle-teams-5vv3).
+           *
+           * react-day-picker does NOT derive the displayed month from
+           * `selected`. Measured in the installed version 10:
+           *
+           *   helpers/getInitialMonth.js:14
+           *     let initialMonth = month || defaultMonth || today;
+           *
+           * With neither passed, the calendar always opened on today's month —
+           * so a viewer looking at a July day had to page back two months to
+           * reach the day already on screen behind the popover. It affected
+           * BOTH callers: board entry's picker opened on today while editing an
+           * older board, which is the same defect and was never reported only
+           * because it is reached less often.
+           *
+           * `defaultMonth`, NOT `month`. The latter is controlled: it would pin
+           * the calendar and make paging inside the popover do nothing. This
+           * only chooses where it OPENS, and Radix unmounts the popover content
+           * on close, so each reopen picks up the current selection.
+           *
+           * FALLS BACK TO `upperBound` RATHER THAN TO TODAY when nothing is
+           * selected: for a caller bounded into a past month, today is not a
+           * month the calendar can even show, and RDP would clamp it back to
+           * the bound anyway (getInitialMonth.js:16-23). Naming the bound
+           * directly is the same result arrived at honestly.
+           */
+          defaultMonth={selected ?? upperBound}
           onSelect={(picked) => {
             if (!picked) return
             onSelect(toPuzzleDay(picked))

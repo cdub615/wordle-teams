@@ -34,7 +34,6 @@ import { api } from '../../../convex/_generated/api'
 import TeamBoards from './team-boards.tsx'
 import { CONCEALED_MESSAGE, MISSING_MESSAGE } from './team-boards-model.ts'
 import { codeOf, parseSource } from '#/test-support/source-ast.ts'
-import { daysOfMonth } from '../../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /** Set per test, read by the mocked `useSuspenseQuery`. */
@@ -82,7 +81,24 @@ const board = (puzzleDay: string, answer: string) => ({
 // so there are days on both sides of it inside the month.
 const NOW = new Date(2026, 7, 20, 10, 0, 0)
 
-const panel = (month: string = MONTH) => createElement(TeamBoards, { teamId: TEAM_ID, month })
+/** Records every month navigation the panel asks its parent for. */
+const monthChanges: Array<string> = []
+
+/**
+ * The three months the dropdown offers for August 2026, newest first — the
+ * shape `monthOptions` produces, which is what bounds the day picker
+ * (wordle-teams-5vv3). June is the oldest, so `2026-06-01` is the picker's
+ * floor.
+ */
+const MONTHS = ['2026-08', '2026-07', '2026-06']
+
+const panel = (month: string = MONTH, months: Array<string> = MONTHS) =>
+  createElement(TeamBoards, {
+    teamId: TEAM_ID,
+    month,
+    months,
+    onMonthChange: (next: string) => monthChanges.push(next),
+  })
 
 // react-dom/client's own act() checks this flag; @testing-library/react sets it
 // for its render(), but the hand-rolled hydrateRoot below is outside that.
@@ -92,6 +108,7 @@ declare global {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 beforeEach(() => {
+  monthChanges.length = 0
   // Only Date is faked. Faking timers wholesale would take setTimeout and the
   // message channel with it, which React's scheduler needs to flush anything.
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -311,13 +328,19 @@ describe('day navigation', () => {
   })
 })
 
-describe('the date picker is the other half of day navigation, and is bounded to the month', () => {
+describe('the date picker reaches every month the dropdown offers', () => {
   // THE HALF THE ARROW TESTS ABOVE ARE BLIND TO. Every day-navigation test
-  // clicks an arrow; nothing reached the picker, so `onSelect={setPicked}`
-  // could be replaced by a no-op, and `minDay`/`maxDay` deleted from the call
-  // site, with the suite still green. Row 32 documents both as parity
-  // behaviour. src/components/date-picker.hook.test.ts pins what the props DO;
-  // these two pin that this panel passes them and listens to the result.
+  // clicks an arrow; nothing reached the picker, so `onSelect` could be replaced
+  // by a no-op and the bounds deleted from the call site with the suite still
+  // green. src/components/date-picker.hook.test.ts pins what the props DO;
+  // these pin that this panel passes them and listens to the result.
+  //
+  // WHAT CHANGED IN wordle-teams-5vv3, because these tests used to assert the
+  // opposite: the picker was clamped to the LOADED month with minDay/maxDay, on
+  // the reasoning that getTeamMonth has no data outside it. That reasoning was
+  // sound and the conclusion was wrong — reaching another month is a
+  // NAVIGATION, not a day with no data, and the panel now asks its parent to
+  // move `?month=` instead of refusing to offer the day.
 
   /** Every day the open calendar offers, read off its `data-day` cells. */
   const offeredDays = () =>
@@ -325,20 +348,72 @@ describe('the date picker is the other half of day navigation, and is bounded to
       .filter((cell) => cell.querySelector('button')?.hasAttribute('disabled') === false)
       .map((cell) => cell.dataset.day)
 
-  test('the calendar offers the viewed month and NOTHING outside it', () => {
-    // July, viewed from an August "today", so both bounds are observable at
-    // once: without minDay the grid's June days open up, and without maxDay so
-    // do its August ones — both of them days `scores.getTeamMonth` has no data
-    // for, which is what row 32 calls reading as data loss.
-    render(panel('2026-07'))
-    fireEvent.click(dayLabel('July 31, 2026'))
-    // The calendar opens on the CLOCK'S month, not on the selected day's:
-    // date-picker.tsx passes no `defaultMonth`, and react-day-picker's default
-    // is today. Pre-existing and shared with v1, which renders the same
-    // component — filed as wordle-teams-p5mw, not fixed here.
+  const pageBack = () =>
     fireEvent.click(screen.getByRole('button', { name: 'Go to the Previous Month' }))
 
-    expect(offeredDays()).toEqual(daysOfMonth('2026-07'))
+  test('it OPENS on the day being viewed, not on the clock month', () => {
+    // wordle-teams-p5mw, fixed as part of this. react-day-picker resolves its
+    // initial month as `month || defaultMonth || today` and never consults
+    // `selected` (helpers/getInitialMonth.js:14), so with neither passed the
+    // calendar opened on August while the panel showed July — every day in the
+    // grid disabled by the old maxDay, and the viewer had to page back before
+    // there was anything to click. The version of this test that stood here had
+    // to perform that page-back itself, which is how the bug got documented
+    // instead of fixed.
+    render(panel('2026-07'))
+    fireEvent.click(dayLabel('July 31, 2026'))
+
+    expect(offeredDays()).toContain('2026-07-15')
+  })
+
+  test('a day in an EARLIER month is offered, and picking it asks for that month', () => {
+    // The owner's complaint: viewing an earlier day meant going up to the month
+    // dropdown first. Now the picker reaches it, and because getTeamMonth loads
+    // one month the panel turns that into a navigation for its parent.
+    render(panel())
+    fireEvent.click(dayLabel('August 20, 2026'))
+    pageBack()
+
+    expect(offeredDays()).toContain('2026-07-15')
+
+    fireEvent.click(screen.getByRole('grid').querySelector('td[data-day="2026-07-15"] button')!)
+
+    expect(monthChanges).toEqual(['2026-07'])
+  })
+
+  test('but a day in the SAME month is not a navigation', () => {
+    // The parent must not be asked to move `?month=` for an ordinary
+    // within-month pick — that would push a redundant history entry on every
+    // click, and re-run the route's loader for data it already holds.
+    render(panel())
+    fireEvent.click(dayLabel('August 20, 2026'))
+    fireEvent.click(screen.getByRole('grid').querySelector('td[data-day="2026-08-19"] button')!)
+
+    expect(dayLabel('August 19, 2026')).toBeTruthy()
+    expect(monthChanges).toEqual([])
+  })
+
+  test('the floor is the OLDEST month the dropdown offers, and no further', () => {
+    // THE BOUND THAT REPLACED THE MONTH CLAMP, and the reason it is not simply
+    // unbounded: v2 has no pro month gate yet — monthOptions returns three
+    // months for everyone — so an unbounded picker would hand every player
+    // unlimited history now, and the pro expansion would later have to take it
+    // away. `months` is that same array, so the two controls cannot disagree.
+    render(panel())
+    fireEvent.click(dayLabel('August 20, 2026'))
+
+    pageBack()
+    pageBack()
+    expect(offeredDays()).toContain('2026-06-15')
+
+    // May is outside the window, so no MAY day is offered. Asserted as "no day
+    // in that month" rather than "nothing at all": `showOutsideDays` and
+    // `fixedWeeks` mean May's last week paints June 1st-6th, which are inside
+    // the window and correctly still selectable. An empty-grid assertion looked
+    // right and failed on exactly those six days.
+    pageBack()
+    expect(offeredDays().filter((day) => day?.startsWith('2026-05'))).toEqual([])
+    expect(offeredDays().length).toBeGreaterThan(0)
   })
 
   test('picking a day from the calendar moves the panel to it', () => {
@@ -544,6 +619,15 @@ describe('the panel is mounted on the dashboard', () => {
     expect([...rendered[0]]).toEqual([
       ['teamId', "{teamParam as Id<'teams'>}"],
       ['month', '{monthParam}'],
+      // `monthOptions(currentMonth)` — THE SAME CALL THE MonthPicker ABOVE IS
+      // DRIVEN BY, which is what makes the day picker and the dropdown offer
+      // exactly the same months (wordle-teams-5vv3). Passing a different
+      // window here, or a literal array, is how the two silently drift apart.
+      ['months', '{monthOptions(currentMonth)}'],
+      [
+        'onMonthChange',
+        '{(month) =>\n            navigate({ to: Route.fullPath, search: { team: teamParam, month } })\n          }',
+      ],
       ['className', '"md:row-span-3"'],
     ])
   })
