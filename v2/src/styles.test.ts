@@ -112,12 +112,60 @@ describe('AA contrast for the text tokens, in both themes', () => {
   }
 
   test('--text-subtle is still the documented exception, and still only that', () => {
-    // Pinned as a FAILURE so the exception cannot quietly widen. If someone
-    // darkens --text-subtle to clear AA this test goes red, and the right
-    // response is to delete it and add --text-subtle to TEXT_SURFACES above —
-    // there is room to now that --text-muted sits at 5.05 on --background.
+    // Pinned as a FAILURE so the exception cannot quietly widen.
     expect(ratio(LIGHT['--text-subtle'], LIGHT['--background'])).toBeLessThan(4.5)
     expect(ratio(DARK['--text-subtle'], DARK['--background'])).toBeLessThan(4.5)
+  })
+
+  test('and in LIGHT there is still no room to lift it, which is the reason why', () => {
+    /**
+     * THE REASON, MEASURED HERE RATHER THAN ASSERTED IN PROSE (wt-ksh.8.48).
+     *
+     * The claim this replaces was that --text-muted moving to 5.05 left room to
+     * darken --text-subtle to AA and keep it a visible rank below. THAT USED
+     * 5.05, WHICH IS THE --background FIGURE — the exact single-surface mistake
+     * the --text-muted fix itself was written to correct. The binding surface is
+     * --surface-sunken, where --text-muted is 4.80, so the band a third rank
+     * would have to live in is 4.50 to 4.80.
+     *
+     * WHILE THAT BAND IS THIS NARROW THE EXCEPTION STANDS, and if --text-muted
+     * ever darkens enough to widen it this test goes red and says so.
+     */
+    const mutedWorst = Math.min(
+      ...TEXT_SURFACES.map((surface) => ratio(LIGHT['--text-muted'], LIGHT[surface])),
+    )
+    expect(mutedWorst - 4.5, 'the band above AA has widened — revisit wt-ksh.8.48').toBeLessThan(
+      0.35,
+    )
+
+    /**
+     * AND THE CONSEQUENCE, SEARCHED RATHER THAN ARGUED: the best grey that
+     * clears AA on all three light surfaces sits closer to --text-muted than
+     * the pair the design actually ships, so adopting it would collapse the two
+     * ranks into each other. No invented threshold — the benchmark is the
+     * separation currently in use.
+     */
+    const shipped = ratio(LIGHT['--text-subtle'], LIGHT['--text-muted'])
+    let best: string | null = null
+    for (let v = 0; v < 256; v++) {
+      // The token is a cool grey: blue channel ten above the neutral pair.
+      const hex = `#${[v, v, Math.min(255, v + 10)].map((x) => x.toString(16).padStart(2, '0')).join('')}`
+      const worst = Math.min(...TEXT_SURFACES.map((surface) => ratio(hex, LIGHT[surface])))
+      if (worst < 4.5) continue
+      // DIMMER THAN --text-muted, which in a light theme means LIGHTER. Without
+      // this the search happily returns a near-black that clears AA by miles —
+      // and would be a rank ABOVE --text-muted, not the one below it that
+      // --text-subtle is defined to be. (The first version of this test had no
+      // such constraint and reported a 3.96:1 separation, which is how the
+      // omission was caught.)
+      if (luminance(hex) <= luminance(LIGHT['--text-muted'])) continue
+      if (!best || ratio(hex, LIGHT['--text-muted']) > ratio(best, LIGHT['--text-muted'])) best = hex
+    }
+    expect(best, 'no grey clears AA on all three light surfaces at all').not.toBeNull()
+    expect(
+      ratio(best!, LIGHT['--text-muted']),
+      'an AA-clearing --text-subtle is now as distinguishable as the shipped one — revisit',
+    ).toBeLessThan(shipped)
   })
 })
 

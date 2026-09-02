@@ -115,8 +115,12 @@ http.route({
   path: '/polar/webhook',
   method: 'POST',
   handler: httpAction(async (ctx, request) => {
-    // LOUD, NOT LENIENT, AND THE SILENT ALTERNATIVE IS MEASURED. POLAR_WEBHOOK_
-    // SECRET is set on no deployment yet (wordle-teams-3bl). Without this check
+    // LOUD, NOT LENIENT, AND THE SILENT ALTERNATIVE IS MEASURED. This check was
+    // written when POLAR_WEBHOOK_SECRET was set on no deployment; it IS set on
+    // beta now — measured 2026-09-01 on fabulous-goldfish-949, where the live
+    // endpoint answers a missing webhook-id with 400 rather than the 500 an
+    // unset secret produces (wordle-teams-3bl, wordle-teams-721e). The reasoning
+    // below is unchanged and is why the check stays. Without it
     // the missing value would reach `TextEncoder.encode`, which treats
     // `undefined` as its default argument and returns an EMPTY Uint8Array;
     // `new Webhook` accepts that (its `if (!secret)` guard sees a truthy

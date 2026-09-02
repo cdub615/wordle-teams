@@ -82,12 +82,29 @@ measures 4.80 on `--surface-sunken`, 5.05 on `--background`, 5.28 on
 light-in-light-mode surface, and `--surface-inverse` has no consumer in `v2/src`
 at all.
 
-Note the consequence for `text-subtle`: with `text-muted` now at 5.05 on
-`--background` there **is** room to darken `text-subtle` to AA and keep it a
-rank below — the old "three text ranks do not fit above the AA line" claim no
-longer holds. That was deliberately left alone in the Task 4 review, because it
-moves the N/A cells, timestamps and placeholders app-wide and belongs to
-whoever owns that decision.
+**The consequence for `text-subtle` was stated wrongly here and is now
+measured** (`wt-ksh.8.48`). This file previously said that with `text-muted` at
+5.05 there **is** room to darken `text-subtle` to AA and keep it a rank below.
+**5.05 is the `--background` figure** — the very single-surface mistake the row
+above was added to correct. The binding surface is `--surface-sunken`, where
+`text-muted` is **4.80**, so the band a third rank would have to occupy is 4.50
+to 4.80.
+
+Searched rather than argued: the darkest cool grey that clears 4.5 on all three
+light surfaces is `#6f6f79`, and it sits **1.06:1** from `text-muted` — against
+the **1.174:1** the shipped pair actually uses. Adopting it would collapse the
+two ranks into one. **So the old "three text ranks do not fit above the AA line"
+conclusion still holds in light; only its arithmetic needed replacing.**
+`v2/src/styles.test.ts` now runs that search on every CI run, so if `text-muted`
+ever darkens enough to widen the band the exception is flagged for revisiting
+instead of being inherited.
+
+**Dark is different and is a live option.** There the band is wide —
+`text-muted` is 6.76 on `--surface-sunken` — and `#848484` clears AA on all
+three surfaces at 4.56 while staying 1.48:1 from `text-muted`. Lifting the
+exception in dark only is therefore possible; it is not done here because it
+moves N/A cells, timestamps and placeholders app-wide in one theme and makes
+the token asymmetric, which is a design decision rather than a contrast fix.
 
 `v2/src/styles.test.ts` now recomputes these pairs from the shipped hex values,
 so the next ratio that is only checked against one background fails a gate
