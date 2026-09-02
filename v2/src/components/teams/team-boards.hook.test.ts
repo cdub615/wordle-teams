@@ -548,3 +548,69 @@ describe('the panel is mounted on the dashboard', () => {
     ])
   })
 })
+
+/**
+ * THE CAROUSEL SCROLLS SIDEWAYS AND ONLY SIDEWAYS (wordle-teams-iv09).
+ *
+ * Owner-reported from a phone: dragging vertically over the boards scrolled the
+ * carousel instead of the page, so a mistouch in that area trapped the page
+ * scroll. TWO COMPOUNDING CAUSES, and both are asserted because either one
+ * alone reproduces it.
+ *
+ * ASSERTED ON CLASS ATTRIBUTES, WHICH IS WHAT jsdom CAN SEE. There is no layout
+ * engine here — every element measures 0x0 — so no test in this repo can
+ * observe a scrollHeight exceeding a clientHeight, or a touch drag chaining to
+ * the page. What CAN be pinned is the markup that decides both, and the markup
+ * is where the defect was. The behavioural half belongs to a real browser;
+ * e2e/team-boards.spec.ts drives this panel.
+ */
+describe('the boards carousel does not become a vertical scroll container', () => {
+  const track = () => screen.getByLabelText('Team boards, scrollable by player')
+
+  test('the track declares BOTH axes, because declaring one decides the other', () => {
+    // THE SPEC DETAIL THAT MAKES THIS A BUG RATHER THAN A NON-STATEMENT: when
+    // one overflow axis is not `visible`, the other computes from `visible` to
+    // AUTO. So `overflow-x-auto` alone does not leave the y axis alone — it
+    // makes the element scrollable in both directions, and a downward drag
+    // scrolls the track rather than the page.
+    render(panel())
+
+    expect(track().className).toContain('overflow-x-auto')
+    expect(track().className).toContain('overflow-y-hidden')
+  })
+
+  test('NOT touch-action, which is the plausible wrong fix', () => {
+    // `touch-action: pan-x` looks like the direct expression of "only pan
+    // horizontally here" and is the opposite of what is wanted: the property is
+    // intersected from the hit-test element up through its ancestors, so
+    // setting it here disables vertical panning for the PAGE as well whenever a
+    // gesture starts inside the carousel. That is the reported bug, reached from
+    // the other direction, and it would look like a fix in review.
+    render(panel())
+
+    expect(track().className).not.toContain('touch-action')
+    expect(track().className).not.toMatch(/\btouch-pan-x\b/)
+  })
+
+  test('a slide is a column whose board takes only the space the name leaves', () => {
+    // THE OVERFLOW ITSELF, WHICH IS WHAT THE TRACK HAD TO SCROLL. The slide is
+    // 450px. The name row is `h-[24px]` plus `mb-2`, so 32px. The board wrapper
+    // was `h-full` — which resolves against the SLIDE, 450px, not the 418px
+    // actually left beneath the name — so every slide held 482px of content in
+    // a 450px box, on every screen size, regardless of the board's contents.
+    //
+    // `flex-1` takes what remains instead of the whole box. `min-h-0` is what
+    // permits a flex child to shrink below its content's intrinsic height at
+    // all: the default `min-height: auto` would reinstate the overflow with
+    // flex-1 still in place, which is the subtle half and the likelier revert.
+    render(panel())
+
+    const slide = track().firstElementChild
+    expect(slide?.className).toContain('flex-col')
+
+    const boardWrapper = slide?.lastElementChild
+    expect(boardWrapper?.className).toContain('flex-1')
+    expect(boardWrapper?.className).toContain('min-h-0')
+    expect(boardWrapper?.className).not.toContain('h-full')
+  })
+})

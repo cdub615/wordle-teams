@@ -167,7 +167,22 @@ export function TeamBoards({
             ref={trackRef}
             tabIndex={0}
             aria-label="Team boards, scrollable by player"
-            className="flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            /*
+              `overflow-y-hidden` IS NOT REDUNDANT WITH `overflow-x-auto`
+              (wordle-teams-iv09). Per the CSS overflow spec, when one axis is
+              not `visible` the other computes from `visible` to AUTO — so
+              declaring only the x axis silently made this a VERTICAL scroll
+              container too, and a touch drag downward scrolled the track
+              instead of the page. On a phone that means a mistouch anywhere
+              over the boards traps the page.
+
+              NOT `touch-action: pan-x`, WHICH IS THE OBVIOUS FIX AND IS WRONG.
+              touch-action is intersected from the hit-test element up through
+              its ancestors, so `pan-x` here would disable vertical panning for
+              the ancestors as well — the page would stop scrolling from inside
+              this region, which is the same bug arrived at from the other side.
+            */
+            className="flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             onScroll={(event) => {
               // Keeps the arrows stepping from where a TOUCH SWIPE left the
               // track, which the arrows never hear about otherwise. Writes a
@@ -178,9 +193,31 @@ export function TeamBoards({
             }}
           >
             {boards.map((board) => (
-              <div key={board.playerId} className="h-[450px] min-w-0 shrink-0 basis-full snap-center">
-                <div className="mb-2 h-[24px] text-center font-semibold">{board.playerName}</div>
-                <div className="flex h-full justify-center">
+              /*
+                A COLUMN, AND THE BOARD TAKES WHAT IS LEFT (wordle-teams-iv09).
+
+                THE MATHS THAT WAS WRONG, AND IT WAS WRONG ON EVERY SCREEN SIZE
+                RATHER THAN A NARROW ONE: the slide is 450px; the name row was
+                `mb-2 h-[24px]`, so 32px including its margin; and the board
+                wrapper was `h-full`, which resolves against the SLIDE — 450px,
+                not the 418px actually left under the name. 482px of content in
+                a 450px box, always. That overflow is what the track then had
+                something to scroll vertically.
+
+                `flex-1` with `min-h-0` is the pair that fixes it: flex-1 takes
+                the remaining space instead of the whole box, and min-h-0 is
+                what lets a flex child shrink below its content's intrinsic
+                height at all — without it the default `min-height: auto` puts
+                the overflow straight back.
+              */
+              <div
+                key={board.playerId}
+                className="flex h-[450px] min-w-0 shrink-0 basis-full snap-center flex-col"
+              >
+                <div className="mb-2 h-[24px] shrink-0 text-center font-semibold">
+                  {board.playerName}
+                </div>
+                <div className="flex min-h-0 flex-1 justify-center">
                   {board.message ? (
                     <p className="w-auto pt-[180px] text-center text-muted-foreground">{board.message}</p>
                   ) : (

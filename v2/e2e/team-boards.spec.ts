@@ -88,3 +88,63 @@ test("today's boards are concealed until you enter your own, and the console sta
 
   expect(consoleErrors).toEqual([])
 })
+
+/**
+ * THE CAROUSEL SCROLLS THE PAGE, NOT ITSELF, WHEN DRAGGED DOWNWARD
+ * (wordle-teams-iv09).
+ *
+ * Owner-reported from a phone: a mistouch over the boards trapped the page
+ * scroll. THIS IS THE ONLY PLACE THE DEFECT IS OBSERVABLE. jsdom has no layout
+ * engine — every element measures 0x0 — so team-boards.hook.test.ts can pin the
+ * markup that decides the behaviour but can never see a scrollHeight exceed a
+ * clientHeight, which is the thing that was actually wrong.
+ *
+ * MEASURED, NOT SIMULATED. Dispatching synthetic touch events would test
+ * Playwright's event emulation rather than the browser's scroll chaining. What
+ * decides whether a drag scrolls the track or the page is whether the track has
+ * vertical overflow to consume, and that is a number the page can be asked for.
+ *
+ * BOTH FIGURES BELOW WERE MEASURED AGAINST THE BROKEN MARKUP BEFORE THE FIX,
+ * in this browser at this viewport: `slideOverflow: [32]` and
+ * `overflowY: "auto"`. Neither was inferred.
+ */
+test('the boards carousel has no vertical overflow to trap a downward drag', async ({ page }) => {
+  await signInWithTeam(page)
+
+  // The phone this was reported on; 390x844 is an iPhone 14.
+  await page.setViewportSize({ width: 390, height: 844 })
+
+  const track = page.getByLabel('Team boards, scrollable by player')
+  await track.waitFor()
+
+  const metrics = await track.evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    overflowX: getComputedStyle(element).overflowX,
+    overflowY: getComputedStyle(element).overflowY,
+    // Every slide, so one tall board cannot hide behind an average.
+    slideOverflow: Array.from(element.children).map(
+      (slide) => slide.scrollHeight - slide.clientHeight,
+    ),
+  }))
+
+  // THE CAUSE, and it measured exactly 32px per slide: the slide is 450px and
+  // held 482px — a 24px name row plus its 8px margin, then a board wrapper
+  // taking `h-full` of the SLIDE rather than of what was left under the name.
+  // On every slide, at every screen size, whatever the board contained.
+  expect(metrics.slideOverflow.every((overflow) => overflow <= 0)).toBe(true)
+
+  // THE ENABLER, and the browser confirmed it: with only `overflow-x-auto`
+  // declared, the computed `overflow-y` came back "auto", not "visible". That
+  // is the CSS overflow spec — when one axis is not `visible` the other
+  // computes to `auto` — so the track was a vertical scroll container by
+  // accident, ready to consume the drag the overflow above gave it work to do.
+  expect(metrics.overflowY).toBe('hidden')
+  expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.clientHeight)
+
+  // AND THE HORIZONTAL CAROUSEL STILL WORKS, which is the half that must not be
+  // traded away for the fix: `overflow-y-hidden` on a flex row is one careless
+  // edit from `overflow-hidden`, which would leave the arrows driving a track
+  // that cannot move.
+  expect(metrics.overflowX).toBe('auto')
+})
