@@ -124,8 +124,42 @@ export default function Header() {
   const showUpgrade = isPro === false
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line-subtle bg-background/80 px-4 backdrop-blur-lg">
-      <nav className="page-wrap flex items-center gap-x-4 py-3 sm:py-4">
+    // NO `px-*` ON THE BAR ITSELF. The band inside carries the gutter, so the
+    // `px-4` that used to sit here was a second one stacked on the first. The
+    // header element still spans the full width, which is what its bottom
+    // border and backdrop blur want — only its contents are inset.
+    //
+    // `overflow-x-clip` IS NOT TIDINESS; IT STOPS A 1px PAGE-WIDE SCROLLBAR.
+    // The avatar's ring is `absolute -inset-0.5` on a 32px avatar — 36px — but
+    // it SPINS, and `getBoundingClientRect` includes the transform, so a
+    // rotating square reports a box up to 36*sqrt(2) wide. MEASURED at 390px:
+    // the wrapper is 350-382 and correctly inside the content box, while the
+    // ring's box reads 342-390.4, which is 0.4px past the viewport and enough
+    // for e2e/billing.spec.ts's document-overflow assertion to fail. A rotating
+    // CIRCLE looks identical at every angle, so the extra box is invisible —
+    // it is pure layout noise from a decorative element.
+    //
+    // The old `px-4` plus `page-wrap`'s 1rem gave 32px of clearance and hid it;
+    // the 8px gutter this file now uses does not. `clip` rather than `hidden`
+    // deliberately: `hidden` would make this a scroll container and break the
+    // `sticky` positioning above. The dropdown is unaffected — shadcn's
+    // DropdownMenuContent renders through a Radix Portal, outside this element.
+    <header className="sticky top-0 z-50 overflow-x-clip border-b border-line-subtle bg-background/80 backdrop-blur-lg">
+      {/*
+        `page-max` PLUS THE DASHBOARD'S OWN HORIZONTAL RULE, NOT `page-wrap`.
+        The two classes cap at the same 1440 but differ below it: page-wrap
+        keeps a 1rem gutter at every width, page-max keeps none. While the bar
+        used one and routes/app.tsx's grid used the other, they agreed only
+        above ~1472 — MEASURED at 1024 the nav sat 16-1008 and the grid 0-1024,
+        so the wordmark was inset while the cards it sits above were not.
+        Sharing one rule is what makes the chrome line up with the body at every
+        width, which is the whole point of the cap.
+
+        The prose routes (/about, /login, /terms, ...) stay on `page-wrap`
+        deliberately: a paragraph wants a gutter at every width, and none of
+        them sits above a grid it has to align with.
+      */}
+      <nav className="page-max flex items-center gap-x-4 px-2 py-3 sm:py-4 md:px-0">
         {/*
           POINTS AT THE MARKETING LANDING, decided in Phase 7 Task 4 and no
           longer open. Task 1 had it on /app only because deleting the old index

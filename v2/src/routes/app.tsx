@@ -181,7 +181,7 @@ function Dashboard() {
   // load shows until useDashboardSearchSync fills the params in.
   if (teams.length === 0) {
     return (
-      <main className="page-max p-2 md:p-12">
+      <main className="page-max mt-2 px-2 md:mt-6 md:px-0">
         {upgradePending && <CheckoutPending className="mb-4" />}
         <TeamsEmptyState onCreate={() => setCreateOpen(true)} />
         <CreateTeamDialog
@@ -197,7 +197,7 @@ function Dashboard() {
   // render, and rendering a guess is what causes the mismatch.
   if (!teamParam || !monthParam) {
     return (
-      <main className="page-max p-2 md:p-12">
+      <main className="page-max mt-2 px-2 md:mt-6 md:px-0">
         {upgradePending && <CheckoutPending className="mb-4" />}
         <Skeleton className="h-96 w-full rounded-lg" />
       </main>
@@ -223,7 +223,24 @@ function Dashboard() {
     // grows that one column, and every sibling on the page along with it,
     // producing a page-wide horizontal scrollbar with everything below the
     // header pushed edge-to-edge.
-    <main className="page-max mb-12 grid grid-cols-1 gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
+    // SPACING MATCHES THE GRID'S OWN `gap`, WHICH IS THE POINT: `gap-2` below
+    // `md` and `gap-6` above it, so the space above the first row and outside
+    // the first and last columns is the same as the space between them. It read
+    // as arbitrary before — `p-2 md:p-12`, where 48px of desktop padding
+    // matched nothing.
+    //
+    // HORIZONTAL IS PADDING, VERTICAL IS MARGIN, AND THAT IS NOT A STYLE
+    // CHOICE. `.page-max` sets `margin-inline: auto` and is UNLAYERED, while
+    // Tailwind's utilities live in `@layer utilities` — unlayered CSS beats
+    // every layered rule whatever its specificity, so an `mx-*` here would be
+    // silently overridden and the gutter would simply not appear. Padding sits
+    // inside `max-width` under the global `box-sizing: border-box`, so it
+    // insets the content without shrinking the 1440 cap. `mt-*` is unaffected,
+    // since page-max touches only the inline axis.
+    //
+    // NO HORIZONTAL PADDING FROM `md` UP, so the grid reaches the full capped
+    // width and lines up with the header's own `page-wrap` band above it.
+    <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 px-2 md:mt-6 md:grid-cols-3 md:gap-6 md:px-0">
       {upgradePending && <CheckoutPending className="md:col-span-3" />}
       <CreateTeamDialog
         open={createOpen}

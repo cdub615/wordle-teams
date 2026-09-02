@@ -298,7 +298,7 @@ export function ScoringSystemCardSkeleton({ className }: { className?: string })
 export function DashboardSkeleton() {
   return (
     <main
-      className="mb-12 grid grid-cols-1 gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12"
+      className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 px-2 md:mt-6 md:grid-cols-3 md:gap-6 md:px-0"
       data-slot="dashboard-skeleton"
       aria-hidden="true"
     >

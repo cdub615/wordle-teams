@@ -36,8 +36,18 @@ export default function Footer() {
   const year = new Date().getFullYear()
 
   return (
-    <footer className="mt-20 border-t border-line-subtle px-4 pb-14 pt-10 text-sm text-muted-foreground">
-      <div className="page-wrap flex flex-col gap-8">
+    // `px-4` OFF THE FOOTER ELEMENT for the same reason it came off the header:
+    // the inner band below carries the gutter, so this was a second one stacked
+    // on the first. The element still spans full width for its top border.
+    <footer className="mt-20 border-t border-line-subtle pb-14 pt-10 text-sm text-muted-foreground">
+      {/*
+        `page-max` PLUS THE SAME HORIZONTAL RULE THE HEADER AND THE DASHBOARD
+        USE. All three chrome-and-body bands now share one, so they line up at
+        every width rather than only above the cap — see Header.tsx's note for
+        the measurements that showed page-wrap and page-max disagreeing below
+        ~1472.
+      */}
+      <div className="page-max flex flex-col gap-8 px-2 md:px-0">
         <div className="flex flex-wrap gap-x-24 gap-y-6">
           <div className="flex flex-col gap-2">
             <a href="https://feedback.wordleteams.com/feedback">Feedback</a>
