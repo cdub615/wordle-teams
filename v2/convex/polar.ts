@@ -641,6 +641,111 @@ export async function lookupPortal(
 }
 
 /**
+ * Creating a customer, reduced to the two outcomes the caller branches on.
+ * Injected for the same reason `PortalAttempt` is — see `ensurePortal`.
+ */
+export type CustomerCreateResult =
+  | { created: true }
+  | { created: false; reason: 'not-configured' | 'error' }
+
+/**
+ * THE STEP THAT MAKES THE PORTAL REACHABLE FOR SOMEONE WHO NEVER CHECKED OUT
+ * (wordle-teams-kzfi).
+ *
+ * WHAT WAS WRONG, AND IT WAS NOT A BUG IN ANY OF THIS. The owner's account is
+ * comped — `convex/migrate.ts` carried a `membershipStatus` of 'pro' across from
+ * Supabase — so it never went through checkout and Polar holds no customer with
+ * a matching `externalCustomerId`. `lookupPortal` tried every identity, every
+ * one missed, and it correctly answered `no-customer`; the UI showed the honest
+ * info toast. Everything behaved as designed. The DESIGN had the gap, and it is
+ * wider than one account: it catches every never-subscribed player, which is
+ * precisely who `app-menu.tsx` made Billing unconditional for.
+ *
+ * SO THE CUSTOMER IS CREATED ON DEMAND, keyed to the Convex id — the identity
+ * `externalIdsFor` puts first and the one everything v2 creates is stamped with.
+ * The next visit then resolves on the fast path like anyone else's.
+ *
+ * ONLY REACHED WHEN EVERY IDENTITY WAS EXHAUSTED WITH `no-customer`, WHICH IS
+ * THE RULE THIS SHARES WITH `lookupPortal` AND MUST NOT LOSE. A 500 or a
+ * rejected credential stops before here. Creating a customer in response to an
+ * outage would be the same lie that function's doc comment is about, wearing a
+ * different hat: it would turn "Polar is unwell" into "here is your empty
+ * billing account", and it would do it while writing to the vendor.
+ *
+ * A FAILED CREATE STILL TRIES THE PORTAL ONCE, and that is not optimism. Two
+ * real states produce it: another tab racing this one to the same create, and a
+ * Polar customer that already holds this email under a different external id.
+ * The first resolves — the racing create won, so the lookup now succeeds — and
+ * the retry costs one round trip on a path that was about to fail anyway.
+ *
+ * BUT A FAILED CREATE WHOSE RETRY ALSO MISSES REPORTS `error`, NOT
+ * `no-customer`, AND THAT INVERSION IS DELIBERATE. Before this, `no-customer`
+ * meant "you never bought anything", which is a true and unalarming fact about
+ * a normal person. After this, that state is supposed to be unreachable: we
+ * offered to make them a customer. So arriving here means the attempt to fix it
+ * FAILED, which is a fault on our side, and dressing it as the old placid
+ * sentence would hide a real breakage behind copy the reader cannot act on.
+ *
+ * THE ATTEMPT AND THE CREATE ARE BOTH INJECTED, which is what makes this
+ * sequencing testable with no network — the same shape, and the same reasoning,
+ * as `lookupPortal` directly above.
+ */
+export async function ensurePortal(
+  lookup: PortalLookup,
+  playerId: string,
+  create: () => Promise<CustomerCreateResult>,
+  attempt: PortalAttempt,
+): Promise<PortalLookup> {
+  // ALREADY RESOLVED — nothing to do, and nothing to write.
+  if (lookup.found) return lookup
+
+  /**
+   * THE GUARD, AND IT LIVES HERE RATHER THAN AT THE CALL SITE ON PURPOSE.
+   *
+   * It was written as an `if` around the call in getCustomerPortalUrl first, and
+   * a mutation check found the hole: deleting it there left every test in this
+   * file green, because the action's body is unreachable to convex-test (it
+   * cannot stand up a Better Auth session — wordle-teams-obw). So the single
+   * most consequential rule in this function was unpinned, and it is the rule
+   * that keeps an OUTAGE from reaching a WRITE to the vendor.
+   *
+   * Only an exhausted `no-customer` sweep may create. A 500 or a rejected
+   * credential stops. lookupPortal's own doc comment names the reasoning —
+   * turning an outage into "you have no subscription" is the exact lie the
+   * multi-way result exists to prevent — and creating a customer in response to
+   * one would be that lie plus a side effect.
+   *
+   * `'reason' in` NARROWS: PortalResult's success arm is `{ url: string }` with
+   * no `reason` at all. A `found: false` result is never that arm in practice,
+   * but the type permits it and reading a property off a union member that
+   * lacks it is exactly what the compiler is for.
+   */
+  if (!('reason' in lookup.result) || lookup.result.reason !== 'no-customer') return lookup
+
+  const creation = await create()
+
+  // A credential Polar rejected is knowable only by asking, and it is not
+  // something a retry can improve. Report it as itself rather than spending a
+  // round trip to rediscover it.
+  if (!creation.created && creation.reason === 'not-configured') {
+    return { found: false, result: { url: null, reason: 'not-configured' } }
+  }
+
+  const result = await attempt(playerId)
+  if (result.url !== null) {
+    return { found: true, url: result.url, customerId: result.customerId, externalId: playerId }
+  }
+
+  // The create succeeded, so the customer exists and this is a genuine portal
+  // failure — pass Polar's own reason through rather than overwriting it.
+  if (creation.created) return { found: false, result: { url: null, reason: result.reason } }
+
+  // The create failed AND the speculative retry found nothing. See above: this
+  // is `error`, never `no-customer`.
+  return { found: false, result: { url: null, reason: 'error' } }
+}
+
+/**
  * A short-lived Polar customer portal session for the signed-in player.
  *
  * RESOLVED BY `externalCustomerId`, NEVER BY A STORED POLAR CUSTOMER ID. That
@@ -688,7 +793,9 @@ export const getCustomerPortalUrl = action({
 
     const returnUrl = `${siteUrl()}/app`
 
-    const lookup = await lookupPortal(externalIdsFor(me), async (externalId) => {
+    // One portal attempt, shared by the identity sweep and by the
+    // create-then-retry below it.
+    const attempt: PortalAttempt = async (externalId) => {
       try {
         const session = await polar().customerSessions.create({
           externalCustomerId: externalId,
@@ -712,7 +819,58 @@ export const getCustomerPortalUrl = action({
         console.error('[polar] failed to create portal session', error)
         return { url: null, reason }
       }
-    })
+    }
+
+    let lookup = await lookupPortal(externalIdsFor(me), attempt)
+
+    /**
+     * NOBODY BY ANY OF THEIR NAMES — SO GIVE THEM ONE (wordle-teams-kzfi).
+     *
+     * `no-customer` after the whole sweep means this player has never checked
+     * out: the comped owner, and every free player who has not upgraded.
+     * app-menu.tsx offers them Billing unconditionally and this is the only
+     * getCustomerPortalUrl call site in v2, so before this they reached a
+     * cul-de-sac by design. `ensurePortal` creates the Polar customer keyed to
+     * the Convex id and opens the portal against it.
+     *
+     * GUARDED ON THE REASON, NOT MERELY ON `!lookup.found`, which is the whole
+     * of lookupPortal's rule restated at its call site: an outage or a rejected
+     * credential must NOT reach a write to the vendor.
+     */
+    lookup = await ensurePortal(
+      lookup,
+      me.playerId,
+        async () => {
+          try {
+            await polar().customers.create({
+              email: me.email,
+              externalId: me.playerId,
+              // `?? undefined`, not `?? ''`: checkoutIdentity nulls a blank
+              // name on purpose, and Polar's own field is optional. See its
+              // note — an empty string is at best meaningless here.
+              name: me.name ?? undefined,
+            })
+            console.log('[polar] created a customer for a player who had none', {
+              playerId: me.playerId,
+            })
+            return { created: true }
+          } catch (error) {
+            // LOGGED WITH ITS OWN LINE because this is the owner's only window
+            // onto it. The likeliest non-outage cause is a Polar customer that
+            // already holds this email under a different external id — rare,
+            // since a migrated subscriber's v1 uuid is already one of the
+            // identities swept above, but not impossible, and it is not
+            // something the retry below can resolve.
+            console.error('[polar] could not create a customer', { playerId: me.playerId }, error)
+            const reason = classifyPortalError(error)
+            return {
+              created: false,
+              reason: reason === 'not-configured' ? 'not-configured' : 'error',
+            }
+          }
+        },
+      attempt,
+    )
 
     if (!lookup.found) return lookup.result
 

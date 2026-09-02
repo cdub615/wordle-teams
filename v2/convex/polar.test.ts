@@ -6,13 +6,14 @@ import { api } from './_generated/api'
 import {
   assertPolarEnv,
   classifyPortalError,
+  ensurePortal,
   externalIdsFor,
   lookupPortal,
   polarEnvProblem,
   polarServer,
   proProductIds,
 } from './polar.ts'
-import type { PortalAttemptResult } from './polar.ts'
+import type { CustomerCreateResult, PortalAttemptResult, PortalLookup } from './polar.ts'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -490,5 +491,179 @@ describe('the URLs Polar returns the browser to', () => {
     // portal would otherwise be dropped on a sales page.
     expect(urlLine('returnUrl')).toContain('/app')
     expect(urlLine('returnUrl')).toMatch(/\$\{siteUrl\(\)\}\/app`/)
+  })
+})
+
+/**
+ * THE PORTAL FOR SOMEBODY WHO NEVER CHECKED OUT (wordle-teams-kzfi).
+ *
+ * `lookupPortal` above answers "which of this player's names does Polar know".
+ * This answers the question after it: nobody by any name — so make one. The
+ * owner's comped account is the reported case (migrate.ts carried a 'pro'
+ * membershipStatus across from Supabase, so it never went through checkout and
+ * Polar holds no customer for it), and every never-subscribed player is the
+ * general one, which matters because app-menu.tsx offers them all Billing.
+ *
+ * BOTH DEPENDENCIES INJECTED, exactly as lookupPortal's attempt is, so the
+ * sequencing — which is the entire content of this function — is exercised with
+ * no network and no SDK.
+ */
+describe('ensurePortal', () => {
+  const PLAYER = 'players_kzfi'
+  const session = { url: 'https://polar.sh/portal/new', customerId: 'cus_new' }
+
+  /** What lookupPortal hands back when every identity missed. */
+  const EXHAUSTED = {
+    found: false,
+    result: { url: null, reason: 'no-customer' },
+  } as const satisfies PortalLookup
+
+  /** A create that succeeds, recording that it was called. */
+  const creates = (result: CustomerCreateResult) => {
+    let calls = 0
+    return {
+      calls: () => calls,
+      create: async () => {
+        calls += 1
+        return result
+      },
+    }
+  }
+
+  /** An attempt that answers from a script and records what it was asked. */
+  const scripted = (answers: Array<PortalAttemptResult>) => {
+    const asked: string[] = []
+    return {
+      asked,
+      attempt: async (externalId: string): Promise<PortalAttemptResult> => {
+        asked.push(externalId)
+        return answers[asked.length - 1] ?? { url: null, reason: 'no-customer' }
+      },
+    }
+  }
+
+  test('creates the customer, then opens the portal against the CONVEX id', async () => {
+    // The Convex id, not the legacy one: it is what externalIdsFor puts first
+    // and what everything v2 creates is stamped with, so the next visit
+    // resolves on the fast path with no fallback and no repair.
+    const { create, calls } = creates({ created: true })
+    const { asked, attempt } = scripted([session])
+
+    const lookup = await ensurePortal(EXHAUSTED, PLAYER, create, attempt)
+
+    expect(lookup).toEqual({ found: true, ...session, externalId: PLAYER })
+    expect(calls()).toBe(1)
+    expect(asked).toEqual([PLAYER])
+  })
+
+  test('a rejected credential is reported WITHOUT spending a portal call', async () => {
+    // It cannot be improved by retrying and it is not the player's problem.
+    // Asserting the attempt was never made is the point: the alternative
+    // implementation reaches for the portal anyway and rediscovers the same
+    // failure one round trip later, reported as the wrong thing.
+    const { create } = creates({ created: false, reason: 'not-configured' })
+    const { asked, attempt } = scripted([session])
+
+    const lookup = await ensurePortal(EXHAUSTED, PLAYER, create, attempt)
+
+    expect(lookup).toEqual({ found: false, result: { url: null, reason: 'not-configured' } })
+    expect(asked).toEqual([])
+  })
+
+  test('a FAILED create still tries once — the racing tab may have won', async () => {
+    // Two real states produce a failed create: another tab creating the same
+    // customer concurrently, and an existing Polar customer holding this email.
+    // The first resolves on the retry, which is why the retry exists at all.
+    const { create } = creates({ created: false, reason: 'error' })
+    const { asked, attempt } = scripted([session])
+
+    const lookup = await ensurePortal(EXHAUSTED, PLAYER, create, attempt)
+
+    expect(lookup).toEqual({ found: true, ...session, externalId: PLAYER })
+    expect(asked).toEqual([PLAYER])
+  })
+
+  test('THE INVERSION: a failed create whose retry also misses is `error`, NOT `no-customer`', async () => {
+    // THE MUTATION THIS KILLS, and it is the one a reasonable person would
+    // write: pass the attempt's own reason straight through. The attempt says
+    // `no-customer`, which was a true and unalarming fact BEFORE this function
+    // existed — "you never bought anything". It is not true afterwards. We
+    // offered to make them a customer and could not, which is a fault on our
+    // side, and reporting it with the old placid sentence hides a real
+    // breakage behind copy the reader cannot act on.
+    const { create } = creates({ created: false, reason: 'error' })
+    const { attempt } = scripted([{ url: null, reason: 'no-customer' }])
+
+    const lookup = await ensurePortal(EXHAUSTED, PLAYER, create, attempt)
+
+    expect(lookup).toEqual({ found: false, result: { url: null, reason: 'error' } })
+  })
+
+  test("but a SUCCESSFUL create passes the portal's own reason through untouched", async () => {
+    // The mirror of the test above, and it is why that inversion is scoped to
+    // the failed-create branch rather than applied to every miss. Here the
+    // customer demonstrably exists, so whatever the portal says is a real fact
+    // about the portal and overwriting it would be the same class of lie in the
+    // opposite direction.
+    const { create } = creates({ created: true })
+    const { attempt } = scripted([{ url: null, reason: 'not-configured' }])
+
+    const lookup = await ensurePortal(EXHAUSTED, PLAYER, create, attempt)
+
+    expect(lookup).toEqual({ found: false, result: { url: null, reason: 'not-configured' } })
+  })
+})
+
+/**
+ * THE GUARD THAT KEEPS AN OUTAGE FROM REACHING A WRITE (wordle-teams-kzfi).
+ *
+ * These three are the reason `ensurePortal` takes the lookup as an argument
+ * instead of being called behind an `if`. It WAS called behind an `if`, and a
+ * mutation check found the hole: deleting that condition left all fifty tests
+ * in this file green, because the action's body is unreachable to convex-test —
+ * it cannot stand up a Better Auth session (wordle-teams-obw). The single most
+ * consequential rule in the change was unpinned, and it is the one that stops a
+ * Polar outage being answered by CREATING A CUSTOMER at Polar.
+ */
+describe('ensurePortal only creates after an exhausted no-customer sweep', () => {
+  const PLAYER = 'players_kzfi'
+
+  /** A create that must never be called, and says so if it is. */
+  const forbidden = async (): Promise<never> => {
+    throw new Error('ensurePortal created a customer when it must not have')
+  }
+  const noAttempt = async (): Promise<PortalAttemptResult> => {
+    throw new Error('ensurePortal opened a portal when it must not have')
+  }
+
+  test('an already-resolved lookup is returned untouched', async () => {
+    const found = {
+      found: true,
+      url: 'https://polar.sh/portal/x',
+      customerId: 'cus_1',
+      externalId: PLAYER,
+    } as const satisfies PortalLookup
+
+    expect(await ensurePortal(found, PLAYER, forbidden, noAttempt)).toEqual(found)
+  })
+
+  test('AN OUTAGE DOES NOT CREATE ANYTHING — it is passed straight back', async () => {
+    // lookupPortal stops the sweep on anything that is not `no-customer`
+    // precisely so a 500 is not relaundered as "you have no subscription".
+    // Creating a customer in response to one would be that same lie plus a
+    // side effect at the vendor, and it would do it to everybody at once.
+    const outage = { found: false, result: { url: null, reason: 'error' } } as const
+
+    expect(await ensurePortal(outage, PLAYER, forbidden, noAttempt)).toEqual(outage)
+  })
+
+  test('nor does a rejected credential', async () => {
+    // The other non-advancing reason, and the one most likely to be hit on a
+    // half-configured deployment — where writing a customer would be worse than
+    // useless, since it would land in whichever Polar organization the stray
+    // token happens to name.
+    const misconfigured = { found: false, result: { url: null, reason: 'not-configured' } } as const
+
+    expect(await ensurePortal(misconfigured, PLAYER, forbidden, noAttempt)).toEqual(misconfigured)
   })
 })
