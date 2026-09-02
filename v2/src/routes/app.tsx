@@ -181,7 +181,7 @@ function Dashboard() {
   // load shows until useDashboardSearchSync fills the params in.
   if (teams.length === 0) {
     return (
-      <main className="page-max mt-2 px-2 md:mt-6 md:px-0">
+      <main className="page-max mt-2 md:mt-6">
         {upgradePending && <CheckoutPending className="mb-4" />}
         <TeamsEmptyState onCreate={() => setCreateOpen(true)} />
         <CreateTeamDialog
@@ -197,7 +197,7 @@ function Dashboard() {
   // render, and rendering a guess is what causes the mismatch.
   if (!teamParam || !monthParam) {
     return (
-      <main className="page-max mt-2 px-2 md:mt-6 md:px-0">
+      <main className="page-max mt-2 md:mt-6">
         {upgradePending && <CheckoutPending className="mb-4" />}
         <Skeleton className="h-96 w-full rounded-lg" />
       </main>
@@ -238,9 +238,14 @@ function Dashboard() {
     // insets the content without shrinking the 1440 cap. `mt-*` is unaffected,
     // since page-max touches only the inline axis.
     //
-    // NO HORIZONTAL PADDING FROM `md` UP, so the grid reaches the full capped
-    // width and lines up with the header's own `page-wrap` band above it.
-    <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 px-2 md:mt-6 md:grid-cols-3 md:gap-6 md:px-0">
+    // THE HORIZONTAL GUTTER IS `.page-max`'S OWN, not a class here, and it
+    // follows the same rule the top margin does: it matches the gap — 0.5rem
+    // against `gap-2`, 1.5rem against `md:gap-6`, then nothing once the cap
+    // alone provides it. See its note in styles.css, including why it is three
+    // plain declarations rather than `px-2 md:px-6 wide:px-0`: a custom
+    // Tailwind breakpoint emitted the drop BEFORE `md` in the sheet, so it
+    // silently never applied.
+    <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 md:mt-6 md:grid-cols-3 md:gap-6">
       {upgradePending && <CheckoutPending className="md:col-span-3" />}
       <CreateTeamDialog
         open={createOpen}

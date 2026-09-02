@@ -146,20 +146,20 @@ export default function Header() {
     // DropdownMenuContent renders through a Radix Portal, outside this element.
     <header className="sticky top-0 z-50 overflow-x-clip border-b border-line-subtle bg-background/80 backdrop-blur-lg">
       {/*
-        `page-max` PLUS THE DASHBOARD'S OWN HORIZONTAL RULE, NOT `page-wrap`.
-        The two classes cap at the same 1440 but differ below it: page-wrap
-        keeps a 1rem gutter at every width, page-max keeps none. While the bar
-        used one and routes/app.tsx's grid used the other, they agreed only
-        above ~1472 — MEASURED at 1024 the nav sat 16-1008 and the grid 0-1024,
-        so the wordmark was inset while the cards it sits above were not.
-        Sharing one rule is what makes the chrome line up with the body at every
-        width, which is the whole point of the cap.
+        `page-max`, NOT `page-wrap`. The two cap at the same 1440 but gutter
+        differently below it: page-wrap keeps a flat 1rem at every width, while
+        page-max's gutter tracks the dashboard grid's `gap`. While the bar used
+        one and routes/app.tsx's grid used the other they agreed only above
+        ~1472 — MEASURED at 1024, the nav sat 16-1008 and the grid 0-1024, so
+        the wordmark was inset while the cards beneath it were not. Sharing one
+        rule is what lines the chrome up with the body at every width, which is
+        the whole point of the cap.
 
         The prose routes (/about, /login, /terms, ...) stay on `page-wrap`
         deliberately: a paragraph wants a gutter at every width, and none of
         them sits above a grid it has to align with.
       */}
-      <nav className="page-max flex items-center gap-x-4 px-2 py-3 sm:py-4 md:px-0">
+      <nav className="page-max flex items-center gap-x-4 py-3 sm:py-4">
         {/*
           POINTS AT THE MARKETING LANDING, decided in Phase 7 Task 4 and no
           longer open. Task 1 had it on /app only because deleting the old index

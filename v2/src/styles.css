@@ -12,6 +12,7 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+
 }
 
 /* ---------------------------------------------------------------------------
@@ -366,6 +367,36 @@
 .page-max {
   max-width: var(--page-max);
   margin-inline: auto;
+  padding-inline: 0.5rem;
+}
+
+/* THE GUTTER MATCHES THE DASHBOARD GRID'S `gap` AT EACH BREAKPOINT — 0.5rem
+ * against `gap-2`, 1.5rem against `md:gap-6` — so the space outside the first
+ * and last columns equals the space between them.
+ *
+ * AND IT LIVES HERE RATHER THAN AS `px-2 md:px-6 wide:px-0` ON SIX ELEMENTS,
+ * WHICH WAS TRIED FIRST AND SILENTLY DID NOT WORK. A custom `--breakpoint-wide`
+ * generated the right rule — `@media (width>=1488px){.wide\:px-0{padding-inline:0}}`
+ * — but Tailwind emitted it BEFORE `md:px-6` in the sheet (measured: byte 62388
+ * against 65144). Same layer, same specificity, so the earlier `md` rule won at
+ * every width and the gutter never dropped. Three declarations in source order
+ * cannot have that problem, and the intent reads in one place.
+ *
+ * 93rem IS 90rem + 2 * 1.5rem, i.e. the cap plus a gutter either side. Past it
+ * the cap ALONE leaves at least 24px, so the padding would stop being spacing
+ * and start being a second inset eating 48px off the widest thing on the page —
+ * the scores table. A media query cannot read `var(--page-max)`, so the
+ * arithmetic is written out here; if that token moves, move this with it. */
+@media (width >= 48rem) {
+  .page-max {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (width >= 93rem) {
+  .page-max {
+    padding-inline: 0;
+  }
 }
 
 .island-kicker {

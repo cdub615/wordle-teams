@@ -41,13 +41,13 @@ export default function Footer() {
     // on the first. The element still spans full width for its top border.
     <footer className="mt-20 border-t border-line-subtle pb-14 pt-10 text-sm text-muted-foreground">
       {/*
-        `page-max` PLUS THE SAME HORIZONTAL RULE THE HEADER AND THE DASHBOARD
-        USE. All three chrome-and-body bands now share one, so they line up at
-        every width rather than only above the cap — see Header.tsx's note for
-        the measurements that showed page-wrap and page-max disagreeing below
-        ~1472.
+        `page-max`, THE SAME BAND THE HEADER AND THE DASHBOARD USE. All three
+        share one rule — cap, centring and a gutter that tracks the grid's gap,
+        all of it in styles.css — so they line up at every width rather than
+        only above the cap. See Header.tsx for the measurements that showed
+        page-wrap and page-max disagreeing below ~1472.
       */}
-      <div className="page-max flex flex-col gap-8 px-2 md:px-0">
+      <div className="page-max flex flex-col gap-8">
         <div className="flex flex-wrap gap-x-24 gap-y-6">
           <div className="flex flex-col gap-2">
             <a href="https://feedback.wordleteams.com/feedback">Feedback</a>
