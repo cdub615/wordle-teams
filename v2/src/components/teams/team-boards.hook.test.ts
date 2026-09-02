@@ -655,24 +655,40 @@ describe('the panel is mounted on the dashboard', () => {
     walk(file)
 
     expect(rendered).toHaveLength(1)
-    // The whole attribute set, not a lookup: a `month={currentMonth}` added
-    // beside the right one, or a prop silently dropped, is a change to this
-    // list. `currentMonth` is the CLOCK'S month and would put the panel on a
-    // different month from the table above it.
-    expect([...rendered[0]]).toEqual([
-      ['teamId', "{teamParam as Id<'teams'>}"],
-      ['month', '{monthParam}'],
-      // `monthOptions(currentMonth)` — THE SAME CALL THE MonthPicker ABOVE IS
-      // DRIVEN BY, which is what makes the day picker and the dropdown offer
-      // exactly the same months (wordle-teams-5vv3). Passing a different
-      // window here, or a literal array, is how the two silently drift apart.
-      ['months', '{monthOptions(currentMonth)}'],
-      [
-        'onMonthChange',
-        '{(month) =>\n            navigate({ to: Route.fullPath, search: { team: teamParam, month } })\n          }',
-      ],
-      ['className', '"md:row-span-3"'],
+
+    // THE PROP NAMES, EXHAUSTIVELY. A `month={currentMonth}` added beside the
+    // right one, or a prop silently dropped, is a change to this list —
+    // `currentMonth` is the CLOCK'S month and would put the panel on a different
+    // month from the table above it.
+    expect([...rendered[0].keys()]).toEqual([
+      'teamId',
+      'month',
+      'months',
+      'onMonthChange',
+      'className',
     ])
+
+    expect(rendered[0].get('teamId')).toBe("{teamParam as Id<'teams'>}")
+    expect(rendered[0].get('month')).toBe('{monthParam}')
+    expect(rendered[0].get('className')).toBe('"md:row-span-3"')
+
+    // `monthOptions(currentMonth)` — THE SAME CALL the MonthPicker is driven
+    // by, which is what makes the day picker and the arrows offer exactly the
+    // months the dropdown does. A different window here, or a literal array, is
+    // how the controls silently drift apart.
+    expect(rendered[0].get('months')).toBe('{monthOptions(currentMonth)}')
+
+    // ASSERTED BY CONTENT RATHER THAN AS ONE EXACT STRING, because the handler
+    // is now a multi-line object literal and pinning its formatting would make
+    // this fail on a prettier run. The two facts that matter are that it
+    // navigates, and that it does NOT reset scroll — the second being the whole
+    // of wordle-teams-rpql's first item: this panel sits far down the grid, and
+    // resetting scroll threw a phone reader to the top of the page on every
+    // month crossing.
+    const onMonthChange = rendered[0].get('onMonthChange') ?? ''
+    expect(onMonthChange).toContain('navigate(')
+    expect(onMonthChange).toContain('search: { team: teamParam, month }')
+    expect(onMonthChange).toContain('resetScroll: false')
   })
 })
 

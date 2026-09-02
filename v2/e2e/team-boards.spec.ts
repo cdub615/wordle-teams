@@ -355,3 +355,110 @@ test('the previous-day arrow crosses into the month before, and the month follow
   // plays weekends — the seed's default — and within two days of it otherwise.
   expect(lastOfMonth - dayOfMonth).toBeLessThanOrEqual(2)
 })
+
+/**
+ * THE PAGE WIDTH IS ONE NUMBER, AND THE CHROME AGREES WITH THE BODY
+ * (wordle-teams-rpql).
+ *
+ * Only the header, footer and marketing routes carried `page-wrap`, so /app's
+ * `<main>` was unbounded. MEASURED at 1920x1080 before the fix: header nav and
+ * footer 1080px wide and centred at 420-1500, while the dashboard's content
+ * spanned 48-1872 — the chrome in a narrow strip with the page sprawling 744px
+ * wider on either side.
+ *
+ * IT LIVES HERE, NOT IN routes.spec.ts, AND THAT WAS LEARNED THE HARD WAY. The
+ * first version sat there and signed in with `signIn` + `completeProfile`, which
+ * does not seed a team — so it measured the `<main>` of /complete-profile, whose
+ * class is `page-wrap` exactly like the header's. Every assertion agreed
+ * trivially and BOTH mutants survived. A dashboard-width test needs a dashboard,
+ * which is what `signInWithTeam` above provides.
+ */
+test('the header, footer and dashboard body all stop at the same width', async ({ page }) => {
+  test.setTimeout(120_000)
+  await signInWithTeam(page)
+  // Proof we are on the dashboard and not still on /complete-profile, which is
+  // the failure this test was born from.
+  await expect(page.getByRole('button', { name: 'Team: E2E Team' })).toBeVisible({ timeout: 20_000 })
+
+  for (const width of [1920, 2560, 3440]) {
+    await page.setViewportSize({ width, height: 1080 })
+
+    const measured = await page.evaluate(() => {
+      const box = (el: Element | null) => {
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return { left: Math.round(r.left), right: Math.round(r.right) }
+      }
+      return {
+        header: box(document.querySelector('header nav')),
+        footer: box(document.querySelector('footer div')),
+        main: box(document.querySelector('main')),
+      }
+    })
+
+    // The chrome and the body occupy the SAME band. Compared as edges rather
+    // than widths: two regions can share a width and still be offset from one
+    // another, which is half of what looked wrong.
+    expect(measured.header, `header at ${width}`).toEqual(measured.footer)
+    expect(measured.main!.left, `main left at ${width}`).toBe(measured.header!.left)
+    expect(measured.main!.right, `main right at ${width}`).toBe(measured.header!.right)
+
+    // And actually CAPPED rather than merely consistent — at these widths the
+    // band must be narrower than the viewport, or this would pass against a
+    // page with no cap at all.
+    expect(measured.main!.right - measured.main!.left, `band at ${width}`).toBeLessThan(width)
+  }
+})
+
+/**
+ * THE SCORES TABLE ALIGNS WITH ITS NEIGHBOURS AT EVERY WIDTH
+ * (wordle-teams-rpql).
+ *
+ * The table's frame and the Team Boards card both carried `max-w-[96vw]` — a
+ * fraction of the VIEWPORT — while every sibling on the grid is bounded by its
+ * CELL. The two agreed until the difference exceeded the grid's own padding.
+ * MEASURED before the fix, right edges against the picker row:
+ *
+ *   1920   1872 vs 1872   aligned
+ *   2560   2512 vs 2506   6px short
+ *   3440   3392 vs 3350   42px short
+ *
+ * WHAT THIS TEST DOES AND DOES NOT GUARD, stated because the distinction is
+ * easy to lose: it guards the ALIGNMENT, and the thing that delivers that is the
+ * page cap asserted in the test above. It does NOT guard the `max-w-full`
+ * change — with the dashboard held at 1440 the content band is ~1344px, so 96vw
+ * is no longer the binding constraint at any viewport and restoring it here
+ * leaves this green. Verified by mutation. The class was removed to take out a
+ * latent viewport-versus-parent mismatch, not as the repair, and nothing at this
+ * level can tell the difference.
+ */
+test('the scores table and boards card reach the same right edge as the picker row', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await signInWithTeam(page)
+  await expect(page.getByRole('button', { name: 'Team: E2E Team' })).toBeVisible({ timeout: 20_000 })
+
+  for (const width of [1920, 2560, 3440]) {
+    await page.setViewportSize({ width, height: 1080 })
+
+    const edges = await page.evaluate(() => {
+      const right = (el: Element | null | undefined) =>
+        el ? Math.round(el.getBoundingClientRect().right) : null
+      const table = document.querySelector('main table')
+      const frame = table?.parentElement?.parentElement ?? null
+      const boardsCard = [...document.querySelectorAll('main [data-slot="card"], main .rounded-xl')]
+        .find((el) => el.textContent?.includes('Team Boards'))
+      return {
+        pickerRow: right(document.querySelector('main > div')),
+        frame: right(frame),
+        boardsCard: right(boardsCard),
+      }
+    })
+
+    expect(edges.frame, `scores frame at ${width}`).toBe(edges.pickerRow)
+    if (edges.boardsCard !== null) {
+      expect(edges.boardsCard, `boards card at ${width}`).toBe(edges.pickerRow)
+    }
+  }
+})

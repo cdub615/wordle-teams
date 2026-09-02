@@ -118,7 +118,21 @@ export function BoardInput({
         onBeforeInput={(event) => event.preventDefault()}
         onPaste={(event) => event.preventDefault()}
         onFocus={onBoardFocus}
-        className="mt-4 flex h-fit w-full select-none justify-center rounded-lg caret-transparent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background md:my-6"
+        /*
+          `mx-auto w-fit`, NOT `w-full ... justify-center` (wordle-teams-rpql).
+          The ring is drawn around THIS element, and while it spanned the full
+          row the ring outlined the whole sheet rather than the board — too
+          large, and clipped at both edges by form.tsx's `overflow-y-auto`
+          scroll container, which computes overflow-x to auto as well (the same
+          CSS rule wordle-teams-iv09 turned on).
+
+          Hugging the board puts the ring just outside the tiles, where it is
+          visible all the way round and has slack inside the scroll container.
+          `ring-offset-4` is kept rather than reduced: with the element now the
+          board's own size, 4px of gap is what stops the ring cutting into the
+          top row of tiles.
+        */
+        className="mx-auto mt-4 flex h-fit w-fit select-none rounded-lg caret-transparent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background md:my-6"
         role="region"
         aria-label="Wordle Board"
         tabIndex={tabIndex}

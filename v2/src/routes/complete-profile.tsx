@@ -65,7 +65,7 @@ export const Route = createFileRoute('/complete-profile')({
  */
 function CompleteProfileError({ error, reset }: ErrorComponentProps) {
   return (
-    <main className="flex w-full justify-center p-2 md:p-12">
+    <main className="page-max flex w-full justify-center p-2 md:p-12">
       <div className="flex max-w-lg flex-col items-center gap-4 pt-10 text-center">
         <p className="text-lg">Ruh roh, something went wrong!</p>
         <p className="text-muted-foreground">{dashboardErrorMessage(error)}</p>

@@ -146,7 +146,10 @@ export function ScoresTableSkeleton({
 
   return (
     <div className={className} data-slot="scores-table-skeleton" aria-hidden="true">
-      <div className="max-w-[96vw] rounded-md border text-xs md:text-base">
+      {/* `max-w-full`, matching the real table it stands in for — see its note
+          on wordle-teams-rpql. A skeleton bounded differently from its component
+          is a layout jump waiting for a wide screen. */}
+      <div className="max-w-full rounded-md border text-xs md:text-base">
         {/* `w-max min-w-full` for the reason scores-table.tsx gives at length:
             at 100% width, `table-layout: auto` treats that as a cap and
             compresses every column to fit instead of scrolling. */}

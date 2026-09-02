@@ -150,6 +150,9 @@
 
 :root {
   --radius: 0.5rem;
+  /* The one page width. See .page-wrap and .page-max at the foot of this file;
+   * raised from 1080 in wordle-teams-rpql. */
+  --page-max: 1440px;
 
   /* --- Layer 2: semantics (light) ---------------------------------------- */
   --background: #fafafa;
@@ -323,8 +326,45 @@
   }
 }
 
+/* THE ONE PAGE WIDTH, AND EVERY REGION MUST USE IT (wordle-teams-rpql).
+ *
+ * 1440px, raised from 1080 by the owner 2026-09-02. The reason was not the
+ * number but the INCONSISTENCY: only the header, footer and marketing routes
+ * carried this class, so /app's `<main>` was unbounded. Measured at 1920x1080 —
+ * header nav and footer 1080px wide, centred at 420-1500, while the dashboard's
+ * content spanned 48-1872. The chrome sat in a narrow strip with the page
+ * sprawling 744px wider than it on either side.
+ *
+ * 1440 is a real step up for the widest thing on the page — the scores table
+ * shows roughly fifteen day columns before it scrolls, against eleven at 1080 —
+ * without the wordmark and the menu drifting to opposite ends of a large
+ * display, which is what ruled out going further.
+ *
+ * `calc(100% - 2rem)` IS THE GUTTER AND IS WHY THIS IS A WIDTH RATHER THAN A
+ * max-width: below the cap the region is inset by 1rem a side, which is what
+ * keeps the header off the edge of a phone. A `max-width` alone would leave it
+ * flush.
+ *
+ * ROUTES THAT ALSO PAD THEMSELVES stack the two deliberately — /about is
+ * `page-wrap px-4`, so prose gets 1rem of gutter plus 1rem of its own. The
+ * dashboard sets its own larger `p-2 md:p-12` for the same reason. */
 .page-wrap {
-  width: min(1080px, calc(100% - 2rem));
+  width: min(var(--page-max), calc(100% - 2rem));
+  margin-inline: auto;
+}
+
+/* THE CAP WITHOUT THE GUTTER, for a region that already pads itself.
+ *
+ * The dashboard sets `p-2 md:p-12` — deliberately tight on a phone, where the
+ * scores table wants every pixel — so giving it `page-wrap` would have stacked
+ * that on top of a 1rem inset and changed mobile padding on a page nobody asked
+ * to change. This caps and centres and nothing else; the region's own padding
+ * stays the gutter.
+ *
+ * BOTH READ ONE NUMBER, `--page-max`, so the header cannot drift from the body
+ * it sits above — which is the whole defect wordle-teams-rpql is about. */
+.page-max {
+  max-width: var(--page-max);
   margin-inline: auto;
 }
 

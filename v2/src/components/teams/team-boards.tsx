@@ -122,7 +122,7 @@ export function TeamBoards({
   // signature deliberately refuses an unknown one.
   if (!day || !today) {
     return (
-      <Card className={cn('h-fit w-full max-w-[96vw]', className)}>
+      <Card className={cn('h-fit w-full max-w-full', className)}>
         <CardHeader>
           <CardTitle>Team Boards</CardTitle>
         </CardHeader>
@@ -170,7 +170,7 @@ export function TeamBoards({
   }
 
   return (
-    <Card className={cn('h-fit w-full max-w-[96vw]', className)}>
+    <Card className={cn('h-fit w-full max-w-full', className)}>
       <CardHeader>
         <CardTitle>Team Boards</CardTitle>
         <div className="flex pt-2">

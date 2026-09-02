@@ -187,7 +187,33 @@ export function ScoresTable({
           inner div via wrapperProps, since Table doesn't otherwise expose
           it. Do not add overflow back here — two nested overflow containers
           is exactly the bug this was fixed from. */}
-      <div className="max-w-[96vw] rounded-md border text-xs md:text-base">
+      {/*
+        `max-w-full`, NOT `max-w-[96vw]` (wordle-teams-rpql). 96vw is a fraction
+        of the VIEWPORT while every sibling on the grid is bounded by its CELL,
+        so the two disagreed once the page got wide enough for the difference to
+        exceed the grid's own padding. Measured, right edges against the picker
+        row above:
+
+          1920   1872 vs 1872   aligned
+          2560   2512 vs 2506   6px short
+          3440   3392 vs 3350   42px short
+
+        96vw was a belt against this table widening the page. The actual
+        prevention is the grid's `grid-cols-1` at the base breakpoint — see
+        routes/app.tsx's note, which calls it load-bearing — and `max-w-full`
+        bounds to the same parent every neighbour already answers to.
+
+        WHAT ACTUALLY FIXED THE REPORTED MISALIGNMENT WAS THE PAGE CAP, NOT THIS
+        LINE, and it is worth being straight about which is which. `.page-max`
+        holds the dashboard at 1440, so the content band is ~1344px and 96vw
+        stops being the binding constraint at any viewport — the numbers above
+        are unreachable now. This change removes a latent viewport-versus-parent
+        mismatch that would come back the day the cap is raised past ~2400 or
+        dropped, rather than being the repair itself. e2e cannot tell the two
+        apart for the same reason: with the cap in place, restoring 96vw here
+        leaves the alignment test green. Verified by mutation.
+      */}
+      <div className="max-w-full rounded-md border text-xs md:text-base">
         {/* w-max min-w-full overrides the primitive's own `w-full`: at 100%
             width, `table-layout: auto` treats that as a CAP and compresses
             every column to fit — with 28-31 day columns that means each

@@ -181,7 +181,7 @@ function Dashboard() {
   // load shows until useDashboardSearchSync fills the params in.
   if (teams.length === 0) {
     return (
-      <main className="p-2 md:p-12">
+      <main className="page-max p-2 md:p-12">
         {upgradePending && <CheckoutPending className="mb-4" />}
         <TeamsEmptyState onCreate={() => setCreateOpen(true)} />
         <CreateTeamDialog
@@ -197,7 +197,7 @@ function Dashboard() {
   // render, and rendering a guess is what causes the mismatch.
   if (!teamParam || !monthParam) {
     return (
-      <main className="p-2 md:p-12">
+      <main className="page-max p-2 md:p-12">
         {upgradePending && <CheckoutPending className="mb-4" />}
         <Skeleton className="h-96 w-full rounded-lg" />
       </main>
@@ -223,7 +223,7 @@ function Dashboard() {
     // grows that one column, and every sibling on the page along with it,
     // producing a page-wide horizontal scrollbar with everything below the
     // header pushed edge-to-edge.
-    <main className="mb-12 grid grid-cols-1 gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
+    <main className="page-max mb-12 grid grid-cols-1 gap-2 p-2 md:grid-cols-3 md:gap-6 md:p-12">
       {upgradePending && <CheckoutPending className="md:col-span-3" />}
       <CreateTeamDialog
         open={createOpen}
@@ -307,7 +307,40 @@ function Dashboard() {
           month={monthParam}
           months={monthOptions(currentMonth)}
           onMonthChange={(month) =>
-            navigate({ to: Route.fullPath, search: { team: teamParam, month } })
+            navigate({
+              to: Route.fullPath,
+              search: { team: teamParam, month },
+              // KEEP THE VIEWER WHERE THEY ARE (wordle-teams-rpql). This panel
+              // sits far down the grid, so on a phone crossing a month from its
+              // picker or its arrows threw the reader to the top of the page
+              // and made them scroll back to the board they had just asked for.
+              //
+              // MEASURED AT THE MECHANISM, BECAUSE NO E2E HERE COULD PIN IT.
+              // With `window.scrollTo` intercepted from an init script, driving
+              // the picker across a month boundary at 390x844:
+              //
+              //   without this flag   window.scrollTo({top:0}) fires from
+              //                       scroll-restoration.js:180, final scrollY 0
+              //   with it             no such call at all,      final scrollY 90
+              //
+              // THE E2E FOR THIS WAS WRITTEN, FOUND NOT TO DISCRIMINATE, AND
+              // DELETED RATHER THAN LEFT LOOKING LIKE COVERAGE. Two things
+              // defeat it, both about the harness and neither about the app:
+              // Playwright scrolls a target into view before clicking it, and
+              // anything positioned near the top of the viewport is judged
+              // obscured by `header`'s `sticky top-0 z-50` and moved — so the
+              // before/after positions the test wants to compare are the
+              // harness's own, not the reader's. Several shapes of the test
+              // passed against the broken code. If you reach for one again,
+              // intercept the scroll API rather than sampling `window.scrollY`.
+              //
+              // NOT SET ON THE TeamPicker/MonthPicker NAVIGATIONS ABOVE, which
+              // is a deliberate asymmetry rather than an oversight: those
+              // controls sit at the top of the grid and can only be operated
+              // from there, so resetting scroll costs nothing and the default
+              // is what every other navigation in the app does.
+              resetScroll: false,
+            })
           }
           className="md:row-span-3"
         />
