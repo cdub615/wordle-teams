@@ -187,7 +187,14 @@ export function AppMenu() {
       <div className="flex items-center gap-1.5">
         <Avatar className="h-8 w-8">
           {user?.image && <AvatarImage src={user.image} alt={displayName} />}
-          <AvatarFallback>
+          {/*
+            `text-xs`, NOT THE INHERITED SIZE. AvatarFallback sets no font size
+            of its own, so the initials were taking the ambient 16px inside a
+            32px circle and touching its edge on both sides. 12px leaves a
+            visible ring of space — which matters more once wordle-teams-x3m9
+            puts a rotating gradient ring around the same circle.
+          */}
+          <AvatarFallback className="text-xs font-medium">
             {initials ?? <UserIcon className="h-4 w-4" aria-hidden="true" />}
           </AvatarFallback>
         </Avatar>

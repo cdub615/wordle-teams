@@ -143,12 +143,15 @@ describe('AA contrast for the two coloured pairs the marketing landing renders',
   })
 })
 
-describe('AA contrast for --accent-solid, which every link in the app is', () => {
+describe('AA contrast for --accent-solid, which every PROSE link in the app is', () => {
   // 4.5, NOT the 3 the block above asserts for the SAME TOKEN. styles.css's
-  // base layer sets `a { color: var(--accent-solid) }`, so every link in the
-  // app is --accent-solid rendered at normal body size — a TEXT contrast case,
-  // not a graphics one, and a different bar from the same token used as an
-  // icon.
+  // base layer paints prose anchors --accent-solid, so such a link is that
+  // token rendered at normal body size — a TEXT contrast case, not a graphics
+  // one, and a different bar from the same token used as an icon.
+  //
+  // "PROSE" IS EXACT SINCE wordle-teams-3hch: the rule is scoped to anchors
+  // with no widget role, so a link used as a CONTROL is not this token at all.
+  // The block at the bottom of this file pins that scoping.
   //
   // ADDED WITH PHASE 7 TASK 5, which is the first time that pairing carries
   // real reading. src/routes/privacy.tsx and src/routes/terms.tsx each set a
@@ -168,4 +171,56 @@ describe('AA contrast for --accent-solid, which every link in the app is', () =>
       })
     }
   }
+})
+
+/**
+ * THE BASE ANCHOR RULE IS SCOPED TO PROSE, AND ONLY THIS NOTICES (wordle-teams-3hch).
+ *
+ * WHAT WENT WRONG. `a { color: var(--accent-solid) }` painted EVERY anchor,
+ * and Radix's `asChild` makes a menu item a real <a> — it merges its props
+ * onto the child rather than wrapping it. So four of the nine items in the app
+ * bar menu rendered green (Dashboard, Home, About, Feedback) while the five
+ * built as divs did not, lucide's `currentColor` icons going green with them.
+ * That shipped through lint, tsc, the build and 1272 unit tests, and was found
+ * by a human looking at beta.
+ *
+ * WHY THIS IS ASSERTED ON THE SOURCE TEXT rather than on a rendered component:
+ * there is no CSSOM under `environment: 'edge-runtime'`, and jsdom does not
+ * load this stylesheet either, so no test in this repo can ask what colour an
+ * element actually computes to. The selector is the artefact that ships, and it
+ * is the thing that was wrong.
+ *
+ * BOTH HALVES ARE REQUIRED. Asserting only the exclusion would be satisfied by
+ * deleting the rule outright, which would take the green off every prose link
+ * in the app; asserting only that the rule exists is what let this through.
+ */
+describe('the base anchor colour reaches prose links and not controls', () => {
+  /** The selector that opens the base layer's anchor rule. */
+  const anchorRule = (() => {
+    const match = css.match(/\n\s*(a[^{\n]*)\{\s*\n\s*color: var\(--accent-solid\);/)
+    expect(match, 'no base-layer anchor rule setting color: var(--accent-solid)').not.toBeNull()
+    return match![1].trim()
+  })()
+
+  test('it still paints anchors --accent-solid, so prose links stay green', () => {
+    expect(anchorRule.startsWith('a')).toBe(true)
+  })
+
+  test('it EXCLUDES anchors carrying a widget role, which is what a control is', () => {
+    // `role="menuitem"` is the case that broke; `[role]` covers every control
+    // anchor rather than that one spelling, which is why the rule is written
+    // against the attribute's presence.
+    expect(anchorRule).toContain(':not([role])')
+  })
+
+  test('and the exclusion is wrapped in :where(), so it adds NO specificity', () => {
+    // THE MUTATION THIS KILLS, AND IT IS THE SUBTLE HALF. A bare
+    // `a:not([role])` is (0,1,1) — STRONGER than a single-class Tailwind
+    // utility at (0,1,0) — so narrowing the rule this way would silently make
+    // it beat every `text-*` utility applied to an anchor, and the fix for four
+    // green menu items would have broken colour on links all over the app.
+    // `:where()` contributes zero, holding the selector at (0,0,1), exactly as
+    // strong as the unscoped rule it replaced.
+    expect(anchorRule).toMatch(/:where\(\s*:not\(\[role\]\)\s*\)/)
+  })
 })

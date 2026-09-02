@@ -279,7 +279,27 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  a {
+  /* PROSE LINKS ONLY — `:where(:not([role]))` IS THE WHOLE POINT (wordle-teams-3hch).
+   *
+   * A link used as a UI CONTROL must not wear the content link colour. Radix's
+   * `asChild` merges a menu item's props onto its child rather than wrapping
+   * it, so `<DropdownMenuItem asChild><Link/></DropdownMenuItem>` renders a
+   * real <a> — and under a bare `a { color: ... }` four of the nine items in
+   * the app bar menu came out green while the five rendered as divs did not,
+   * icons included (lucide strokes are `currentColor`). A widget role is what
+   * separates the two cases: a control anchor has one, a prose link does not.
+   *
+   * `:where()` RATHER THAN A BARE `:not()`, AND THIS IS NOT COSMETIC.
+   * `a:not([role])` is specificity (0,1,1), which BEATS a single-class Tailwind
+   * utility at (0,1,0) — every anchor carrying a text-colour utility would
+   * silently lose it, and the rule would have become stronger than the thing it
+   * was being narrowed for. `:where()` contributes zero, so this stays at
+   * (0,0,1), exactly as strong as the rule it replaces and no stronger.
+   *
+   * NO `text-decoration` HERE: Tailwind v4's preflight already sets
+   * `text-decoration: inherit` on anchors, so these two properties only shape
+   * an underline something else asks for. */
+  a:where(:not([role])) {
     color: var(--accent-solid);
     text-decoration-thickness: 1px;
     text-underline-offset: 2px;
