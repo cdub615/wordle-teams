@@ -69,7 +69,7 @@ export function SettingsDialog({
         editable field here would imply something this app cannot do.
       */}
       {email && (
-        <p className="text-muted mt-1 mb-3 truncate text-xs">
+        <p className="text-muted-foreground mt-1 mb-3 truncate text-xs">
           Signed in as <span className="text-foreground select-text">{email}</span>
         </p>
       )}

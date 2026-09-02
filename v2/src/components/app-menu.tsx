@@ -244,15 +244,23 @@ export function AppMenu() {
                   `select-text` because the entire point is that it can be read
                   and compared; a menu label is not selectable by default.
 
-                  text-muted, NOT text-subtle, and styles.css is explicit about
-                  why: text-subtle is the documented sub-AA exception and is for
-                  large or decorative text, while "anything normal-sized that
-                  must be legible" takes text-muted. An address whose whole
-                  purpose is being read and compared character by character is
-                  the clearest possible case of the latter.
+                  text-muted-foreground, NOT text-subtle: styles.css reserves
+                  text-subtle for large or decorative text and sends "anything
+                  normal-sized that must be legible" to the muted rank, and an
+                  address read character by character is the clearest case of
+                  the latter.
+
+                  AND NOT `text-muted`, WHICH IS A REAL UTILITY THAT DOES THE
+                  WRONG THING — this shipped as `text-muted` and was invisible
+                  in both themes. `--color-muted` maps to `--muted`, which is
+                  `--surface-sunken`: a BACKGROUND token. So `text-muted` paints
+                  the text in the muted background colour — #1c1c1c on a dark
+                  popover, #f4f4f5 on a light one. It compiles, it lints, and it
+                  renders nothing you can read. The TOKEN is `--text-muted`; the
+                  UTILITY is `text-muted-foreground`, via `--muted-foreground`.
                 */}
                 {user?.email && user.email !== displayName && (
-                  <DropdownMenuLabel className="-mt-1 pt-0 text-xs font-normal text-muted">
+                  <DropdownMenuLabel className="text-muted-foreground -mt-1 pt-0 text-xs font-normal">
                     <span className="block select-text truncate">{user.email}</span>
                   </DropdownMenuLabel>
                 )}
