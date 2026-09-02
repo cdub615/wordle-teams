@@ -2,7 +2,7 @@ p: Legal
 h1: Privacy Policy
 p: Wordle Teams ("us", "we", or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and website (collectively, the "Service"). Please read this Privacy Policy carefully.
 h2: Information We Collect
-p: Account Information: When you create an account with us, we collect your name, username, email address, and your profile image if provided by the third-party sign-in provider you use (e.g., Google, Apple, Facebook, etc.).
+p: Account Information: When you create an account with us, we collect your name, email address, and your profile image if provided by the third-party sign-in provider you use (Google, Microsoft, GitHub, or Discord).
 p: User Content: We collect the content you create, share, and store while using the Service, including your Wordle game scores, boards, and team information ("User Content").
 p: Usage Data: We automatically collect certain information when you use the Service, such as your IP address, device type, operating system, browser type, and other usage data.
 h2: How We Use Your Information
@@ -23,4 +23,4 @@ h2: Changes to this Privacy Policy
 p: We may update this Privacy Policy from time to time. The updated version will be effective as soon as it is accessible. We encourage you to review this Privacy Policy periodically for any changes.
 h2: Contact Us
 p: If you have any questions about this Privacy Policy or our privacy practices, please contact us at privacy@wordleteams.com <mailto:privacy@wordleteams.com>.
-p: Effective Date: May 21, 2024
+p: Effective Date: September 2, 2026

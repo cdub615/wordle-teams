@@ -9,7 +9,7 @@ p: The Service allows you and other users to create, post, share and store conte
 p: When you create, post or share User Content with Wordle Teams, you grant us a worldwide, royalty-free, sublicensable, and transferable license to host, store, use, display, reproduce, modify, adapt, edit, publish and distribute that User Content for the purposes of operating and providing the Service.
 p: You are solely responsible for your User Content and the consequences of creating, posting or sharing it. Any User Content or behavior that violates these Terms may be removed or suspended by Wordle Teams.
 h2: Third-Party Services and Integrations
-p: The Service allows you to sign in via online accounts from third-party service providers (e.g. Google, Apple, Facebook, etc). If you choose to sign in or otherwise link your Wordle Teams Account with a third-party service, you are authorizing us to connect and access your approved information in that service, which may be governed by the privacy policy and terms of service of that service.
+p: The Service allows you to sign in with a one-time code sent to your email address, or via online accounts from third-party service providers (Google, Microsoft, GitHub, or Discord). If you choose to sign in or otherwise link your Wordle Teams Account with a third-party service, you are authorizing us to connect and access your approved information in that service, which may be governed by the privacy policy and terms of service of that service.
 h2: Prohibited Conduct
 p: You agree not to violate any laws, contracts, intellectual property or other third-party rights or commit any torts, and that you are solely responsible for your conduct while using the Service. Prohibited activities include:
 li: Use the Service in any manner that could interfere with, disrupt, negatively affect or inhibit other users from fully utilizing the Service
@@ -32,4 +32,4 @@ p: We may revise these Terms from time to time. The most current version will al
 h2: Contact Us
 p: If you have any questions or comments about these Terms, please contact us at support@wordleteams.com <mailto:support@wordleteams.com>.
 p: These Terms shall be governed by and construed in accordance with the laws of the United States of America.
-p: Last Updated: May 21, 2024
+p: Last Updated: September 2, 2026

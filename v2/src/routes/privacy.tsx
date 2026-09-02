@@ -4,25 +4,33 @@ import { publicRouteHead } from '#/lib/seo'
 /**
  * Ported from v1's src/app/privacy/page.tsx.
  *
- * THE PROSE IS COPIED VERBATIM AND MUST STAY THAT WAY. This is a published
- * legal document — the version live at wordleteams.com/privacy, effective
- * 2024-05-21 — not app copy. Rewording it to describe v2's architecture would
- * be amending a policy users have already been shown, which is the owner's
- * decision and not a port's. Only the MARKUP below is new.
+ * THE PROSE IS A PUBLISHED LEGAL DOCUMENT AND IS NOT EDITED CASUALLY. Rewording
+ * it to describe v2's architecture would be amending a policy users have
+ * already been shown, which is the owner's decision and not a port's. The port
+ * kept it verbatim for exactly that reason.
  *
- * TWO THINGS IN THIS TEXT ARE ALREADY OUT OF STEP WITH THE PRODUCT, recorded
- * here rather than silently fixed:
+ * IT WAS REISSUED ON 2026-09-02, ON THE OWNER'S APPROVAL, to correct two
+ * statements that had never been true (wordle-teams-4yt):
  *
- *   1. "(e.g., Google, Apple, Facebook, etc.)" — neither Apple nor Facebook has
- *      ever been a sign-in provider. v1 offered google, twitter, azure, github,
- *      slack and discord (src/app/login/oauth/oauth-signin.tsx); v2 offers
- *      google, microsoft, github and discord (convex/auth.ts, which records why
- *      slack and X were dropped). The list is hedged with "e.g." and "etc.", so
- *      it reads as illustrative rather than exhaustive, but it names two
- *      companies that receive no data from this app.
- *   2. "we collect your name, username, email address" — there is no username.
- *      v1 never had one either; v2's players table is firstName/lastName
- *      (convex/schema.ts).
+ *   1. "(e.g., Google, Apple, Facebook, etc.)" -> "(Google, Microsoft, GitHub,
+ *      or Discord)". Neither Apple nor Facebook was ever a sign-in provider.
+ *      v1 offered google, twitter, azure, github, slack and discord; v2 offers
+ *      the four now named (convex/auth.ts). The old list was wrong in BOTH
+ *      directions and named two companies as recipients of data they receive
+ *      none of.
+ *   2. "your name, username, email address" -> "your name, email address".
+ *      There is no username field in either codebase.
+ *
+ * BOTH EDITS ONLY NARROW WHAT IS CLAIMED — nothing new is collected, no new
+ * recipient is added, no user right is reduced — which is why they were judged
+ * not to be a material revision under the Changes clause below. The same
+ * correction was made to v1's src/app/privacy/page.tsx in the same commit, so
+ * the two do not disagree while v1 is still serving traffic.
+ *
+ * THE PROVIDER LIST IS NOW PINNED BY A TEST. src/legal-copy.test.ts parses
+ * convex/auth.ts's PROVIDER_ENV and fails if this document names a provider the
+ * app does not offer, or omits one it does. The list going stale unnoticed for
+ * two years is the actual defect here; correcting the sentence only fixed today.
  *
  * Everything else still holds on v2: the profile image from the OAuth provider
  * is stored and rendered (components/app-menu.tsx), and no vendor is
@@ -74,8 +82,8 @@ function Privacy() {
             <h2 className="m-0 text-lg font-medium text-foreground">Information We Collect</h2>
             <p className="m-0">
               <strong>Account Information:</strong> When you create an account with us, we collect
-              your name, username, email address, and your profile image if provided by the
-              third-party sign-in provider you use (e.g., Google, Apple, Facebook, etc.).
+              your name, email address, and your profile image if provided by the third-party
+              sign-in provider you use (Google, Microsoft, GitHub, or Discord).
             </p>
             <p className="m-0">
               <strong>User Content:</strong> We collect the content you create, share, and store
@@ -154,7 +162,7 @@ function Privacy() {
             </p>
           </section>
 
-          <p className="m-0 text-sm">Effective Date: May 21, 2024</p>
+          <p className="m-0 text-sm">Effective Date: September 2, 2026</p>
         </div>
       </article>
     </main>

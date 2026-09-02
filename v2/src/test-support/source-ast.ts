@@ -185,3 +185,43 @@ export const importedModulesOf = (name: string, source: string): string[] => {
   }
   return out
 }
+
+/**
+ * The object literal a top-level `const NAME = { ... }` is initialised with.
+ *
+ * Exists because some values worth pinning are deliberately NOT exported —
+ * convex/auth.ts's PROVIDER_ENV is the authoritative list of sign-in providers
+ * and is module-private, so a test cannot import it and must read the source.
+ * Reaching it through the parser rather than a regex matters for the reason
+ * codeOf's comment gives: the file's own prose names the providers repeatedly,
+ * and a textual match would be satisfied by any of that.
+ *
+ * Throws rather than returning an empty map, so a renamed or deleted
+ * declaration is a named failure and not a silent pass.
+ */
+export const objectLiteralAssignedTo = (
+  name: string,
+  source: string,
+  identifier: string,
+): Map<string, ts.Expression> => {
+  const found: ts.ObjectLiteralExpression[] = []
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.name.getText() === identifier &&
+      node.initializer
+    ) {
+      // `{...} as const` and `{...} satisfies T` wrap the literal.
+      let init: ts.Node = node.initializer
+      while (ts.isAsExpression(init) || ts.isSatisfiesExpression(init)) init = init.expression
+      if (ts.isObjectLiteralExpression(init)) found.push(init)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parseSource(name, source))
+
+  if (found.length !== 1) {
+    throw new Error(`expected exactly one \`const ${identifier} = {...}\` in ${name}, found ${found.length}`)
+  }
+  return propertiesOf(found[0])
+}

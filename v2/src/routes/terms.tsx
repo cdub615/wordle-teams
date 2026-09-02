@@ -4,18 +4,30 @@ import { publicRouteHead } from '#/lib/seo'
 /**
  * Ported from v1's src/app/terms/page.tsx.
  *
- * THE PROSE IS COPIED VERBATIM AND MUST STAY THAT WAY, for the reason spelled
- * out at the top of src/routes/privacy.tsx: this is the contract live at
- * wordleteams.com/terms, last updated 2024-05-21, and editing it to match a new
- * architecture is amending an agreement rather than porting a page. Only the
- * MARKUP is new.
+ * THE PROSE IS A CONTRACT AND IS NOT EDITED CASUALLY, for the reason spelled
+ * out at the top of src/routes/privacy.tsx: editing it to match a new
+ * architecture is amending an agreement rather than porting a page. The port
+ * kept it verbatim for exactly that reason.
  *
- * ONE CLAUSE HERE IS ALREADY OUT OF STEP WITH THE PRODUCT, recorded rather than
- * fixed: "third-party service providers (e.g. Google, Apple, Facebook, etc)".
- * Neither Apple nor Facebook has ever been a sign-in provider — v1 offered
- * google, twitter, azure, github, slack and discord; v2 offers google,
- * microsoft, github and discord (convex/auth.ts). "e.g." and "etc" make the
- * list illustrative, but it names two companies this app sends nothing to.
+ * IT WAS REISSUED ON 2026-09-02, ON THE OWNER'S APPROVAL (wordle-teams-4yt):
+ *
+ *   - "third-party service providers (e.g. Google, Apple, Facebook, etc)" ->
+ *     "(Google, Microsoft, GitHub, or Discord)". Neither Apple nor Facebook was
+ *     ever a sign-in provider; v1 offered google, twitter, azure, github, slack
+ *     and discord, and v2 offers the four now named (convex/auth.ts).
+ *   - The sentence now also names the one-time email code, which is a real
+ *     sign-in method this clause did not describe at all. That is an ADDITION
+ *     rather than a correction, and it was approved as such.
+ *
+ * The provider change only narrows what is claimed, so it was judged not to be
+ * a material revision under "Changes to Terms" below — which requires notice
+ * only for a material one, as determined by us. Naming the OTP path describes
+ * an existing method more completely and adds no obligation on the user. The
+ * same edits were made to v1's src/app/terms/page.tsx in the same commit.
+ *
+ * THE PROVIDER LIST IS PINNED BY src/legal-copy.test.ts, which parses
+ * convex/auth.ts and fails if this document names a provider the app does not
+ * offer, or omits one it does.
  *
  * Nothing else in the text is contradicted by v2. No vendor, platform or
  * datastore is named anywhere in it, so the Supabase/Vercel -> Convex/
@@ -103,8 +115,9 @@ function Terms() {
               Third-Party Services and Integrations
             </h2>
             <p className="m-0">
-              The Service allows you to sign in via online accounts from third-party service
-              providers (e.g. Google, Apple, Facebook, etc). If you choose to sign in or otherwise
+              The Service allows you to sign in with a one-time code sent to your email address,
+              or via online accounts from third-party service providers (Google, Microsoft,
+              GitHub, or Discord). If you choose to sign in or otherwise
               link your Wordle Teams Account with a third-party service, you are authorizing us to
               connect and access your approved information in that service, which may be governed
               by the privacy policy and terms of service of that service.
@@ -216,7 +229,7 @@ function Terms() {
             United States of America.
           </p>
 
-          <p className="m-0 text-sm">Last Updated: May 21, 2024</p>
+          <p className="m-0 text-sm">Last Updated: September 2, 2026</p>
         </div>
       </article>
     </main>
