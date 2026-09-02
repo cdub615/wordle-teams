@@ -291,3 +291,67 @@ test('a day in an earlier month can be picked, and the month follows it', async 
   await expect(dayPicker).toHaveText(new RegExp(`${Number(dayPart)}, `))
   expect(monthPart).toBe(targetDay!.slice(5, 7))
 })
+
+/**
+ * THE DAY ARROWS CROSS MONTHS (wordle-teams-5nmo).
+ *
+ * They used to index into the loaded month's `navigableDays` and disable at its
+ * edges — at the 1st, "Previous day" was dead while the picker beside it
+ * offered the month before. Stepping off the end is a month navigation, exactly
+ * as picking an outside day is.
+ *
+ * team-boards-model.test.ts owns the stepping RULES against a fixed clock —
+ * near-end landing, weekend skipping, the window floor, the empty-month skip.
+ * What only a browser shows is that the click reaches the router: that
+ * `?month=` moves, the route reloads, and the day the arrow promised is the one
+ * that survives rather than the new month's default.
+ */
+test('the previous-day arrow crosses into the month before, and the month follows', async ({
+  page,
+}) => {
+  await signInWithTeam(page)
+
+  const monthPicker = page.getByRole('button', { name: /^\w{3} \d{4}$/ })
+  await expect(monthPicker).toBeVisible()
+  const startingMonth = (await monthPicker.textContent())!.trim()
+
+  const dayPicker = page.getByRole('button', { name: /^\w+ \d{1,2}, \d{4}$/ })
+  const previous = page.getByRole('button', { name: 'Previous day' })
+
+  // Walk back to the 1st of the current month. A month is at most 31 days and
+  // the panel opens on today, so this is bounded; the guard is the arrow's own
+  // label, which stops changing once the month does.
+  const startingDay = (await dayPicker.textContent())!.trim()
+  for (let step = 0; step < 40; step++) {
+    const label = (await dayPicker.textContent())!.trim()
+    if (/\s1, /.test(label)) break
+    await previous.click()
+  }
+  await expect(dayPicker).toHaveText(/\s1, /)
+  expect(startingDay).not.toBe('')
+
+  // AT THE 1st IT IS STILL ENABLED. This is the assertion the old behaviour
+  // fails: the button was disabled here.
+  await expect(previous).toBeEnabled()
+
+  await previous.click()
+
+  // The month moved, and the URL with it.
+  await expect(monthPicker).not.toHaveText(startingMonth)
+  const month = await expect
+    .poll(() => new URL(page.url()).searchParams.get('month'))
+    .not.toBe(null)
+    .then(() => new URL(page.url()).searchParams.get('month'))
+
+  // AND IT LANDED ON THE NEAR END — the LAST day of that month, not its first.
+  // Reading the day out of the label and comparing against the month's length
+  // rather than hardcoding a date, since which month this is depends on when
+  // the suite runs.
+  const label = (await dayPicker.textContent())!.trim()
+  const dayOfMonth = Number(label.match(/\s(\d{1,2}), /)![1])
+  const [year, monthNum] = month!.split('-').map(Number)
+  const lastOfMonth = new Date(year, monthNum, 0).getDate()
+  // The last NAVIGABLE day, which is the last of the month for a team that
+  // plays weekends — the seed's default — and within two days of it otherwise.
+  expect(lastOfMonth - dayOfMonth).toBeLessThanOrEqual(2)
+})

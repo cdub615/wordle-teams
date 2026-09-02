@@ -316,15 +316,58 @@ describe('day navigation', () => {
     expect(dayLabel('August 14, 2026')).toBeTruthy()
   })
 
-  test('Next is disabled on today, and Previous on the first day of the month', () => {
+  test('Next is disabled on today, at the very top of the window', () => {
+    // Today is the last navigable day of the newest month on offer, so forward
+    // is genuinely nowhere. Back is not, which is the pair worth asserting
+    // together: a `disabled` computed independently of the destination is how a
+    // button ends up dead with somewhere to go.
     render(panel())
+
     expect(dayLabel('Next day').hasAttribute('disabled')).toBe(true)
     expect(dayLabel('Previous day').hasAttribute('disabled')).toBe(false)
+  })
 
+  test('PREVIOUS CROSSES INTO THE MONTH BEFORE, rather than stopping at the 1st', () => {
+    // wordle-teams-5nmo, and this test asserted the opposite until it: the
+    // arrows indexed into the loaded month's days and disabled at its edges, so
+    // at August 1st this button was dead while the picker beside it offered
+    // July 31st. Stepping off the end is a month navigation, exactly as picking
+    // a day outside the month is.
+    render(panel())
     for (let step = 0; step < 19; step++) fireEvent.click(dayLabel('Previous day'))
     expect(dayLabel('August 1, 2026')).toBeTruthy()
+
+    expect(dayLabel('Previous day').hasAttribute('disabled')).toBe(false)
+    fireEvent.click(dayLabel('Previous day'))
+
+    // It asks the parent for July — the panel cannot show the day until the
+    // month's data arrives, which is the parent's job.
+    expect(monthChanges).toEqual(['2026-07'])
+  })
+
+  test('and lands on the NEAR end of that month, not the far one', () => {
+    // July 31st, not July 1st: the viewer is walking a continuous line of days.
+    // Rendered at July directly, which is the state the navigation above
+    // produces once the parent has moved `?month=`.
+    render(panel('2026-07'))
+    expect(dayLabel('July 31, 2026')).toBeTruthy()
+
+    // And forward from there returns to August, the near end again.
+    fireEvent.click(dayLabel('Next day'))
+    expect(monthChanges).toEqual(['2026-08'])
+  })
+
+  test('Previous is disabled only at the FLOOR of the window', () => {
+    // June is the oldest month the dropdown offers, so its 1st is where back
+    // genuinely runs out — the same bound the picker refuses below, from the
+    // same `months` array, so the two controls cannot disagree about what
+    // exists.
+    render(panel('2026-06'))
+    for (let step = 0; step < 29; step++) fireEvent.click(dayLabel('Previous day'))
+    expect(dayLabel('June 1, 2026')).toBeTruthy()
+
     expect(dayLabel('Previous day').hasAttribute('disabled')).toBe(true)
-    expect(dayLabel('Next day').hasAttribute('disabled')).toBe(false)
+    expect(monthChanges).toEqual([])
   })
 })
 

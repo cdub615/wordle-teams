@@ -11,7 +11,7 @@ import { WordleBoard } from '#/components/wordle-board.tsx'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { cn } from '#/lib/utils.ts'
 import { monthOf, toPuzzleDay, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
-import { navigableDays, resolveDay, teamBoardsView, wrapSlide } from './team-boards-model.ts'
+import { navigableDays, resolveDay, stepDay, teamBoardsView, wrapSlide } from './team-boards-model.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -83,7 +83,31 @@ export function TeamBoards({
   const [picked, setPicked] = useState<PuzzleDay | undefined>(undefined)
   const days = navigableDays({ month, playWeekends: team.playWeekends, today })
   const day = resolveDay(days, picked)
-  const dayIndex = day ? days.indexOf(day) : -1
+
+  /**
+   * Where each arrow goes, or null when it should be disabled
+   * (wordle-teams-5nmo). Computed for BOTH directions on every render rather
+   * than at click time, because the answer is also what decides `disabled` —
+   * deriving the two separately is how a button ends up enabled with nowhere to
+   * go, or disabled with somewhere.
+   */
+  const stepTo = (delta: 1 | -1) =>
+    stepDay({ months, month, days, day, playWeekends: team.playWeekends, today, delta })
+  const previousStep = stepTo(-1)
+  const nextStep = stepTo(1)
+
+  /**
+   * One handler for both arrows. Sets the day FIRST and navigates second, for
+   * the reason the picker's own handler gives: after the parent moves
+   * `?month=`, `resolveDay` honours `picked` because it is now one of the new
+   * month's days, so the viewer lands on the day the arrow promised rather than
+   * on that month's default.
+   */
+  const goToDay = (step: { day: PuzzleDay; month: PuzzleMonth } | null) => {
+    if (!step) return
+    setPicked(step.day)
+    if (step.month !== month) onMonthChange(step.month)
+  }
 
   const trackRef = useRef<HTMLDivElement>(null)
   // A REF, NOT STATE, and that is the point of the whole scroll handler below.
@@ -150,11 +174,18 @@ export function TeamBoards({
       <CardHeader>
         <CardTitle>Team Boards</CardTitle>
         <div className="flex pt-2">
+          {/*
+            THE ARROWS CROSS MONTHS (wordle-teams-5nmo). They used to index into
+            `days` — the loaded month — and disable at its edges, so at July 1st
+            this button was dead while the picker beside it offered June 30th.
+            `disabled` and the destination now come from ONE answer, so they
+            cannot disagree.
+          */}
           <Button
             className="text-sm font-normal"
             variant="outline"
-            onClick={() => setPicked(days[dayIndex - 1])}
-            disabled={dayIndex <= 0}
+            onClick={() => goToDay(previousStep)}
+            disabled={previousStep === null}
           >
             <ArrowLeft className="h-4 w-4" />
             <span className="sr-only">Previous day</span>
@@ -200,8 +231,8 @@ export function TeamBoards({
           <Button
             className="text-sm font-normal"
             variant="outline"
-            onClick={() => setPicked(days[dayIndex + 1])}
-            disabled={dayIndex >= days.length - 1}
+            onClick={() => goToDay(nextStep)}
+            disabled={nextStep === null}
           >
             <ArrowRight className="h-4 w-4" />
             <span className="sr-only">Next day</span>

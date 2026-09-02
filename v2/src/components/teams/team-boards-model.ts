@@ -126,6 +126,77 @@ export function resolveDay(days: Array<PuzzleDay>, picked: PuzzleDay | undefined
 }
 
 /**
+ * Where a day arrow goes, or null when there is nowhere left (wordle-teams-5nmo).
+ *
+ * WHY THIS IS NOT `days[dayIndex + delta]`, WHICH IS WHAT IT REPLACED. `days` is
+ * `navigableDays` for the LOADED month, so the arrows disabled at its edges —
+ * at July 1st "Previous day" was dead while the picker beside it offered June
+ * 30th, which is the same friction wordle-teams-5vv3 removed through the other
+ * control. Stepping off the end is a MONTH NAVIGATION, exactly as picking a day
+ * outside the month is; the caller moves `?month=` on the returned month.
+ *
+ * IT SEARCHES RATHER THAN LOOKING AT ONE NEIGHBOUR, and that is not
+ * hypothetical caution: `navigableDays` filters `day <= today`, so a month can
+ * be in the window and still have nothing navigable in it. Taking the adjacent
+ * month blindly would land the panel on a month with no days and resolve to
+ * `undefined`, which renders the empty-month card — an arrow that appears
+ * enabled and takes you somewhere empty. Skipping to the next month that has
+ * days is what makes "disabled" mean "nowhere to go" rather than "nowhere
+ * next door".
+ *
+ * `months` IS newest-first, monthOptions' own order, so a LATER month is at a
+ * LOWER index. Stepping forward walks toward 0 and stepping back walks toward
+ * the end — inverted relative to the day direction, which is why the index
+ * arithmetic below subtracts `delta` rather than adding it.
+ *
+ * THE WINDOW IS THE BOUND. An arrow must never reach a month the dropdown does
+ * not offer, for the reason recorded on the picker: v2 has no pro month gate
+ * yet, so both controls read `monthOptions` and widen together when it lands.
+ */
+export function stepDay({
+  months,
+  month,
+  days,
+  day,
+  playWeekends,
+  today,
+  delta,
+}: {
+  months: Array<PuzzleMonth>
+  month: PuzzleMonth
+  days: Array<PuzzleDay>
+  day: PuzzleDay | undefined
+  playWeekends: boolean
+  today: PuzzleDay | undefined
+  delta: 1 | -1
+}): { day: PuzzleDay; month: PuzzleMonth } | null {
+  if (!day) return null
+
+  // Inside the loaded month, this is still the cheap case and stays local.
+  const index = days.indexOf(day)
+  const neighbour = days[index + delta]
+  if (index !== -1 && neighbour !== undefined) return { day: neighbour, month }
+
+  const monthIndex = months.indexOf(month)
+  if (monthIndex === -1) return null
+
+  for (let cursor = monthIndex - delta; cursor >= 0 && cursor < months.length; cursor -= delta) {
+    const candidate = months[cursor]
+    const candidateDays = navigableDays({ month: candidate, playWeekends, today })
+    if (candidateDays.length === 0) continue
+    // Stepping FORWARD lands on that month's first day and BACKWARD on its
+    // last: the viewer is walking a continuous line of days, so they arrive at
+    // the near end of the next month rather than jumping across it.
+    return {
+      day: delta === 1 ? candidateDays[0] : candidateDays[candidateDays.length - 1],
+      month: candidate,
+    }
+  }
+
+  return null
+}
+
+/**
  * Whether the viewer has entered their own board for `day`.
  *
  * A MISSING VIEWER COUNTS AS NOT SUBMITTED, matching v1, whose optional chain

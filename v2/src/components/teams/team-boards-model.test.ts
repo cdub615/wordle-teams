@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  stepDay,
   CONCEALED_MESSAGE,
   MISSING_MESSAGE,
   navigableDays,
@@ -268,5 +269,110 @@ describe('wrapSlide', () => {
   test('no slides cannot produce a negative or NaN index', () => {
     expect(wrapSlide(0, -1, 0)).toBe(0)
     expect(wrapSlide(0, 1, 0)).toBe(0)
+  })
+})
+
+/**
+ * THE DAY ARROWS, WHICH NOW CROSS MONTHS (wordle-teams-5nmo).
+ *
+ * They used to index into `navigableDays` for the loaded month and disable at
+ * its edges, so at July 1st "Previous day" was dead while the picker beside it
+ * offered June 30th — the same friction wordle-teams-5vv3 removed through the
+ * other control.
+ *
+ * `months` IS newest-first throughout, because that is `monthOptions`' order and
+ * the component passes it straight through. A LATER month sits at a LOWER index,
+ * which is the part of this that is easy to invert.
+ */
+describe('stepDay', () => {
+  // A Thursday, so weekday/weekend edges are their own cases below.
+  const TODAY = '2026-08-20'
+  const MONTHS = ['2026-08', '2026-07', '2026-06']
+
+  const step = (
+    month: string,
+    day: string | undefined,
+    delta: 1 | -1,
+    { playWeekends = true, today = TODAY, months = MONTHS } = {},
+  ) =>
+    stepDay({
+      months,
+      month,
+      days: navigableDays({ month, playWeekends, today }),
+      day,
+      playWeekends,
+      today,
+      delta,
+    })
+
+  test('inside the month it is just the next day', () => {
+    expect(step('2026-08', '2026-08-19', 1)).toEqual({ day: '2026-08-20', month: '2026-08' })
+    expect(step('2026-08', '2026-08-19', -1)).toEqual({ day: '2026-08-18', month: '2026-08' })
+  })
+
+  test('stepping BACK off the first day lands on the previous month LAST day', () => {
+    // The near end, not the far one: the viewer is walking a continuous line of
+    // days, so they arrive at July 31st rather than July 1st.
+    expect(step('2026-08', '2026-08-01', -1)).toEqual({ day: '2026-07-31', month: '2026-07' })
+  })
+
+  test('stepping FORWARD off the last day lands on the next month FIRST day', () => {
+    // From June, whose last day is the 30th, into July's 1st.
+    expect(step('2026-06', '2026-06-30', 1)).toEqual({ day: '2026-07-01', month: '2026-07' })
+  })
+
+  test('it never steps past today, even with a later month in the window', () => {
+    // August is the current month and the 20th is today, so forward from there
+    // is nowhere — `navigableDays` already excludes the rest of August, and
+    // there is no later month on offer.
+    expect(step('2026-08', TODAY, 1)).toBeNull()
+  })
+
+  test('and never before the oldest month the dropdown offers', () => {
+    // June 1st is the floor of the window. Back from it is outside what the
+    // month dropdown itself would offer, so the arrow is disabled rather than
+    // reaching a month the other control denies.
+    expect(step('2026-06', '2026-06-01', -1)).toBeNull()
+  })
+
+  test('it SKIPS a month in the window that has no navigable day', () => {
+    // THE CASE A NAIVE `months[index + 1]` GETS WRONG, and it is not
+    // hypothetical: navigableDays filters `day <= today`, so a month can be on
+    // offer and hold nothing. Here "today" is the 1st of July, which makes July
+    // navigable (one day) but a window listing August above it entirely future.
+    // Stepping forward from July 1st must find nothing rather than land on
+    // August and resolve to undefined, which renders the empty-month card
+    // behind an arrow that looked enabled.
+    expect(step('2026-07', '2026-07-01', 1, { today: '2026-07-01' })).toBeNull()
+  })
+
+  test('it respects playWeekends when it crosses', () => {
+    // 1 August 2026 is a Saturday and the 2nd a Sunday, so a team that does not
+    // play weekends has July 31st (a Friday) as the day before August 3rd —
+    // and the crossing has to use the NEW month's rules, not the old month's
+    // day list.
+    expect(step('2026-08', '2026-08-03', -1, { playWeekends: false })).toEqual({
+      day: '2026-07-31',
+      month: '2026-07',
+    })
+  })
+
+  test('no day at all means no step, in either direction', () => {
+    // Pre-hydration, and the empty-month card. `day` is undefined there and
+    // both arrows must be disabled rather than throwing on an index of -1.
+    expect(step('2026-08', undefined, 1)).toBeNull()
+    expect(step('2026-08', undefined, -1)).toBeNull()
+  })
+
+  test('a month outside the window still steps WITHIN itself, but cannot leave', () => {
+    // Reachable by hand-editing ?month=. The first draft of this test asserted
+    // that such a month steps nowhere at all, and the implementation disagreed —
+    // correctly. Walking March's own days is coherent: the panel has March's
+    // data loaded and the arrows are moving inside it. What must not happen is
+    // CROSSING, because the destination month would be one the dropdown never
+    // offered and the viewer would have no way back to it.
+    expect(step('2026-03', '2026-03-15', -1)).toEqual({ day: '2026-03-14', month: '2026-03' })
+    expect(step('2026-03', '2026-03-01', -1)).toBeNull()
+    expect(step('2026-03', '2026-03-31', 1)).toBeNull()
   })
 })
