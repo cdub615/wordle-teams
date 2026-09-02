@@ -80,6 +80,28 @@ describe('the skeletons are the shape of the things they stand in for', () => {
     expect(rows()).toHaveLength(SYSTEM_FIELDS.length + 1)
   })
 
+  test('the table draws one row per team member, not a fixed three', () => {
+    // THE HEIGHT HALF OF THE SIZING FIX. v1 draws three rows unconditionally, so
+    // its skeleton is the wrong height for every team that is not exactly three
+    // players and the grid jumps vertically as the table lands. The count is
+    // knowable here: team membership comes from api.teams.getMyTeams, which does
+    // NOT suspend on a team or month change, so routes/app.tsx already has it
+    // when it renders this fallback.
+    render(createElement(ScoresTableSkeleton, { month: '2026-09', rows: 5 }))
+
+    // +1 for the header row.
+    expect(rows()).toHaveLength(5 + 1)
+  })
+
+  test('and never draws zero rows, however small the team', () => {
+    // A one-person team is real, and `rows={0}` would be a table with a header
+    // and nothing under it — which reads as "loaded, and empty" rather than as
+    // "loading". Math.max(1, rows) is what stops that.
+    render(createElement(ScoresTableSkeleton, { month: '2026-09', rows: 0 }))
+
+    expect(rows()).toHaveLength(1 + 1)
+  })
+
   test('every skeleton actually pulses', () => {
     // The whole ask was "pulse animation for loading states". A skeleton that
     // renders the right boxes and does not animate is indistinguishable from

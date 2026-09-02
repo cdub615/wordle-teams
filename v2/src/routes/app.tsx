@@ -272,7 +272,20 @@ function Dashboard() {
         would collapse the grid on every switch and shove it back on arrival,
         which is the reported problem with extra steps.
       */}
-      <Suspense fallback={<ScoresTableSkeleton month={monthParam} className="md:col-span-3" />}>
+      <Suspense
+        fallback={
+          // `rows` COMES FROM ALREADY-RESOLVED DATA, which is what makes the
+          // fallback the right HEIGHT rather than a guess: team membership is
+          // api.teams.getMyTeams, which does not suspend on a team or month
+          // change, so the member count is known before the table's own query
+          // has answered. v1's skeleton draws three rows for every team.
+          <ScoresTableSkeleton
+            month={monthParam}
+            rows={selectedTeam?.members.length}
+            className="md:col-span-3"
+          />
+        }
+      >
         <ScoresTable teamId={teamParam as Id<'teams'>} month={monthParam} className="md:col-span-3" />
       </Suspense>
       {/* Column 1, three rows deep, immediately under the scores table — the

@@ -52,8 +52,57 @@ import { daysOfMonth, type PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
  * the same primitive v1 used. No second implementation.
  */
 
-/** Body rows in the table skeleton. v1 shows three; a team is usually 2-6. */
-const SKELETON_ROWS = 3
+/**
+ * Fallback row count, used only when the caller cannot name one. v1 shows three
+ * unconditionally; here it is the floor rather than the rule — see `rows`.
+ */
+const DEFAULT_SKELETON_ROWS = 3
+
+/**
+ * WIDTHS AND HEIGHTS MEASURED IN A BROWSER, NOT CHOSEN BY EYE.
+ *
+ * The first version of this skeleton was visibly too small and the numbers say
+ * why: it rendered a 2009px-wide, 194px-tall table where the real one is 2782
+ * by 100. So the grid narrowed by 773px and grew by 94 on every switch, then
+ * snapped back — a skeleton that causes the layout jump it exists to prevent.
+ *
+ * Measured on the same team and month, real against fallback:
+ *
+ *                     real          before        after
+ *   table width       2782          2009          2788
+ *   table height       100           194           100
+ *   body rows            1 (actual)    3 (fixed)     1 (actual)
+ *   body row height     52            49            52
+ *   day column       74-92            62            88
+ *   Player column       74            87            74
+ *
+ * A day column is `content + px-4` — 32px of padding from ui/table.tsx. The
+ * real columns vary from 74 to 92 with the day name ("Fri 4th" is narrow,
+ * "Wed 10th" wide), so a uniform skeleton can only match their average; 56px of
+ * content lands the total within 6px of 2782, which is 0.2%.
+ *
+ * THE BODY PILL IS DELIBERATELY NARROWER THAN THE HEADER ONE and is not a
+ * missed opportunity to match: with `table-layout: auto` a column is as wide as
+ * its widest cell, and in the real table that is always the day header
+ * ("Wed 10th") rather than the score ("0"). Widening the body pill would copy a
+ * number that decides nothing.
+ *
+ * `h-5`, NOT THE `h-4` THIS SHIPPED WITH. `p-4` gives 32px of vertical padding
+ * and the real rows measure 52px, so the content is 20px. `h-4` measured 49 —
+ * three pixels short per row, which compounds down a team.
+ */
+const DAY_HEADER_WIDTH = 'w-[56px]'
+const DAY_CELL_WIDTH = 'w-[30px]'
+/** The pinned Player and Score headers, measured the same way: 74px - 32px. */
+const PINNED_WIDTH = 'w-[42px]'
+
+/**
+ * Content height inside a body cell. `p-4` gives 32px of vertical padding, and
+ * the real rows measured 52px, so the content is 20px — `h-5`, not the `h-4`
+ * this shipped with, which measured 49 and left a 3px-per-row difference that
+ * compounds down a team.
+ */
+const CELL_HEIGHT = 'h-5'
 
 /**
  * The scores table, at rest.
@@ -71,9 +120,22 @@ const SKELETON_ROWS = 3
  */
 export function ScoresTableSkeleton({
   month,
+  rows = DEFAULT_SKELETON_ROWS,
   className,
 }: {
   month: PuzzleMonth
+  /**
+   * How many player rows to draw. THE CALLER CAN USUALLY KNOW THIS EXACTLY,
+   * which is what makes the skeleton the right height rather than approximately
+   * right: team membership comes from `api.teams.getMyTeams`, which does NOT
+   * suspend on a team or month change — it is already resolved by the time this
+   * fallback renders. routes/app.tsx passes `selectedTeam.members.length`.
+   *
+   * v1 draws three rows unconditionally, so its skeleton is the wrong height
+   * for every team that is not exactly three players, and the grid jumps
+   * vertically as the table lands.
+   */
+  rows?: number
   className?: string
 }) {
   // The real column count for the month being loaded — 28, 29, 30 or 31.
@@ -92,31 +154,31 @@ export function ScoresTableSkeleton({
           <TableHeader>
             <TableRow>
               <TableHead className={cn(pinnedLeft, 'rounded-tl-md px-2 md:px-4')}>
-                <Skeleton className="h-4 w-[55px]" />
+                <Skeleton className={cn(CELL_HEIGHT, PINNED_WIDTH)} />
               </TableHead>
               {days.map((day) => (
                 <TableHead key={day}>
-                  <Skeleton className="mx-auto h-4 w-[30px]" />
+                  <Skeleton className={cn('mx-auto', CELL_HEIGHT, DAY_HEADER_WIDTH)} />
                 </TableHead>
               ))}
               <TableHead className={cn(pinnedRight, 'rounded-tr-md px-2 md:px-4')}>
-                <Skeleton className="ml-auto h-4 w-[30px]" />
+                <Skeleton className={cn('ml-auto', CELL_HEIGHT, PINNED_WIDTH)} />
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="[&_tr:last-child>td:first-child]:rounded-bl-md [&_tr:last-child>td:last-child]:rounded-br-md">
-            {Array.from({ length: SKELETON_ROWS }, (_, row) => (
+            {Array.from({ length: Math.max(1, rows) }, (_, row) => (
               <TableRow key={row}>
                 <TableCell className={pinnedLeft}>
-                  <Skeleton className="h-4 w-[55px]" />
+                  <Skeleton className={cn(CELL_HEIGHT, PINNED_WIDTH)} />
                 </TableCell>
                 {days.map((day) => (
                   <TableCell key={day}>
-                    <Skeleton className="mx-auto h-4 w-[30px] rounded-full" />
+                    <Skeleton className={cn('mx-auto rounded-full', CELL_HEIGHT, DAY_CELL_WIDTH)} />
                   </TableCell>
                 ))}
                 <TableCell className={pinnedRight}>
-                  <Skeleton className="ml-auto h-4 w-[30px]" />
+                  <Skeleton className={cn('ml-auto', CELL_HEIGHT, DAY_CELL_WIDTH)} />
                 </TableCell>
               </TableRow>
             ))}
