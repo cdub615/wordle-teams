@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 
 /**
@@ -222,5 +223,65 @@ describe('the base anchor colour reaches prose links and not controls', () => {
     // `:where()` contributes zero, holding the selector at (0,0,1), exactly as
     // strong as the unscoped rule it replaced.
     expect(anchorRule).toMatch(/:where\(\s*:not\(\[role\]\)\s*\)/)
+  })
+})
+
+/**
+ * NO COMPONENT USES TAILWIND 3'S DEAD CSS-VARIABLE SPELLING (wordle-teams-krhp).
+ *
+ * THE DEFECT. In Tailwind 3, an arbitrary value holding a BARE custom property
+ * — square brackets around a `--name` with no `var()` around it — resolved to
+ * `var(--name)`. Tailwind 4 does not: it emits the literal token, producing a
+ * declaration like `height:--cell-size` that is invalid CSS and that every
+ * browser silently discards. The class is still generated, the element still
+ * carries it, tsc and eslint and the build are all perfectly happy, and the
+ * style simply does not exist.
+ *
+ * FIFTEEN OF THESE SHIPPED IN v2 AND ALL FOUR GATES STAYED GREEN. Ten in
+ * ui/calendar.tsx, which is why the date picker was unusable — `--cell-size` was
+ * defined and never read, so the day cells had no size at all
+ * (wordle-teams-5p9). Five more across ui/select.tsx, ui/dropdown-menu.tsx and
+ * ui/popover.tsx: three open-animation transform origins, and a select whose
+ * max-height did not apply, so a long one ran off the bottom of the viewport
+ * instead of scrolling inside itself. Both were found by a person looking at a
+ * screen, which is the thing this replaces.
+ *
+ * THE FILES WERE INCONSISTENT WITH THEMSELVES, which is the tell that it was an
+ * oversight rather than a decision: ui/dropdown-menu.tsx carried the CORRECT
+ * `[var(...)]` spelling in the same className string as a broken one.
+ *
+ * SCANS SOURCE, NOT THE COMPILED BUNDLE. Reading dist/ would be the more direct
+ * measurement — an invalid declaration is visible as itself there — but it
+ * would make this test pass or fail depending on whether someone had run a
+ * build, and `pnpm test` does not. The source spelling is the defect and is
+ * always present.
+ */
+describe('no component carries a Tailwind 3 bare-custom-property utility', () => {
+  /** Every .tsx under src/, recursively. */
+  function componentFiles(dir: string): Array<string> {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) return componentFiles(path)
+      return entry.name.endsWith('.tsx') ? [path] : []
+    })
+  }
+
+  test('src/**/*.tsx is clean', () => {
+    // BUILT FROM PIECES SO THIS FILE CONTAINS NO LITERAL BROKEN CANDIDATE.
+    // Tailwind 4 scans raw file text and does not skip comments or string
+    // literals, so spelling one out here would generate the very rule this
+    // forbids — measured during wordle-teams-5p9, where a doc comment
+    // describing the bug put `height:--cell-size` back into the compiled CSS.
+    // The same reason ui/calendar.tsx describes the pattern in prose.
+    const deadSpelling = new RegExp('-\\[' + '--[a-z][a-z0-9-]*\\]', 'g')
+
+    const offenders = componentFiles('src').flatMap((file) => {
+      const matches = readFileSync(file, 'utf8').match(deadSpelling) ?? []
+      return matches.map((match) => `${file}: ${match}`)
+    })
+
+    // Listed rather than counted, so a failure names the file and the utility
+    // instead of a number that has to be chased.
+    expect(offenders).toEqual([])
   })
 })

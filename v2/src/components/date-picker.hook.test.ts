@@ -192,4 +192,26 @@ describe('the calendar reads its cell size instead of only declaring it', () => 
     const dayButton = screen.getByRole('grid').querySelector('td[data-day] button')
     expect(dayButton?.className).toContain('min-w-[var(--cell-size)]')
   })
+
+  test('NOTHING RENDERED HERE USES THE DEAD v3 SPELLING', () => {
+    // Exhaustive over the open picker's whole subtree rather than the two
+    // elements above, because ten utilities across six slots were affected and
+    // spot-checking two of them is how the other eight would survive a revert.
+    //
+    // The pattern is: a Tailwind bracket containing a custom property with no
+    // `var(` in front of it. Built at runtime from pieces so that this file's
+    // own source does not contain a literal broken candidate — Tailwind 4 scans
+    // raw file text INCLUDING comments and test strings, and writing one here
+    // would regenerate the very rule the gate exists to forbid. That is not
+    // hypothetical: it happened in calendar.tsx's own doc comment during this
+    // fix, and put `height:--cell-size` back into the compiled CSS.
+    open()
+
+    const deadSpelling = new RegExp('-\\[' + '--[a-z-]+\\]')
+    const offenders = Array.from(document.querySelectorAll('[class]'))
+      .map((element) => element.getAttribute('class') ?? '')
+      .filter((className) => deadSpelling.test(className))
+
+    expect(offenders).toEqual([])
+  })
 })
