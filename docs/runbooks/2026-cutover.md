@@ -234,6 +234,28 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
       they remain indexable on beta. The exposure `wt-ksh.8.54` was filed about
       is the marketing documents, which are covered.
 
+- [ ] **3.5 — Browser Cache TTL must still be "Respect Existing Headers".**
+      Caching -> Configuration, zone-wide, and therefore inherited by the apex.
+      **The default is 4 hours and it overrides a LOWER origin `max-age`**, which
+      silently turned the documents' deliberate `max-age=0` into `max-age=14400`
+      until it was changed on 2026-09-02 (`wordle-teams-g1cd`).
+
+      This matters because a browser cache is the one copy the version-keyed
+      edge key in `src/server.ts` cannot reach: at four hours, a fix shipped on
+      cutover day would be invisible to anyone who had loaded the page in the
+      previous four. **Nothing in the repository can assert this** — it is
+      dashboard state — so it is a check here or it is nowhere.
+
+  ```
+  curl -sI https://wordleteams.com/about | grep -i cache-control
+  ```
+
+      Expect `max-age=0` with `s-maxage=86400` and
+      `stale-while-revalidate=604800` intact. **`max-age=14400` means the
+      setting has reverted.** Run it TWICE — the first response is never the
+      rewritten one, because the rewrite only applies to what Cloudflare
+      serves from cache.
+
 ---
 
 ## 4. Cutover day
@@ -377,6 +399,8 @@ and before the DNS flip**, then re-read the counts. There is no tombstone.
 - [ ] `ENVIRONMENT` → `production` (§3.1).
 - [ ] `X-Robots-Tag` verified in BOTH directions — present on beta, absent on the
       apex (§3.4). No change to make; this is a check, not a step.
+- [ ] Browser Cache TTL still "Respect Existing Headers"; `/about` returns
+      `max-age=0` on a SECOND request, not `max-age=14400` (§3.5).
 - [ ] All five `POLAR_*` → production, as a set (§2.2).
 - [ ] `SITE_URL` → production origin.
 - [ ] `MAINTENANCE` → `"false"`, **and purge** (§4.1).

@@ -64,20 +64,33 @@ const STATIC_DOCUMENTS = new Set([
 export const NO_STORE = 'private, no-store'
 
 /**
- * `max-age=0` IS NOT WHAT THE VISITOR ACTUALLY RECEIVES, and nothing in this
- * repository would tell you that. Measured on beta 2026-09-02: the first
- * response carries this string verbatim, and every response served from the
- * edge cache afterwards comes back as `max-age=14400`. The zone's Browser
- * Cache TTL (Caching -> Configuration, a dashboard setting) rewrites max-age
- * on anything Cloudflare caches, and since wordle-teams-fqeq these documents
- * are cached, so it now applies to them.
+ * `max-age=0` DEPENDS ON A ZONE SETTING THIS REPOSITORY CANNOT SEE, and that is
+ * the only reason it survives to the browser. Cloudflare's Browser Cache TTL
+ * defaults to FOUR HOURS on every plan and overrides the origin's max-age
+ * whenever the origin's is LOWER — so this string shipped as `max-age=14400`
+ * for every response served from the edge, measured on beta 2026-09-02. The
+ * zone is now set to "Respect Existing Headers" (Caching -> Configuration), and
+ * the value below arrives intact. Verified end to end on /, /home, /about,
+ * /privacy and /terms. (wordle-teams-g1cd)
  *
- * The intent of `max-age=0` is that the browser always revalidates, leaving
- * the edge as the only long-lived copy and the version-keyed key in server.ts
- * in full control of what anyone sees after a deploy. Four hours of private
- * browser cache is outside that control. Whether to change the zone setting,
- * scope it with a Cache Rule, or accept it is wordle-teams-g1cd; this comment
- * exists so the next person does not have to rediscover the cause.
+ * IT ONLY STARTED MATTERING WITH THE EDGE CACHE. Before wordle-teams-fqeq these
+ * documents were never in Cloudflare's cache, so the setting had nothing to act
+ * on. Storing them is what exposed it.
+ *
+ * WHY max-age=0 IS WORTH DEFENDING: the browser revalidates every time, so the
+ * edge holds the only long-lived copy and server.ts's version-keyed cache key
+ * has complete control over what anyone sees after a deploy. A browser cache is
+ * outside that control — the version key cannot reach it — so four hours of it
+ * meant a fix shipped today was invisible to anyone who had loaded the page in
+ * the previous four.
+ *
+ * IF THIS EVER SILENTLY REVERTS, that setting is the first thing to check; the
+ * symptom is `max-age=14400` on a second request to a static path. It is
+ * zone-wide, so it also governs the assets — which is what made it safe to
+ * change only after public/_headers gave every asset an explicit value
+ * (wordle-teams-82zq). Note the assets were never affected anyway: the hashed
+ * ones sit above 14400, and the rest carry `must-revalidate`, which Cloudflare
+ * honours by leaving max-age alone.
  */
 export const STATIC_CACHE =
   'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800'
