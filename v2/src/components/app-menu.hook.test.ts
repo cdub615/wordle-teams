@@ -46,6 +46,7 @@ import { PORTAL_NOT_CONFIGURED } from '#/lib/billing-copy.ts'
 import { typedCodeMessage } from '#/lib/convex-error.ts'
 import { STORAGE_KEY as SELECTED_TEAM_KEY } from '#/lib/dashboard-search.ts'
 import { THEME_STORAGE_KEY } from '#/lib/theme.ts'
+import { REDUCED_MOTION_QUERY } from '#/lib/use-reduced-motion.ts'
 
 /**
  * The two portal sentences this file needs by value, neither of which is an
@@ -60,6 +61,8 @@ const PORTAL_FAILED = 'Could not open the billing portal.'
 /** Set per test, read by the mocked hooks below. */
 let isAuthenticated: boolean
 let isPro: boolean | undefined
+/** What the stubbed matchMedia answers for the reduced-motion query. */
+let reducedMotion: boolean
 
 const { openPortal, signOut, navigate, queryClientClear, toastInfo, toastError } = vi.hoisted(
   () => ({
@@ -190,9 +193,12 @@ beforeEach(() => {
 
   vi.stubGlobal('localStorage', memoryStorage())
 
-  // jsdom implements neither, and useThemeMode calls both on mount.
+  // jsdom implements neither, and useThemeMode and useReducedMotion both call
+  // matchMedia on mount. `reducedMotion` is read per test; the colour-scheme
+  // query is always answered false, so 'auto' resolves to light.
+  reducedMotion = false
   vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: false,
+    matches: query === REDUCED_MOTION_QUERY ? reducedMotion : false,
     media: query,
     addEventListener: () => {},
     removeEventListener: () => {},
@@ -569,5 +575,94 @@ describe('the theme submenu offers all three modes and persists the choice', () 
     await waitFor(() => expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('auto'))
     expect(document.documentElement.getAttribute('data-theme')).toBeNull()
     expect(document.documentElement.classList.contains('light')).toBe(true)
+  })
+})
+
+describe('the avatar sits after the menu trigger, ringed, and only for a session', () => {
+  /** The ring element, by the data-slot the component stamps on it. */
+  const ring = () => document.querySelector('[data-slot="avatar-ring"]')
+
+  test('it renders AFTER the menu trigger in the DOM, not before it', () => {
+    // ASSERTED AS DOCUMENT ORDER, NOT AS A CLASS. "To the right of the menu" is
+    // what was asked for, and in a plain `flex` row with no `order-*` utility
+    // anywhere, DOM order IS visual order — so this is the honest reading of it
+    // and it needs no layout engine, which jsdom does not have.
+    //
+    // The pair was the other way round until now: the old settings/user-menu.tsx
+    // rendered the avatar first and the trigger second.
+    render(createElement(AppMenu))
+
+    const trigger = screen.getByRole('button', { name: 'Main menu' })
+    const avatarRing = ring()
+    expect(avatarRing).not.toBeNull()
+    // Node.DOCUMENT_POSITION_FOLLOWING === 4: the ring comes after the trigger.
+    expect(trigger.compareDocumentPosition(avatarRing!) & 4).toBe(4)
+  })
+
+  test('the ring spins for a viewer who has expressed no preference', () => {
+    reducedMotion = false
+    render(createElement(AppMenu))
+
+    expect(ring()?.className).toContain('avatar-ring-spin')
+  })
+
+  test('and STAYS BUT DOES NOT SPIN under prefers-reduced-motion', async () => {
+    // BOTH HALVES, AND THE FIRST IS THE ONE THAT DISTINGUISHES THIS FROM THE
+    // CONFETTI. ConfettiBurst renders NOTHING for a reduced-motion viewer,
+    // because the whole point of the element is the motion. A gradient ring is
+    // a visual that happens to turn — taking it away entirely would remove a
+    // colour, not a movement — so the element must still be here.
+    reducedMotion = true
+    render(createElement(AppMenu))
+
+    // The hook starts at `true` and corrects in an effect, so the relaxed case
+    // needs a tick; this one is already at its final value, but it is awaited
+    // the same way so the two tests cannot pass for different reasons.
+    await waitFor(() => expect(ring()).not.toBeNull())
+    expect(ring()?.className).not.toContain('avatar-ring-spin')
+  })
+
+  test('THE GRADIENT IS BRAND TOKENS, NOT RAW TAILWIND GREENS', () => {
+    // v1 hardcodes `from-green-600 via-green-500 to-yellow-400` plus a `dark:`
+    // variant of the same three stops, because its colours cannot fork by
+    // theme. styles.css rule 1 — "no Tailwind colour utility in a component; a
+    // raw green-600 outside this file is a missing token" — is what this pins,
+    // and porting v1's classes verbatim is the obvious way to break it.
+    render(createElement(AppMenu))
+
+    const className = ring()?.className ?? ''
+    expect(className).toContain('from-brand-from')
+    expect(className).toContain('via-brand-via')
+    expect(className).toContain('to-brand-to')
+    expect(className).not.toMatch(/green-\d|yellow-\d/)
+  })
+
+  test('a signed-out visitor gets NO avatar at all, ring included', () => {
+    // A REGRESSION FIXED HERE RATHER THAN A BEHAVIOUR PORTED. wordle-teams-lyab
+    // made this component render for signed-out visitors — the nav and theme
+    // control live in it — and the avatar came along with it. `initialsFor`
+    // answers null with no name and no email, so /login and /about were showing
+    // a stranger an empty grey circle with a generic person icon, and this
+    // issue would have wrapped a spinning brand halo around it.
+    isAuthenticated = false
+    render(createElement(AppMenu))
+
+    expect(ring()).toBeNull()
+    // And the menu itself is still there, which is the half that must NOT
+    // regress in the course of fixing this.
+    expect(screen.queryByRole('button', { name: 'Main menu' })).not.toBeNull()
+  })
+
+  test('the avatar is not interactive — the hamburger is the only control', () => {
+    // v1 makes the ringed avatar itself the trigger and users were not finding
+    // it: an animated halo reads as a badge, not a control. Giving the ring
+    // back must not quietly give the click target back with it, so the bar's
+    // button count is pinned — one trigger, not two.
+    render(createElement(AppMenu))
+
+    expect(screen.queryAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Main menu',
+    ])
+    expect(ring()?.closest('button')).toBeNull()
   })
 })

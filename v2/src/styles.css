@@ -345,6 +345,45 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * The avatar's rotating brand ring (wordle-teams-x3m9)
+ *
+ * v1's user-dropdown.tsx:119 puts a spinning gradient halo behind the app bar
+ * avatar, on `animate-spin-super-slow` — `spin 5s linear infinite`, defined in
+ * v1's tailwind.config.ts:100. v2 dropped it in Phase 6 and the owner asked for
+ * it back.
+ *
+ * TWO DELIBERATE DEVIATIONS FROM v1, BOTH RECORDED ON THE ISSUE.
+ *
+ * TOKENS, NOT HARDCODED GREENS. v1 writes the gradient twice — `from-green-600
+ * via-green-500 to-yellow-400` plus a `dark:` variant of the same three stops —
+ * because its colours are literals that cannot fork by theme. --brand-from/via/to
+ * already fork (see :root and .dark above), so the gradient has ONE definition
+ * and the dark variant disappears. This is rule 1 at the top of this file: a raw
+ * green-600 in a component is a missing token.
+ *
+ * THE ROTATION IS APPLIED FROM JAVASCRIPT, NOT GUARDED BY A MEDIA QUERY HERE.
+ * There is deliberately no `@media (prefers-reduced-motion: reduce)` block
+ * around this, for the same reason the confetti below carries none: vitest has
+ * no CSSOM, so a rule written here is a rule no gate this repo runs can observe.
+ * lib/use-reduced-motion.ts asks the query in JS and the component adds or omits
+ * this class, which a hook test CAN read. See that file's note.
+ *
+ * SEPARATE KEYFRAMES RATHER THAN TAILWIND'S `animate-spin`, whose duration is
+ * 1s and is not overridable per-utility; and named rather than borrowed, so
+ * that changing the ring's speed cannot change every other spinner in the app —
+ * the Loader2 icons on Billing, Upgrade and Log out all use `animate-spin`.
+ * ------------------------------------------------------------------------ */
+@keyframes avatar-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.avatar-ring-spin {
+  animation: avatar-ring-spin 5s linear infinite;
+}
+
+/* ---------------------------------------------------------------------------
  * Monthly-winner celebration confetti (wordle-teams-k7w)
  *
  * v1 renders this with react-confetti-explosion. v2 has no such dependency and

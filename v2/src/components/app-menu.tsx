@@ -44,6 +44,8 @@ import { portalOutcome } from '#/lib/billing-copy.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { STORAGE_KEY as SELECTED_TEAM_KEY } from '#/lib/dashboard-search.ts'
 import { initialsFor } from '#/lib/initials.ts'
+import { cn } from '#/lib/utils.ts'
+import { useReducedMotion } from '#/lib/use-reduced-motion.ts'
 import { useThemeMode, type ThemeMode } from '#/lib/theme.ts'
 
 /**
@@ -185,19 +187,6 @@ export function AppMenu() {
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <div className="flex items-center gap-1.5">
-        <Avatar className="h-8 w-8">
-          {user?.image && <AvatarImage src={user.image} alt={displayName} />}
-          {/*
-            `text-xs`, NOT THE INHERITED SIZE. AvatarFallback sets no font size
-            of its own, so the initials were taking the ambient 16px inside a
-            32px circle and touching its edge on both sides. 12px leaves a
-            visible ring of space — which matters more once wordle-teams-x3m9
-            puts a rotating gradient ring around the same circle.
-          */}
-          <AvatarFallback className="text-xs font-medium">
-            {initials ?? <UserIcon className="h-4 w-4" aria-hidden="true" />}
-          </AvatarFallback>
-        </Avatar>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             {/*
@@ -351,6 +340,7 @@ export function AppMenu() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        {isAuthenticated && <RingedAvatar image={user?.image} name={displayName} initials={initials} />}
       </div>
       {/*
         Only for a session. DialogContent renders through a Portal that Radix
@@ -360,6 +350,82 @@ export function AppMenu() {
       */}
       {isAuthenticated && <SettingsDialog defaultTab={defaultTab} />}
     </Dialog>
+  )
+}
+
+/**
+ * The avatar, ringed (wordle-teams-x3m9).
+ *
+ * SITS TO THE RIGHT OF THE MENU TRIGGER, which is the owner's call and reads
+ * correctly either way — what matters is that identity and control are not
+ * interleaved with the bar's other content.
+ *
+ * IT IS NOT A BUTTON, AND THAT IS THE POINT RATHER THAN AN OMISSION. No
+ * `role="button"`, no `cursor-pointer`, no click handler — clicking it does
+ * nothing. v1 makes the ringed avatar ITSELF the dropdown trigger
+ * (user-dropdown.tsx:117-123) and by the owner's own account users were not
+ * finding it: an animated halo reads as a badge, not a control. v2 split the
+ * two in Phase 6 and this keeps that split — the hamburger beside it is the
+ * control, so the ring is free to be what it always looked like, decoration.
+ * It still carries identity for a screen reader through AvatarImage's `alt`
+ * and the fallback's letters.
+ *
+ * ONLY FOR A SIGNED-IN PLAYER, WHICH IS A FIX AND NOT PART OF THE PORT. Its
+ * caller renders for signed-out visitors now (wordle-teams-lyab), and the
+ * avatar came along with it — so /login and /about were showing a stranger an
+ * empty grey circle with a generic person icon in it, since `initialsFor`
+ * answers null with no name and no email. An avatar is identity; a visitor
+ * with no account has none, and putting a spinning brand halo around that
+ * would have made it louder rather than better.
+ */
+function RingedAvatar({
+  image,
+  name,
+  initials,
+}: {
+  image?: string | null
+  name: string
+  initials: string | null
+}) {
+  const reducedMotion = useReducedMotion()
+
+  return (
+    <div className="relative flex-shrink-0">
+      {/*
+        THE RING IS A SIBLING BEHIND THE AVATAR, NOT A BORDER ON IT, because a
+        border cannot hold a gradient. `-inset-0.5` makes it 2px larger on every
+        side than the 32px avatar in front of it, so exactly that 2px shows as a
+        ring. Avatar's own root class is already `relative` (ui/avatar.tsx), and
+        it comes second in the DOM, so it paints on top with no z-index needed.
+
+        `aria-hidden` — it is a decorative gradient, and the avatar beside it
+        already carries the accessible name.
+      */}
+      <div
+        aria-hidden="true"
+        data-slot="avatar-ring"
+        className={cn(
+          'absolute -inset-0.5 rounded-full bg-gradient-to-r from-brand-from via-brand-via to-brand-to',
+          // THE RING STAYS, ONLY THE ROTATION GOES. That is the opposite of
+          // what ConfettiBurst does — it renders no pieces at all — and the
+          // difference is that confetti IS motion, whereas this is a coloured
+          // ring that happens to turn. Removing it entirely for a
+          // reduced-motion viewer would take away a visual, not a movement.
+          !reducedMotion && 'avatar-ring-spin',
+        )}
+      />
+      <Avatar className="relative h-8 w-8">
+        {image && <AvatarImage src={image} alt={name} />}
+        {/*
+          `text-xs`, NOT THE INHERITED SIZE. AvatarFallback sets no font size of
+          its own, so the initials took the ambient 16px inside a 32px circle
+          and touched its edge on both sides (wordle-teams-3hch).
+        */}
+        <AvatarFallback className="text-xs font-medium">
+          {initials ?? <UserIcon className="h-4 w-4" aria-hidden="true" />}
+        </AvatarFallback>
+      </Avatar>
+    </div>
   )
 }
 
