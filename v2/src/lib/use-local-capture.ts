@@ -116,10 +116,13 @@ export function useLocalCapture() {
    * without a `timeZone`, so that account is never reminded, forever, with
    * nothing logged and nothing in the UI to suggest why.
    *
-   * NOT REACHABLE TODAY — v2 has no sign-out (nothing in `src/` calls
-   * `signOut`). This is armed ahead of the feature rather than left as a note
-   * for whoever adds it, because the person adding sign-out has no reason to
-   * look here and every reason to assume a hook resets itself.
+   * REACHABLE SINCE `wordle-teams-lyab`, WHICH ADDED THE SIGN-OUT THIS WAS
+   * WAITING FOR. It was written while v2 had none — nothing in `src/` called
+   * `signOut` — and armed ahead of the feature rather than left as a note for
+   * whoever added it, on the reasoning that the person adding sign-out has no
+   * reason to look here and every reason to assume a hook resets itself. That
+   * bet paid: `components/app-menu.tsx`'s Log out item now drives exactly the
+   * transition described above, and this needed no change to meet it.
    *
    * KEYED ON `isAuthenticated` GOING FALSE, not on a player identity, because
    * `mySettings` does not return one — so the hook cannot see an account SWAP

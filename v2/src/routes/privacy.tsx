@@ -25,7 +25,7 @@ import { pageTitle } from '#/lib/seo'
  *      (convex/schema.ts).
  *
  * Everything else still holds on v2: the profile image from the OAuth provider
- * is stored and rendered (components/settings/user-menu.tsx), and no vendor is
+ * is stored and rendered (components/app-menu.tsx), and no vendor is
  * named anywhere in the text, so the Supabase/Vercel -> Convex/Cloudflare move
  * does not contradict a word of it.
  *

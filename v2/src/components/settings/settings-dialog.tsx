@@ -8,7 +8,7 @@ export type SettingsTab = 'notifications' | 'install'
 
 /**
  * The settings dialog's body — two tabs, ported from user-dialog.tsx. The
- * `<Dialog>` root and its `open`/`onOpenChange` state live in user-menu.tsx,
+ * `<Dialog>` root and its `open`/`onOpenChange` state live in app-menu.tsx,
  * one level up, because that is also where the two menu items that decide
  * `defaultTab` live: clicking "Notifications" opens here on that tab,
  * clicking "Install Guide" on the other, exactly like v1's

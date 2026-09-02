@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openAppMenu } from './app-menu.ts'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
@@ -30,10 +31,10 @@ test('the hamburger opens the menu, and each item opens the dialog on its own ta
 }) => {
   await signInWithPlayer(page)
 
-  // The trigger's only content is an icon, so `aria-label="Account menu"` is
+  // The trigger's only content is an icon, so `aria-label="Main menu"` is
   // the whole of its accessible name — this locator fails outright if that
   // attribute regresses to something decorative-only.
-  await page.getByRole('button', { name: 'Account menu' }).click()
+  await openAppMenu(page)
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('menuitem', { name: 'Notifications' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Install Guide' })).toBeVisible()
@@ -85,7 +86,7 @@ test('the hamburger opens the menu, and each item opens the dialog on its own ta
   await page.keyboard.press('Escape')
   await expect(page.getByRole('heading', { name: 'Notification Settings' })).toBeHidden()
 
-  await page.getByRole('button', { name: 'Account menu' }).click()
+  await openAppMenu(page)
   await page.getByRole('menu').getByRole('menuitem', { name: 'Install Guide' }).click()
   await expect(page.getByRole('tab', { name: 'Install Guide' })).toHaveAttribute('data-state', 'active')
   await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible()
@@ -97,7 +98,7 @@ test('changing the reminder time and toggling Email each report success and pers
 }) => {
   await signInWithPlayer(page)
 
-  await page.getByRole('button', { name: 'Account menu' }).click()
+  await openAppMenu(page)
   await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
 
   // Seeded reminderDeliveryTime is '18:00:00' -> '6 PM' (notifications-tab.tsx
@@ -116,7 +117,7 @@ test('changing the reminder time and toggling Email each report success and pers
   await expect(emailSwitch).toBeChecked()
 
   await page.reload()
-  await page.getByRole('button', { name: 'Account menu' }).click()
+  await openAppMenu(page)
   await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
 
   await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('9 AM')
@@ -137,7 +138,7 @@ test('a time zone copied in its Postgres spelling displays correctly, and changi
   // the IANA spellings in TIME_ZONE_GROUPS).
   await signInWithPlayer(page, 'Asia/Calcutta')
 
-  await page.getByRole('button', { name: 'Account menu' }).click()
+  await openAppMenu(page)
   await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
 
   // canonicalTimeZone (time-zones.ts) maps the stored Postgres spelling back
@@ -152,7 +153,7 @@ test('a time zone copied in its Postgres spelling displays correctly, and changi
   await expect(page.getByText('Time zone updated')).toBeVisible()
 
   await page.reload()
-  await page.getByRole('button', { name: 'Account menu' }).click()
+  await openAppMenu(page)
   await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
   await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText('Eastern Standard Time (EST)')
 })
@@ -179,7 +180,7 @@ test.describe('a brand-new signup with no stored zone', () => {
     // starts with no timeZone at all, exactly like a real v2 signup.
     await signInWithPlayer(page)
 
-    await page.getByRole('button', { name: 'Account menu' }).click()
+    await openAppMenu(page)
     await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
 
     // 'Mountain Standard Time (MST)' is TIME_ZONE_GROUPS's label for
@@ -225,7 +226,7 @@ test('the Push switch is absent where no VAPID key is configured, and Email stil
 }) => {
   await signInWithPlayer(page)
 
-  await page.getByRole('button', { name: 'Account menu' }).click()
+  await openAppMenu(page)
   await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
 
   // The tab really rendered its controls — without this the absence assertion

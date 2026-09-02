@@ -10,7 +10,7 @@ function read(): ResolvedTheme {
 /**
  * The resolved (light|dark) theme, read from the `dark` class on <html>.
  *
- * v2 does NOT use next-themes — ThemeToggle owns the light/dark/auto mode and
+ * v2 does NOT use next-themes — lib/theme.ts owns the light/dark/auto mode and
  * the inline script in __root.tsx applies the class before first paint. shadcn's
  * stock sonner.tsx imports useTheme from next-themes, which would be a second
  * source of truth that disagrees whenever the user picks a mode explicitly.

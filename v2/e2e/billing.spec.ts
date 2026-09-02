@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { closeAppMenu, openAppMenu } from './app-menu.ts'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
@@ -84,22 +85,29 @@ const toastWith = (page: Page, text: string): Locator =>
   page.locator('[data-sonner-toast]').filter({ hasText: text })
 
 /**
- * The header's billing affordance, found by its accessible name. That name
- * comes from an aria-label rather than the text, because the visible label is
- * hidden below the `sm` breakpoint — so this locator works at both viewport
- * sizes this file uses.
+ * The billing affordance, WHICH IS A MENU ITEM AND NOT A BUTTON SINCE
+ * wordle-teams-lyab. It used to sit in the bar beside Upgrade; the phone bar
+ * carried five controls plus a wrapped nav row, so Billing moved into the
+ * account menu along with the nav links and the theme control.
  *
- * IT HAS A NEIGHBOUR SINCE TASK 12 (wordle-teams-6tp) AND HAS NO CONDITION OF
- * ITS OWN. Header.tsx shows Billing to every signed-in player — v1's shape, and
- * the lapsed subscriber is the person it is for — and adds Upgrade beside it
- * whenever amIPro answers false. So a FREE account, which is every account this
- * file can mint, sees BOTH. The render states are pinned at gate level in
- * src/components/Header.hook.test.ts; what only this file can see is the click
- * reaching a real Convex action.
+ * IT STILL HAS NO CONDITION OF ITS OWN. app-menu.tsx offers Billing to every
+ * signed-in player — v1's shape, and the lapsed subscriber is the person it is
+ * for. The render states are pinned at gate level in
+ * src/components/app-menu.hook.test.ts; what only this file can see is the
+ * click reaching a real Convex action.
  */
-const billingButton = (page: Page): Locator => page.getByRole('button', { name: 'Billing' })
+const billingItem = (page: Page): Locator => page.getByRole('menuitem', { name: 'Billing' })
 
-/** Its neighbour: the always-reachable upgrade entry point. */
+/**
+ * The upgrade entry point, which STAYED IN THE BAR when Billing left it.
+ *
+ * That is a deliberate asymmetry, not an oversight: wordle-teams-456 measures
+ * 87% of production signups never entering a board, and the only
+ * always-reachable route to checkout is not something to put behind a
+ * hamburger. Its name comes from an aria-label rather than the text, because
+ * the visible label is hidden below the `sm` breakpoint — so this locator works
+ * at both viewport sizes this file uses.
+ */
 const upgradeButton = (page: Page): Locator => page.getByRole('button', { name: 'Upgrade' })
 
 /** Waits for sonner to clear, so the NEXT assertion cannot pass on a stale toast. */
@@ -148,11 +156,16 @@ test('the portal and both upgrade entry points each report their own failure', a
   // himself to test it at all.
   const upgrade = upgradeButton(page)
   await expect(upgrade).toBeEnabled()
-  // BOTH, NOT ONE. Task 12 shipped these as alternatives and asserted
-  // `billingButton` had count 0 here; that gate is what took the customer
-  // portal away from lapsed subscribers, and this is the line that would have
-  // caught it if it had been written the other way round.
-  await expect(billingButton(page)).toBeVisible()
+  // BOTH, NOT ONE — still, across two surfaces now. Task 12 shipped these as
+  // alternatives and asserted Billing had count 0 here; that gate is what took
+  // the customer portal away from lapsed subscribers, and this is the line
+  // that would have caught it if it had been written the other way round.
+  // Opened and closed again so the Upgrade click below is not aimed through an
+  // open menu's overlay.
+  await openAppMenu(page)
+  await expect(billingItem(page)).toBeVisible()
+  await closeAppMenu(page)
+
   await upgrade.click()
 
   // THE `not-configured` BRANCH, AND THE OTHER TWO ARE THE POINT OF ASSERTING
@@ -184,7 +197,8 @@ test('the portal and both upgrade entry points each report their own failure', a
   // THE JOIN THIS FILE EXISTS FOR, ON THE OTHER ACTION. Same deployment, same
   // absent POLAR_* variables, a different action and a different sentence.
   await noToasts(page)
-  const billing = billingButton(page)
+  await openAppMenu(page)
+  const billing = billingItem(page)
   await expect(billing).toBeEnabled()
   await billing.click()
 
@@ -200,7 +214,22 @@ test('the portal and both upgrade entry points each report their own failure', a
   await expect(toastWith(page, 'You do not have a billing account yet.')).toHaveCount(0)
   await expect(toastWith(page, 'Please try again')).toHaveCount(0)
   await expect(page.locator('body')).not.toContainText('POLAR_')
+  // The item comes back rather than staying stuck pending: a failure the player
+  // cannot retry is the same dead end as no message at all. It is asserted
+  // WHILE THE MENU IS STILL OPEN, which is only possible because
+  // app-menu.tsx's onSelect calls preventDefault — a menu that closed on select
+  // would have unmounted the item along with its spinner, and there would be
+  // nothing left to assert about.
   await expect(billing).toBeEnabled()
+
+  // AND THEN CLOSED, WHICH IS LOAD-BEARING FOR EVERYTHING BELOW. That same
+  // preventDefault means the menu is still open here, and an open Radix menu
+  // lays an overlay over the page and sets `pointer-events: none` on the body —
+  // so the team-picker click below is swallowed and times out waiting for a
+  // button that is plainly visible. Measured: this is exactly how this test
+  // failed first time round, 2m into a 2m budget, pointing at the team picker
+  // rather than at the menu that was covering it.
+  await closeAppMenu(page)
 
   // ── The team-picker CTA, which is the SECOND upgrade entry point ──────────
   // Both reach the same action, and both stay: two entry points to one upgrade
@@ -269,12 +298,21 @@ test('the portal and both upgrade entry points each report their own failure', a
   // to edge. Resized here rather than in a test of its own because the only
   // thing a separate test would add is another OTP sign-in.
   await page.setViewportSize({ width: 390, height: 844 })
-  // BOTH OCCUPANTS AT 390px, which is where their labels are `hidden sm:inline`
-  // and only the icon and the aria-label tell them apart. Which icon each one
-  // carries is pinned in src/components/Header.hook.test.ts, because this
-  // assertion passes with the wrong one.
-  await expect(billingButton(page)).toBeVisible()
+  // UPGRADE IS THE ONLY OCCUPANT LEFT AT 390px, WHICH IS THE POINT OF
+  // wordle-teams-lyab. This is the width the issue's screenshots were taken at:
+  // the old bar put Billing, the avatar, the menu trigger and an "Auto" theme
+  // pill in one row and wrapped Home/About onto a second line beneath them.
+  // Upgrade's label is `hidden sm:inline` here, so it is an icon and an
+  // aria-label — which icon it carries is pinned in
+  // src/components/Header.hook.test.ts, because this assertion passes with the
+  // wrong one.
   await expect(upgradeButton(page)).toBeVisible()
+  // AND BILLING IS REACHABLE, not merely gone. "Moved into the menu" and
+  // "deleted" look identical from the bar, and only one of them is the change
+  // that was made.
+  await openAppMenu(page)
+  await expect(billingItem(page)).toBeVisible()
+  await closeAppMenu(page)
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
@@ -292,7 +330,19 @@ test('a signed-out visitor is offered no billing link and no badge', async ({ pa
   // BILLING HAS NO isPro CONDITION, so `isAuthenticated` is the only thing
   // keeping it off this page — which makes this the assertion that stops
   // "unconditional for a signed-in player" turning into "offered to anyone".
-  await expect(billingButton(page)).toHaveCount(0)
+  //
+  // AND THE MENU IS OPENED TO PROVE IT, WHICH IS NEW AND IS THE WHOLE REASON
+  // THIS ASSERTION STILL EARNS ITS PLACE. Since wordle-teams-lyab the menu
+  // renders for a signed-out visitor too — it holds the nav and the theme
+  // control, which a visitor on /login needs — so `toHaveCount(0)` against the
+  // closed bar would now pass trivially, whatever the menu contained. The item
+  // has to be absent from an OPEN menu.
+  await openAppMenu(page)
+  await expect(billingItem(page)).toHaveCount(0)
+  // Log out is the same leak wearing a different hat: offering it to a visitor
+  // with no session would call signOut against nothing.
+  await expect(page.getByRole('menuitem', { name: 'Log out' })).toHaveCount(0)
+  await closeAppMenu(page)
   // NOR THE UPGRADE BUTTON, which is the assertion Task 12 added: `isPro` is
   // undefined for a signed-out visitor, so a `!isPro` spelling of its condition
   // would offer checkout to somebody with no account.

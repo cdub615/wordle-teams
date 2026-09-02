@@ -42,7 +42,7 @@ import { OTP_EXPIRY_LABEL } from '../../convex/lib/otpExpiry.ts'
  *      half-written; nothing in v2 has that shape.
  *   2. THE THEME SURVIVES EITHER WAY — worth stating because it is the obvious
  *      objection and it is WRONG. v2's theme is localStorage, not a cookie
- *      (src/components/ThemeToggle.tsx), as is the dashboard's selectedTeam.
+ *      (src/lib/theme.ts), as is the dashboard's selectedTeam.
  *      Clearing cookies would not have touched them.
  *   3. SIGNING OUT THROUGH authClient INSTEAD WOULD BE WORSE, not better.
  *      Landing here does not imply a session exists — every path that reaches

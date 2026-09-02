@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { openAppMenu } from './app-menu.ts'
 import { signIn } from './sign-in'
 import { completeProfile } from './complete-profile'
 
@@ -218,15 +219,20 @@ test.describe('route shape', () => {
     expect(chain).toEqual(['/', '/app'])
   })
 
-  test('the app bar wordmark and Home link both point at the landing', async ({ page }) => {
+  test('the app bar wordmark points at the landing', async ({ page }) => {
     // THIS DESTINATION HAS ALREADY BEEN CHANGED ONCE BY ACCIDENT, which is the
     // reason it is pinned. Phase 7 Task 1 deleted the old index route, which
     // took `'/'` out of the router's `to` union and left /app as the only
-    // spelling that compiled — so both links silently became dashboard links,
-    // and all four CI gates stayed green. Task 4 put them back on `/` on parity
-    // with v1's own app bar (src/components/app-bar/app-bar-base.tsx:73 links
-    // its wordmark to the marketing page). Nothing but this notices if they
-    // move again.
+    // spelling that compiled — so the wordmark silently became a dashboard
+    // link, and all four CI gates stayed green. Task 4 put it back on `/` on
+    // parity with v1's own app bar (src/components/app-bar/app-bar-base.tsx:73
+    // links its wordmark to the marketing page). Nothing but this notices if it
+    // moves again.
+    //
+    // IT IS THE BAR'S ONLY LINK SINCE wordle-teams-lyab, which raises the
+    // stakes rather than lowering them: the "Home" and "About" links that used
+    // to sit beside it are menu items now, so if the wordmark points at the
+    // wrong page there is no second link in the chrome to compensate.
     //
     // ON /about RATHER THAN ON `/`: hrefs read the same either way, but a link
     // to the page you are already on is the one place a wrong destination is
@@ -236,35 +242,59 @@ test.describe('route shape', () => {
       'href',
       '/',
     )
-    await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('href', '/')
   })
 
   /*
-   * THE HAZARD THE "Home" LINK ACQUIRED BY POINTING AT `/`. TanStack matches an
-   * active Link fuzzily by default and `/` is a prefix of every path in the
-   * app, so the underline could plausibly sit under "Home" everywhere — a nav
-   * that always claims you are on the home page. Measured on
-   * @tanstack/react-router 1.170 it does not, so Header.tsx carries no
-   * `activeOptions={{ exact: true }}`; these are what would notice if a router
-   * upgrade changed that default, and they are the only things that would.
+   * THE NAV THAT MOVED INTO THE MENU (wordle-teams-lyab).
    *
-   * TWO TESTS, NOT ONE, AND THAT IS THIS PHASE'S RULE RATHER THAN A STYLE
-   * PREFERENCE: a test's name must match exactly what it asserts. The single
-   * test these replace was named for the negative case and quietly asserted the
-   * positive one underneath it, so a failure named the wrong half of the
-   * behaviour. Both halves are still required — asserting only the negative
-   * would be satisfied by `is-active` never appearing at all.
+   * WHAT THESE REPLACE, AND WHY IT IS NOT A LOSS OF COVERAGE. Three tests used
+   * to stand here: one on the "Home" link's href, and a pair on whether it
+   * carried TanStack's `is-active` class on the landing but not elsewhere. That
+   * pair existed for a specific hazard — TanStack matches an active Link
+   * fuzzily by default and `/` is a prefix of every path in the app, so the
+   * underline could have sat under "Home" on every route, a nav that always
+   * claims you are on the home page.
+   *
+   * THAT HAZARD IS GONE WITH THE UNDERLINE. A dropdown menu item has no active
+   * styling to be wrong about: the `nav-link` class and its `::after` rule are
+   * no longer applied to anything in the header, so there is no fuzzy-match
+   * outcome left to pin. Keeping the assertions would have meant asserting
+   * against a class the component no longer sets, which passes for the wrong
+   * reason forever.
+   *
+   * WHAT REPLACES THEM IS THE THING THAT CAN NOW GO WRONG INSTEAD: the
+   * destinations are still real, and the menu that holds them still opens for a
+   * visitor with no session. The second is the new failure mode — the menu's
+   * predecessor only ever mounted for a signed-in player, and restoring that
+   * gate anywhere would leave /login and /about with no navigation in the
+   * chrome at all.
    */
-  test('the Home link is not marked active on a route that is not the landing', async ({ page }) => {
+  test('a signed-out visitor can open the menu and navigate from it', async ({ page }) => {
     await page.goto('/about')
-    await expect(page.getByRole('link', { name: 'Home', exact: true })).not.toHaveClass(
-      /is-active/,
-    )
-  })
 
-  test('the Home link is marked active on the landing itself', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveClass(/is-active/)
+    // openAppMenu, not a bare click: the header server-renders, so the trigger
+    // exists before React attaches a handler to it, and on this page — no
+    // session, nothing else to wait for — a click lands on a dead button. See
+    // the helper's note; this test is where that was measured.
+    await openAppMenu(page)
+
+    const home = page.getByRole('menuitem', { name: 'Home' })
+    await expect(home).toHaveAttribute('href', '/')
+    await expect(page.getByRole('menuitem', { name: 'About' })).toHaveAttribute('href', '/about')
+    // `/home` is the compatibility duplicate of the landing — the two render
+    // the identical component, and sitemap.ts ranks `/` at priority 1 against
+    // /home at 0.9. Linking internally to the duplicate advertises the
+    // non-canonical copy of a page we serve twice, and it is the plausible
+    // wrong answer rather than an arbitrary one.
+    await expect(home).not.toHaveAttribute('href', '/home')
+
+    // AND IT ACTUALLY NAVIGATES. An href is not a working link: these are
+    // `DropdownMenuItem asChild` wrapping a TanStack `Link`, so Radix merges
+    // its own props — including an `onSelect` that closes the menu — onto the
+    // anchor, and a mis-wired asChild can swallow the click while leaving the
+    // href perfectly correct.
+    await home.click()
+    await expect(page).toHaveURL(/\/$/)
   })
 
   /*

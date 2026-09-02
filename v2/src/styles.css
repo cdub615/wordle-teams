@@ -234,8 +234,11 @@
  * The teal sea/lagoon/palm token set that shipped with the TanStack starter is
  * gone, along with 25 unused .demo-* classes from that template. Five classes
  * were actually referenced and are kept here, re-expressed in design-system
- * tokens: page-wrap, island-kicker, island-shell, nav-link. (display-title was
- * folded into the font-display token in wt-ksh.12.5.)
+ * tokens: page-wrap, island-kicker, island-shell. (display-title was folded
+ * into the font-display token in wt-ksh.12.5, and nav-link was deleted in
+ * wordle-teams-lyab when the header's Home/About links became menu items —
+ * a dropdown item has no underline to animate, and nothing else in the app
+ * used the class.)
  *
  * The starter's layered radial-gradient body background is also gone. The
  * design system is "neutral plus one accent" with a greyscale chrome, so the
@@ -319,44 +322,6 @@
   border: 1px solid var(--border-subtle);
   background: var(--surface);
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-}
-
-.nav-link {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-  color: var(--text-muted);
-  transition: color 150ms ease;
-}
-
-.nav-link::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: -6px;
-  width: 100%;
-  height: 2px;
-  transform: scaleX(0);
-  transform-origin: left;
-  background: var(--accent-solid);
-  transition: transform 170ms ease;
-}
-
-.nav-link:hover,
-.nav-link.is-active {
-  color: var(--text);
-}
-
-.nav-link:hover::after,
-.nav-link.is-active::after {
-  transform: scaleX(1);
-}
-
-@media (max-width: 640px) {
-  .nav-link::after {
-    bottom: -4px;
-  }
 }
 
 /* ---------------------------------------------------------------------------
