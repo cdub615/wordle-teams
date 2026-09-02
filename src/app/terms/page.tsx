@@ -57,8 +57,10 @@ export default async function Page() {
               Third-Party Services and Integrations
             </h4>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
-              The Service allows you to sign in via online accounts from third-party service providers (e.g.
-              Google, Apple, Facebook, etc). If you choose to sign in or otherwise link your Wordle Teams Account
+              The Service allows you to sign in with a one-time code sent to your email address, or via online
+              accounts from third-party service providers (Google, X, Microsoft, GitHub, Slack, or
+              Discord). If you choose
+              to sign in or otherwise link your Wordle Teams Account
               with a third-party service, you are authorizing us to connect and access your approved information in
               that service, which may be governed by the privacy policy and terms of service of that service.
             </p>
@@ -172,7 +174,7 @@ export default async function Page() {
           </div>
 
           <div className='mt-6'>
-            <p className='text-gray-500 text-sm'>Last Updated: May 21, 2024</p>
+            <p className='text-gray-500 text-sm'>Last Updated: September 2, 2026</p>
           </div>
         </div>
       </div>
