@@ -22,9 +22,9 @@ export default async function Page() {
               Information We Collect
             </h4>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
-              <strong>Account Information:</strong> When you create an account with us, we collect your name, username, email
+              <strong>Account Information:</strong> When you create an account with us, we collect your name, email
               address, and your profile image if provided by the third-party sign-in provider you use
-              (e.g., Google, Apple, Facebook, etc.).
+              (Google, X, Microsoft, GitHub, Slack, or Discord).
             </p>
             <p className='mt-2 text-gray-700 dark:text-gray-300 text-base'>
               <strong>User Content:</strong> We collect the content you create, share, and store while using the
@@ -102,7 +102,7 @@ export default async function Page() {
           </div>
 
           <div className='mt-6'>
-            <p className='text-gray-500 text-sm'>Effective Date: May 21, 2024</p>
+            <p className='text-gray-500 text-sm'>Effective Date: September 3, 2026</p>
           </div>
         </div>
       </div>
