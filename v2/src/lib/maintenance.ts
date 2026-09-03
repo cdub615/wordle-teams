@@ -109,10 +109,19 @@ const GATED_SUBTREES = ['/app', '/me', '/complete-profile'] as const
  * Dropping `/` from STATIC_DOCUMENTS would cost the highest-traffic anonymous
  * route the edge cache wordle-teams-jcj exists to buy back; ungating `/` would
  * leave the landing page up during an outage, which is a behaviour change
- * nobody asked for. (wt-ksh.8.45 has not yet established that `s-maxage` on a
- * Worker response reaches Cloudflare's edge cache at all — no caches.default,
- * no cacheEverything, no Cache Rule. If nothing is cached there, the purge is
- * a no-op and this costs nothing today.)
+ * nobody asked for.
+ *
+ * THE PURGE IS NOW REAL, AND THIS PARAGRAPH USED TO SAY THE OPPOSITE. It read:
+ * "wt-ksh.8.45 has not yet established that `s-maxage` on a Worker response
+ * reaches Cloudflare's edge cache at all... If nothing is cached there, the
+ * purge is a no-op and this costs nothing today." Both halves have since been
+ * settled and both flipped. wt-ksh.8.45 measured that the header alone reached
+ * nothing, and wordle-teams-fqeq then put these documents in the Cache API
+ * deliberately — verified on beta, `/` and `/home` return `x-doc-cache: HIT`.
+ * So `/` IS cached at the edge, and the purge step is load-bearing rather than
+ * free. Turning maintenance on without it leaves the pre-outage landing page
+ * being served for up to a day fresh and a week stale, to exactly the visitors
+ * the outage notice is for.
  *
  * MAINTENANCE_PATH IS NOT IN THIS SET, AND THAT ABSENCE IS LOAD-BEARING. It is
  * where src/server.ts sends a gated request; adding it here is an infinite
