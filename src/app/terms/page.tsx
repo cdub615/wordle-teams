@@ -174,7 +174,7 @@ export default async function Page() {
           </div>
 
           <div className='mt-6'>
-            <p className='text-gray-500 text-sm'>Last Updated: September 2, 2026</p>
+            <p className='text-gray-500 text-sm'>Last Updated: September 3, 2026</p>
           </div>
         </div>
       </div>
