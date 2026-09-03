@@ -499,4 +499,34 @@ Not blockers unless you decide otherwise; each is filed.
 | `wordle-teams-d2oc` | Redirects carry no `Cache-Control` at all |
 | `wordle-teams-cog5` | `/me` answers 307 while the docs say permanent |
 | `wordle-teams-vmya` | Invite email's text footer hardcodes the production origin |
+
+### 8a. Two Polar cases the sandbox pass could NOT reach
+
+Phase 5's sandbox pass (2026-09-03) closed all six acceptance criteria against
+observed evidence. **These two were not among them**, and are written here so a
+green pass is not read as covering them. Both are pinned by unit tests only.
+
+- [ ] **THE v1-uuid IDENTITY CASE — the one that touches every existing paying
+      customer.** A fresh v2 account has no `legacyId`, so the sandbox cannot
+      reproduce what happens to a **migrated** subscriber on revocation. The
+      dual-namespace lookup in `getCustomerPortalUrl` and the identity
+      resolution in `convex/polar.ts` are what carry it, and they are exercised
+      by unit tests and by nothing else.
+
+      **This is the highest-risk untested path at cutover**, because every
+      current subscriber is exactly this shape: a copied row with a `legacyId`,
+      whose Polar customer was created against the v1 uuid. Watch the first real
+      revocation after the flip, and check the player is downgraded rather than
+      silently missed. `wordle-teams-7xl` already covers confirming the first
+      real checkout; this is its counterpart on the other end of the lifecycle.
+
+- [ ] **THE OWNERSHIP-REASSIGNMENT PATH.** `downgradeTeamRemovalFor` reassigns
+      `owner: remaining[0]` when a dropped team was one the player owned. Owned
+      teams sort FIRST in the keep list, so this only fires for an owner of
+      three or more teams — the sandbox account owned exactly the two it kept,
+      so the branch never ran. Unit-tested only.
+
+      The consequence if it is wrong is not data loss but a **team nobody can
+      administer**: V2-ADDENDUM records that an owner-less team cannot be edited
+      by anyone, which is why the code reassigns rather than clearing.
 | `wordle-teams-4yt` | **Owner's call, and legal copy:** privacy policy and terms name **Apple and Facebook** as sign-in providers. Neither has ever been offered. The policy also claims a **username** is collected; no such field exists in either codebase. Already wrong in v1, so not a regression — but cutover is when these pages start being served from the new stack |

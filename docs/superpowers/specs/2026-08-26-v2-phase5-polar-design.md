@@ -148,7 +148,7 @@ Decisions E–J were made during this brainstorming session, each against a meas
 | C | **Build everything, then one verification pass** on the Polar sandbox against beta. | Backend-first (recommended, owner overruled) |
 | D | **The pending-upgrade counter is not migrated.** v1 keeps it in `auth.users.raw_app_meta_data`, which the copy never reads and must not start reading. | Teaching the copy scripts to read auth metadata |
 | E | **The replay guard keys on `processed`, not on row existence.** A row that exists but failed is reprocessed, so the 500-and-retry path actually works. Fixes measurement 1. | Porting v1 faithfully and losing every failed event |
-| F | **Identity resolves across both namespaces**, Convex `Id` then `by_legacyId`, repairing the Polar customer forward on a legacy hit. v1's UUID regex is deleted; the check becomes "does this name a real player". Fixes measurement 2. | A pre-cutover backfill script over the Polar API as the *only* mechanism — one-shot, partially failable, and anything it misses fails silently |
+| F | **Identity resolves across both namespaces**, Convex `Id` then `by_legacyId`, repairing the Polar customer forward on a legacy hit. v1's UUID regex is deleted; the check becomes "does this name a real player". Fixes measurement 2. **AMENDED BY TASK 10 (`wordle-teams-xm2`): it reads the snake_case WIRE shape — `customer.external_id`, `customer_id`, `checkout_id` — not the SDK's camelCase**, because verification no longer goes through `@polar-sh/sdk`'s `validateEvent`. See the pipeline block and the note under Identity resolution. `metadata.player_id` is unchanged; that key was always ours. | A pre-cutover backfill script over the Polar API as the *only* mechanism — one-shot, partially failable, and anything it misses fails silently |
 | G | **The pending count is derived from `teams.invited`**, not stored. Fixes measurement 7 and removes the `players` schema change entirely. | A denormalised counter on the players doc, per the provisional plan |
 | H | **On downgrade, a created-but-left team's owner is reassigned to `playerIds[0]` of the remainder**; the team is deleted only when the remainder is empty. "Earliest-joined" is pinned to the append-ordered array because v2 has no `joinedAt`. | Leaving the team owner-less (V2-ADDENDUM already records that an owner-less team cannot be edited by anyone); leaving the downgraded player as owner of a team they left |
 | I | **Raw `@polar-sh/sdk` only.** A plain Convex `httpAction` returns whatever status it needs. Fixes measurement 6. | `@polar-sh/better-auth` (cannot return 5xx); a hybrid split |
@@ -309,7 +309,8 @@ back and that state is unreachable.
 
 ```
 httpAction POST /polar/webhook:
-  validateEvent(rawBody, headers, secret)      → 403 on a bad signature
+  new Webhook(secret, {format:'raw'}).verify() → 403 on a bad signature   ← NOT validateEvent; see below
+  event = JSON.parse(rawBody)                  ← the snake_case WIRE shape
   webhookId = headers['webhook-id']            → 400 if absent
   candidates = extractIdentity(event.data)     (pure, Layer 1)
   resolved  = runQuery(resolvePlayerId, candidates)
@@ -502,6 +503,24 @@ To be written into `V2-ADDENDUM` §7a:
   reassigns `owner` to the earliest-joined remaining member instead.
 - **13 (new)** — the replay guard keys on `processed`, not on row existence, so a failed event is
   retried rather than swallowed as a duplicate.
+
+**Not a v1 divergence, but recorded here because this is where a reader looks for
+what changed (`wordle-teams-xm2`):** verification does **not** use `@polar-sh/sdk`'s
+`validateEvent`. On Convex's default runtime it throws `ReferenceError: Buffer is not
+defined` — its first line is `Buffer.from(secret, 'utf-8')`, and `Buffer` is a Node
+global that runtime does not provide. It goes through **`standardwebhooks@1.0.0`
+directly**, the library the SDK itself verifies through, constructed with
+`{ format: 'raw' }` over the secret's UTF-8 bytes and therefore byte-identical to what
+the SDK would have keyed on. This is a divergence from the PLAN rather than from
+production — v1 was on Lemon Squeezy and shares none of this path — which is why it
+earns no §7a row.
+
+**It was invisible to every quality gate**, and that is the part worth carrying
+forward: vitest's edge-runtime environment *does* define `Buffer`, and
+`convex codegen` analyses modules without serving a request, so lint, typecheck, test
+and build were all green while every real delivery would have answered 400. Proven only
+by a live request. **Confirmed end to end by the sandbox pass on 2026-09-03**: real Polar
+deliveries verified, resolved identity and drove the membership transitions.
 
 Also for the record, though not divergences: `20240501193430` supersedes `20240501191728`, and
 `@polar-sh/better-auth` is rejected for returning 400 rather than for auto-acknowledging.

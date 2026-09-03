@@ -2168,6 +2168,18 @@ git commit -m "feat(billing): Polar checkout and portal actions on the raw SDK"
 
 The heart of the phase. **Acceptance criterion 3 has two halves** — a duplicate must not reprocess, and a *failed* event must.
 
+> **SUPERSEDED WHERE THIS TASK USES `validateEvent`. The shipped code does not, and cannot** (`wordle-teams-xm2`).
+>
+> `@polar-sh/sdk`'s `validateEvent` throws `ReferenceError: Buffer is not defined` on Convex's default runtime — `dist/esm/webhooks.js:126` opens with `Buffer.from(secret, 'utf-8')`, and `Buffer` is a Node global that runtime does not provide. Measured against the local backend on 2026-08-27. **Every delivery would have answered 400.**
+>
+> `v2/convex/http.ts` verifies through **`standardwebhooks@1.0.0` directly** — the same library the SDK verifies through — as `new Webhook(secret, { format: 'raw' })`, keyed on the secret's UTF-8 bytes and therefore byte-identical to what the SDK would have derived. It is now a direct dependency of `v2` at the version already in the lockfile. So **ignore the `import { validateEvent, WebhookVerificationError } from '@polar-sh/sdk/webhooks.js'` and the `validateEvent(...)` call in the snippets below.**
+>
+> **THE KNOCK-ON REACHES TASK 5, AND IS THE PART THAT IS EASY TO MISS.** A verified delivery is `JSON.parse(rawBody)` — the raw **snake_case wire shape**, not the SDK's renamed camelCase. `v2/convex/lib/polarIdentity.ts` therefore reads **`customer.external_id`**, **`customer_id`** and **`checkout_id`**. Only `metadata.player_id` is unchanged, because that key was always ours. Nothing runs a per-event zod schema any more, deliberately: a strict parse would reject a delivery over any field Polar adds later.
+>
+> **IT WAS INVISIBLE TO ALL FOUR GATES.** vitest's edge-runtime environment *does* define `Buffer`, and `convex codegen` analyses modules without serving a request — so lint, typecheck, test and build were green against code that could not run. Only a live request found it, which is the argument for Task 13's sandbox pass confirming the endpoint on beta rather than assuming the local backend and the cloud runtime agree.
+>
+> **CONFIRMED 2026-09-03.** The sandbox pass drove real Polar deliveries end to end: signatures verified, identity resolved, membership transitions applied, and a redelivered `webhook-id` returned 200 without reprocessing.
+
 **Files:**
 - Modify: `v2/convex/billing.ts`, `v2/convex/billing.test.ts`, `v2/convex/http.ts`
 
