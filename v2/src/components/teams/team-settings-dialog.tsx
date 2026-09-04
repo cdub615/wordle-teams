@@ -1,6 +1,8 @@
+import { Suspense } from 'react'
 import { CurrentTeamCard, type TeamMember } from '#/components/teams/current-team-card.tsx'
 import { MyTeamsCard, type MyTeam } from '#/components/teams/my-teams-card.tsx'
 import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
+import { ScoringSystemCardSkeleton } from '#/components/dashboard-skeletons.tsx'
 import {
   Dialog,
   DialogContent,
@@ -96,7 +98,22 @@ export function TeamSettingsDialog({
             <MyTeamsCard teams={teams} onDeleted={onDeleted} />
           </TabsContent>
           <TabsContent value="scoring">
-            <ScoringSystemCard teamId={teamId} month={month} isPro={isPro} isOwner={isOwner} />
+            {/* A LOCAL Suspense BOUNDARY, NOT ONE HIGHER UP THE TREE.
+                Radix's Tabs.Content does not mount inactive tab content (no
+                `forceMount` below) -- so ScoringSystemCard, which calls
+                useSuspenseQuery, mounts on first switch to this tab rather
+                than on dialog open. CurrentTeamCard and MyTeamsCard do not
+                need the same treatment: CurrentTeamCard uses plain useQuery
+                (its own comment says so, deliberately, so a member's card
+                renders without waiting) and MyTeamsCard takes its data as a
+                prop and calls no query hook at all -- neither suspends.
+                Without this boundary, the first switch to Scoring would
+                suspend up to whatever ancestor boundary exists once Task 9
+                wires this dialog in, showing that boundary's larger fallback
+                instead of this card's own purpose-built skeleton. */}
+            <Suspense fallback={<ScoringSystemCardSkeleton />}>
+              <ScoringSystemCard teamId={teamId} month={month} isPro={isPro} isOwner={isOwner} />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </DialogContent>
