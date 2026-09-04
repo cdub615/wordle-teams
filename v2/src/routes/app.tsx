@@ -257,6 +257,19 @@ function Dashboard() {
     // plain declarations rather than `px-2 md:px-6 wide:px-0`: a custom
     // Tailwind breakpoint emitted the drop BEFORE `md` in the sheet, so it
     // silently never applied.
+    //
+    // `md:grid-cols-3` IS CURRENTLY VESTIGIAL, AND THAT IS KNOWN. Since Task 9
+    // moved the admin cards into TeamSettingsDialog, every child rendered here
+    // carries `md:col-span-3` — the controls row, TodayPanel, ScoresTable,
+    // ScoringLegend, TeamBoards — so nothing occupies fewer than all three
+    // columns any more, and at `md` and above this produces the same layout a
+    // plain vertical stack would. It stays a grid rather than becoming
+    // `flex flex-col` anyway: the `grid-cols-1` base-breakpoint behaviour
+    // above is measured and load-bearing, and scores-table.tsx's `max-w-full`
+    // reasoning depends on every sibling being bounded by its own grid CELL
+    // (`wordle-teams-rpql`) — switching container type would falsify that.
+    // A future multi-column widget is what would make the three columns earn
+    // their keep again.
     <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 md:mt-6 md:grid-cols-3 md:gap-6">
       {upgradePending && <CheckoutPending className="md:col-span-3" />}
       <CreateTeamDialog
@@ -284,16 +297,25 @@ function Dashboard() {
           value={monthParam}
           onChange={(month) => navigate({ to: Route.fullPath, search: { team: teamParam, month } })}
         />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setTeamSettingsTab('members')
-            setTeamSettingsOpen(true)
-          }}
-        >
-          Team settings
-        </Button>
+        {/* Gated on `selectedTeam`, matching the convention every other
+            selectedTeam-dependent block in this file uses (see below): a
+            stale or invalid `?team=` renders `selectedTeam` undefined for the
+            renders before useDashboardSearchSync's post-hydration effect
+            corrects it, and `TeamSettingsDialog` itself only mounts inside
+            that same guard. Rendering this button unconditionally would leave
+            it on screen, clickable, opening a dialog that is not there. */}
+        {selectedTeam && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setTeamSettingsTab('members')
+              setTeamSettingsOpen(true)
+            }}
+          >
+            Team settings
+          </Button>
+        )}
         <div className="ml-auto">
           <BoardEntryButton teamId={teamParam as Id<'teams'>} month={monthParam} />
         </div>
@@ -307,10 +329,14 @@ function Dashboard() {
         router.tsx sets no defaultPendingComponent either — and unmounted the
         whole grid.
 
-        ONE BOUNDARY PER COMPONENT RATHER THAN ONE AROUND ALL FOUR, so a panel
-        that resolves early is not held back by its neighbours, and so each
+        ONE BOUNDARY PER COMPONENT RATHER THAN ONE AROUND ALL FOUR, so each
         fallback can be the shape of the thing it replaces rather than a
-        generic block.
+        generic block. NOT because one panel could resolve ahead of its
+        neighbours — it cannot: all four pass `convexQuery` the identical
+        function and args, which TanStack Query hashes to the SAME cache key
+        (`@convex-dev/react-query`'s `hashFn`, `` `convexQuery|${fn}|${JSON.stringify(args)}` ``),
+        so they share one query, one fetch and one promise and resolve in the
+        same pass, always.
 
         THE FALLBACK CARRIES THE SAME `className` AS THE COMPONENT. Dropping it
         would collapse the grid on every switch and shove it back on arrival,
