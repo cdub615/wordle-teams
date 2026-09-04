@@ -6,6 +6,7 @@ import {
   fromPuzzleDay,
   isPlausibleToday,
   isWeekendDay,
+  monthContainsToday,
   monthOf,
   monthRange,
   toPuzzleDay,
@@ -109,5 +110,27 @@ describe('isPlausibleToday', () => {
   test('rejects two days either side of the server date', () => {
     expect(isPlausibleToday('2026-06-06', '2026-06-08')).toBe(false)
     expect(isPlausibleToday('2026-06-10', '2026-06-08')).toBe(false)
+  })
+})
+
+describe('monthContainsToday', () => {
+  test('true when the day falls inside the month', () => {
+    expect(monthContainsToday('2026-09', '2026-09-04')).toBe(true)
+  })
+
+  test('true on the first and last day, which are the boundaries a mutant moves', () => {
+    expect(monthContainsToday('2026-09', '2026-09-01')).toBe(true)
+    expect(monthContainsToday('2026-09', '2026-09-30')).toBe(true)
+  })
+
+  test('false for the month before and the month after', () => {
+    expect(monthContainsToday('2026-09', '2026-08-31')).toBe(false)
+    expect(monthContainsToday('2026-09', '2026-10-01')).toBe(false)
+  })
+
+  // A string compare of '2026-9' against '2026-09' would pass the happy path
+  // and fail here. monthOf slices, so this pins that it keeps the zero pad.
+  test('the same month a year apart is not today', () => {
+    expect(monthContainsToday('2026-09', '2025-09-04')).toBe(false)
   })
 })

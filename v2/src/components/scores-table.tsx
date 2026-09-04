@@ -8,7 +8,7 @@ import { formatDayHeader } from '#/lib/format-day.ts'
 import { cn } from '#/lib/utils.ts'
 import { attemptsFor } from '../../convex/lib/board.ts'
 import { monthTotal } from '../../convex/lib/scoring.ts'
-import { daysOfMonth, isWeekendDay, monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import { daysOfMonth, isWeekendDay, monthContainsToday, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -121,8 +121,9 @@ export function ScoresTable({
     // Only when the viewed month actually contains today. A past (or future)
     // month has no current-day column — leave it at its natural position.
     // (The key above was still updated, so a later return TO this month sees
-    // that something else was viewed in between.)
-    if (monthOf(todayNow) !== month) return
+    // that something else was viewed in between.) Shared with today-panel.tsx,
+    // which asks the same question to decide whether to render at all.
+    if (!monthContainsToday(month, todayNow)) return
 
     if (!wrapper) return
     // Don't fight the user: a nonzero scrollLeft on a landing we've already
