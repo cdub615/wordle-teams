@@ -75,3 +75,6 @@ v2/.convex/
 v2/.tanstack/
 v2/.wrangler/
 v2/.output/
+
+# superpowers brainstorm session artifacts
+.superpowers/
