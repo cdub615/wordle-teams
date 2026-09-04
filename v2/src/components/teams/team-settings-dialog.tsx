@@ -14,6 +14,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs.t
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
+ * The three tabs this dialog hosts. Named and typed the same way
+ * settings-dialog.tsx's `SettingsTab` is -- a union of the literal values,
+ * not `string` -- so a typo in a caller's `defaultTab` is a compile error
+ * instead of a tab strip that silently opens on nothing selected.
+ */
+export type TeamSettingsTab = 'members' | 'teams' | 'scoring'
+
+/**
  * Team admin, off the dashboard.
  *
  * WHY IT MOVED. Asked which questions the dashboard should answer fastest,
@@ -34,6 +42,19 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * over a derived type, and it keeps this file readable without following an
  * import to see what it accepts.
  *
+ * `defaultTab` DEFAULTS TO `'members'` BUT IS NOT ALWAYS THAT. Task 9 wires
+ * ScoringLegend's Edit control to open this dialog straight on `'scoring'` --
+ * without that, Edit would land on Members, next to chips it has nothing to
+ * do with. Like settings-dialog.tsx's `defaultTab`, this is an UNCONTROLLED
+ * `Tabs.defaultValue`, not a controlled `value`: once open, which tab is
+ * showing is this dialog's own business. Unlike settings-dialog.tsx, this one
+ * has a fallback rather than requiring every caller to pick -- verified
+ * (node_modules/@radix-ui/react-dialog, DialogContent) that Radix's
+ * `DialogContent` sits behind `<Presence present={forceMount || open}>` and we
+ * pass no `forceMount`, so it UNMOUNTS on close; that takes the nested `Tabs`
+ * with it, so `defaultValue` re-applies fresh on every open rather than
+ * remembering whatever tab was last showing.
+ *
  * NOTHING RENDERS THIS DIALOG YET. `routes/app.tsx` still renders the three
  * cards inline; wiring this shell in (and retiring that inline rendering) is
  * Task 9.
@@ -42,6 +63,7 @@ export function TeamSettingsDialog({
   open,
   onOpenChange,
   teamId,
+  defaultTab = 'members',
   name,
   members,
   isOwner,
@@ -56,6 +78,7 @@ export function TeamSettingsDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
   teamId: Id<'teams'>
+  defaultTab?: TeamSettingsTab
   // CurrentTeamCard (Members tab)
   name: string
   members: Array<TeamMember>
@@ -72,13 +95,44 @@ export function TeamSettingsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      {/*
+        `w-11/12 rounded-lg` MATCHES THE OTHER FIVE CONTENT DIALOGS
+        (update-team-dialog, create-team-dialog, invite-player-dialog,
+        scoring-system-editor, settings-dialog), each pairing the two for the
+        same reason settings-dialog.tsx's comment gives: ui/dialog.tsx only
+        rounds at `sm:` and up, so a panel left at the shadcn default is
+        square-cornered exactly where narrowing it would look broken.
+        board-entry/button.tsx and monthly-winner-celebration.tsx are the only
+        two `DialogContent`s that skip this, and neither is a counterexample
+        for this dialog: board-entry's bare `DialogContent` only renders on
+        `isDesktop` (mobile gets a Sheet instead, never this component), and
+        monthly-winner-celebration's content is a couple lines plus confetti,
+        short enough that full-bleed costs nothing. This dialog hosts three
+        admin cards' worth of content, the same shape as the five inset
+        dialogs, not the two thin ones -- so it takes their pairing.
+      */}
+      <DialogContent className="w-11/12 rounded-lg max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Team settings</DialogTitle>
           <DialogDescription>Members, your teams, and how this team scores.</DialogDescription>
         </DialogHeader>
-        <Tabs defaultValue="members">
-          <TabsList>
+        <Tabs defaultValue={defaultTab}>
+          {/*
+            STICKY, because DialogContent above is the ONLY scrolling
+            container here -- the header and the whole Tabs tree scroll
+            together inside it. Team size is unbounded, so a long member list
+            pushing this tab strip out of view is the ordinary case for a
+            large team, not an edge case: without `sticky`, switching to My
+            teams or Scoring would mean scrolling back up first. `w-full`
+            (rather than leaving the default inline-flex width) so the sticky
+            band covers the full row once content is scrolled under it, not
+            just the width of the three triggers; `bg-muted` (inherited from
+            ui/tabs.tsx, unchanged here) is an opaque token
+            (`--surface-sunken`, #f4f4f5 / #1c1c1c, no alpha in either theme),
+            so nothing shows through it. `z-10` keeps it above the scrolled
+            content rather than merely opaque against it.
+          */}
+          <TabsList className="sticky top-0 z-10 w-full">
             <TabsTrigger value="members">Members</TabsTrigger>
             <TabsTrigger value="teams">My teams</TabsTrigger>
             <TabsTrigger value="scoring">Scoring</TabsTrigger>
