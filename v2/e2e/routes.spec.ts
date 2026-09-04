@@ -594,16 +594,20 @@ test.describe('document cache headers', () => {
     )
   })
 
-  test('/app emits its anonymous redirect with no cache-control at all', async ({ request }) => {
-    // The 307 ITSELF, with redirects off. It carries no content-type, so the
-    // guard in src/server.ts returns before any policy is computed and the
-    // redirect goes out unheadered. That is fine — there is no body to cache —
-    // but it means the followed-redirect test below is asserting /login's
-    // headers and not /app's, which is why these are two tests and not one.
+  test('/app emits its anonymous redirect with an explicit no-store', async ({ request }) => {
+    // The 307 ITSELF, with redirects off — which is why this is a separate test
+    // from the followed-redirect one below: that one asserts /login's headers,
+    // not /app's.
+    //
+    // THIS ASSERTED `toBeUndefined()` UNTIL wordle-teams-d2oc, and the old
+    // comment called an unheadered redirect "fine — there is no body to cache".
+    // That was wrong in a way worth recording: a response with no Cache-Control
+    // is HEURISTICALLY cacheable, so the absence is not neutral, it is a
+    // delegation to whatever the caching layer decides to invent.
     const response = await request.get('/app', { maxRedirects: 0 })
     expect(response.status()).toBe(307)
     expect(response.headers()['location']).toBe('/login')
-    expect(response.headers()['cache-control']).toBeUndefined()
+    expect(response.headers()['cache-control']).toBe('private, no-store')
   })
 
   test('/login, at the end of the anonymous /app bounce, is never cached', async ({ request }) => {
@@ -618,7 +622,7 @@ test.describe('document cache headers', () => {
     expect(response.headers()['cache-control']).toBe('private, no-store')
   })
 
-  test('/ emits its SIGNED-IN redirect with no cache-control at all', async ({ page, context }) => {
+  test('/ emits its SIGNED-IN redirect with an explicit no-store', async ({ page, context }) => {
     // THE ONE COMBINATION THIS TASK CREATED THAT NOTHING ELSE COVERS. `/` is in
     // STATIC_DOCUMENTS — unlike /app, whose identical-looking test above is on a
     // path the policy would never share anyway — so if src/server.ts ever
@@ -628,6 +632,12 @@ test.describe('document cache headers', () => {
     // `wrangler deploy` could not purge. The content-type guard is what actually
     // prevents it (a 307 carries none), and the status gate behind it is the
     // belt to that braces.
+    //
+    // SINCE wordle-teams-d2oc THE ANSWER IS STRONGER THAN "no header". This used
+    // to assert the redirect went out unheadered; it now carries an explicit
+    // `private, no-store`, which serves the same concern better — the worry was
+    // never that a header existed, it was that a SHAREABLE one might. An absent
+    // header left that to heuristic caching; this states it.
     await signIn(page)
     const cookieHeader = (await context.cookies())
       .map((c) => `${c.name}=${c.value}`)
@@ -639,7 +649,7 @@ test.describe('document cache headers', () => {
     })
     expect(response.status()).toBe(307)
     expect(response.headers()['location']).toBe('/app')
-    expect(response.headers()['cache-control']).toBeUndefined()
+    expect(response.headers()['cache-control']).toBe('private, no-store')
   })
 
   test('a non-HTML response keeps whatever cache-control it set for itself', async ({

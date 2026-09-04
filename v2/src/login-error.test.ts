@@ -200,9 +200,14 @@ describe('the sign-in failure copy, pinned line for line', () => {
     // `as unknown as` because the mocked createFileRoute returns a plain
     // `{ options }` at RUNTIME while tsc still sees the real Route type — the
     // two do not overlap, and the cast is the seam between them.
-    const head = (Route as unknown as { options: { head: () => { meta: { title: string }[] } } })
-      .options.head
-    expect(head().meta).toEqual([{ title: 'Login / Signup - Wordle Teams' }])
+    const head = (Route as unknown as { options: { head: () => { meta: unknown[] } } }).options
+      .head
+    // THE TITLE, NOT THE WHOLE ARRAY. This was a `toEqual` on the entire meta
+    // list, which made it a test of two unrelated things at once — it went red
+    // when wt-ksh.8.58 added the noindex tag, on a change that did not touch the
+    // title at all. The noindex tag has its own assertion in
+    // crawler-metadata.test.ts; this one is about what a user sees in their tab.
+    expect(head().meta).toContainEqual({ title: 'Login / Signup - Wordle Teams' })
   })
 })
 

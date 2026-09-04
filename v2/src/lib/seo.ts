@@ -193,10 +193,38 @@ export function canonicalUrlFor(routePath: string): string {
  * file records having NO head() as deliberate v1 parity, and it now has one.
  * That note was about the TITLE, and the title it produces is unchanged.
  */
-export function publicRouteHead(routePath: string, titleSegment?: string) {
+export function publicRouteHead(
+  routePath: string,
+  titleSegment?: string,
+  options?: { noindex?: boolean },
+) {
   const href = canonicalUrlFor(routePath)
   return {
-    meta: [{ title: pageTitle(titleSegment) }, { property: 'og:url', content: href }],
+    meta: [
+      { title: pageTitle(titleSegment) },
+      { property: 'og:url', content: href },
+      ...(options?.noindex ? [NOINDEX_META] : []),
+    ],
     links: [{ rel: 'canonical', href }],
   }
 }
+
+/**
+ * THE ONLY THING THAT ACTUALLY KEEPS A PAGE OUT OF AN INDEX (wt-ksh.8.58).
+ *
+ * A SITEMAP IS AN INVITATION, NOT A GATE. Removing a route's entry from
+ * lib/sitemap.ts is the change anyone who notices an unwanted page will reach
+ * for first, and it does nothing: a page that is reachable and answers 200 is
+ * crawlable and indexable whether or not any sitemap mentions it. That is also
+ * what makes KEEPING /maintenance's sitemap entry free — it changes nothing
+ * about indexability either way, so do not "fix" this in the sitemap.
+ *
+ * Only this tag, or an `X-Robots-Tag: noindex` response header, does the job.
+ *
+ * IT IS NOT REDUNDANT WITH lib/robots-policy.ts, which sends X-Robots-Tag on
+ * the staging HOSTNAMES. That one suppresses all of beta and stops at cutover,
+ * by design. This one travels with the page, so it is what keeps these two
+ * routes out of the index on PRODUCTION — which is the case wt-ksh.8.58 is
+ * about and the one no host-level rule covers.
+ */
+export const NOINDEX_META = { name: 'robots', content: 'noindex' } as const

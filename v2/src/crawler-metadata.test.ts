@@ -5,6 +5,7 @@ import {
   APP_DESCRIPTION,
   APP_NAME,
   CANONICAL_PATH_BY_ROUTE,
+  NOINDEX_META,
   canonicalUrlFor,
   publicRouteHead,
   OG_IMAGE_ALT,
@@ -707,4 +708,61 @@ describe('the route files really call it', () => {
       expect(source).toContain(`publicRouteHead('${routePath}'`)
     })
   }
+})
+
+
+// ---------------------------------------------------------------------------
+// noindex on the two routes that must never be a search result (wt-ksh.8.58).
+// ---------------------------------------------------------------------------
+
+describe('the outage page and the sign-in dead end are noindexed', () => {
+  /**
+   * A SITEMAP IS AN INVITATION, NOT A GATE, which is the whole reason this
+   * needed a tag rather than a sitemap edit. Both routes answer 200 and are
+   * reachable, so both are indexable regardless of what the sitemap says —
+   * /maintenance IS listed and /login-error deliberately is not, and neither
+   * fact affects indexability.
+   *
+   * NOT COVERED BY lib/robots-policy.ts. That sends X-Robots-Tag on the staging
+   * HOSTNAMES and stops at cutover by design; this travels with the page, so it
+   * is what protects these routes on PRODUCTION.
+   */
+  /**
+   * THE HEAD THE ROUTE ACTUALLY PRODUCES, not the text of the file.
+   *
+   * The first version of this matched the source for `NOINDEX_META` and failed
+   * on /maintenance — which reaches the tag through
+   * `publicRouteHead(..., { noindex: true })` and never names the constant. Two
+   * routes, two spellings, one outcome; asserting the outcome is both correct
+   * and stronger, since it would catch a route that imported the constant and
+   * forgot to put it in the array.
+   */
+  const headOf = (route: unknown) =>
+    (route as { options: { head: () => { meta: unknown[] } } }).options.head().meta
+
+  test('/maintenance asks not to be indexed', async () => {
+    const { Route } = await import('./routes/maintenance.tsx')
+    expect(headOf(Route)).toContainEqual(NOINDEX_META)
+  })
+
+  test('/login-error asks not to be indexed', async () => {
+    const { Route } = await import('./routes/login-error.tsx')
+    expect(headOf(Route)).toContainEqual(NOINDEX_META)
+  })
+
+  test('the tag is the one search engines actually read', () => {
+    // `name="robots"`, not `property=` — the OpenGraph parsers ignore `name`
+    // and the crawlers ignore `property`, and crawler-metadata's own parity
+    // test records how easily that pair gets swapped.
+    expect(NOINDEX_META).toEqual({ name: 'robots', content: 'noindex' })
+  })
+
+  test('publicRouteHead only adds it when asked', () => {
+    // The default must stay indexable: every marketing route goes through this
+    // helper, and a noindex leaking into them would remove the site from search.
+    expect(publicRouteHead('/about', 'About').meta).not.toContainEqual(NOINDEX_META)
+    expect(publicRouteHead('/maintenance', undefined, { noindex: true }).meta).toContainEqual(
+      NOINDEX_META,
+    )
+  })
 })

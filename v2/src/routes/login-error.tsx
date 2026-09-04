@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { pageTitle } from '#/lib/seo'
+import { NOINDEX_META, pageTitle } from '#/lib/seo'
 import { Button } from '#/components/ui/button.tsx'
 import { OTP_EXPIRY_LABEL } from '../../convex/lib/otpExpiry.ts'
 
@@ -155,7 +155,11 @@ export const Route = createFileRoute('/login-error')({
   // v1: src/app/login-error/layout.tsx metadata.title -> 'Login / Signup',
   // which is the same title v1 gives /login. Deliberately identical: this page
   // is a step in the sign-in flow, not a destination of its own.
-  head: () => ({ meta: [{ title: pageTitle('Login / Signup') }] }),
+  // noindex for the same reason as /maintenance (wt-ksh.8.58): deliberately
+  // neither listed in the sitemap nor disallowed in robots.txt, which leaves it
+  // indexable the moment anything links to it. A dead-end error page reachable
+  // only mid sign-in is not a search result anyone wants.
+  head: () => ({ meta: [{ title: pageTitle('Login / Signup') }, NOINDEX_META] }),
   validateSearch: (search: Record<string, unknown>): LoginErrorSearch => ({
     // An allowlist, not a sanitiser. Anything not spelled exactly like one of
     // the six codes above is dropped here and never reaches the component, so

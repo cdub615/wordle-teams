@@ -48,7 +48,10 @@ import { publicRouteHead } from '#/lib/seo'
  * assistive technology; the h1 says what the page is.
  */
 export const Route = createFileRoute('/maintenance')({
-  head: () => publicRouteHead('/maintenance'),
+  // noindex: the outage page answers 200 and is reachable, so it is indexable
+  // regardless of the sitemap (wt-ksh.8.58). "We will be back shortly" as a
+  // search result for the product is the outcome being prevented.
+  head: () => publicRouteHead('/maintenance', undefined, { noindex: true }),
   component: MaintenancePage,
 })
 
