@@ -16,9 +16,12 @@ import type { Id } from '../../convex/_generated/dataModel'
  * `nA`'s label is "Missed day" and is deliberately NOT abbreviated even though
  * it is the longest chip — it is the value a player is least likely to guess.
  *
- * THE TEAM'S ACTUAL SYSTEM, NEVER THE APP-WIDE DEFAULTS. Teams customise, and
- * a legend showing the defaults to a team that scores differently is worse
- * than no legend at all.
+ * THE TEAM'S ACTUAL SYSTEM, NEVER DEFAULT_SYSTEM. scoringSystem.ts exports
+ * DEFAULT_SYSTEM as the value createTeam writes onto a new team, but teams
+ * customise from there, and a legend showing DEFAULT_SYSTEM to a team that
+ * scores differently is worse than no legend at all — so this component does
+ * not import it, and reads the resolved `system` off the getTeamMonth payload
+ * instead.
  *
  * NO NEW QUERY — this joins the getTeamMonth subscription callers already
  * hold, the same query scores-table.tsx reads `team.system` from.
