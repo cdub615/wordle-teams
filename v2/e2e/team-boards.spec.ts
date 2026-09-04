@@ -462,3 +462,38 @@ test('the scores table and boards card reach the same right edge as the picker r
     }
   }
 })
+
+/**
+ * THE TODAY PANEL IS ABSENT OFF THE CURRENT MONTH.
+ *
+ * THE FAILURE THIS CATCHES IS SILENT. today-panel.tsx renders a skeleton until
+ * useHydrated() is true and null once hydrated if the viewed month does not
+ * contain today. Get either wrong and the panel either never appears at all,
+ * or appears on every month showing last month's data as though it were
+ * today's — neither throws, and no unit test sees it, because the predicate
+ * and the hydration gate only meet in the rendered component.
+ *
+ * SAME MONTH PICKER AS "switching month keeps the dashboard on screen" above:
+ * the button labelled with the current month, then the second menuitemradio,
+ * which that test already established as "the month before."
+ */
+test('the Today panel is absent when the viewed month is not the current month', async ({
+  page,
+}) => {
+  await signInWithTeam(page)
+
+  await expect(page.getByTestId('today-panel')).toBeVisible()
+
+  const monthPicker = page.getByRole('button', { name: /^\w{3} \d{4}$/ })
+  await expect(monthPicker).toBeVisible()
+  const startingMonth = (await monthPicker.textContent())!.trim()
+
+  await monthPicker.click()
+  await page.getByRole('menuitemradio').nth(1).click()
+
+  // Confirms the switch actually landed on a different month rather than the
+  // click being a no-op that would leave today-panel present for free.
+  await expect(monthPicker).not.toHaveText(startingMonth)
+
+  await expect(page.getByTestId('today-panel')).toHaveCount(0)
+})
