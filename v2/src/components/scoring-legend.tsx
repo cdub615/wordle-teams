@@ -13,6 +13,17 @@ import type { Id } from '../../convex/_generated/dataModel'
  * strip this replaced read as `1 +5` `2 +3`, which never said what the
  * numbers MEANT).
  *
+ * RENDERED AS ScoresTable's `footer` PROP (routes/app.tsx), not as its own
+ * grid child with its own Suspense boundary — folding it into the
+ * scores-table card is the fix for it reading as visually detached from
+ * every other card on the page (the owner's screenshot feedback; see
+ * dashboard-cards-design.md, which specified this all along as "a chip strip
+ * attached beneath the table"). This component owns none of that frame,
+ * border or horizontal padding itself — scores-table.tsx's footer wrapper
+ * supplies the hairline and the padding that lines this up with the table's
+ * own content, so the same component still renders correctly if some future
+ * caller places it somewhere else.
+ *
  * DERIVED, NEVER HAND-LISTED. Order comes from SYSTEM_FIELDS and labels from
  * SYSTEM_FIELD_LABELS, for the reason that module's own header gives: a literal
  * list compiles fine after a ninth field is added and silently never shows it.
@@ -33,10 +44,10 @@ import type { Id } from '../../convex/_generated/dataModel'
  * is still one `dt`/`dd` pair adjacent in the DOM, so a screen reader
  * announces "1, plus 5" as a unit instead of eight labels followed by eight
  * numbers with no structural link between them — the two-row VISUAL shape
- * (label above a rule, value below) is achieved by making each pair its own
- * flex column, not by splitting the `dt`s and `dd`s into two separate DOM
- * rows. `useId` keeps the `dl`'s `aria-labelledby` unique if this component is
- * ever rendered more than once on a page.
+ * (label above, value below) is achieved by making each pair its own flex
+ * column, not by splitting the `dt`s and `dd`s into two separate DOM rows.
+ * `useId` keeps the `dl`'s `aria-labelledby` unique if this component is ever
+ * rendered more than once on a page.
  *
  * WRAPS WITHOUT SCROLLING, AND STAYS ALIGNED WHEN IT DOES. The outer `dl` is
  * `flex flex-wrap`, not one CSS grid spanning all eight pairs — a fixed
@@ -68,7 +79,11 @@ export function ScoringLegend({
   const { system } = data.team
 
   return (
-    <div className={cn('flex flex-col gap-2', className)}>
+    // gap-3 (0.75rem), matching TodayPanel's own section rhythm (`mt-3`
+    // between its header row and the next block) rather than picking a new
+    // value now that this sits inside the same card language every other
+    // panel does.
+    <div className={cn('flex flex-col gap-3', className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span id={labelId} className="text-xs text-muted-foreground">
           Points per result
@@ -97,7 +112,13 @@ export function ScoringLegend({
           const value = system[field]
           return (
             <div key={field} className="flex flex-col items-center gap-1">
-              <dt className="whitespace-nowrap border-b border-line-subtle px-1 pb-0.5 text-xs text-muted-foreground">
+              {/* No per-item `border-b` here (dropped — it was the one
+                  underline treatment nothing else in the app uses). The
+                  hairline separating this whole footer from the table above
+                  (scores-table.tsx) already does the "this is a distinct
+                  region" job; repeating it under every label was noise on
+                  top of that. */}
+              <dt className="whitespace-nowrap text-xs text-muted-foreground">
                 {SYSTEM_FIELD_LABELS[field]}
               </dt>
               {/* The sign is kept, so -1 and -3 read as penalties rather than

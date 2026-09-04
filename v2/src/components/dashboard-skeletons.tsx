@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
 import {
@@ -122,6 +123,7 @@ export function ScoresTableSkeleton({
   month,
   rows = DEFAULT_SKELETON_ROWS,
   className,
+  footer,
 }: {
   month: PuzzleMonth
   /**
@@ -137,6 +139,15 @@ export function ScoresTableSkeleton({
    */
   rows?: number
   className?: string
+  /**
+   * Mirrors the real ScoresTable's own `footer` prop — routes/app.tsx passes
+   * `<ScoringLegendSkeleton />` here, since ScoringLegend is now rendered as
+   * that same footer slot rather than as its own grid child. Omitting this
+   * would size the fallback for a card with no footer region while the real
+   * card, once it lands, has one — the exact layout jump this file's own
+   * header comment (wordle-teams-9ahw) exists to prevent.
+   */
+  footer?: ReactNode
 }) {
   // The real column count for the month being loaded — 28, 29, 30 or 31.
   const days = daysOfMonth(month)
@@ -187,6 +198,10 @@ export function ScoresTableSkeleton({
             ))}
           </TableBody>
         </Table>
+        {/* Mirrors scores-table.tsx's own footer wrapper exactly — same
+            border, same padding — so the real card and this fallback occupy
+            the same height whether or not a footer is present. */}
+        {footer && <div className="border-t border-line-subtle px-2 py-4 md:px-4">{footer}</div>}
       </div>
     </div>
   )
@@ -344,13 +359,38 @@ export function TodayPanelSkeleton({ className }: { className?: string }) {
   )
 }
 
-/** One chip row, wrapping — the shape ScoringLegend renders as (Task 7). */
-export function ScoringLegendSkeleton({ className }: { className?: string }) {
+/**
+ * The scoring legend, at rest — now rendered as ScoresTableSkeleton's own
+ * `footer` prop (Task wordle-teams-ha7u), not as a standalone grid fallback.
+ *
+ * ONE LABEL/VALUE PAIR PER `SYSTEM_FIELDS` ENTRY, matching the real
+ * scoring-legend.tsx's two-row shape (a narrow label pill over a shorter
+ * value pill) rather than one flat row of chips — the caption row above it
+ * (with an Edit-sized pill when `isOwner`) is drawn too, since that row's
+ * height is part of what the real component occupies and a skeleton missing
+ * it undersizes the footer region.
+ */
+export function ScoringLegendSkeleton({
+  isOwner,
+  className,
+}: {
+  isOwner?: boolean
+  className?: string
+}) {
   return (
-    <div aria-hidden="true" className={cn('flex flex-wrap gap-2', className)}>
-      {SYSTEM_FIELDS.map((field) => (
-        <Skeleton key={field} className="h-6 w-12 rounded-full" />
-      ))}
+    <div aria-hidden="true" className={cn('flex flex-col gap-3', className)}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Skeleton className="h-4 w-28" />
+        {isOwner && <Skeleton className="h-4 w-10" />}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-2">
+        {SYSTEM_FIELDS.map((field) => (
+          <div key={field} className="flex flex-col items-center gap-1">
+            <Skeleton className="h-3 w-12" />
+            <Skeleton className="h-4 w-8" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

@@ -79,6 +79,51 @@ describe('the additive changes are present and are not decorative', () => {
   })
 })
 
+describe('the footer slot (ScoringLegend, folded in by wordle-teams-ha7u) sits outside the scroll container', () => {
+  // A SOURCE-POSITION CHECK, consistent with this file's own convention of
+  // reading scores-table.tsx as text rather than rendering it — rendering
+  // the real component needs a live Convex/React Query provider this suite
+  // does not stand up (see scores-table.hook.test.ts's header comment on why
+  // pinnedCellClassName is exported specifically so ITS logic can be tested
+  // without one). Positional rather than a plain `toContain`, because
+  // `footer` is also mentioned in the prop's own type declaration earlier in
+  // the file — a bare substring match would be satisfied by that alone and
+  // would not notice the render moving inside the scroll wrapper.
+  test('the footer renders after the closing </Table>, not before it', () => {
+    const tableClose = source.indexOf('</Table>')
+    const footerRender = source.indexOf('{footer && ')
+    expect(tableClose).toBeGreaterThan(-1)
+    expect(footerRender).toBeGreaterThan(tableClose)
+  })
+
+  test('scrollWrapperProps — the object handed to the Table primitive as its scroll container — never mentions footer', () => {
+    // Proven to discriminate: moving the footer render INSIDE
+    // `wrapperProps`/the Table's children (the exact bug the task warned
+    // against — the legend sliding sideways with the day columns) would put
+    // `footer` inside this slice too. Bounded to the object literal itself,
+    // not the whole file, so a match can only come from that literal.
+    const wrapperPropsBlock = source.slice(
+      source.indexOf('const scrollWrapperProps'),
+      source.indexOf('const lastEvaluatedKeyRef'),
+    )
+    expect(wrapperPropsBlock).not.toContain('footer')
+  })
+
+  test('the footer wrapper carries the hairline and matches the pinned cells’ own horizontal padding', () => {
+    const footerDivMatch = source.match(
+      /\{footer && <div className="([^"]*)">\{footer\}<\/div>\}/,
+    )
+    expect(footerDivMatch).not.toBeNull()
+    expect(footerDivMatch![1]).toContain('border-t')
+    expect(footerDivMatch![1]).toContain('border-line-subtle')
+    // px-2 / md:px-4 — the same pair pinnedLeft/pinnedRight's own `rounded-tl-md
+    // px-2 md:px-4` header cell uses, so the footer's content lines up with the
+    // Player column's left edge rather than the frame's outer edge.
+    expect(footerDivMatch![1]).toMatch(/\bpx-2\b/)
+    expect(footerDivMatch![1]).toMatch(/\bmd:px-4\b/)
+  })
+})
+
 describe('the pinned cell keeps a single, opaque background when marking the caller as themself', () => {
   // NOT a source-text assertion, deliberately: `cn(pinned, isMe && 'bg-muted/50')`
   // and `cn(pinned, isMe && 'bg-pinned-self')` are both perfectly fine

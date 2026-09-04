@@ -23,7 +23,7 @@ import {
   ScoringSystemCardSkeleton,
   TeamBoardsSkeleton,
 } from './dashboard-skeletons.tsx'
-import { parseSource } from '#/test-support/source-ast.ts'
+import { jsxPropsOf, parseSource } from '#/test-support/source-ast.ts'
 import { SYSTEM_FIELDS } from '../../convex/lib/scoringSystem.ts'
 
 afterEach(cleanup)
@@ -100,6 +100,28 @@ describe('the skeletons are the shape of the things they stand in for', () => {
     render(createElement(ScoresTableSkeleton, { month: '2026-09', rows: 0 }))
 
     expect(rows()).toHaveLength(1 + 1)
+  })
+
+  test('the scores table skeleton renders a footer behind a hairline, inside the same frame', () => {
+    // ScoresTableSkeleton's own `footer` prop, exercised for real rather than
+    // only read as source text — the AST assertions below only prove
+    // routes/app.tsx PASSES a footer; this proves the component actually
+    // renders one, separated from the table by the hairline rather than
+    // dropped or placed loose outside the card frame.
+    render(
+      createElement(ScoresTableSkeleton, {
+        month: '2026-09',
+        footer: createElement('span', { 'data-testid': 'footer-probe' }, 'legend'),
+      }),
+    )
+
+    const probe = document.querySelector('[data-testid="footer-probe"]')
+    expect(probe).not.toBeNull()
+    // The hairline lives on the probe's immediate wrapper.
+    expect(probe?.parentElement?.className).toContain('border-t')
+    // Still inside the card frame, not a sibling of it: the wrapper's
+    // grandparent is the bordered/rounded frame div.
+    expect(probe?.parentElement?.parentElement?.className).toContain('rounded-md')
   })
 
   test('every skeleton actually pulses', () => {
@@ -219,21 +241,29 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     return found
   }
 
-  test('all four dashboard-grid getTeamMonth consumers are wrapped, each by its own skeleton', () => {
-    // THE FOUR THAT SUSPEND TOGETHER, ON THE GRID ITSELF. scores-table.tsx:36,
-    // teams/team-boards.tsx:50, today-panel.tsx and scoring-legend.tsx all call
-    // useSuspenseQuery on api.scores.getTeamMonth keyed by (teamId, month), so
-    // a switch re-keys all four at once. Missing any one of them leaves the
-    // grid blanking on every switch, just less of it.
+  test('all three dashboard-grid getTeamMonth consumers are wrapped, each by its own skeleton', () => {
+    // THE THREE THAT SUSPEND TOGETHER, ON THE GRID ITSELF. scores-table.tsx:36,
+    // teams/team-boards.tsx:50 and today-panel.tsx all call useSuspenseQuery on
+    // api.scores.getTeamMonth keyed by (teamId, month), so a switch re-keys all
+    // three at once. Missing any one of them leaves the grid blanking on every
+    // switch, just less of it.
+    //
+    // SCORINGLEGEND READS THE SAME QUERY TOO (a fourth call site), but it is
+    // no longer its own grid child with a fourth boundary — folding it into
+    // the scores-table card as a `footer` prop (wordle-teams-ha7u, the fix
+    // for it reading as visually detached) means its loading state travels
+    // inside ScoresTable's own boundary instead. See the dedicated
+    // "ScoresTable folds ScoringLegend in as its footer" block below for that
+    // wiring.
     //
     // ScoringSystemCard READS THE SAME QUERY TOO, but it moved off this grid
     // in Task 9 — it now lives inside TeamSettingsDialog (see that
     // component's own source), mounted only once the dialog is open on the
     // Scoring tab, with its own Suspense boundary there rather than one of
-    // these four.
+    // these three.
     const wrapped = boundaries().map((boundary) => boundary.child)
 
-    expect(wrapped.sort()).toEqual(['ScoresTable', 'ScoringLegend', 'TeamBoards', 'TodayPanel'])
+    expect(wrapped.sort()).toEqual(['ScoresTable', 'TeamBoards', 'TodayPanel'])
   })
 
   test('each fallback is the skeleton for the component it wraps, not a generic one', () => {
@@ -244,13 +274,12 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     expect(byChild.get('ScoresTable')).toContain('ScoresTableSkeleton')
     expect(byChild.get('TeamBoards')).toContain('TeamBoardsSkeleton')
     expect(byChild.get('TodayPanel')).toContain('TodayPanelSkeleton')
-    expect(byChild.get('ScoringLegend')).toContain('ScoringLegendSkeleton')
   })
 
   test('the fallbacks carry the same grid classes as the components they replace', () => {
     // The layout-jump half, and it is separately mutable: a boundary can be
     // perfectly placed with a fallback that collapses the grid underneath it.
-    // Every one of these four is full width, unlike the retired
+    // Every one of these three is full width, unlike the retired
     // ScoringSystemCard boundary this suite used to check for, which carried
     // no grid class at all.
     const byChild = new Map(boundaries().map((boundary) => [boundary.child, boundary.fallback]))
@@ -258,7 +287,20 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     expect(byChild.get('ScoresTable')).toContain('md:col-span-3')
     expect(byChild.get('TeamBoards')).toContain('md:col-span-3')
     expect(byChild.get('TodayPanel')).toContain('md:col-span-3')
-    expect(byChild.get('ScoringLegend')).toContain('md:col-span-3')
+  })
+
+  test('ScoresTable folds ScoringLegend in as its footer, and its skeleton sizes for that footer too', () => {
+    // THE FOLD THIS TASK IS ABOUT (wordle-teams-ha7u). ScoringLegend used to
+    // be its own grid child with its own boundary — see the retired
+    // assertions in the tests above, which used to include it. Now it is
+    // wired through ScoresTable's `footer` prop, and ScoresTableSkeleton's
+    // matching `footer` prop is what stops the fallback undersizing the card
+    // once a footer region exists on the real thing.
+    const tableProps = jsxPropsOf('app.tsx', source, 'ScoresTable')
+    expect(tableProps.get('footer')).toContain('ScoringLegend')
+
+    const byChild = new Map(boundaries().map((boundary) => [boundary.child, boundary.fallback]))
+    expect(byChild.get('ScoresTable')).toContain('ScoringLegendSkeleton')
   })
 
   test('the scores-table fallback is told which month it is sizing for', () => {

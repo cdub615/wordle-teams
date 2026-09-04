@@ -261,9 +261,11 @@ function Dashboard() {
     //
     // `md:grid-cols-3` IS CURRENTLY VESTIGIAL, AND THAT IS KNOWN. Since Task 9
     // moved the admin cards into TeamSettingsDialog, every child rendered here
-    // carries `md:col-span-3` — the controls row, TodayPanel, ScoresTable,
-    // ScoringLegend, TeamBoards — so nothing occupies fewer than all three
-    // columns any more, and at `md` and above this produces the same layout a
+    // carries `md:col-span-3` — the controls row, TodayPanel, ScoresTable
+    // (ScoringLegend now rides inside it, as its `footer` prop, rather than
+    // being a grid child of its own — wordle-teams-ha7u), TeamBoards — so
+    // nothing occupies fewer than all three columns any more, and at `md` and
+    // above this produces the same layout a
     // plain vertical stack would. It stays a grid rather than becoming
     // `flex flex-col` anyway: the `grid-cols-1` base-breakpoint behaviour above
     // is load-bearing (see that note) — reasoned from Tailwind's emitted CSS
@@ -342,25 +344,33 @@ function Dashboard() {
       </div>
       {/*
         THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
-        ScoresTable, TeamBoards, TodayPanel and ScoringLegend below all
-        `useSuspenseQuery(api.scores.getTeamMonth, { teamId, month })`, so every
-        team or month change re-keys all four at once and suspends them
+        ScoresTable (whose `footer` prop renders ScoringLegend, folded in
+        rather than left as its own detached strip — wordle-teams-ha7u),
+        TeamBoards and TodayPanel all `useSuspenseQuery(api.scores.getTeamMonth,
+        { teamId, month })`, so every team or month change re-keys all three at
+        once — four call sites sharing three boundaries — and suspends them
         together. With no boundary here the suspension bubbled past the route —
         router.tsx sets no defaultPendingComponent either — and unmounted the
         whole grid.
 
-        ONE BOUNDARY PER COMPONENT RATHER THAN ONE AROUND ALL FOUR, so each
-        fallback can be the shape of the thing it replaces rather than a
-        generic block. NOT because one panel could resolve ahead of its
-        neighbours — it cannot: all four pass `convexQuery` the identical
-        function and args, which TanStack Query hashes to the SAME cache key
-        (`@convex-dev/react-query`'s `hashFn`, `` `convexQuery|${fn}|${JSON.stringify(args)}` ``),
-        so they share one query, one fetch and one promise and resolve in the
-        same pass, always.
+        ONE BOUNDARY PER TOP-LEVEL COMPONENT RATHER THAN ONE AROUND ALL THREE,
+        so each fallback can be the shape of the thing it replaces rather than
+        a generic block. ScoringLegend does not get a fourth boundary of its
+        own: its loading state is ScoresTableSkeleton's own `footer` prop
+        (ScoringLegendSkeleton), which resolves in the same pass as the rest of
+        that fallback rather than independently. NOT because one panel could
+        resolve ahead of its neighbours — it cannot: all four call sites pass
+        `convexQuery` the identical function and args, which TanStack Query
+        hashes to the SAME cache key (`@convex-dev/react-query`'s `hashFn`,
+        `` `convexQuery|${fn}|${JSON.stringify(args)}` ``), so they share one
+        query, one fetch and one promise and resolve in the same pass, always.
 
-        THE FALLBACK CARRIES THE SAME `className` AS THE COMPONENT. Dropping it
-        would collapse the grid on every switch and shove it back on arrival,
-        which is the reported problem with extra steps.
+        THE FALLBACK CARRIES THE SAME `className` AS THE COMPONENT, AND
+        ScoresTableSkeleton's `footer` CARRIES ScoringLegendSkeleton THE SAME
+        WAY ScoresTable's carries ScoringLegend. Dropping either would
+        collapse the grid — or just the table card's footer region — on every
+        switch and shove it back on arrival, which is the reported problem
+        with extra steps.
 
         ScoringSystemCard reads the SAME QUERY too, but it is no longer part of
         this grid (Task 9): it moved into TeamSettingsDialog below, which
@@ -386,10 +396,15 @@ function Dashboard() {
           // api.teams.getMyTeams, which does not suspend on a team or month
           // change, so the member count is known before the table's own query
           // has answered. v1's skeleton draws three rows for every team.
+          //
+          // `footer` MIRRORS THE REAL ELEMENT'S OWN, same reason: `isOwner`
+          // is also already-resolved team membership data, not something the
+          // suspended query answers.
           <ScoresTableSkeleton
             month={monthParam}
             rows={selectedTeam?.members.length}
             className="md:col-span-3"
+            footer={selectedTeam && <ScoringLegendSkeleton isOwner={selectedTeam.isOwner} />}
           />
         }
       >
@@ -398,22 +413,26 @@ function Dashboard() {
           month={monthParam}
           myPlayerId={myPlayerId ?? undefined}
           className="md:col-span-3"
+          // Folded into the card as a footer (wordle-teams-ha7u) rather than
+          // its own grid child — see the Suspense comment above this block.
+          // Gated on `selectedTeam` for the same reason "Team settings" above
+          // is: a stale `?team=` renders it undefined for the few renders
+          // before useDashboardSearchSync corrects it.
+          footer={
+            selectedTeam && (
+              <ScoringLegend
+                teamId={teamParam as Id<'teams'>}
+                month={monthParam}
+                isOwner={selectedTeam.isOwner}
+                onEdit={() => {
+                  setTeamSettingsTab('scoring')
+                  setTeamSettingsOpen(true)
+                }}
+              />
+            )
+          }
         />
       </Suspense>
-      {selectedTeam && (
-        <Suspense fallback={<ScoringLegendSkeleton className="md:col-span-3" />}>
-          <ScoringLegend
-            teamId={teamParam as Id<'teams'>}
-            month={monthParam}
-            isOwner={selectedTeam.isOwner}
-            onEdit={() => {
-              setTeamSettingsTab('scoring')
-              setTeamSettingsOpen(true)
-            }}
-            className="md:col-span-3"
-          />
-        </Suspense>
-      )}
       {/* Full width since the admin cards left the grid. The `md:row-span-3`
           that used to be here existed only so CurrentTeamCard and
           ScoringSystemCard could sit beside it. */}

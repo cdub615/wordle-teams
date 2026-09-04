@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ComponentPropsWithRef } from 'react'
+import { useLayoutEffect, useRef, type ComponentPropsWithRef, type ReactNode } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
@@ -74,11 +74,20 @@ export function ScoresTable({
   month,
   myPlayerId,
   className,
+  footer,
 }: {
   teamId: Id<'teams'>
   month: string
   myPlayerId?: Id<'players'>
   className?: string
+  /**
+   * Rendered inside the card frame, beneath the table, behind a hairline —
+   * ScoringLegend, from routes/app.tsx. A SLOT RATHER THAN A HARD-CODED
+   * IMPORT so this file does not have to know what the legend is; see the
+   * frame div's own comment below for why it renders here rather than
+   * beside <Table>.
+   */
+  footer?: ReactNode
 }) {
   const hydrated = useHydrated()
   const { data } = useSuspenseQuery(convexQuery(api.scores.getTeamMonth, { teamId, month }))
@@ -254,7 +263,11 @@ export function ScoresTable({
           keyboard focus target below (tabIndex, aria-label) lives on that
           inner div via wrapperProps, since Table doesn't otherwise expose
           it. Do not add overflow back here — two nested overflow containers
-          is exactly the bug this was fixed from. */}
+          is exactly the bug this was fixed from. The optional `footer` below
+          renders inside this same frame, as a sibling of <Table> rather than
+          a child of it — so it shares the frame's border/radius but sits
+          OUTSIDE the scroll container and cannot slide sideways with the day
+          columns. */}
       {/*
         `max-w-full`, NOT `max-w-[96vw]` (wordle-teams-rpql). 96vw is a fraction
         of the VIEWPORT while every sibling on the grid is bounded by its CELL,
@@ -408,6 +421,16 @@ export function ScoresTable({
             })}
           </TableBody>
         </Table>
+        {/* wordle-teams-ha7u / dashboard-cards-design.md: "a chip strip
+            attached beneath the table" — folded in here rather than left as
+            its own bare div in the grid gutter, which is what made it look
+            visually detached from every other card on the page. `border-t
+            border-line-subtle` is the sole separator (no per-item rules
+            inside the footer itself); `px-2 md:px-4` matches the pinned
+            Player/Score cells' own horizontal padding above so the footer's
+            content lines up with the table's, not with this frame's outer
+            edge. */}
+        {footer && <div className="border-t border-line-subtle px-2 py-4 md:px-4">{footer}</div>}
       </div>
     </div>
   )
