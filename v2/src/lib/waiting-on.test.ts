@@ -63,4 +63,12 @@ describe('waitingOnSummary', () => {
     expect(s.shown).toEqual([])
     expect(s.othersCount).toBe(2)
   })
+
+  // A negative limit must clamp to zero, not slice from the end of the array
+  // (Array.slice(0, -1) drops the last element rather than showing none).
+  test('a negative limit behaves like zero, not a slice from the end', () => {
+    const s = waitingOnSummary(members('a', 'b'), new Set([]), -1)
+    expect(s.shown).toEqual([])
+    expect(s.othersCount).toBe(2)
+  })
 })

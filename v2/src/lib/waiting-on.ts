@@ -4,10 +4,19 @@ export type WaitingMember = { id: string; label: string }
 export type WaitingOnSummary = {
   /** Everyone on the team, whether or not they have a score. */
   total: number
+  /**
+   * How many members have a score. Counted from `members` independently of
+   * `waiting` — NOT `total - waiting.length` — so that narrowing the
+   * `waiting` filter later (e.g. excluding the caller for a self-only line)
+   * cannot silently change this count too.
+   */
   playedCount: number
   /** Every waiting member's label, for the disclosure that reveals the rest. */
   waiting: Array<string>
-  /** The first `limit` of them — what is shown before the disclosure. */
+  /**
+   * The first `limit` of them — what is shown before the disclosure. A
+   * negative `limit` is clamped to zero rather than sliced from the end.
+   */
   shown: Array<string>
   /** How many `waiting` are NOT in `shown`. Zero when they all fit. */
   othersCount: number
@@ -37,7 +46,7 @@ export function waitingOnSummary(
   limit: number,
 ): WaitingOnSummary {
   const waiting = members.filter((m) => !played.has(m.id)).map((m) => m.label)
-  const shown = waiting.slice(0, limit)
+  const shown = waiting.slice(0, Math.max(0, limit))
 
   return {
     total: members.length,
