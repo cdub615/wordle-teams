@@ -66,11 +66,28 @@ describe('the files that must NOT be frozen are not covered', () => {
     expect(policyFor('/sw.js')).toBeNull()
   })
 
-  for (const pathname of ['/manifest.json', '/robots.txt', '/favicon.ico', '/offline.html']) {
+  for (const pathname of ['/robots.txt', '/favicon.ico', '/offline.html']) {
     test(`${pathname} keeps the Workers Assets default`, () => {
       expect(policyFor(pathname)).toBeNull()
     })
   }
+
+  test('/manifest.json is an hour, matching neither production nor the default', () => {
+    /**
+     * THE ONLY RULE IN THE FILE THAT IS DELIBERATELY NEITHER (wordle-teams-v917).
+     *
+     * Production sends `public, immutable, no-transform, max-age=31536000`.
+     * Pinned as an EXACT string rather than "contains 3600", because the two
+     * ways this can go wrong are both silent: drifting to immutable freezes the
+     * app name, icons and start_url for a year, and losing the rule entirely
+     * returns it to the Workers Assets default with nothing to say so.
+     *
+     * start_url is the field that makes freezing actively dangerous — it changes
+     * at cutover, from production's /me to v2's /app.
+     */
+    expect(policyFor('/manifest.json')).toBe('public, max-age=3600')
+    expect(policyFor('/manifest.json')).not.toContain('immutable')
+  })
 
   test('no rule is a bare catch-all', () => {
     // `/*` would cover every negative case above in one edit and is the single

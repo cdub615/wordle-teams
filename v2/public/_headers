@@ -18,10 +18,6 @@
 #                   holding a year-old copy cannot be reached by shipping a new
 #                   one. It keeps Workers Assets' revalidate-always default,
 #                   which is correct.
-#   /manifest.json  Production serves this immutable, but a manifest that can
-#                   never change means the app name, theme colour and icons are
-#                   frozen for a year in any browser that fetched it. Left on
-#                   the default pending a decision — see the follow-up issue.
 #   /robots.txt     A policy file. Short-lived is the point.
 #   /favicon.ico    Production also serves this on the default, so leaving it is
 #                   parity rather than an omission.
@@ -44,3 +40,30 @@
 # constraint is pre-existing and is what makes a year of immutability free.
 /opengraph-image.png
   Cache-Control: public, immutable, no-transform, max-age=31536000
+
+# A MIDDLE TTL, AND THE ONLY RULE HERE THAT DELIBERATELY MATCHES NEITHER
+# PRODUCTION NOR THE DEFAULT (wordle-teams-v917, the owner's call 2026-09-04).
+#
+# Production sends `public, immutable, no-transform, max-age=31536000` — but it
+# has that because Next set it, not because anyone chose it. An immutable
+# manifest freezes the app NAME, THEME COLOUR, ICONS and START_URL for a year in
+# any browser that fetched it, and all four are things this project is about to
+# change:
+#
+#   - wordle-teams-c0f (PWA launch screen, post-v2 roadmap) is likely to edit
+#     manifest fields. Freezing them for a year immediately beforehand is the
+#     wrong order.
+#   - start_url CHANGES AT CUTOVER. Production's manifest says `/me` and v2's
+#     says `/app`. An immutable copy would keep the cutover's own manifest
+#     change invisible to a pre-cutover visitor for up to a year.
+#   - The manifest only became load-bearing recently: __root.tsx started LINKING
+#     it during this phase, so before that no browser had reason to fetch it and
+#     the app was not installable at all. The blast radius is larger now than
+#     the header's age suggests.
+#
+# The Workers Assets default (`max-age=0, must-revalidate`) is also defensible —
+# a 304 on a small file is nearly free — but it is EQUALLY a divergence from
+# production, so it buys no simplification. An hour is what the file actually
+# wants: it changes rarely, and it must be able to change.
+/manifest.json
+  Cache-Control: public, max-age=3600
