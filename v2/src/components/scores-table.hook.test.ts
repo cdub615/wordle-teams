@@ -4,10 +4,10 @@
 // `.test.ts` not `.test.tsx` because vitest.config.ts's glob is
 // `src/**/*.test.ts` — elements go through createElement by hand.
 //
-// WHY THIS FILE EXISTS: the four changes in this task are all invisible to the
-// other gates. Dropping the self-highlight, the today tint, the name cap or the
-// rank all type-check, lint, build and pass every other test — the table just
-// silently stops answering the question it was changed to answer.
+// WHY THIS FILE EXISTS: the changes in this task are all invisible to the
+// other gates. Dropping the self-highlight, the today tint, or the name cap all
+// type-check, lint, build and pass every other test — the table just silently
+// stops answering the question it was changed to answer.
 //
 // TWO OF THE ASSERTIONS BELOW USED TO BE THE BUG, NOT THE TEST. The name-width
 // test forbade `md:w-max md:pr-px` — the exact class that made desktop names
@@ -61,14 +61,6 @@ describe('the additive changes are present and are not decorative', () => {
     // second inline copy of this rule is how they drift apart.
     expect(source).toContain("from '#/lib/display-names.ts'")
     expect(source).not.toContain('duplicateFirstNames')
-  })
-
-  test('rank comes from rankWithTies, not from a map index', () => {
-    expect(source).toContain("from '#/lib/standings.ts'")
-    expect(source).toContain('rankWithTies(')
-    // An index+1 rank would be dense-ranked and would contradict the decided
-    // tie rule without any test noticing.
-    expect(source).not.toMatch(/rank[^\n]*index \+ 1/)
   })
 })
 

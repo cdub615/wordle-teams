@@ -10,7 +10,6 @@ import { attemptsFor } from '../../convex/lib/board.ts'
 import { monthTotal } from '../../convex/lib/scoring.ts'
 import { daysOfMonth, isWeekendDay, monthContainsToday, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
-import { rankWithTies } from '#/lib/standings.ts'
 import { displayNamesFor } from '#/lib/display-names.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -214,12 +213,6 @@ export function ScoresTable({
     })
     .sort((a, b) => b.total - a.total)
 
-  // Rank AFTER the sort and from the totals, never from the map index — the
-  // decided tie rule is standard competition (1, 2, 2, 4) and an index would
-  // silently produce dense ranking. lib/standings.ts owns it and is
-  // mutation-tested; see its header.
-  const rankedRows = rankWithTies(rows)
-
   // v1 shows a first name alone, and 'First L' only when two players on the team
   // share one; lib/display-names.ts owns that rule so this table and the
   // dashboard's Today panel cannot disagree about what to call someone.
@@ -285,19 +278,7 @@ export function ScoresTable({
           <TableHeader>
             <TableRow>
               <TableHead scope="col" className={cn(pinnedLeft, 'rounded-tl-md px-2 md:px-4')}>
-                {/* RANK LIVES INSIDE THE PINNED PLAYER CELL, NOT IN A COLUMN OF
-                    ITS OWN, and that is a deliberate departure from the design
-                    doc's "a rank # column". This table is `table-layout: auto`
-                    with `w-max` (see the w-max note below, and
-                    wordle-teams-rpql), so a second `sticky` column would need a
-                    `left-` offset equal to a width auto-layout is free to
-                    change — a latent misalignment of exactly the kind that
-                    file's measurements were about. Rank is still stated, still
-                    pinned and still first. */}
-                <div className="flex items-baseline gap-2 text-xs md:text-sm">
-                  <span className="w-4 text-muted-foreground">#</span>
-                  <span>Player</span>
-                </div>
+                <div className="text-xs md:text-sm">Player</div>
               </TableHead>
               {days.map((day) => (
                 <TableHead scope="col" key={day}>
@@ -321,7 +302,7 @@ export function ScoresTable({
             // the corner reads as a double curve (wt-ksh.3.17).
             className="[&_tr:last-child>td:first-child]:rounded-bl-md [&_tr:last-child>td:last-child]:rounded-br-md"
           >
-            {rankedRows.map((row) => {
+            {rows.map((row) => {
               const isMe = myPlayerId !== undefined && row.id === myPlayerId
               const displayName = displayNames.get(row.id) ?? row.firstName
               return (
@@ -339,46 +320,41 @@ export function ScoresTable({
               // replacing it.
               <TableRow key={row.id} data-self={isMe || undefined} className={cn(isMe && 'bg-muted/50')}>
                 <TableCell className={pinnedCellClassName(pinnedLeft, isMe)}>
-                  <div className="flex items-baseline gap-2">
-                    <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground md:text-sm">
-                      {row.rank}
-                    </span>
-                    {/* CAPPED AND GIVEN A WIDTH, BOTH DELIBERATE AND BOTH NEEDED
-                        (wordle-teams-5jcn.19 — a real regression, not a
-                        hypothetical). The cap is `md:max-w-[12ch]`, where this
-                        used to be an uncapped `md:w-max`: that let one long
-                        name widen the pinned column and steal horizontal space
-                        from every day column beside it — live before this
-                        change, and called out in the design doc as a latent
-                        bug to fix rather than inherit. The full name stays
-                        reachable on `title`. 12ch is a starting value chosen
-                        without measuring real names against it, not a derived
-                        figure — revisit if it turns out to clip names that
-                        should fit, or leaves obvious slack unused.
+                  {/* CAPPED AND GIVEN A WIDTH, BOTH DELIBERATE AND BOTH NEEDED
+                      (wordle-teams-5jcn.19 — a real regression, not a
+                      hypothetical). The cap is `md:max-w-[12ch]`, where this
+                      used to be an uncapped `md:w-max`: that let one long
+                      name widen the pinned column and steal horizontal space
+                      from every day column beside it — live before this
+                      change, and called out in the design doc as a latent
+                      bug to fix rather than inherit. The full name stays
+                      reachable on `title`. 12ch is a starting value chosen
+                      without measuring real names against it, not a derived
+                      figure — revisit if it turns out to clip names that
+                      should fit, or leaves obvious slack unused.
 
-                        `md:w-fit` IS NOT OPTIONAL ALONGSIDE THE CAP — `max-width`
-                        is a ceiling, not a width. The base breakpoint sets
-                        `w-0` (paired with `invisible`, to hide the name and
-                        show the mobile initials below instead); at `md` only
-                        `md:h-fit` restored height, so with no width utility of
-                        its own `width: 0` survived unopposed and the element
-                        rendered at zero width — names disappeared from the
-                        desktop Player column entirely, caught only by an
-                        owner screenshot, not by any gate (nothing here renders
-                        the component). `md:w-fit` sizes to content
-                        (`fit-content`), which `md:max-w-[12ch]` then clamps,
-                        so a short name shows in full and a long one is
-                        clamped-then-`md:truncate`d — never zero. */}
-                    <div
-                      className="invisible h-0 w-0 md:visible md:h-fit md:w-fit md:max-w-[12ch] md:truncate md:pr-px"
-                      title={`${row.firstName} ${row.lastName}`.trim()}
-                    >
-                      {displayName}
-                    </div>
-                    <div className="text-xs md:invisible md:h-0 md:w-0 md:text-sm">
-                      {row.firstName[0]}
-                      {row.lastName[0]}
-                    </div>
+                      `md:w-fit` IS NOT OPTIONAL ALONGSIDE THE CAP — `max-width`
+                      is a ceiling, not a width. The base breakpoint sets
+                      `w-0` (paired with `invisible`, to hide the name and
+                      show the mobile initials below instead); at `md` only
+                      `md:h-fit` restored height, so with no width utility of
+                      its own `width: 0` survived unopposed and the element
+                      rendered at zero width — names disappeared from the
+                      desktop Player column entirely, caught only by an
+                      owner screenshot, not by any gate (nothing here renders
+                      the component). `md:w-fit` sizes to content
+                      (`fit-content`), which `md:max-w-[12ch]` then clamps,
+                      so a short name shows in full and a long one is
+                      clamped-then-`md:truncate`d — never zero. */}
+                  <div
+                    className="invisible h-0 w-0 md:visible md:h-fit md:w-fit md:max-w-[12ch] md:truncate md:pr-px"
+                    title={`${row.firstName} ${row.lastName}`.trim()}
+                  >
+                    {displayName}
+                  </div>
+                  <div className="text-xs md:invisible md:h-0 md:w-0 md:text-sm">
+                    {row.firstName[0]}
+                    {row.lastName[0]}
                   </div>
                 </TableCell>
                 {days.map((day) => {
