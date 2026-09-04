@@ -39,11 +39,15 @@ const NAME_LIMIT = 3
  * with scores-table.tsx so the two surfaces cannot call the same person two
  * different things on one screen.
  *
- * CONSTANT HEIGHT AT ANY TEAM SIZE. Team membership is unbounded
- * (FREE_TEAM_LIMIT caps teams per player, not members per team), so nothing
- * here renders one element per member: the count and the bar are fixed, and the
- * name list is capped by waitingOnSummary with the remainder behind a
- * disclosure.
+ * CONSTANT HEIGHT AT ANY TEAM SIZE, UNTIL THE READER OPENS THE DISCLOSURE.
+ * Team membership is unbounded (FREE_TEAM_LIMIT caps teams per player, not
+ * members per team), so nothing here renders one element per member: the
+ * count and the bar are fixed, and the name list is capped by
+ * waitingOnSummary with the remainder behind a disclosure. Expanding that
+ * disclosure is a deliberate, user-initiated exception to the constant
+ * height, not an unbounded default — the reader who clicks "and N others" on
+ * a 40-person team is opting into a taller panel, and the same toggle folds
+ * it back.
  */
 export function TodayPanel({
   teamId,
@@ -108,6 +112,12 @@ export function TodayPanel({
           aria-valuemax={summary.total}
           aria-valuenow={summary.playedCount}
           aria-label="Players who have entered a board today"
+          // The visible "N of M played" span beside this bar has no
+          // programmatic link to it, so without this a screen reader hears
+          // the label plus an AT-computed percentage while a sighted reader
+          // sees the count — aria-valuetext replaces that computed
+          // percentage with the same sentence the sighted reader gets.
+          aria-valuetext={`${summary.playedCount} of ${summary.total} played`}
           className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted"
         >
           <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
@@ -117,15 +127,26 @@ export function TodayPanel({
       {summary.waiting.length > 0 && (
         <p className="mt-3 text-xs text-muted-foreground md:text-sm">
           Waiting on {(expanded ? summary.waiting : summary.shown).join(', ')}
-          {!expanded && summary.othersCount > 0 && (
+          {summary.othersCount > 0 && (
             <>
               {' '}
+              {/* STAYS MOUNTED ACROSS THE TOGGLE, in both directions — only
+                  its label and aria-expanded change. A conditionally
+                  rendered button here would unmount on the very click that
+                  activates it, throwing keyboard and screen-reader focus
+                  back to <body>. Staying mounted also gives the reader a way
+                  back to the compact view, which an expand-only control
+                  never did — on an unbounded team that one-way door left the
+                  panel permanently tall. */}
               <Button
                 variant="link"
                 className="h-auto p-0 text-xs md:text-sm"
-                onClick={() => setExpanded(true)}
+                aria-expanded={expanded}
+                onClick={() => setExpanded((current) => !current)}
               >
-                and {summary.othersCount} other{summary.othersCount === 1 ? '' : 's'}
+                {expanded
+                  ? 'Show fewer'
+                  : `and ${summary.othersCount} other${summary.othersCount === 1 ? '' : 's'}`}
               </Button>
             </>
           )}
