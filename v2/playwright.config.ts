@@ -22,6 +22,30 @@ export default defineConfig({
    *   11 workers, 20s expect ceiling  60/60, but the ceiling now hides a real stall
    *    4 workers, 5s expect ceiling   60/60, and the SAME 1.1-1.2m wall clock
    *
+   * FOUR BECAME TWO ON 2026-09-03, and why the old figure stopped holding is the
+   * part worth keeping. Those runs were taken while `reuseExistingServer` was
+   * `true`, so they shared ONE long-lived dev server and its already-open Convex
+   * connections. `wordle-teams-9mjm` turned reuse off — a two-day-old server had
+   * been serving stale code — and the suite has since grown from 60 tests to 66.
+   * At four workers it then failed 2 of 3 full runs, always on whichever spec was
+   * mid round trip (`wordle-teams-jtvx`):
+   *
+   *    4 workers   2 failed / 64 passed, 1.8m   (teams.spec:94, invites.spec:140)
+   *    2 workers   66/66, 2.0m
+   *    2 workers   66/66, 2.1m
+   *
+   * TWELVE SECONDS is the whole cost, and it buys back a suite whose green means
+   * something. Same trade as the 11-to-4 cut and for the same reason: these tests
+   * wait on I/O, not CPU, so parallelism past the bottleneck buys nothing and
+   * only starves whoever is mid-request.
+   *
+   * THE BOTTLENECK IS THE CONVEX BACKEND, NOT VITE, and that was measured rather
+   * than assumed. A globalSetup that serially warmed all eight route modules
+   * before any worker started ran in 643ms and changed nothing — the failures
+   * were mutation round trips (Submit clicked, board still visible 5s later), not
+   * first-paint compiles. That warmer was written, measured and deleted; it is
+   * recorded here so nobody writes it again.
+   *
    * The wall clock is the part that decides it. The extra parallelism was buying
    * nothing — these tests are waiting on the dev server, not on CPU — so cutting
    * workers costs no time and removes the CAUSE, where raising the ceiling would
@@ -33,7 +57,7 @@ export default defineConfig({
    * runner as on a 22-core workstation. `cpus/2` made the flake rate a property
    * of the machine, which is why this was so hard to pin down.
    */
-  workers: 4,
+  workers: 2,
 
   use: { baseURL: 'http://localhost:3000' },
   webServer: {

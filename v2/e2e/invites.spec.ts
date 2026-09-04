@@ -105,6 +105,26 @@ const toastWith = (page: Page, text: string): Locator =>
   page.locator('[data-sonner-toast]').filter({ hasText: re(text) })
 
 /**
+ * HOW LONG TO WAIT FOR A TOAST, and why it is not the 5s default.
+ *
+ * A toast is TRANSIENT — sonner dismisses it after about four seconds — so an
+ * assertion on one is a race between the mutation's round trip and the toast's
+ * own lifetime, and the default timeout loses that race under load. Two of the
+ * three tests in this file failed on exactly that in a full-suite run with
+ * workers pinned to 4, while all three passed in isolation on a cold server
+ * (`wordle-teams-jtvx`). Nothing was wrong with the app; the wait was too short
+ * for a contended run.
+ *
+ * 15s IS THE FIGURE billing.spec.ts ALREADY USES for its own toast assertions,
+ * for the same reason. This file was the outlier, not the innovation.
+ *
+ * IT DOES NOT PAPER OVER A SLOW APP: every one of these is followed by an
+ * assertion on the SERVER outcome — the roster, the pending list — so a toast
+ * that appears without the write having happened still fails.
+ */
+const TOAST_TIMEOUT = { timeout: 15_000 }
+
+/**
  * Opens the invite dialog and submits one address. Returns the dialog, because
  * two of the three tests then assert on whether it is still there.
  */
@@ -164,7 +184,7 @@ test('an invited address joins the team after completing a profile', async ({ br
     // in teams.invited and the invite email goes out. Typed mixed-case,
     // expected back lowercase everywhere below.
     await invite(owner, inviteeTyped)
-    await expect(toastWith(owner, `Invite sent to ${inviteeEmail}`)).toBeVisible()
+    await expect(toastWith(owner, `Invite sent to ${inviteeEmail}`)).toBeVisible(TOAST_TIMEOUT)
     // The dialog closes on every outcome except already_member.
     await expect(owner.getByRole('dialog')).toHaveCount(0)
 
@@ -185,7 +205,7 @@ test('an invited address joins the team after completing a profile', async ({ br
     // OUTCOME 2 of 4 — `resent`. Same address, second attempt, before anyone
     // has accepted. v1 said "Successfully invited player" here as well.
     await invite(owner, inviteeTyped)
-    await expect(toastWith(owner, `Invite re-sent to ${inviteeEmail}`)).toBeVisible()
+    await expect(toastWith(owner, `Invite re-sent to ${inviteeEmail}`)).toBeVisible(TOAST_TIMEOUT)
     await expect(owner.getByRole('dialog')).toHaveCount(0)
     // A resend writes NOTHING (teams.ts), so the list must not grow a second
     // row for the same address — and the dedupe in current-team-card.tsx must
@@ -386,7 +406,7 @@ test('inviting someone who already has an account adds them to the team directly
 
     // The firstName the server read back off the matched account, not anything
     // the client typed.
-    await expect(toastWith(owner, `Ada was added to ${SEEDED_TEAM}`)).toBeVisible()
+    await expect(toastWith(owner, `Ada was added to ${SEEDED_TEAM}`)).toBeVisible(TOAST_TIMEOUT)
     await expect(owner.getByRole('dialog')).toHaveCount(0)
 
     // AND THEY ARE ACTUALLY ON THE TEAM, which the toast alone does not prove.
