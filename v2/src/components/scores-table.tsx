@@ -15,6 +15,38 @@ import { displayNamesFor } from '#/lib/display-names.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
 /**
+ * The pinned cell's className for a row, with the caller's-own-row indicator
+ * composed onto it.
+ *
+ * EXPORTED, RATHER THAN INLINED AS `cn(pinned, isMe && '...')` IN THE JSX
+ * BELOW, so a test can exercise the actual `cn()`/tailwind-merge composition
+ * instead of grepping source text — see scores-table.hook.test.ts, which
+ * cannot see a runtime-only defect by reading the file as a string.
+ *
+ * A RING, NOT A BACKGROUND COLOUR, AND THIS IS LOAD-BEARING TWICE OVER.
+ * First: `pinned` always carries `bg-background` (opaque, wt-ksh.3.16 —
+ * without it the scrolling day columns show through the sticky cell).
+ * tailwind-merge treats every `bg-*` utility as one conflict group and keeps
+ * only the LAST one, so `cn(pinned, 'bg-muted/50')` silently drops
+ * `bg-background` and reopens wt-ksh.3.16 on exactly the row a reader is
+ * most likely to be looking at — this shipped once and was caught by review,
+ * not by any gate: every source-text assertion still sees both class names
+ * sitting in the file. `ring-*` is a box-shadow, a different CSS property
+ * entirely, so it composes with `bg-background` instead of competing with
+ * it. Second: `ui/table.tsx`'s TableRow already spends `hover:bg-muted/50`
+ * on every row, so a background tint for "this is you" would render
+ * identically to "the cursor is over this row" — a ring uses a channel hover
+ * does not touch, so the two states stay visually distinct even while a
+ * self-row is hovered. Applied to the pinned cells specifically (not the
+ * scrolling day cells) because they are the two cells still on screen
+ * however far the row has scrolled — the identity marker that matters most
+ * is the one that cannot scroll out of view.
+ */
+export function pinnedCellClassName(pinned: string, isMe: boolean): string {
+  return cn(pinned, isMe && 'ring-2 ring-inset ring-ring')
+}
+
+/**
  * The month grid. DESIGN_SYSTEM.md §8 "Leaderboard table".
  *
  * Hand-rolled rather than @tanstack/react-table, which is what v1 uses: this
@@ -280,16 +312,12 @@ export function ScoresTable({
               const isMe = myPlayerId !== undefined && row.id === myPlayerId
               const displayName = displayNames.get(row.id) ?? row.firstName
               return (
-              // The caller's own row, tinted. `data-self` is for the e2e and
-              // for anyone debugging "why is this row highlighted" — the class
-              // alone reads as a styling accident.
-              <TableRow key={row.id} data-self={isMe || undefined} className={cn(isMe && 'bg-muted/50')}>
-                <TableCell className={cn(pinnedLeft, isMe && 'bg-muted/50')}>
-                  {/* The pinned cell needs its OWN tint: pinnedLeft sets
-                      `bg-background` opaque (wt-ksh.3.16 — z-index alone does
-                      not stop the day columns showing through), which would
-                      paint over the row's highlight on exactly the cell the
-                      reader looks at first. */}
+              // The caller's own row, marked with `data-self`. Nothing in
+              // this repo reads it yet (no e2e spec, no other test) — it is a
+              // debugging/marker affordance for "why is this row highlighted"
+              // rather than a claim that something currently consumes it.
+              <TableRow key={row.id} data-self={isMe || undefined}>
+                <TableCell className={pinnedCellClassName(pinnedLeft, isMe)}>
                   <div className="flex items-baseline gap-2">
                     <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground md:text-sm">
                       {row.rank}
@@ -299,7 +327,10 @@ export function ScoresTable({
                         horizontal space from every day column beside it — live
                         before this change, and called out in the design doc as
                         a latent bug to fix rather than inherit. The full name
-                        stays reachable on `title`. */}
+                        stays reachable on `title`. 12ch is a starting value
+                        chosen without measuring real names against it, not a
+                        derived figure — revisit if it turns out to clip names
+                        that should fit, or leaves obvious slack unused. */}
                     <div
                       className="invisible h-0 w-0 md:visible md:h-fit md:max-w-[12ch] md:truncate md:pr-px"
                       title={`${row.firstName} ${row.lastName}`.trim()}
@@ -339,7 +370,7 @@ export function ScoresTable({
                     </TableCell>
                   )
                 })}
-                <TableCell className={cn(pinnedRight, isMe && 'bg-muted/50')}>
+                <TableCell className={pinnedCellClassName(pinnedRight, isMe)}>
                   <div className="text-right font-bold">{row.total}</div>
                 </TableCell>
               </TableRow>

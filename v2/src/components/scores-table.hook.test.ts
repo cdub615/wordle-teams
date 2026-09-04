@@ -10,6 +10,7 @@
 // silently stops answering the question it was changed to answer.
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
+import { pinnedCellClassName } from './scores-table.tsx'
 
 // A cwd-relative path, NOT `new URL(..., import.meta.url)` — see
 // dashboard-skeletons.hook.test.ts's comment on the same line for why: this
@@ -41,5 +42,26 @@ describe('the additive changes are present and are not decorative', () => {
     // An index+1 rank would be dense-ranked and would contradict the decided
     // tie rule without any test noticing.
     expect(source).not.toMatch(/rank[^\n]*index \+ 1/)
+  })
+})
+
+describe('the pinned cell keeps its opaque background when marking the caller as themself', () => {
+  // NOT a source-text assertion, deliberately: `cn(pinned, isMe && 'bg-muted/50')`
+  // and `cn(pinned, isMe && 'ring-2 ring-inset ring-ring')` are both perfectly
+  // fine STRINGS — the source scan above cannot tell them apart, and the
+  // former shipped, passed every gate and every test above, and only failed
+  // at runtime: tailwind-merge treats `bg-background` and `bg-muted/50` as
+  // one conflict group and silently keeps the last one, dropping the pinned
+  // cell's opaque base. Calling the real, exported `pinnedCellClassName`
+  // exercises the actual tailwind-merge composition instead of the text
+  // sitting in the file.
+  test('bg-background survives when the row belongs to the caller', () => {
+    const className = pinnedCellClassName('sticky left-0 z-10 bg-background', true)
+    expect(className).toContain('bg-background')
+  })
+
+  test('bg-background survives when the row does not belong to the caller', () => {
+    const className = pinnedCellClassName('sticky left-0 z-10 bg-background', false)
+    expect(className).toContain('bg-background')
   })
 })
