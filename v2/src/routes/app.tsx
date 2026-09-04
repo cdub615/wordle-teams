@@ -265,7 +265,8 @@ function Dashboard() {
     // columns any more, and at `md` and above this produces the same layout a
     // plain vertical stack would. It stays a grid rather than becoming
     // `flex flex-col` anyway: the `grid-cols-1` base-breakpoint behaviour above
-    // is measured and load-bearing (see that note) and relies on CSS Grid track
+    // is load-bearing (see that note) — reasoned from Tailwind's emitted CSS
+    // rather than measured, unlike the rpql numbers below — and relies on Grid track
     // sizing specifically, with no flexbox equivalent. A future multi-column
     // widget is what would make the three columns earn their keep again.
     <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 md:mt-6 md:grid-cols-3 md:gap-6">
