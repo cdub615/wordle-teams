@@ -118,7 +118,12 @@ describe('monthContainsToday', () => {
     expect(monthContainsToday('2026-09', '2026-09-04')).toBe(true)
   })
 
-  test('true on the first and last day, which are the boundaries a mutant moves', () => {
+  // monthContainsToday is a single string equality on the sliced month — there
+  // is no day-level range logic here for a mutant to move. This pins that
+  // every day in the month is treated alike, which would catch an
+  // implementation that reached for date arithmetic or a range comparison
+  // instead of a month-prefix compare.
+  test('every day in the month is treated alike, first and last included', () => {
     expect(monthContainsToday('2026-09', '2026-09-01')).toBe(true)
     expect(monthContainsToday('2026-09', '2026-09-30')).toBe(true)
   })
@@ -128,8 +133,10 @@ describe('monthContainsToday', () => {
     expect(monthContainsToday('2026-09', '2026-10-01')).toBe(false)
   })
 
-  // A string compare of '2026-9' against '2026-09' would pass the happy path
-  // and fail here. monthOf slices, so this pins that it keeps the zero pad.
+  // Pins that the comparison includes the year, not just the month: a
+  // same-month-different-year day is not "today". An implementation that
+  // compared only the month portion (e.g. slice(5, 7)) would wrongly pass
+  // this as true.
   test('the same month a year apart is not today', () => {
     expect(monthContainsToday('2026-09', '2025-09-04')).toBe(false)
   })

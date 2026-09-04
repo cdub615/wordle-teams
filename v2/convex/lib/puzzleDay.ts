@@ -103,14 +103,14 @@ export function isPlausibleToday(today: PuzzleDay, serverToday: PuzzleDay): bool
  * Does the viewed month contain this day?
  *
  * EXTRACTED RATHER THAN WRITTEN TWICE. scores-table.tsx used this inline to
- * decide whether to auto-centre today's column; today-panel.tsx needs the same
- * question to decide whether to render at all. Two copies of a date predicate
- * is how the two surfaces come to disagree about what "today" means on the 1st
- * of a month.
+ * decide whether to auto-centre today's column; the dashboard's Today panel
+ * needs the same question to decide whether to render at all. Two copies of a
+ * date predicate is how the two surfaces come to disagree about what "today"
+ * means on the 1st of a month.
  *
- * `today` is passed in, never read from a clock here: "today" is a client-only
- * fact (see today-panel.tsx's hydration note) and a pure function must stay
- * deterministic.
+ * `today` is passed in, never read from a clock here: "today" is a
+ * client-only fact, so a pure function must take it as an argument rather
+ * than reach for one itself, and stay deterministic.
  */
 export function monthContainsToday(month: PuzzleMonth, today: PuzzleDay): boolean {
   return monthOf(today) === month

@@ -121,8 +121,9 @@ export function ScoresTable({
     // Only when the viewed month actually contains today. A past (or future)
     // month has no current-day column — leave it at its natural position.
     // (The key above was still updated, so a later return TO this month sees
-    // that something else was viewed in between.) Shared with today-panel.tsx,
-    // which asks the same question to decide whether to render at all.
+    // that something else was viewed in between.) Shared with the dashboard's
+    // Today panel, which asks the same question to decide whether to render
+    // at all.
     if (!monthContainsToday(month, todayNow)) return
 
     if (!wrapper) return
