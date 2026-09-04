@@ -58,6 +58,40 @@ export default defineConfig({
     // rather than outliving its cause. See the reciprocal note in
     // src/routes/about.tsx.
     url: 'http://localhost:3000/',
-    reuseExistingServer: true,
+
+    /**
+     * REUSE IS OFF, AND IT COST A WEEK OF TRUSTWORTHY RESULTS TO LEARN WHY.
+     *
+     * This was `true`. On 2026-09-02 a `vite dev` process started on **Aug 31**
+     * was still holding port 3000, and every run since had attached to it —
+     * exercising that process's two-day-old module graph rather than the
+     * working tree. Measured side by side: port 3000 served `/about` with the
+     * pre-change `og:url` and no canonical, while a server started seconds
+     * earlier from the same files served both correctly. Vite's HMR had not
+     * propagated into the long-lived SSR graph. (`wordle-teams-9mjm`)
+     *
+     * THE FAILURE IS SILENT AND BIASED TOWARD FALSE GREEN, which is the worst
+     * combination available: a stale server passes tests for code that has
+     * since been broken. It surfaced only because a new test asserted a COUNT
+     * and got a number impossible from either version of the code; an assertion
+     * on a value would have read as an ordinary failure and sent the author to
+     * doubt their change.
+     *
+     * WITH REUSE OFF, AN OCCUPIED PORT IS AN ERROR RATHER THAN A REUSE.
+     * Playwright refuses to start and says so, naming this setting. That is the
+     * whole point — the previous behaviour's defect was not that it reused, it
+     * was that reusing was indistinguishable from starting fresh.
+     *
+     * THE COST IS ABOUT 25 SECONDS OF STARTUP PER RUN, and that is the trade
+     * being made deliberately. It buys the property that a green run means the
+     * code on disk is green. `wt-ksh.8.49` records that CI runs no Playwright
+     * at all, so this suite is only ever a thing somebody runs by hand — which
+     * makes "did it test what I just wrote" the only question it answers.
+     *
+     * IF IT IS EVER TURNED BACK ON, the reuse has to become verifiable rather
+     * than assumed: the probe below would need to carry a build identity the
+     * config can compare against the working tree. Nothing serves one today.
+     */
+    reuseExistingServer: false,
   },
 })
