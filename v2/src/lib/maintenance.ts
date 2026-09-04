@@ -15,9 +15,23 @@
  * `maintenance_${ENVIRONMENT}` out of Vercel Edge Config; Edge Config is on the
  * re-platform's "killed with no replacement" list. A `vars` entry in
  * wrangler.jsonc replaces it because it keeps the one property Edge Config was
- * actually providing: it can be edited in the Cloudflare dashboard and takes
- * effect WITHOUT A CODE DEPLOY, which is the whole point of a switch you reach
- * for while the site is on fire.
+ * actually providing: it can be edited in the Cloudflare dashboard, with no
+ * code change, no CI run and no wrangler invocation — which is the whole point
+ * of a switch you reach for while the site is on fire.
+ *
+ * IT IS STILL A DEPLOY, AND THE DASHBOARD SAYS SO. A Worker var is part of a
+ * VERSION, not a value hanging beside one, so the dashboard offers no Save —
+ * editing MAINTENANCE and confirming mints and deploys a new version. That is
+ * the one place this is worse than Edge Config, where a value could be changed
+ * with no deploy of any kind. It surprised the owner mid-outage-drill on
+ * 2026-09-04 (wt-ksh.8.40), which is why it is written down: budget for a
+ * version rollout, not a field edit, and expect the button to say Deploy.
+ *
+ * A DEPLOY FROM THE REPO RESETS IT. `vars` below carries "false", so the next
+ * `wrangler deploy` overwrites whatever the dashboard holds. That is a safety
+ * net — the site cannot stay dark because someone forgot to flip back — but it
+ * also means the dashboard is the ONLY thing holding maintenance on, and a
+ * routine deploy during an outage will silently end it.
  *
  * The cost of the swap is that a var is a string, not a boolean — hence
  * maintenanceEnabled() below rather than a bare truthiness check.
@@ -91,37 +105,51 @@ const GATED_SUBTREES = ['/app', '/me', '/complete-profile'] as const
  *     there except mid sign-in, and by then /login itself has already stopped
  *     them.
  *
- * `/` IS IN BOTH SETS, AND THAT INTERSECTION IS A RUNBOOK STEP (wt-ksh.8.52).
- * It is the ONLY path that is both gated here and listed in
- * lib/cache-policy.ts's STATIC_DOCUMENTS, so while maintenance is OFF the
- * landing page goes out `public, max-age=0, s-maxage=86400,
- * stale-while-revalidate=604800`. src/server.ts reasons about the OUTBOUND
- * direction and gets it right — the gate runs in front of the cache policy, so
- * a maintenance response is never published with shared freshness. It can do
- * nothing about the INBOUND one: a shared cache still holding the pre-outage
- * copy of `/` keeps serving it for up to a day fresh and a week stale, and THE
- * GATE NEVER SEES THOSE REQUESTS, because a cache hit does not invoke the
- * Worker. `wrangler deploy` purges nothing.
+ * `/` IS IN BOTH SETS, AND THAT INTERSECTION IS NOT A RUNBOOK STEP — THOUGH IT
+ * WAS BELIEVED TO BE ONE UNTIL 2026-09-04 (wt-ksh.8.52). It is the ONLY path
+ * both gated here and listed in lib/cache-policy.ts's STATIC_DOCUMENTS, so
+ * while maintenance is OFF the landing page goes out `public, max-age=0,
+ * s-maxage=86400, stale-while-revalidate=604800`. src/server.ts reasons about
+ * the OUTBOUND direction and gets it right — the gate runs in front of the
+ * cache policy, so a maintenance response is never published with shared
+ * freshness. Verified on beta 2026-09-04: every 307 carried `private,
+ * no-store` and no `s-maxage`.
  *
- * SO FLIPPING THE VAR IS NOT SUFFICIENT FOR `/`. Turning maintenance on is two
- * steps: set MAINTENANCE to 'true', then purge the Cloudflare cache for the
- * apex. That is procedure, not code — neither set is the wrong one to be in.
- * Dropping `/` from STATIC_DOCUMENTS would cost the highest-traffic anonymous
- * route the edge cache wordle-teams-jcj exists to buy back; ungating `/` would
- * leave the landing page up during an outage, which is a behaviour change
- * nobody asked for.
+ * THE INBOUND DIRECTION IS HANDLED BY THE SAME ORDERING, AND THAT IS THE PART
+ * THIS COMMENT USED TO GET WRONG. It read: "SO FLIPPING THE VAR IS NOT
+ * SUFFICIENT FOR `/`. Turning maintenance on is two steps: set MAINTENANCE to
+ * 'true', then purge the Cloudflare cache for the apex" — resting on the
+ * premise that "THE GATE NEVER SEES THOSE REQUESTS, because a cache hit does
+ * not invoke the Worker."
  *
- * THE PURGE IS NOW REAL, AND THIS PARAGRAPH USED TO SAY THE OPPOSITE. It read:
- * "wt-ksh.8.45 has not yet established that `s-maxage` on a Worker response
- * reaches Cloudflare's edge cache at all... If nothing is cached there, the
- * purge is a no-op and this costs nothing today." Both halves have since been
- * settled and both flipped. wt-ksh.8.45 measured that the header alone reached
- * nothing, and wordle-teams-fqeq then put these documents in the Cache API
- * deliberately — verified on beta, `/` and `/home` return `x-doc-cache: HIT`.
- * So `/` IS cached at the edge, and the purge step is load-bearing rather than
- * free. Turning maintenance on without it leaves the pre-outage landing page
- * being served for up to a day fresh and a week stale, to exactly the visitors
- * the outage notice is for.
+ * THAT PREMISE DESCRIBES A CDN EDGE CACHE, AND THIS IS NOT ONE. wt-ksh.8.45
+ * measured that `s-maxage` on a Worker response reaches no Cloudflare edge
+ * cache at all, so the shape the warning assumed never existed here.
+ * wordle-teams-fqeq then bought the caching back a different way: documents are
+ * stored through the CACHE API, INSIDE the fetch handler. The Cache API is not
+ * a layer in front of the Worker — it is a store the Worker chooses to consult,
+ * and src/server.ts consults it strictly downstream of the gate:
+ * withMaintenanceGate delegates to withCachePolicyOnDocuments only when the
+ * request is NOT gated, so `cache.match` is never called for a gated path. The
+ * Worker runs on every request to the custom domain. A stored copy of `/`
+ * therefore CANNOT outlive the flag, and there is nothing to purge.
+ *
+ * MEASURED 2026-09-04, during wt-ksh.8.40's walk: `/` was warm at the ATL edge
+ * (`x-doc-cache: HIT`, `age: 12`, three consecutive requests) immediately
+ * before MAINTENANCE was flipped on, and answered 307 on every request while it
+ * was on.
+ *
+ * WHAT ACTUALLY REMAINS IS CLIENT-SIDE, AND NO PURGE REACHES IT. `/` ships
+ * `stale-while-revalidate=604800`, so an individual visitor's OWN browser may
+ * serve them the pre-outage landing page while it revalidates in the
+ * background. It self-corrects on the next navigation, the blast radius is one
+ * visitor rather than everyone, and a Cloudflare purge cannot touch a browser
+ * cache — so this is a property to know about, not a step to run.
+ *
+ * NEITHER SET IS THE WRONG ONE TO BE IN. Dropping `/` from STATIC_DOCUMENTS
+ * would cost the highest-traffic anonymous route the edge cache
+ * wordle-teams-jcj exists to buy back; ungating `/` would leave the landing
+ * page up during an outage, which is a behaviour change nobody asked for.
  *
  * MAINTENANCE_PATH IS NOT IN THIS SET, AND THAT ABSENCE IS LOAD-BEARING. It is
  * where src/server.ts sends a gated request; adding it here is an infinite
