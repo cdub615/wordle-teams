@@ -10,6 +10,8 @@ import { attemptsFor } from '../../convex/lib/board.ts'
 import { monthTotal } from '../../convex/lib/scoring.ts'
 import { daysOfMonth, isWeekendDay, monthContainsToday, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
+import { rankWithTies } from '#/lib/standings.ts'
+import { displayNamesFor } from '#/lib/display-names.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
 /**
@@ -26,10 +28,12 @@ import type { Id } from '../../convex/_generated/dataModel'
 export function ScoresTable({
   teamId,
   month,
+  myPlayerId,
   className,
 }: {
   teamId: Id<'teams'>
   month: string
+  myPlayerId?: Id<'players'>
   className?: string
 }) {
   const hydrated = useHydrated()
@@ -165,13 +169,17 @@ export function ScoresTable({
     })
     .sort((a, b) => b.total - a.total)
 
+  // Rank AFTER the sort and from the totals, never from the map index — the
+  // decided tie rule is standard competition (1, 2, 2, 4) and an index would
+  // silently produce dense ranking. lib/standings.ts owns it and is
+  // mutation-tested; see its header.
+  const rankedRows = rankWithTies(rows)
+
   // v1 shows a first name alone, and 'First L' only when two players on the team
-  // share one. Initials replace both on mobile.
-  const duplicateFirstNames = new Set(
-    rows
-      .map((row) => row.firstName)
-      .filter((name, i, all) => all.indexOf(name) !== i),
-  )
+  // share one; lib/display-names.ts owns that rule so the Today panel above
+  // cannot disagree with this table about what to call someone. Initials
+  // replace both on mobile, below, which is presentation rather than collision.
+  const displayNames = displayNamesFor(players)
 
   // z-10: sticky cells have no z-index of their own, so nothing guarantees
   // they paint above the scrolling day columns beneath them (wt-ksh.3.16).
@@ -231,7 +239,19 @@ export function ScoresTable({
           <TableHeader>
             <TableRow>
               <TableHead scope="col" className={cn(pinnedLeft, 'rounded-tl-md px-2 md:px-4')}>
-                <div className="text-xs md:text-sm">Player</div>
+                {/* RANK LIVES INSIDE THE PINNED PLAYER CELL, NOT IN A COLUMN OF
+                    ITS OWN, and that is a deliberate departure from the design
+                    doc's "a rank # column". This table is `table-layout: auto`
+                    with `w-max` (see the w-max note below, and
+                    wordle-teams-rpql), so a second `sticky` column would need a
+                    `left-` offset equal to a width auto-layout is free to
+                    change — a latent misalignment of exactly the kind that
+                    file's measurements were about. Rank is still stated, still
+                    pinned and still first. */}
+                <div className="flex items-baseline gap-2 text-xs md:text-sm">
+                  <span className="w-4 text-muted-foreground">#</span>
+                  <span>Player</span>
+                </div>
               </TableHead>
               {days.map((day) => (
                 <TableHead scope="col" key={day}>
@@ -255,17 +275,40 @@ export function ScoresTable({
             // the corner reads as a double curve (wt-ksh.3.17).
             className="[&_tr:last-child>td:first-child]:rounded-bl-md [&_tr:last-child>td:last-child]:rounded-br-md"
           >
-            {rows.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell className={pinnedLeft}>
-                  <div className="invisible h-0 w-0 md:visible md:h-fit md:w-max md:pr-px">
-                    {duplicateFirstNames.has(row.firstName)
-                      ? `${row.firstName} ${row.lastName[0]}`
-                      : row.firstName}
-                  </div>
-                  <div className="text-xs md:invisible md:h-0 md:w-0 md:text-sm">
-                    {row.firstName[0]}
-                    {row.lastName[0]}
+            {rankedRows.map((row) => {
+              const isMe = myPlayerId !== undefined && row.id === myPlayerId
+              const displayName = displayNames.get(row.id) ?? row.firstName
+              return (
+              // The caller's own row, tinted. `data-self` is for the e2e and
+              // for anyone debugging "why is this row highlighted" — the class
+              // alone reads as a styling accident.
+              <TableRow key={row.id} data-self={isMe || undefined} className={cn(isMe && 'bg-muted/50')}>
+                <TableCell className={cn(pinnedLeft, isMe && 'bg-muted/50')}>
+                  {/* The pinned cell needs its OWN tint: pinnedLeft sets
+                      `bg-background` opaque (wt-ksh.3.16 — z-index alone does
+                      not stop the day columns showing through), which would
+                      paint over the row's highlight on exactly the cell the
+                      reader looks at first. */}
+                  <div className="flex items-baseline gap-2">
+                    <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground md:text-sm">
+                      {row.rank}
+                    </span>
+                    {/* CAPPED, WHERE THIS USED TO BE `md:w-max` WITH NO MAXIMUM.
+                        That let one long name widen the pinned column and steal
+                        horizontal space from every day column beside it — live
+                        before this change, and called out in the design doc as
+                        a latent bug to fix rather than inherit. The full name
+                        stays reachable on `title`. */}
+                    <div
+                      className="invisible h-0 w-0 md:visible md:h-fit md:max-w-[12ch] md:truncate md:pr-px"
+                      title={`${row.firstName} ${row.lastName}`.trim()}
+                    >
+                      {displayName}
+                    </div>
+                    <div className="text-xs md:invisible md:h-0 md:w-0 md:text-sm">
+                      {row.firstName[0]}
+                      {row.lastName[0]}
+                    </div>
                   </div>
                 </TableCell>
                 {days.map((day) => {
@@ -277,7 +320,14 @@ export function ScoresTable({
                     // every load whether or not a board was ever entered.
                     // This makes the specific (player, day) cell addressable
                     // without relying on column position.
-                    <TableCell key={day} data-day={day}>
+                    //
+                    // The tint below rides `today`, which is `${month}-01`
+                    // before hydration (see the `today` comment near the top
+                    // of this component) — so pre-hydration it lands on the
+                    // 1st for one paint and moves once the real date is known.
+                    // That is the same trade the ScoreCell props below already
+                    // make with `isBeforeToday`; no new hydration guard needed.
+                    <TableCell key={day} data-day={day} className={cn(day === today && 'bg-accent/40')}>
                       <ScoreCell
                         attempts={score ? attemptsFor(score.guesses, score.answer) : undefined}
                         hasScore={score !== undefined}
@@ -288,11 +338,12 @@ export function ScoresTable({
                     </TableCell>
                   )
                 })}
-                <TableCell className={pinnedRight}>
+                <TableCell className={cn(pinnedRight, isMe && 'bg-muted/50')}>
                   <div className="text-right font-bold">{row.total}</div>
                 </TableCell>
               </TableRow>
-            ))}
+              )
+            })}
           </TableBody>
         </Table>
       </div>

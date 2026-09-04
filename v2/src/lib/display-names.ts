@@ -32,11 +32,11 @@ export type NamedPlayer = { id: string; firstName: string; lastName: string }
  * honest value is defence in depth, not a live fix, and relaxing either guard
  * costs both fields at once: a colliding empty last name would degrade here
  * to a bare first name instead of reproducing the literal "Ada undefined"
- * that scores-table.tsx's inline `lastName[0]` still produces today, and two
- * colliding empty FIRST names would produce a leading space and an empty
- * label — `' A'` and `''`. That is the cost of relaxing this pair of guards,
- * written down here rather than defended against a state that cannot
- * currently occur.
+ * that scores-table.tsx's inline `lastName[0]` rule used to produce before
+ * this function replaced it, and two colliding empty FIRST names would
+ * produce a leading space and an empty label — `' A'` and `''`. That is the
+ * cost of relaxing this pair of guards, written down here rather than
+ * defended against a state that cannot currently occur.
  */
 export function displayNamesFor(players: ReadonlyArray<NamedPlayer>): Map<string, string> {
   const seen = new Set<string>()
