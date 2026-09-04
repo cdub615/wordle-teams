@@ -93,7 +93,12 @@ export function TodayPanel({
         <h2 className="text-sm font-semibold md:text-base">
           {iPlayed ? "You've played today" : 'You have not played today'}
         </h2>
-        {!iPlayed && <BoardEntryButton teamId={teamId} month={month} />}
+        {/* A distinct accessible name from the toolbar's own "Board Entry"
+            (board-entry/button.tsx, wordle-teams-vgat) — both buttons can be
+            on screen at once, since this panel's !iPlayed and the toolbar's
+            unconditional render are independent, and two controls sharing one
+            name is ambiguous to a locator and to a screen reader alike. */}
+        {!iPlayed && <BoardEntryButton teamId={teamId} month={month} label="Enter Today's Board" />}
       </div>
 
       <div className="mt-3">

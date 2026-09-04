@@ -31,8 +31,28 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * the keyboard: iOS Safari does not reflow a fixed panel when the keyboard
  * opens, and Radix locks body scroll, so without this the lower guess rows and
  * Submit are unreachable.
+ *
+ * `label` DEFAULTS TO "Board Entry", the toolbar's own wording, so every call
+ * site that predates this prop keeps its accessible name unchanged. It exists
+ * because today-panel.tsx (wordle-teams-vgat) renders a SECOND instance of
+ * this button on the very same page as app.tsx's toolbar one — both `!iPlayed`
+ * conditions can be true together — and two controls sharing one accessible
+ * name is a strict-mode hazard for a locator and a screen reader both: a
+ * reader tabbing through gets "Board Entry" twice with nothing to tell them
+ * apart. The label drives BOTH branches — the desktop button's visible text
+ * and the mobile button's aria-label — because the desktop branch has no
+ * separate aria-label to override independently; its accessible name IS its
+ * visible text.
  */
-export function BoardEntryButton({ teamId, month }: { teamId: Id<'teams'>; month: string }) {
+export function BoardEntryButton({
+  teamId,
+  month,
+  label = 'Board Entry',
+}: {
+  teamId: Id<'teams'>
+  month: string
+  label?: string
+}) {
   const [open, setOpen] = useState(false)
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const { height, offsetTop } = useVisualViewport()
@@ -42,7 +62,7 @@ export function BoardEntryButton({ teamId, month }: { teamId: Id<'teams'>; month
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button variant="secondary">
-            Board Entry
+            {label}
             <Plus size={20} className="ml-2" />
           </Button>
         </DialogTrigger>
@@ -60,7 +80,7 @@ export function BoardEntryButton({ teamId, month }: { teamId: Id<'teams'>; month
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button className="text-xs" variant="secondary" aria-label="Board Entry">
+        <Button className="text-xs" variant="secondary" aria-label={label}>
           <Plus size={20} />
         </Button>
       </SheetTrigger>
