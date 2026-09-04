@@ -62,11 +62,14 @@ documented inline in `v2/src/styles.css`; do not "restore" them:
 | `--text-subtle` (light) | `#9f9fa8` | `#767680` | 2.52 → 4.31 |
 | `--danger` (dark) | `#ef4444` | `#dc2626` | 3.76 → 4.83 |
 | `--text-muted` (light) | `#71717a` | `#6b6b74` | 4.40 → 4.80 **on `--surface-sunken`** |
+| `--text-subtle` (dark) | `#737373` | `#848484` | 3.59 → 4.56 **on `--surface-sunken`** |
 
-Six of the seven reference pairs now clear AA in **both** themes. `text-subtle`
-is the exception (4.31 light / 4.18 dark). Treat it as large-text/decorative and
-use `text-muted` for anything normal-sized that must be legible, including the
-N/A cells that `tokens.json` assigns to it.
+Six of the seven reference pairs now clear AA in **both** themes.
+**`text-subtle` is the exception IN LIGHT ONLY** &mdash; the token is
+deliberately asymmetric since 2026-09-04 (`wordle-teams-51zk`); see the end of
+this section. In light, treat it as large-text/decorative and use `text-muted`
+for anything normal-sized that must be legible, including the N/A cells that
+`tokens.json` assigns to it. In dark that caveat does not apply.
 
 **The fifth row was added by the Phase 7 Task 4 review, and it is the only one
 that is not about `tokens.json` being wrong — it is about which background the
@@ -99,12 +102,34 @@ conclusion still holds in light; only its arithmetic needed replacing.**
 ever darkens enough to widen the band the exception is flagged for revisiting
 instead of being inherited.
 
-**Dark is different and is a live option.** There the band is wide —
-`text-muted` is 6.76 on `--surface-sunken` — and `#848484` clears AA on all
-three surfaces at 4.56 while staying 1.48:1 from `text-muted`. Lifting the
-exception in dark only is therefore possible; it is not done here because it
-moves N/A cells, timestamps and placeholders app-wide in one theme and makes
-the token asymmetric, which is a design decision rather than a contrast fix.
+**Dark was different, and the exception was lifted there on 2026-09-04**
+(`wordle-teams-51zk`, the owner's call). The band is wide — `text-muted` is 6.76
+on `--surface-sunken` — so `--text-subtle` moved `#737373` → `#848484`, which
+clears AA on all three dark surfaces (**5.29 / 5.01 / 4.56**) while staying
+**1.483:1** from `text-muted`.
+
+**THE TOKEN IS THEREFORE ASYMMETRIC ON PURPOSE: AA in dark, a documented
+exception in light.** That is a real cost — a rank in a design system should
+ideally mean one thing — and it was taken for three reasons:
+
+- **The old value was worse than this file admitted.** "4.18 dark" is the
+  `--background` figure. `#737373` measured **3.59** on `--surface-sunken`, so
+  the shortfall was a gap rather than a near-miss — the same single-surface
+  mistake the `--text-muted` row above exists to correct, repeated on the token
+  whose exception it was describing.
+- **The separation argument points the other way from how it was first framed.**
+  Dark's rank separation drops from 1.880:1 to 1.483:1, which sounds like losing
+  a deliberate visual step — but **light ships 1.174:1 today** and has always
+  been treated as adequate. The lifted dark pair is still further apart than the
+  light pair nobody objects to.
+- **Dark is the theme the app is actually used in**, so the shortfall was
+  sitting where it mattered most, on every N/A cell, timestamp and placeholder.
+
+`styles.test.ts` pins the asymmetry **in both directions**, because either half
+drifting is a defect: light silently clearing AA would mean the exception is
+stale, and dark silently dropping below it would mean this lift was reverted.
+Both assertions measure the **worst** of the three surfaces rather than
+`--background`, which is what the previous version of that test did.
 
 `v2/src/styles.test.ts` now recomputes these pairs from the shipped hex values,
 so the next ratio that is only checked against one background fails a gate
@@ -344,7 +369,7 @@ asserting that no letter is ever lit more times than it appears in the answer.
 
 ## 7a. The full divergence list for Phase 7's parity audit
 
-**Fifty-eight known differences from production, all deliberate. Anything else
+**Fifty-nine known differences from production, all deliberate. Anything else
 the audit finds is a bug.**
 
 Reconciled by Phase 7 Task 16 on 2026-09-01, and the count is load-bearing

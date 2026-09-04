@@ -47,20 +47,32 @@
  *   --danger         dark   #ef4444 -> #dc2626   3.76 -> 4.83 on white
  *   --text-muted     light  #71717a -> #6b6b74   4.40 -> 4.80 on
  *                                                --surface-sunken
+ *   --text-subtle    dark   #737373 -> #848484   3.59 -> 4.56 on
+ *                                                --surface-sunken
  *
- * Six of the seven reference pairs now clear AA (4.5:1) in BOTH themes.
- * text-subtle is the exception at 4.31 light / 4.18 dark, and the reason is
- * MEASURED rather than inherited (wt-ksh.8.48): the band a third rank would
- * have to occupy in light is 4.50 to 4.80 — 4.80 being text-muted on
- * --surface-sunken, NOT the 5.05 it scores on --background — and the darkest
- * grey that clears AA on all three light surfaces lands 1.06:1 from text-muted
- * against the 1.174:1 this pair actually ships. The two ranks would collapse.
- * styles.test.ts runs that search, so this stops being true loudly. (Dark has
- * room and could be lifted on its own; that is a design call, not a fix.)
- * Treat it as
- * large-text/decorative. Anything normal-sized that must be legible — N/A
- * cells, timestamps — should use text-muted, despite what tokens.json's usage
- * note says.
+ * THE TOKEN IS DELIBERATELY ASYMMETRIC SINCE 2026-09-04 (wordle-teams-51zk):
+ * --text-subtle CLEARS AA IN DARK AND IS A DOCUMENTED EXCEPTION IN LIGHT. The
+ * two themes are not in the same position, and treating them as one is what
+ * kept dark below AA for no reason.
+ *
+ * LIGHT HAS NO ROOM, and that is MEASURED rather than inherited (wt-ksh.8.48).
+ * The band a third rank would have to occupy is 4.50 to 4.80 — 4.80 being
+ * text-muted on --surface-sunken, NOT the 5.05 it scores on --background — and
+ * the darkest grey clearing AA on all three light surfaces lands 1.06:1 from
+ * text-muted against the 1.174:1 this pair actually ships. The two ranks would
+ * collapse. styles.test.ts runs that search, so this stops being true loudly.
+ *
+ * DARK HAD ROOM AND IT WAS TAKEN. #848484 clears AA on all three dark surfaces
+ * (5.29 / 5.01 / 4.56) while staying 1.483:1 from text-muted. That separation
+ * is SMALLER than dark's previous 1.880:1 and still LARGER than the 1.174:1
+ * light ships today and has always been considered adequate — which is the
+ * argument that settled it. The old value was also worse than this comment used
+ * to admit: "4.18 dark" was the --background figure, and #737373 measured 3.59
+ * on --surface-sunken.
+ *
+ * IN LIGHT, treat --text-subtle as large-text/decorative. Anything normal-sized
+ * that must be legible — N/A cells, timestamps — should use text-muted, despite
+ * what tokens.json's usage note says. In dark that caveat no longer applies.
  *
  * THE text-muted DEVIATION IS THE ONE THAT IS NOT ABOUT tokens.json BEING
  * WRONG. It is about WHICH BACKGROUND THE RATIO WAS MEASURED AGAINST, and it
@@ -218,7 +230,7 @@
   --surface-inverse: #fafafa;
   --text: #fafafa;
   --text-muted: #a3a3a3;
-  --text-subtle: #737373;
+  --text-subtle: #848484;
   --border-subtle: #292929;
   --border-strong: #424242;
   --brand-from: #16a34a;

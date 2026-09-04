@@ -24,10 +24,11 @@ import { describe, expect, test } from 'vitest'
  * and the text is the artefact that ships anyway.
  *
  * IT IS DELIBERATELY NOT EXHAUSTIVE, and the omission is named rather than
- * implied. --text-subtle is a KNOWN, DOCUMENTED failure at 4.31 light / 4.18
- * dark — see the note in styles.css — so asserting every text token against
- * every surface would encode a lie or a skip. What is pinned below is the set
- * of pairs the app actually renders normal-sized copy at.
+ * implied. --text-subtle is a KNOWN, DOCUMENTED failure IN LIGHT — see the note
+ * in styles.css — so asserting it against every light surface would encode a lie
+ * or a skip. IN DARK IT IS NOT AN EXCEPTION and is asserted like any other text
+ * token (wordle-teams-51zk). What is pinned below is the set of pairs the app
+ * actually renders normal-sized copy at.
  */
 
 const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
@@ -111,10 +112,36 @@ describe('AA contrast for the text tokens, in both themes', () => {
     }
   }
 
-  test('--text-subtle is still the documented exception, and still only that', () => {
-    // Pinned as a FAILURE so the exception cannot quietly widen.
-    expect(ratio(LIGHT['--text-subtle'], LIGHT['--background'])).toBeLessThan(4.5)
-    expect(ratio(DARK['--text-subtle'], DARK['--background'])).toBeLessThan(4.5)
+  // --text-subtle IS A FULL TEXT TOKEN IN DARK, AND ONLY IN DARK
+  // (wordle-teams-51zk). Asserted per surface like the two above rather than as
+  // one worst-of, so a regression names the surface it happened on.
+  for (const surface of TEXT_SURFACES) {
+    test(`dark: --text-subtle on ${surface}`, () => {
+      expectRatio('dark', '--text-subtle', surface, 4.5)
+    })
+  }
+
+  test('--text-subtle is the documented exception in LIGHT ONLY, and the asymmetry is deliberate', () => {
+    /**
+     * BOTH DIRECTIONS ARE PINNED, because the token is now asymmetric on
+     * purpose (wordle-teams-51zk) and either half drifting is a defect:
+     * light silently clearing AA would mean the exception is stale, and dark
+     * silently dropping below it would mean the lift was reverted.
+     *
+     * MEASURED ON THE WORST SURFACE, NOT --background. This assertion used to
+     * read `ratio(..., LIGHT['--background'])`, which is the exact
+     * single-surface mistake the --text-muted test above exists to prevent — and
+     * it under-reported the exception it was pinning. #737373 was documented as
+     * "4.18 dark" and measured 3.59 on --surface-sunken.
+     */
+    const worst = (theme: Record<string, string>) =>
+      Math.min(...TEXT_SURFACES.map((surface) => ratio(theme['--text-subtle'], theme[surface])))
+
+    expect(worst(LIGHT), 'light now clears AA — the exception is stale, revisit').toBeLessThan(4.5)
+    expect(
+      worst(DARK),
+      'dark has dropped below AA — the wordle-teams-51zk lift was reverted',
+    ).toBeGreaterThanOrEqual(4.5)
   })
 
   test('and in LIGHT there is still no room to lift it, which is the reason why', () => {
