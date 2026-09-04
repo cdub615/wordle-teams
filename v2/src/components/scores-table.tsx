@@ -176,9 +176,10 @@ export function ScoresTable({
   const rankedRows = rankWithTies(rows)
 
   // v1 shows a first name alone, and 'First L' only when two players on the team
-  // share one; lib/display-names.ts owns that rule so the Today panel above
-  // cannot disagree with this table about what to call someone. Initials
-  // replace both on mobile, below, which is presentation rather than collision.
+  // share one; lib/display-names.ts owns that rule so this table and the
+  // dashboard's Today panel cannot disagree about what to call someone.
+  // Initials replace both on mobile, below, which is presentation rather than
+  // collision.
   const displayNames = displayNamesFor(players)
 
   // z-10: sticky cells have no z-index of their own, so nothing guarantees

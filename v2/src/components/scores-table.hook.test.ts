@@ -9,16 +9,12 @@
 // rank all type-check, lint, build and pass every other test — the table just
 // silently stops answering the question it was changed to answer.
 import { readFileSync } from 'node:fs'
-// `URL` imported explicitly from node:url, NOT the global: under
-// `@vitest-environment jsdom` the global `URL` is jsdom's own implementation,
-// and `new URL('./scores-table.tsx', import.meta.url)` silently resolves
-// against jsdom's `window.location` (http://localhost:3000/...) instead of
-// the `file:` base actually passed in — readFileSync then throws "The URL
-// must be of scheme file". Node's own URL class resolves the base correctly.
-import { URL as NodeURL } from 'node:url'
 import { describe, expect, test } from 'vitest'
 
-const source = readFileSync(new NodeURL('./scores-table.tsx', import.meta.url), 'utf8')
+// A cwd-relative path, NOT `new URL(..., import.meta.url)` — see
+// dashboard-skeletons.hook.test.ts's comment on the same line for why: this
+// file is also jsdom, and jsdom breaks that resolution the same way there.
+const source = readFileSync('src/components/scores-table.tsx', 'utf8')
 
 describe('the additive changes are present and are not decorative', () => {
   test('the name column is capped, so one long name cannot steal the day columns', () => {
