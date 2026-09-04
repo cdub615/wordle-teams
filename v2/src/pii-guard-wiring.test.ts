@@ -56,16 +56,30 @@ const hooksPath = (() => {
   }
 })()
 
-describe('the PII guard runs on commit', () => {
+/**
+ * WHETHER THIS MACHINE HAS COMMIT HOOKS AT ALL.
+ *
+ * CI DOES NOT, AND MUST NOT FAIL FOR IT. A fresh checkout has no
+ * `core.hooksPath` and no `.git/hooks/pre-commit` — git does not check hooks
+ * out — and a CI runner never commits, so there is nothing for this file to
+ * protect there. The first version of this test asserted unconditionally and
+ * broke the beta deploy on exactly that: green locally, where hooks exist, red
+ * on the runner where they cannot.
+ *
+ * IT DOES NOT SKIP ON "THE HOOK IS MISSING", which would skip the very failure
+ * it exists to catch. The distinction is whether hooks were INSTALLED:
+ *   - `core.hooksPath` set  -> beads (or something) has taken hooks over, which
+ *                              is the situation the guard was silently unwired
+ *                              by. Assert.
+ *   - `.git/hooks/pre-commit` present -> stock hooks are in use. Assert.
+ *   - neither -> no hooks on this machine. Nothing to say.
+ */
+const hooksInstalled = existsSync(`${hooksPath}/pre-commit`)
+
+describe.skipIf(!hooksInstalled)('the PII guard runs on commit', () => {
   test('the script itself still exists where the hook expects it', () => {
     // A guard wired to a deleted file fails open just as quietly.
     expect(existsSync(`${repoRoot}/scripts/check-no-pii.mjs`)).toBe(true)
-  })
-
-  test('git is configured to run hooks from a directory that exists', () => {
-    expect(existsSync(hooksPath), `core.hooksPath points at ${hooksPath}, which is absent`).toBe(
-      true,
-    )
   })
 
   test('THE pre-commit GIT WILL RUN INVOKES check-no-pii', () => {
