@@ -444,8 +444,23 @@ and before the DNS flip**, then re-read the counts. There is no tombstone.
       cd v2 && node scripts/parity-routes.mjs --beta=https://wordleteams.com
       ```
       Compare against `docs/superpowers/audits/2026-09-01-parity-routes.md`.
-      Known differences live in `V2-ADDENDUM.md` §7a — **forty-three of them, all
-      deliberate. Anything else is a bug.**
+      Known differences live in `V2-ADDENDUM.md` §7a, and **anything not in that
+      table is a bug.**
+
+      **DO NOT TRUST A COUNT WRITTEN ANYWHERE ELSE, INCLUDING THIS FILE.** This
+      line said "forty-three of them" until 2026-09-04, when the table held
+      SIXTY — so an operator working from it would have treated seventeen
+      deliberate divergences as defects, at 6am, with DNS waiting. That number
+      has now drifted three times (`wordle-teams-4m2t`), which is why
+      `src/addendum-divergences.test.ts` pins the count INSIDE the addendum and
+      why this runbook no longer restates it. **Read it off the file:**
+
+      ```
+      grep -c '^| [0-9]' docs/design-system/V2-ADDENDUM.md   # rows in all tables
+      ```
+
+      or just open §7a — its own header states the count, and CI fails if that
+      header and its table disagree.
 - [ ] **5.4 — BEFORE reminders go on: count who became eligible, and compare
       against v1.** `wordle-teams-k501`, settled here on 2026-09-04.
 
