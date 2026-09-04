@@ -493,7 +493,7 @@ Not blockers unless you decide otherwise; each is filed.
 | Issue | What |
 | --- | --- |
 | `wt-ksh.8.45` | A Worker response may not reach the edge cache at all. Settle with `cf-cache-status` before relying on §4.1 |
-| `wt-ksh.8.46` | No purge on deploy; `swr=604800` means up to 8 days |
+| `wt-ksh.8.46` | **Half solved.** The EDGE now invalidates on deploy; a BROWSER can still serve up to 7 days stale. See §8b |
 | `wt-ksh.8.55` | `og:url` is the apex on every route; `/` and `/home` are duplicate content with no canonical |
 | `wordle-teams-82zq` | `/opengraph-image.png` lost production's immutable 1-year cache |
 | `wordle-teams-d2oc` | Redirects carry no `Cache-Control` at all |
@@ -530,3 +530,36 @@ green pass is not read as covering them. Both are pinned by unit tests only.
       administer**: V2-ADDENDUM records that an owner-less team cannot be edited
       by anyone, which is why the code reassigns rather than clearing.
 | `wordle-teams-4yt` | **Owner's call, and legal copy:** privacy policy and terms name **Apple and Facebook** as sign-in providers. Neither has ever been offered. The policy also claims a **username** is collected; no such field exists in either codebase. Already wrong in v1, so not a regression — but cutover is when these pages start being served from the new stack |
+
+### 8b. The staleness window after a deploy, and which half is solved
+
+`wt-ksh.8.46` asked for one of three: a purge step in the deploy, a shortened
+`s-maxage`, or the window recorded here as accepted. **The first happened by
+construction and the third covers what is left**, so this is the record.
+
+**THE EDGE HALF IS SOLVED.** `wordle-teams-fqeq` keys the Cache API entry on
+`CF_VERSION_METADATA.id`, so a new deployment does not need purging — it MISSES
+on every key and renders fresh, and the orphaned entries age out unread. That is
+the "purge step" branch satisfied without a purge, and without needing a zone
+token this repo does not hold. Verified: a redeploy on 2026-09-02 returned
+`x-doc-cache: MISS` against a cache still holding the previous version.
+
+**THE BROWSER HALF IS NOT, AND IS ACCEPTED.** The header is
+`public, max-age=0, s-maxage=86400, stale-while-revalidate=604800`. `max-age=0`
+makes the response immediately stale to a browser, and `stale-while-revalidate`
+then permits that browser to serve its cached copy **for up to seven days**
+while revalidating in the background. No purge, no version key and no deploy
+reaches a private browser cache.
+
+**So the worst case is: a returning visitor who loaded a marketing page within
+the last seven days sees the old one once, and the correct one thereafter.** It
+costs one stale view per visitor per change, not a persistent wrong page.
+
+- [ ] **If a copy fix must be seen immediately by everyone**, shortening
+      `stale-while-revalidate` in `v2/src/lib/cache-policy.ts` is the only lever,
+      and it has to ship *before* the change it is meant to expedite — a shorter
+      window does not shorten one a browser has already been given.
+
+**DO NOT DEBUG A "FIX THAT DID NOT SHIP" FOR A WEEK.** That is the failure mode
+`wt-ksh.8.46` was filed to prevent, and it is why this is written down rather
+than left to be rediscovered by someone watching a corrected page fail to change.
