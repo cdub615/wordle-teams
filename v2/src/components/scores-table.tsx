@@ -23,27 +23,40 @@ import type { Id } from '../../convex/_generated/dataModel'
  * instead of grepping source text — see scores-table.hook.test.ts, which
  * cannot see a runtime-only defect by reading the file as a string.
  *
- * A RING, NOT A BACKGROUND COLOUR, AND THIS IS LOAD-BEARING TWICE OVER.
- * First: `pinned` always carries `bg-background` (opaque, wt-ksh.3.16 —
- * without it the scrolling day columns show through the sticky cell).
- * tailwind-merge treats every `bg-*` utility as one conflict group and keeps
- * only the LAST one, so `cn(pinned, 'bg-muted/50')` silently drops
- * `bg-background` and reopens wt-ksh.3.16 on exactly the row a reader is
- * most likely to be looking at — this shipped once and was caught by review,
- * not by any gate: every source-text assertion still sees both class names
- * sitting in the file. `ring-*` is a box-shadow, a different CSS property
- * entirely, so it composes with `bg-background` instead of competing with
- * it. Second: `ui/table.tsx`'s TableRow already spends `hover:bg-muted/50`
- * on every row, so a background tint for "this is you" would render
- * identically to "the cursor is over this row" — a ring uses a channel hover
- * does not touch, so the two states stay visually distinct even while a
- * self-row is hovered. Applied to the pinned cells specifically (not the
- * scrolling day cells) because they are the two cells still on screen
- * however far the row has scrolled — the identity marker that matters most
- * is the one that cannot scroll out of view.
+ * A ROW-LEVEL TINT, NOT A RING (owner's call on wordle-teams-5jcn.20, from a
+ * screenshot: the ring on just Player/Score "looked terrible"; a whole-row
+ * tint — even though it renders identically to `ui/table.tsx`'s
+ * `hover:bg-muted/50` — reads better, and that collision is accepted
+ * knowingly). The scrolling day cells get there for free: `<TableRow>` below
+ * gets a plain `bg-muted/50` when `isMe`, and an ordinary `<td>` with no
+ * background of its own lets that show straight through.
+ *
+ * THE PINNED CELLS CANNOT USE THAT SAME PLAIN CLASS, AND THIS IS THE BUG
+ * THIS FUNCTION EXISTS TO NOT REPEAT (wt-ksh.3.16, shipped once already).
+ * `pinned` always carries `bg-background` (opaque — without it the
+ * scrolling day columns show through the sticky cell). tailwind-merge treats
+ * every `bg-*` utility as one conflict group and keeps only the LAST one, so
+ * a naive `cn(pinned, 'bg-muted/50')` doesn't LAYER the tint over the sticky
+ * cell's base the way it visually would if these were two stacked elements —
+ * it silently DELETES `bg-background`, leaving the pinned cells translucent
+ * on exactly the row a reader is most likely to be looking at. Every
+ * source-text assertion still sees both class names sitting in the file, so
+ * nothing that greps for a string catches this; only exercising the real
+ * `cn()` composition does (see the test file).
+ *
+ * THE FIX IS TO HAND TAILWIND-MERGE A SINGLE OPAQUE CLASS THAT *IS* THE
+ * COMPOSITE, `bg-pinned-self` (styles.css), computed with `color-mix`
+ * against the same `--muted`/`--background` tokens `bg-muted/50` and
+ * `bg-background` resolve to — so it looks like the tint sitting over the
+ * base, without two `bg-*` utilities ever being in the string at once to
+ * conflict. It is spelled `bg-*` on purpose: that is the prefix
+ * tailwind-merge's conflict detection keys on (verified — it does not care
+ * whether the token after `bg-` is a real Tailwind colour), so it reliably
+ * REPLACES `bg-background` instead of racing it on CSS source order the way
+ * two same-specificity rules would.
  */
 export function pinnedCellClassName(pinned: string, isMe: boolean): string {
-  return cn(pinned, isMe && 'ring-2 ring-inset ring-ring')
+  return cn(pinned, isMe && 'bg-pinned-self')
 }
 
 /**
@@ -313,26 +326,51 @@ export function ScoresTable({
               const displayName = displayNames.get(row.id) ?? row.firstName
               return (
               // The caller's own row, marked with `data-self`. Nothing in
-              // this repo reads it yet (no e2e spec, no other test) — it is a
-              // debugging/marker affordance for "why is this row highlighted"
-              // rather than a claim that something currently consumes it.
-              <TableRow key={row.id} data-self={isMe || undefined}>
+              // this repo reads the attribute itself (no e2e spec, no other
+              // test) — it is a debugging/marker affordance for "why is this
+              // row highlighted" rather than a claim that something
+              // currently consumes it; `isMe` below is what actually drives
+              // the tint. `bg-muted/50` here is safe as a bare, unconditional
+              // class (unlike the pinned cells — see pinnedCellClassName
+              // above) because the day <td>s beneath it carry no `bg-*` of
+              // their own, so there is nothing for tailwind-merge to fight,
+              // and it composes onto `ui/table.tsx`'s own `hover:bg-muted/50`
+              // (a different, variant-scoped conflict group) rather than
+              // replacing it.
+              <TableRow key={row.id} data-self={isMe || undefined} className={cn(isMe && 'bg-muted/50')}>
                 <TableCell className={pinnedCellClassName(pinnedLeft, isMe)}>
                   <div className="flex items-baseline gap-2">
                     <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground md:text-sm">
                       {row.rank}
                     </span>
-                    {/* CAPPED, WHERE THIS USED TO BE `md:w-max` WITH NO MAXIMUM.
-                        That let one long name widen the pinned column and steal
-                        horizontal space from every day column beside it — live
-                        before this change, and called out in the design doc as
-                        a latent bug to fix rather than inherit. The full name
-                        stays reachable on `title`. 12ch is a starting value
-                        chosen without measuring real names against it, not a
-                        derived figure — revisit if it turns out to clip names
-                        that should fit, or leaves obvious slack unused. */}
+                    {/* CAPPED AND GIVEN A WIDTH, BOTH DELIBERATE AND BOTH NEEDED
+                        (wordle-teams-5jcn.19 — a real regression, not a
+                        hypothetical). The cap is `md:max-w-[12ch]`, where this
+                        used to be an uncapped `md:w-max`: that let one long
+                        name widen the pinned column and steal horizontal space
+                        from every day column beside it — live before this
+                        change, and called out in the design doc as a latent
+                        bug to fix rather than inherit. The full name stays
+                        reachable on `title`. 12ch is a starting value chosen
+                        without measuring real names against it, not a derived
+                        figure — revisit if it turns out to clip names that
+                        should fit, or leaves obvious slack unused.
+
+                        `md:w-fit` IS NOT OPTIONAL ALONGSIDE THE CAP — `max-width`
+                        is a ceiling, not a width. The base breakpoint sets
+                        `w-0` (paired with `invisible`, to hide the name and
+                        show the mobile initials below instead); at `md` only
+                        `md:h-fit` restored height, so with no width utility of
+                        its own `width: 0` survived unopposed and the element
+                        rendered at zero width — names disappeared from the
+                        desktop Player column entirely, caught only by an
+                        owner screenshot, not by any gate (nothing here renders
+                        the component). `md:w-fit` sizes to content
+                        (`fit-content`), which `md:max-w-[12ch]` then clamps,
+                        so a short name shows in full and a long one is
+                        clamped-then-`md:truncate`d — never zero. */}
                     <div
-                      className="invisible h-0 w-0 md:visible md:h-fit md:max-w-[12ch] md:truncate md:pr-px"
+                      className="invisible h-0 w-0 md:visible md:h-fit md:w-fit md:max-w-[12ch] md:truncate md:pr-px"
                       title={`${row.firstName} ${row.lastName}`.trim()}
                     >
                       {displayName}

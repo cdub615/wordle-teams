@@ -253,6 +253,43 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * Self-row pinned-cell tint (wordle-teams-5jcn.20, wt-ksh.3.16)
+ *
+ * The owner's call from a screenshot: the ring on the pinned Player/Score
+ * cells "looked terrible" — go with a whole-row tint instead, even though it
+ * renders identically to `ui/table.tsx`'s `hover:bg-muted/50` (accepted
+ * knowingly). scores-table.tsx applies plain `bg-muted/50` to the caller's
+ * <tr>; every ordinary <td> has no background of its own, so the row colour
+ * shows straight through.
+ *
+ * THE TWO PINNED CELLS CANNOT USE THAT SAME PLAIN CLASS. They carry
+ * `bg-background`, opaque and load-bearing (without it the scrolling day
+ * columns show through the sticky cell, wt-ksh.3.16). Tailwind-merge treats
+ * every `bg-*` utility as one conflict group and keeps only the last one, so
+ * `cn('bg-background', 'bg-muted/50')` does not layer the tint over the
+ * base the way stacking two real elements would — it deletes `bg-background`
+ * outright and leaves the pinned cells translucent, on exactly the row a
+ * reader is most likely to be looking at. This shipped once already; a
+ * source-text grep cannot see it because both class names are still sitting
+ * in the file (see pinnedCellClassName's doc comment in scores-table.tsx and
+ * its test).
+ *
+ * `bg-pinned-self` IS THE FIX: a single, already-opaque colour equal to the
+ * composite of `bg-muted/50` painted over `bg-background`, so nothing is
+ * left for tailwind-merge to fight. `color-mix` reads the same semantic
+ * tokens `--muted` and `--background` those two utilities resolve to (see
+ * :root/.dark above), so this needs no light/dark fork of its own — it holds
+ * in both automatically. Named with a `bg-` prefix ON PURPOSE: verified
+ * (`node -e "require('tailwind-merge').twMerge(...)"`) that tailwind-merge's
+ * conflict detection keys on that prefix alone, not on whether the token
+ * after it is a real Tailwind colour, so `cn(pinned, 'bg-pinned-self')`
+ * reliably drops `bg-background` and keeps this instead of leaving both in
+ * the class list to race on CSS source order. */
+.bg-pinned-self {
+  background-color: color-mix(in oklab, var(--muted) 50%, var(--background));
+}
+
+/* ---------------------------------------------------------------------------
  * Base layer + the surviving helper classes (wt-ksh.12.4)
  *
  * The teal sea/lagoon/palm token set that shipped with the TanStack starter is
