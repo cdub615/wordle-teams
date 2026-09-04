@@ -670,7 +670,7 @@ describe('the panel is mounted on the dashboard', () => {
 
     expect(rendered[0].get('teamId')).toBe("{teamParam as Id<'teams'>}")
     expect(rendered[0].get('month')).toBe('{monthParam}')
-    expect(rendered[0].get('className')).toBe('"md:row-span-3"')
+    expect(rendered[0].get('className')).toBe('"md:col-span-3"')
 
     // `monthOptions(currentMonth)` — THE SAME CALL the MonthPicker is driven
     // by, which is what makes the day picker and the arrows offer exactly the

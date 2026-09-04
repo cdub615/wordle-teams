@@ -42,22 +42,22 @@ export type TeamSettingsTab = 'members' | 'teams' | 'scoring'
  * over a derived type, and it keeps this file readable without following an
  * import to see what it accepts.
  *
- * `defaultTab` DEFAULTS TO `'members'` BUT IS NOT ALWAYS THAT. Task 9 wires
- * ScoringLegend's Edit control to open this dialog straight on `'scoring'` --
- * without that, Edit would land on Members, next to chips it has nothing to
- * do with. Like settings-dialog.tsx's `defaultTab`, this is an UNCONTROLLED
- * `Tabs.defaultValue`, not a controlled `value`: once open, which tab is
- * showing is this dialog's own business. Unlike settings-dialog.tsx, this one
- * has a fallback rather than requiring every caller to pick -- verified
- * (node_modules/@radix-ui/react-dialog, DialogContent) that Radix's
+ * `defaultTab` DEFAULTS TO `'members'` BUT IS NOT ALWAYS THAT. `routes/app.tsx`
+ * wires ScoringLegend's Edit control to open this dialog straight on
+ * `'scoring'` -- without that, Edit would land on Members, next to chips it
+ * has nothing to do with. Like settings-dialog.tsx's `defaultTab`, this is an
+ * UNCONTROLLED `Tabs.defaultValue`, not a controlled `value`: once open, which
+ * tab is showing is this dialog's own business. Unlike settings-dialog.tsx,
+ * this one has a fallback rather than requiring every caller to pick --
+ * verified (node_modules/@radix-ui/react-dialog, DialogContent) that Radix's
  * `DialogContent` sits behind `<Presence present={forceMount || open}>` and we
  * pass no `forceMount`, so it UNMOUNTS on close; that takes the nested `Tabs`
  * with it, so `defaultValue` re-applies fresh on every open rather than
  * remembering whatever tab was last showing.
  *
- * NOTHING RENDERS THIS DIALOG YET. `routes/app.tsx` still renders the three
- * cards inline; wiring this shell in (and retiring that inline rendering) is
- * Task 9.
+ * RENDERED FROM `routes/app.tsx`, replacing the three cards it used to render
+ * inline -- CurrentTeamCard, MyTeamsCard and ScoringSystemCard are hosted here
+ * instead, behind the tab strip below.
  */
 export function TeamSettingsDialog({
   open,
@@ -162,9 +162,11 @@ export function TeamSettingsDialog({
                 renders without waiting) and MyTeamsCard takes its data as a
                 prop and calls no query hook at all -- neither suspends.
                 Without this boundary, the first switch to Scoring would
-                suspend up to whatever ancestor boundary exists once Task 9
-                wires this dialog in, showing that boundary's larger fallback
-                instead of this card's own purpose-built skeleton. */}
+                suspend past this dialog entirely -- routes/app.tsx renders it
+                with no Suspense of its own, and neither router.tsx nor
+                __root.tsx sets one either -- unmounting more than just this
+                card instead of showing this tab's own purpose-built
+                skeleton. */}
             <Suspense fallback={<ScoringSystemCardSkeleton />}>
               <ScoringSystemCard teamId={teamId} month={month} isPro={isPro} isOwner={isOwner} />
             </Suspense>

@@ -15,21 +15,23 @@ import { MonthPicker, monthOptions } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { TeamsEmptyState } from '#/components/teams/empty-state.tsx'
-import { CurrentTeamCard } from '#/components/teams/current-team-card.tsx'
-import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
-import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
+import { TeamSettingsDialog, type TeamSettingsTab } from '#/components/teams/team-settings-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { TeamBoards } from '#/components/teams/team-boards.tsx'
+import { TodayPanel } from '#/components/today-panel.tsx'
+import { ScoringLegend } from '#/components/scoring-legend.tsx'
 import { MonthlyWinnerCelebration } from '#/components/monthly-winner-celebration.tsx'
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
 import { DashboardError } from '#/components/dashboard-error.tsx'
+import { Button } from '#/components/ui/button.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
 import {
   DashboardSkeleton,
   ScoresTableSkeleton,
-  ScoringSystemCardSkeleton,
   TeamBoardsSkeleton,
+  TodayPanelSkeleton,
+  ScoringLegendSkeleton,
 } from '#/components/dashboard-skeletons.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -119,6 +121,16 @@ function Dashboard() {
   const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const [createOpen, setCreateOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [teamSettingsOpen, setTeamSettingsOpen] = useState(false)
+  // WHICH TAB TeamSettingsDialog LANDS ON, NOT JUST WHETHER IT IS OPEN.
+  // ScoringLegend's Edit control and the "Team settings" button both open the
+  // same dialog but mean different things by it: Edit is about the chips it
+  // sits beside (the Scoring tab), the button is the general entry point
+  // (Members, the dialog's own default). The dialog's `defaultTab` is an
+  // uncontrolled `Tabs.defaultValue` that re-applies fresh on every open (see
+  // its own comment), so this state only needs to be right AT OPEN TIME, not
+  // kept in sync afterward.
+  const [teamSettingsTab, setTeamSettingsTab] = useState<TeamSettingsTab>('members')
   /**
    * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
    *
@@ -218,11 +230,11 @@ function Dashboard() {
     // sizing at the AVAILABLE space. Without any grid-cols-* at the base
     // breakpoint, the single implicit column falls back to `auto`, whose max
     // sizing function is max-content — and max-content for wrapped OR nowrap
-    // text is the same single-line width either way. A long team name (this
-    // card's own CurrentTeamCard heading, or MyTeamsCard's row below) then
-    // grows that one column, and every sibling on the page along with it,
-    // producing a page-wide horizontal scrollbar with everything below the
-    // header pushed edge-to-edge.
+    // text is the same single-line width either way. A long team name (the
+    // TeamPicker trigger's own label, below) then grows that one column, and
+    // every sibling on the page along with it, producing a page-wide
+    // horizontal scrollbar with everything below the header pushed
+    // edge-to-edge.
     // SPACING MATCHES THE GRID'S OWN `gap`, WHICH IS THE POINT: `gap-2` below
     // `md` and `gap-6` above it, so the space above the first row and outside
     // the first and last columns is the same as the space between them. It read
@@ -272,20 +284,30 @@ function Dashboard() {
           value={monthParam}
           onChange={(month) => navigate({ to: Route.fullPath, search: { team: teamParam, month } })}
         />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setTeamSettingsTab('members')
+            setTeamSettingsOpen(true)
+          }}
+        >
+          Team settings
+        </Button>
         <div className="ml-auto">
           <BoardEntryButton teamId={teamParam as Id<'teams'>} month={monthParam} />
         </div>
       </div>
       {/*
         THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
-        This component, TeamBoards below it and ScoringSystemCard further down
-        all `useSuspenseQuery(api.scores.getTeamMonth, { teamId, month })`, so
-        every team or month change re-keys all three at once and suspends them
+        ScoresTable, TeamBoards, TodayPanel and ScoringLegend below all
+        `useSuspenseQuery(api.scores.getTeamMonth, { teamId, month })`, so every
+        team or month change re-keys all four at once and suspends them
         together. With no boundary here the suspension bubbled past the route —
         router.tsx sets no defaultPendingComponent either — and unmounted the
         whole grid.
 
-        ONE BOUNDARY PER COMPONENT RATHER THAN ONE AROUND ALL THREE, so a panel
+        ONE BOUNDARY PER COMPONENT RATHER THAN ONE AROUND ALL FOUR, so a panel
         that resolves early is not held back by its neighbours, and so each
         fallback can be the shape of the thing it replaces rather than a
         generic block.
@@ -293,7 +315,24 @@ function Dashboard() {
         THE FALLBACK CARRIES THE SAME `className` AS THE COMPONENT. Dropping it
         would collapse the grid on every switch and shove it back on arrival,
         which is the reported problem with extra steps.
+
+        ScoringSystemCard reads the SAME QUERY too, but it is no longer part of
+        this grid (Task 9): it moved into TeamSettingsDialog below, which
+        mounts it only once the dialog is open on the Scoring tab and gives it
+        its own Suspense boundary there rather than sharing one of these.
       */}
+      {/* Above the table because it answers a different clock's question --
+          "did I play today" is a today question the grid answers badly, by
+          asking you to locate a cell. It renders NOTHING when the viewed month
+          does not contain today, so the grid closes up on a past month. */}
+      <Suspense fallback={<TodayPanelSkeleton className="md:col-span-3" />}>
+        <TodayPanel
+          teamId={teamParam as Id<'teams'>}
+          month={monthParam}
+          myPlayerId={myPlayerId ?? undefined}
+          className="md:col-span-3"
+        />
+      </Suspense>
       <Suspense
         fallback={
           // `rows` COMES FROM ALREADY-RESOLVED DATA, which is what makes the
@@ -308,14 +347,31 @@ function Dashboard() {
           />
         }
       >
-        <ScoresTable teamId={teamParam as Id<'teams'>} month={monthParam} className="md:col-span-3" />
+        <ScoresTable
+          teamId={teamParam as Id<'teams'>}
+          month={monthParam}
+          myPlayerId={myPlayerId ?? undefined}
+          className="md:col-span-3"
+        />
       </Suspense>
-      {/* Column 1, three rows deep, immediately under the scores table — the
-          slot v1 gives it (src/app/me/page.tsx, `md:row-span-3`). Outside the
-          `selectedTeam &&` block below because it reads the team it needs from
-          scores.getTeamMonth itself, the same already-cached query the table
-          above suspends on. */}
-      <Suspense fallback={<TeamBoardsSkeleton className="md:row-span-3" />}>
+      {selectedTeam && (
+        <Suspense fallback={<ScoringLegendSkeleton className="md:col-span-3" />}>
+          <ScoringLegend
+            teamId={teamParam as Id<'teams'>}
+            month={monthParam}
+            isOwner={selectedTeam.isOwner}
+            onEdit={() => {
+              setTeamSettingsTab('scoring')
+              setTeamSettingsOpen(true)
+            }}
+            className="md:col-span-3"
+          />
+        </Suspense>
+      )}
+      {/* Full width since the admin cards left the grid. The `md:row-span-3`
+          that used to be here existed only so CurrentTeamCard and
+          ScoringSystemCard could sit beside it. */}
+      <Suspense fallback={<TeamBoardsSkeleton className="md:col-span-3" />}>
         {/*
           `months` AND `onMonthChange` MAKE THE DAY PICKER REACH PAST THE LOADED
           MONTH (wordle-teams-5vv3). It was clamped to the month on screen, so
@@ -364,57 +420,48 @@ function Dashboard() {
               resetScroll: false,
             })
           }
-          className="md:row-span-3"
+          className="md:col-span-3"
         />
       </Suspense>
       {selectedTeam && (
         <>
-          {/* Every member renders, including the caller's own row — see
-              current-team-card.tsx's doc comment. The owner cannot be
-              removed — removeMember refuses it server-side — so the card
-              gates the remove control on `isOwner && member.id !==
-              myPlayerId` rather than filtering the row out. */}
-          <CurrentTeamCard
+          <TeamSettingsDialog
+            open={teamSettingsOpen}
+            onOpenChange={setTeamSettingsOpen}
             teamId={selectedTeam.id}
+            defaultTab={teamSettingsTab}
+            month={monthParam}
+            isPro={isPro}
             name={selectedTeam.name}
             members={selectedTeam.members}
             isOwner={selectedTeam.isOwner}
             myPlayerId={myPlayerId}
+            teams={teams}
             onEditSettings={() => setSettingsOpen(true)}
             // Leaving the selected team leaves ?team= pointing at a team you
             // are no longer on — the same broken-param problem deleting one
-            // has, so this is MyTeamsCard's onDeleted handler below, minus its
-            // `deleted !== teamParam` guard: this card only ever renders the
+            // has, so this is onDeleted below, minus its `deleted !==
+            // teamParam` guard: the Members tab only ever renders the
             // selected team, so there is no other team it could have been.
             onLeft={() => {
               localStorage.removeItem(STORAGE_KEY)
               void navigate({ to: Route.fullPath, search: {}, replace: true })
             }}
+            // Deleting the team you were looking at (from the My teams tab)
+            // leaves ?team= pointing at a gone id. onDeleted clears both the
+            // param and the remembered team so the sync hook picks the first
+            // remaining team instead of the error boundary. Deleting a team
+            // OTHER than the selected one is a no-op here — the guard below —
+            // since ?team= still points at something real.
+            onDeleted={(deleted) => {
+              if (deleted !== teamParam) return
+              localStorage.removeItem(STORAGE_KEY)
+              void navigate({ to: Route.fullPath, search: {}, replace: true })
+            }}
           />
           <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />
-          {/* The third getTeamMonth consumer — see the boundary above. */}
-          <Suspense fallback={<ScoringSystemCardSkeleton />}>
-            <ScoringSystemCard
-              teamId={teamParam as Id<'teams'>}
-              month={monthParam}
-              isPro={isPro}
-              isOwner={selectedTeam.isOwner}
-            />
-          </Suspense>
         </>
       )}
-      {/* Deleting the team you were looking at leaves ?team= pointing at a gone
-          id. onDeleted clears both the param and the remembered team so the
-          sync hook picks the first remaining team instead of the error
-          boundary. */}
-      <MyTeamsCard
-        teams={teams}
-        onDeleted={(deleted) => {
-          if (deleted !== teamParam) return
-          localStorage.removeItem(STORAGE_KEY)
-          void navigate({ to: Route.fullPath, search: {}, replace: true })
-        }}
-      />
     </main>
   )
 }

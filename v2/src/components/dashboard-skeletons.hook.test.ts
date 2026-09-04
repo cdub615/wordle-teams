@@ -219,15 +219,21 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     return found
   }
 
-  test('all three getTeamMonth consumers are wrapped, each by its own skeleton', () => {
-    // THE THREE THAT SUSPEND TOGETHER. scores-table.tsx:36,
-    // teams/team-boards.tsx:50 and scoring-system-card.tsx:53 all call
+  test('all four dashboard-grid getTeamMonth consumers are wrapped, each by its own skeleton', () => {
+    // THE FOUR THAT SUSPEND TOGETHER, ON THE GRID ITSELF. scores-table.tsx:36,
+    // teams/team-boards.tsx:50, today-panel.tsx and scoring-legend.tsx all call
     // useSuspenseQuery on api.scores.getTeamMonth keyed by (teamId, month), so
-    // a switch re-keys all three at once. Missing any one of them leaves the
+    // a switch re-keys all four at once. Missing any one of them leaves the
     // grid blanking on every switch, just less of it.
+    //
+    // ScoringSystemCard READS THE SAME QUERY TOO, but it moved off this grid
+    // in Task 9 — it now lives inside TeamSettingsDialog (see that
+    // component's own source), mounted only once the dialog is open on the
+    // Scoring tab, with its own Suspense boundary there rather than one of
+    // these four.
     const wrapped = boundaries().map((boundary) => boundary.child)
 
-    expect(wrapped.sort()).toEqual(['ScoresTable', 'ScoringSystemCard', 'TeamBoards'])
+    expect(wrapped.sort()).toEqual(['ScoresTable', 'ScoringLegend', 'TeamBoards', 'TodayPanel'])
   })
 
   test('each fallback is the skeleton for the component it wraps, not a generic one', () => {
@@ -237,19 +243,22 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
 
     expect(byChild.get('ScoresTable')).toContain('ScoresTableSkeleton')
     expect(byChild.get('TeamBoards')).toContain('TeamBoardsSkeleton')
-    expect(byChild.get('ScoringSystemCard')).toContain('ScoringSystemCardSkeleton')
+    expect(byChild.get('TodayPanel')).toContain('TodayPanelSkeleton')
+    expect(byChild.get('ScoringLegend')).toContain('ScoringLegendSkeleton')
   })
 
   test('the fallbacks carry the same grid classes as the components they replace', () => {
     // The layout-jump half, and it is separately mutable: a boundary can be
     // perfectly placed with a fallback that collapses the grid underneath it.
-    // ScoringSystemCard carries no grid class in this file, so its fallback
-    // must not invent one — asserted as an absence for that reason.
+    // Every one of these four is full width, unlike the retired
+    // ScoringSystemCard boundary this suite used to check for, which carried
+    // no grid class at all.
     const byChild = new Map(boundaries().map((boundary) => [boundary.child, boundary.fallback]))
 
     expect(byChild.get('ScoresTable')).toContain('md:col-span-3')
-    expect(byChild.get('TeamBoards')).toContain('md:row-span-3')
-    expect(byChild.get('ScoringSystemCard')).not.toContain('md:')
+    expect(byChild.get('TeamBoards')).toContain('md:col-span-3')
+    expect(byChild.get('TodayPanel')).toContain('md:col-span-3')
+    expect(byChild.get('ScoringLegend')).toContain('md:col-span-3')
   })
 
   test('the scores-table fallback is told which month it is sizing for', () => {
