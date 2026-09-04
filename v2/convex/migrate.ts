@@ -1,6 +1,7 @@
 import { internalMutation, internalQuery } from './_generated/server'
 import { v } from 'convex/values'
 import { SYSTEM_FIELDS } from './lib/scoringSystem.ts'
+import { METHODS } from './lib/reminders.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -720,6 +721,84 @@ export const parityProbe = internalQuery({
         playerLegacyId: playerLegacyById.get(m.playerId) ?? null,
         membershipStatus: m.membershipStatus,
       })),
+    }
+  },
+})
+
+/**
+ * WHAT THE COPY ACTUALLY LEFT ON THIS DEPLOYMENT'S REMINDER FIELDS.
+ *
+ * wt-ksh.7.32's acceptance criterion is that a copy run "cannot leave any player
+ * with a non-empty reminderDeliveryMethods, VERIFIED BY MEASURING BETA AFTER A
+ * RUN". Everything else about that issue was settled by the write path —
+ * scripts/lib/copy-reminder-policy.mjs withholds the two fields that decide
+ * eligibility, ten tests, nine mutations killed — but a write path that is
+ * correct is an INFERENCE about stored state, not a measurement of it, and this
+ * phase has been caught by exactly that distinction more than once. Nothing else
+ * in this file exposes these fields: parityProbe returns legacyId and email,
+ * playerScoreFingerprint and countTable never touch them.
+ *
+ * COUNTS ONLY, AND THAT IS NOT NEGOTIABLE. This repository is public and these
+ * rows are real people. A probe that returned addresses or per-row values to
+ * answer "how many" would be trading a permanent exposure for a number.
+ *
+ * SPLIT BY ORIGIN, BECAUSE THE UNSPLIT ANSWER IS AMBIGUOUS IN THE DIRECTION THAT
+ * MATTERS. Beta holds v2-born players (no legacyId) alongside copied ones. A
+ * v2-born account that set its own reminder preferences through the UI is not
+ * the copy's doing and must not be read as a policy failure — and the copy
+ * leaving a value behind must not be excused as "probably the native account".
+ * `legacyId === undefined` means born in v2; see schema.ts.
+ *
+ * FOUR NUMBERS, NOT ONE, BECAUSE "NON-EMPTY" AND "ELIGIBLE" ARE DIFFERENT
+ * QUESTIONS and only measuring the first would overstate safety:
+ *
+ *   withAnyMethod    the acceptance criterion's literal wording — a non-empty
+ *                    reminderDeliveryMethods, whatever it holds.
+ *   withKnownMethod  a method convex/reminders.ts would actually act on. Its
+ *                    sweep filters on METHODS membership, not on emptiness,
+ *                    because a copied row can carry an unvalidated string like
+ *                    'sms' that never passed through updateTimeZoneFor. So
+ *                    withAnyMethod can exceed withKnownMethod, and the gap is
+ *                    rows that look armed and are inert.
+ *   withTimeZone     the OTHER half of eligibility, and the one the policy
+ *                    deliberately does not clear. copy-reminder-policy.mjs
+ *                    OMITS timeZone rather than sending undefined, and says so:
+ *                    "anything an earlier copy already wrote has to be measured
+ *                    and cleared deliberately, not assumed away here." This is
+ *                    that measurement. A non-zero here is expected and is not a
+ *                    7.32 failure on its own.
+ *   sweepEligible    both halves at once — timeZone AND a known method. This is
+ *                    the number that would mean a real person could receive a
+ *                    reminder from beta, and it is the one that must be zero.
+ *                    REMINDERS_ENABLED is unset on beta and reminders.ts gates
+ *                    on it, so this being non-zero would still not send mail
+ *                    today; it would mean the second layer had failed and the
+ *                    env switch was again the only thing protecting, which is
+ *                    the state wt-ksh.7.32 exists to end.
+ */
+export const reminderProbe = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const players = await ctx.db.query('players').collect()
+
+    // Read through the same predicate the sweep uses rather than a restatement
+    // of it. reminders.ts checks `.some((m) => METHODS.includes(m))`; a copy of
+    // that condition here could drift from the thing it is supposed to measure,
+    // and a probe that disagrees with the sweep is worse than no probe.
+    const hasKnownMethod = (p: Doc<'players'>) =>
+      p.reminderDeliveryMethods.some((m) => (METHODS as ReadonlyArray<string>).includes(m))
+
+    const tally = (rows: Array<Doc<'players'>>) => ({
+      total: rows.length,
+      withAnyMethod: rows.filter((p) => p.reminderDeliveryMethods.length > 0).length,
+      withKnownMethod: rows.filter(hasKnownMethod).length,
+      withTimeZone: rows.filter((p) => !!p.timeZone).length,
+      sweepEligible: rows.filter((p) => !!p.timeZone && hasKnownMethod(p)).length,
+    })
+
+    return {
+      copied: tally(players.filter((p) => p.legacyId !== undefined)),
+      v2Born: tally(players.filter((p) => p.legacyId === undefined)),
     }
   },
 })

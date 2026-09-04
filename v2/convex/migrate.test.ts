@@ -554,3 +554,154 @@ describe('countTable', () => {
     ).rejects.toThrow()
   })
 })
+
+
+describe('reminderProbe', () => {
+  // WHAT THIS SUITE IS FOR. wt-ksh.7.32 stays open on one clause — that a copy
+  // "cannot leave any player with a non-empty reminderDeliveryMethods, VERIFIED
+  // BY MEASURING BETA AFTER A RUN". The probe is the measuring instrument, so
+  // the instrument has to be trustworthy before the number it returns means
+  // anything: a probe that under-reports would close that issue on a lie, and it
+  // would close it in the one direction nobody would go back and re-check.
+  //
+  // THE FIXTURE IS BUILT SO THAT EVERY COUNTER DISAGREES WITH EVERY OTHER. Five
+  // players, chosen so no two of the five numbers coincide — because a fixture
+  // where withAnyMethod and withKnownMethod happen to be equal cannot catch the
+  // probe conflating them, and conflating them is the specific mistake that
+  // would overstate safety (see METHODS in convex/lib/reminders.ts: a copied row
+  // can carry an unvalidated 'sms' that the sweep would never act on).
+  const seed = async (t: ReturnType<typeof convexTest>) =>
+    await t.run(async (ctx) => {
+      const base = { firstName: 'Ada', lastName: 'Lovelace', hasPwa: false, reminderDeliveryTime: '18:00:00' }
+      // COPIED, and genuinely armed: both halves of eligibility present.
+      await ctx.db.insert('players', {
+        ...base,
+        legacyId: '11111111-1111-4111-8111-111111111111',
+        email: 'copied-armed@a.test',
+        timeZone: 'America/New_York',
+        reminderDeliveryMethods: ['email'],
+      })
+      // COPIED, non-empty but INERT — 'sms' is not in METHODS, so the sweep
+      // skips it. This row is the whole reason withAnyMethod and withKnownMethod
+      // are two numbers rather than one.
+      await ctx.db.insert('players', {
+        ...base,
+        legacyId: '22222222-2222-4222-8222-222222222222',
+        email: 'copied-sms@a.test',
+        timeZone: 'America/New_York',
+        reminderDeliveryMethods: ['sms'],
+      })
+      // COPIED, a known method but NO timeZone — the other half missing.
+      await ctx.db.insert('players', {
+        ...base,
+        legacyId: '33333333-3333-4333-8333-333333333333',
+        email: 'copied-nozone@a.test',
+        reminderDeliveryMethods: ['email'],
+      })
+      // COPIED, a timeZone the policy left behind but methods correctly cleared.
+      // This is the shape a policy-compliant copy actually produces, because
+      // copy-reminder-policy.mjs OMITS timeZone and sends methods empty.
+      await ctx.db.insert('players', {
+        ...base,
+        legacyId: '44444444-4444-4444-8444-444444444444',
+        email: 'copied-cleared@a.test',
+        timeZone: 'America/New_York',
+        reminderDeliveryMethods: [],
+      })
+      // V2-BORN — no legacyId. Set its own preferences through the UI, which is
+      // not the copy's doing and must never be counted against the policy.
+      await ctx.db.insert('players', {
+        ...base,
+        email: 'native@a.test',
+        timeZone: 'Europe/London',
+        reminderDeliveryMethods: ['push'],
+      })
+    })
+
+  test('splits copied from v2-born, and never counts a native row against the copy', async () => {
+    const t = convexTest(schema, modules)
+    await seed(t)
+    const probe = await t.query(internal.migrate.reminderProbe, {})
+
+    // Four copied, one native. Swapping the two buckets, or testing
+    // `legacyId === undefined` for the copied side, changes both totals.
+    expect(probe.copied.total).toBe(4)
+    expect(probe.v2Born.total).toBe(1)
+
+    // The native player is fully armed. If the split leaked, copied.sweepEligible
+    // would be 2 rather than 1 — which is the exact misread wt-ksh.7.32's notes
+    // warn about: "the answer will be ambiguous in exactly the direction that
+    // matters".
+    expect(probe.v2Born.sweepEligible).toBe(1)
+    expect(probe.copied.sweepEligible).toBe(1)
+  })
+
+  test('a non-empty but unknown method counts as armed-looking and NOT as eligible', async () => {
+    const t = convexTest(schema, modules)
+    await seed(t)
+    const probe = await t.query(internal.migrate.reminderProbe, {})
+
+    // 'email', 'sms' and 'email' are non-empty; the cleared row is not.
+    expect(probe.copied.withAnyMethod).toBe(3)
+    // Only the two 'email' rows are methods the sweep would act on.
+    expect(probe.copied.withKnownMethod).toBe(2)
+    // The gap is the point: these must never be the same number, or the probe
+    // cannot distinguish "looks armed" from "is armed".
+    expect(probe.copied.withAnyMethod).not.toBe(probe.copied.withKnownMethod)
+  })
+
+  test('sweepEligible needs BOTH halves, not either', async () => {
+    const t = convexTest(schema, modules)
+    await seed(t)
+    const probe = await t.query(internal.migrate.reminderProbe, {})
+
+    // Three copied rows carry a timeZone (armed, sms, cleared); two carry a
+    // known method (armed, nozone). Only ONE carries both.
+    expect(probe.copied.withTimeZone).toBe(3)
+    expect(probe.copied.withKnownMethod).toBe(2)
+    expect(probe.copied.sweepEligible).toBe(1)
+
+    // Turning the && into a || would report 4 here, and every single-half row
+    // would be read as a player who could receive mail.
+    expect(probe.copied.sweepEligible).toBeLessThan(probe.copied.withTimeZone)
+    expect(probe.copied.sweepEligible).toBeLessThan(probe.copied.withKnownMethod)
+  })
+
+  test('the shape a policy-compliant copy produces: methods cleared, timeZone possibly left behind', async () => {
+    // THE REAL-WORLD EXPECTED READING, asserted as a shape rather than left to
+    // be recognised on the day. copy-reminder-policy.mjs sends
+    // reminderDeliveryMethods EXPLICITLY EMPTY (so a re-run clears what an
+    // earlier copy wrote) but OMITS timeZone (so an earlier copy's value
+    // survives, which that module says out loud must be "measured and cleared
+    // deliberately, not assumed away"). So a clean beta reads zero on the method
+    // counters and possibly NON-zero on withTimeZone — and that is a pass, not a
+    // failure, because eligibility needs both.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await ctx.db.insert('players', {
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        hasPwa: false,
+        reminderDeliveryTime: '18:00:00',
+        legacyId: '55555555-5555-4555-8555-555555555555',
+        email: 'policy-compliant@a.test',
+        timeZone: 'America/Chicago',
+        reminderDeliveryMethods: [],
+      })
+    })
+    const probe = await t.query(internal.migrate.reminderProbe, {})
+
+    expect(probe.copied.withAnyMethod).toBe(0)
+    expect(probe.copied.withKnownMethod).toBe(0)
+    expect(probe.copied.sweepEligible).toBe(0)
+    expect(probe.copied.withTimeZone).toBe(1)
+  })
+
+  test('an empty deployment reads zero rather than throwing', async () => {
+    const t = convexTest(schema, modules)
+    const probe = await t.query(internal.migrate.reminderProbe, {})
+    expect(probe.copied.total).toBe(0)
+    expect(probe.v2Born.total).toBe(0)
+    expect(probe.copied.sweepEligible).toBe(0)
+  })
+})
