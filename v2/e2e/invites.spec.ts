@@ -3,6 +3,7 @@ import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
 import { completeProfile } from './complete-profile'
+import { openTeamSettings } from './team-settings'
 import type { Locator, Page } from '@playwright/test'
 
 /**
@@ -84,7 +85,13 @@ const SEEDED_TEAM = 'E2E Team'
  */
 const re = (literal: string): RegExp => new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
 
-/** The Current Team card, by the landmark current-team-card.tsx gives it. */
+/**
+ * The Current Team card, by the landmark current-team-card.tsx gives it.
+ *
+ * Lives inside TeamSettingsDialog's "Members" tab now (wordle-teams-4srj),
+ * not directly on the page — every caller must have called
+ * `openTeamSettings(page)` first, same as teams.spec.ts.
+ */
 const teamCard = (page: Page): Locator => page.getByRole('region', { name: 'Current Team' })
 
 /**
@@ -127,10 +134,17 @@ const TOAST_TIMEOUT = { timeout: 15_000 }
 /**
  * Opens the invite dialog and submits one address. Returns the dialog, because
  * two of the three tests then assert on whether it is still there.
+ *
+ * SCOPED BY NAME, NOT A BARE `getByRole('dialog')`, since wordle-teams-4srj:
+ * `teamCard` now lives inside TeamSettingsDialog (own accessible name "Team
+ * settings"), so this one opens ON TOP OF an already-open dialog rather than
+ * being the only one on the page. invite-player-dialog.tsx's own
+ * `<DialogTitle>Invite Player to {teamName}</DialogTitle>` is what tells the
+ * two apart.
  */
 async function invite(page: Page, email: string): Promise<Locator> {
   await teamCard(page).getByRole('button', { name: 'Invite player' }).click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog', { name: /^Invite Player/ })
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('Email').fill(email)
   await dialog.getByRole('button', { name: 'Invite' }).click()
@@ -178,6 +192,7 @@ test('an invited address joins the team after completing a profile', async ({ br
   try {
     const owner = await ownerContext.newPage()
     await signInWithOwnTeam(owner, ownerEmail)
+    await openTeamSettings(owner)
     await expect(teamCard(owner)).toBeVisible()
 
     // OUTCOME 1 of 4 — `invited`. The address has no account, so it is parked
@@ -185,8 +200,10 @@ test('an invited address joins the team after completing a profile', async ({ br
     // expected back lowercase everywhere below.
     await invite(owner, inviteeTyped)
     await expect(toastWith(owner, `Invite sent to ${inviteeEmail}`)).toBeVisible(TOAST_TIMEOUT)
-    // The dialog closes on every outcome except already_member.
-    await expect(owner.getByRole('dialog')).toHaveCount(0)
+    // The invite dialog closes on every outcome except already_member —
+    // scoped by name since TeamSettingsDialog, opened above, is a second
+    // dialog that stays on the page throughout this test.
+    await expect(owner.getByRole('dialog', { name: /^Invite Player/ })).toHaveCount(0)
 
     // Divergence 6: v1 shows an owner nowhere who they invited. The row is
     // asserted twice on purpose — once by its cancel control, which counts rows
@@ -206,7 +223,7 @@ test('an invited address joins the team after completing a profile', async ({ br
     // has accepted. v1 said "Successfully invited player" here as well.
     await invite(owner, inviteeTyped)
     await expect(toastWith(owner, `Invite re-sent to ${inviteeEmail}`)).toBeVisible(TOAST_TIMEOUT)
-    await expect(owner.getByRole('dialog')).toHaveCount(0)
+    await expect(owner.getByRole('dialog', { name: /^Invite Player/ })).toHaveCount(0)
     // A resend writes NOTHING (teams.ts), so the list must not grow a second
     // row for the same address — and the dedupe in current-team-card.tsx must
     // not be what is hiding one. This also pins the case-insensitive
@@ -230,6 +247,7 @@ test('an invited address joins the team after completing a profile', async ({ br
     // with zero teams the dashboard renders the empty state and never writes
     // that parameter (see app.tsx / dashboard-search.ts).
     await expect(joiner).toHaveURL(/\?team=/)
+    await openTeamSettings(joiner)
     const joinerCard = teamCard(joiner)
     await expect(joinerCard.getByRole('heading', { name: SEEDED_TEAM })).toBeVisible()
     // Both members, so this is demonstrably the OWNER'S team and not some
@@ -304,6 +322,7 @@ test('inviting someone already on the team says so and leaves the dialog open', 
   await convex.mutation(api.e2eSeed.ensureTeamFor, { email: correctedEmail })
 
   await signInWithOwnTeam(page, email)
+  await openTeamSettings(page)
   await expect(teamCard(page)).toBeVisible()
   await expect(teamCard(page).getByRole('listitem')).toHaveCount(1)
 
@@ -353,7 +372,9 @@ test('inviting someone already on the team says so and leaves the dialog open', 
   // resolve. No reopening anywhere between here and the invite() above.
   await dialog.getByLabel('Email').fill(correctedEmail)
   await dialog.getByRole('button', { name: 'Invite' }).click()
-  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // Scoped by name, not a bare `getByRole('dialog')`: TeamSettingsDialog is
+  // still open behind this one (see the `invite` helper's own note).
+  await expect(page.getByRole('dialog', { name: /^Invite Player/ })).toHaveCount(0)
   await expect(teamCard(page).getByRole('listitem')).toHaveCount(2)
 })
 
@@ -395,6 +416,7 @@ test('inviting someone who already has an account adds them to the team directly
   try {
     const owner = await ownerContext.newPage()
     await signInWithOwnTeam(owner, ownerEmail)
+    await openTeamSettings(owner)
     const card = teamCard(owner)
     await expect(card).toBeVisible()
     // One member — the owner — before the add, so the count below measures a
@@ -407,7 +429,7 @@ test('inviting someone who already has an account adds them to the team directly
     // The firstName the server read back off the matched account, not anything
     // the client typed.
     await expect(toastWith(owner, `Ada was added to ${SEEDED_TEAM}`)).toBeVisible(TOAST_TIMEOUT)
-    await expect(owner.getByRole('dialog')).toHaveCount(0)
+    await expect(owner.getByRole('dialog', { name: /^Invite Player/ })).toHaveCount(0)
 
     // AND THEY ARE ACTUALLY ON THE TEAM, which the toast alone does not prove.
     await expect(card.getByText('Ada Lovelace')).toBeVisible()

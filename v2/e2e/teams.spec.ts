@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
+import { openTeamSettings } from './team-settings'
 import { toPuzzleDay } from '../convex/lib/puzzleDay.ts'
 import type { Page } from '@playwright/test'
 
@@ -57,7 +58,10 @@ test('creating a team through the dropdown makes it the selected one', async ({ 
   await expect(page.getByText('Successfully created team')).toBeVisible()
   await expect(page.getByRole('button', { name: `Team: ${name}` })).toBeVisible()
   await expect(page).toHaveURL(/team=/)
-  // The new team is on the MyTeams card too, not just the picker.
+  // The new team is on the MyTeams card too, not just the picker — now behind
+  // TeamSettingsDialog's "My teams" tab (wordle-teams-4srj), not on the
+  // dashboard grid.
+  await openTeamSettings(page, 'teams')
   await expect(page.getByRole('heading', { name: 'My Teams' })).toBeVisible()
   await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible()
 
@@ -72,6 +76,11 @@ test('creating a team through the dropdown makes it the selected one', async ({ 
   // `getByText`) because the same "E2E Tester" text also appears in
   // MyTeamsCard's row for this team, and a plain text locator would be
   // ambiguous between the two cards.
+  //
+  // Current Team now lives on a different tab of the same dialog than My
+  // Teams does (wordle-teams-4srj) — TeamSettingsDialog's Tabs are
+  // uncontrolled, so switching here is a plain tab click, not a re-open.
+  await openTeamSettings(page, 'members')
   const currentTeamCard = page.getByRole('region', { name: 'Current Team' })
   await expect(currentTeamCard.getByRole('heading', { name })).toBeVisible()
   await expect(currentTeamCard.getByText('E2E Tester')).toBeVisible()
@@ -85,6 +94,9 @@ test('creating a team through the dropdown makes it the selected one', async ({ 
 test('the scoring system card shows the eight rows for the selected month', async ({ page }) => {
   await signInWithTeam(page)
 
+  // Behind TeamSettingsDialog's "Scoring" tab now, not on the dashboard grid
+  // (wordle-teams-4srj).
+  await openTeamSettings(page, 'scoring')
   await expect(page.getByRole('heading', { name: 'Scoring System' })).toBeVisible()
   const rows = page.getByRole('table').filter({ has: page.getByText('Attempts') }).locator('tbody tr')
   await expect(rows).toHaveCount(8)
