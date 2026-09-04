@@ -125,7 +125,15 @@ export function TodayPanel({
           aria-valuetext={`${summary.playedCount} of ${summary.total} played`}
           className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted"
         >
-          <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
+          {/* bg-accent-solid, NOT bg-primary (wordle-teams-5jcn.21). --primary
+              maps to --text (styles.css), which is near-white in dark — the
+              owner flagged the fill as stark white on the live dashboard.
+              --accent-solid is the brand green already used for prose links
+              and the focus ring, and against this bar's bg-muted track
+              (--surface-sunken) it clears the 3:1 non-text contrast bar in
+              both themes — the same token pair styles.test.ts already
+              measures for the feature-card icons (4.56 light / 7.48 dark). */}
+          <div className="h-full rounded-full bg-accent-solid transition-[width]" style={{ width: `${pct}%` }} />
         </div>
       </div>
 

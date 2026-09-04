@@ -19,6 +19,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import { pinnedCellClassName } from './scores-table.tsx'
+import { codeOf } from '#/test-support/source-ast.ts'
 
 // A cwd-relative path, NOT `new URL(..., import.meta.url)` — see
 // dashboard-skeletons.hook.test.ts's comment on the same line for why: this
@@ -54,6 +55,20 @@ describe('the additive changes are present and are not decorative', () => {
 
   test('the full name survives as a title attribute when it is ellipsed', () => {
     expect(source).toMatch(/title=/)
+  })
+
+  test('the today tint is wired to the day cell whose day matches today (wordle-teams-5jcn.27)', () => {
+    // The one assertion this file's header comment has promised since it was
+    // written and never had: scores-table.tsx puts `bg-accent/40` on the day
+    // TableCell via `cn(day === today && 'bg-accent/40')`. codeOf() strips
+    // comments first — the surrounding prose already narrates "the tint" in
+    // English, so a plain `source.toContain` would keep passing even if the
+    // real conditional were deleted, as long as that prose survived.
+    //
+    // Proven to discriminate: deleting `&& 'bg-accent/40'` from that
+    // expression in scores-table.tsx turns this assertion red, confirmed
+    // then reverted.
+    expect(codeOf(source)).toContain("cn(day === today && 'bg-accent/40')")
   })
 
   test('the collision rule is imported, not restated', () => {
