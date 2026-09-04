@@ -16,20 +16,27 @@ export type NamedPlayer = { id: string; firstName: string; lastName: string }
  * A COLLIDING PLAYER WITH AN EMPTY LAST NAME KEEPS THEIR BARE FIRST NAME rather
  * than gaining a trailing space or an "undefined" — `''[0]` is undefined, which
  * is the precise bug lib/initials.ts was written against. They stay ambiguous,
- * which is honest: there is no initial to disambiguate them with. An empty
- * LAST name is handled because it is constructible — a player can genuinely
- * have a first name and no last name — which is why the `&& initial` guard
- * above exists.
+ * which is honest: there is no initial to disambiguate them with.
  *
- * AN EMPTY FIRST NAME IS NOT HANDLED, AND DOES NOT NEED TO BE: it is
- * unconstructible in v2. Both write paths are guarded — isCompleteName
- * (convex/lib/invite.ts) rejects a blank first or last name at the mutation,
- * and isNamed (scripts/lib/copy-filters.mjs) drops nameless rows from the
- * Supabase copy rather than carrying them across (schema.ts:44-70 walks both
- * in full). If those guards were ever relaxed, two colliding empty first
- * names would produce a leading space and an empty label — `' A'` and `''` —
- * so that is the cost of relaxing them, written down here rather than guarded
- * against a state that cannot currently occur.
+ * NEITHER AN EMPTY FIRST NAME NOR AN EMPTY LAST NAME IS CONSTRUCTIBLE IN V2 —
+ * there is no asymmetry here, because both write paths guard both fields the
+ * same way. isCompleteName (convex/lib/invite.ts), enforced at
+ * convex/players.ts:146, rejects a blank first OR last name at the mutation;
+ * isNamed (scripts/lib/copy-filters.mjs) is `Boolean(first_name && last_name)`
+ * and keeps the 151 nameless production rows out of the Supabase copy rather
+ * than carrying either half across. reminderEmails.ts:105-118 makes this exact
+ * argument for firstName; it applies unchanged to lastName, since both guards
+ * check both fields identically.
+ *
+ * SO THE `&& initial` GUARD ABOVE IS NOT DEFENDING A REACHABLE STATE. Its
+ * honest value is defence in depth, not a live fix, and relaxing either guard
+ * costs both fields at once: a colliding empty last name would degrade here
+ * to a bare first name instead of reproducing the literal "Ada undefined"
+ * that scores-table.tsx's inline `lastName[0]` still produces today, and two
+ * colliding empty FIRST names would produce a leading space and an empty
+ * label — `' A'` and `''`. That is the cost of relaxing this pair of guards,
+ * written down here rather than defended against a state that cannot
+ * currently occur.
  */
 export function displayNamesFor(players: ReadonlyArray<NamedPlayer>): Map<string, string> {
   const seen = new Set<string>()
