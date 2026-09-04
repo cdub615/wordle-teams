@@ -57,11 +57,23 @@ const [EMAIL_METHOD, PUSH_METHOD] = METHODS
  *    list is lowercased on read rather than trusting every future caller to
  *    compare case-insensitively.
  *
- * This env gate is the ONLY protection here — not a second layer on top of
- * "the data is empty anyway". The Supabase copy script does carry
- * reminderDeliveryMethods and timeZone for every copied player
- * (scripts/copy-from-supabase.mjs), and E2E_TEST_MODE is not set on beta, so
- * sendEmail's throwaway-address suppression does not apply there either.
+ * TREAT THIS ENV GATE AS THE ONLY PROTECTION HERE, even though it is no longer
+ * literally the only one. E2E_TEST_MODE is not set on beta, so sendEmail's
+ * throwaway-address suppression does not apply there, and this gate is what
+ * stands between a config slip and mailing real people.
+ *
+ * WHAT CHANGED, AND WHY IT DOES NOT RELAX ANYTHING (wt-ksh.7.32, 2026-09-02):
+ * this comment used to say the copy script "does carry reminderDeliveryMethods
+ * and timeZone for every copied player". It no longer does.
+ * scripts/lib/copy-reminder-policy.mjs withholds both fields that decide
+ * eligibility, and restores them on one flag (--with-reminders) that only the
+ * cutover copy passes. That is a genuine second layer, and it is worth having
+ * precisely because it holds on its own — but it is NOT a reason to lean on this
+ * one less. Note also that the restoration is asymmetric: the policy sends
+ * reminderDeliveryMethods explicitly empty (so a re-run CLEARS it) but merely
+ * OMITS timeZone, so a zone an earlier copy or a beta sign-in wrote survives
+ * every subsequent copy. docs/runbooks/2026-cutover.md §5.4 measures that at
+ * cutover; wordle-teams-k501 has the reasoning.
  */
 export const sweep = internalMutation({
   // OPTIONAL, NOT A BUG TO "FIX" BACK TO REQUIRED. Convex's Crons.schedule

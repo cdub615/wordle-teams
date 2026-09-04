@@ -260,30 +260,55 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
 
 ## 4. Cutover day
 
-### 4.1 — Maintenance mode is TWO STEPS, not one
+### 4.1 — Maintenance mode is ONE step, and it is a deploy
 
-**`wt-ksh.8.52`, and it is the step most likely to be got wrong.**
+**Corrected 2026-09-04.** An earlier version of this section said two steps —
+flip the var, then purge the Cloudflare cache. **There is nothing to purge**, and
+the reasoning is in `wt-ksh.8.52`, which closed not-applicable after the outage
+drill measured it. What that section got wrong is worth one paragraph, because
+the wrong version is the intuitive one:
 
-`/` is the only path that is both gated by maintenance mode and **edge-cacheable**
-(`public, max-age=0, s-maxage=86400, stale-while-revalidate=604800`). A cached
-landing page **outlives the flag** — the Worker is never invoked, so setting
-`MAINTENANCE=true` does not take `/` down.
+`/` is the only path that is both gated and cacheable, so the fear was a cached
+landing page outliving the flag — true of a **CDN edge cache sitting in front of
+a Worker**, which is not what shipped. `wt-ksh.8.45` measured that `s-maxage` on
+a Worker response reaches no Cloudflare edge cache at all, and
+`wordle-teams-fqeq` bought the caching back a different way: documents are stored
+through the **Cache API, inside the fetch handler.** That is a store the Worker
+*consults*, not a layer in front of it, so **the Worker runs on every request** —
+and `src/server.ts` consults it strictly downstream of the gate
+(`withMaintenanceGate` delegates to `withCachePolicyOnDocuments` only when the
+request is NOT gated, and `cache.match` lives inside the latter). A stored `/`
+**cannot** outlive the flag.
 
-- [ ] Set `MAINTENANCE` to `"true"` and deploy.
-- [ ] **Purge the Cloudflare cache**, or `/` keeps serving to anyone whose edge
-      has it. `wrangler deploy` purges nothing.
-- [ ] Confirm by fetching `/` from an origin that has not seen it.
+- [ ] Set `MAINTENANCE` to the exact string `"true"`. Only `"true"` turns it on
+      — `"True"`, `"1"` and `"yes"` all leave the site UP, which is the safe way
+      for this to be wrong.
 
-The same applies in reverse when you turn it off: purge again, or the "Coming
-Soon" page outlives the outage by up to a day.
+**BUDGET FOR A VERSION ROLLOUT, NOT A FIELD EDIT.** A Worker var is part of a
+VERSION, not a value hanging beside one, so the Cloudflare dashboard offers no
+Save — editing `MAINTENANCE` and confirming **mints and deploys a new version**,
+and the button says Deploy. This surprised the owner mid-drill on 2026-09-04. It
+is the one place this is worse than v1's Edge Config, where the value changed
+with no deploy at all.
 
-> **Related, and worth knowing before you rely on any cache behaviour:** a Worker
-> response is **not written to Cloudflare's edge cache by default.** That needs
-> `caches.default.put`, `cacheEverything`, or a Cache Rule, and **none of the
-> three is in the repo** (`wt-ksh.8.45`). So the `s-maxage` win may currently be
-> zero — which would make this section moot, and would also mean nothing is
-> cached that needs purging. **One `curl` for `cf-cache-status`, run twice,
-> settles it.** Do that before deciding how much of this section applies.
+> **A DEPLOY FROM THE REPO SILENTLY ENDS THE OUTAGE.** `vars` in
+> `wrangler.jsonc` carries `"false"`, so the next `wrangler deploy` overwrites
+> whatever the dashboard holds. That is deliberate — the site cannot stay dark
+> because someone forgot to flip back — but it means **the dashboard is the ONLY
+> thing holding maintenance on.** Do not ship a routine deploy during the window
+> and expect the maintenance page to survive it.
+
+- [ ] Confirm: every gated path answers **307** to `/maintenance`, and the 307
+      carries `private, no-store` with no `s-maxage`. Measured on beta
+      2026-09-04 with `/` warm (`x-doc-cache: HIT`, `age: 12`) immediately
+      before the flip: all five gated paths 307'd, all four static pages stayed
+      200.
+
+**What actually remains is client-side, and no purge reaches it.** `/` ships
+`stale-while-revalidate=604800`, so an individual visitor's OWN browser may serve
+them the pre-outage landing page while it revalidates. It self-corrects on the
+next navigation and the blast radius is one visitor rather than everyone — a
+property to know about, **not a step to run.**
 
 ### 4.2 — The final copy
 
@@ -403,7 +428,7 @@ and before the DNS flip**, then re-read the counts. There is no tombstone.
       `max-age=0` on a SECOND request, not `max-age=14400` (§3.5).
 - [ ] All five `POLAR_*` → production, as a set (§2.2).
 - [ ] `SITE_URL` → production origin.
-- [ ] `MAINTENANCE` → `"false"`, **and purge** (§4.1).
+- [ ] `MAINTENANCE` → `"false"` (§4.1). One step; there is nothing to purge.
 - [ ] **Re-confirm `E2E_TEST_MODE` is still unset** (§2.1). This is the second of
       the two checks.
 
@@ -421,16 +446,66 @@ and before the DNS flip**, then re-read the counts. There is no tombstone.
       Compare against `docs/superpowers/audits/2026-09-01-parity-routes.md`.
       Known differences live in `V2-ADDENDUM.md` §7a — **forty-three of them, all
       deliberate. Anything else is a bug.**
-- [ ] **5.4 — Only now, `REMINDERS_ENABLED=true`** (§2.3).
-- [ ] **5.5 — Watch the deploy's EFFECT, not its green.** For a Convex change
+- [ ] **5.4 — BEFORE reminders go on: count who became eligible, and compare
+      against v1.** `wordle-teams-k501`, settled here on 2026-09-04.
+
+  **`--with-reminders` does NOT overwrite `timeZone` for every copied player**,
+  which is the assumption this check exists to catch. `copy-reminder-policy.mjs`
+  sends the zone only when production HAS one
+  (`...(row.timeZone !== undefined ? { timeZone: row.timeZone } : {})`) — it
+  omits the key otherwise, and `upsertPlayers` does `db.patch`, so **a zone
+  written onto a beta row survives the final copy.** 17 of 392 copied players
+  carried one on 2026-09-04, from early `--scope=mine` runs and from
+  `use-local-capture.ts`, which writes a zone on sign-in to any player lacking
+  one.
+
+  That is inert today because no copied player holds a delivery method. **It
+  stops being inert at cutover**, when the copy brings production's methods
+  across: a player who has methods in v1 but **no `time_zone`** gets nothing from
+  v1 — `get_players_for_reminder()` is `WHERE time_zone IS NOT NULL` — yet in v2
+  the beta-captured zone completes the pair and the sweep claims them. That is a
+  reminder **v1 has never sent**, to a real person, on the one switch §2.3 calls
+  irreversible in effect.
+
+  ```
+  cd v2 && CONVEX_URL=<production> CONVEX_MIGRATION_KEY=<key> \
+    node scripts/verify-reminder-policy.mjs
+  ```
+
+  **Its pass condition INVERTS at cutover and the script does not know that.** It
+  exits non-zero if a copied player could be swept, which is correct every day
+  until this one and wrong today — after the final copy, a non-zero
+  `sweepEligible` on copied rows is the entire point. **Read the number, not the
+  exit code.** Compare it against v1:
+
+  ```
+  select count(*) from players
+   where time_zone is not null
+     and reminder_delivery_methods is not null
+     and array_length(reminder_delivery_methods, 1) > 0;
+  ```
+
+  - **v2 `sweepEligible` ≤ v1's count** is expected and fine. It can be lower
+    because v2 filters to methods the sweep acts on while v1 counts any
+    non-empty array.
+  - **v2 higher than v1 is the alarm, and the excess is exactly this
+    population.** Clear `timeZone` by hand on those players before flipping
+    `REMINDERS_ENABLED`, and know that a later sign-in re-adds it — which is why
+    this is a measurement at cutover rather than a cleanup beforehand.
+
+- [ ] **5.5 — Only now, `REMINDERS_ENABLED=true`** (§2.3).
+- [ ] **5.6 — Watch the deploy's EFFECT, not its green.** For a Convex change
       that is the "Deploy Convex and build the client" step. And **`gh run list
       --limit 1` right after a push returns the PREVIOUS run** — select by SHA.
 
-**There is no purge on deploy.** `stale-while-revalidate=604800` with nothing
-purging means worst case **eight days between shipping a fix and everyone seeing
-it** (`wt-ksh.8.46`). v1 got away with this because Vercel purged ISR;
-Cloudflare does not. Purge by hand after any deploy that changes a cacheable
-document.
+**Shipping a corrected document is not instant, and §8b is the detail.** The
+EDGE half is handled by construction — the Cache API key carries the Worker
+version id, so a new deployment misses rather than needing a purge — **but that
+rotation is not yet measured end to end** (`wordle-teams-fv2s`; an accidental
+natural experiment on 2026-09-04 was ambiguous). The BROWSER half is not handled
+and is accepted: `stale-while-revalidate=604800` lets a returning visitor see one
+stale view. **If a corrected page appears not to ship, read §8b before debugging
+it** — that is the failure mode `wt-ksh.8.46` was filed to prevent.
 
 ---
 
@@ -445,7 +520,8 @@ else.
       read-only against Supabase, so no rollback of source data is required or
       possible.
 - [ ] Set `MAINTENANCE` back to `"true"` on the Worker if you want the v2
-      hostname to stop serving, and **purge** (§4.1).
+      hostname to stop serving (§4.1). Remember it is a deploy, and that a
+      later `wrangler deploy` resets it to `"false"`.
 - [ ] Anything written into v2 *after* the flip does not exist in v1 and does not
       come back. That window is the real cost of a late rollback — keep it short.
 
@@ -484,21 +560,44 @@ False since Phase 5: `convex/billing.ts` inserts `playerMembership` at `:549` an
 **7.5 — v1's `/login-error` says the passcode expires in 1 hour.** This
 deployment sets `OTP_EXPIRY_SEC = 300` — five minutes — and the email says so.
 
+**7.6 — "Maintenance mode is two steps: flip the var, then purge the Cloudflare
+cache."** This runbook said that, `wt-ksh.8.52` was filed for it, and a comment
+on `GATED_PATHS` asserted it. It is wrong, and the reason is worth keeping: the
+premise ("a cache hit does not invoke the Worker") describes a **CDN edge cache
+in front of a Worker**, and what shipped is the **Cache API inside the fetch
+handler** — a store the Worker consults, downstream of the gate. The correct
+lesson is not "we were pessimistic"; it is that **a caching claim is only as good
+as the layer it names**, and this one named the wrong layer for five days. §4.1
+has the corrected version.
+
+**7.7 — "The copy carries `reminderDeliveryMethods` and `timeZone` for every
+copied player."** A comment in `convex/reminders.ts` said so as justification for
+the env gate being the only protection. False since `wt-ksh.7.32`: the policy
+module withholds both. But **the correction has a sting in it** — the restoration
+is asymmetric. Methods are sent explicitly empty and so are cleared by a re-run;
+`timeZone` is merely OMITTED, so a zone written by an early copy or a beta
+sign-in **survives every later copy, including the cutover one.** That is what
+§5.4 measures.
+
 ---
 
 ## 8. Known open items at cutover
 
 Not blockers unless you decide otherwise; each is filed.
 
+**Refreshed 2026-09-04.** Six of the seven originally listed here closed during
+Phase 7's walk — `wt-ksh.8.45`, `wt-ksh.8.46`, `wt-ksh.8.55`,
+`wordle-teams-82zq`, `wordle-teams-d2oc`, `wordle-teams-cog5` and
+`wordle-teams-vmya` are all done and are **not** things to check on the day. What
+is genuinely still open:
+
 | Issue | What |
 | --- | --- |
-| `wt-ksh.8.45` | A Worker response may not reach the edge cache at all. Settle with `cf-cache-status` before relying on §4.1 |
-| `wt-ksh.8.46` | **Half solved.** The EDGE now invalidates on deploy; a BROWSER can still serve up to 7 days stale. See §8b |
-| `wt-ksh.8.55` | `og:url` is the apex on every route; `/` and `/home` are duplicate content with no canonical |
-| `wordle-teams-82zq` | `/opengraph-image.png` lost production's immutable 1-year cache |
-| `wordle-teams-d2oc` | Redirects carry no `Cache-Control` at all |
-| `wordle-teams-cog5` | `/me` answers 307 while the docs say permanent |
-| `wordle-teams-vmya` | Invite email's text footer hardcodes the production origin |
+| `wordle-teams-4yt` | **Owner's call, and legal copy** — see the row below |
+| `wordle-teams-fv2s` | The version-keyed cache rotation in §8b is **claimed, not measured.** Only matters if you need a corrected document out the same day |
+| `wordle-teams-ao7j` | `GET /api/funnel` returns 200 HTML instead of 404 — a soft 404 masked only by `robots.txt`, which the apex serves differently |
+| `wordle-teams-1kiy` | `/manifest.json` is `application/json` where production sends `application/manifest+json` |
+| `wordle-teams-k501` | Folded into §5.4 as a step. Do not treat it as a pre-cutover cleanup |
 
 ### 8a. Two Polar cases the sandbox pass could NOT reach
 
@@ -537,12 +636,25 @@ green pass is not read as covering them. Both are pinned by unit tests only.
 `s-maxage`, or the window recorded here as accepted. **The first happened by
 construction and the third covers what is left**, so this is the record.
 
-**THE EDGE HALF IS SOLVED.** `wordle-teams-fqeq` keys the Cache API entry on
-`CF_VERSION_METADATA.id`, so a new deployment does not need purging — it MISSES
-on every key and renders fresh, and the orphaned entries age out unread. That is
-the "purge step" branch satisfied without a purge, and without needing a zone
-token this repo does not hold. Verified: a redeploy on 2026-09-02 returned
-`x-doc-cache: MISS` against a cache still holding the previous version.
+**THE EDGE HALF IS SOLVED BY CONSTRUCTION — AND THE MEASUREMENT IS ONE PATH
+SHORT.** `wordle-teams-fqeq` keys the Cache API entry on
+`CF_VERSION_METADATA.id`, so a new deployment should MISS on every key and render
+fresh, with orphaned entries ageing out unread. That is the "purge step" branch
+satisfied without a purge, and without a zone token this repo does not hold. A
+redeploy on 2026-09-02 returned `x-doc-cache: MISS` against a cache holding the
+previous version.
+
+> **`wordle-teams-fv2s` is open on exactly this claim.** On 2026-09-04, two var
+> edits (each of which mints a version) left `/home` reporting MISS while
+> `/maintenance` — warmed to HIT shortly before, and never gated — still
+> reported HIT. **A clean key rotation should have missed both.** Ordinary Cache
+> API eviction is the likely explanation for the mixed result, but it was not
+> established, and two paths is too few to tell rotation from eviction. Calibration
+> from the same session: once warm, `x-doc-cache` is not noisy — 12/12 HIT on
+> each path with monotonically advancing `Age` — so the mixed reading is not
+> sampling noise. **If you need a corrected document live the same day, do not
+> assume the deploy rotated the key; warm several paths, deploy, and check they
+> all MISS.**
 
 **THE BROWSER HALF IS NOT, AND IS ACCEPTED.** The header is
 `public, max-age=0, s-maxage=86400, stale-while-revalidate=604800`. `max-age=0`
