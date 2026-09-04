@@ -1,4 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
+import { Settings } from 'lucide-react'
 import { Suspense } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
@@ -304,15 +305,35 @@ function Dashboard() {
             that same guard. Rendering this button unconditionally would leave
             it on screen, clickable, opening a dialog that is not there. */}
         {selectedTeam && (
+          // NO `size` PROP, WHICH IS THE FIX FOR wordle-teams-5jcn.22 (1 of 2):
+          // this used to be `size="sm"` (h-9), a half-step shorter than
+          // TeamPicker's and MonthPicker's Buttons beside it, both `size`-less
+          // and so `h-10` (buttonVariants' default). Matching their height
+          // means matching their size, not picking a new one.
+          //
+          // ICON-ONLY BELOW `sm`, THE SAME COLLAPSE Header.tsx's "Upgrade"
+          // button USES (wordle-teams-5jcn.22, 2 of 2) — `aria-label` fixes
+          // the accessible name regardless of what is visibly rendered, so it
+          // stays exactly "Team settings" whether the label is on screen or
+          // not; the icon carries no text of its own (`aria-hidden`). Before
+          // this, a third control plus BoardEntryButton made the row wider
+          // than a 390px viewport — `billing.spec.ts`'s
+          // `scrollWidth - clientWidth` measured 64px of overflow — and this
+          // is the one row control whose label was free to shrink: the
+          // pickers' truncation is already tuned to their own content (see
+          // TeamPicker's `label`), and BoardEntryButton is the page's primary
+          // call to action, not a candidate for shrinking further.
           <Button
             variant="outline"
-            size="sm"
+            aria-label="Team settings"
+            className="px-2 sm:px-4"
             onClick={() => {
               setTeamSettingsTab('members')
               setTeamSettingsOpen(true)
             }}
           >
-            Team settings
+            <Settings className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Team settings</span>
           </Button>
         )}
         <div className="ml-auto">
