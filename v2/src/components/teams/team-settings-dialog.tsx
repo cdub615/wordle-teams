@@ -111,7 +111,17 @@ export function TeamSettingsDialog({
         admin cards' worth of content, the same shape as the five inset
         dialogs, not the two thin ones -- so it takes their pairing.
       */}
-      <DialogContent className="w-11/12 rounded-lg max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className="w-11/12 rounded-lg max-h-[85vh] overflow-y-auto sm:max-w-2xl"
+        // Excludes this panel from pull-to-refresh's page-level pull
+        // (wordle-teams-5jcn.26): a touch starting here must scroll the
+        // dialog's own content, never arm a page reload behind it. See
+        // pull-to-refresh.ts's SCROLL_CONTAINER_SELECTOR, which this
+        // attribute name must keep matching. `closest()` finds this through
+        // Radix's portal (a real DOM ancestor, even though it sits outside
+        // this component's own React tree).
+        data-scroll-container=""
+      >
         <DialogHeader>
           <DialogTitle>Team settings</DialogTitle>
           <DialogDescription>Members, your teams, and how this team scores.</DialogDescription>

@@ -264,6 +264,12 @@ export function TeamBoards({
             ref={trackRef}
             tabIndex={0}
             aria-label="Team boards, scrollable by player"
+            // Excludes this carousel from pull-to-refresh's page-level pull
+            // (wordle-teams-5jcn.26): a touch starting here must scroll/snap
+            // the carousel, never arm a page reload. See pull-to-refresh.ts's
+            // SCROLL_CONTAINER_SELECTOR, which this attribute name must keep
+            // matching.
+            data-scroll-container=""
             /*
               `overflow-y-hidden` IS NOT REDUNDANT WITH `overflow-x-auto`
               (wordle-teams-iv09). Per the CSS overflow spec, when one axis is

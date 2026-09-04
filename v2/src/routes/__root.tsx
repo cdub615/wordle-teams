@@ -11,6 +11,7 @@ import { pageTitle, socialMetaTags } from '#/lib/seo'
 import { useServiceWorkerRegistration } from '#/lib/register-sw.ts'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
+import { PullToRefresh } from '../components/pull-to-refresh'
 import { Toaster } from '#/components/ui/sonner.tsx'
 
 import appCss from '../styles.css?url'
@@ -142,6 +143,13 @@ function RootComponent() {
         this subtree, and it sat between Header and Footer there, so <body>
         still reads header, page, footer.
       */}
+      {/*
+        PullToRefresh NEEDS NO CONVEX HOOK OF ITS OWN, unlike Header — it is
+        placed here (rather than in RootDocument, alongside Footer) purely so
+        every route under this provider gets the same one instance, matching
+        how Header and useServiceWorkerRegistration are already scoped.
+      */}
+      <PullToRefresh />
       <Header />
       <Outlet />
     </ConvexBetterAuthProvider>

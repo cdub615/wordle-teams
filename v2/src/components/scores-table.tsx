@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, type ComponentPropsWithRef } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
@@ -111,6 +111,25 @@ export function ScoresTable({
   // or shared link) — dev-console noise only, not a runtime issue, and worth
   // keeping over trading away the single-paint jump.
   const scrollWrapperRef = useRef<HTMLDivElement>(null)
+  // A WIDER TYPE THAN `wrapperProps` ITSELF DECLARES (React.ComponentPropsWithRef<'div'>,
+  // ui/table.tsx), so `data-scroll-container` below is not an excess-property error.
+  // TypeScript only special-cases arbitrary `data-*` attributes inside real JSX; a plain
+  // object literal assigned to a typed prop still gets the ordinary excess-property check,
+  // and HTMLAttributes carries no index signature for it. Building the object here, with
+  // its own wider annotation, and handing the whole variable to `wrapperProps` sidesteps
+  // that check entirely (assigning a wider-typed value to a narrower-typed prop is a normal
+  // structural assignment, not a literal).
+  //
+  // THE MARKER ITSELF excludes this wrapper from pull-to-refresh's page-level pull
+  // (wordle-teams-5jcn.26): a touch starting here must scroll the table by day, never arm a
+  // page reload. See pull-to-refresh.ts's SCROLL_CONTAINER_SELECTOR, which this attribute
+  // name must keep matching.
+  const scrollWrapperProps: ComponentPropsWithRef<'div'> & { 'data-scroll-container': string } = {
+    ref: scrollWrapperRef,
+    tabIndex: 0,
+    'aria-label': 'Scores, scrollable by day',
+    'data-scroll-container': '',
+  }
   // The (team, month) key this effect last EVALUATED, updated on every run
   // regardless of whether it actually centred — not just the key it last
   // centred. This is what makes "leftover scrollLeft" distinguishable from
@@ -271,10 +290,7 @@ export function ScoresTable({
             (min-w-full keeps it at least full width when content is
             narrower), so the wrapper div above is what scrolls.
             Caught by the screenshot verification this task requires. */}
-        <Table
-          className="relative w-max min-w-full"
-          wrapperProps={{ ref: scrollWrapperRef, tabIndex: 0, 'aria-label': 'Scores, scrollable by day' }}
-        >
+        <Table className="relative w-max min-w-full" wrapperProps={scrollWrapperProps}>
           <TableHeader>
             <TableRow>
               <TableHead scope="col" className={cn(pinnedLeft, 'rounded-tl-md px-2 md:px-4')}>

@@ -5,6 +5,48 @@ import { api } from '../../convex/_generated/api'
 import { captureError } from '#/lib/sentry-capture.ts'
 
 /**
+ * Both raw platform signals for "is this running as an installed app", read
+ * from the browser globals directly.
+ *
+ * A SEPARATE FUNCTION FROM THE PREDICATE BELOW, on purpose: this half touches
+ * `window` and cannot be unit-tested without a browser, while
+ * `isStandaloneDisplay` below is the actual decision and can be. Splitting
+ * them is what let src/components/pull-to-refresh.tsx reuse the SAME
+ * detection this hook uses (wordle-teams-5jcn.26) rather than a third copy of
+ * the `display-mode` media query and the `navigator.standalone` read.
+ */
+export function readStandaloneSignals(): {
+  displayModeStandalone: boolean
+  navigatorStandalone: boolean
+} {
+  return {
+    displayModeStandalone: window.matchMedia('(display-mode: standalone)').matches,
+    navigatorStandalone: (window.navigator as { standalone?: boolean }).standalone === true,
+  }
+}
+
+/**
+ * Whether either platform signal says this tab is running installed, standalone.
+ *
+ * BOTH SIGNALS, ORed, kept as two reads rather than one even though iOS Safari
+ * has supported `(display-mode: standalone)` since iOS 13 (v1 predates that
+ * support and relied on `navigator.standalone` alone): neither read is
+ * expensive, and dropping either would silently stop covering whatever
+ * platform still needs it. See use-local-capture.hook.test.ts's two "writes
+ * hasPwa when ..." cases, which exist specifically to catch either disjunct
+ * being dropped.
+ */
+export function isStandaloneDisplay({
+  displayModeStandalone,
+  navigatorStandalone,
+}: {
+  displayModeStandalone: boolean
+  navigatorStandalone: boolean
+}): boolean {
+  return displayModeStandalone || navigatorStandalone
+}
+
+/**
  * What to write, given what the player's row already has and what the
  * browser just reported. Takes the RAW readings, not pre-computed booleans —
  * `storedTimeZone` is the stored value as-is and both standalone signals are
@@ -41,7 +83,7 @@ export function decideLocalCapture({
   // the reminder sweep (convex/reminders.ts's `if (!timeZone) return []`)
   // with no write ever attempted to fix it.
   const hasTimeZone = storedTimeZone !== null && storedTimeZone.length > 0
-  const isStandalone = displayModeStandalone || navigatorStandalone
+  const isStandalone = isStandaloneDisplay({ displayModeStandalone, navigatorStandalone })
   return {
     writeZone: hasTimeZone ? null : resolvedZone,
     writePwa: isStandalone && !storedHasPwa,
@@ -142,13 +184,14 @@ export function useLocalCapture() {
     // `(display-mode: standalone)` since iOS 13 (v1 predates that support and
     // relied on `navigator.standalone` alone). Belt-and-suspenders: neither
     // read is expensive, and dropping either would silently stop covering
-    // whatever platform still needs it.
+    // whatever platform still needs it. Read through readStandaloneSignals
+    // (above) rather than inline, so this is the same read pull-to-refresh.tsx
+    // uses.
     const decision = decideLocalCapture({
       storedTimeZone: settings.timeZone,
       storedHasPwa: settings.hasPwa,
       resolvedZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      displayModeStandalone: window.matchMedia('(display-mode: standalone)').matches,
-      navigatorStandalone: (window.navigator as { standalone?: boolean }).standalone === true,
+      ...readStandaloneSignals(),
     })
 
     if (decision.writeZone !== null && !attemptedZone.current) {
