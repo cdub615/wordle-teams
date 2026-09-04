@@ -45,6 +45,18 @@ import { escapeHtml } from './lib/html.ts'
  *                   already succeeded. If this ever takes a caller-supplied URL,
  *                   validate it at that caller.
  */
+/**
+ * The origin of a URL the caller built, or the canonical one if it will not
+ * parse. Never throws — see the call site.
+ */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return 'https://wordleteams.com'
+  }
+}
+
 export function teamInviteEmail({
   teamName,
   inviterName,
@@ -67,7 +79,23 @@ export function teamInviteEmail({
     "If you don't know who that is, you can ignore this email.",
     '',
     'Wordle Teams',
-    'https://wordleteams.com',
+    // DERIVED FROM signInUrl, NOT HARDCODED (wordle-teams-vmya). This was a
+    // literal `https://wordleteams.com`, so a beta invite signed itself with
+    // the production origin — the only hardcoded origin in the file, while the
+    // link one line above and the whole HTML half already derived theirs.
+    //
+    // TAKEN FROM signInUrl RATHER THAN READ FROM SITE_URL AGAIN, because that
+    // is the argument the caller already built from SITE_URL: two reads of one
+    // setting is how the signature and the link in the same email come to
+    // disagree about which deployment sent it.
+    //
+    // IT CANNOT THROW, and that is not a stylistic preference. This template
+    // runs inside the invite transaction, and the doc above records that a
+    // throw here rolls back an invite that already succeeded. A malformed
+    // signInUrl means a broken deployment, and falling back to the canonical
+    // origin is the right answer for the one line of an email that says where
+    // the product lives.
+    originOf(signInUrl),
   ].join('\n')
 
   const team = escapeHtml(teamName)

@@ -510,3 +510,52 @@ describe('the staging noindex header', () => {
   })
 
 })
+
+
+/**
+ * REDIRECTS CARRY AN EXPLICIT CACHE POLICY (wordle-teams-d2oc).
+ *
+ * The content-type guard returns early on anything that is not HTML, and a
+ * redirect has no content-type — so these went out with no Cache-Control at
+ * all, which is heuristically cacheable rather than neutral. /me is the
+ * start_url every v1 PWA install has burned in, so it is re-requested on every
+ * launch forever.
+ */
+describe('a redirect is never left without a cache policy', () => {
+  test('an app-route redirect carries no-store', async () => {
+    rendered.status = 307
+    rendered.contentType = ''
+    const response = await get('/me', VERSIONED)
+    expect(response.status).toBe(307)
+    expect(response.headers.get('cache-control')).toBe(NO_STORE)
+  })
+
+  test('the maintenance redirect still carries its policy', async () => {
+    /**
+     * AN EQUIVALENT MUTANT LIVES HERE, AND IT IS RECORDED RATHER THAN CLAIMED.
+     *
+     * The branch is guarded on `!headers.has('cache-control')` so it cannot
+     * overwrite a policy a redirect already set for itself. Removing that guard
+     * changes NOTHING OBSERVABLE today, because the only other redirect writer
+     * is the maintenance gate and it writes the same NO_STORE — verified by
+     * mutation, which survived.
+     *
+     * The guard stays because it is right, not because a test proves it: the
+     * day any redirect wants a policy other than no-store, an unguarded branch
+     * silently replaces it. This test pins the outcome; it does not pretend to
+     * pin the guard.
+     */
+    const response = await send(new Request(url('/app')), { MAINTENANCE: 'true' })
+    expect(response.status).toBe(307)
+    expect(response.headers.get('cache-control')).toBe(NO_STORE)
+    expect(response.headers.get('location')).toBe(MAINTENANCE_PATH)
+  })
+
+  test('a 200 document is untouched by the redirect branch', async () => {
+    // The control. Without it the branch could match everything and this file
+    // would still be green on the assertions above.
+    const response = await get('/about', VERSIONED)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe(STATIC_CACHE)
+  })
+})

@@ -177,6 +177,40 @@ const withCachePolicyOnDocuments = {
     }
 
     const response = await sentryFetch(request, env, ctx)
+
+    /**
+     * A REDIRECT GETS AN EXPLICIT POLICY, BECAUSE THE ABSENCE OF ONE IS NOT
+     * NEUTRAL (wordle-teams-d2oc).
+     *
+     * The content-type guard below returns early on anything that is not HTML,
+     * and a redirect has no content-type — so /me and /complete-profile went out
+     * with NO Cache-Control at all, where production sends
+     * `public, max-age=0, must-revalidate`. A response with no Cache-Control is
+     * HEURISTICALLY CACHEABLE: the caching layer is free to invent a freshness
+     * lifetime, and different ones invent different answers.
+     *
+     * THIS FILE ALREADY KNEW THE HAZARD IN ONE PLACE AND NOT THE OTHER. The
+     * maintenance gate sets NO_STORE on its 307 explicitly, and its comment says
+     * the policy "would have skipped it entirely and let a browser cache it for
+     * the day". Same shape, two more redirects, no header — found by the parity
+     * script rather than by reading, which is the argument for running it.
+     *
+     * /me IS THE ONE THAT MAKES THIS WORTH DOING. It is the start_url burned
+     * into every v1 PWA install, so it is re-requested on every launch, forever.
+     * A heuristically cached redirect there is a launch path this app can no
+     * longer change.
+     *
+     * NO_STORE RATHER THAN PRODUCTION'S `max-age=0, must-revalidate`: both mean
+     * "ask again", and the destination of these hops depends on session state
+     * (/me sends a signed-out visitor onward to /login via /app), so there is
+     * nothing here worth letting any cache hold at all.
+     */
+    if (response.status >= 300 && response.status < 400 && !response.headers.has('cache-control')) {
+      const redirect = new Response(response.body, response)
+      redirect.headers.set('cache-control', NO_STORE)
+      return redirect
+    }
+
     const contentType = response.headers.get('content-type') ?? ''
     if (!contentType.includes('text/html')) return response
     const doc = new Response(response.body, response)
