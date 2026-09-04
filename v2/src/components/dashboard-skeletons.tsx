@@ -324,3 +324,33 @@ export function DashboardSkeleton() {
     </main>
   )
 }
+
+/**
+ * CONSTANT HEIGHT AT ANY TEAM SIZE, matching the panel it stands in for: the
+ * count, the bar and the capped name list are all fixed-height, so this cannot
+ * cause the layout jump the other skeletons here were written to avoid.
+ *
+ * It is ALSO what TodayPanel renders before hydration — not only what Suspense
+ * renders. See that component's hydration note; "today" is a client-only fact
+ * and there is nothing honest to draw until the browser clock is readable.
+ */
+export function TodayPanelSkeleton({ className }: { className?: string }) {
+  return (
+    <div aria-hidden="true" className={cn('rounded-md border p-4', className)}>
+      <Skeleton className="h-5 w-32" />
+      <Skeleton className="mt-3 h-2 w-full" />
+      <Skeleton className="mt-3 h-4 w-48" />
+    </div>
+  )
+}
+
+/** One chip row, wrapping — the shape ScoringLegend renders as (Task 7). */
+export function ScoringLegendSkeleton({ className }: { className?: string }) {
+  return (
+    <div aria-hidden="true" className={cn('flex flex-wrap gap-2', className)}>
+      {SYSTEM_FIELDS.map((field) => (
+        <Skeleton key={field} className="h-6 w-12 rounded-full" />
+      ))}
+    </div>
+  )
+}
