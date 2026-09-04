@@ -241,10 +241,25 @@ export function TeamBoards({
       </CardHeader>
       <CardContent>
         <div className="relative" role="group" aria-roledescription="carousel" aria-label="Team boards">
-          {/* overflow-x-auto + snap-x snap-mandatory IS the carousel. Each slide
-              is basis-full so exactly one is in view, which is also what makes
-              the scroll handler's `scrollLeft / clientWidth` an exact index
-              rather than an approximation. */}
+          {/* overflow-x-auto + snap-x snap-mandatory IS the carousel; nothing
+              here changes that (wordle-teams-5jcn.24 only widens how many
+              slides are visible at once, not how the track scrolls).
+
+              BELOW `md` A SLIDE IS `basis-full`, one board at a time, same as
+              before. FROM `md` UP the calc() bases below fit 2, then 3 at
+              `xl`, then 4 at `2xl` — sized against the CONTAINER's own width,
+              not the board's, which is what lets one rule serve every team
+              size: an unbounded roster still shows only as many slides as fit
+              and scrolls/snaps through the rest, exactly as a two-member team
+              does. `gap-4` on the track is subtracted out of each calc() so
+              the columns plus their gaps fill the container exactly, with no
+              slide narrower than the fixed-size WordleBoard it holds — checked
+              at each tier's own narrowest width (its breakpoint's minimum),
+              since that is where the fit is tightest: 768px still fits two
+              320px boards plus the gap between them with room to spare, and
+              1280px/1536px do the same for three and four. A board is never
+              asked to shrink to fit; it either fits with slack or the tier
+              is not offered yet. */}
           <div
             ref={trackRef}
             tabIndex={0}
@@ -264,14 +279,31 @@ export function TeamBoards({
               the ancestors as well — the page would stop scrolling from inside
               this region, which is the same bug arrived at from the other side.
             */
-            className="flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex snap-x snap-mandatory gap-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             onScroll={(event) => {
               // Keeps the arrows stepping from where a TOUCH SWIPE left the
               // track, which the arrows never hear about otherwise. Writes a
               // ref, so it costs no render.
+              //
+              // STRIDE BETWEEN TWO ADJACENT SLIDES, NOT clientWidth. Those
+              // coincided only while exactly one slide filled the track;
+              // `md:`/`xl:`/`2xl:` now show more than one at once, so
+              // clientWidth spans several slides and dividing by it would
+              // undercount by that same factor. The distance between two
+              // real siblings' own offsetLeft is one slide's width plus the
+              // gap between them, at whatever tier is active, so
+              // scrollLeft / stride is the index regardless of how many are
+              // in view. Falls back to clientWidth when there is no second
+              // slide to measure from (one-member team, where the arrows are
+              // hidden anyway).
               const track = event.currentTarget
-              if (track.clientWidth === 0) return
-              slideRef.current = Math.round(track.scrollLeft / track.clientWidth)
+              const [first, second] = track.children
+              const stride =
+                first instanceof HTMLElement && second instanceof HTMLElement
+                  ? second.offsetLeft - first.offsetLeft
+                  : track.clientWidth
+              if (stride === 0) return
+              slideRef.current = Math.round(track.scrollLeft / stride)
             }}
           >
             {boards.map((board) => (
@@ -294,7 +326,7 @@ export function TeamBoards({
               */
               <div
                 key={board.playerId}
-                className="flex h-[450px] min-w-0 shrink-0 basis-full snap-center flex-col"
+                className="flex h-[450px] min-w-0 shrink-0 basis-full snap-center flex-col md:basis-[calc((100%_-_1rem)/2)] xl:basis-[calc((100%_-_2rem)/3)] 2xl:basis-[calc((100%_-_3rem)/4)]"
               >
                 <div className="mb-2 h-[24px] shrink-0 text-center font-semibold">
                   {board.playerName}
