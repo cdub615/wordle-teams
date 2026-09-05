@@ -2,17 +2,18 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema'
-import { api, components } from './_generated/api'
+import { api } from './_generated/api'
 import {
   chatPointerFor,
   deleteMessageFor,
+  markReadFor,
   messagesSinceFor,
   olderMessagesFor,
   recentMessagesFor,
   sendMessageFor,
 } from './chat.ts'
 import { deleteTeamFor, leaveTeamFor } from './teams.ts'
-import { aPlayer, aTeam } from './fixtures.ts'
+import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
 import {
   BUDGET_THRESHOLD_BYTES,
   RATE_LIMIT_MESSAGES,
@@ -22,53 +23,9 @@ import {
   budgetMonthFor,
 } from './lib/chat.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
-import type { TestConvex } from 'convex-test'
 
 const modules = import.meta.glob('./**/*.ts')
 const today = toPuzzleDay(new Date())
-
-/**
- * Stands up a REAL Better Auth session for `email` and returns a convexTest
- * instance authenticated as it, via `t.withIdentity`.
- *
- * Requires `betterAuthTest.register(t)` to have already run on `t` — see the
- * comment on "the public surface" below for why this is possible at all.
- *
- * `requirePlayer` (access.ts) resolves the caller by looking up a `session`
- * row whose `_id` equals `identity.sessionId`, and then a `user` row whose
- * `_id` equals `identity.subject` — so the two ids returned by
- * `components.betterAuth.adapter.create` are exactly what `t.withIdentity`
- * needs. Nothing here touches this app's own `players` table: whether the
- * email in play matches one is the whole point of the two tests below.
- */
-async function authenticatedAs(t: TestConvex<typeof schema>, email: string) {
-  const now = Date.now()
-  const user = (await t.run((ctx) =>
-    ctx.runMutation(components.betterAuth.adapter.create, {
-      input: {
-        model: 'user',
-        data: { name: email, email, emailVerified: true, createdAt: now, updatedAt: now },
-      },
-    }),
-  )) as { _id: string }
-
-  const session = (await t.run((ctx) =>
-    ctx.runMutation(components.betterAuth.adapter.create, {
-      input: {
-        model: 'session',
-        data: {
-          token: `test-token-${email}`,
-          expiresAt: now + 1000 * 60 * 60,
-          createdAt: now,
-          updatedAt: now,
-          userId: user._id,
-        },
-      },
-    }),
-  )) as { _id: string }
-
-  return t.withIdentity({ subject: user._id, sessionId: session._id })
-}
 
 describe('the chat schema', () => {
   // THE LOAD-BEARING ASSUMPTION OF THE WHOLE DESIGN. Every wake does a
@@ -545,6 +502,80 @@ describe('the chat reads', () => {
   })
 })
 
+describe('markReadFor', () => {
+  test("advances an existing cursor's lastReadAt", async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const cursorId = await ctx.db.insert('chatReads', { playerId: ada, teamId: team, lastReadAt: 1000 })
+
+      await markReadFor(ctx, ada, team)
+
+      const cursor = await ctx.db.get(cursorId)
+      expect(cursor?.lastReadAt).toBeGreaterThan(1000)
+    })
+  })
+
+  test('creates a cursor when none exists', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await markReadFor(ctx, ada, team)
+
+      const cursor = await ctx.db
+        .query('chatReads')
+        .withIndex('by_player_team', (q) => q.eq('playerId', ada).eq('teamId', team))
+        .unique()
+      expect(cursor).not.toBeNull()
+      expect(cursor?.lastReadAt).toBeGreaterThan(0)
+    })
+  })
+
+  test('refuses a non-member with NOT_A_MEMBER', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const mallory = await ctx.db.insert('players', aPlayer({ email: 'mallory@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await expect(markReadFor(ctx, mallory, team)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+    })
+  })
+
+  // THE ACTUAL RISK IN SHARING upsertReadCursor BETWEEN sendMessageFor AND
+  // markReadFor: markReadFor must patch ONLY `lastReadAt`, never the
+  // rate-limit window (postWindowStartedAt/postsInWindow) — those two fields
+  // live on the exact same `chatReads` row sendMessageFor writes them to.
+  // Get the shared helper wrong (e.g. widen markReadFor's fields, or swap
+  // `ctx.db.patch`'s merge semantics for a replace) and opening a
+  // conversation would silently reset a player's rate limit on every read.
+  test("leaves the rate-limit window alone", async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'one')
+      await sendMessageFor(ctx, ada, team, 'two')
+      await sendMessageFor(ctx, ada, team, 'three')
+
+      await markReadFor(ctx, ada, team)
+
+      const cursor = await ctx.db
+        .query('chatReads')
+        .withIndex('by_player_team', (q) => q.eq('playerId', ada).eq('teamId', team))
+        .unique()
+      expect(cursor?.postsInWindow).toBe(3)
+      expect(cursor?.postWindowStartedAt).toBeDefined()
+    })
+  })
+})
+
 describe('deleteMessageFor', () => {
   test('lets an author delete their own message', async () => {
     const t = convexTest(schema, modules)
@@ -760,22 +791,11 @@ describe('the public surface', () => {
   // `wordle-teams-obw` ("convex-test cannot stand up a Better Auth session")
   // and reasoning that it would need `@convex-dev/better-auth`'s internal,
   // unpublished `dist/component/**` files. That was wrong: the package
-  // exports a first-class test entry point, `@convex-dev/better-auth/test`
-  // (`"./test": "./src/test.ts"` in its package.json), built for exactly
-  // this. `betterAuthTest.register(t)` below calls `t.registerComponent`
-  // with the SAME schema and functions the real `betterAuth` component in
-  // `convex/convex.config.ts` runs — nothing internal or unstable.
-  //
-  // Once registered, `authenticatedAs` below writes real rows into that
-  // component's own `user` and `session` tables through
-  // `components.betterAuth.adapter.create` — the same generated adapter API
-  // `createClient` (convex/auth.ts's `authComponent`) uses internally, not a
-  // shortcut around it. `requirePlayer` → `authComponent.getAuthUser` resolves
-  // a caller by looking up a `session` row whose `_id` equals
-  // `identity.sessionId`, then a `user` row whose `_id` equals
-  // `identity.subject` (see `create-client.js`'s `safeGetAuthUser`) — so a
-  // real identity needs only those two ids threaded into `t.withIdentity`,
-  // which is all `authenticatedAs` does.
+  // exports a first-class test entry point built for exactly this. See
+  // `authenticatedAs`'s doc comment in fixtures.ts for the mechanism (and its
+  // one real caveat: it relies on an `_id`-equality lookup that is an
+  // implementation detail, not a documented contract, of the pinned
+  // `@convex-dev/better-auth` version).
   test('refuses an authenticated caller who is not on the team, with NOT_A_MEMBER', async () => {
     const t = convexTest(schema, modules)
     betterAuthTest.register(t)

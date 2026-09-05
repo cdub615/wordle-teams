@@ -116,6 +116,50 @@ async function readCursorFor(ctx: WriterCtx, playerId: Id<'players'>, teamId: Id
     .unique()
 }
 
+/** The subset of a `chatReads` row that a caller may write. */
+type ReadCursorFields = {
+  lastReadAt: number
+  postWindowStartedAt?: number
+  postsInWindow?: number
+}
+
+/**
+ * Insert-or-patch the caller's read cursor with exactly `fields` — nothing more.
+ *
+ * TAKES THE ALREADY-FETCHED `cursor`, RATHER THAN FETCHING ITS OWN: both call
+ * sites (sendMessageFor, markReadFor) already had to read the cursor before
+ * this runs — sendMessageFor to compute the rate-limit window, markReadFor to
+ * decide insert vs. patch is even in question — so re-querying here would be
+ * a second document read paying for something the caller already paid for.
+ * See sendMessageFor's own comment on why that read is not repeated.
+ *
+ * `ctx.db.patch` MERGES; IT DOES NOT REPLACE. That is what makes this safe to
+ * share between two callers who write different field sets from the same row:
+ * sendMessageFor passes `lastReadAt` AND the rate-limit window
+ * (postWindowStartedAt/postsInWindow), because sending both reads the
+ * conversation and spends the window in one transaction; markReadFor passes
+ * ONLY `lastReadAt`. A narrower `fields` object here leaves whatever is
+ * already on the row alone — in particular it leaves the window fields
+ * untouched — rather than clearing them to `undefined`. Get this wrong (e.g.
+ * switch `patch` for `replace`, or default the omitted fields to `undefined`
+ * before merging) and opening a conversation would silently reset every
+ * player's rate limit on every read. Pinned in chat.test.ts: "markReadFor
+ * leaves the rate-limit window alone."
+ */
+async function upsertReadCursor(
+  ctx: WriterCtx,
+  cursor: Doc<'chatReads'> | null,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  fields: ReadCursorFields,
+): Promise<void> {
+  if (cursor === null) {
+    await ctx.db.insert('chatReads', { playerId, teamId, ...fields })
+    return
+  }
+  await ctx.db.patch(cursor._id, fields)
+}
+
 export async function sendMessageFor(
   ctx: WriterCtx,
   playerId: Id<'players'>,
@@ -147,11 +191,7 @@ export async function sendMessageFor(
   await chargeBudget(ctx, budgetIncrementFor(team.playerIds.length), now)
 
   // Sending is reading — you have seen your own message.
-  if (cursor === null) {
-    await ctx.db.insert('chatReads', { playerId, teamId, lastReadAt: now, ...window })
-  } else {
-    await ctx.db.patch(cursor._id, { lastReadAt: now, ...window })
-  }
+  await upsertReadCursor(ctx, cursor, playerId, teamId, { lastReadAt: now, ...window })
 
   return id
 }
@@ -360,6 +400,27 @@ export async function deleteMessageFor(
   await chargeBudget(ctx, budgetIncrementForDelete(team.playerIds.length), now)
 }
 
+/**
+ * Mark a team's conversation read up to now.
+ *
+ * Separate from `sendMessageFor` because opening a conversation is the common
+ * case and costs nothing: it writes one small row and reads no messages. Part
+ * 2's unread badge is `chatMeta.lastMessageAt > chatReads.lastReadAt`, which is
+ * why this has to exist as its own call.
+ *
+ * WRITES ONLY `lastReadAt` — see upsertReadCursor's comment on why that is
+ * exactly what stops this from clobbering the caller's rate-limit window.
+ */
+export async function markReadFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<void> {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+  const cursor = await readCursorFor(ctx, playerId, teamId)
+  await upsertReadCursor(ctx, cursor, playerId, teamId, { lastReadAt: Date.now() })
+}
+
 export const pointer = query({
   args: { teamId: v.id('teams') },
   handler: async (ctx, { teamId }) => {
@@ -408,26 +469,10 @@ export const deleteMessage = mutation({
   },
 })
 
-/**
- * Mark a team's conversation read up to now.
- *
- * Separate from `send` because opening a conversation is the common case and
- * costs nothing: it writes one small row and reads no messages. Part 2's unread
- * badge is `chatMeta.lastMessageAt > chatReads.lastReadAt`, which is why this
- * has to exist as its own call.
- */
 export const markRead = mutation({
   args: { teamId: v.id('teams') },
   handler: async (ctx, { teamId }) => {
     const player = await requirePlayer(ctx)
-    await requireTeamMemberFor(ctx, player._id, teamId)
-
-    const now = Date.now()
-    const cursor = await readCursorFor(ctx, player._id, teamId)
-    if (cursor === null) {
-      await ctx.db.insert('chatReads', { playerId: player._id, teamId, lastReadAt: now })
-      return
-    }
-    await ctx.db.patch(cursor._id, { lastReadAt: now })
+    await markReadFor(ctx, player._id, teamId)
   },
 })
