@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest'
-import { DEFAULT_SYSTEM, effectiveFromOf, systemFor } from './scoringSystem.ts'
+import {
+  COMPETITIVE_SYSTEM,
+  DEFAULT_SYSTEM,
+  effectiveFromOf,
+  scoringPresetOf,
+  systemFor,
+} from './scoringSystem.ts'
 import type { ScoringSystem } from './scoring.ts'
 
 const values = (oneGuess: number): ScoringSystem => ({
@@ -95,5 +101,61 @@ describe('DEFAULT_SYSTEM', () => {
       failed: -3,
       nA: 0,
     })
+  })
+})
+
+describe('COMPETITIVE_SYSTEM', () => {
+  // Confirmed by the owner against a real team — not re-derived here. See
+  // that constant's own comment for why it is not simply "harsher".
+  test('is the owner-confirmed Competitive preset, value for value', () => {
+    expect(COMPETITIVE_SYSTEM).toEqual({
+      oneGuess: 5,
+      twoGuesses: 3,
+      threeGuesses: 2,
+      fourGuesses: 1,
+      fiveGuesses: 0,
+      sixGuesses: -1,
+      failed: -2,
+      nA: -2,
+    })
+  })
+
+  // The two presets are not a harsh/soft pair: Competitive is gentler on a
+  // failed board and harsher on a missed one. Pinned so a well-meaning
+  // "simplification" that makes Competitive uniformly harsher (e.g. copying
+  // Forgiving's failed: -3) cannot land unnoticed.
+  test('is gentler than Forgiving on a failed board and harsher on a missed one', () => {
+    expect(COMPETITIVE_SYSTEM.failed).toBeGreaterThan(DEFAULT_SYSTEM.failed)
+    expect(COMPETITIVE_SYSTEM.nA).toBeLessThan(DEFAULT_SYSTEM.nA)
+  })
+})
+
+describe('scoringPresetOf', () => {
+  test('an exact match of DEFAULT_SYSTEM is forgiving', () => {
+    expect(scoringPresetOf({ ...DEFAULT_SYSTEM })).toBe('forgiving')
+  })
+
+  test('an exact match of COMPETITIVE_SYSTEM is competitive', () => {
+    expect(scoringPresetOf({ ...COMPETITIVE_SYSTEM })).toBe('competitive')
+  })
+
+  test('one field off Forgiving is custom, not forgiving', () => {
+    expect(scoringPresetOf({ ...DEFAULT_SYSTEM, oneGuess: 4 })).toBe('custom')
+  })
+
+  test('one field off Competitive is custom, not competitive', () => {
+    expect(scoringPresetOf({ ...COMPETITIVE_SYSTEM, sixGuesses: -2 })).toBe('custom')
+  })
+
+  // THE BOUNDARY THAT MATTERS: nA is the one field where Forgiving and
+  // Competitive disagree in the harsh direction (0 vs -2). A system that is
+  // Forgiving everywhere else but scores a missed day like Competitive does
+  // must not be mistaken for either preset.
+  test('Forgiving values with Competitive-style nA is custom, not either preset', () => {
+    expect(scoringPresetOf({ ...DEFAULT_SYSTEM, nA: -2 })).toBe('custom')
+  })
+
+  test('Competitive values with Forgiving-style nA is custom, not either preset', () => {
+    expect(scoringPresetOf({ ...COMPETITIVE_SYSTEM, nA: 0 })).toBe('custom')
   })
 })

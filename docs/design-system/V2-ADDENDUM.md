@@ -369,7 +369,7 @@ asserting that no letter is ever lit more times than it appears in the answer.
 
 ## 7a. The full divergence list for Phase 7's parity audit
 
-**Sixty-five known differences from production, all deliberate. Anything else
+**Sixty-six known differences from production, all deliberate. Anything else
 the audit finds is a bug.**
 
 Reconciled by Phase 7 Task 16 on 2026-09-01, and the count is load-bearing
@@ -465,6 +465,7 @@ and is filed rather than done.
 | 63 | Today's column is **tinted** in the scores table; v1 has no such marker | `wordle-teams-5jcn` (T5) | `bg-accent/40` on the `<TableCell>` whose day matches today, so the current day is findable without counting across the day columns |
 | 64 | **Team admin lives on its own page**, not in cards on the dashboard | `wordle-teams-5jcn` (T8, T9, `5jcn.29`) | `CurrentTeamCard`, `MyTeamsCard` and `ScoringSystemCard` move, unmodified, onto `/team` — a dedicated route reached from a "Team settings" button (or, for the scoring section specifically, `ScoringLegend`'s owner-only Edit, which deep-links straight to it via `#scoring`) — rather than holding two of the dashboard's three grid columns for admin nobody wants done daily. **IT STOOD IN A DIALOG FOR ONE ITERATION FIRST** (a tabbed `TeamSettingsDialog`, T8/T9), which is what this row described before `5jcn.29`. A full page replaced it once that dialog's own owner-only Edit and Invite controls turned out to open a SECOND dialog on top of it — verified functional (`5jcn.17`: correct overlay order, focus, one Escape closing only the inner) but, in the owner's own words after using it, "the dialog on top of a dialog is janky". The three cards are the same components, still stacked in the same order, that they were before either move — going onto a page is also what let them stop nesting their own `Card` chrome inside a dialog's (`5jcn.16`) |
 | 65 | A **read-only scoring legend** replaces the on-page scoring card | `wordle-teams-5jcn` (T7) | `ScoringLegend` states the team's actual scoring values as a chip strip, with an Edit link (owner only) navigating to the team settings page's Scoring section (`/team#scoring`, `wordle-teams-5jcn.29`) rather than the editable card sitting on the dashboard by default |
+| 66 | The scoring-system editor offers **two named presets, Forgiving and Competitive, beside the full custom control**; v1 has only ever offered custom values | `wordle-teams-tzq5` | Owner-requested: "I want to have two presets for the scoring system to choose from, and then still allow the full custom option we have now." Forgiving IS `DEFAULT_SYSTEM` (`convex/lib/scoringSystem.ts`) under a name — no existing team's system changes and no migration runs. Competitive is a second owner-confirmed set of eight values, not simply harsher: it is gentler on a failed board (`failed: -2` vs Forgiving's `-3`) and harsher on a missed one (`nA: -2` vs Forgiving's `0`) — the axis between them is whether skipping a day costs you. `scoringPresetOf` derives which option the editor opens on from the team's actual system, compared field-by-field over `SYSTEM_FIELDS`; selecting a preset only fills the draft, and Save is still the only thing that persists it |
 
 
 **Rows 19-21 were appended by the Phase 7 Task 4 review, rows 22-24 by Task 5's,

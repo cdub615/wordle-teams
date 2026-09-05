@@ -48,7 +48,7 @@ const NUMBER_WORDS: Record<string, number> = {
   'Forty-nine': 49, 'Fifty-one': 51, 'Fifty-two': 52, 'Fifty-three': 53,
   'Fifty-four': 54, 'Fifty-five': 55, 'Fifty-six': 56, 'Fifty-seven': 57,
   'Fifty-eight': 58, 'Fifty-nine': 59, 'Sixty-one': 61, 'Sixty-two': 62,
-  'Sixty-three': 63, 'Sixty-four': 64, 'Sixty-five': 65,
+  'Sixty-three': 63, 'Sixty-four': 64, 'Sixty-five': 65, 'Sixty-six': 66,
 }
 
 describe('the divergence table and its header agree', () => {

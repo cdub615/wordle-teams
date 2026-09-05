@@ -42,6 +42,35 @@ export const DEFAULT_SYSTEM = {
 } as const satisfies ScoringSystem
 
 /**
+ * The "Competitive" preset, confirmed by the owner against a real team —
+ * these eight numbers are not derived here and should not be re-derived; see
+ * the scoring-system editor task that added this constant.
+ *
+ * NOT SIMPLY "HARSHER" THAN DEFAULT_SYSTEM (which the editor calls
+ * "Forgiving" — see SCORING_PRESETS below). `failed` is actually GENTLER here
+ * (-2, vs Forgiving's -3): a played-and-lost board costs less under
+ * Competitive. `nA` is HARSHER (-2, vs Forgiving's 0): an unplayed day costs
+ * as much as a loss. The two presets are not a harsh/soft pair on the same
+ * axis — they disagree about which failure to punish. The axis that actually
+ * separates them is whether skipping a day costs you at all: Forgiving's
+ * `nA: 0` is, in the owner's own words, "because a missed day doesn't count
+ * against you"; Competitive's `nA: -2` is the same number as `failed`,
+ * because here it does. Do not describe Competitive as simply harsher in any
+ * comment or copy that touches this constant — that claim is true of `nA`
+ * and false of `failed`.
+ */
+export const COMPETITIVE_SYSTEM = {
+  oneGuess: 5,
+  twoGuesses: 3,
+  threeGuesses: 2,
+  fourGuesses: 1,
+  fiveGuesses: 0,
+  sixGuesses: -1,
+  failed: -2,
+  nA: -2,
+} as const satisfies ScoringSystem
+
+/**
  * The eight field keys of ScoringSystem, in the canonical display/validate
  * order, DERIVED rather than hand-listed.
  *
@@ -81,6 +110,56 @@ export const SYSTEM_FIELD_LABELS: Record<keyof ScoringSystem, string> = {
   sixGuesses: '6',
   failed: 'X',
   nA: 'Missed day',
+}
+
+/**
+ * What the scoring-system editor shows on open, and what a preset button
+ * fills in: 'forgiving' and 'competitive' name the two constants above,
+ * 'custom' is everything else — the full-custom control that already
+ * existed before presets did.
+ */
+export type ScoringPreset = 'forgiving' | 'competitive' | 'custom'
+
+/**
+ * The two named presets, in the order the editor lists them. Each entry's
+ * `system` IS the constant above — DEFAULT_SYSTEM, COMPETITIVE_SYSTEM — not a
+ * copy of its eight values, for the same reason SYSTEM_FIELDS is derived from
+ * DEFAULT_SYSTEM rather than hand-listed (see that constant's comment): a
+ * second copy of eight numbers is a second place for them to drift from the
+ * first. Forgiving IS today's DEFAULT_SYSTEM; naming it here changes no
+ * value, no existing team's system, and needs no migration.
+ *
+ * scoring-system-editor.tsx reads this to render the three radio options
+ * (Custom is appended locally, since there is no constant `system` for it)
+ * and to fill the draft when a preset is chosen.
+ */
+export const SCORING_PRESETS: ReadonlyArray<{
+  id: Exclude<ScoringPreset, 'custom'>
+  label: string
+  system: ScoringSystem
+}> = [
+  { id: 'forgiving', label: 'Forgiving', system: DEFAULT_SYSTEM },
+  { id: 'competitive', label: 'Competitive', system: COMPETITIVE_SYSTEM },
+]
+
+/**
+ * Which preset (if either) `system` currently matches, comparing every field
+ * SYSTEM_FIELDS lists — not a hand-written subset of them — so a ninth field
+ * added to ScoringSystem is compared here with no edit, the same drift
+ * protection SYSTEM_FIELDS itself documents. A system matching neither preset
+ * on even one field is 'custom'.
+ *
+ * This is the only real logic presets add: it is what the editor calls on
+ * open to decide which of the three options a team's current system should
+ * show as selected, so that a team already sitting on Competitive's exact
+ * numbers opens on Competitive rather than an unlabelled Custom.
+ */
+export function scoringPresetOf(system: ScoringSystem): ScoringPreset {
+  return (
+    SCORING_PRESETS.find((preset) =>
+      SYSTEM_FIELDS.every((field) => system[field] === preset.system[field]),
+    )?.id ?? 'custom'
+  )
 }
 
 /**
