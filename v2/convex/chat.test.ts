@@ -1,9 +1,21 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
-import { sendMessageFor } from './chat.ts'
+import {
+  chatPointerFor,
+  messagesSinceFor,
+  olderMessagesFor,
+  recentMessagesFor,
+  sendMessageFor,
+} from './chat.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
-import { BUDGET_THRESHOLD_BYTES, RATE_LIMIT_MESSAGES, budgetIncrementFor, budgetMonthFor } from './lib/chat.ts'
+import {
+  BUDGET_THRESHOLD_BYTES,
+  RATE_LIMIT_MESSAGES,
+  RECENT_WINDOW,
+  budgetIncrementFor,
+  budgetMonthFor,
+} from './lib/chat.ts'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -297,6 +309,112 @@ describe('the budget meter', () => {
       // regression guard: if someone later makes the meter gate sending, this is
       // what should stop them.
       await expect(sendMessageFor(ctx, ada, team, 'still talking')).resolves.toBeDefined()
+    })
+  })
+})
+
+describe('the chat reads', () => {
+  test('the pointer carries the team\'s state and the app\'s degraded flag', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+
+      const pointer = await chatPointerFor(ctx, ada, team)
+      expect(pointer.revision).toBe(1)
+      expect(pointer.lastMessageAt).toBeGreaterThan(0)
+      expect(pointer.degraded).toBe(false)
+    })
+  })
+
+  // Pins the derivation: a row whose STORED flag disagrees with its own byte
+  // count must report the truth, not the stale flag.
+  test('derives degraded from the byte count, not the stored flag', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await ctx.db.insert('chatBudget', {
+        month: budgetMonthFor(Date.now()),
+        estimatedBytes: BUDGET_THRESHOLD_BYTES * 2,
+        degraded: false, // stale: says fine, the bytes say otherwise
+      })
+
+      expect((await chatPointerFor(ctx, ada, team)).degraded).toBe(true)
+    })
+  })
+
+  test('the pointer is empty but valid for a team that has never chatted', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      const pointer = await chatPointerFor(ctx, ada, team)
+      expect(pointer).toEqual({ lastMessageAt: 0, revision: 0, degraded: false })
+    })
+  })
+
+  test('the window returns the newest messages oldest-first', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      for (let i = 0; i < RECENT_WINDOW + 5; i++) {
+        await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+      }
+
+      const window = await recentMessagesFor(ctx, ada, team)
+      expect(window).toHaveLength(RECENT_WINDOW)
+      // Oldest-first, and it is the TAIL of the conversation, not the head.
+      expect(window[0].body).toBe('m5')
+      expect(window[window.length - 1].body).toBe(`m${RECENT_WINDOW + 4}`)
+    })
+  })
+
+  test('the incremental fetch returns only what the client lacks', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: 'old', createdAt: 1000 })
+      await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: 'new', createdAt: 2000 })
+
+      const since = await messagesSinceFor(ctx, ada, team, 1000)
+      expect(since.map((m) => m.body)).toEqual(['new'])
+    })
+  })
+
+  test('older messages page backwards from a given time', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      for (let i = 0; i < 5; i++) {
+        await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+      }
+
+      const older = await olderMessagesFor(ctx, ada, team, 1003)
+      expect(older.map((m) => m.body)).toEqual(['m0', 'm1', 'm2'])
+    })
+  })
+
+  // EVERY READ IS GATED, not just the writes. This is the easiest rule in the
+  // feature to forget, because reads feel harmless.
+  test('refuses a non-member on every read', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const mallory = await ctx.db.insert('players', aPlayer({ email: 'mallory@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'private')
+
+      const notAMember = { data: { code: 'NOT_A_MEMBER' } }
+      await expect(chatPointerFor(ctx, mallory, team)).rejects.toMatchObject(notAMember)
+      await expect(recentMessagesFor(ctx, mallory, team)).rejects.toMatchObject(notAMember)
+      await expect(messagesSinceFor(ctx, mallory, team, 0)).rejects.toMatchObject(notAMember)
+      await expect(olderMessagesFor(ctx, mallory, team, Date.now())).rejects.toMatchObject(notAMember)
     })
   })
 })

@@ -1,5 +1,6 @@
 import { accessError, requireTeamMemberFor } from './access'
 import {
+  RECENT_WINDOW,
   budgetIncrementFor,
   budgetMonthFor,
   isOverBudget,
@@ -7,7 +8,7 @@ import {
   requireBody,
 } from './lib/chat.ts'
 import type { Id } from './_generated/dataModel'
-import type { WriterCtx } from './winners.ts'
+import type { ReaderCtx, WriterCtx } from './winners.ts'
 
 /**
  * Team chat (wordle-teams-qix). Phase 7.5.
@@ -141,4 +142,120 @@ export async function sendMessageFor(
   }
 
   return id
+}
+
+export type ChatPointer = {
+  lastMessageAt: number
+  revision: number
+  degraded: boolean
+}
+
+/**
+ * What a client subscribes to — and the only thing it subscribes to.
+ *
+ * TWO SMALL DOCUMENTS, deliberately. `degraded` lives in the app-wide
+ * chatBudget row, and returning it here rather than letting clients subscribe
+ * to that row directly is the difference between waking one team and waking
+ * every connected client in the app whenever anybody sends a message.
+ *
+ * A team that has never chatted has no pointer row; zeroes are the honest
+ * answer, and they make the client's "everything after 0" first fetch correct
+ * without a special case.
+ */
+export async function chatPointerFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<ChatPointer> {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+
+  const meta = await ctx.db
+    .query('chatMeta')
+    .withIndex('by_team', (q) => q.eq('teamId', teamId))
+    .unique()
+
+  const budget = await ctx.db
+    .query('chatBudget')
+    .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
+    .unique()
+
+  return {
+    lastMessageAt: meta?.lastMessageAt ?? 0,
+    revision: meta?.revision ?? 0,
+    // DERIVED, NOT READ BACK. chargeBudget stores `degraded` because it has to
+    // write the row anyway, but a stored flag goes stale the moment the
+    // threshold moves: every row already past the OLD threshold would keep
+    // reporting degraded for the rest of the month even after the ceiling was
+    // raised. The row is already in hand here, so deriving costs nothing and
+    // removes the staleness case entirely.
+    degraded: isOverBudget(budget?.estimatedBytes ?? 0),
+  }
+}
+
+/**
+ * The newest RECENT_WINDOW messages, oldest-first for rendering.
+ *
+ * Read once when a conversation opens, and again only when `revision` jumps
+ * without new messages — which is what a delete looks like from the client's
+ * side. It is NOT what a new message costs; that is messagesSinceFor.
+ */
+export async function recentMessagesFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+) {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+
+  const newestFirst = await ctx.db
+    .query('chatMessages')
+    .withIndex('by_team_createdAt', (q) => q.eq('teamId', teamId))
+    .order('desc')
+    .take(RECENT_WINDOW)
+
+  return newestFirst.reverse()
+}
+
+/**
+ * Everything after `since` — the hot path, and normally one document.
+ *
+ * This is the whole reason the architecture is cheap: a client that already
+ * holds history up to T pays for what it lacks, not for the window it already
+ * has.
+ */
+export async function messagesSinceFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  since: number,
+) {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+
+  return await ctx.db
+    .query('chatMessages')
+    .withIndex('by_team_createdAt', (q) => q.eq('teamId', teamId).gt('createdAt', since))
+    .collect()
+}
+
+/**
+ * The page of messages immediately before `before`, oldest-first.
+ *
+ * Deliberately NOT subscribed by the client — scrollback does not live-update,
+ * which is correct for history and is what keeps a deep scroll from becoming
+ * permanently expensive.
+ */
+export async function olderMessagesFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  before: number,
+) {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+
+  const newestFirst = await ctx.db
+    .query('chatMessages')
+    .withIndex('by_team_createdAt', (q) => q.eq('teamId', teamId).lt('createdAt', before))
+    .order('desc')
+    .take(RECENT_WINDOW)
+
+  return newestFirst.reverse()
 }

@@ -337,8 +337,10 @@ export default defineSchema({
     createdAt: v.number(),
   }).index('by_team_createdAt', ['teamId', 'createdAt']),
 
-  // THE POINTER. Clients subscribe to THIS, not to messages: a wake costs one
-  // small document instead of a whole window. See the design's section 4.
+  // THE POINTER. Clients subscribe to THIS, not to messages. A wake reads two
+  // small documents — this row and the month's chatBudget row, which is how
+  // `degraded` reaches the client — instead of a whole message window. See
+  // chatPointerFor in chat.ts, and section 4 of the design.
   //
   // IT IS NOT ON THE TEAM DOC, AND THAT IS THE POINT. Denormalising
   // lastMessageAt onto `teams` would make every chat message invalidate every
