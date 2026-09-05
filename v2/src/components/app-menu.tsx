@@ -186,7 +186,13 @@ export function AppMenu() {
 
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-      <div className="flex items-center gap-1.5">
+      {/* gap-2 IS THE HOUSE VALUE for adjacent controls — it is used ~50
+          times across src/, where gap-1.5 appeared three times and only ever
+          here, in Header's cluster, and inside the vendored calendar
+          primitive. At 6px the menu trigger crowded the avatar beside it;
+          the owner reported it from a screenshot. Do not tighten this back
+          without changing the other clusters with it. */}
+      <div className="flex items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             {/*

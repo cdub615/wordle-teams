@@ -202,7 +202,10 @@ export default function Header() {
           </span>
         </Link>
 
-        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+        {/* gap-2 at every width, matching app-menu.tsx's trigger cluster and
+            the ~50 other uses across src/. This was gap-1.5 sm:gap-2, so a
+            phone got the app's tightest spacing in its most crowded bar. */}
+        <div className="ml-auto flex items-center gap-2">
           {showInviteBadge && (
             // NOT A BUTTON, mirroring v1, whose menu item carries
             // `focus:bg-transparent` precisely so it does not read as one:
