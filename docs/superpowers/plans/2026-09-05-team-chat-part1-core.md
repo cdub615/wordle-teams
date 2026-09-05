@@ -415,8 +415,13 @@ export const BUDGET_THRESHOLD_BYTES = 700 * 1024 * 1024
  */
 export function requireBody(raw: string): string {
   const body = raw.trim()
-  if (body.length === 0) accessError('INVALID_MESSAGE')
-  if (body.length > MAX_BODY_LENGTH) accessError('INVALID_MESSAGE')
+  // `throw` even though accessError throws internally: every one of the 18
+  // other call sites in this repo writes it this way, and access.ts documents
+  // why — under the old construct-and-return signature a bare call was a
+  // SILENT authorization bypass. Keep the shape uniform so no reader has to
+  // check which signature is in play.
+  if (body.length === 0) throw accessError('INVALID_MESSAGE')
+  if (body.length > MAX_BODY_LENGTH) throw accessError('INVALID_MESSAGE')
   return body
 }
 
