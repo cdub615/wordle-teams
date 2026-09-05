@@ -39,8 +39,13 @@ export const BUDGET_THRESHOLD_BYTES = 700 * 1024 * 1024
  */
 export function requireBody(raw: string): string {
   const body = raw.trim()
-  if (body.length === 0) accessError('INVALID_MESSAGE')
-  if (body.length > MAX_BODY_LENGTH) accessError('INVALID_MESSAGE')
+  // `throw` is redundant with accessError's internal throw, but every other
+  // call site in this repo writes it anyway — see the comment on accessError
+  // in access.ts recording that a bare call was once a silent bypass, under a
+  // signature that no longer exists. Keeping the shape uniform means a reader
+  // never has to check which signature is in play before trusting the line.
+  if (body.length === 0) throw accessError('INVALID_MESSAGE')
+  if (body.length > MAX_BODY_LENGTH) throw accessError('INVALID_MESSAGE')
   return body
 }
 
@@ -61,6 +66,12 @@ export type PostWindow = {
  *
  * Both fields are optional because a player's first message has no window yet;
  * absent is treated as an expired window, which opens a fresh one.
+ *
+ * Returns `null` rather than throwing, unlike requireBody: the caller (Task
+ * 4's send path) has to sequence this against the membership and budget
+ * checks before it knows what to throw, or whether to throw at all. This
+ * function reports the refusal; it does not own the decision of what happens
+ * next.
  */
 export function nextPostWindow(current: PostWindow, now: number): Required<PostWindow> | null {
   const startedAt = current.postWindowStartedAt

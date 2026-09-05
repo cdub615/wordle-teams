@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   BUDGET_THRESHOLD_BYTES,
   RATE_LIMIT_MESSAGES,
+  RATE_LIMIT_WINDOW_MS,
   budgetIncrementFor,
   budgetMonthFor,
   isOverBudget,
@@ -52,6 +53,11 @@ describe('nextPostWindow', () => {
     const full = { postWindowStartedAt: 10_000, postsInWindow: RATE_LIMIT_MESSAGES }
     expect(nextPostWindow(full, 70_000)).toEqual({ postWindowStartedAt: 70_000, postsInWindow: 1 })
   })
+
+  test('still refuses one millisecond short of the sixty-second reopen', () => {
+    const full = { postWindowStartedAt: 10_000, postsInWindow: RATE_LIMIT_MESSAGES }
+    expect(nextPostWindow(full, 10_000 + RATE_LIMIT_WINDOW_MS - 1)).toBeNull()
+  })
 })
 
 describe('the budget meter', () => {
@@ -64,6 +70,10 @@ describe('the budget meter', () => {
   test('is under budget at zero and over it at the threshold', () => {
     expect(isOverBudget(0)).toBe(false)
     expect(isOverBudget(BUDGET_THRESHOLD_BYTES)).toBe(true)
+  })
+
+  test('is still under budget one byte short of the threshold', () => {
+    expect(isOverBudget(BUDGET_THRESHOLD_BYTES - 1)).toBe(false)
   })
 
   // Built from a LOCAL Date on purpose, matching toPuzzleDay, so this test
