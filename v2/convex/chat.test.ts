@@ -105,7 +105,9 @@ describe('sendMessageFor', () => {
       const mallory = await ctx.db.insert('players', aPlayer({ email: 'mallory@example.com' }))
       const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
-      await expect(sendMessageFor(ctx, mallory, team, 'let me in')).rejects.toThrow()
+      await expect(sendMessageFor(ctx, mallory, team, 'let me in')).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
 
       const stored = await ctx.db.query('chatMessages').collect()
       expect(stored).toEqual([])
@@ -118,7 +120,9 @@ describe('sendMessageFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
       const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
-      await expect(sendMessageFor(ctx, ada, team, '   ')).rejects.toThrow()
+      await expect(sendMessageFor(ctx, ada, team, '   ')).rejects.toMatchObject({
+        data: { code: 'INVALID_MESSAGE' },
+      })
     })
   })
 
@@ -179,7 +183,9 @@ describe('the send rate limit', () => {
       for (let i = 0; i < RATE_LIMIT_MESSAGES; i++) {
         await sendMessageFor(ctx, ada, team, `message ${i}`)
       }
-      await expect(sendMessageFor(ctx, ada, team, 'one too many')).rejects.toThrow()
+      await expect(sendMessageFor(ctx, ada, team, 'one too many')).rejects.toMatchObject({
+        data: { code: 'RATE_LIMITED' },
+      })
 
       const stored = await ctx.db
         .query('chatMessages')
@@ -201,7 +207,9 @@ describe('the send rate limit', () => {
       for (let i = 0; i < RATE_LIMIT_MESSAGES; i++) {
         await sendMessageFor(ctx, ada, team, `message ${i}`)
       }
-      await expect(sendMessageFor(ctx, ada, team, 'blocked')).rejects.toThrow()
+      await expect(sendMessageFor(ctx, ada, team, 'blocked')).rejects.toMatchObject({
+        data: { code: 'RATE_LIMITED' },
+      })
 
       // Bob is unaffected.
       await expect(sendMessageFor(ctx, bob, team, 'still fine')).resolves.toBeDefined()
@@ -220,7 +228,9 @@ describe('the send rate limit', () => {
       for (let i = 0; i < RATE_LIMIT_MESSAGES; i++) {
         await sendMessageFor(ctx, ada, noisy, `message ${i}`)
       }
-      await expect(sendMessageFor(ctx, ada, noisy, 'blocked here')).rejects.toThrow()
+      await expect(sendMessageFor(ctx, ada, noisy, 'blocked here')).rejects.toMatchObject({
+        data: { code: 'RATE_LIMITED' },
+      })
 
       await expect(sendMessageFor(ctx, ada, quiet, 'but fine here')).resolves.toBeDefined()
     })

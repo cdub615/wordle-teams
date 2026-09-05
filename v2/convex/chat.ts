@@ -73,11 +73,18 @@ export async function sendMessageFor(
 
   // THE RATE CHECK COMES BEFORE THE INSERT. Refusing after writing would let a
   // runaway client spend the I/O it is being refused for.
+  //
+  // Read once here, reused for the write below: enforcing the limit costs no
+  // extra document read. Counting recent messages instead would pay I/O to
+  // protect I/O.
   const cursor = await readCursorFor(ctx, playerId, teamId)
   const window = nextPostWindow(cursor ?? {}, now)
-  // `throw` even though accessError throws internally: the spread of `window`
-  // below needs TypeScript to narrow away the null, and access.ts writes it
-  // this way for the same reason.
+  // `throw` is redundant — accessError throws internally, and a bare call
+  // narrows fine, because TypeScript treats a call to a `never`-returning
+  // function as terminating control flow. It is kept purely for uniformity
+  // with the repo's other call sites, for the reason requireBody's own comment
+  // in lib/chat.ts gives: a bare call was once a silent bypass under an older
+  // signature, and no reader should have to work out which signature applies.
   if (window === null) throw accessError('RATE_LIMITED')
 
   const id = await ctx.db.insert('chatMessages', { teamId, playerId, body, createdAt: now })

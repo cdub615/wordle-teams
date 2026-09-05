@@ -33,8 +33,9 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // rejecting it there covers every writer, not just the public mutation, and
 // keeps a caller from pointing webpush.sendNotification (an https.request
 // under the hood) at an arbitrary host.
-// INVALID_MESSAGE and RATE_LIMITED are thrown in lib/chat.ts, by requireBody
-// and by the send path's rate-limit check.
+// INVALID_MESSAGE is thrown in lib/chat.ts, by requireBody. RATE_LIMITED is
+// thrown in chat.ts, by sendMessageFor — lib/chat.ts's nextPostWindow only
+// RETURNS null to report a refusal; the caller decides what to throw.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
