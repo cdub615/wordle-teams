@@ -321,7 +321,23 @@ function Dashboard() {
           // real user gets a real anchor — middle-click, "open in new tab" and
           // `defaultPreload: 'intent'`'s hover-prefetch all keep working, none
           // of which an onClick handler gives for free.
-          <Button variant="outline" aria-label="Team settings" className="px-2 sm:px-4" asChild>
+          // `text-foreground` IS LOAD-BEARING, NOT DECORATION. Rendering this
+          // as an anchor puts it in reach of styles.css's prose-link rule,
+          // `a:where(:not([role]))`, which paints an unroled anchor
+          // --accent-solid (green). That rule is deliberately weak — the
+          // `:where()` keeps it at (0,0,1) precisely so any text-colour
+          // utility beats it — but `buttonVariants`' `outline` sets NO resting
+          // text colour, only `hover:text-accent-foreground`, so on a <button>
+          // it simply inherits and on an <a> there was nothing to win. Naming
+          // the colour restores the same --text the sibling pickers inherit.
+          // Do NOT "fix" this by adding role="button": it is a navigation, the
+          // anchor is correct, and the e2e locates it by its link role.
+          <Button
+            variant="outline"
+            aria-label="Team settings"
+            className="px-2 text-foreground sm:px-4"
+            asChild
+          >
             <Link to="/team" search={{ team: teamParam }}>
               <Settings className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Team settings</span>
