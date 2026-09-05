@@ -369,7 +369,8 @@ export default defineSchema({
     postsInWindow: v.optional(v.number()),
   })
     .index('by_player_team', ['playerId', 'teamId'])
-    .index('by_player', ['playerId']),
+    .index('by_player', ['playerId'])
+    .index('by_team', ['teamId']),
 
   // THE BANDWIDTH BUDGET, one row per calendar month. Convex's free tier caps
   // database I/O at 1GB/month and the cap is HARD — mutations start failing

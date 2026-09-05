@@ -282,6 +282,34 @@ export async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Pro
     .collect()
   for (const row of systems) await ctx.db.delete(row._id)
 
+  // CHAT (wordle-teams-qix). Three tables, and the budget is deliberately NOT
+  // one of them: chatBudget is an app-wide monthly meter, and deleting a team
+  // must not hand back bandwidth that has already been spent.
+  const messages = await ctx.db
+    .query('chatMessages')
+    .withIndex('by_team_createdAt', (q) => q.eq('teamId', team._id))
+    .collect()
+  for (const row of messages) await ctx.db.delete(row._id)
+
+  const meta = await ctx.db
+    .query('chatMeta')
+    .withIndex('by_team', (q) => q.eq('teamId', team._id))
+    .collect()
+  for (const row of meta) await ctx.db.delete(row._id)
+
+  // BY TEAM, NOT BY ROSTER, and the difference is a permanent leak. Walking
+  // team.playerIds reaches only members still on the team at delete time — a
+  // player who LEFT earlier is no longer in it, so their cursor would outlive
+  // the team with nothing able to find it again. THREE paths remove a player
+  // from a team (removeMemberFor, leaveTeamFor, and the Phase 5 downgrade in
+  // billing.ts), so "have every removal path clean up" is an invariant that
+  // would rot. Indexing by team makes the cascade complete by construction.
+  const cursors = await ctx.db
+    .query('chatReads')
+    .withIndex('by_team', (q) => q.eq('teamId', team._id))
+    .collect()
+  for (const row of cursors) await ctx.db.delete(row._id)
+
   // The team doc carries `invited`, so this is also what retires any invite
   // still parked on the team — see leaveTeamFor's empty-roster branch.
   await ctx.db.delete(team._id)

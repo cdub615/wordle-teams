@@ -9,6 +9,7 @@ import {
   recentMessagesFor,
   sendMessageFor,
 } from './chat.ts'
+import { deleteTeamFor } from './teams.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
 import {
   BUDGET_THRESHOLD_BYTES,
@@ -573,6 +574,80 @@ describe('deleteMessageFor', () => {
 
       expect(after.revision).toBe(before.revision + 1)
       expect(after.lastMessageAt).toBe(before.lastMessageAt)
+    })
+  })
+})
+
+describe('deleting a team', () => {
+  test('takes its messages, pointer and read cursors with it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+      await sendMessageFor(ctx, bob, team, 'hi back')
+
+      await deleteTeamFor(ctx, ada, team)
+
+      expect(await ctx.db.query('chatMessages').collect()).toEqual([])
+      expect(await ctx.db.query('chatMeta').collect()).toEqual([])
+      expect(await ctx.db.query('chatReads').collect()).toEqual([])
+    })
+  })
+
+  // The budget is app-wide and monthly, not per team. Deleting a team must not
+  // hand back bandwidth that has already been spent.
+  test('leaves the bandwidth budget alone', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+
+      await deleteTeamFor(ctx, ada, team)
+
+      const budget = await ctx.db.query('chatBudget').collect()
+      expect(budget).toHaveLength(1)
+      expect(budget[0].estimatedBytes).toBeGreaterThan(0)
+    })
+  })
+
+  // THE ORPHAN CASE, found in review of Task 1. A player who LEFT before the
+  // team was deleted is no longer in playerIds, so a cascade that walked the
+  // roster would never find their cursor and it would outlive the team with
+  // nothing able to reach it. The row is inserted directly rather than by
+  // calling leaveTeamFor, so this tests the CASCADE rather than the leave flow.
+  test('removes the cursor of someone who had already left the team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+
+      // A cursor belonging to someone who is NOT on the roster any more.
+      await ctx.db.insert('chatReads', { playerId: gone, teamId: team, lastReadAt: 1 })
+
+      await deleteTeamFor(ctx, ada, team)
+
+      expect(await ctx.db.query('chatReads').collect()).toEqual([])
+    })
+  })
+
+  test('does not touch another team\'s chat', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const doomed = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const kept = await ctx.db.insert('teams', aTeam({ legacyId: 901, name: 'Kept', playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, doomed, 'goodbye')
+      await sendMessageFor(ctx, ada, kept, 'still here')
+
+      await deleteTeamFor(ctx, ada, doomed)
+
+      const left = await ctx.db.query('chatMessages').collect()
+      expect(left.map((m) => m.body)).toEqual(['still here'])
     })
   })
 })
