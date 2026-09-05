@@ -787,6 +787,24 @@ describe('the send rate limit', () => {
       await expect(sendMessageFor(ctx, bob, team, 'still fine')).resolves.toBeDefined()
     })
   })
+
+  // Per player PER TEAM. Being chatty in one team must not silence you in
+  // another — the window lives on the chatReads row, which is keyed by both.
+  test('does not let a player\'s limit in one team block another team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const noisy = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const quiet = await ctx.db.insert('teams', aTeam({ legacyId: 902, name: 'Quiet', playerIds: [ada], owner: ada }))
+
+      for (let i = 0; i < RATE_LIMIT_MESSAGES; i++) {
+        await sendMessageFor(ctx, ada, noisy, `message ${i}`)
+      }
+      await expect(sendMessageFor(ctx, ada, noisy, 'blocked here')).rejects.toThrow()
+
+      await expect(sendMessageFor(ctx, ada, quiet, 'but fine here')).resolves.toBeDefined()
+    })
+  })
 })
 ```
 
@@ -843,9 +861,26 @@ export async function sendMessageFor(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd v2 && pnpm vitest run convex/chat.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 11 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Prove the window is PERSISTED, not merely computed**
+
+Task 2 proved `nextPostWindow`'s refusal works as a pure function. What is
+unproven is the WIRING. Remove `...window` from both cursor-write branches,
+re-run, and confirm the full-window test FAILS. Then revert.
+
+If the window were computed and discarded, every send would open a fresh one
+and the limit would never engage — while every unit test in `lib/chat.test.ts`
+stayed green. That is the failure this step exists to catch.
+
+- [ ] **Step 6: Prove the limit is per TEAM, not merely per player**
+
+Change `readCursorFor` to look up by the `by_player` index with `.first()`,
+dropping the team from the key — which is exactly what "per player" rather than
+"per player per team" would look like. Confirm the cross-team test FAILS with
+`RATE_LIMITED` on the second team. Then revert.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 cd /home/cdub/projects/wordle-teams
