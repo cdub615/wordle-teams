@@ -1,4 +1,6 @@
-import { accessError, requireTeamMemberFor, requireTeamOwnerFor } from './access'
+import { v } from 'convex/values'
+import { mutation, query } from './_generated/server'
+import { accessError, requirePlayer, requireTeamMemberFor, requireTeamOwnerFor } from './access'
 import {
   RECENT_WINDOW,
   budgetIncrementFor,
@@ -357,3 +359,75 @@ export async function deleteMessageFor(
   // the delete rate, not the send rate.
   await chargeBudget(ctx, budgetIncrementForDelete(team.playerIds.length), now)
 }
+
+export const pointer = query({
+  args: { teamId: v.id('teams') },
+  handler: async (ctx, { teamId }) => {
+    const player = await requirePlayer(ctx)
+    return await chatPointerFor(ctx, player._id, teamId)
+  },
+})
+
+export const recentMessages = query({
+  args: { teamId: v.id('teams') },
+  handler: async (ctx, { teamId }) => {
+    const player = await requirePlayer(ctx)
+    return await recentMessagesFor(ctx, player._id, teamId)
+  },
+})
+
+export const messagesSince = query({
+  args: { teamId: v.id('teams'), since: v.number() },
+  handler: async (ctx, { teamId, since }) => {
+    const player = await requirePlayer(ctx)
+    return await messagesSinceFor(ctx, player._id, teamId, since)
+  },
+})
+
+export const olderMessages = query({
+  args: { teamId: v.id('teams'), before: v.number() },
+  handler: async (ctx, { teamId, before }) => {
+    const player = await requirePlayer(ctx)
+    return await olderMessagesFor(ctx, player._id, teamId, before)
+  },
+})
+
+export const send = mutation({
+  args: { teamId: v.id('teams'), body: v.string() },
+  handler: async (ctx, { teamId, body }) => {
+    const player = await requirePlayer(ctx)
+    return await sendMessageFor(ctx, player._id, teamId, body)
+  },
+})
+
+export const deleteMessage = mutation({
+  args: { messageId: v.id('chatMessages') },
+  handler: async (ctx, { messageId }) => {
+    const player = await requirePlayer(ctx)
+    await deleteMessageFor(ctx, player._id, messageId)
+  },
+})
+
+/**
+ * Mark a team's conversation read up to now.
+ *
+ * Separate from `send` because opening a conversation is the common case and
+ * costs nothing: it writes one small row and reads no messages. Part 2's unread
+ * badge is `chatMeta.lastMessageAt > chatReads.lastReadAt`, which is why this
+ * has to exist as its own call.
+ */
+export const markRead = mutation({
+  args: { teamId: v.id('teams') },
+  handler: async (ctx, { teamId }) => {
+    const player = await requirePlayer(ctx)
+    await requireTeamMemberFor(ctx, player._id, teamId)
+
+    const now = Date.now()
+    const cursor = await readCursorFor(ctx, player._id, teamId)
+    if (cursor === null) {
+      await ctx.db.insert('chatReads', { playerId: player._id, teamId, lastReadAt: now })
+      return
+    }
+    await ctx.db.patch(cursor._id, { lastReadAt: now })
+  },
+})

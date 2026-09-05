@@ -1,6 +1,7 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
+import { api } from './_generated/api'
 import {
   chatPointerFor,
   deleteMessageFor,
@@ -679,3 +680,61 @@ describe('deleting a team', () => {
     })
   })
 })
+
+describe('the public surface', () => {
+  // NOT `{ code: 'UNAUTHENTICATED' }`, even though that is an AccessCode and
+  // access.ts's requirePlayer has a line that throws it. Verified empirically:
+  // requirePlayer calls `authComponent.getAuthUser(ctx)` (the THROWING variant
+  // the Better Auth component client exports, not `safeGetAuthUser`), and for
+  // a caller with no identity at all that call throws `ConvexError` with a
+  // bare STRING payload, `'Unauthenticated'`, the moment
+  // `ctx.auth.getUserIdentity()` resolves to null — before requirePlayer's own
+  // `if (!user?.email) throw accessError('UNAUTHENTICATED')` line ever runs.
+  // That line is reachable only if getAuthUser resolved to a user record with
+  // a falsy email, which no code path here produces. This is not particular
+  // to chat.ts: the identical shape comes back from every other authed
+  // wrapper in this codebase (checked against `teams.createTeam`), so it is a
+  // property of `requirePlayer`/Better Auth, not a bug introduced here.
+  test('refuses an unauthenticated caller', async () => {
+    const t = convexTest(schema, modules)
+    const teamId = await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      return await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+    })
+
+    await expect(t.query(api.chat.pointer, { teamId })).rejects.toMatchObject({
+      data: 'Unauthenticated',
+    })
+    await expect(t.mutation(api.chat.send, { teamId, body: 'hello' })).rejects.toMatchObject({
+      data: 'Unauthenticated',
+    })
+  })
+
+  // AN AUTHENTICATED NON-MEMBER, THROUGH `t.withIdentity`, WAS NOT ACHIEVABLE.
+  // Attempted: `t.withIdentity({ subject: 'user_x', email: 'x@example.com' })`
+  // against `api.chat.pointer`/`api.chat.send`. `requirePlayer` resolves the
+  // caller via `authComponent.getAuthUser`, which — before ever looking at the
+  // identity's subject or email — calls
+  // `ctx.runQuery(component.adapter.findOne, { model: 'session', ... })`
+  // against the registered `betterAuth` Convex COMPONENT (see
+  // convex/convex.config.ts). convex-test does not wire up an app's
+  // components automatically; the call fails immediately with "Component
+  // 'betterAuth' is not registered. Call 't.registerComponent'." Making that
+  // work would mean importing the better-auth package's own internal
+  // component schema/functions (`@convex-dev/better-auth/dist/component/**`,
+  // not a published, stable API) via `t.registerComponent`, and then
+  // hand-inserting `session` and `user` rows into ITS tables shaped exactly as
+  // its adapter expects, with ids matching the identity's `sessionId`/
+  // `subject` — none of which this codebase does anywhere else. This is the
+  // exact limitation this codebase already tracks as `wordle-teams-obw`
+  // ("convex-test cannot stand up a Better Auth session"), restated here
+  // because Task 9 is the first place a public wrapper is exercised through
+  // `t.query`/`t.mutation` rather than by calling its `*For` function
+  // directly. Consequence: the membership gate on the public surface itself
+  // (as opposed to on the `*For` functions, which every test above this
+  // `describe` block already covers) is verified only by inspection —
+  // `pointer`, `send`, and every other wrapper in this file call
+  // `requireTeamMemberFor` (via their `*For` function) with no logic of their
+  // own in between `requirePlayer` and the delegate call.
+})
+
