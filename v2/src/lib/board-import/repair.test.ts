@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveRow } from './repair.ts'
+import { resolveBoard, resolveRow } from './repair.ts'
 import type { LetterScores, Mark, RowObservation } from './types.ts'
 
 /** A tile the reader is certain about. */
@@ -38,5 +38,57 @@ describe('resolveRow', () => {
   it('falls back to the reader when no answer is known', () => {
     const observed = row(['T', 'R', 'A', 'C', 'E'].map(sure), ALL_ABSENT)
     expect(resolveRow(observed, WORDS, null)).toMatchObject({ ok: true, word: 'TRACE' })
+  })
+})
+
+describe('resolveBoard', () => {
+  // The winning row IS the answer, but we cannot know it until we have read it —
+  // so it is resolved first WITHOUT the colour constraint, and its result then
+  // supplies the constraint for every other row.
+  it('derives the answer from an all-correct final row', () => {
+    const result = resolveBoard(
+      [
+        row(
+          ['T', 'R', 'A', 'C', 'E'].map(sure),
+          ['absent', 'correct', 'correct', 'present', 'correct'],
+        ),
+        row(['C', 'R', 'A', 'N', 'E'].map(sure), ALL_CORRECT),
+      ],
+      WORDS,
+      null,
+    )
+    expect(result).toMatchObject({ ok: true, answer: 'CRANE', words: ['TRACE', 'CRANE'] })
+  })
+
+  it('prefers a supplied answer over deriving one', () => {
+    const result = resolveBoard(
+      [row(['C', 'R', 'A', 'N', 'E'].map(sure), ALL_CORRECT)],
+      WORDS,
+      'crane',
+    )
+    expect(result).toMatchObject({ ok: true, answer: 'CRANE' })
+  })
+
+  // A failed board: no row is all-correct, so no answer can be derived and the
+  // word list carries every row alone. This must still succeed.
+  it('resolves a failed board with no answer at all', () => {
+    const result = resolveBoard(
+      [row(['S', 'P', 'E', 'E', 'D'].map(sure), ALL_ABSENT)],
+      WORDS,
+      null,
+    )
+    expect(result).toMatchObject({ ok: true, answer: null, words: ['SPEED'] })
+  })
+
+  it('names the row that failed rather than failing the board silently', () => {
+    const result = resolveBoard(
+      [
+        row(['C', 'R', 'A', 'N', 'E'].map(sure), ALL_CORRECT),
+        row(['Z', 'Z', 'Z', 'Z', 'Z'].map(sure), ['present', 'present', 'present', 'present', 'present']),
+      ],
+      WORDS,
+      null,
+    )
+    expect(result).toEqual({ ok: false, reason: 'no-candidate', rowIndex: 1 })
   })
 })

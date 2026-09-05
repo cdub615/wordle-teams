@@ -50,3 +50,50 @@ export function resolveRow(
 
   return best === null ? { ok: false, reason: 'no-candidate' } : { ok: true, ...best }
 }
+
+export type BoardResolution =
+  | { ok: true; answer: string | null; words: Array<string> }
+  | { ok: false; reason: 'no-candidate'; rowIndex: number }
+
+/**
+ * Resolves a whole board, deriving the answer first when it is not supplied.
+ *
+ * THE ANSWER IS CIRCULAR, AND THE TWO PASSES ARE HOW THAT IS BROKEN. A solved
+ * board's winning row IS the answer, but reading it wants the answer as a
+ * constraint. So: resolve the all-correct row under constraint 1 alone, take
+ * the word it yields as the answer, then resolve every row — that one included
+ * — under both constraints.
+ *
+ * WHERE THE ANSWER COMES FROM, in the order the spec sets out: the caller's
+ * value if it has one (the entry form already asks the player for it); else the
+ * all-correct row; else nothing, and the board resolves on the word list alone.
+ * That last case is the failed board, and it is ordinary rather than an error.
+ */
+export function resolveBoard(
+  rows: ReadonlyArray<RowObservation>,
+  words: ReadonlyArray<string>,
+  suppliedAnswer: string | null,
+): BoardResolution {
+  let answer = suppliedAnswer === null ? null : suppliedAnswer.toUpperCase()
+
+  if (answer === null) {
+    const winning = rows.findIndex((r) => r.marks.every((mark) => mark === 'correct'))
+    if (winning !== -1) {
+      const derived = resolveRow(rows[winning], words, null)
+      // A winning row we cannot read is a failure THERE, reported against that
+      // row — not a silent fall back to answerless mode, which would resolve
+      // the rest of the board under a weaker constraint and hide the problem.
+      if (!derived.ok) return { ok: false, reason: 'no-candidate', rowIndex: winning }
+      answer = derived.word
+    }
+  }
+
+  const resolved: Array<string> = []
+  for (let i = 0; i < rows.length; i++) {
+    const row = resolveRow(rows[i], words, answer)
+    if (!row.ok) return { ok: false, reason: 'no-candidate', rowIndex: i }
+    resolved.push(row.word)
+  }
+
+  return { ok: true, answer, words: resolved }
+}
