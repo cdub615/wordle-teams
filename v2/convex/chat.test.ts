@@ -1,6 +1,7 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
+import { sendMessageFor } from './chat.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
 
 const modules = import.meta.glob('./**/*.ts')
@@ -73,6 +74,96 @@ describe('the chat schema', () => {
       expect(meta?.revision).toBe(1)
       expect(cursor?.lastReadAt).toBe(5)
       expect(budget?.degraded).toBe(false)
+    })
+  })
+})
+
+describe('sendMessageFor', () => {
+  test('stores a trimmed message for a member', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, '  hello team  ')
+
+      const stored = await ctx.db
+        .query('chatMessages')
+        .withIndex('by_team_createdAt', (q) => q.eq('teamId', team))
+        .collect()
+      expect(stored.map((m) => m.body)).toEqual(['hello team'])
+      expect(stored[0].playerId).toBe(ada)
+    })
+  })
+
+  // THE SECURITY BOUNDARY. The route guard in Part 2 is UX; this is the gate.
+  test('refuses a non-member', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const mallory = await ctx.db.insert('players', aPlayer({ email: 'mallory@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await expect(sendMessageFor(ctx, mallory, team, 'let me in')).rejects.toThrow()
+
+      const stored = await ctx.db.query('chatMessages').collect()
+      expect(stored).toEqual([])
+    })
+  })
+
+  test('refuses an empty message', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await expect(sendMessageFor(ctx, ada, team, '   ')).rejects.toThrow()
+    })
+  })
+
+  test('creates the pointer on the first message and advances it on the next', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'one')
+      const first = await ctx.db
+        .query('chatMeta')
+        .withIndex('by_team', (q) => q.eq('teamId', team))
+        .unique()
+
+      await sendMessageFor(ctx, ada, team, 'two')
+      const second = await ctx.db
+        .query('chatMeta')
+        .withIndex('by_team', (q) => q.eq('teamId', team))
+        .unique()
+
+      expect(first?.revision).toBe(1)
+      expect(second?.revision).toBe(2)
+      expect(second?.lastMessageAt ?? 0).toBeGreaterThanOrEqual(first?.lastMessageAt ?? 0)
+    })
+  })
+
+  // Sending is reading: you have obviously seen your own message.
+  test('advances the sender\'s own read cursor', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'hello')
+
+      const cursor = await ctx.db
+        .query('chatReads')
+        .withIndex('by_player_team', (q) => q.eq('playerId', ada).eq('teamId', team))
+        .unique()
+      const meta = await ctx.db
+        .query('chatMeta')
+        .withIndex('by_team', (q) => q.eq('teamId', team))
+        .unique()
+
+      expect(cursor?.lastReadAt).toBe(meta?.lastMessageAt)
     })
   })
 })
