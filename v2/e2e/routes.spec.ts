@@ -766,7 +766,17 @@ test.describe('crawler and social metadata', () => {
     const valuesOf = (field: string) =>
       directives.filter(([name]) => name === field).map(([, value]) => value)
 
-    expect(valuesOf('disallow').sort()).toEqual(['/api', '/app', '/complete-profile', '/me'])
+    // /team joined this list in wordle-teams-5jcn.29 — a sibling top-level
+    // route to /app (see routes/team.tsx's own comment for why it is not
+    // nested under it), gated by the identical beforeLoad redirect, so it
+    // needs its own entry rather than riding along on /app's.
+    expect(valuesOf('disallow').sort()).toEqual([
+      '/api',
+      '/app',
+      '/complete-profile',
+      '/me',
+      '/team',
+    ])
     expect(valuesOf('sitemap')).toEqual(['https://wordleteams.com/sitemap.xml'])
   })
 

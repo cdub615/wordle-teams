@@ -58,10 +58,9 @@ test('creating a team through the dropdown makes it the selected one', async ({ 
   await expect(page.getByText('Successfully created team')).toBeVisible()
   await expect(page.getByRole('button', { name: `Team: ${name}` })).toBeVisible()
   await expect(page).toHaveURL(/team=/)
-  // The new team is on the MyTeams card too, not just the picker — now behind
-  // TeamSettingsDialog's "My teams" tab (wordle-teams-4srj), not on the
-  // dashboard grid.
-  await openTeamSettings(page, 'teams')
+  // The new team is on the MyTeams card too, not just the picker — on the
+  // team settings page now (wordle-teams-5jcn.29), not on the dashboard grid.
+  await openTeamSettings(page)
   await expect(page.getByRole('heading', { name: 'My Teams' })).toBeVisible()
   await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible()
 
@@ -77,10 +76,11 @@ test('creating a team through the dropdown makes it the selected one', async ({ 
   // MyTeamsCard's row for this team, and a plain text locator would be
   // ambiguous between the two cards.
   //
-  // Current Team now lives on a different tab of the same dialog than My
-  // Teams does (wordle-teams-4srj) — TeamSettingsDialog's Tabs are
-  // uncontrolled, so switching here is a plain tab click, not a re-open.
-  await openTeamSettings(page, 'members')
+  // NO SECOND `openTeamSettings` CALL, UNLIKE BEFORE. Current Team and My
+  // Teams used to sit on different tabs of the same dialog, so reaching both
+  // meant switching tabs between assertions. On the team settings page both
+  // are plain, always-mounted Cards on the one URL the call above already
+  // navigated to (wordle-teams-5jcn.29) — there is nothing left to switch.
   const currentTeamCard = page.getByRole('region', { name: 'Current Team' })
   await expect(currentTeamCard.getByRole('heading', { name })).toBeVisible()
   await expect(currentTeamCard.getByText('E2E Tester')).toBeVisible()
@@ -91,13 +91,22 @@ test('creating a team through the dropdown makes it the selected one', async ({ 
   await expect(currentTeamCard.getByRole('button', { name: 'Remove E2E' })).toHaveCount(0)
 })
 
-test('the scoring system card shows the eight rows for the selected month', async ({ page }) => {
+test('the scoring system card shows the eight rows for the selected month, and ScoringLegend’s Edit deep-links straight to it', async ({
+  page,
+}) => {
   await signInWithTeam(page)
 
-  // Behind TeamSettingsDialog's "Scoring" tab now, not on the dashboard grid
-  // (wordle-teams-4srj).
-  await openTeamSettings(page, 'scoring')
+  // THE DEEP LINK (wordle-teams-5jcn.29). ScoringLegend's owner-only Edit
+  // control — rendered on /app itself, below the scores table — jumps
+  // straight to the Scoring section on the team settings page instead of
+  // landing on its top and making the owner scroll for it. `hash: 'scoring'`
+  // (routes/app.tsx) is answered by `id="scoring"` (routes/team.tsx); this is
+  // the one assertion in the suite that exercises that mechanism end to end,
+  // rather than only the "Team settings" button's plain landing.
+  await page.getByRole('button', { name: 'Edit scoring system' }).click()
+  await expect(page).toHaveURL(/\/team\?.*#scoring$/)
   await expect(page.getByRole('heading', { name: 'Scoring System' })).toBeVisible()
+
   const rows = page.getByRole('table').filter({ has: page.getByText('Attempts') }).locator('tbody tr')
   await expect(rows).toHaveCount(8)
   await expect(page.getByRole('cell', { name: 'Missed day' })).toBeVisible()

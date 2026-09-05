@@ -167,16 +167,22 @@ describe('public/robots.txt', () => {
     expect(robots.groups[0].userAgents).toEqual(['*'])
   })
 
-  test('disallows exactly /app, /me, /complete-profile and /api', () => {
-    // SORTED AND EXHAUSTIVE, not four toContain calls. The mutation a
+  test('disallows exactly /app, /team, /me, /complete-profile and /api', () => {
+    // SORTED AND EXHAUSTIVE, not five toContain calls. The mutation a
     // `toContain('Disallow: /app')` cannot see is an ADDED rule — a
     // `Disallow: /privacy` slipped in beneath these would deindex the legal
     // pages and satisfy every positive assertion in the file.
+    //
+    // /team JOINED THIS LIST IN wordle-teams-5jcn.29, and it needs its OWN
+    // entry rather than riding along on `/app`'s prefix match: routes/team.tsx
+    // is a sibling top-level route, not nested under /app, so a pathname of
+    // `/team` does not start with `/app` and the older rule does not reach it.
     expect([...robots.groups[0].disallow].sort()).toEqual([
       '/api',
       '/app',
       '/complete-profile',
       '/me',
+      '/team',
     ])
   })
 

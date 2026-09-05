@@ -13,6 +13,15 @@
 # WHAT IS EXCLUDED, AND WHY EACH ONE:
 #   /app              the dashboard. Signed-in only; an anonymous visit bounces
 #                     to /login, so there is nothing here for a crawler.
+#   /team             team settings (wordle-teams-5jcn.29) — a full page now,
+#                     not a dialog on top of /app, but gated by the exact same
+#                     beforeLoad redirect-to-/login as /app, so the same
+#                     reasoning applies: nothing here for a signed-out crawler.
+#                     A SEPARATE RULE, NOT COVERED BY THE /app PREFIX ABOVE,
+#                     because it does not live under /app in the URL — it is a
+#                     sibling top-level route (see routes/team.tsx's own
+#                     comment for why), so `/app`'s prefix match does not reach
+#                     it and it needs its own line.
 #   /me               v1's dashboard path, kept forever as a redirect to /app
 #                     because production PWA installs carry start_url: /me and
 #                     an installed iOS PWA never adopts a new one. It IS /app,
@@ -40,6 +49,7 @@
 User-agent: *
 Allow: /
 Disallow: /app
+Disallow: /team
 Disallow: /me
 Disallow: /complete-profile
 Disallow: /api

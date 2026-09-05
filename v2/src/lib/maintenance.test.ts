@@ -53,11 +53,18 @@ describe('isMaintenanceGated', () => {
   test('the app routes are gated, bare and as subtrees', () => {
     // v1's matcher is ['/', '/login', '/me', '/branding', '/complete-profile'],
     // each protected path listed alongside its ':path*' form. /branding has no
-    // v2 counterpart; /app is where the dashboard lives.
-    for (const path of ['/', '/login', '/app', '/me', '/complete-profile'])
+    // v2 counterpart; /app is where the dashboard lives. /team joined this list
+    // in wordle-teams-5jcn.29 — team settings reads and writes the same Convex
+    // backend /app does, so it is exactly as broken during an outage.
+    for (const path of ['/', '/login', '/app', '/team', '/me', '/complete-profile'])
       expect(isMaintenanceGated(path), `${path} should be gated`).toBe(true)
 
-    for (const path of ['/app/teams/abc123', '/me/anything', '/complete-profile/step-2'])
+    for (const path of [
+      '/app/teams/abc123',
+      '/team/anything',
+      '/me/anything',
+      '/complete-profile/step-2',
+    ])
       expect(isMaintenanceGated(path), `${path} should be gated`).toBe(true)
   })
 
@@ -96,13 +103,22 @@ describe('isMaintenanceGated', () => {
   test('a subtree match needs a segment boundary, not a string prefix', () => {
     // '/apple-touch-icon.png' starts with '/app'. A `startsWith('/app')` would
     // hand the browser an HTML document where it asked for a PNG, and the
-    // manifest icons are exactly the paths that look like this.
-    for (const path of ['/apple-touch-icon.png', '/appointments', '/me-too', '/logins'])
+    // manifest icons are exactly the paths that look like this. '/teamwork' and
+    // '/teams-page' are the same trap for '/team', added alongside it.
+    for (const path of [
+      '/apple-touch-icon.png',
+      '/appointments',
+      '/me-too',
+      '/logins',
+      '/teamwork',
+      '/teams-page',
+    ])
       expect(isMaintenanceGated(path), `${path} should not be gated`).toBe(false)
   })
 
   test('a trailing slash does not change the answer, in either direction', () => {
     expect(isMaintenanceGated('/app/')).toBe(true)
+    expect(isMaintenanceGated('/team/')).toBe(true)
     expect(isMaintenanceGated('/login/')).toBe(true)
     expect(isMaintenanceGated('/privacy/')).toBe(false)
     expect(isMaintenanceGated('/maintenance/')).toBe(false)
@@ -152,20 +168,23 @@ describe('every route the app has, sorted into gated and not', () => {
       '/me',
       '/privacy',
       '/sitemap.xml',
+      '/team',
       '/terms',
     ])
   })
 
-  test('the split is exactly the five app paths, and nothing else', () => {
+  test('the split is exactly the six app paths, and nothing else', () => {
     // /maintenance is in the UNGATED list, where it has to be: it is what
     // src/server.ts redirects a gated request to, so gating it is a browser
-    // following this Worker in a circle.
+    // following this Worker in a circle. /team joined the gated side in
+    // wordle-teams-5jcn.29.
     expect(paths.filter(isMaintenanceGated)).toEqual([
       '/',
       '/app',
       '/complete-profile',
       '/login',
       '/me',
+      '/team',
     ])
     expect(paths.filter((path) => !isMaintenanceGated(path))).toEqual([
       '/about',

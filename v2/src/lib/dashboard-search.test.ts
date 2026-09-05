@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { resolveDashboardSearch } from './dashboard-search.ts'
+import { resolveDashboardSearch, resolveTeamSettingsSearch } from './dashboard-search.ts'
 
 const teams = [{ id: 'a' }, { id: 'b' }]
 
@@ -94,5 +94,37 @@ describe('resolveDashboardSearch', () => {
         currentMonth: '2026-08',
       }),
     ).toBeNull()
+  })
+})
+
+describe('resolveTeamSettingsSearch', () => {
+  test('returns null when the team is already valid — no navigation', () => {
+    expect(resolveTeamSettingsSearch({ teamParam: 'a', teams, storedTeam: null })).toBeNull()
+  })
+
+  test('prefers the stored team when the URL has none', () => {
+    expect(resolveTeamSettingsSearch({ teamParam: undefined, teams, storedTeam: 'b' })).toBe('b')
+  })
+
+  test('falls back to the first team when the stored team is not one of yours', () => {
+    expect(resolveTeamSettingsSearch({ teamParam: undefined, teams, storedTeam: 'gone' })).toBe(
+      'a',
+    )
+  })
+
+  test('treats a team you are not on as if it were missing — a stale bookmark', () => {
+    expect(resolveTeamSettingsSearch({ teamParam: 'gone', teams, storedTeam: null })).toBe('a')
+  })
+
+  test('returns null when there is no team to select at all', () => {
+    expect(
+      resolveTeamSettingsSearch({ teamParam: undefined, teams: [], storedTeam: null }),
+    ).toBeNull()
+  })
+
+  test('is idempotent — its own output resolves to null on the next run', () => {
+    const first = resolveTeamSettingsSearch({ teamParam: undefined, teams, storedTeam: null })
+    expect(first).toBe('a')
+    expect(resolveTeamSettingsSearch({ teamParam: first!, teams, storedTeam: null })).toBeNull()
   })
 })

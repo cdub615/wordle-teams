@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, redirect, useNavigate, Link } from '@tanstack/react-router'
 import { Settings } from 'lucide-react'
 import { Suspense } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
@@ -9,15 +9,12 @@ import { pageTitle } from '#/lib/seo'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
-import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
 import { MonthPicker, monthOptions } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { TeamsEmptyState } from '#/components/teams/empty-state.tsx'
-import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
-import { TeamSettingsDialog, type TeamSettingsTab } from '#/components/teams/team-settings-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { TeamBoards } from '#/components/teams/team-boards.tsx'
 import { TodayPanel } from '#/components/today-panel.tsx'
@@ -121,17 +118,6 @@ function Dashboard() {
   const { data: isPro } = useSuspenseQuery(convexQuery(api.teams.amIPro, {}))
   const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const [createOpen, setCreateOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [teamSettingsOpen, setTeamSettingsOpen] = useState(false)
-  // WHICH TAB TeamSettingsDialog LANDS ON, NOT JUST WHETHER IT IS OPEN.
-  // ScoringLegend's Edit control and the "Team settings" button both open the
-  // same dialog but mean different things by it: Edit is about the chips it
-  // sits beside (the Scoring tab), the button is the general entry point
-  // (Members, the dialog's own default). The dialog's `defaultTab` is an
-  // uncontrolled `Tabs.defaultValue` that re-applies fresh on every open (see
-  // its own comment), so this state only needs to be right AT OPEN TIME, not
-  // kept in sync afterward.
-  const [teamSettingsTab, setTeamSettingsTab] = useState<TeamSettingsTab>('members')
   /**
    * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
    *
@@ -260,8 +246,10 @@ function Dashboard() {
     // silently never applied.
     //
     // `md:grid-cols-3` IS CURRENTLY VESTIGIAL, AND THAT IS KNOWN. Since Task 9
-    // moved the admin cards into TeamSettingsDialog, every child rendered here
-    // carries `md:col-span-3` — the controls row, TodayPanel, ScoresTable
+    // moved the admin cards off this grid — first into TeamSettingsDialog,
+    // then (wordle-teams-5jcn.29) onto their own page, routes/team.tsx — every
+    // child rendered here carries `md:col-span-3` — the controls row,
+    // TodayPanel, ScoresTable
     // (ScoringLegend now rides inside it, as its `footer` prop, rather than
     // being a grid child of its own — wordle-teams-ha7u), TeamBoards — so
     // nothing occupies fewer than all three columns any more, and at `md` and
@@ -300,12 +288,12 @@ function Dashboard() {
           onChange={(month) => navigate({ to: Route.fullPath, search: { team: teamParam, month } })}
         />
         {/* Gated on `selectedTeam`, matching the convention every other
-            selectedTeam-dependent block in this file uses (see below): a
-            stale or invalid `?team=` renders `selectedTeam` undefined for the
-            renders before useDashboardSearchSync's post-hydration effect
-            corrects it, and `TeamSettingsDialog` itself only mounts inside
-            that same guard. Rendering this button unconditionally would leave
-            it on screen, clickable, opening a dialog that is not there. */}
+            selectedTeam-dependent block in this file uses: a stale or invalid
+            `?team=` renders `selectedTeam` undefined for the renders before
+            useDashboardSearchSync's post-hydration effect corrects it, and
+            there is no team yet to hand `/team` a valid `?team=` for.
+            Rendering this control unconditionally would leave it on screen,
+            clickable, navigating to a page with nothing to show. */}
         {selectedTeam && (
           // NO `size` PROP, WHICH IS THE FIX FOR wordle-teams-5jcn.22 (1 of 2):
           // this used to be `size="sm"` (h-9), a half-step shorter than
@@ -325,17 +313,19 @@ function Dashboard() {
           // pickers' truncation is already tuned to their own content (see
           // TeamPicker's `label`), and BoardEntryButton is the page's primary
           // call to action, not a candidate for shrinking further.
-          <Button
-            variant="outline"
-            aria-label="Team settings"
-            className="px-2 sm:px-4"
-            onClick={() => {
-              setTeamSettingsTab('members')
-              setTeamSettingsOpen(true)
-            }}
-          >
-            <Settings className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Team settings</span>
+          //
+          // A REAL NAVIGATION NOW (wordle-teams-5jcn.29), NOT `onClick` STATE.
+          // This used to open TeamSettingsDialog directly; it now renders as a
+          // `<Link>` styled as this same Button (`asChild`, the pattern
+          // login-error.tsx's "Head to Sign In" button also uses) so that a
+          // real user gets a real anchor — middle-click, "open in new tab" and
+          // `defaultPreload: 'intent'`'s hover-prefetch all keep working, none
+          // of which an onClick handler gives for free.
+          <Button variant="outline" aria-label="Team settings" className="px-2 sm:px-4" asChild>
+            <Link to="/team" search={{ team: teamParam }}>
+              <Settings className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Team settings</span>
+            </Link>
           </Button>
         )}
         <div className="ml-auto">
@@ -373,9 +363,9 @@ function Dashboard() {
         with extra steps.
 
         ScoringSystemCard reads the SAME QUERY too, but it is no longer part of
-        this grid (Task 9): it moved into TeamSettingsDialog below, which
-        mounts it only once the dialog is open on the Scoring tab and gives it
-        its own Suspense boundary there rather than sharing one of these.
+        this grid (Task 9): it lives on routes/team.tsx now (wordle-teams-5jcn.29,
+        by way of TeamSettingsDialog in between), which gives it its own
+        Suspense boundary there rather than sharing one of these.
       */}
       {/* Above the table because it answers a different clock's question --
           "did I play today" is a today question the grid answers badly, by
@@ -424,10 +414,15 @@ function Dashboard() {
                 teamId={teamParam as Id<'teams'>}
                 month={monthParam}
                 isOwner={selectedTeam.isOwner}
-                onEdit={() => {
-                  setTeamSettingsTab('scoring')
-                  setTeamSettingsOpen(true)
-                }}
+                // NAVIGATES STRAIGHT TO THE SCORING SECTION (wordle-teams-5jcn.29),
+                // not just to /team's own default landing. `hash: 'scoring'`
+                // is what routes/team.tsx's `id="scoring"` wrapper answers —
+                // TanStack's scroll restoration scrolls that element into view
+                // once the navigation settles, with no state to carry beyond
+                // the URL itself. This used to set `teamSettingsTab` to land
+                // TeamSettingsDialog on its Scoring tab; the anchor is this
+                // control's whole replacement for that.
+                onEdit={() => void navigate({ to: '/team', search: { team: teamParam }, hash: 'scoring' })}
               />
             )
           }
@@ -488,45 +483,6 @@ function Dashboard() {
           className="md:col-span-3"
         />
       </Suspense>
-      {selectedTeam && (
-        <>
-          <TeamSettingsDialog
-            open={teamSettingsOpen}
-            onOpenChange={setTeamSettingsOpen}
-            teamId={selectedTeam.id}
-            defaultTab={teamSettingsTab}
-            month={monthParam}
-            isPro={isPro}
-            name={selectedTeam.name}
-            members={selectedTeam.members}
-            isOwner={selectedTeam.isOwner}
-            myPlayerId={myPlayerId}
-            teams={teams}
-            onEditSettings={() => setSettingsOpen(true)}
-            // Leaving the selected team leaves ?team= pointing at a team you
-            // are no longer on — the same broken-param problem deleting one
-            // has, so this is onDeleted below, minus its `deleted !==
-            // teamParam` guard: the Members tab only ever renders the
-            // selected team, so there is no other team it could have been.
-            onLeft={() => {
-              localStorage.removeItem(STORAGE_KEY)
-              void navigate({ to: Route.fullPath, search: {}, replace: true })
-            }}
-            // Deleting the team you were looking at (from the My teams tab)
-            // leaves ?team= pointing at a gone id. onDeleted clears both the
-            // param and the remembered team so the sync hook picks the first
-            // remaining team instead of the error boundary. Deleting a team
-            // OTHER than the selected one is a no-op here — the guard below —
-            // since ?team= still points at something real.
-            onDeleted={(deleted) => {
-              if (deleted !== teamParam) return
-              localStorage.removeItem(STORAGE_KEY)
-              void navigate({ to: Route.fullPath, search: {}, replace: true })
-            }}
-          />
-          <UpdateTeamDialog open={settingsOpen} onOpenChange={setSettingsOpen} team={selectedTeam} />
-        </>
-      )}
     </main>
   )
 }

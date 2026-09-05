@@ -341,6 +341,55 @@ export function DashboardSkeleton() {
 }
 
 /**
+ * `/team`'s own `pendingComponent` (wordle-teams-5jcn.29), for the same
+ * moment DashboardSkeleton exists for above: the client-side navigation INTO
+ * the route, before its loader resolves and before there is any real content
+ * on screen to keep in place. routes/team.tsx's own loader prefetches
+ * getMyTeams, amIPro and getMyPlayerId — none of which this page ever
+ * re-fetches after landing, since unlike /app it has no team or month switcher
+ * of its own to trigger one.
+ *
+ * A SINGLE-COLUMN STACK, NOT A GRID, because the real page is one — team
+ * settings moved off the dashboard's three-column grid onto its own page of
+ * plain, stacked Cards (the fix for wordle-teams-5jcn.16's nested dialog
+ * chrome), so a skeleton shaped like that grid would size for a layout this
+ * page no longer has.
+ *
+ * ONLY THE SCORING SECTION GETS ITS OWN NAMED SKELETON. CurrentTeamCard and
+ * MyTeamsCard render the instant this page's loader resolves — CurrentTeamCard
+ * reads `useQuery`, MyTeamsCard reads no query at all, and both take their
+ * data from the SAME getMyTeams call this skeleton's whole existence is
+ * gating — so by the time either could paint, this component has already been
+ * replaced by the real page and no plain-rectangle stand-in for them is ever
+ * seen on screen long enough to matter. ScoringSystemCard is the one exception:
+ * it calls its OWN `useSuspenseQuery(getTeamMonth)`, which this route's loader
+ * deliberately does not prefetch (see the `<Suspense>` around it in
+ * routes/team.tsx for why), so it can still be loading after everything above
+ * it has painted — the same reason it gets a real, row-accurate skeleton
+ * rather than a rectangle.
+ */
+export function TeamSettingsSkeleton() {
+  return (
+    <main
+      className="page-max mt-2 flex flex-col gap-6 md:mt-6"
+      data-slot="team-settings-skeleton"
+      aria-hidden="true"
+    >
+      {/* The back control and the page's own h1. */}
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-9 w-9 rounded-md" />
+        <Skeleton className="h-8 w-40" />
+      </div>
+      {/* CurrentTeamCard, then MyTeamsCard — plain rectangles, per the note
+          above on why neither needs a named skeleton of its own. */}
+      <Skeleton className="h-[220px] w-full rounded-xl" />
+      <Skeleton className="h-[175px] w-full rounded-xl" />
+      <ScoringSystemCardSkeleton />
+    </main>
+  )
+}
+
+/**
  * CONSTANT HEIGHT AT ANY TEAM SIZE, matching the panel it stands in for: the
  * count, the bar and the capped name list are all fixed-height, so this cannot
  * cause the layout jump the other skeletons here were written to avoid.

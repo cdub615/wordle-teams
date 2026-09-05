@@ -34,13 +34,20 @@ const PULL_RESISTANCE = 0.5
 
 /**
  * The single attribute this module's `startedInsideScrollContainer` looks
- * for. Three call sites mark themselves with it — the scores table's x-axis
- * wrapper (scores-table.tsx), TeamBoards' scroll-snap carousel track
- * (team-boards.tsx), and TeamSettingsDialog's `overflow-y-auto` panel
- * (team-settings-dialog.tsx) — because those are this app's other scroll
- * containers and none of them may have pull-to-refresh hijack a drag that
- * starts inside them. Exported so a future fourth scroll container can be
- * excluded the same way instead of by inventing its own selector.
+ * for. Two call sites mark themselves with it — the scores table's x-axis
+ * wrapper (scores-table.tsx) and TeamBoards' scroll-snap carousel track
+ * (team-boards.tsx) — because those are this app's other scroll containers and
+ * neither may have pull-to-refresh hijack a drag that starts inside them.
+ * Exported so a future third scroll container can be excluded the same way
+ * instead of by inventing its own selector.
+ *
+ * USED TO BE THREE, THROUGH wordle-teams-5jcn.29. TeamSettingsDialog's
+ * `overflow-y-auto` panel carried this attribute too, because a dialog's own
+ * scrolling content is exactly the kind of container this selector exists to
+ * protect. That dialog is gone — team settings is a full page now
+ * (routes/team.tsx), and a page has no modal panel competing with the
+ * page-level pull gesture for the same drag, so nothing there needs the
+ * attribute.
  */
 export const SCROLL_CONTAINER_SELECTOR = '[data-scroll-container]'
 
@@ -59,9 +66,9 @@ interface ClosestTarget {
  * app's other scroll containers, and must therefore never arm
  * pull-to-refresh. `closest()` walks up through React portals' actual DOM
  * ancestry (a Radix `DialogContent` renders outside the React tree but is
- * still a real DOM descendant of whatever it portals into), so this catches
- * TeamSettingsDialog's panel the same way it catches the other two, with no
- * portal-specific case needed.
+ * still a real DOM descendant of whatever it portals into), so a future
+ * dialog-hosted scroll container would be caught the same way as the two
+ * plain ones above, with no portal-specific case needed.
  */
 export function startedInsideScrollContainer(target: ClosestTarget | null): boolean {
   if (!target) return false

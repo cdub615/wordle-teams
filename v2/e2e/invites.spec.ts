@@ -88,9 +88,10 @@ const re = (literal: string): RegExp => new RegExp(literal.replace(/[.*+?^${}()|
 /**
  * The Current Team card, by the landmark current-team-card.tsx gives it.
  *
- * Lives inside TeamSettingsDialog's "Members" tab now (wordle-teams-4srj),
- * not directly on the page — every caller must have called
- * `openTeamSettings(page)` first, same as teams.spec.ts.
+ * Lives on the team settings page now (wordle-teams-5jcn.29 — it spent time
+ * inside TeamSettingsDialog's "Members" tab in between, per wordle-teams-4srj,
+ * but that dialog is deleted), not directly on /app — every caller must have
+ * called `openTeamSettings(page)` first, same as teams.spec.ts.
  */
 const teamCard = (page: Page): Locator => page.getByRole('region', { name: 'Current Team' })
 
@@ -135,16 +136,19 @@ const TOAST_TIMEOUT = { timeout: 15_000 }
  * Opens the invite dialog and submits one address. Returns the dialog, because
  * two of the three tests then assert on whether it is still there.
  *
- * SCOPED BY NAME, NOT A BARE `getByRole('dialog')`, since wordle-teams-4srj:
- * `teamCard` now lives inside TeamSettingsDialog (own accessible name "Team
- * settings"), so this one opens ON TOP OF an already-open dialog rather than
- * being the only one on the page. invite-player-dialog.tsx's own
- * `<DialogTitle>Invite Player to {teamName}</DialogTitle>` is what tells the
- * two apart.
+ * A BARE `getByRole('dialog')` NOW, NOT SCOPED BY NAME. It used to need
+ * scoping — wordle-teams-4srj put `teamCard` inside TeamSettingsDialog (own
+ * accessible name "Team settings"), so this one opened ON TOP OF an
+ * already-open dialog rather than being the only one on the page, and
+ * invite-player-dialog.tsx's own `<DialogTitle>Invite Player to
+ * {teamName}</DialogTitle>` was what told the two apart. TeamSettingsDialog is
+ * deleted (wordle-teams-5jcn.29 — `teamCard` now sits on the team settings
+ * PAGE instead), so this is the only Dialog `teamCard`'s page can ever have
+ * open at once, and the scoping is no longer disambiguating anything.
  */
 async function invite(page: Page, email: string): Promise<Locator> {
   await teamCard(page).getByRole('button', { name: 'Invite player' }).click()
-  const dialog = page.getByRole('dialog', { name: /^Invite Player/ })
+  const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('Email').fill(email)
   await dialog.getByRole('button', { name: 'Invite' }).click()
@@ -200,10 +204,10 @@ test('an invited address joins the team after completing a profile', async ({ br
     // expected back lowercase everywhere below.
     await invite(owner, inviteeTyped)
     await expect(toastWith(owner, `Invite sent to ${inviteeEmail}`)).toBeVisible(TOAST_TIMEOUT)
-    // The invite dialog closes on every outcome except already_member —
-    // scoped by name since TeamSettingsDialog, opened above, is a second
-    // dialog that stays on the page throughout this test.
-    await expect(owner.getByRole('dialog', { name: /^Invite Player/ })).toHaveCount(0)
+    // The invite dialog closes on every outcome except already_member — a
+    // bare role query, since it is the only Dialog this page can have (see
+    // the `invite` helper's own comment).
+    await expect(owner.getByRole('dialog')).toHaveCount(0)
 
     // Divergence 6: v1 shows an owner nowhere who they invited. The row is
     // asserted twice on purpose — once by its cancel control, which counts rows
@@ -223,7 +227,7 @@ test('an invited address joins the team after completing a profile', async ({ br
     // has accepted. v1 said "Successfully invited player" here as well.
     await invite(owner, inviteeTyped)
     await expect(toastWith(owner, `Invite re-sent to ${inviteeEmail}`)).toBeVisible(TOAST_TIMEOUT)
-    await expect(owner.getByRole('dialog', { name: /^Invite Player/ })).toHaveCount(0)
+    await expect(owner.getByRole('dialog')).toHaveCount(0)
     // A resend writes NOTHING (teams.ts), so the list must not grow a second
     // row for the same address — and the dedupe in current-team-card.tsx must
     // not be what is hiding one. This also pins the case-insensitive
@@ -372,9 +376,9 @@ test('inviting someone already on the team says so and leaves the dialog open', 
   // resolve. No reopening anywhere between here and the invite() above.
   await dialog.getByLabel('Email').fill(correctedEmail)
   await dialog.getByRole('button', { name: 'Invite' }).click()
-  // Scoped by name, not a bare `getByRole('dialog')`: TeamSettingsDialog is
-  // still open behind this one (see the `invite` helper's own note).
-  await expect(page.getByRole('dialog', { name: /^Invite Player/ })).toHaveCount(0)
+  // A bare role query — see the `invite` helper's own note on why this is the
+  // only Dialog this page can have.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(teamCard(page).getByRole('listitem')).toHaveCount(2)
 })
 
@@ -429,7 +433,7 @@ test('inviting someone who already has an account adds them to the team directly
     // The firstName the server read back off the matched account, not anything
     // the client typed.
     await expect(toastWith(owner, `Ada was added to ${SEEDED_TEAM}`)).toBeVisible(TOAST_TIMEOUT)
-    await expect(owner.getByRole('dialog', { name: /^Invite Player/ })).toHaveCount(0)
+    await expect(owner.getByRole('dialog')).toHaveCount(0)
 
     // AND THEY ARE ACTUALLY ON THE TEAM, which the toast alone does not prove.
     await expect(card.getByText('Ada Lovelace')).toBeVisible()

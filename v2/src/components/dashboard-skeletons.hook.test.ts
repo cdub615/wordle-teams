@@ -257,10 +257,9 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     // wiring.
     //
     // ScoringSystemCard READS THE SAME QUERY TOO, but it moved off this grid
-    // in Task 9 — it now lives inside TeamSettingsDialog (see that
-    // component's own source), mounted only once the dialog is open on the
-    // Scoring tab, with its own Suspense boundary there rather than one of
-    // these three.
+    // in Task 9 — it now lives on routes/team.tsx (wordle-teams-5jcn.29; it
+    // spent time inside TeamSettingsDialog in between, which is deleted), with
+    // its own local Suspense boundary there rather than one of these three.
     const wrapped = boundaries().map((boundary) => boundary.child)
 
     expect(wrapped.sort()).toEqual(['ScoresTable', 'TeamBoards', 'TodayPanel'])
