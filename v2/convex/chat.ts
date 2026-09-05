@@ -256,14 +256,12 @@ export type MessagesSince =
  * could mistake for complete: the correct recovery is to refetch the window
  * with recentMessagesFor, not to append what happened to fit.
  *
- * THE BOUND ITSELF IS NOT TEST-ENFORCED, and that is worth knowing before you
- * touch it. The gap flag is derived from a count, and for any dataset past the
- * window a `.collect()` and a `.take(RECENT_WINDOW + 1)` produce the same
- * count — so every test here still passes if the `.take` is removed. What
- * changes is how many documents were scanned to get there, which the result
- * does not expose and no black-box assertion can see. The `.take` is the only
- * thing standing between a reconnecting client and a full-history read; it is
- * load-bearing precisely where nothing will tell you it broke.
+ * THE BOUND IS TEST-ENFORCED, but not by any assertion on this function's
+ * result — a capped and an uncapped read produce the same `gap` boolean, since
+ * both counts land past the window. What catches its removal is Convex's own
+ * per-function documents-read quota, tightened in one test so an unbounded
+ * scan fails here the way it would in production. See "never scans
+ * unboundedly" in chat.test.ts.
  */
 export async function messagesSinceFor(
   ctx: ReaderCtx,

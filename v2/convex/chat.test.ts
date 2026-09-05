@@ -418,6 +418,24 @@ describe('the chat reads', () => {
     })
   })
 
+  // THE BOUND ITSELF, caught by Convex's own scan quota rather than by any
+  // assertion on the result. convex-test reimplements the real per-function
+  // documents-read limit, so tightening it here makes an unbounded read fail
+  // the way production would — which is the one thing an assertion on `gap`
+  // cannot see, since a capped and an uncapped read produce the same count.
+  test('never scans unboundedly, however far behind the client is', async () => {
+    const t = convexTest({ schema, modules, transactionLimits: { documentsRead: 50 } })
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      for (let i = 0; i < 60; i++) {
+        await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+      }
+
+      expect(await messagesSinceFor(ctx, ada, team, 0)).toEqual({ gap: true })
+    })
+  })
+
   test('older messages page backwards from a given time', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
