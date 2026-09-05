@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { formatDayHeader, formatMonthLabel, ordinal } from './format-day'
+import { formatDayHeaderParts, formatMonthLabel, ordinal } from './format-day'
 
 describe('ordinal', () => {
   test('handles the irregular ones', () => {
@@ -23,10 +23,24 @@ describe('ordinal', () => {
   })
 })
 
-describe('formatDayHeader', () => {
-  test('matches v1 formatting, EE do', () => {
+describe('formatDayHeaderParts', () => {
+  test('splits into weekday and ordinal, matching v1\'s EE do pieces', () => {
     // 2026-08-03 is a Monday.
-    expect(formatDayHeader('2026-08-03')).toBe('Mon 3rd')
+    expect(formatDayHeaderParts('2026-08-03')).toEqual({ weekday: 'Mon', ordinal: '3rd' })
+  })
+
+  test('carries the ordinal teen exceptions through (11th/12th/13th)', () => {
+    // 2026-08-03 is a Monday, so the 11th/12th/13th fall on Tue/Wed/Thu.
+    expect(formatDayHeaderParts('2026-08-11')).toEqual({ weekday: 'Tue', ordinal: '11th' })
+    expect(formatDayHeaderParts('2026-08-12')).toEqual({ weekday: 'Wed', ordinal: '12th' })
+    expect(formatDayHeaderParts('2026-08-13')).toEqual({ weekday: 'Thu', ordinal: '13th' })
+  })
+
+  test('carries the regular 1st/2nd/3rd pattern through', () => {
+    // The 1st/2nd/3rd of August 2026 are Sat/Sun/Mon.
+    expect(formatDayHeaderParts('2026-08-01')).toEqual({ weekday: 'Sat', ordinal: '1st' })
+    expect(formatDayHeaderParts('2026-08-02')).toEqual({ weekday: 'Sun', ordinal: '2nd' })
+    expect(formatDayHeaderParts('2026-08-03')).toEqual({ weekday: 'Mon', ordinal: '3rd' })
   })
 })
 

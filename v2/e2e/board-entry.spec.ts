@@ -50,9 +50,10 @@ test('enter a board and see the score land', async ({ page }) => {
 
   // ...but that doesn't prove the TABLE shows it, which is the actual point
   // of "see the score land". A bare toContainText('2') on the whole table is
-  // NOT that proof: format-day.ts renders day headers as e.g. "Sun 2nd", so
-  // the character '2' sits in the table on every load — the 2nd of every
-  // month — whether or not any board was ever submitted. scores-table.tsx's
+  // NOT that proof: scores-table.tsx renders day headers as e.g. "Sun 2nd"
+  // (weekday and ordinal from format-day.ts, joined on the page), so the
+  // character '2' sits in the table on every load — the 2nd of every month —
+  // whether or not any board was ever submitted. scores-table.tsx's
   // data-day attribute makes the one cell that matters (this player, this
   // puzzleDay) addressable, so the assertion is scoped to exactly the write
   // this test just made rather than to a column header that was always there.

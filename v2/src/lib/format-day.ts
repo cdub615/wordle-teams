@@ -28,10 +28,21 @@ export function ordinal(n: number): string {
   }
 }
 
-/** 'Mon 3rd' — the scores table's day column header. */
-export function formatDayHeader(day: PuzzleDay): string {
+/**
+ * 'Mon' / '3rd' — the scores table's day column header, as two separate
+ * pieces rather than one joined string.
+ *
+ * The caller (scores-table.tsx) renders these as two elements that stack
+ * onto two lines below `md` and sit side by side at `md` and up, matching
+ * v1's appearance without v1's mechanism (v1 relies on table-layout: auto
+ * column compression to force the wrap; see the `w-max min-w-full` comment
+ * on <Table> for why v2 deliberately doesn't use that mechanism). Splitting
+ * here, in the pure formatter, keeps the join-vs-stack decision entirely a
+ * markup/CSS concern in the component.
+ */
+export function formatDayHeaderParts(day: PuzzleDay): { weekday: string; ordinal: string } {
   const date = fromPuzzleDay(day)
-  return `${weekday.format(date)} ${ordinal(date.getDate())}`
+  return { weekday: weekday.format(date), ordinal: ordinal(date.getDate()) }
 }
 
 /** 'Aug 2026' — the month picker's label. */

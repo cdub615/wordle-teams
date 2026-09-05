@@ -4,7 +4,7 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#/components/ui/table.tsx'
 import { ScoreCell } from '#/components/score-cell.tsx'
-import { formatDayHeader } from '#/lib/format-day.ts'
+import { formatDayHeaderParts } from '#/lib/format-day.ts'
 import { cn } from '#/lib/utils.ts'
 import { attemptsFor } from '../../convex/lib/board.ts'
 import { monthTotal } from '../../convex/lib/scoring.ts'
@@ -309,11 +309,28 @@ export function ScoresTable({
               <TableHead scope="col" className={cn(pinnedLeft, 'rounded-tl-md px-2 md:px-4')}>
                 <div className="text-xs md:text-sm">Player</div>
               </TableHead>
-              {days.map((day) => (
-                <TableHead scope="col" key={day}>
-                  <div className="text-xs md:text-sm">{formatDayHeader(day)}</div>
-                </TableHead>
-              ))}
+              {days.map((day) => {
+                const { weekday: weekdayLabel, ordinal: ordinalLabel } = formatDayHeaderParts(day)
+                return (
+                  <TableHead scope="col" key={day}>
+                    {/* Two elements, not one joined string (owner's request:
+                        match v1's appearance without v1's mechanism). `block`
+                        below `md` stacks the ordinal onto its own line, so the
+                        column's natural content width collapses to roughly
+                        max("Thu", "3rd") instead of the full "Thu 3rd" — with
+                        `w-max min-w-full` still on <Table> (see that comment),
+                        a narrower CONTENT width is what narrows the column;
+                        nothing is being compressed. `md:inline` restores the
+                        single line at md and up; `md:ml-1` supplies the gap a
+                        bare `{' '}` can't, since a space between two `block`
+                        elements collapses to nothing. */}
+                    <div className="text-xs md:text-sm">
+                      <span className="block md:inline">{weekdayLabel}</span>
+                      <span className="block md:ml-1 md:inline">{ordinalLabel}</span>
+                    </div>
+                  </TableHead>
+                )
+              })}
               <TableHead scope="col" className={cn(pinnedRight, 'rounded-tr-md px-2 md:px-4')}>
                 <div className="text-right text-xs font-bold md:text-sm">Score</div>
               </TableHead>
