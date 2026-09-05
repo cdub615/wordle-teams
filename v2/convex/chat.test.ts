@@ -382,7 +382,39 @@ describe('the chat reads', () => {
       await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: 'new', createdAt: 2000 })
 
       const since = await messagesSinceFor(ctx, ada, team, 1000)
-      expect(since.map((m) => m.body)).toEqual(['new'])
+      expect(since.gap).toBe(false)
+      expect(since.gap === false && since.messages.map((m) => m.body)).toEqual(['new'])
+    })
+  })
+
+  test('reports a gap rather than truncating when the client is far behind', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      for (let i = 0; i < RECENT_WINDOW + 5; i++) {
+        await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+      }
+
+      expect(await messagesSinceFor(ctx, ada, team, 0)).toEqual({ gap: true })
+    })
+  })
+
+  // The boundary itself must NOT report a gap: exactly a window's worth is
+  // deliverable, and reporting a gap there would make a busy team refetch the
+  // whole window unnecessarily.
+  test('delivers exactly a window\'s worth without reporting a gap', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      for (let i = 0; i < RECENT_WINDOW; i++) {
+        await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+      }
+
+      const result = await messagesSinceFor(ctx, ada, team, 0)
+      expect(result.gap).toBe(false)
+      expect(result.gap === false && result.messages).toHaveLength(RECENT_WINDOW)
     })
   })
 

@@ -7,7 +7,7 @@ import {
   nextPostWindow,
   requireBody,
 } from './lib/chat.ts'
-import type { Id } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
 import type { ReaderCtx, WriterCtx } from './winners.ts'
 
 /**
@@ -193,6 +193,28 @@ export async function chatPointerFor(
 }
 
 /**
+ * What a client actually needs from a message.
+ *
+ * NOT a database-I/O saving: Convex bills bandwidth on data SCANNED, so the
+ * whole document is paid for either way. This trims EGRESS, which is a
+ * separate 1GB/month free-tier cap, and the payload every browser downloads.
+ *
+ * `teamId` is dropped because the caller supplied it to scope the query, and
+ * `_creationTime` because the schema added an explicit `createdAt` precisely so
+ * nothing would depend on it.
+ */
+export type ChatMessage = {
+  _id: Id<'chatMessages'>
+  playerId: Id<'players'>
+  body: string
+  createdAt: number
+}
+
+function toChatMessage(doc: Doc<'chatMessages'>): ChatMessage {
+  return { _id: doc._id, playerId: doc.playerId, body: doc.body, createdAt: doc.createdAt }
+}
+
+/**
  * The newest RECENT_WINDOW messages, oldest-first for rendering.
  *
  * Read once when a conversation opens, and again only when `revision` jumps
@@ -203,7 +225,7 @@ export async function recentMessagesFor(
   ctx: ReaderCtx,
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
-) {
+): Promise<Array<ChatMessage>> {
   await requireTeamMemberFor(ctx, playerId, teamId)
 
   const newestFirst = await ctx.db
@@ -212,8 +234,12 @@ export async function recentMessagesFor(
     .order('desc')
     .take(RECENT_WINDOW)
 
-  return newestFirst.reverse()
+  return newestFirst.reverse().map(toChatMessage)
 }
+
+export type MessagesSince =
+  | { gap: false; messages: Array<ChatMessage> }
+  | { gap: true }
 
 /**
  * Everything after `since` — the hot path, and normally one document.
@@ -221,19 +247,32 @@ export async function recentMessagesFor(
  * This is the whole reason the architecture is cheap: a client that already
  * holds history up to T pays for what it lacks, not for the window it already
  * has.
+ *
+ * BOUNDED, AND THE BOUND IS PART OF THE CONTRACT. `since` is client-supplied
+ * (Task 9), so an unbounded query here would let a reconnecting client, a
+ * skewed clock, or a plain `since: 0` pull a team's entire history in one
+ * call — exactly the cost this design exists to avoid. Past a window's worth
+ * we return `gap: true` and NO messages, rather than a truncated list a caller
+ * could mistake for complete: the correct recovery is to refetch the window
+ * with recentMessagesFor, not to append what happened to fit.
  */
 export async function messagesSinceFor(
   ctx: ReaderCtx,
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
   since: number,
-) {
+): Promise<MessagesSince> {
   await requireTeamMemberFor(ctx, playerId, teamId)
 
-  return await ctx.db
+  // One more than the window, so "hit the cap" is distinguishable from
+  // "exactly a window's worth".
+  const found = await ctx.db
     .query('chatMessages')
     .withIndex('by_team_createdAt', (q) => q.eq('teamId', teamId).gt('createdAt', since))
-    .collect()
+    .take(RECENT_WINDOW + 1)
+
+  if (found.length > RECENT_WINDOW) return { gap: true }
+  return { gap: false, messages: found.map(toChatMessage) }
 }
 
 /**
@@ -248,7 +287,7 @@ export async function olderMessagesFor(
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
   before: number,
-) {
+): Promise<Array<ChatMessage>> {
   await requireTeamMemberFor(ctx, playerId, teamId)
 
   const newestFirst = await ctx.db
@@ -257,5 +296,5 @@ export async function olderMessagesFor(
     .order('desc')
     .take(RECENT_WINDOW)
 
-  return newestFirst.reverse()
+  return newestFirst.reverse().map(toChatMessage)
 }
