@@ -9,7 +9,7 @@ import {
   recentMessagesFor,
   sendMessageFor,
 } from './chat.ts'
-import { deleteTeamFor } from './teams.ts'
+import { deleteTeamFor, leaveTeamFor } from './teams.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
 import {
   BUDGET_THRESHOLD_BYTES,
@@ -19,8 +19,10 @@ import {
   budgetIncrementForDelete,
   budgetMonthFor,
 } from './lib/chat.ts'
+import { toPuzzleDay } from './lib/puzzleDay.ts'
 
 const modules = import.meta.glob('./**/*.ts')
+const today = toPuzzleDay(new Date())
 
 describe('the chat schema', () => {
   // THE LOAD-BEARING ASSUMPTION OF THE WHOLE DESIGN. Every wake does a
@@ -648,6 +650,32 @@ describe('deleting a team', () => {
 
       const left = await ctx.db.query('chatMessages').collect()
       expect(left.map((m) => m.body)).toEqual(['still here'])
+    })
+  })
+
+  // THE SECOND ENTRY POINT. cascadeDeleteTeam has two callers, and the four
+  // tests above all reach it through deleteTeamFor. leaveTeamFor calls it too,
+  // on its empty-roster branch — the last member leaves and the team goes with
+  // them. That path is likelier in practice than a deliberate delete, and
+  // nothing was covering it for chat.
+  //
+  // The team is owner-less (as in teams.test.ts's own empty-roster cascade
+  // test): an owner ON THE ROSTER cannot leave (OWNER_NOT_REMOVABLE) and so
+  // could never empty a team by leaving it, which would make this branch
+  // unreachable with the obvious owned-team fixture.
+  test('cascades chat when the last member leaves and the team goes with them', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: undefined }))
+      await sendMessageFor(ctx, ada, team, 'last one out')
+
+      await leaveTeamFor(ctx, ada, { teamId: team, today })
+
+      expect(await ctx.db.get(team)).toBeNull()
+      expect(await ctx.db.query('chatMessages').collect()).toEqual([])
+      expect(await ctx.db.query('chatMeta').collect()).toEqual([])
+      expect(await ctx.db.query('chatReads').collect()).toEqual([])
     })
   })
 })
