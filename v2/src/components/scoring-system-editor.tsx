@@ -172,12 +172,21 @@ export function ScoringSystemEditor({
           value={preset}
           onValueChange={handlePresetChange}
           aria-labelledby={PRESET_LABEL_ID}
-          className="grid grid-cols-3 gap-2"
+          // NOT `grid grid-cols-3`. Equal thirds squeeze the longest option
+          // until it breaks MID-WORD — "Competitive" rendered as "Competitiv /
+          // e" on a phone. Sizing each option to its own content and wrapping
+          // the GROUP instead keeps every label whole at any width.
+          className="flex flex-wrap items-center gap-x-6 gap-y-3"
         >
           {PRESET_OPTIONS.map(({ id, label }) => (
             <div key={id} className="flex items-center gap-2">
               <RadioGroupItem value={id} id={`preset-${id}`} />
-              <Label htmlFor={`preset-${id}`}>{label}</Label>
+              {/* `whitespace-nowrap` is the half that guarantees it: without
+                  it a narrow enough viewport still breaks the word rather than
+                  moving the whole option to the next line. */}
+              <Label htmlFor={`preset-${id}`} className="whitespace-nowrap">
+                {label}
+              </Label>
             </div>
           ))}
         </RadioGroup>
@@ -213,7 +222,21 @@ export function ScoringSystemEditor({
         // to change any of them. Still `draft`'s own values (not the preset
         // constant directly), so this reads back exactly what Save would
         // send, the same values a screen reader gets from the inputs above.
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+        <div
+          // COLUMN-MAJOR, NOT ROW-MAJOR. The default row flow reads
+          // left-right-left-right (1,2 / 3,4 / 5,6 / X,Missed), so the eight
+          // outcomes zig-zag instead of running in order. `grid-flow-col` with
+          // an explicit row count fills DOWN the first column and continues in
+          // the second, which is how the list is actually read.
+          //
+          // The row count is DERIVED from FIELDS rather than hardcoded to 4,
+          // for the same reason SYSTEM_FIELDS is derived from DEFAULT_SYSTEM
+          // (see lib/scoringSystem.ts): a ninth scoring field must not land in
+          // a silently wrong shape. `auto-cols-fr` keeps the generated columns
+          // equal width whatever that count turns out to be.
+          className="grid grid-flow-col auto-cols-fr gap-x-4 gap-y-2"
+          style={{ gridTemplateRows: `repeat(${Math.ceil(FIELDS.length / 2)}, minmax(0, 1fr))` }}
+        >
           {FIELDS.map(({ label, field }) => (
             <div key={field} className="flex items-center justify-between gap-4 text-sm">
               <span className="text-muted-foreground">{label}</span>

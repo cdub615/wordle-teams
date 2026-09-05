@@ -65,7 +65,18 @@ describe('the three-way control is Radix RadioGroup, not hand-rolled', () => {
   // input/label association the eight point fields already use below.
   test('every preset option has its own associated Label', () => {
     expect(source).toContain('<RadioGroupItem value={id} id={`preset-${id}`}')
-    expect(source).toContain('<Label htmlFor={`preset-${id}`}>{label}</Label>')
+    // THE ASSOCIATION IS THE GUARANTEE, NOT THE FORMATTING. This used to pin
+    // the whole element as one line and went red the moment a className was
+    // added to it — a true failure about nothing. What must hold is that each
+    // Label points at its own radio's id, and that it renders the option's
+    // text; both survive reformatting, neither survives losing the wiring.
+    // A REGEX, NOT toContain('{label}'), AND THE REASON IS MEASURED. That
+    // assertion passed even after the radio's label text was replaced, because
+    // `{label}` also appears in the custom-fields block and the values grid —
+    // it was vacuous for the thing it claimed to check. This spans from the
+    // preset Label's htmlFor to its rendered text, so it survives a className
+    // or a line break but not the loss of either half of the wiring.
+    expect(source).toMatch(/htmlFor=\{`preset-\$\{id\}`\}[^>]*>\s*\{label\}/)
   })
 })
 
