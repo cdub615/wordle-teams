@@ -345,8 +345,9 @@ And extend the comment block above the union, which enumerates where each code
 is thrown, with:
 
 ```ts
-// INVALID_MESSAGE and RATE_LIMITED are thrown in lib/chat.ts, by requireBody
-// and by the send path's rate-limit check.
+// INVALID_MESSAGE is thrown in lib/chat.ts, by requireBody. RATE_LIMITED is
+// thrown in chat.ts, by sendMessageFor — lib/chat.ts's nextPostWindow only
+// RETURNS null to report a refusal; the caller decides what to throw.
 ```
 
 - [ ] **Step 4: Add the copy for both codes**
@@ -839,9 +840,12 @@ export async function sendMessageFor(
   // runaway client spend the I/O it is being refused for.
   const cursor = await readCursorFor(ctx, playerId, teamId)
   const window = nextPostWindow(cursor ?? {}, now)
-  // `throw` even though accessError throws internally: the spread of `window`
-  // below needs TypeScript to narrow away the null, and access.ts writes it
-  // this way for the same reason.
+  // `throw` is redundant — accessError throws internally, and a bare call
+  // narrows fine, because TypeScript treats a call to a `never`-returning
+  // function as terminating control flow. It is kept purely for uniformity
+  // with the repo's other call sites, for the reason requireBody's own comment
+  // in lib/chat.ts gives: a bare call was once a silent bypass under an older
+  // signature, and no reader should have to work out which signature applies.
   if (window === null) throw accessError('RATE_LIMITED')
 
   const id = await ctx.db.insert('chatMessages', { teamId, playerId, body, createdAt: now })
