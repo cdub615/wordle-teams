@@ -1235,11 +1235,30 @@ export async function olderMessagesFor(
 Run: `cd v2 && pnpm vitest run convex/chat.test.ts`
 Expected: PASS, 19 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Correct the schema comment this task makes inaccurate**
+
+`chatMeta`'s comment in `v2/convex/schema.ts` says a wake "costs one small
+document". As of `chatPointerFor` it is TWO — the pointer query reads the
+team's `chatMeta` row and the month's `chatBudget` row, because `degraded` has
+to reach the client somehow and a shared subscription to `chatBudget` would
+wake every connected client in the app. Replace that sentence with:
+
+```ts
+  // THE POINTER. Clients subscribe to THIS, not to messages. A wake reads two
+  // small documents — this row and the month's chatBudget row, which is how
+  // `degraded` reaches the client — instead of a whole message window. See
+  // chatPointerFor in chat.ts, and section 4 of the design.
+```
+
+The comment was accurate when Task 1 wrote it and this task is what makes it
+stale. Fixing it here keeps "one small document" from being quoted later as the
+wake cost.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 cd /home/cdub/projects/wordle-teams
-git add v2/convex/chat.ts v2/convex/chat.test.ts
+git add v2/convex/schema.ts v2/convex/chat.ts v2/convex/chat.test.ts
 git commit -m "feat(chat): the four reads, each gated on membership"
 ```
 
@@ -1456,6 +1475,28 @@ describe('deleting a team', () => {
     })
   })
 
+  // THE ORPHAN CASE, found in review of Task 1. A player who LEFT before the
+  // team was deleted is no longer in playerIds, so a cascade that walked the
+  // roster would never find their cursor and it would outlive the team with
+  // nothing able to reach it. The row is inserted directly rather than by
+  // calling leaveTeamFor, so this tests the CASCADE rather than the leave flow.
+  test('removes the cursor of someone who had already left the team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+
+      // A cursor belonging to someone who is NOT on the roster any more.
+      await ctx.db.insert('chatReads', { playerId: gone, teamId: team, lastReadAt: 1 })
+
+      await deleteTeamFor(ctx, ada, team)
+
+      expect(await ctx.db.query('chatReads').collect()).toEqual([])
+    })
+  })
+
   test('does not touch another team\'s chat', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -1479,7 +1520,20 @@ describe('deleting a team', () => {
 Run: `cd v2 && pnpm vitest run convex/chat.test.ts`
 Expected: FAIL — the messages, pointer and cursors survive the team.
 
-- [ ] **Step 3: Extend the cascade**
+- [ ] **Step 3: Add the `by_team` index the cascade needs**
+
+`chatReads` was created in Task 1 with `by_player_team` and `by_player` only.
+Neither starts with `teamId`, so neither can answer "every cursor for this
+team" — which is what a complete cascade needs. In `v2/convex/schema.ts`, add a
+third index to `chatReads`:
+
+```ts
+    .index('by_player_team', ['playerId', 'teamId'])
+    .index('by_player', ['playerId'])
+    .index('by_team', ['teamId']),
+```
+
+- [ ] **Step 4: Extend the cascade**
 
 In `v2/convex/teams.ts`, inside `cascadeDeleteTeam`, immediately before the
 `await ctx.db.delete(team._id)` line, add:
@@ -1500,33 +1554,36 @@ In `v2/convex/teams.ts`, inside `cascadeDeleteTeam`, immediately before the
     .collect()
   for (const row of meta) await ctx.db.delete(row._id)
 
-  // No by_team index on chatReads — it is keyed by player first, and a team's
-  // roster is right here, so this reads O(members) rather than scanning.
-  for (const playerId of team.playerIds) {
-    const cursor = await ctx.db
-      .query('chatReads')
-      .withIndex('by_player_team', (q) => q.eq('playerId', playerId).eq('teamId', team._id))
-      .unique()
-    if (cursor !== null) await ctx.db.delete(cursor._id)
-  }
+  // BY TEAM, NOT BY ROSTER, and the difference is a permanent leak. Walking
+  // team.playerIds reaches only members still on the team at delete time — a
+  // player who LEFT earlier is no longer in it, so their cursor would outlive
+  // the team with nothing able to find it again. THREE paths remove a player
+  // from a team (removeMemberFor, leaveTeamFor, and the Phase 5 downgrade in
+  // billing.ts), so "have every removal path clean up" is an invariant that
+  // would rot. Indexing by team makes the cascade complete by construction.
+  const cursors = await ctx.db
+    .query('chatReads')
+    .withIndex('by_team', (q) => q.eq('teamId', team._id))
+    .collect()
+  for (const row of cursors) await ctx.db.delete(row._id)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `cd v2 && pnpm vitest run convex/chat.test.ts`
-Expected: PASS, 27 tests.
+Expected: PASS, 28 tests.
 
-- [ ] **Step 5: Run the existing team tests, which this file changed**
+- [ ] **Step 6: Run the existing team tests, which this file changed**
 
 Run: `cd v2 && pnpm vitest run convex/teams.test.ts`
 Expected: PASS, unchanged. `cascadeDeleteTeam` is reached by `deleteTeamFor` and
 by `leaveTeamFor`'s empty-roster branch, so both paths now delete chat too.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 cd /home/cdub/projects/wordle-teams
-git add v2/convex/teams.ts v2/convex/chat.test.ts
+git add v2/convex/schema.ts v2/convex/teams.ts v2/convex/chat.test.ts
 git commit -m "feat(chat): carry chat into the existing team-deletion cascade"
 ```
 
