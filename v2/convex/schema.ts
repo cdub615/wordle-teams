@@ -322,6 +322,63 @@ export default defineSchema({
     .index('by_player', ['playerId'])
     .index('by_endpoint', ['endpoint']),
 
+  // TEAM CHAT (wordle-teams-qix). Phase 7.5, and native to v2 — there is no
+  // Supabase counterpart, so no legacyId on any of these four, for the same
+  // reason scoringSystems and pushSubscriptions have none.
+  //
+  // AN EXPLICIT createdAt, WHERE _creationTime WOULD HAVE BEEN FREE. Every
+  // client wake range-scans "messages since T" on by_team_createdAt, which is
+  // the hot path of the entire feature. Relying on _creationTime as an implicit
+  // trailing index field may well work; this is not the place to find out.
+  chatMessages: defineTable({
+    teamId: v.id('teams'),
+    playerId: v.id('players'),
+    body: v.string(),
+    createdAt: v.number(),
+  }).index('by_team_createdAt', ['teamId', 'createdAt']),
+
+  // THE POINTER. Clients subscribe to THIS, not to messages: a wake costs one
+  // small document instead of a whole window. See the design's section 4.
+  //
+  // IT IS NOT ON THE TEAM DOC, AND THAT IS THE POINT. Denormalising
+  // lastMessageAt onto `teams` would make every chat message invalidate every
+  // query watching that team — posting a message would re-run the SCOREBOARD
+  // for everyone reading it.
+  //
+  // `revision` EXISTS BECAUSE DELETES DO NOT MOVE lastMessageAt. A client
+  // watching only the timestamp would never notice a deleted message and would
+  // go on showing it. Any mutation to a team's history bumps revision.
+  chatMeta: defineTable({
+    teamId: v.id('teams'),
+    lastMessageAt: v.number(),
+    revision: v.number(),
+  }).index('by_team', ['teamId']),
+
+  // PER-PLAYER, PER-TEAM read cursor. Also carries the rate-limit window,
+  // because the send mutation already reads and writes this row — counting a
+  // player's recent messages instead would pay database I/O to protect
+  // database I/O.
+  chatReads: defineTable({
+    playerId: v.id('players'),
+    teamId: v.id('teams'),
+    lastReadAt: v.number(),
+    lastNotifiedAt: v.optional(v.number()),
+    postWindowStartedAt: v.optional(v.number()),
+    postsInWindow: v.optional(v.number()),
+  })
+    .index('by_player_team', ['playerId', 'teamId'])
+    .index('by_player', ['playerId']),
+
+  // THE BANDWIDTH BUDGET, one row per calendar month. Convex's free tier caps
+  // database I/O at 1GB/month and the cap is HARD — mutations start failing
+  // rather than generating a bill, which would take board entry down with it.
+  // This meter degrades chat to manual refresh first. See lib/chat.ts.
+  chatBudget: defineTable({
+    month: v.string(), // 'YYYY-MM'
+    estimatedBytes: v.number(),
+    degraded: v.boolean(),
+  }).index('by_month', ['month']),
+
   // --- Phase 0 scaffolding, still in use ---
 
   statusMessages: defineTable({
