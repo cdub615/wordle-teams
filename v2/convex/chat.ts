@@ -36,6 +36,13 @@ async function bumpChatMeta(
     .unique()
 
   if (existing === null) {
+    // movesLastMessage is ignored here, and that is safe only by an invariant
+    // worth stating: `false` is passed on a delete (see deleteMessageFor), a
+    // delete requires the message to exist, and every message is written by
+    // sendMessageFor — which creates this row. So `false` never reaches this
+    // branch. The invariant is NOT enforced by a type; it rests on nothing
+    // else inserting into chatMessages. If you are adding a seed script or a
+    // migration that does, this insert needs to honour the flag.
     await ctx.db.insert('chatMeta', { teamId, lastMessageAt: now, revision: 1 })
     return
   }
