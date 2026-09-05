@@ -1,5 +1,11 @@
 import { accessError, requireTeamMemberFor } from './access'
-import { nextPostWindow, requireBody } from './lib/chat.ts'
+import {
+  budgetIncrementFor,
+  budgetMonthFor,
+  isOverBudget,
+  nextPostWindow,
+  requireBody,
+} from './lib/chat.ts'
 import type { Id } from './_generated/dataModel'
 import type { WriterCtx } from './winners.ts'
 
@@ -53,6 +59,34 @@ async function bumpChatMeta(
   })
 }
 
+/**
+ * Charge the month's bandwidth budget for one message, and set `degraded` once
+ * the threshold is crossed.
+ *
+ * WHY A METER AT ALL. The modelled worst case is ~7% of Convex's free-tier
+ * database-I/O allowance, which is a large margin and not a guarantee. This
+ * turns it into one. When it trips, chat stops opening live subscriptions and
+ * falls back to manual refresh — SENDING KEEPS WORKING, because the failure
+ * this exists to prevent is Convex refusing mutations app-wide and taking board
+ * entry down along with chat.
+ */
+async function chargeBudget(ctx: WriterCtx, teamSize: number, now: number): Promise<void> {
+  const month = budgetMonthFor(now)
+  const row = await ctx.db
+    .query('chatBudget')
+    .withIndex('by_month', (q) => q.eq('month', month))
+    .unique()
+
+  const estimatedBytes = (row?.estimatedBytes ?? 0) + budgetIncrementFor(teamSize)
+  const degraded = isOverBudget(estimatedBytes)
+
+  if (row === null) {
+    await ctx.db.insert('chatBudget', { month, estimatedBytes, degraded })
+    return
+  }
+  await ctx.db.patch(row._id, { estimatedBytes, degraded })
+}
+
 /** The caller's read cursor for a team, created on first use. */
 async function readCursorFor(ctx: WriterCtx, playerId: Id<'players'>, teamId: Id<'teams'>) {
   return await ctx.db
@@ -67,7 +101,7 @@ export async function sendMessageFor(
   teamId: Id<'teams'>,
   rawBody: string,
 ): Promise<Id<'chatMessages'>> {
-  await requireTeamMemberFor(ctx, playerId, teamId)
+  const team = await requireTeamMemberFor(ctx, playerId, teamId)
   const body = requireBody(rawBody)
   const now = Date.now()
 
@@ -89,6 +123,7 @@ export async function sendMessageFor(
 
   const id = await ctx.db.insert('chatMessages', { teamId, playerId, body, createdAt: now })
   await bumpChatMeta(ctx, teamId, now, true)
+  await chargeBudget(ctx, team.playerIds.length, now)
 
   // Sending is reading — you have seen your own message.
   if (cursor === null) {

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { sendMessageFor } from './chat.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
-import { RATE_LIMIT_MESSAGES } from './lib/chat.ts'
+import { BUDGET_THRESHOLD_BYTES, RATE_LIMIT_MESSAGES, budgetIncrementFor, budgetMonthFor } from './lib/chat.ts'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -233,6 +233,70 @@ describe('the send rate limit', () => {
       })
 
       await expect(sendMessageFor(ctx, ada, quiet, 'but fine here')).resolves.toBeDefined()
+    })
+  })
+})
+
+describe('the budget meter', () => {
+  test('charges every member of the team for each message sent', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'hello')
+
+      const budget = await ctx.db
+        .query('chatBudget')
+        .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
+        .unique()
+      expect(budget?.estimatedBytes).toBe(budgetIncrementFor(2))
+      expect(budget?.degraded).toBe(false)
+    })
+  })
+
+  test('degrades once the month crosses the threshold', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await ctx.db.insert('chatBudget', {
+        month: budgetMonthFor(Date.now()),
+        estimatedBytes: BUDGET_THRESHOLD_BYTES,
+        degraded: false,
+      })
+
+      await sendMessageFor(ctx, ada, team, 'over the line')
+
+      const budget = await ctx.db
+        .query('chatBudget')
+        .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
+        .unique()
+      expect(budget?.degraded).toBe(true)
+    })
+  })
+
+  // DEGRADED MUST NOT MEAN SILENCED. Live updates pause; the conversation does
+  // not stop. Cutting sending would be a worse outcome than the cost it saves.
+  test('still accepts messages while degraded', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await ctx.db.insert('chatBudget', {
+        month: budgetMonthFor(Date.now()),
+        estimatedBytes: BUDGET_THRESHOLD_BYTES * 2,
+        degraded: true,
+      })
+
+      // NOTE: this cannot fail today — nothing in sendMessageFor consults
+      // `degraded`, so it passes by default rather than by design. It is a
+      // regression guard: if someone later makes the meter gate sending, this is
+      // what should stop them.
+      await expect(sendMessageFor(ctx, ada, team, 'still talking')).resolves.toBeDefined()
     })
   })
 })
