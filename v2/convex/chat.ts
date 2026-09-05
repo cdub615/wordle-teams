@@ -305,3 +305,35 @@ export async function olderMessagesFor(
 
   return newestFirst.reverse().map(toChatMessage)
 }
+
+/**
+ * Delete a message. The author may remove their own; the team owner may remove
+ * any in their team.
+ *
+ * HARD DELETE, NOT A TOMBSTONE. A tombstone would occupy a slot in the loaded
+ * window and be re-read on every refresh for the life of the team, and with no
+ * report path there is no evidence it would preserve.
+ *
+ * OWNERSHIP IS A ROLE, NOT AUTHORSHIP — Phase 5's softened downgrade reassigns
+ * `owner` to the earliest-joined remaining member, so this grants the power to
+ * whoever holds the role now, which is the intent.
+ *
+ * A non-member gets NOT_A_MEMBER from requireTeamMemberFor before anything else
+ * is considered, so this cannot be used to probe which message ids exist.
+ */
+export async function deleteMessageFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  messageId: Id<'chatMessages'>,
+): Promise<void> {
+  const message = await ctx.db.get(messageId)
+  if (message === null) throw accessError('NOT_A_MEMBER')
+
+  const team = await requireTeamMemberFor(ctx, playerId, message.teamId)
+  const mayDelete = message.playerId === playerId || team.owner === playerId
+  if (!mayDelete) throw accessError('NOT_TEAM_OWNER')
+
+  await ctx.db.delete(messageId)
+  // History changed without the newest message moving — see bumpChatMeta.
+  await bumpChatMeta(ctx, message.teamId, Date.now(), false)
+}

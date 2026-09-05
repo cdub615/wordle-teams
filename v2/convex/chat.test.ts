@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import {
   chatPointerFor,
+  deleteMessageFor,
   messagesSinceFor,
   olderMessagesFor,
   recentMessagesFor,
@@ -465,6 +466,87 @@ describe('the chat reads', () => {
       await expect(recentMessagesFor(ctx, mallory, team)).rejects.toMatchObject(notAMember)
       await expect(messagesSinceFor(ctx, mallory, team, 0)).rejects.toMatchObject(notAMember)
       await expect(olderMessagesFor(ctx, mallory, team, Date.now())).rejects.toMatchObject(notAMember)
+    })
+  })
+})
+
+describe('deleteMessageFor', () => {
+  test('lets an author delete their own message', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      const id = await sendMessageFor(ctx, bob, team, 'mine to remove')
+
+      await deleteMessageFor(ctx, bob, id)
+
+      expect(await ctx.db.get(id)).toBeNull()
+    })
+  })
+
+  test('lets the team owner delete anyone\'s message', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      const id = await sendMessageFor(ctx, bob, team, 'something regrettable')
+
+      await deleteMessageFor(ctx, ada, id)
+
+      expect(await ctx.db.get(id)).toBeNull()
+    })
+  })
+
+  test('refuses a member who is neither the author nor the owner', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const cass = await ctx.db.insert('players', aPlayer({ email: 'cass@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob, cass], owner: ada }))
+      const id = await sendMessageFor(ctx, bob, team, 'not yours')
+
+      await expect(deleteMessageFor(ctx, cass, id)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
+      })
+      expect(await ctx.db.get(id)).not.toBeNull()
+    })
+  })
+
+  test('refuses a non-member outright', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const mallory = await ctx.db.insert('players', aPlayer({ email: 'mallory@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const id = await sendMessageFor(ctx, ada, team, 'private')
+
+      await expect(deleteMessageFor(ctx, mallory, id)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+      expect(await ctx.db.get(id)).not.toBeNull()
+    })
+  })
+
+  // THE REASON `revision` EXISTS. A delete does not move lastMessageAt, so
+  // without this bump a connected client would go on showing a deleted message
+  // forever.
+  test('bumps revision without moving lastMessageAt', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'first')
+      const id = await sendMessageFor(ctx, ada, team, 'second')
+
+      const before = await chatPointerFor(ctx, ada, team)
+      await deleteMessageFor(ctx, ada, id)
+      const after = await chatPointerFor(ctx, ada, team)
+
+      expect(after.revision).toBe(before.revision + 1)
+      expect(after.lastMessageAt).toBe(before.lastMessageAt)
     })
   })
 })
