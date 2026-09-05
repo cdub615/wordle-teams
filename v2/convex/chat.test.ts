@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { sendMessageFor } from './chat.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
+import { RATE_LIMIT_MESSAGES } from './lib/chat.ts'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -164,6 +165,46 @@ describe('sendMessageFor', () => {
         .unique()
 
       expect(cursor?.lastReadAt).toBe(meta?.lastMessageAt)
+    })
+  })
+})
+
+describe('the send rate limit', () => {
+  test('allows a full window and refuses the one after it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      for (let i = 0; i < RATE_LIMIT_MESSAGES; i++) {
+        await sendMessageFor(ctx, ada, team, `message ${i}`)
+      }
+      await expect(sendMessageFor(ctx, ada, team, 'one too many')).rejects.toThrow()
+
+      const stored = await ctx.db
+        .query('chatMessages')
+        .withIndex('by_team_createdAt', (q) => q.eq('teamId', team))
+        .collect()
+      expect(stored).toHaveLength(RATE_LIMIT_MESSAGES)
+    })
+  })
+
+  // The limit is per player per team, so one chatty person must not silence
+  // their teammates — this is a group feature.
+  test('does not let one player\'s limit block another', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+
+      for (let i = 0; i < RATE_LIMIT_MESSAGES; i++) {
+        await sendMessageFor(ctx, ada, team, `message ${i}`)
+      }
+      await expect(sendMessageFor(ctx, ada, team, 'blocked')).rejects.toThrow()
+
+      // Bob is unaffected.
+      await expect(sendMessageFor(ctx, bob, team, 'still fine')).resolves.toBeDefined()
     })
   })
 })

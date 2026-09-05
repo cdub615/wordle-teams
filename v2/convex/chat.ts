@@ -1,5 +1,5 @@
-import { requireTeamMemberFor } from './access'
-import { requireBody } from './lib/chat.ts'
+import { accessError, requireTeamMemberFor } from './access'
+import { nextPostWindow, requireBody } from './lib/chat.ts'
 import type { Id } from './_generated/dataModel'
 import type { WriterCtx } from './winners.ts'
 
@@ -71,16 +71,23 @@ export async function sendMessageFor(
   const body = requireBody(rawBody)
   const now = Date.now()
 
+  // THE RATE CHECK COMES BEFORE THE INSERT. Refusing after writing would let a
+  // runaway client spend the I/O it is being refused for.
+  const cursor = await readCursorFor(ctx, playerId, teamId)
+  const window = nextPostWindow(cursor ?? {}, now)
+  // `throw` even though accessError throws internally: the spread of `window`
+  // below needs TypeScript to narrow away the null, and access.ts writes it
+  // this way for the same reason.
+  if (window === null) throw accessError('RATE_LIMITED')
+
   const id = await ctx.db.insert('chatMessages', { teamId, playerId, body, createdAt: now })
   await bumpChatMeta(ctx, teamId, now, true)
 
-  // Sending is reading — you have seen your own message. This also creates the
-  // row that Task 4 hangs the rate-limit window on.
-  const cursor = await readCursorFor(ctx, playerId, teamId)
+  // Sending is reading — you have seen your own message.
   if (cursor === null) {
-    await ctx.db.insert('chatReads', { playerId, teamId, lastReadAt: now })
+    await ctx.db.insert('chatReads', { playerId, teamId, lastReadAt: now, ...window })
   } else {
-    await ctx.db.patch(cursor._id, { lastReadAt: now })
+    await ctx.db.patch(cursor._id, { lastReadAt: now, ...window })
   }
 
   return id
