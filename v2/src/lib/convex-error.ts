@@ -29,7 +29,9 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'INVALID_REMINDER_METHOD' ||
     code === 'INVALID_REMINDER_TIME' ||
     code === 'INVALID_TIME_ZONE' ||
-    code === 'INVALID_PUSH_ENDPOINT'
+    code === 'INVALID_PUSH_ENDPOINT' ||
+    code === 'INVALID_MESSAGE' ||
+    code === 'RATE_LIMITED'
   ) {
     return code
   }
@@ -134,6 +136,10 @@ export function typedCodeMessage(code: AccessCode): string {
       // user can act on, and it does NOT echo the submitted value back: that
       // value is exactly what this check exists to keep out of view.
       return 'That push subscription is not valid.'
+    case 'INVALID_MESSAGE':
+      return 'A message needs some text, and has to be under 2000 characters.'
+    case 'RATE_LIMITED':
+      return 'You are sending messages very quickly — give it a moment.'
     default: {
       const _exhaustive: never = code
       return _exhaustive
