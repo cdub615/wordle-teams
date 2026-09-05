@@ -1,7 +1,8 @@
-import { accessError, requireTeamMemberFor } from './access'
+import { accessError, requireTeamMemberFor, requireTeamOwnerFor } from './access'
 import {
   RECENT_WINDOW,
   budgetIncrementFor,
+  budgetIncrementForDelete,
   budgetMonthFor,
   isOverBudget,
   nextPostWindow,
@@ -61,15 +62,24 @@ async function bumpChatMeta(
 }
 
 /**
- * Charge the month's bandwidth budget for one message, and set `degraded` once
- * the threshold is crossed.
+ * Charge the month's bandwidth budget `bytes`, and set `degraded` once the
+ * threshold is crossed.
+ *
+ * CHARGED FROM BOTH sendMessageFor (budgetIncrementFor) AND deleteMessageFor
+ * (budgetIncrementForDelete) — this function only accumulates and persists,
+ * it does not know which operation it is pricing. That split matters: a
+ * delete costs roughly 17x a send, because every connected client refetches
+ * its whole window rather than appending one message (see
+ * budgetIncrementForDelete). Charging only sends would leave the meter blind
+ * to the single most expensive path in the feature.
  *
  * WHY A METER AT ALL. The modelled worst case is ~7% of Convex's free-tier
  * database-I/O allowance, which is a large margin and not a guarantee. This
  * turns it into one. When it trips, chat stops opening live subscriptions and
  * falls back to manual refresh — SENDING KEEPS WORKING, because the failure
  * this exists to prevent is Convex refusing mutations app-wide and taking board
- * entry down along with chat.
+ * entry down along with chat. An unmetered 17x path would quietly invalidate
+ * that ~7% model.
  *
  * DELIBERATELY A HOT DOCUMENT — unlike every other table this module touches,
  * which are keyed per team. Design §4 rejects a denormalised per-team blob
@@ -79,14 +89,14 @@ async function bumpChatMeta(
  * conflicts on a hot row by retrying transparently rather than failing the
  * mutation. Revisit if message volume ever climbs by an order of magnitude.
  */
-async function chargeBudget(ctx: WriterCtx, teamSize: number, now: number): Promise<void> {
+async function chargeBudget(ctx: WriterCtx, bytes: number, now: number): Promise<void> {
   const month = budgetMonthFor(now)
   const row = await ctx.db
     .query('chatBudget')
     .withIndex('by_month', (q) => q.eq('month', month))
     .unique()
 
-  const estimatedBytes = (row?.estimatedBytes ?? 0) + budgetIncrementFor(teamSize)
+  const estimatedBytes = (row?.estimatedBytes ?? 0) + bytes
   const degraded = isOverBudget(estimatedBytes)
 
   if (row === null) {
@@ -132,7 +142,7 @@ export async function sendMessageFor(
 
   const id = await ctx.db.insert('chatMessages', { teamId, playerId, body, createdAt: now })
   await bumpChatMeta(ctx, teamId, now, true)
-  await chargeBudget(ctx, team.playerIds.length, now)
+  await chargeBudget(ctx, budgetIncrementFor(team.playerIds.length), now)
 
   // Sending is reading — you have seen your own message.
   if (cursor === null) {
@@ -329,11 +339,21 @@ export async function deleteMessageFor(
   const message = await ctx.db.get(messageId)
   if (message === null) throw accessError('NOT_A_MEMBER')
 
-  const team = await requireTeamMemberFor(ctx, playerId, message.teamId)
-  const mayDelete = message.playerId === playerId || team.owner === playerId
-  if (!mayDelete) throw accessError('NOT_TEAM_OWNER')
+  // Reuses access.ts's own owner rule rather than reimplementing
+  // `team.owner === playerId` here — that check belongs to access.ts, and both
+  // branches still fail NOT_A_MEMBER first, since requireTeamOwnerFor calls
+  // requireTeamMemberFor before comparing `owner`.
+  const team =
+    message.playerId === playerId
+      ? await requireTeamMemberFor(ctx, playerId, message.teamId)
+      : await requireTeamOwnerFor(ctx, playerId, message.teamId)
 
   await ctx.db.delete(messageId)
+  const now = Date.now()
   // History changed without the newest message moving — see bumpChatMeta.
-  await bumpChatMeta(ctx, message.teamId, Date.now(), false)
+  await bumpChatMeta(ctx, message.teamId, now, false)
+  // A DELETE, NOT A SEND — see budgetIncrementForDelete. Every connected
+  // client refetches its whole window, not one message, so this is charged at
+  // the delete rate, not the send rate.
+  await chargeBudget(ctx, budgetIncrementForDelete(team.playerIds.length), now)
 }

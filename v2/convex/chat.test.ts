@@ -15,6 +15,7 @@ import {
   RATE_LIMIT_MESSAGES,
   RECENT_WINDOW,
   budgetIncrementFor,
+  budgetIncrementForDelete,
   budgetMonthFor,
 } from './lib/chat.ts'
 
@@ -310,6 +311,31 @@ describe('the budget meter', () => {
       // regression guard: if someone later makes the meter gate sending, this is
       // what should stop them.
       await expect(sendMessageFor(ctx, ada, team, 'still talking')).resolves.toBeDefined()
+    })
+  })
+
+  // A delete is the most expensive operation in the feature — every connected
+  // client refetches the whole window because it cannot know which message
+  // went. An unmetered path at 17x normal cost would quietly invalidate the
+  // ~7% model the meter exists to guarantee.
+  test('charges a delete far more than a send', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      const id = await sendMessageFor(ctx, ada, team, 'regrettable')
+
+      const month = budgetMonthFor(Date.now())
+      const afterSend = await ctx.db
+        .query('chatBudget').withIndex('by_month', (q) => q.eq('month', month)).unique()
+      await deleteMessageFor(ctx, ada, id)
+      const afterDelete = await ctx.db
+        .query('chatBudget').withIndex('by_month', (q) => q.eq('month', month)).unique()
+
+      const charged = (afterDelete?.estimatedBytes ?? 0) - (afterSend?.estimatedBytes ?? 0)
+      expect(charged).toBe(budgetIncrementForDelete(2))
+      expect(charged).toBeGreaterThan(budgetIncrementFor(2))
     })
   })
 })

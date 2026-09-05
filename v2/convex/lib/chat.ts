@@ -102,6 +102,22 @@ export function budgetIncrementFor(teamSize: number): number {
   return teamSize * BYTES_PER_WAKE
 }
 
+/**
+ * What a DELETE costs a connected client, which is not what a message costs.
+ *
+ * A delete bumps `revision` without moving `lastMessageAt`, and a client seeing
+ * that must refetch its whole window rather than append — it cannot know WHICH
+ * message vanished. So it pays RECENT_WINDOW messages at the same ~250B
+ * per-message estimate BYTES_PER_WAKE is built from, not one. That makes a
+ * delete roughly 17x a send, and it is the single most expensive operation in
+ * the feature.
+ */
+export const BYTES_PER_DELETE_WAKE = RECENT_WINDOW * 250
+
+export function budgetIncrementForDelete(teamSize: number): number {
+  return teamSize * BYTES_PER_DELETE_WAKE
+}
+
 export function isOverBudget(estimatedBytes: number): boolean {
   return estimatedBytes >= BUDGET_THRESHOLD_BYTES
 }
