@@ -1078,6 +1078,23 @@ describe('the chat reads', () => {
     })
   })
 
+  // Pins the derivation: a row whose STORED flag disagrees with its own byte
+  // count must report the truth, not the stale flag.
+  test('derives degraded from the byte count, not the stored flag', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await ctx.db.insert('chatBudget', {
+        month: budgetMonthFor(Date.now()),
+        estimatedBytes: BUDGET_THRESHOLD_BYTES * 2,
+        degraded: false, // stale: says fine, the bytes say otherwise
+      })
+
+      expect((await chatPointerFor(ctx, ada, team)).degraded).toBe(true)
+    })
+  })
+
   test('the pointer is empty but valid for a team that has never chatted', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -1201,7 +1218,13 @@ export async function chatPointerFor(
   return {
     lastMessageAt: meta?.lastMessageAt ?? 0,
     revision: meta?.revision ?? 0,
-    degraded: budget?.degraded ?? false,
+    // DERIVED, NOT READ BACK. chargeBudget stores `degraded` because it has to
+    // write the row anyway, but a stored flag goes stale the moment the
+    // threshold moves: every row already past the OLD threshold would keep
+    // reporting degraded for the rest of the month even after the ceiling was
+    // raised. The row is already in hand here, so deriving costs nothing and
+    // removes the staleness case entirely.
+    degraded: isOverBudget(budget?.estimatedBytes ?? 0),
   }
 }
 
@@ -1277,7 +1300,8 @@ export async function olderMessagesFor(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd v2 && pnpm vitest run convex/chat.test.ts`
-Expected: PASS, 19 tests.
+Expected: PASS, 21 tests. (The written plan said 19; Task 4 added a
+cross-team rate-limit test and this task adds the derivation test.)
 
 - [ ] **Step 5: Correct the schema comment this task makes inaccurate**
 
