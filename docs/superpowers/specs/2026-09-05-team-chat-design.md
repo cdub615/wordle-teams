@@ -2,7 +2,8 @@
 
 **Epic:** `wordle-teams-qix` (post-v2 roadmap #1)
 **Phase:** 7.5 — delivered WITH v2, before the Phase 8 cutover
-**Status:** approved 2026-09-05. Revised the same day — see "Revision 1" below.
+**Status:** approved 2026-09-05. Revised twice the same day — see "Revision 1"
+below, and the delete-charge note in §6 (revision 2).
 Replaces the epic's stub body.
 
 ---
@@ -383,6 +384,31 @@ current month by a **deliberately conservative upper bound**:
 ```
 teamSize × BYTES_PER_WAKE      // every member treated as if connected
 ```
+
+**A DELETE IS CHARGED SEPARATELY, AND FAR MORE.** Added in revision 2, after
+implementation review found deletes entirely unmetered. A delete bumps
+`revision` without moving `lastMessageAt`, and §4 requires a client seeing that
+to refetch its whole window rather than append — it cannot know *which* message
+vanished. So a delete costs every connected client a full window read, about
+7.5 KB, against ~450 B for a message:
+
+```
+teamSize × RECENT_WINDOW × 250      // ≈ 17× a send
+```
+
+That makes a delete the single most expensive operation in the feature, and it
+was the one the meter could not see. Leaving it unmetered would have quietly
+invalidated the ~7% model this meter exists to guarantee — "deletes are rare"
+is exactly the kind of usage assumption the meter exists so we need not make.
+
+**The cheaper alternative was considered and rejected.** Putting the deleted
+message's id on `chatMeta` would let clients splice it out locally instead of
+refetching, removing the cost rather than accounting for it. But a full-window
+refetch is *self-healing* under Convex's subscription coalescing, and a single
+changed id is not: two rapid deletes can coalesce into one delivered update, and
+the client would silently never learn about the first. Making that safe needs a
+bounded deletion log or real gap detection — protocol design, and Part 2's
+concern, since §10 already assigns client-side sync there.
 
 This over-counts on purpose — most members are not connected — so the meter
 trips early rather than late. It is one small document write inside a mutation
