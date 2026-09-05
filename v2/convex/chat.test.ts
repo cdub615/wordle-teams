@@ -1,7 +1,8 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
+import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema'
-import { api } from './_generated/api'
+import { api, components } from './_generated/api'
 import {
   chatPointerFor,
   deleteMessageFor,
@@ -21,9 +22,53 @@ import {
   budgetMonthFor,
 } from './lib/chat.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
+import type { TestConvex } from 'convex-test'
 
 const modules = import.meta.glob('./**/*.ts')
 const today = toPuzzleDay(new Date())
+
+/**
+ * Stands up a REAL Better Auth session for `email` and returns a convexTest
+ * instance authenticated as it, via `t.withIdentity`.
+ *
+ * Requires `betterAuthTest.register(t)` to have already run on `t` — see the
+ * comment on "the public surface" below for why this is possible at all.
+ *
+ * `requirePlayer` (access.ts) resolves the caller by looking up a `session`
+ * row whose `_id` equals `identity.sessionId`, and then a `user` row whose
+ * `_id` equals `identity.subject` — so the two ids returned by
+ * `components.betterAuth.adapter.create` are exactly what `t.withIdentity`
+ * needs. Nothing here touches this app's own `players` table: whether the
+ * email in play matches one is the whole point of the two tests below.
+ */
+async function authenticatedAs(t: TestConvex<typeof schema>, email: string) {
+  const now = Date.now()
+  const user = (await t.run((ctx) =>
+    ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: 'user',
+        data: { name: email, email, emailVerified: true, createdAt: now, updatedAt: now },
+      },
+    }),
+  )) as { _id: string }
+
+  const session = (await t.run((ctx) =>
+    ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: 'session',
+        data: {
+          token: `test-token-${email}`,
+          expiresAt: now + 1000 * 60 * 60,
+          createdAt: now,
+          updatedAt: now,
+          userId: user._id,
+        },
+      },
+    }),
+  )) as { _id: string }
+
+  return t.withIdentity({ subject: user._id, sessionId: session._id })
+}
 
 describe('the chat schema', () => {
   // THE LOAD-BEARING ASSUMPTION OF THE WHOLE DESIGN. Every wake does a
@@ -710,31 +755,77 @@ describe('the public surface', () => {
     })
   })
 
-  // AN AUTHENTICATED NON-MEMBER, THROUGH `t.withIdentity`, WAS NOT ACHIEVABLE.
-  // Attempted: `t.withIdentity({ subject: 'user_x', email: 'x@example.com' })`
-  // against `api.chat.pointer`/`api.chat.send`. `requirePlayer` resolves the
-  // caller via `authComponent.getAuthUser`, which — before ever looking at the
-  // identity's subject or email — calls
-  // `ctx.runQuery(component.adapter.findOne, { model: 'session', ... })`
-  // against the registered `betterAuth` Convex COMPONENT (see
-  // convex/convex.config.ts). convex-test does not wire up an app's
-  // components automatically; the call fails immediately with "Component
-  // 'betterAuth' is not registered. Call 't.registerComponent'." Making that
-  // work would mean importing the better-auth package's own internal
-  // component schema/functions (`@convex-dev/better-auth/dist/component/**`,
-  // not a published, stable API) via `t.registerComponent`, and then
-  // hand-inserting `session` and `user` rows into ITS tables shaped exactly as
-  // its adapter expects, with ids matching the identity's `sessionId`/
-  // `subject` — none of which this codebase does anywhere else. This is the
-  // exact limitation this codebase already tracks as `wordle-teams-obw`
-  // ("convex-test cannot stand up a Better Auth session"), restated here
-  // because Task 9 is the first place a public wrapper is exercised through
-  // `t.query`/`t.mutation` rather than by calling its `*For` function
-  // directly. Consequence: the membership gate on the public surface itself
-  // (as opposed to on the `*For` functions, which every test above this
-  // `describe` block already covers) is verified only by inspection —
-  // `pointer`, `send`, and every other wrapper in this file call
-  // `requireTeamMemberFor` (via their `*For` function) with no logic of their
-  // own in between `requirePlayer` and the delegate call.
+  // A GENUINE AUTHENTICATED CALLER, THROUGH `t.withIdentity`, IS ACHIEVABLE —
+  // an earlier version of this comment claimed it was not, citing
+  // `wordle-teams-obw` ("convex-test cannot stand up a Better Auth session")
+  // and reasoning that it would need `@convex-dev/better-auth`'s internal,
+  // unpublished `dist/component/**` files. That was wrong: the package
+  // exports a first-class test entry point, `@convex-dev/better-auth/test`
+  // (`"./test": "./src/test.ts"` in its package.json), built for exactly
+  // this. `betterAuthTest.register(t)` below calls `t.registerComponent`
+  // with the SAME schema and functions the real `betterAuth` component in
+  // `convex/convex.config.ts` runs — nothing internal or unstable.
+  //
+  // Once registered, `authenticatedAs` below writes real rows into that
+  // component's own `user` and `session` tables through
+  // `components.betterAuth.adapter.create` — the same generated adapter API
+  // `createClient` (convex/auth.ts's `authComponent`) uses internally, not a
+  // shortcut around it. `requirePlayer` → `authComponent.getAuthUser` resolves
+  // a caller by looking up a `session` row whose `_id` equals
+  // `identity.sessionId`, then a `user` row whose `_id` equals
+  // `identity.subject` (see `create-client.js`'s `safeGetAuthUser`) — so a
+  // real identity needs only those two ids threaded into `t.withIdentity`,
+  // which is all `authenticatedAs` does.
+  test('refuses an authenticated caller who is not on the team, with NOT_A_MEMBER', async () => {
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+
+    const teamId = await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      // The outsider has a real `players` row (unlike the NO_PLAYER test
+      // below) — just not one this team's `playerIds` includes.
+      await ctx.db.insert(
+        'players',
+        aPlayer({
+          legacyId: '22222222-2222-4222-8222-222222222222',
+          email: 'outsider@example.com',
+        }),
+      )
+      return await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+    })
+
+    const asOutsider = await authenticatedAs(t, 'outsider@example.com')
+
+    await expect(asOutsider.query(api.chat.pointer, { teamId })).rejects.toMatchObject({
+      data: { code: 'NOT_A_MEMBER' },
+    })
+    await expect(asOutsider.mutation(api.chat.send, { teamId, body: 'hi' })).rejects.toMatchObject({
+      data: { code: 'NOT_A_MEMBER' },
+    })
+  })
+
+  // THE OTHER HALF OF `requirePlayer`: a session and user genuinely exist
+  // (Better Auth is satisfied), but no `players` row matches that email — the
+  // shape a copied v1 account never reaches, and a brand-new signup does until
+  // `completeProfileFor` runs. Falls out of the same `authenticatedAs` helper
+  // for free: skip inserting a `players` row for the email at all.
+  test('refuses an authenticated caller with no player row, with NO_PLAYER', async () => {
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+
+    const teamId = await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      return await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+    })
+
+    const asStranger = await authenticatedAs(t, 'stranger@example.com')
+
+    await expect(asStranger.query(api.chat.pointer, { teamId })).rejects.toMatchObject({
+      data: { code: 'NO_PLAYER' },
+    })
+    await expect(asStranger.mutation(api.chat.send, { teamId, body: 'hi' })).rejects.toMatchObject({
+      data: { code: 'NO_PLAYER' },
+    })
+  })
 })
 
