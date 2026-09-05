@@ -245,21 +245,45 @@ export function TeamBoards({
               here changes that (wordle-teams-5jcn.24 only widens how many
               slides are visible at once, not how the track scrolls).
 
-              BELOW `md` A SLIDE IS `basis-full`, one board at a time, same as
-              before. FROM `md` UP the calc() bases below fit 2, then 3 at
-              `xl`, then 4 at `2xl` — sized against the CONTAINER's own width,
-              not the board's, which is what lets one rule serve every team
-              size: an unbounded roster still shows only as many slides as fit
-              and scrolls/snaps through the rest, exactly as a two-member team
-              does. `gap-4` on the track is subtracted out of each calc() so
-              the columns plus their gaps fill the container exactly, with no
-              slide narrower than the fixed-size WordleBoard it holds — checked
-              at each tier's own narrowest width (its breakpoint's minimum),
-              since that is where the fit is tightest: 768px still fits two
-              320px boards plus the gap between them with room to spare, and
-              1280px/1536px do the same for three and four. A board is never
-              asked to shrink to fit; it either fits with slack or the tier
-              is not offered yet. */}
+              THE TIERS BELOW ARE DERIVED FROM A MEASURED CONTENT WIDTH, NOT
+              FROM `.page-max`'s numbers alone (wordle-teams-5jcn.28). Read
+              directly off this track's own `getBoundingClientRect()` in a
+              signed-in browser at a run of viewports, because three things
+              stand between `.page-max` and this element and none of them are
+              zero: the Card's own 1px border, CardContent's `p-6` (24px a
+              side), and `.page-max`'s own gutter, which is 0.5rem below
+              768px, 1.5rem from 768px to 1487px, and 0 from 1488px (where the
+              1440px cap has already made the gutter redundant). Measured, the
+              three collapse to one constant per gutter band: track width =
+              viewport − 66px below 768px, and viewport − 98px from 768px to
+              1487px, confirmed at eight viewports each spanning both bands.
+
+              WHY THE FIRST MULTI-BOARD TIER IS A CUSTOM `min-[672px]:`, NOT
+              `sm:`. Below 768px a board is still 288px (`wordle-board.tsx`'s
+              `w-72`), so 2-up needs 2×288+16(`gap-4`)=592px of track. `sm`
+              (640px) measures a 574px track there — 18px SHORT, confirmed
+              live, not assumed — so `sm:` would have clipped a board on
+              exactly the sizes the owner named (a landscape phone, a small
+              tablet). 672px measures 606px, 14px to spare. The class value at
+              this tier — `calc((100%_-_1rem)/2)` — is the SAME one `xl:` and
+              `2xl:` already used for their own tier, because it is
+              CONTAINER-relative, not board-width-relative: one calc() serves
+              both the 288px board (672px–767px) and the 320px board
+              (768px on, until `xl:` takes over at 3-up), since the tier's
+              FIT depends on the board width but the FORMULA does not. 768px
+              (now mid-tier rather than a boundary) measures a 670px track
+              against 2×320+16=656 needed — still 14px to spare, same as
+              before this change.
+
+              `xl:` (1280px) still starts 3-up: 3×320+32(two gaps)=992
+              needed, measured 1182px, 190px to spare. `lg` (1024px) was
+              checked and rejected — measured 926px, 66px SHORT — so 3-up
+              still waits for `xl:`, as it did before. `2xl:` (1536px) still
+              starts 4-up: 4×320+48=1328 needed, measured 1390px, 62px to
+              spare, and stays that way past the 1488px gutter drop since
+              `.page-max`'s 1440px cap holds the track width flat from there
+              up. A board is never asked to shrink to fit; a tier is offered
+              only once it measures slack, never exactly zero. */}
           <div
             ref={trackRef}
             tabIndex={0}
@@ -293,7 +317,7 @@ export function TeamBoards({
               //
               // STRIDE BETWEEN TWO ADJACENT SLIDES, NOT clientWidth. Those
               // coincided only while exactly one slide filled the track;
-              // `md:`/`xl:`/`2xl:` now show more than one at once, so
+              // `min-[672px]:`/`xl:`/`2xl:` now show more than one at once, so
               // clientWidth spans several slides and dividing by it would
               // undercount by that same factor. The distance between two
               // real siblings' own offsetLeft is one slide's width plus the
@@ -332,7 +356,7 @@ export function TeamBoards({
               */
               <div
                 key={board.playerId}
-                className="flex h-[450px] min-w-0 shrink-0 basis-full snap-center flex-col md:basis-[calc((100%_-_1rem)/2)] xl:basis-[calc((100%_-_2rem)/3)] 2xl:basis-[calc((100%_-_3rem)/4)]"
+                className="flex h-[450px] min-w-0 shrink-0 basis-full snap-center flex-col min-[672px]:basis-[calc((100%_-_1rem)/2)] xl:basis-[calc((100%_-_2rem)/3)] 2xl:basis-[calc((100%_-_3rem)/4)]"
               >
                 <div className="mb-2 h-[24px] shrink-0 text-center font-semibold">
                   {board.playerName}
