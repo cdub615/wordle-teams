@@ -373,6 +373,10 @@ export default defineSchema({
   // database I/O at 1GB/month and the cap is HARD — mutations start failing
   // rather than generating a bill, which would take board entry down with it.
   // This meter degrades chat to manual refresh first. See lib/chat.ts.
+  //
+  // Grows by one row per calendar month, forever — about twelve rows a year.
+  // Nothing prunes it, and nothing needs to; a cleanup job is not worth
+  // writing for a table this small.
   chatBudget: defineTable({
     month: v.string(), // 'YYYY-MM'
     estimatedBytes: v.number(),

@@ -69,6 +69,14 @@ async function bumpChatMeta(
  * falls back to manual refresh — SENDING KEEPS WORKING, because the failure
  * this exists to prevent is Convex refusing mutations app-wide and taking board
  * entry down along with chat.
+ *
+ * DELIBERATELY A HOT DOCUMENT — unlike every other table this module touches,
+ * which are keyed per team. Design §4 rejects a denormalised per-team blob
+ * for exactly this shape, citing write contention on one hot document. Here
+ * it is accepted rather than avoided: at current volume (~70 active players
+ * across ~149 teams) the contention is negligible, and Convex resolves OCC
+ * conflicts on a hot row by retrying transparently rather than failing the
+ * mutation. Revisit if message volume ever climbs by an order of magnitude.
  */
 async function chargeBudget(ctx: WriterCtx, teamSize: number, now: number): Promise<void> {
   const month = budgetMonthFor(now)
