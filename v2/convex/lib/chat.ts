@@ -67,10 +67,10 @@ export function nextPostWindow(current: PostWindow, now: number): Required<PostW
   const count = current.postsInWindow ?? 0
 
   // Undefined (never posted) is treated the same as an expired window: both
-  // open a fresh one at `now`. Checking undefined explicitly, rather than
-  // defaulting startedAt to 0 and comparing, matters because `now` is a real
-  // timestamp — comparing it against epoch 0 would not read as "expired"
-  // until decades had passed.
+  // open a fresh one at `now`. Checked explicitly rather than defaulting
+  // startedAt to 0, because that default only reads as "expired" while `now`
+  // is large — true of real timestamps, false of the small values tests use.
+  // Correctness here should not depend on how big the clock happens to be.
   if (startedAt === undefined || now - startedAt >= RATE_LIMIT_WINDOW_MS) {
     return { postWindowStartedAt: now, postsInWindow: 1 }
   }
