@@ -207,4 +207,22 @@ describe('the send rate limit', () => {
       await expect(sendMessageFor(ctx, bob, team, 'still fine')).resolves.toBeDefined()
     })
   })
+
+  // Per player PER TEAM. Being chatty in one team must not silence you in
+  // another — the window lives on the chatReads row, which is keyed by both.
+  test('does not let a player\'s limit in one team block another team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const noisy = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const quiet = await ctx.db.insert('teams', aTeam({ legacyId: 902, name: 'Quiet', playerIds: [ada], owner: ada }))
+
+      for (let i = 0; i < RATE_LIMIT_MESSAGES; i++) {
+        await sendMessageFor(ctx, ada, noisy, `message ${i}`)
+      }
+      await expect(sendMessageFor(ctx, ada, noisy, 'blocked here')).rejects.toThrow()
+
+      await expect(sendMessageFor(ctx, ada, quiet, 'but fine here')).resolves.toBeDefined()
+    })
+  })
 })
