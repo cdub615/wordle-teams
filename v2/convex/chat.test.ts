@@ -10,10 +10,12 @@ import {
   messagesSinceFor,
   olderMessagesFor,
   recentMessagesFor,
+  resetChatCursorFor,
   sendMessageFor,
   unreadTeamsFor,
 } from './chat.ts'
-import { deleteTeamFor, leaveTeamFor } from './teams.ts'
+import { deleteTeamFor, invitePlayerFor, leaveTeamFor } from './teams.ts'
+import { upgradeTeamInvitesFor } from './billing.ts'
 import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
 import {
   BUDGET_THRESHOLD_BYTES,
@@ -1074,6 +1076,100 @@ describe('unreadTeamsFor', () => {
       await sendMessageFor(ctx, ada, team, 'private')
 
       expect(await unreadTeamsFor(ctx, mallory)).toEqual([])
+    })
+  })
+})
+
+describe('rejoining a team', () => {
+  // qix.11. Their cursor survived them leaving, so without a reset they would
+  // rejoin already "caught up" on everything said while they were gone.
+  test('a rejoining member sees messages sent while they were away as unread', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, gone], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'before they left')
+      await markReadFor(ctx, gone, team)
+      await ctx.db.patch(team, { playerIds: [ada] })          // they leave
+
+      await sendMessageFor(ctx, ada, team, 'while they were away')
+
+      await resetChatCursorFor(ctx, gone, team)                // they rejoin
+      await ctx.db.patch(team, { playerIds: [ada, gone] })
+
+      expect(await unreadTeamsFor(ctx, gone)).toEqual([team])
+    })
+  })
+
+  // THE TEST ABOVE CALLS THE HELPER DIRECTLY AND SO PROVES NOTHING ABOUT THE
+  // CALL SITES. These two are the ones that fail if either wiring is dropped —
+  // one per add-member path — because the whole point of the fix is that BOTH
+  // paths get it and a fix on one looks done while being half absent.
+  test('re-inviting a departed member resets their cursor', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, gone], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'before they left')
+      await markReadFor(ctx, gone, team)
+      await leaveTeamFor(ctx, gone, { teamId: team, today })
+
+      await sendMessageFor(ctx, ada, team, 'while they were away')
+      await invitePlayerFor(ctx, ada, { teamId: team, email: 'gone@example.com', today })
+
+      expect((await ctx.db.get(team))!.playerIds).toContain(gone)
+      expect(await unreadTeamsFor(ctx, gone)).toEqual([team])
+    })
+  })
+
+  test('releasing a parked invite on upgrade resets the rejoiner cursor', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, gone], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'before they left')
+      await markReadFor(ctx, gone, team)
+      // They leave, and are later re-invited while still capped, which parks the
+      // address rather than joining them. The upgrade is what lets them back in.
+      await leaveTeamFor(ctx, gone, { teamId: team, today })
+      await ctx.db.patch(team, { invited: ['gone@example.com'] })
+
+      await sendMessageFor(ctx, ada, team, 'while they were away')
+      await upgradeTeamInvitesFor(ctx, gone)
+
+      expect((await ctx.db.get(team))!.playerIds).toContain(gone)
+      expect(await unreadTeamsFor(ctx, gone)).toEqual([team])
+    })
+  })
+
+  // The other half of that branch. A team can list the same person in BOTH
+  // playerIds and `invited` — that is exactly what the v1 copy brings over — and
+  // the upgrade then visits it only to clear the stale address. Nobody joins
+  // anything, so wiping the cursor would mark a conversation they have been
+  // reading all along unread.
+  test('an upgrade does not reset the cursor of someone already on the team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const stays = await ctx.db.insert('players', aPlayer({ email: 'stays@example.com' }))
+      const team = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [ada, stays], owner: ada, invited: ['stays@example.com'] }),
+      )
+
+      await sendMessageFor(ctx, ada, team, 'hello')
+      await markReadFor(ctx, stays, team)
+
+      await upgradeTeamInvitesFor(ctx, stays)
+
+      expect((await ctx.db.get(team))!.invited).toEqual([])
+      expect(await unreadTeamsFor(ctx, stays)).toEqual([])
     })
   })
 })

@@ -3,6 +3,7 @@ import { internalMutation, internalQuery, query } from './_generated/server'
 import { currentPlayer } from './access'
 import { isAcknowledgedEvent, mapEventToTransition } from './lib/polarEvents.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
+import { resetChatCursorFor } from './chat.ts'
 import { cascadeDeleteTeam } from './teams.ts'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
 import type { GenericDatabaseReader } from 'convex/server'
@@ -275,10 +276,22 @@ export async function upgradeTeamInvitesFor(
   if (!parked) return
 
   for (const team of parked.teams) {
+    const alreadyMember = team.playerIds.includes(playerId)
+
+    // wordle-teams-qix.11, and ONLY on the branch that actually joins them. A
+    // previous stint on this team leaves a `chatReads` row saying they have
+    // read everything up to the day they left, so releasing a parked invite on
+    // top of it would put them back with no badge for anything said while they
+    // were gone. Skipped when they are already a member, because then nothing
+    // is being joined — this pass only clears a stale address off a roster they
+    // are already on, and wiping a CURRENT member's cursor would mark a
+    // conversation they have been reading all along unread. That is the same
+    // distinction `alreadyMember` already draws for the roster append; it now
+    // draws it twice, which is why it is a name rather than an inline ternary.
+    if (!alreadyMember) await resetChatCursorFor(ctx, playerId, team._id)
+
     await ctx.db.patch(team._id, {
-      playerIds: team.playerIds.includes(playerId)
-        ? team.playerIds
-        : [...team.playerIds, playerId],
+      playerIds: alreadyMember ? team.playerIds : [...team.playerIds, playerId],
       // EVERY matching entry, not the first, for the reason cancelInviteFor
       // gives: one address can be parked twice in two shapes, and the leftover
       // reads as an outstanding invite to a member.

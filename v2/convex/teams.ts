@@ -10,6 +10,7 @@ import {
   requireTeamOwnerFor,
   requireTeamMemberFor,
 } from './access'
+import { resetChatCursorFor } from './chat.ts'
 import { sendEmail } from './email.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
@@ -633,6 +634,16 @@ export async function invitePlayerFor(
         return { status: 'parked_at_cap', email }
       }
     }
+
+    // wordle-teams-qix.11. A previous stint on this team leaves a `chatReads`
+    // row behind — removal never cleans one up, deliberately — and it says they
+    // have read everything up to the day they left. Rejoining on top of it
+    // means no unread badge for anything said while they were gone, which is
+    // the first thing a returning member wants to see. Reset BEFORE the patch
+    // so no window exists in which they are on the roster holding a stale
+    // cursor. See resetChatCursorFor in chat.ts for why this is done on add
+    // rather than on the three separate removal paths.
+    await resetChatCursorFor(ctx, existing._id, team._id)
 
     // ONE PATCH, TWO FIELDS. The address must leave `invited` in the same write
     // that puts the player on the roster, or the entry survives forever: this

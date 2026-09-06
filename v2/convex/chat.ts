@@ -562,6 +562,44 @@ export async function unreadTeamsFor(
   return unread
 }
 
+/**
+ * Forget what a player had read in a team, called when they are ADDED to one.
+ *
+ * WHY ON ADD RATHER THAN ON REMOVE. A departed member's cursor outlives them
+ * whenever the team itself survives, and three separate paths remove a player
+ * (removeMemberFor, leaveTeamFor, and the Phase 5 downgrade in billing.ts). An
+ * invariant spread across three call sites and every future one is the shape
+ * that rots — the same argument that made the team-deletion cascade index by
+ * team rather than walk the roster. Addition happens in two places, and the
+ * only visible symptom is here: a rejoining member would otherwise arrive
+ * already caught up on everything said while they were gone.
+ *
+ * A FOURTH WRITER OF THE CONTENDED `chatReads` ROW, which sendMessageFor,
+ * markReadFor and olderMessagesFor already share — and the one that costs
+ * nothing. The other three are written by a member DURING a conversation, and
+ * two of them overlapping is the OCC retry Task 6's `disabled` guard exists to
+ * avoid. This one runs at the moment somebody is put ON the roster, when by
+ * definition they are not yet a member and so cannot be holding any of the
+ * other three: every one of those is gated on CURRENT membership. It is one
+ * delete, once per join, off the chat hot path entirely.
+ *
+ * Leaves the orphaned row alone when nobody rejoins. It is small, unreachable
+ * (every read is gated on CURRENT membership) and harmless.
+ *
+ * DELETING RATHER THAN ZEROING also clears the stale rate-limit windows
+ * (postWindowStartedAt/postsInWindow and the scroll pair live on this same
+ * row), which a returning member should not inherit. A zeroed lastReadAt would
+ * fix the badge and leave them mid-window on somebody else's limit.
+ */
+export async function resetChatCursorFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<void> {
+  const cursor = await readCursorFor(ctx, playerId, teamId)
+  if (cursor !== null) await ctx.db.delete(cursor._id)
+}
+
 export const pointer = query({
   args: { teamId: v.id('teams') },
   handler: async (ctx, { teamId }) => {
