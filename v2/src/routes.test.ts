@@ -615,6 +615,43 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
   })
 
   /**
+   * THE SHELL WIRING, WHICH IS PURE FUNCTIONS ATTACHED TO NOTHING WITHOUT IT.
+   *
+   * `hidesSiteFooter` and `shouldShowLoadOlder` are tested where they live
+   * (components/chat/use-chat-sync.ts), and both would stay green if
+   * __root.tsx rendered the footer unconditionally and routes/chat.tsx handed
+   * the list the wrong number. Neither miswiring is visible to lint, typecheck
+   * or build, and neither can be caught by rendering: this suite runs on
+   * edge-runtime with no DOM. Same string-reading rationale as every block
+   * above.
+   */
+  const ROOT = './routes/__root.tsx'
+
+  test('the site footer is suppressed on /chat, and rendered from exactly one place', () => {
+    const root = codeOf(read(ROOT))
+    // WITHOUT THIS THE WHOLE LAYOUT IS UNDONE. /chat bounds itself to the
+    // viewport so the message list scrolls and the composer stays on the
+    // bottom edge; a footer under that makes the PAGE scroll instead and
+    // pushes the composer off screen, which is the phone screenshot this task
+    // started from.
+    expect(root).toMatch(/\{hidesSiteFooter\(pathname\) \? null : <Footer \/>\}/)
+    // ONCE. The Footer moved out of RootDocument — the root route's
+    // `shellComponent`, rendered outside the match context — to become
+    // conditional at all. A copy left behind would render it on /chat anyway
+    // and look, in the diff, like the gate had been added.
+    expect(root.match(/<Footer \/>/g)).toHaveLength(1)
+  })
+
+  test("and the load-older gate reads the LIVE window's length, not the merged list", () => {
+    // `shown` HAS SCROLLBACK MERGED INTO IT and crosses RECENT_WINDOW the
+    // moment anyone loads one page, so it answers "have we got 30 messages on
+    // screen" rather than "did recentMessages come back full" — which is the
+    // only question that proves there is no history behind the window. Passing
+    // it would type-check, render, and quietly restore the always-on button.
+    expect(jsxProps(CHAT, 'MessageList').get('windowLength')).toBe('messages.length')
+  })
+
+  /**
    * ONE SUBSCRIPTION FOR EVERY DOT ON THE PAGE, WHICH STOPPED BEING FREE IN
    * wordle-teams-w7g2.
    *

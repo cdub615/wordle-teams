@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { ConfirmPopover } from '#/components/confirm-popover.tsx'
+import { isAtTop, isNearBottom, shouldShowLoadOlder } from './use-chat-sync.ts'
 import type { ChatMessage } from './use-chat-sync.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -19,11 +20,36 @@ type Props = {
   // comes back empty. See nextOlderOutcome in use-chat-sync.ts.
   onLoadOlder?: () => void
   loadingOlder?: boolean
+  // How many messages the LIVE window came back with, which is not
+  // `messages.length` once a scrollback page has been merged in. A short
+  // window is proof there is no history behind it; see shouldShowLoadOlder.
+  windowLength: number
 }
 
 /**
  * Messages oldest-first, newest at the bottom — the server already returns
  * them in that order, so nothing here re-sorts.
+ *
+ * THIS IS THE PAGE'S SCROLL CONTAINER NOW, WHICH IS THE SHAPE CHANGE. It used
+ * to be a plain block in a document that scrolled as a whole, so the composer
+ * scrolled with it and the newest message sat wherever the browser had left
+ * the page. routes/chat.tsx now bounds the route to the viewport and this is
+ * the one part of it that gives; the composer below is fixed-size.
+ *
+ * IT OPENS AT THE NEWEST MESSAGE AND FOLLOWS ARRIVALS — but only from near
+ * the bottom. `isNearBottom` is checked BEFORE each update is painted, so
+ * someone who has scrolled up to read an hour-old exchange is left exactly
+ * where they are when a teammate types. Chat had neither behaviour before
+ * this: it opened at the TOP of the oldest loaded message and never moved
+ * again.
+ *
+ * `data-scroll-container` IS LOAD-BEARING IN THE INSTALLED PWA, not decoration.
+ * PullToRefresh arms on any downward drag while `window.scrollY <= 0` — and on
+ * this route the page never scrolls, so `scrollY` is permanently 0. Without
+ * this attribute (SCROLL_CONTAINER_SELECTOR, lib/pull-to-refresh.ts) every
+ * attempt to scroll back through the conversation would reload the app
+ * instead. The scores table and TeamBoards' carousel carry it for the same
+ * reason.
  *
  * A DEPARTED AUTHOR RENDERS AS "Former member". Messages survive their author
  * leaving a team, deliberately, so the conversation stays readable; see the
@@ -61,8 +87,11 @@ type Props = {
  * de-duplication behind it.
  *
  * THE CONTROL IS ABSENT, NOT DISABLED, WHEN THERE IS NOTHING TO LOAD — the
- * route withholds `onLoadOlder` in that case. A permanently greyed-out button
- * would claim there is history behind it that a rate limit is keeping away.
+ * route withholds `onLoadOlder` in that case — AND NOW ALSO WHEN THE READER IS
+ * NOT AT THE TOP. It used to be rendered unconditionally, above the newest
+ * messages, which is the part of a conversation everyone actually reads.
+ * `shouldShowLoadOlder` is the whole of that rule and is tested; nothing about
+ * it is decided in the JSX below.
  */
 export function MessageList({
   messages,
@@ -71,13 +100,59 @@ export function MessageList({
   canDelete,
   onLoadOlder,
   loadingOlder,
+  windowLength,
 }: Props) {
   const [openId, setOpenId] = useState<Id<'chatMessages'> | null>(null)
   const [pendingId, setPendingId] = useState<Id<'chatMessages'> | null>(null)
 
-  if (messages.length === 0) {
-    return <p className="p-4 text-sm text-muted-foreground">No messages yet. Say something.</p>
-  }
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
+  // A REF, NOT STATE, AND THAT IS THE POINT. This is read by the layout effect
+  // below at the moment a new message is about to be painted, and re-rendering
+  // on every scroll frame to keep a piece of state current would cost a render
+  // per frame for a value nothing paints. `atTop` IS state, because the button
+  // it gates is painted.
+  //
+  // STARTS `true`, so the first window loads scrolled to the newest message
+  // rather than to the oldest one the browser happened to lay out first.
+  const followRef = useRef(true)
+  const [atTop, setAtTop] = useState(false)
+
+  const readPosition = useCallback(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    const position = {
+      scrollTop: scroller.scrollTop,
+      scrollHeight: scroller.scrollHeight,
+      clientHeight: scroller.clientHeight,
+    }
+    followRef.current = isNearBottom(position)
+    setAtTop(isAtTop(position))
+  }, [])
+
+  /*
+    useLayoutEffect, NOT useEffect, AND THE DIFFERENCE IS VISIBLE. This runs
+    after React has committed the new message to the DOM but BEFORE the browser
+    paints, so the jump to the bottom never appears as a frame showing the old
+    position. With useEffect the reader sees the list at its previous scroll
+    offset for one frame and then a lurch.
+
+    `followRef` IS ALREADY THE ANSWER FROM BEFORE THIS UPDATE, which is the
+    only reason the "don't yank the reader" half works: by the time this runs,
+    the taller content is committed and measuring now would say "not near the
+    bottom" for everyone, follower or not. The value was recorded by the last
+    scroll event, when it was still a fact about where the reader had put
+    themselves.
+
+    `readPosition()` AFTERWARDS keeps `atTop` honest across an update that
+    changes the geometry without a scroll event — a delete shortening the list,
+    or the first window arriving into an empty panel. Neither fires `onScroll`.
+  */
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    if (followRef.current) scroller.scrollTop = scroller.scrollHeight
+    readPosition()
+  }, [messages, readPosition])
 
   const handleConfirm = async (messageId: Id<'chatMessages'>) => {
     if (!onDelete) return
@@ -94,11 +169,25 @@ export function MessageList({
     }
   }
 
+  const showLoadOlder = shouldShowLoadOlder({
+    canLoadOlder: onLoadOlder !== undefined,
+    windowLength,
+    atTop,
+  })
+
   return (
-    // `flex flex-col` so the button's `self-center` has a cross axis to centre
-    // against; the <ol> below is a flex column in its own right already.
-    <div className="flex flex-col">
-      {onLoadOlder ? (
+    // `min-h-0` IS WHAT MAKES `flex-1` ACTUALLY BOUND THIS BOX. A flex item's
+    // default `min-height: auto` is its content, so without it this grows to
+    // fit every message, the shell overflows, and the composer is pushed off
+    // the bottom of the viewport — the exact layout this replaces. Same pairing
+    // board-entry/form.tsx uses for its own scrolling middle.
+    <div
+      ref={scrollerRef}
+      onScroll={readPosition}
+      data-scroll-container
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+    >
+      {showLoadOlder ? (
         <button
           type="button"
           className="self-center p-2 text-xs underline disabled:opacity-50"
@@ -109,33 +198,42 @@ export function MessageList({
           {loadingOlder ? 'Loading…' : 'Load older messages'}
         </button>
       ) : null}
-      <ol className="flex flex-col gap-3 p-4" data-testid="chat-messages">
-        {messages.map((message) => (
-          <li key={message._id} className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">{nameFor(message.playerId)}</span>
-            <span className="whitespace-pre-wrap break-words">{message.body}</span>
-            {onDelete && canDelete(message) ? (
-              <ConfirmPopover
-                open={openId === message._id}
-                onOpenChange={(open) => setOpenId(open ? message._id : null)}
-                trigger={
-                  <button
-                    type="button"
-                    className="self-start text-xs text-muted-foreground underline"
-                    aria-label={`Delete message from ${nameFor(message.playerId)}`}
-                  >
-                    Delete
-                  </button>
-                }
-                message="Delete this message? This can't be undone."
-                confirmLabel="Delete"
-                pending={pendingId === message._id}
-                onConfirm={() => void handleConfirm(message._id)}
-              />
-            ) : null}
-          </li>
-        ))}
-      </ol>
+      {messages.length === 0 ? (
+        <p className="p-4 text-sm text-muted-foreground">No messages yet. Say something.</p>
+      ) : (
+        // `mt-auto` PINS A SHORT CONVERSATION TO THE BOTTOM of the panel rather
+        // than leaving it stranded at the top under a screen of empty space,
+        // which is where every chat client puts it and where the composer
+        // expects it to grow from. It does nothing once the list is taller than
+        // the panel.
+        <ol className="mt-auto flex flex-col gap-3 p-4" data-testid="chat-messages">
+          {messages.map((message) => (
+            <li key={message._id} className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">{nameFor(message.playerId)}</span>
+              <span className="whitespace-pre-wrap break-words">{message.body}</span>
+              {onDelete && canDelete(message) ? (
+                <ConfirmPopover
+                  open={openId === message._id}
+                  onOpenChange={(open) => setOpenId(open ? message._id : null)}
+                  trigger={
+                    <button
+                      type="button"
+                      className="self-start text-xs text-muted-foreground underline"
+                      aria-label={`Delete message from ${nameFor(message.playerId)}`}
+                    >
+                      Delete
+                    </button>
+                  }
+                  message="Delete this message? This can't be undone."
+                  confirmLabel="Delete"
+                  pending={pendingId === message._id}
+                  onConfirm={() => void handleConfirm(message._id)}
+                />
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   )
 }

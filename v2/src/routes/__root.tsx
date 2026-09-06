@@ -1,4 +1,10 @@
-import { HeadContent, Outlet, Scripts, createRootRouteWithContext } from '@tanstack/react-router'
+import {
+  HeadContent,
+  Outlet,
+  Scripts,
+  createRootRouteWithContext,
+  useRouterState,
+} from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
@@ -9,6 +15,7 @@ import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
 import { pageTitle, socialMetaTags } from '#/lib/seo'
 import { useServiceWorkerRegistration } from '#/lib/register-sw.ts'
+import { hidesSiteFooter } from '#/components/chat/use-chat-sync.ts'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { PullToRefresh } from '../components/pull-to-refresh'
@@ -122,6 +129,26 @@ function RootComponent() {
   // no deeper reason than that this is the component that renders on the
   // client — it touches no context and does not care about the provider.
   useServiceWorkerRegistration()
+  /*
+    THE FOOTER IS NOW CONDITIONAL, AND IT MOVED HERE TO BECOME SO.
+    RootDocument is the root route's `shellComponent`, which
+    @tanstack/react-router renders OUTSIDE the match context (Match.js wraps
+    the provider in it) — the same positioning that used to break every Convex
+    hook in Header. Rather than reason a second time about which hooks survive
+    up there, the Footer moved down beside the Outlet it belongs with.
+
+    THE RENDERED DOM IS UNCHANGED for every route that keeps it. RootDocument's
+    `{children}` is exactly this subtree and the Footer sat immediately after
+    it, so <body> still reads header, page, footer, Toaster.
+
+    WHY IT IS SUPPRESSED AT ALL, AND ONLY ON /chat: that route lays itself out
+    to the viewport — a message list that scrolls inside a bounded column, with
+    the composer pinned to the bottom edge — and a footer below that makes the
+    PAGE scroll instead, pushing the composer off screen. Every other route is
+    a document, and keeps it. The rule itself is `hidesSiteFooter`, pure and
+    tested, because nothing in this file can be.
+  */
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
   return (
     <ConvexBetterAuthProvider
       client={context.convexQueryClient.convexClient}
@@ -152,6 +179,7 @@ function RootComponent() {
       <PullToRefresh />
       <Header />
       <Outlet />
+      {hidesSiteFooter(pathname) ? null : <Footer />}
     </ConvexBetterAuthProvider>
   )
 }
@@ -165,7 +193,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-accent-solid/25">
         {children}
-        <Footer />
         {/*
           Was defined (ui/sonner.tsx, fully themed and iconed) but never
           mounted anywhere, which made every toast.success/error/warning call

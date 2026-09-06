@@ -2,7 +2,7 @@ import { createFileRoute, redirect, Link } from '@tanstack/react-router'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import {
   beforeForOlder,
@@ -118,7 +118,71 @@ function ChatHeader({
   )
 }
 
+/**
+ * The app bar's height on a phone, in CSS pixels, used for exactly one frame.
+ *
+ * MEASURED, NOT CHOSEN: 65px, in headless chromium at 390x844 against the
+ * built stylesheet — Header.tsx's `py-3` around a 40px control row, plus its
+ * 1px bottom border. It is only ever the SSR guess and the value React
+ * hydrates with; `useChatShellHeight` replaces it with the real offset in a
+ * layout effect, which runs before the browser paints, so a stale guess is
+ * never seen. It exists so the server renders a shell of roughly the right
+ * size rather than one a whole app bar too tall.
+ */
+const HEADER_ESTIMATE_PX = 65
+
+/**
+ * Binds the chat shell's height to the viewport, so the PAGE never scrolls and
+ * the message list inside it does.
+ *
+ * WHY A MEASUREMENT AND NOT `h-[calc(100dvh-3.5rem)]`. The height this needs is
+ * "the viewport minus whatever chrome is above me", and that chrome is
+ * Header.tsx, whose height changes at `sm` (py-3 -> py-4) and again at `md`
+ * (text-2xl -> text-3xl wordmark). A hardcoded number would be right on one
+ * phone and leave a scrolling page or a clipped composer everywhere else, and
+ * it would go quietly wrong the next time the bar gains a control. Reading the
+ * shell's OWN document offset asks the question directly and does not care
+ * what is above it.
+ *
+ * `100dvh`, NOT `100vh` OR `100svh`. `dvh` tracks the viewport as mobile
+ * browser chrome retracts, which is the only one of the three that is never
+ * larger than the space actually available — `100vh` overflows behind Safari's
+ * toolbar and puts the composer under it, and `100svh` leaves a strip of dead
+ * page when the toolbar is away.
+ *
+ * IT DOES NOT WATCH THE KEYBOARD, DELIBERATELY. See composer.tsx: the
+ * composer stays above the mobile keyboard because the page is in ordinary
+ * document flow with nothing scroll-locked and nothing fixed, which lets iOS
+ * move the visual viewport to bring the focused field into view. Binding this
+ * height to `visualViewport` instead would be the `position: fixed` treatment
+ * board entry's Sheet needs, and this page is not that shape.
+ */
+function useChatShellHeight() {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [chrome, setChrome] = useState(HEADER_ESTIMATE_PX)
+
+  // useLayoutEffect for scores-table.tsx's reason and with its known cost: it
+  // runs before paint, so the estimate above is corrected without a visible
+  // frame at the wrong height, and React logs its "does nothing on the server"
+  // notice during SSR. `resize` covers both a rotation and crossing one of
+  // Header's breakpoints; nothing else moves this offset, since the element
+  // above it is the app bar and the page does not scroll.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const node = ref.current
+      if (!node) return
+      setChrome(node.getBoundingClientRect().top + window.scrollY)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  return { ref, height: `calc(100dvh - ${chrome}px)` }
+}
+
 function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
+  const shell = useChatShellHeight()
   const pointer = useChatPointer(teamId)
   const { messages } = useChatMessages(teamId)
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
@@ -198,20 +262,36 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   const team = teams?.find((candidate) => candidate.id === teamId)
   const header = <ChatHeader teamId={teamId} heading={chatHeading(teams, teamId)} />
 
-  if (pointer.isPending)
-    return (
-      <>
-        {header}
-        <p className="p-4">Loading…</p>
-      </>
-    )
-  if (pointer.error)
-    return (
-      <>
-        {header}
-        <p className="p-4">Could not load chat.</p>
-      </>
-    )
+  /*
+    THE SHELL, AND WHY EVERY BRANCH GOES THROUGH IT. This route used to render
+    a header, a message list and a composer straight into the document, so the
+    PAGE scrolled: the composer sat below however many messages there were and
+    scrolled away with them, and the site footer sat below that again. On the
+    owner's phone the composer was simply not on screen. Bounding the route to
+    the viewport and letting only the message list scroll is the whole of the
+    layout change; __root.tsx drops the footer for the same reason
+    (`hidesSiteFooter`).
+
+    NO `overflow-hidden` HERE, DELIBERATELY. Nothing can overflow this box —
+    MessageList is `min-h-0 flex-1` and the composer is `shrink-0` — so the
+    class would buy nothing, and it would make this a scroll container between
+    the composer and the document, which is the ingredient that stops iOS
+    bringing a focused field above the keyboard. See composer.tsx.
+
+    THE PENDING AND ERROR BRANCHES GET IT TOO, so the two deadest ends on the
+    route do not silently reintroduce a scrolling page — and so the header they
+    already render sits where it does in the loaded state rather than jumping
+    when the pointer resolves.
+  */
+  const frame = (children: ReactNode) => (
+    <div ref={shell.ref} style={{ height: shell.height }} className="flex flex-col">
+      {header}
+      {children}
+    </div>
+  )
+
+  if (pointer.isPending) return frame(<p className="p-4">Loading…</p>)
+  if (pointer.error) return frame(<p className="p-4">Could not load chat.</p>)
 
   // A PLAYER ID NOT AMONG CURRENT MEMBERS RENDERS AS "Former member" —
   // documented behaviour, not a fallback: messages deliberately outlive their
@@ -296,9 +376,8 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
     }
   }
 
-  return (
+  return frame(
     <>
-      {header}
       <MessageList
         messages={shown}
         nameFor={nameFor}
@@ -314,8 +393,16 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
         // the promise settles, which is exactly the window the button must be
         // disabled for and one fewer try/finally to get wrong.
         loadingOlder={loadOlder.isPending}
+        // `messages`, NOT `shown`. This is the LIVE window's size, and its
+        // whole job is to answer "did recentMessages come back full" — a short
+        // window is proof there is no history behind it, which is what stops
+        // the first pointless, metered scrollback request from ever going out.
+        // `shown` has scrollback merged into it and crosses RECENT_WINDOW the
+        // moment anyone loads a page, so it would answer a different question
+        // and always say yes.
+        windowLength={messages.length}
       />
       <Composer onSend={handleSend} />
-    </>
+    </>,
   )
 }

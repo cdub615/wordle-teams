@@ -1,20 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AT_TOP_SLACK_PX,
   beforeForOlder,
   chatEntryLabel,
   chatHeading,
   hasUnread,
   hasUnreadElsewhere,
+  hidesSiteFooter,
+  isAtTop,
   isCurrentRequest,
+  isNearBottom,
   mergeOlder,
+  NEAR_BOTTOM_SLACK_PX,
   nextOlderOutcome,
   nextSinceOutcome,
   nextSyncAction,
+  shouldShowLoadOlder,
   teamPickerLabel,
   unreadTeamIds,
 } from './use-chat-sync.ts'
-import type { ChatMessage } from './use-chat-sync.ts'
+import type { ChatMessage, ScrollPosition } from './use-chat-sync.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { RECENT_WINDOW } from '../../../convex/lib/chatLimits.ts'
 
 const at = (lastMessageAt: number, revision: number) => ({ lastMessageAt, revision, degraded: false })
 
@@ -403,5 +410,141 @@ describe('chatHeading', () => {
   it('is unnamed, not pending, for a player on no teams at all', () => {
     // `[]` is a real answer, exactly as it is for hasUnread.
     expect(chatHeading([], alpha)).toEqual({ kind: 'unnamed' })
+  })
+})
+
+/**
+ * THE SCROLL DECISIONS, WHICH ARE THE ONES MOST AT RISK OF NOT BEING TESTED AT
+ * ALL. Every one of them is read from a live DOM element and acted on in an
+ * effect, so the obvious place to write them is inline in message-list.tsx —
+ * a `.tsx` file this suite (edge-runtime, no DOM, `*.test.ts` only) cannot
+ * render at any price. Taking the three numbers as a plain object is what
+ * makes them assertable; the component keeps only the reading and the
+ * scrolling.
+ */
+const position = (partial: Partial<ScrollPosition>): ScrollPosition => ({
+  scrollTop: 0,
+  scrollHeight: 1000,
+  clientHeight: 400,
+  ...partial,
+})
+
+describe('isNearBottom', () => {
+  it('follows a reader sitting at the very bottom', () => {
+    expect(isNearBottom(position({ scrollTop: 600 }))).toBe(true)
+  })
+
+  // THE CASE THE WHOLE FUNCTION EXISTS FOR. Someone reading an hour-old
+  // message must not be yanked to the newest one because a teammate typed.
+  it('leaves a reader who has scrolled up to read history where they are', () => {
+    expect(isNearBottom(position({ scrollTop: 0 }))).toBe(false)
+  })
+
+  // Fractional scrollTop on a non-integer-DPR display, plus a rounded
+  // scrollHeight, routinely puts a reader who IS at the bottom a pixel or two
+  // short of it. An exact comparison would stop following there.
+  it('counts a reader a hair short of the bottom as being at it', () => {
+    expect(isNearBottom(position({ scrollTop: 600 - NEAR_BOTTOM_SLACK_PX }))).toBe(true)
+    expect(isNearBottom(position({ scrollTop: 600 - NEAR_BOTTOM_SLACK_PX - 1 }))).toBe(false)
+  })
+
+  // A freshly opened conversation with four messages in it. There is nothing
+  // to scroll, so "scrolled away" is not a state it can be in — and reading it
+  // as one would leave the first arriving message unfollowed.
+  it('treats a list shorter than its own panel as being at the bottom', () => {
+    expect(isNearBottom(position({ scrollTop: 0, scrollHeight: 120, clientHeight: 400 }))).toBe(true)
+  })
+})
+
+describe('isAtTop', () => {
+  it('is true at the start of what is loaded', () => {
+    expect(isAtTop(position({ scrollTop: 0 }))).toBe(true)
+  })
+
+  it('is false anywhere else in the conversation', () => {
+    expect(isAtTop(position({ scrollTop: 300 }))).toBe(false)
+  })
+
+  it('allows the same sub-pixel slack, on its own smaller budget', () => {
+    expect(isAtTop(position({ scrollTop: AT_TOP_SLACK_PX }))).toBe(true)
+    expect(isAtTop(position({ scrollTop: AT_TOP_SLACK_PX + 1 }))).toBe(false)
+  })
+
+  // With fewer messages than fill the panel there is no gesture that could
+  // ever report arriving at the top, so a rule that waited for one would hide
+  // "Load older" in exactly the case where it is the only way to see more.
+  it('treats a list that cannot scroll as being at its top', () => {
+    expect(isAtTop(position({ scrollTop: 0, scrollHeight: 120, clientHeight: 400 }))).toBe(true)
+  })
+})
+
+describe('shouldShowLoadOlder', () => {
+  const showing = (overrides: Partial<Parameters<typeof shouldShowLoadOlder>[0]> = {}) =>
+    shouldShowLoadOlder({ canLoadOlder: true, windowLength: RECENT_WINDOW, atTop: true, ...overrides })
+
+  it('offers history at the top of a full window', () => {
+    expect(showing()).toBe(true)
+  })
+
+  // EXACTLY A FULL BATCH IS THE ONE THAT MUST STILL OFFER. `recentMessagesFor`
+  // takes RECENT_WINDOW, so a window of exactly that size is the only shape
+  // that can have more behind it — a `>` would retire the button on precisely
+  // the conversations that have history.
+  it('treats exactly a full window as possibly having more behind it', () => {
+    expect(showing({ windowLength: RECENT_WINDOW })).toBe(true)
+    expect(showing({ windowLength: RECENT_WINDOW + 1 })).toBe(true)
+  })
+
+  // A SHORT BATCH IS PROOF, NOT A HINT. The window is the newest
+  // RECENT_WINDOW messages; coming back with fewer means that is the entire
+  // history. Asking anyway spends one of the ten metered pages a minute on a
+  // request that can only come back empty.
+  it('does not offer history behind a window that came back short', () => {
+    expect(showing({ windowLength: RECENT_WINDOW - 1 })).toBe(false)
+  })
+
+  it('offers nothing at all before any message has loaded', () => {
+    expect(showing({ windowLength: 0 })).toBe(false)
+    expect(showing({ windowLength: 0, canLoadOlder: false, atTop: false })).toBe(false)
+  })
+
+  // The caller's existing withholding rule — `atStart` set, or nothing held to
+  // page back from — still wins on its own. This function narrows that
+  // decision; it never overrides it.
+  it('respects the route having already retired the control', () => {
+    expect(showing({ canLoadOlder: false })).toBe(false)
+  })
+
+  // It sat above the newest messages, unconditionally, offering history to
+  // everyone reading the live end of a conversation.
+  it('stays out of the way of a reader at the live end', () => {
+    expect(showing({ atTop: false })).toBe(false)
+  })
+})
+
+describe('hidesSiteFooter', () => {
+  it('suppresses the footer on the one route that lays itself out to the viewport', () => {
+    expect(hidesSiteFooter('/chat')).toBe(true)
+  })
+
+  // `/chat/` and `/chat` are the same route; the trailing-slash spelling would
+  // otherwise get the footer back, and the broken layout with it.
+  it('suppresses it for the trailing-slash spelling of that route', () => {
+    expect(hidesSiteFooter('/chat/')).toBe(true)
+  })
+
+  // EVERY OTHER ROUTE KEEPS IT, which is the half a wrong `startsWith` would
+  // quietly break: the footer carries the only links to /privacy and /terms.
+  it('leaves every other route alone', () => {
+    for (const pathname of ['/', '/app', '/about', '/privacy', '/terms', '/team', '/login']) {
+      expect(hidesSiteFooter(pathname), pathname).toBe(false)
+    }
+  })
+
+  // NOT `startsWith('/chat')`. There is no nested chat route today, and a
+  // hypothetical /chatter or /chat-settings would silently lose its footer.
+  it('does not match a route that merely begins with the same letters', () => {
+    expect(hidesSiteFooter('/chatter')).toBe(false)
+    expect(hidesSiteFooter('/chat-settings')).toBe(false)
   })
 })

@@ -3,6 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
+// convex/lib/chatLimits.ts AND NOTHING ELSE FROM convex/lib. That file imports
+// nothing, deliberately; lib/chat.ts reaches access.ts -> auth.ts, which throws
+// at module scope without SITE_URL and cannot be tree-shaken out of a browser
+// bundle. See chatLimits.ts's own header.
+import { RECENT_WINDOW } from '../../../convex/lib/chatLimits.ts'
 
 /**
  * The live pointer for one team's chat.
@@ -197,6 +202,136 @@ export function mergeOlder(
   if (pages.length === 0) return live
   const liveIds = new Set(live.map((message) => message._id))
   return [...pages.filter((message) => !liveIds.has(message._id)), ...live]
+}
+
+/**
+ * The three numbers any scroll decision below needs, named so a test can hand
+ * them over as a plain object.
+ *
+ * STRUCTURAL, LIKE pull-to-refresh.ts's `ClosestTarget`, AND FOR THE SAME
+ * REASON: this suite runs on edge-runtime with NO DOM, so an `HTMLElement`
+ * parameter would make every one of these functions untestable — which is
+ * exactly how they would end up inline in JSX instead.
+ */
+export type ScrollPosition = { scrollTop: number; scrollHeight: number; clientHeight: number }
+
+/**
+ * How far from an edge still counts as being at it, in CSS pixels.
+ *
+ * NOT ZERO, AND THAT IS NOT A TOLERANCE FOR SLOPPINESS. Browsers report
+ * `scrollTop` fractionally on a zoomed or non-integer-DPR display, and
+ * `scrollHeight` is rounded while `scrollTop + clientHeight` is not — so a
+ * reader sitting exactly at the bottom routinely measures a pixel or two
+ * short of it. An exact comparison would then read "not at the bottom" and
+ * silently stop following the conversation, which is the failure this whole
+ * mechanism exists to avoid.
+ *
+ * THE BOTTOM SLACK IS THE LARGER OF THE TWO, deliberately. It answers "is the
+ * reader still following along", where being one short line adrift is still
+ * following; the top one answers "has the reader reached the start of what is
+ * loaded", which is a place you arrive at rather than hover near.
+ */
+export const NEAR_BOTTOM_SLACK_PX = 64
+export const AT_TOP_SLACK_PX = 8
+
+/**
+ * Whether the reader is close enough to the newest message that a new one
+ * arriving should scroll them to it.
+ *
+ * THE WHOLE POINT IS THE CASE WHERE THIS IS FALSE. Auto-scrolling on every
+ * arrival is easy and wrong: someone who has scrolled up to read what was said
+ * an hour ago gets yanked to the bottom the moment anyone types, and there is
+ * no way to hold their place. Following only from near the bottom is what makes
+ * "jump to the newest" and "leave me where I am" the same rule rather than two
+ * modes with a control to switch between them.
+ *
+ * A LIST SHORTER THAN ITS OWN VIEWPORT IS ALWAYS "NEAR THE BOTTOM"
+ * (`scrollHeight <= clientHeight`, so the distance is at most 0). That is the
+ * state a freshly opened conversation with four messages in it is in, and
+ * treating it as "scrolled away" would leave the first arrival unfollowed.
+ */
+export function isNearBottom(
+  position: ScrollPosition,
+  slack: number = NEAR_BOTTOM_SLACK_PX,
+): boolean {
+  return position.scrollHeight - position.scrollTop - position.clientHeight <= slack
+}
+
+/**
+ * Whether the reader has scrolled to the top of what is loaded — the point at
+ * which asking for older messages is the thing they are trying to do.
+ *
+ * A LIST THAT DOES NOT SCROLL AT ALL IS AT ITS TOP, which matters: with fewer
+ * messages than fill the panel there is no gesture that could ever report
+ * arriving there, so a rule that waited for one would hide "Load older"
+ * permanently in exactly the case where it is the only way to see anything
+ * more.
+ */
+export function isAtTop(position: ScrollPosition, slack: number = AT_TOP_SLACK_PX): boolean {
+  return position.scrollTop <= slack
+}
+
+/**
+ * Whether "Load older messages" should be on screen.
+ *
+ * IT USED TO BE UNCONDITIONAL, which is two separate problems wearing one
+ * button. It sat above the newest messages — the part of a conversation
+ * everyone actually reads — announcing history nobody had asked for; and it
+ * offered to spend a metered, rate-limited page (`olderMessages` is the one
+ * read that charges the bandwidth meter, ten pages a minute per player per
+ * team) on conversations that provably have nothing behind them.
+ *
+ * `windowLength` IS THE PROOF THERE IS NOTHING BEHIND THEM, AND IT COSTS
+ * NOTHING TO ASK. `recentMessagesFor` `.take(RECENT_WINDOW)`s, so a window
+ * that came back SHORT is the whole of that team's history — there is no
+ * older page, and the only way to discover that without this check is to
+ * spend one of the ten. A window that came back full may or may not have more;
+ * `canLoadOlder` is what retires the button once an empty page has settled it
+ * (see `nextOlderOutcome`), and this is what stops the first pointless request
+ * from ever going out.
+ *
+ * `canLoadOlder` IS THE CALLER'S EXISTING WITHHOLDING RULE, not a new one:
+ * routes/chat.tsx already declines to pass `onLoadOlder` once `atStart` is set
+ * or there is nothing to page back from. Taking it as a boolean keeps that
+ * decision where its state lives and this one where the scroll position does.
+ *
+ * ORDER IS NOT LOAD-BEARING here — all three terms are already-computed
+ * booleans and numbers, with nothing to short-circuit — so this is written as
+ * the plain conjunction the rule reads as.
+ */
+export function shouldShowLoadOlder(state: {
+  canLoadOlder: boolean
+  windowLength: number
+  atTop: boolean
+}): boolean {
+  return state.canLoadOlder && state.windowLength >= RECENT_WINDOW && state.atTop
+}
+
+/**
+ * Whether a route replaces the site footer with its own full-height layout.
+ *
+ * ONLY /chat, AND ONLY BECAUSE /chat IS NOT A DOCUMENT. Every other route in
+ * the app is prose or cards that scroll under a footer; chat is a viewport-tall
+ * column whose composer is pinned to the bottom edge and whose message list
+ * scrolls inside it. A footer below that either pushes the composer off screen
+ * or, worse, makes the page scroll past it — which is what it did, and what the
+ * owner's phone screenshot shows.
+ *
+ * A PATHNAME PREDICATE RATHER THAN A FLAG ON THE ROUTE, matching what this
+ * codebase already does for every other route-conditional decision it makes:
+ * `cachePolicyFor` (lib/cache-policy.ts) and `isMaintenanceGated`
+ * (lib/maintenance.ts) are both pure functions of a pathname, tested without a
+ * router. There was NO existing idiom for route-conditional CHROME — __root.tsx
+ * rendered Header, Outlet and Footer unconditionally — so this follows the
+ * closest thing the repo had rather than inventing a mechanism.
+ *
+ * THE TRAILING SLASH IS NORMALISED for the same reason those two normalise it:
+ * `/chat/` and `/chat` are the same route, and a reader who arrives on the
+ * former would otherwise get the footer back and the broken layout with it.
+ */
+export function hidesSiteFooter(pathname: string): boolean {
+  const normalised = pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname
+  return normalised === '/chat'
 }
 
 /**
