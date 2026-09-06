@@ -524,6 +524,37 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     expect(jsxProps(PICKER, 'UnreadBadge').get('teamId')).toBe("team.id as Id<'teams'>")
   })
 
+  test('and the CLOSED picker says another team has traffic, which is what makes those rows reachable', () => {
+    // WITHOUT THIS THE ROW DOTS ARE UNREACHABLE AT REST. Radix unmounts
+    // DropdownMenuContent when the menu is shut, so every per-team dot renders
+    // nowhere until someone has already opened the menu — which is precisely
+    // when they no longer need a signal telling them to open it. The trigger is
+    // the only surface that can carry it, and the trigger has an `aria-label`,
+    // which replaces its content in the accessibility tree and silences the dot
+    // inside it. So the name is computed, exactly as the dashboard button's is.
+    expect(jsxProps(PICKER, 'Button').get('aria-label')).toBe(
+      'teamPickerLabel(name, unreadElsewhere)',
+    )
+    // NOT `hasUnread`, WHICH WOULD BE THE WRONG QUESTION and a plausible
+    // "simplification": the selected team's unread is already shown by the
+    // Team chat button beside the picker, so a trigger dot counting it would
+    // draw two dots for one fact and sit lit while the reader is inside that
+    // very conversation.
+    expect(codeOf(read(PICKER))).toMatch(
+      /const unreadElsewhere = hasUnreadElsewhere\(unread, selected\?\.id as Id<'teams'> \| undefined\)/,
+    )
+  })
+
+  test("the trigger's dot is out of flow, so the picker's width cap is untouched", () => {
+    // MEASURED, AND THE MEASUREMENT IS WHY THIS IS PINNED. The dashboard
+    // controls row had exactly zero spare pixels at 390px before "Team chat"
+    // joined it (see the flex-wrap note in routes/app.tsx). This trigger is
+    // also capped at `max-w-[9.5rem]`, so an in-flow dot would not widen it —
+    // it would eat into the width the team name is truncated to fit and clip
+    // the label instead. `absolute` costs the row and the cap nothing.
+    expect(jsxProps(PICKER, 'UnreadDot').get('className')).toBe('"absolute right-1 top-1"')
+  })
+
   test('neither placement reaches convex/lib/chat.ts, which would ship auth.ts to the browser', () => {
     // THE BUG THIS COST AN AFTERNOON OF, recorded on convex/lib/chatLimits.ts:
     // lib/chat.ts -> access.ts -> auth.ts, which THROWS AT MODULE SCOPE without

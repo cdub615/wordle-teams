@@ -224,6 +224,77 @@ export function hasUnread(
 }
 
 /**
+ * Whether any team OTHER than the one on screen has unread messages.
+ *
+ * WHY A SECOND QUESTION EXISTS AT ALL. The per-team dots live inside
+ * TeamPicker's DropdownMenuContent, and Radix UNMOUNTS that content when the
+ * menu is closed — so at rest, which is almost always, they render nowhere.
+ * They only appear once the menu is already open, which is precisely when
+ * nobody still needs a signal telling them to open it. The trigger dot this
+ * feeds is what makes the row dots reachable; without it the whole badge only
+ * ever answers about the team you are already looking at.
+ *
+ * "OTHER THAN", NOT "ANY". The selected team's own unread is already shown by
+ * the "Team chat" button beside the picker, so counting it here would draw two
+ * dots for one fact — and worse, would leave the trigger lit while you sit
+ * reading that very conversation, which teaches a reader to ignore it.
+ *
+ * BUILT ON `hasUnread` RATHER THAN RE-DERIVING ITS LOADED CHECK, which is the
+ * `undefined`-versus-`[]` distinction: TanStack leaves `data` `undefined` until
+ * the query resolves, and reading that as "unread" would flash a dot on every
+ * page load. Here `unread?.length ?? 0` counts an unresolved query as nothing
+ * unread, and `hasUnread` — the one place that rule is written down — decides
+ * the only other term. A team appears in `unreadTeams` at most once
+ * (unreadTeamsFor walks each team the player is on exactly once and pushes at
+ * most one id), so subtracting the selected team is subtracting exactly one
+ * entry, never a range.
+ *
+ * `selected` MAY BE `undefined`, and that is a real state rather than
+ * defensiveness: routes/app.tsx renders TeamPicker for the renders before
+ * useDashboardSearchSync has filled `?team=` in, and a stale param can name a
+ * team the player is no longer on. With nothing selected, every unread team is
+ * an "other" one, which is the honest answer.
+ */
+export function hasUnreadElsewhere(
+  unread: Array<Id<'teams'>> | undefined,
+  selected: Id<'teams'> | undefined,
+): boolean {
+  const total = unread?.length ?? 0
+  const selectedIsUnread = selected !== undefined && hasUnread(unread, selected)
+  return total - (selectedIsUnread ? 1 : 0) > 0
+}
+
+/**
+ * The accessible name for TeamPicker's trigger — the SAME shape it has always
+ * had, plus a clause when some other team has unread.
+ *
+ * IT LIVES HERE, BESIDE `chatEntryLabel`, BECAUSE THE ONLY REASON IT VARIES IS
+ * CHAT. The two are the whole of how unread state is announced, and they are
+ * worth reading together; team-picker.tsx keeps the label's other decision (the
+ * FULL team name, never the truncated one the trigger paints) in its own
+ * comment where the truncation is.
+ *
+ * THE CLAUSE IS APPENDED TO THE NAME RATHER THAN LEFT TO THE DOT. `aria-label`
+ * replaces an element's content in the accessibility tree, so a dot rendered
+ * inside the trigger is silent no matter what it says about itself — the same
+ * constraint `chatEntryLabel` exists for. Appending is also why the clause has
+ * to be about OTHER teams explicitly: a bare "unread messages" tacked onto
+ * "Team: Alpha" would read as a claim about Alpha, which is the one team it is
+ * guaranteed not to be about.
+ *
+ * THE UNREAD-FREE NAME IS BYTE-FOR-BYTE WHAT IT WAS, which two e2e specs
+ * depend on: teams.spec.ts and billing.spec.ts locate this trigger by its
+ * exact accessible name (`Team: E2E Team`), and Playwright's `name` option
+ * matches the whole string. Their seeds post no chat messages, so no team is
+ * ever unread there and the clause never appears — but a spec that did seed a
+ * message would need to expect it, and that is a property of this function
+ * rather than a coincidence of the markup.
+ */
+export function teamPickerLabel(name: string, unreadElsewhere: boolean): string {
+  return unreadElsewhere ? `Team: ${name}, other teams have unread messages` : `Team: ${name}`
+}
+
+/**
  * The accessible name for the dashboard's "Team chat" control, which changes
  * with the unread state rather than staying "Team chat" and leaving the dot to
  * speak for itself.

@@ -39,6 +39,28 @@ export function UnreadBadge({ teamId, className }: { teamId: Id<'teams'>; classN
 
   if (!hasUnread(unread, teamId)) return null
 
+  return <UnreadDot className={className} label="Unread messages" />
+}
+
+/**
+ * THE MARK ITSELF, WITH NO OPINION ABOUT WHOSE UNREAD IT IS.
+ *
+ * Split out of `UnreadBadge` for TeamPicker's TRIGGER dot (wordle-teams-qix.25
+ * follow-up), which answers a question `UnreadBadge` cannot be asked: not "is
+ * THIS team unread" but "is any team OTHER than the selected one" — see
+ * `hasUnreadElsewhere`. Sharing the element rather than copying six Tailwind
+ * classes is the point: the `bg-accent-solid` decision below is the kind that
+ * gets quietly re-litigated as `bg-primary` in a second copy, which is exactly
+ * the bug it exists to prevent.
+ *
+ * `label` OPTIONAL, AND ITS ABSENCE MEANS `aria-hidden`, NOT "unnamed". A dot
+ * with no accessible name and no `aria-hidden` is debris in the accessibility
+ * tree. The trigger dot passes no label deliberately: it sits inside a button
+ * whose own `aria-label` replaces its content anyway, and that label already
+ * says what the dot means (`teamPickerLabel`). Naming it there would be dead
+ * text at best and a contradiction at worst.
+ */
+export function UnreadDot({ className, label }: { className?: string; label?: string }) {
   return (
     <span
       // bg-accent-solid, NOT bg-primary (the same call today-panel.tsx's
@@ -48,13 +70,14 @@ export function UnreadBadge({ teamId, className }: { teamId: Id<'teams'>; classN
       // green already used for prose links and the focus ring, and clears the
       // 3:1 non-text contrast bar in both themes.
       className={`inline-block size-2 shrink-0 rounded-full bg-accent-solid ${className ?? ''}`}
-      // The dot carries meaning and has no text, so it needs a name of its
-      // own — but NOT role="status": that is a live region, and a page
-      // listing six teams would announce six of them on every page load and
-      // again on every incoming message. role="img" names the mark without
-      // interrupting whatever the reader is doing.
-      role="img"
-      aria-label="Unread messages"
+      // The dot carries meaning and has no text, so where it is named at all it
+      // needs a name of its own — but NOT role="status": that is a live region,
+      // and a page listing six teams would announce six of them on every page
+      // load and again on every incoming message. role="img" names the mark
+      // without interrupting whatever the reader is doing.
+      {...(label === undefined
+        ? { 'aria-hidden': true }
+        : { role: 'img' as const, 'aria-label': label })}
       data-testid="chat-unread-badge"
     />
   )

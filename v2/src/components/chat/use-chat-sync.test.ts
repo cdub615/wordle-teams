@@ -3,11 +3,13 @@ import {
   beforeForOlder,
   chatEntryLabel,
   hasUnread,
+  hasUnreadElsewhere,
   isCurrentRequest,
   mergeOlder,
   nextOlderOutcome,
   nextSinceOutcome,
   nextSyncAction,
+  teamPickerLabel,
 } from './use-chat-sync.ts'
 import type { ChatMessage } from './use-chat-sync.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -211,5 +213,89 @@ describe('chatEntryLabel', () => {
   // away from anyone not looking at the screen.
   it('says something different in the two states', () => {
     expect(chatEntryLabel(true)).not.toBe(chatEntryLabel(false))
+  })
+})
+/**
+ * THE TRIGGER DOT'S WHOLE QUESTION, and it is not the same one `hasUnread`
+ * answers. Radix unmounts TeamPicker's menu content when the menu is closed, so
+ * the per-team dots do not exist at rest; this is what decides whether the
+ * closed trigger says anything at all.
+ */
+describe('hasUnreadElsewhere', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+  const gamma = 'team_gamma' as Id<'teams'>
+
+  it('lights up when a team other than the selected one is unread', () => {
+    expect(hasUnreadElsewhere([beta], alpha)).toBe(true)
+  })
+
+  it('stays dark when the ONLY unread team is the one already on screen', () => {
+    // THE CASE THE WHOLE FUNCTION EXISTS FOR. The dashboard's "Team chat"
+    // button beside the picker already shows this team's unread, so a trigger
+    // dot here would draw two dots for one fact — and would sit lit while the
+    // reader is inside that very conversation, which is how a signal gets
+    // trained out of someone.
+    expect(hasUnreadElsewhere([alpha], alpha)).toBe(false)
+  })
+
+  it('lights up when the selected team is unread AND another one is too', () => {
+    expect(hasUnreadElsewhere([alpha, beta], alpha)).toBe(true)
+  })
+
+  it('counts every unread team as an "other" when nothing is selected', () => {
+    // A real state, not a defensive one: routes/app.tsx renders TeamPicker for
+    // the renders before useDashboardSearchSync fills `?team=` in, and a stale
+    // param can name a team the player has left.
+    expect(hasUnreadElsewhere([alpha, beta], undefined)).toBe(true)
+  })
+
+  // THE LOADED CHECK, INHERITED FROM `hasUnread` RATHER THAN REWRITTEN. Both
+  // "not resolved yet" and "resolved to nothing" must draw no dot, and only one
+  // of those two is an answer.
+  it('draws nothing while the query has not resolved', () => {
+    expect(hasUnreadElsewhere(undefined, alpha)).toBe(false)
+  })
+
+  it('draws nothing while the query has not resolved and nothing is selected', () => {
+    expect(hasUnreadElsewhere(undefined, undefined)).toBe(false)
+  })
+
+  it('draws nothing when no team at all is unread', () => {
+    expect(hasUnreadElsewhere([], alpha)).toBe(false)
+  })
+
+  it('is unmoved by which of the others is unread', () => {
+    expect(hasUnreadElsewhere([gamma], alpha)).toBe(true)
+  })
+})
+
+/**
+ * The trigger's accessible name, which has to carry the roll-up dot's meaning
+ * because `aria-label` replaces the content the dot lives in.
+ */
+describe('teamPickerLabel', () => {
+  it('is byte-for-byte the old name when nothing else is unread', () => {
+    // TWO E2E SPECS LOCATE THIS TRIGGER BY ITS EXACT ACCESSIBLE NAME
+    // (teams.spec.ts, billing.spec.ts) and Playwright matches the whole
+    // string. Their seeds post no chat messages, so this is the branch they
+    // run — pinned here so a change to it is a named failure in a suite CI
+    // runs, rather than a surprise in one it does not.
+    expect(teamPickerLabel('E2E Team', false)).toBe('Team: E2E Team')
+  })
+
+  it('says the unread is somewhere ELSE, never about the team it names', () => {
+    // "Team: Alpha, unread messages" would read as a claim about Alpha — the
+    // one team the dot is guaranteed NOT to be about.
+    expect(teamPickerLabel('Alpha', true)).toBe('Team: Alpha, other teams have unread messages')
+  })
+
+  it('keeps the FULL name in both states, never the truncated one', () => {
+    // team-picker.tsx paints `Some very long...` on the button and passes the
+    // whole name here; truncation is a visual affordance, not something a
+    // screen-reader user should have to sit through.
+    const long = 'Some very long team name'
+    expect(teamPickerLabel(long, true)).toContain(long)
+    expect(teamPickerLabel(long, false)).toContain(long)
   })
 })
