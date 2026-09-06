@@ -88,6 +88,45 @@ export type ChatMessage = {
 }
 
 /**
+ * The client's own mirror of convex/chat.ts's `MessagesSince`. Not imported
+ * from there directly — this file follows the repo convention of importing
+ * types only from convex/lib/*.ts into frontend code, never from a convex
+ * function-definition file — but structurally identical, which is all that
+ * matters for values crossing the `fetchQuery` boundary.
+ */
+export type MessagesSinceResult = { gap: true } | { gap: false; messages: Array<ChatMessage> }
+
+export type SinceOutcome = { kind: 'window' } | { kind: 'messages'; messages: Array<ChatMessage> }
+
+/**
+ * What to do with a `since` fetch's result: refetch the window, or move on to
+ * the next array of held messages to show.
+ *
+ * PURE, AND TESTED ALONGSIDE `nextSyncAction` AND `isCurrentRequest`. This
+ * used to live inline in the effect's `.then`, which is exactly the "wiring,
+ * not reasoning" boundary this file otherwise holds to — the design (§4)
+ * calls the gap case out by name as needing coverage, and a decision asserted
+ * by nothing is not covered just because the server side is.
+ *
+ * A GAP MEANS THE SERVER REFUSED TO SEND A TRUNCATED LIST rather than one a
+ * caller could mistake for complete (see messagesSinceFor's own comment) —
+ * the correct recovery is the window, not a partial append.
+ *
+ * RETURNS `held` UNCHANGED — THE SAME REFERENCE — WHEN THERE IS NOTHING NEW,
+ * rather than a freshly spread array with identical contents. That is not
+ * merely tidy: handing `setMessages` the identical reference is what lets
+ * React's `Object.is` bail-out skip the re-render entirely.
+ */
+export function nextSinceOutcome(
+  held: Array<ChatMessage>,
+  result: MessagesSinceResult,
+): SinceOutcome {
+  if (result.gap) return { kind: 'window' }
+  if (result.messages.length === 0) return { kind: 'messages', messages: held }
+  return { kind: 'messages', messages: [...held, ...result.messages] }
+}
+
+/**
  * Fetch `recentMessages` fresh, bypassing TanStack's cache.
  *
  * `convexQuery` sets `staleTime: Infinity` (see @convex-dev/react-query's
@@ -133,13 +172,18 @@ function loadSince(queryClient: ReturnType<typeof useQueryClient>, teamId: Id<'t
  * moving, which is what keeps a wake at roughly 450 bytes instead of a whole
  * window — see the design's section 4.
  *
- * THE EFFECT DOES NOT DEPEND ON `messages`. The sketch this was built from
- * did, and that is a re-render loop: the effect calls `setMessages`, which
- * changes `messages`, which is a dependency of the very effect that just ran.
- * `heldRef` carries the newest-held timestamp across renders instead, updated
- * by its own effect that depends only on `messages` — so the sync effect can
- * read the current holdings without depending on them. `previousPointer`
- * plays the same role for the last-seen pointer value.
+ * THE EFFECT DOES NOT DEPEND ON `messages`, UNLIKE THE SKETCH THIS WAS BUILT
+ * FROM. That sketch is not a runaway loop — `previousPointer.current` is
+ * already advanced synchronously by the time `setMessages` triggers the
+ * extra invocation, so `nextSyncAction` sees the same pointer twice, returns
+ * `{kind:'none'}`, and nothing further changes. But it is still a bounded
+ * wasted effect invocation on every single state update: one extra pass
+ * through this whole effect for nothing. Dropping `messages` from the deps
+ * avoids that reinvocation entirely rather than merely bounding it. `heldRef`
+ * carries the current holdings across renders instead, updated by its own
+ * effect that depends only on `messages` — so the sync effect can read them
+ * without depending on them. `previousPointer` plays the same role for the
+ * last-seen pointer value.
  *
  * A TEAM SWITCH RESETS BOTH REFS. This component has no team switcher today
  * — `/chat?team=<id>` is set once per navigation — but the hook does not get
@@ -161,6 +205,29 @@ function loadSince(queryClient: ReturnType<typeof useQueryClient>, teamId: Id<'t
  * rather than allocating a new id: it is still answering the one dispatch
  * that triggered it, so a third dispatch happening while it is in flight
  * must invalidate it exactly the same way.
+ *
+ * `isMountedRef` GUARDS AGAINST A DIFFERENT FAILURE THAN `requestId`.
+ * `requestId`/`isCurrentRequest` answer "has a newer dispatch superseded this
+ * one" — `isMountedRef` answers "does the component this is updating still
+ * exist." A `window` or `since` fetch can resolve after the user has already
+ * navigated away from `/chat`, and being the most recent dispatch does
+ * nothing to stop `setMessages` from firing on a torn-down component.
+ *
+ * DELIBERATELY NOT A PER-INVOCATION `cancelled` FLAG RETURNED FROM THIS
+ * EFFECT'S OWN CLEANUP — that is the obvious version, and it is wrong. Strict
+ * Mode double-invokes this effect, firing the first run's cleanup before the
+ * second run starts. This effect already handles that double-invocation
+ * correctly for an unrelated reason: `previousPointer.current` advances
+ * synchronously inside run 1, so run 2 sees the same pointer, `nextSyncAction`
+ * returns `{kind:'none'}`, and nothing redispatches. That means run 1's
+ * promise is the ONLY one that will ever deliver the first window — there is
+ * no second dispatch waiting to pick up the work if it gets cancelled. A
+ * `cancelled` flag set by run 1's own cleanup would cancel that one and only
+ * fetch, silently dropping the initial load in dev with nothing left to
+ * redispatch it. `isMountedRef` lives in its own effect with an empty
+ * dependency array instead, so Strict Mode's synthetic unmount-and-remount
+ * nets back to `true` before anything checks it, and it only goes `false` on
+ * a genuine unmount.
  */
 export function useChatMessages(teamId: Id<'teams'>) {
   const pointer = useChatPointer(teamId)
@@ -169,11 +236,19 @@ export function useChatMessages(teamId: Id<'teams'>) {
   const previousPointer = useRef<ChatPointerValue | null>(null)
   const previousTeamId = useRef(teamId)
   const requestId = useRef(0)
+  const isMountedRef = useRef(true)
   const queryClient = useQueryClient()
 
   useEffect(() => {
     heldRef.current = messages
   }, [messages])
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     // Checked, and the counter bumped, BEFORE the `!current` guard below: the
@@ -202,26 +277,27 @@ export function useChatMessages(teamId: Id<'teams'>) {
 
     if (action.kind === 'window') {
       void loadWindow(queryClient, teamId).then((result) => {
-        if (!isCurrentRequest(mine, requestId.current)) return
+        if (!isCurrentRequest(mine, requestId.current) || !isMountedRef.current) return
         setMessages(result)
       })
       return
     }
 
     void loadSince(queryClient, teamId, action.since).then((result) => {
-      if (!isCurrentRequest(mine, requestId.current)) return
-      // A gap means the server refused to send a truncated list rather than one
-      // a caller could mistake for complete — the recovery is a window refetch.
-      if (result.gap) {
+      if (!isCurrentRequest(mine, requestId.current) || !isMountedRef.current) return
+
+      const outcome = nextSinceOutcome(heldRef.current, result)
+      if (outcome.kind === 'window') {
         void loadWindow(queryClient, teamId).then((windowResult) => {
           // Re-checked: this second, chained fetch can itself be superseded
-          // by a new dispatch while it is in flight, same as the first.
-          if (!isCurrentRequest(mine, requestId.current)) return
+          // by a new dispatch, or outlive the component, while it is in
+          // flight — same as the first.
+          if (!isCurrentRequest(mine, requestId.current) || !isMountedRef.current) return
           setMessages(windowResult)
         })
         return
       }
-      setMessages((held) => [...held, ...result.messages])
+      setMessages(outcome.messages)
     })
     // `queryClient` is stable across renders (the same instance the provider
     // hands out) and `loadWindow`/`loadSince` are plain module-level functions

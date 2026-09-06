@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { isCurrentRequest, nextSyncAction } from './use-chat-sync.ts'
+import { isCurrentRequest, nextSinceOutcome, nextSyncAction } from './use-chat-sync.ts'
+import type { ChatMessage } from './use-chat-sync.ts'
+import type { Id } from '../../../convex/_generated/dataModel'
 
 const at = (lastMessageAt: number, revision: number) => ({ lastMessageAt, revision, degraded: false })
 
@@ -46,5 +48,36 @@ describe('isCurrentRequest', () => {
   // what keeps this a plain equality check rather than mine >= latest.
   it('is stale when checked against an id from before it was dispatched', () => {
     expect(isCurrentRequest(2, 1)).toBe(false)
+  })
+})
+
+describe('nextSinceOutcome', () => {
+  const message = (createdAt: number): ChatMessage => ({
+    _id: `msg_${createdAt}` as Id<'chatMessages'>,
+    playerId: 'player_1' as Id<'players'>,
+    body: 'hi',
+    createdAt,
+  })
+
+  it('appends the fetched messages onto what is held', () => {
+    const held = [message(100)]
+    expect(nextSinceOutcome(held, { gap: false, messages: [message(200)] })).toEqual({
+      kind: 'messages',
+      messages: [message(100), message(200)],
+    })
+  })
+
+  it('refetches the window on a gap', () => {
+    expect(nextSinceOutcome([message(100)], { gap: true })).toEqual({ kind: 'window' })
+  })
+
+  // Not merely equal contents — the SAME array reference, which is what lets
+  // setMessages bail out of the re-render via React's Object.is check instead
+  // of committing a fresh array with nothing new in it.
+  it('is a no-op, by reference, when nothing new came back', () => {
+    const held = [message(100)]
+    const outcome = nextSinceOutcome(held, { gap: false, messages: [] })
+    expect(outcome).toEqual({ kind: 'messages', messages: held })
+    expect(outcome.kind === 'messages' && outcome.messages).toBe(held)
   })
 })
