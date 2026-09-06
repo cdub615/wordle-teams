@@ -1,8 +1,8 @@
 import { createFileRoute, redirect, useNavigate, Link } from '@tanstack/react-router'
-import { Settings } from 'lucide-react'
+import { MessageSquare, Settings } from 'lucide-react'
 import { Suspense } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
@@ -10,6 +10,8 @@ import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
+import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
+import { chatEntryLabel, hasUnread } from '#/components/chat/use-chat-sync.ts'
 import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
 import { MonthPicker, monthOptions } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
@@ -117,6 +119,23 @@ function Dashboard() {
   const { data: teams } = useSuspenseQuery(convexQuery(api.teams.getMyTeams, {}))
   const { data: isPro } = useSuspenseQuery(convexQuery(api.teams.amIPro, {}))
   const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
+  /**
+   * THE ONE SUBSCRIPTION BEHIND EVERY UNREAD DOT ON THIS PAGE, read here only
+   * for the "Team chat" button's accessible NAME (see chatEntryLabel). The
+   * dots themselves are drawn by `UnreadBadge`, which reads the same query.
+   *
+   * THAT IS NOT A SECOND SUBSCRIPTION. `unreadTeams` takes no arguments, so
+   * this call, the badge beside it and every badge inside TeamPicker's menu
+   * hash to the SAME TanStack query key and therefore share ONE Convex
+   * subscription — the property UnreadBadge's comment asks callers not to
+   * break by parameterising the query per team.
+   *
+   * `useQuery`, NOT `useSuspenseQuery` LIKE ITS THREE NEIGHBOURS: none of the
+   * three prefetched-in-the-loader queries above wants a fourth round trip
+   * added to the critical path for a decoration, and `hasUnread` already reads
+   * the unresolved `undefined` as "no dot".
+   */
+  const { data: unreadTeams } = useQuery(convexQuery(api.chat.unreadTeams, {}))
   const [createOpen, setCreateOpen] = useState(false)
   /**
    * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
@@ -273,7 +292,31 @@ function Dashboard() {
           about WHEN it mounts, not where it lands. It reads last month's winner
           for the SELECTED team, which is v1's behaviour too. */}
       <MonthlyWinnerCelebration teamId={teamParam as Id<'teams'>} />
-      <div className="flex items-center gap-2 md:col-span-3">
+      {/* `flex-wrap` IS PART OF wordle-teams-qix.25, NOT A TIDY-UP, AND IT IS
+          MEASURED. This row was EXACTLY at the edge of a 390px viewport before
+          "Team chat" joined it, and billing.spec.ts asserts
+          `scrollWidth - clientWidth <= 0` there — the same document-wide
+          horizontal scrollbar the "Team settings" block below records once
+          costing 64px.
+
+          Measured against the BUILT stylesheet in headless chromium at
+          390x844, with the team name at TeamPicker's own `max-w-[9.5rem]` cap
+          (the widest it can ever be) and tailwind-merge's `px-2`-over-`px-4`
+          resolution applied by hand:
+
+            4 controls, nowrap   row 374px, viewport 374px, overflow 0
+            5 controls, nowrap   row 401px,                 overflow 19px
+            5 controls, wrap     row 374px,                 overflow 0
+
+          So the row had no room left at all, and any fifth control — this one
+          or the next one — overflows the document rather than the row. Wrapping
+          only happens when it must, so a short team name still keeps every
+          control on one line; a long one drops the primary call to action onto
+          a second line instead of pushing the page sideways. Fixing it by
+          shrinking TeamPicker's cap was the alternative and is worse: that
+          truncation is tuned to its own content, and the next control added
+          would be back here anyway. */}
+      <div className="flex flex-wrap items-center gap-2 md:col-span-3">
         <TeamPicker
           teams={teams}
           value={teamParam}
@@ -341,6 +384,47 @@ function Dashboard() {
             <Link to="/team" search={{ team: teamParam }}>
               <Settings className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Team settings</span>
+            </Link>
+          </Button>
+        )}
+        {/* THE APP'S ONLY WAY INTO /chat (wordle-teams-qix.25). Part 2 built
+            the route, the message list, the composer and this very badge, and
+            then linked to none of it: typing the URL was the entire entry
+            point, and `UnreadBadge` rendered nowhere in `src/`.
+
+            A COPY OF "Team settings" ABOVE, DOWN TO THE `size`-less Button,
+            the `px-2 sm:px-4` collapse, the `aria-label`, the `aria-hidden`
+            icon and `text-foreground` — every one of those has a reason
+            recorded on that block and none of them is weaker here. Gated on
+            `selectedTeam` for its reason too: a stale `?team=` would otherwise
+            leave a live control pointing at a conversation there is no team
+            for.
+
+            THE NAME IS COMPUTED, WHICH IS THE ONE DIVERGENCE. `aria-label`
+            replaces this element's content in the accessibility tree, badge
+            included, so the dot below is decoration to a screen reader and the
+            button's own name is the only place unread state can be said. See
+            chatEntryLabel.
+
+            THE DOT IS POSITIONED OUT OF FLOW, and that is about the phone
+            rather than about taste. This row already runs close to the edge of
+            a 390px viewport — billing.spec.ts measures the document's
+            horizontal overflow there, and the comment on "Team settings"
+            records the 64px of it that a third control once caused — so an
+            in-flow dot would widen this button by the dot plus a gap EXACTLY
+            when there is unread traffic, which is the worst moment to discover
+            it. `absolute` costs the row nothing in either state. */}
+        {selectedTeam && (
+          <Button
+            variant="outline"
+            aria-label={chatEntryLabel(hasUnread(unreadTeams, teamParam as Id<'teams'>))}
+            className="relative px-2 text-foreground sm:px-4"
+            asChild
+          >
+            <Link to="/chat" search={{ team: teamParam }}>
+              <MessageSquare className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Team chat</span>
+              <UnreadBadge teamId={teamParam as Id<'teams'>} className="absolute right-1 top-1" />
             </Link>
           </Button>
         )}

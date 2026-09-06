@@ -224,6 +224,34 @@ export function hasUnread(
 }
 
 /**
+ * The accessible name for the dashboard's "Team chat" control, which changes
+ * with the unread state rather than staying "Team chat" and leaving the dot to
+ * speak for itself.
+ *
+ * IT HAS TO CHANGE, BECAUSE THE DOT CANNOT BE HEARD THERE. That control is a
+ * Button rendered `asChild` around a Link, and it carries an `aria-label` for
+ * an unrelated reason: below `sm` its text label is `hidden`, so without one
+ * the accessible name would be empty. But `aria-label` REPLACES the element's
+ * content in the accessibility tree — every descendant of it, `UnreadBadge`'s
+ * own `role="img"` / `aria-label="Unread messages"` included. So the badge is
+ * decoration inside this particular button no matter what it says about
+ * itself, and the only place the unread state can be announced is the button's
+ * own name.
+ *
+ * DIFFERENT FROM THE TEAM PICKER, DELIBERATELY. A `DropdownMenuRadioItem`
+ * takes its name FROM its content, so the badge's own label is read there and
+ * nothing extra is needed — which is why this is a function about one control
+ * and not a rule applied to both.
+ *
+ * PURE, AND TESTED, FOR `hasUnread`'S REASON: it is a decision (what a screen
+ * reader is told) rather than wiring, and routes/app.tsx is a `.tsx` file that
+ * this suite — edge-runtime, no DOM, `*.test.ts` only — cannot render.
+ */
+export function chatEntryLabel(unread: boolean): string {
+  return unread ? 'Team chat, unread messages' : 'Team chat'
+}
+
+/**
  * Fetch `recentMessages` fresh, bypassing TanStack's cache.
  *
  * `convexQuery` sets `staleTime: Infinity` (see @convex-dev/react-query's

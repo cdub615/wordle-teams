@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   beforeForOlder,
+  chatEntryLabel,
   hasUnread,
   isCurrentRequest,
   mergeOlder,
@@ -187,5 +188,28 @@ describe('hasUnread', () => {
 
   it('shows no dot when nothing at all is unread', () => {
     expect(hasUnread([], alpha)).toBe(false)
+  })
+})
+/**
+ * The dashboard's "Team chat" control names its own unread state, because the
+ * dot inside it cannot: `aria-label` replaces an element's content in the
+ * accessibility tree, `UnreadBadge`'s `role="img"` label included.
+ */
+describe('chatEntryLabel', () => {
+  it('names the unread state, since the badge inside the button is not read out', () => {
+    expect(chatEntryLabel(true)).toBe('Team chat, unread messages')
+  })
+
+  it('is the plain control name when there is nothing unread', () => {
+    expect(chatEntryLabel(false)).toBe('Team chat')
+  })
+
+  // THE PAIR IS THE POINT, not either string on its own: a constant label —
+  // which is what this control had before wordle-teams-qix.25, and what every
+  // other icon-collapsing button in the app correctly has — passes lint,
+  // typecheck, build and every rendering test, and silently takes the badge
+  // away from anyone not looking at the screen.
+  it('says something different in the two states', () => {
+    expect(chatEntryLabel(true)).not.toBe(chatEntryLabel(false))
   })
 })

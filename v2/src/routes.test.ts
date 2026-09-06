@@ -1,6 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { codeOf, jsxPropsOf, optionsPassedTo, propertiesOf } from './test-support/source-ast'
+import {
+  codeOf,
+  jsxElementsOf,
+  jsxPropsOf,
+  optionsPassedTo,
+  propertiesOf,
+} from './test-support/source-ast'
 
 /**
  * THE ROUTES THAT EXIST BECAUSE SOMETHING OUTSIDE THIS REPO POINTS AT THEM.
@@ -56,6 +62,9 @@ const parsed = (path: string, callee: string) => optionsPassedTo(path, read(path
  * the way they can reach a `toMatch`.
  */
 const jsxProps = (path: string, tag: string) => jsxPropsOf(path, read(path), tag)
+
+/** All of them, for a tag a file legitimately uses more than once. */
+const jsxElements = (path: string, tag: string) => jsxElementsOf(path, read(path), tag)
 
 const ME = './routes/me.tsx'
 
@@ -437,5 +446,93 @@ describe('the dashboard CTA reaches the CHECKOUT, and app.tsx is where that is d
     // The action this must never be. Header.tsx is the only place in v2 that
     // legitimately names it, and it is not this file.
     expect(source()).not.toMatch(/getCustomerPortalUrl/)
+  })
+})
+/**
+ * /chat WAS THE EXACT ROUTE THIS FILE'S OPENING COMMENT WARNS ABOUT.
+ *
+ * Part 2 built the whole surface — the route, the message list, the composer,
+ * scrollback, the `unreadTeams` query and `UnreadBadge` itself — and linked to
+ * none of it. Nothing under `src/` navigated to `/chat`, so typing the URL was
+ * the only way in and the badge component rendered nowhere at all. All four
+ * gates were green throughout, for the reason recorded at the top of this file:
+ * lint, typecheck, `vitest run` and build cannot tell a route nothing links to
+ * from dead code. `wordle-teams-qix.25` is that gap; this block is what keeps
+ * it closed.
+ *
+ * ASSERTED ON THE SOURCE, LIKE EVERY BLOCK ABOVE, and for the same two reasons:
+ * a route module cannot be imported under vitest, and this suite runs on
+ * edge-runtime with NO DOM (`vitest.config.ts` includes only `*.test.ts`), so
+ * rendering either component is not available here at any price.
+ *
+ * THE UNREAD DOT'S OWN LOGIC IS NOT TESTED HERE. `hasUnread` and
+ * `chatEntryLabel` are pure and live in components/chat/use-chat-sync.ts, which
+ * is where their tests are. What this block pins is the WIRING those functions
+ * are useless without.
+ */
+describe('/chat is reachable from the app, which is the whole of wordle-teams-qix.25', () => {
+  const APP = './routes/app.tsx'
+  const PICKER = './components/team-picker.tsx'
+
+  // The two `<Link>`s in app.tsx's controls row: "Team settings" and this. A
+  // `find` rather than an index, so reordering the row is not a failure.
+  // `'"/chat"'` — a string attribute reads back with the quotes the source
+  // wrote, which is `jsxElementsOf`'s documented behaviour.
+  const chatLink = () => jsxElements(APP, 'Link').find((props) => props.get('to') === '"/chat"')
+
+  test('the dashboard links to /chat, carrying the team being viewed', () => {
+    // WITHOUT THE SEARCH PARAM THE LINK IS USELESS AND STILL LOOKS RIGHT:
+    // routes/chat.tsx renders "No team selected." when `?team=` is absent, so a
+    // `<Link to="/chat">` with no search prop is a working navigation to a dead
+    // end. Pinned as the exact expression, not merely "some search prop".
+    const link = chatLink()
+    // Named, so a deleted or retargeted link fails as "there is no /chat link"
+    // rather than as "undefined is not the search prop".
+    expect(link, 'no <Link to="/chat"> in routes/app.tsx').toBeDefined()
+    expect(link?.get('search')).toBe('{ team: teamParam }')
+  })
+
+  test('and it says which team has unread, since aria-label hides the dot inside it', () => {
+    // `aria-label` REPLACES an element's content in the accessibility tree, so
+    // the UnreadBadge rendered inside this button is decoration to a screen
+    // reader whatever it says about itself — the button's own name is the only
+    // place the unread state can be announced. A static "Team chat" here would
+    // look correct, pass every gate, and silently take the badge away from
+    // anyone not looking at the screen.
+    //
+    // BOTH ROW BUTTONS' NAMES, AS AN EXACT LIST, rather than "one of them is
+    // the chat one": every Button in this file is icon-only below `sm`, so an
+    // aria-label going missing from EITHER leaves an unnamed control, and a
+    // `toContain` would not notice the other one changing. A string attribute
+    // reads back with the quotes the source wrote.
+    expect(jsxElements(APP, 'Button').map((props) => props.get('aria-label'))).toEqual([
+      '"Team settings"',
+      "chatEntryLabel(hasUnread(unreadTeams, teamParam as Id<'teams'>))",
+    ])
+  })
+
+  test('the dashboard renders the dot for the team on screen', () => {
+    expect(jsxProps(APP, 'UnreadBadge').get('teamId')).toBe("teamParam as Id<'teams'>")
+  })
+
+  test('and the team picker dots EVERY team, which is the placement that answers about the others', () => {
+    // THE ONE THAT MATTERS MOST. The dashboard's badge can only ever speak
+    // about the team already selected; this row is the only thing in the app
+    // that can say another team has traffic. `team.id` — the row's own team,
+    // not the selected one — is the whole of that difference, and pointing it
+    // at `value` would type-check and render a plausible-looking menu.
+    expect(jsxProps(PICKER, 'UnreadBadge').get('teamId')).toBe("team.id as Id<'teams'>")
+  })
+
+  test('neither placement reaches convex/lib/chat.ts, which would ship auth.ts to the browser', () => {
+    // THE BUG THIS COST AN AFTERNOON OF, recorded on convex/lib/chatLimits.ts:
+    // lib/chat.ts -> access.ts -> auth.ts, which THROWS AT MODULE SCOPE without
+    // SITE_URL. A module-scope throw is a side effect no bundler may
+    // tree-shake, so one import drags the auth module into the client chunk and
+    // kills the route. The CI grep for the throw string catches it in the
+    // built bundle; this catches it in the file, where the fix is.
+    for (const path of [APP, PICKER]) {
+      expect(read(path)).not.toMatch(/from '.*convex\/lib\/chat\.ts'/)
+    }
   })
 })

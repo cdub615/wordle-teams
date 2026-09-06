@@ -111,6 +111,29 @@ export const optionsPassedTo = (
  * appearing in a branch this does not read is a change worth failing on.
  */
 export const jsxPropsOf = (name: string, source: string, tag: string): Map<string, string> => {
+  const found = jsxElementsOf(name, source, tag)
+  if (found.length !== 1)
+    throw new Error(`expected exactly one <${tag}> in ${name}, found ${found.length}`)
+  return found[0]
+}
+
+/**
+ * The same, for EVERY element with that tag, in source order.
+ *
+ * `jsxPropsOf`'s one-element rule is the right default and stays the default —
+ * a second `<TeamPicker>` in a branch a test does not read is worth failing on.
+ * But a tag can also be a generic wrapper that a file legitimately uses more
+ * than once: routes/app.tsx now renders TWO `<Link>`s in one row, "Team
+ * settings" and "Team chat", and the assertion worth making is "one of these
+ * goes to /chat carrying the selected team", which the singular helper cannot
+ * express at all. Callers pick the element they mean out of this list rather
+ * than being handed whichever one happened to be first.
+ */
+export const jsxElementsOf = (
+  name: string,
+  source: string,
+  tag: string,
+): Array<Map<string, string>> => {
   const found: ts.JsxAttributes[] = []
   const visit = (node: ts.Node): void => {
     if (
@@ -122,15 +145,16 @@ export const jsxPropsOf = (name: string, source: string, tag: string): Map<strin
     ts.forEachChild(node, visit)
   }
   visit(parseSource(name, source))
-  if (found.length !== 1)
-    throw new Error(`expected exactly one <${tag}> in ${name}, found ${found.length}`)
-  return new Map(
-    found[0].properties.flatMap((property) => {
-      if (!ts.isJsxAttribute(property) || !property.initializer) return []
-      const value = property.initializer
-      const inner = ts.isJsxExpression(value) ? value.expression : value
-      return inner ? [[property.name.getText(), inner.getText()] as const] : []
-    }),
+  return found.map(
+    (attributes) =>
+      new Map(
+        attributes.properties.flatMap((property) => {
+          if (!ts.isJsxAttribute(property) || !property.initializer) return []
+          const value = property.initializer
+          const inner = ts.isJsxExpression(value) ? value.expression : value
+          return inner ? [[property.name.getText(), inner.getText()] as const] : []
+        }),
+      ),
   )
 }
 

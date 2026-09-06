@@ -10,7 +10,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu.tsx'
+import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
+import type { Id } from '../../convex/_generated/dataModel'
 
 /**
  * Team selection, and the entry point for creating one.
@@ -71,6 +73,35 @@ export function TeamPicker({
           {teams.map((team) => (
             <DropdownMenuRadioItem key={team.id} value={team.id}>
               {team.name}
+              {/* THE PLACEMENT THAT MAKES THE BADGE WORTH HAVING
+                  (wordle-teams-qix.25). The dashboard's own "Team chat" dot can
+                  only ever answer about the team already on screen; this row is
+                  the only thing in the app that says ANOTHER team has traffic —
+                  which is the question someone on two or three teams actually
+                  has.
+
+                  ONE SUBSCRIPTION FOR THE WHOLE MENU, not one per row.
+                  `unreadTeams` takes no arguments, so every badge here shares a
+                  TanStack query key with every other and with the dashboard's,
+                  and a menu of ten teams costs one read. Do not "optimise" this
+                  into a per-team query.
+
+                  NO ARIA WORK NEEDED HERE, unlike the dashboard button: a
+                  menuitemradio takes its accessible name FROM its content, so
+                  the badge's own `role="img"` / "Unread messages" is read out
+                  after the team's name rather than being replaced by an
+                  `aria-label` on the row.
+
+                  IT SITS IN FLOW HERE, unlike the dashboard button's: a menu
+                  row is a flex line the item is free to grow, not a control in
+                  a row that is already tight on a phone. The `ml-auto` pushes
+                  it to the trailing edge; the wrapper carries the gap because
+                  a `pl-*` on the badge itself would eat into its `size-2`
+                  under the global `box-sizing: border-box` and draw a smaller
+                  dot rather than a spaced one. */}
+              <span className="ml-auto pl-3">
+                <UnreadBadge teamId={team.id as Id<'teams'>} />
+              </span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
