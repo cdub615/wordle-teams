@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { useChatMessages, useChatPointer } from '#/components/chat/use-chat-sync.ts'
 import type { ChatMessage } from '#/components/chat/use-chat-sync.ts'
 import { MessageList } from '#/components/chat/message-list.tsx'
+import { Composer } from '#/components/chat/composer.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
@@ -46,12 +47,12 @@ function ChatRoute() {
 }
 
 /**
- * `data-testid="chat-pointer"` STAYS, ALONGSIDE THE REAL LIST NOW. Task 2 is
- * an outstanding spike that needs to watch the live pointer value in two
- * browsers side by side, and it has not run yet — removing the debug block
- * here would take that away before the spike has reported. A later task
- * removes it once that happens. The composer and scrollback are Tasks 5 and
- * 6 and must not be built here.
+ * `data-testid="chat-pointer"` STAYS, ALONGSIDE THE REAL LIST AND COMPOSER
+ * NOW. Task 2 is an outstanding spike that needs to watch the live pointer
+ * value in two browsers side by side, and it has not run yet — removing the
+ * debug block here would take that away before the spike has reported. A
+ * later task removes it once that happens. Scrollback is Task 6 and must not
+ * be built here.
  */
 function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   const pointer = useChatPointer(teamId)
@@ -59,6 +60,7 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
   const { data: myPlayerId } = useQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const deleteMessage = useMutation({ mutationFn: useConvexMutation(api.chat.deleteMessage) })
+  const sendMessage = useMutation({ mutationFn: useConvexMutation(api.chat.send) })
 
   if (pointer.isPending) return <p className="p-4">Loading…</p>
   if (pointer.error) return <p className="p-4">Could not load chat.</p>
@@ -109,6 +111,18 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
     }
   }
 
+  // REJECTS ON FAILURE, exactly like handleDelete above — the composer awaits
+  // this and relies on the rejection to know the send failed, which is what
+  // keeps the typed text in the textarea instead of clearing it.
+  const handleSend = async (body: string): Promise<void> => {
+    try {
+      await sendMessage.mutateAsync({ teamId, body })
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Could not send that message'))
+      throw error
+    }
+  }
+
   return (
     <>
       <pre className="p-4 text-xs" data-testid="chat-pointer">
@@ -120,6 +134,7 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
         canDelete={canDelete}
         onDelete={(messageId) => handleDelete(messageId)}
       />
+      <Composer onSend={handleSend} />
     </>
   )
 }
