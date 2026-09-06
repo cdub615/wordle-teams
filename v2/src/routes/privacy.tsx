@@ -27,6 +27,33 @@ import { publicRouteHead } from '#/lib/seo'
  * correction was made to v1's src/app/privacy/page.tsx in the same commit, so
  * the two do not disagree while v1 is still serving traffic.
  *
+ * IT WAS AMENDED AGAIN ON 2026-09-06, FOR TEAM CHAT (wordle-teams-qix). Unlike
+ * the two edits above, this one ADDS: chat is a category of content the policy
+ * did not describe, and a policy silent about the product's only free-text
+ * surface is the same defect as the provider list, one feature later.
+ *
+ * Three statements were added, and each is the implementation rather than an
+ * intention:
+ *
+ *   1. Chat messages are collected — they are rows in the chatMessages table
+ *      (convex/schema.ts), stored as the plain text that was typed.
+ *   2. They are readable by the other members of the team, and by nobody else:
+ *      every read path goes through requireTeamMemberFor (convex/access.ts).
+ *      They are kept until deleted — deleteMessageFor is a hard delete for the
+ *      author or the team's owner, and cascadeDeleteTeam (convex/teams.ts)
+ *      removes a team's messages with the team.
+ *   3. A push notification about new messages carries the team's NAME and no
+ *      message text. That is a deliberate design decision in
+ *      convex/chatNotify.ts, whose payload body is literally
+ *      `New messages in ${teamName}`, and it is worth stating because the
+ *      payload transits a third-party push service on its way to the device.
+ *
+ * No retention window, deletion turnaround or export capability is claimed,
+ * because none of those is built.
+ *
+ * The date below moved with /terms's, in the same commit, because
+ * src/legal-copy.test.ts requires the two documents to carry the same one.
+ *
  * THE PROVIDER LIST IS NOW PINNED BY A TEST. src/legal-copy.test.ts parses
  * convex/auth.ts's PROVIDER_ENV and fails if this document names a provider the
  * app does not offer, or omits one it does. The list going stale unnoticed for
@@ -87,8 +114,10 @@ function Privacy() {
             </p>
             <p className="m-0">
               <strong>User Content:</strong> We collect the content you create, share, and store
-              while using the Service, including your Wordle game scores, boards, and team
-              information (&quot;User Content&quot;).
+              while using the Service, including your Wordle game scores, boards, team information,
+              and the messages you post in team chat (&quot;User Content&quot;). We keep your
+              messages until they are deleted: a message is removed when you or the owner of the
+              team deletes it, and a team&apos;s messages are removed when the team is deleted.
             </p>
             <p className="m-0">
               <strong>Usage Data:</strong> We automatically collect certain information when you
@@ -113,10 +142,19 @@ function Privacy() {
             </h2>
             <p className="m-0">We may share your information in the following circumstances:</p>
             <ul className="m-0 list-disc pl-5">
+              <li>
+                With the other members of a team you belong to, who can read the messages you post
+                in that team&apos;s chat
+              </li>
               <li>With third-party service providers who assist us in operating the Service</li>
               <li>If required to do so by law or in response to a valid legal request</li>
               <li>To protect the rights, property, or safety of Wordle Teams, our users, or others</li>
             </ul>
+            <p className="m-0">
+              If you have turned on push notifications, a notification telling you that new messages
+              have arrived names the team they were posted in, and never contains the text of a
+              message.
+            </p>
           </section>
 
           <section className="flex flex-col gap-2">
@@ -162,7 +200,7 @@ function Privacy() {
             </p>
           </section>
 
-          <p className="m-0 text-sm">Effective Date: September 2, 2026</p>
+          <p className="m-0 text-sm">Effective Date: September 6, 2026</p>
         </div>
       </article>
     </main>

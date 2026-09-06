@@ -25,6 +25,25 @@ import { publicRouteHead } from '#/lib/seo'
  * an existing method more completely and adds no obligation on the user. The
  * same edits were made to v1's src/app/terms/page.tsx in the same commit.
  *
+ * IT WAS AMENDED AGAIN ON 2026-09-06, FOR TEAM CHAT (wordle-teams-qix). Chat is
+ * the product's first free-text surface, and the User Content section
+ * enumerated "wordle scores, game boards, and team information" — a list that
+ * predates it. The enumeration now names chat messages, and one paragraph was
+ * added saying who may delete a message and that deletion is permanent.
+ *
+ * THAT PARAGRAPH DESCRIBES ONLY WHAT convex/chat.ts DOES. deleteMessageFor is a
+ * hard delete with no tombstone, and it admits the message's author or the
+ * team's owner and nobody else; every read is gated on team membership by
+ * requireTeamMemberFor. It promises no moderation queue, no review turnaround
+ * and no retention window, because none of those exist — there is no admin
+ * review path and no automated content scanning anywhere in the codebase. The
+ * pre-existing "may be removed or suspended by Wordle Teams" sentence was left
+ * exactly as it stood: it already reaches chat once chat is User Content, and
+ * rewording it would be widening an obligation rather than describing one.
+ *
+ * The date below moved with /privacy's, in the same commit, because
+ * src/legal-copy.test.ts requires the two documents to carry the same one.
+ *
  * THE PROVIDER LIST IS PINNED BY src/legal-copy.test.ts, which parses
  * convex/auth.ts and fails if this document names a provider the app does not
  * offer, or omits one it does.
@@ -93,9 +112,9 @@ function Terms() {
             <h2 className="m-0 text-lg font-medium text-foreground">User Content</h2>
             <p className="m-0">
               The Service allows you and other users to create, post, share and store content such
-              as wordle scores, game boards, and team information (&quot;User Content&quot;). You
-              retain ownership of any intellectual property rights that you hold in your User
-              Content.
+              as wordle scores, game boards, team information, and the messages you post in team
+              chat (&quot;User Content&quot;). You retain ownership of any intellectual property
+              rights that you hold in your User Content.
             </p>
             <p className="m-0">
               When you create, post or share User Content with Wordle Teams, you grant us a
@@ -107,6 +126,12 @@ function Terms() {
               You are solely responsible for your User Content and the consequences of creating,
               posting or sharing it. Any User Content or behavior that violates these Terms may be
               removed or suspended by Wordle Teams.
+            </p>
+            <p className="m-0">
+              Messages you post in a team&apos;s chat are visible to the other members of that team,
+              and we do not review them before they are posted. You may delete a message you
+              posted, and the owner of a team may delete any message posted in that team. Deletion
+              is permanent: a deleted message cannot be restored, by you or by us.
             </p>
           </section>
 
@@ -229,7 +254,7 @@ function Terms() {
             United States of America.
           </p>
 
-          <p className="m-0 text-sm">Last Updated: September 2, 2026</p>
+          <p className="m-0 text-sm">Last Updated: September 6, 2026</p>
         </div>
       </article>
     </main>

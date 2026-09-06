@@ -5,9 +5,10 @@ h2: Account Registration
 p: To access certain features of the Service, you must register for an account ("Account"). When you register for an Account, you may be required to provide us with some information about yourself, such as your email address or other contact information. You agree that the information you provide to us is accurate and up-to-date.
 p: You are responsible for all activity that occurs under your Account, so please keep your Account credentials secure.
 h2: User Content
-p: The Service allows you and other users to create, post, share and store content such as wordle scores, game boards, and team information ("User Content"). You retain ownership of any intellectual property rights that you hold in your User Content.
+p: The Service allows you and other users to create, post, share and store content such as wordle scores, game boards, team information, and the messages you post in team chat ("User Content"). You retain ownership of any intellectual property rights that you hold in your User Content.
 p: When you create, post or share User Content with Wordle Teams, you grant us a worldwide, royalty-free, sublicensable, and transferable license to host, store, use, display, reproduce, modify, adapt, edit, publish and distribute that User Content for the purposes of operating and providing the Service.
 p: You are solely responsible for your User Content and the consequences of creating, posting or sharing it. Any User Content or behavior that violates these Terms may be removed or suspended by Wordle Teams.
+p: Messages you post in a team's chat are visible to the other members of that team, and we do not review them before they are posted. You may delete a message you posted, and the owner of a team may delete any message posted in that team. Deletion is permanent: a deleted message cannot be restored, by you or by us.
 h2: Third-Party Services and Integrations
 p: The Service allows you to sign in with a one-time code sent to your email address, or via online accounts from third-party service providers (Google, Microsoft, GitHub, or Discord). If you choose to sign in or otherwise link your Wordle Teams Account with a third-party service, you are authorizing us to connect and access your approved information in that service, which may be governed by the privacy policy and terms of service of that service.
 h2: Prohibited Conduct
@@ -32,4 +33,4 @@ p: We may revise these Terms from time to time. The most current version will al
 h2: Contact Us
 p: If you have any questions or comments about these Terms, please contact us at support@wordleteams.com <mailto:support@wordleteams.com>.
 p: These Terms shall be governed by and construed in accordance with the laws of the United States of America.
-p: Last Updated: September 2, 2026
+p: Last Updated: September 6, 2026

@@ -3,7 +3,7 @@ h1: Privacy Policy
 p: Wordle Teams ("us", "we", or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and website (collectively, the "Service"). Please read this Privacy Policy carefully.
 h2: Information We Collect
 p: Account Information: When you create an account with us, we collect your name, email address, and your profile image if provided by the third-party sign-in provider you use (Google, Microsoft, GitHub, or Discord).
-p: User Content: We collect the content you create, share, and store while using the Service, including your Wordle game scores, boards, and team information ("User Content").
+p: User Content: We collect the content you create, share, and store while using the Service, including your Wordle game scores, boards, team information, and the messages you post in team chat ("User Content"). We keep your messages until they are deleted: a message is removed when you or the owner of the team deletes it, and a team's messages are removed when the team is deleted.
 p: Usage Data: We automatically collect certain information when you use the Service, such as your IP address, device type, operating system, browser type, and other usage data.
 h2: How We Use Your Information
 li: To provide, maintain, and improve the Service
@@ -12,9 +12,11 @@ li: To analyze usage trends and enhance the user experience
 li: To protect the rights, property, or safety of Wordle Teams, our users, or others
 h2: Information Sharing and Disclosure
 p: We may share your information in the following circumstances:
+li: With the other members of a team you belong to, who can read the messages you post in that team's chat
 li: With third-party service providers who assist us in operating the Service
 li: If required to do so by law or in response to a valid legal request
 li: To protect the rights, property, or safety of Wordle Teams, our users, or others
+p: If you have turned on push notifications, a notification telling you that new messages have arrived names the team they were posted in, and never contains the text of a message.
 h2: Data Security
 p: We take reasonable steps to protect your information from unauthorized access, use, or disclosure. However, no method of transmission over the Internet or method of electronic storage is 100% secure.
 h2: Third-Party Links and Services
@@ -23,4 +25,4 @@ h2: Changes to this Privacy Policy
 p: We may update this Privacy Policy from time to time. The updated version will be effective as soon as it is accessible. We encourage you to review this Privacy Policy periodically for any changes.
 h2: Contact Us
 p: If you have any questions about this Privacy Policy or our privacy practices, please contact us at privacy@wordleteams.com <mailto:privacy@wordleteams.com>.
-p: Effective Date: September 2, 2026
+p: Effective Date: September 6, 2026
