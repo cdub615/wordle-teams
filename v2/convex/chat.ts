@@ -12,6 +12,7 @@ import {
   nextScrollWindow,
   requireBody,
 } from './lib/chat.ts'
+import { getMyTeamsFor } from './teams.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { ReaderCtx, WriterCtx } from './winners.ts'
 
@@ -505,6 +506,62 @@ export async function markReadFor(
   await upsertReadCursor(ctx, cursor, playerId, teamId, { lastReadAt: Date.now() })
 }
 
+/**
+ * Which of the caller's teams have messages they have not read.
+ *
+ * READS NO MESSAGES, which is the point. A badge is a comparison of two small
+ * documents per team — the team's chatMeta pointer against the caller's own
+ * chatReads cursor — so it stays cheap enough to run on any page load. Counting
+ * unread messages instead would read the messages themselves, on every load,
+ * for every team, which is exactly the cost this feature is built to avoid, and
+ * the design says so in as many words (spec section 5: the badge shows
+ * presence-of-unread, a dot and never a number, precisely so it can stay free;
+ * the hourly push sweep is where a COUNT is affordable, because it runs once
+ * per team per hour rather than on every page load).
+ *
+ * NO MEMBERSHIP CHECK IS NEEDED HERE and that is not an oversight, despite the
+ * note atop this file that every function checks membership, reads included. It
+ * starts from the caller's own teams — getMyTeamsFor filters `teams` by
+ * playerIds — and never accepts a teamId from anyone, so there is nothing to
+ * probe and nothing to gate. Every other function in this file takes a teamId
+ * as an argument and must therefore gate on it.
+ *
+ * A TEAM WITH NO chatMeta ROW IS SILENTLY SKIPPED, and that is the correct
+ * answer rather than a missing case: bumpChatMeta creates that row on the first
+ * message, so its absence means the team has never had a message at all, and
+ * nothing unread can exist in an empty conversation.
+ *
+ * A MISSING chatReads ROW READS AS `0`, NOT AS "READ". Someone who has never
+ * opened a team's chat has no cursor, and every message in it is unread to
+ * them — which is what `?? 0` says. Defaulting the other way (to now, or to
+ * lastMessageAt) would silently swallow the badge for exactly the person most
+ * likely to want it.
+ */
+export async function unreadTeamsFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+): Promise<Array<Id<'teams'>>> {
+  const teams = await getMyTeamsFor(ctx, playerId)
+  const unread: Array<Id<'teams'>> = []
+
+  for (const team of teams) {
+    const meta = await ctx.db
+      .query('chatMeta')
+      .withIndex('by_team', (q) => q.eq('teamId', team.id))
+      .unique()
+    if (meta === null) continue
+
+    const cursor = await ctx.db
+      .query('chatReads')
+      .withIndex('by_player_team', (q) => q.eq('playerId', playerId).eq('teamId', team.id))
+      .unique()
+
+    if (meta.lastMessageAt > (cursor?.lastReadAt ?? 0)) unread.push(team.id)
+  }
+
+  return unread
+}
+
 export const pointer = query({
   args: { teamId: v.id('teams') },
   handler: async (ctx, { teamId }) => {
@@ -561,5 +618,13 @@ export const markRead = mutation({
   handler: async (ctx, { teamId }) => {
     const player = await requirePlayer(ctx)
     await markReadFor(ctx, player._id, teamId)
+  },
+})
+
+export const unreadTeams = query({
+  args: {},
+  handler: async (ctx) => {
+    const player = await requirePlayer(ctx)
+    return await unreadTeamsFor(ctx, player._id)
   },
 })

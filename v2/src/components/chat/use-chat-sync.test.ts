@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   beforeForOlder,
+  hasUnread,
   isCurrentRequest,
   mergeOlder,
   nextOlderOutcome,
@@ -161,5 +162,30 @@ describe('mergeOlder', () => {
   it('is the live window itself, by reference, when no page is held', () => {
     const live = [older(200)]
     expect(mergeOlder([], live)).toBe(live)
+  })
+})
+
+describe('hasUnread', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+
+  it('shows a dot for a team in the unread list', () => {
+    expect(hasUnread([alpha, beta], alpha)).toBe(true)
+  })
+
+  it('shows no dot for a team that is not in it', () => {
+    expect(hasUnread([beta], alpha)).toBe(false)
+  })
+
+  // THE "NOT LOADED YET" BRANCH, and the reason this is a function rather than
+  // an inline `.includes`. `undefined` is TanStack's pre-resolution state, not
+  // an answer; `[]` is the real "nothing unread". Reading the unknown state as
+  // unread would flash a dot on every team on every page load.
+  it('shows no dot while the query has not resolved', () => {
+    expect(hasUnread(undefined, alpha)).toBe(false)
+  })
+
+  it('shows no dot when nothing at all is unread', () => {
+    expect(hasUnread([], alpha)).toBe(false)
   })
 })

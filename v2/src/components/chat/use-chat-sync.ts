@@ -200,6 +200,30 @@ export function mergeOlder(
 }
 
 /**
+ * Whether a team should show an unread dot, given the whole cross-team answer.
+ *
+ * `undefined` IS "NOT LOADED YET" AND MUST READ AS "NO DOT" — the same
+ * deliberate branch `nameFor` and `canDelete` carry in routes/chat.tsx, for
+ * the same reason. TanStack leaves `data` `undefined` until `unreadTeams`
+ * resolves, and an empty array is its real "nothing unread" answer. Collapsing
+ * the two would be harmless in one direction and a lie in the other: showing
+ * no dot for a moment is invisible, whereas defaulting the unknown state to a
+ * dot would flash a badge on every team on every page load.
+ *
+ * THE ARRAY IS THE WHOLE ANSWER, not a per-team query. `unreadTeams` takes no
+ * arguments, so every badge on a page shares one TanStack query key and
+ * therefore one Convex subscription — rendering ten badges costs one read, not
+ * ten. That is only true while nothing parameterises this by team.
+ */
+export function hasUnread(
+  unread: Array<Id<'teams'>> | undefined,
+  teamId: Id<'teams'>,
+): boolean {
+  if (unread === undefined) return false
+  return unread.includes(teamId)
+}
+
+/**
  * Fetch `recentMessages` fresh, bypassing TanStack's cache.
  *
  * `convexQuery` sets `staleTime: Infinity` (see @convex-dev/react-query's

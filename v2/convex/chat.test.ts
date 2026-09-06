@@ -11,6 +11,7 @@ import {
   olderMessagesFor,
   recentMessagesFor,
   sendMessageFor,
+  unreadTeamsFor,
 } from './chat.ts'
 import { deleteTeamFor, leaveTeamFor } from './teams.ts'
 import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
@@ -1023,3 +1024,56 @@ describe('the public surface', () => {
   })
 })
 
+
+describe('unreadTeamsFor', () => {
+  test('reports a team unread when a teammate has posted since we last read', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+
+      await sendMessageFor(ctx, bob, team, 'hello ada')
+
+      expect(await unreadTeamsFor(ctx, ada)).toEqual([team])
+    })
+  })
+
+  // Sending advances your own cursor, so your own message is never unread.
+  test('does not report your own message as unread', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'mine')
+
+      expect(await unreadTeamsFor(ctx, ada)).toEqual([])
+    })
+  })
+
+  test('clears once the conversation is marked read', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      await sendMessageFor(ctx, bob, team, 'hello')
+
+      await markReadFor(ctx, ada, team)
+
+      expect(await unreadTeamsFor(ctx, ada)).toEqual([])
+    })
+  })
+
+  test('never reports a team the caller is not on', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const mallory = await ctx.db.insert('players', aPlayer({ email: 'mallory@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'private')
+
+      expect(await unreadTeamsFor(ctx, mallory)).toEqual([])
+    })
+  })
+})

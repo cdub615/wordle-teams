@@ -93,6 +93,38 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
     setAtStart(false)
   }, [teamId])
 
+  // OPENING THE CONVERSATION IS WHAT CLEARS ITS BADGE. `markRead` writes one
+  // small row (`chatReads.lastReadAt`) and reads no messages — see markReadFor
+  // in convex/chat.ts, which exists as its own call precisely so that the
+  // common case, opening a chat, costs almost nothing. `UnreadBadge` is a
+  // comparison against that timestamp, so without this the dot would never go
+  // out and the badge would be permanent furniture.
+  //
+  // ON OPEN, NOT ON EVERY ARRIVING MESSAGE, AND THAT IS A DELIBERATE LIMIT
+  // RATHER THAN AN OVERSIGHT. Depending this on the pointer's `lastMessageAt`
+  // would advance the cursor for each message that lands while the tab is
+  // open — a write per message per connected client, on the row that
+  // `sendMessageFor`, `markReadFor` and `olderMessagesFor` already contend on.
+  // The visible cost of not doing it is narrow: a teammate posting while you
+  // are sitting in the conversation leaves a dot on a team you are already
+  // looking at, until the next time you open it. Cheap to fix later by adding
+  // the pointer to these deps if it turns out to annoy anyone; not worth a
+  // per-message write up front.
+  //
+  // ERRORS ARE SWALLOWED, unlike `handleSend` and `handleLoadOlder` above,
+  // because the user did not ask for this. It is a side effect of navigating,
+  // and a toast reading "Could not mark read" reports a failure with no action
+  // behind it against something nobody requested. A failed call just leaves
+  // the dot up, which is the pre-existing state rather than a broken one.
+  //
+  // `useConvexMutation` is memoised on the client and the function name (see
+  // convex/react's useMutation), so it is stable across renders and belongs in
+  // the dep array rather than being suppressed out of it.
+  const markRead = useConvexMutation(api.chat.markRead)
+  useEffect(() => {
+    markRead({ teamId }).catch(() => {})
+  }, [markRead, teamId])
+
   if (pointer.isPending) return <p className="p-4">Loading…</p>
   if (pointer.error) return <p className="p-4">Could not load chat.</p>
 
