@@ -91,6 +91,49 @@ export function nextPostWindow(current: PostWindow, now: number): Required<PostW
 }
 
 /**
+ * Ten pages a minute, per player per team — a deliberately different number
+ * from RATE_LIMIT_MESSAGES, because a scroll page and a post are not the same
+ * shape of cost. A post is priced per team member (budgetIncrementFor) but
+ * cheap per call; a scrollback page is priced once, for the one client that
+ * asked, but at a full RECENT_WINDOW of messages — see budgetIncrementForScroll.
+ * Ten a minute is generous for a human paging through history (a deliberate
+ * "load everything" session covers 300 messages, ten times the initial
+ * window, inside one minute) while still bounding what a scroll loop can cost:
+ * at ten pages a minute one runaway client can charge at most
+ * 10 * BYTES_PER_SCROLL_PAGE (75KB) a minute against the shared budget, the
+ * same order of magnitude as the send limit's worst case for a small team —
+ * see the note on RATE_LIMIT_MESSAGES for why that control exists at all.
+ */
+export const RATE_LIMIT_SCROLLS = 10
+
+export type ScrollWindow = {
+  scrollWindowStartedAt?: number
+  scrollsInWindow?: number
+}
+
+/**
+ * The player's next scroll-rate-limit window, or `null` if this page is
+ * refused. Same fixed-window algorithm as nextPostWindow, over a distinct
+ * field pair and a distinct limit — see RATE_LIMIT_SCROLLS for why the count
+ * differs. Kept as a separate function rather than a shared generic: this
+ * file already prefers one small named thing per concern (see
+ * budgetIncrementFor vs. budgetIncrementForDelete) over parameterising one
+ * function two ways, so a reader never has to ask "which limit does this
+ * call use" before trusting a line.
+ */
+export function nextScrollWindow(current: ScrollWindow, now: number): Required<ScrollWindow> | null {
+  const startedAt = current.scrollWindowStartedAt
+  const count = current.scrollsInWindow ?? 0
+
+  if (startedAt === undefined || now - startedAt >= RATE_LIMIT_WINDOW_MS) {
+    return { scrollWindowStartedAt: now, scrollsInWindow: 1 }
+  }
+  if (count >= RATE_LIMIT_SCROLLS) return null
+
+  return { scrollWindowStartedAt: startedAt, scrollsInWindow: count + 1 }
+}
+
+/**
  * What to charge the monthly budget for one message.
  *
  * DELIBERATELY CONSERVATIVE: every member is billed as though they were
@@ -116,6 +159,24 @@ export const BYTES_PER_DELETE_WAKE = RECENT_WINDOW * 250
 
 export function budgetIncrementForDelete(teamSize: number): number {
   return teamSize * BYTES_PER_DELETE_WAKE
+}
+
+/**
+ * What a scrollback page costs: one RECENT_WINDOW read, at the same ~250B
+ * per-message estimate BYTES_PER_WAKE and BYTES_PER_DELETE_WAKE are built
+ * from — numerically the same figure as BYTES_PER_DELETE_WAKE, because both
+ * are "one client reads a full window," just reached by different paths.
+ *
+ * NOT MULTIPLIED BY TEAM SIZE, unlike budgetIncrementFor (a send, felt by
+ * every connected client on the next wake) and budgetIncrementForDelete (a
+ * forced refetch, also felt by every connected client). Scrollback is a
+ * one-shot fetch the caller asked for; nobody else's client does any work
+ * because of it, so nobody else is charged for it.
+ */
+export const BYTES_PER_SCROLL_PAGE = RECENT_WINDOW * 250
+
+export function budgetIncrementForScroll(): number {
+  return BYTES_PER_SCROLL_PAGE
 }
 
 export function isOverBudget(estimatedBytes: number): boolean {

@@ -31,7 +31,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'INVALID_TIME_ZONE' ||
     code === 'INVALID_PUSH_ENDPOINT' ||
     code === 'INVALID_MESSAGE' ||
-    code === 'RATE_LIMITED'
+    code === 'RATE_LIMITED' ||
+    code === 'SCROLL_RATE_LIMITED'
   ) {
     return code
   }
@@ -140,6 +141,8 @@ export function typedCodeMessage(code: AccessCode): string {
       return 'A message needs some text, and has to be under 2000 characters.'
     case 'RATE_LIMITED':
       return 'You are sending messages very quickly — give it a moment.'
+    case 'SCROLL_RATE_LIMITED':
+      return "You're scrolling back very quickly — give it a moment."
     default: {
       const _exhaustive: never = code
       return _exhaustive

@@ -367,6 +367,12 @@ export default defineSchema({
     lastNotifiedAt: v.optional(v.number()),
     postWindowStartedAt: v.optional(v.number()),
     postsInWindow: v.optional(v.number()),
+    // The scrollback rate-limit window — same row, same shape as the post
+    // window above, kept as separate fields rather than reused ones because
+    // a scroll page and a post are priced and limited differently. See
+    // RATE_LIMIT_SCROLLS in lib/chat.ts.
+    scrollWindowStartedAt: v.optional(v.number()),
+    scrollsInWindow: v.optional(v.number()),
   })
     .index('by_player_team', ['playerId', 'teamId'])
     .index('by_player', ['playerId'])

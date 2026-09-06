@@ -17,9 +17,11 @@ import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
 import {
   BUDGET_THRESHOLD_BYTES,
   RATE_LIMIT_MESSAGES,
+  RATE_LIMIT_SCROLLS,
   RECENT_WINDOW,
   budgetIncrementFor,
   budgetIncrementForDelete,
+  budgetIncrementForScroll,
   budgetMonthFor,
 } from './lib/chat.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
@@ -483,6 +485,132 @@ describe('the chat reads', () => {
     })
   })
 
+  // THE FINDING THIS CLOSES: reads were unmetered and unrate-limited, and
+  // olderMessagesFor is the one read expensive and cache-defeating enough
+  // (see the top-of-file note) to be worth fixing. It is a mutation
+  // specifically so it CAN charge chargeBudget — a query's ctx.db has no
+  // write methods, so this coverage would be structurally impossible against
+  // a query.
+  describe('the scrollback meter and rate limit', () => {
+    test('charges one RECENT_WINDOW page per call, not per team member', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const ada = await ctx.db.insert('players', aPlayer())
+        const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+        const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+        for (let i = 0; i < 5; i++) {
+          await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+        }
+
+        await olderMessagesFor(ctx, ada, team, 1003)
+
+        const budget = await ctx.db
+          .query('chatBudget')
+          .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
+          .unique()
+        // NOT multiplied by the team's two members — a send at this team size
+        // would charge budgetIncrementFor(2), which is a different, smaller
+        // number (BYTES_PER_WAKE * 2) than a single scroll page.
+        expect(budget?.estimatedBytes).toBe(budgetIncrementForScroll())
+      })
+    })
+
+    test('allows a full window of pages and refuses the one after it', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const ada = await ctx.db.insert('players', aPlayer())
+        const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+        for (let i = 0; i < 5; i++) {
+          await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+        }
+
+        for (let i = 0; i < RATE_LIMIT_SCROLLS; i++) {
+          await olderMessagesFor(ctx, ada, team, 1003)
+        }
+        await expect(olderMessagesFor(ctx, ada, team, 1003)).rejects.toMatchObject({
+          data: { code: 'SCROLL_RATE_LIMITED' },
+        })
+      })
+    })
+
+    // A refused page must not spend the budget it was refused to protect —
+    // the same ordering sendMessageFor already relies on (rate check before
+    // the write), pinned here for the scroll path specifically.
+    test('a refused page charges nothing further', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const ada = await ctx.db.insert('players', aPlayer())
+        const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+        for (let i = 0; i < 5; i++) {
+          await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+        }
+
+        for (let i = 0; i < RATE_LIMIT_SCROLLS; i++) {
+          await olderMessagesFor(ctx, ada, team, 1003)
+        }
+        const beforeRefusal = await ctx.db
+          .query('chatBudget')
+          .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
+          .unique()
+
+        await expect(olderMessagesFor(ctx, ada, team, 1003)).rejects.toMatchObject({
+          data: { code: 'SCROLL_RATE_LIMITED' },
+        })
+
+        const afterRefusal = await ctx.db
+          .query('chatBudget')
+          .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
+          .unique()
+        expect(afterRefusal?.estimatedBytes).toBe(beforeRefusal?.estimatedBytes)
+      })
+    })
+
+    // Per player PER TEAM, same shape as the send limit — one chatty scroller
+    // must not silence a teammate, and being throttled in one team must not
+    // reach into another.
+    test('does not let one player\'s scroll limit block a teammate or another team', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const ada = await ctx.db.insert('players', aPlayer())
+        const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+        const noisy = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+        const quiet = await ctx.db.insert('teams', aTeam({ legacyId: 903, name: 'Quiet', playerIds: [ada], owner: ada }))
+        await ctx.db.insert('chatMessages', { teamId: noisy, playerId: ada, body: 'm', createdAt: 1000 })
+        await ctx.db.insert('chatMessages', { teamId: quiet, playerId: ada, body: 'm', createdAt: 1000 })
+
+        for (let i = 0; i < RATE_LIMIT_SCROLLS; i++) {
+          await olderMessagesFor(ctx, ada, noisy, 1001)
+        }
+        await expect(olderMessagesFor(ctx, ada, noisy, 1001)).rejects.toMatchObject({
+          data: { code: 'SCROLL_RATE_LIMITED' },
+        })
+
+        await expect(olderMessagesFor(ctx, bob, noisy, 1001)).resolves.toBeDefined()
+        await expect(olderMessagesFor(ctx, ada, quiet, 1001)).resolves.toBeDefined()
+      })
+    })
+
+    // MEMBERSHIP BEFORE THE RATE CHECK, not after — a non-member must not be
+    // able to tell the difference between "not a member" and "rate limited"
+    // by spamming this call, and must not be able to spend anyone's window.
+    test('still refuses a non-member outright, before the rate limit is even consulted', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const ada = await ctx.db.insert('players', aPlayer())
+        const mallory = await ctx.db.insert('players', aPlayer({ email: 'mallory@example.com' }))
+        const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+        await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: 'private', createdAt: 1000 })
+
+        await expect(olderMessagesFor(ctx, mallory, team, 2000)).rejects.toMatchObject({
+          data: { code: 'NOT_A_MEMBER' },
+        })
+
+        const budget = await ctx.db.query('chatBudget').collect()
+        expect(budget).toEqual([])
+      })
+    })
+  })
+
   // EVERY READ IS GATED, not just the writes. This is the easiest rule in the
   // feature to forget, because reads feel harmless.
   test('refuses a non-member on every read', async () => {
@@ -784,6 +912,12 @@ describe('the public surface', () => {
     await expect(t.mutation(api.chat.send, { teamId, body: 'hello' })).rejects.toMatchObject({
       data: 'Unauthenticated',
     })
+    // olderMessages is a MUTATION, not a query — called with t.mutation here
+    // for exactly that reason. It still goes through requirePlayer first,
+    // same as every other wrapper in this file.
+    await expect(t.mutation(api.chat.olderMessages, { teamId, before: Date.now() })).rejects.toMatchObject({
+      data: 'Unauthenticated',
+    })
   })
 
   // A GENUINE AUTHENTICATED CALLER, THROUGH `t.withIdentity`, IS ACHIEVABLE —
@@ -822,6 +956,11 @@ describe('the public surface', () => {
     await expect(asOutsider.mutation(api.chat.send, { teamId, body: 'hi' })).rejects.toMatchObject({
       data: { code: 'NOT_A_MEMBER' },
     })
+    await expect(
+      asOutsider.mutation(api.chat.olderMessages, { teamId, before: Date.now() }),
+    ).rejects.toMatchObject({
+      data: { code: 'NOT_A_MEMBER' },
+    })
   })
 
   // THE OTHER HALF OF `requirePlayer`: a session and user genuinely exist
@@ -844,6 +983,11 @@ describe('the public surface', () => {
       data: { code: 'NO_PLAYER' },
     })
     await expect(asStranger.mutation(api.chat.send, { teamId, body: 'hi' })).rejects.toMatchObject({
+      data: { code: 'NO_PLAYER' },
+    })
+    await expect(
+      asStranger.mutation(api.chat.olderMessages, { teamId, before: Date.now() }),
+    ).rejects.toMatchObject({
       data: { code: 'NO_PLAYER' },
     })
   })

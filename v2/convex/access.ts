@@ -36,6 +36,10 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // INVALID_MESSAGE is thrown in lib/chat.ts, by requireBody. RATE_LIMITED is
 // thrown in chat.ts, by sendMessageFor — lib/chat.ts's nextPostWindow only
 // RETURNS null to report a refusal; the caller decides what to throw.
+// SCROLL_RATE_LIMITED is chat.ts's olderMessagesFor doing the same with
+// nextScrollWindow — a DISTINCT code from RATE_LIMITED, not a reuse, because
+// RATE_LIMITED's copy ("You are sending messages very quickly") names the
+// wrong action for a refused scroll.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -54,6 +58,7 @@ export type AccessCode =
   | 'INVALID_PUSH_ENDPOINT'
   | 'INVALID_MESSAGE'
   | 'RATE_LIMITED'
+  | 'SCROLL_RATE_LIMITED'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

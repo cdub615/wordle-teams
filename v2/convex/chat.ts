@@ -5,9 +5,11 @@ import {
   RECENT_WINDOW,
   budgetIncrementFor,
   budgetIncrementForDelete,
+  budgetIncrementForScroll,
   budgetMonthFor,
   isOverBudget,
   nextPostWindow,
+  nextScrollWindow,
   requireBody,
 } from './lib/chat.ts'
 import type { Doc, Id } from './_generated/dataModel'
@@ -25,6 +27,39 @@ import type { ReaderCtx, WriterCtx } from './winners.ts'
  * requireTeamMemberFor throws NOT_A_MEMBER for a nonexistent team as well as
  * for someone else's, so chat cannot be used to probe whether a team id exists.
  * Do not "improve" that into a more specific error.
+ *
+ * ONLY ONE OF THE FOUR READS IS METERED AND RATE-LIMITED: olderMessagesFor. It
+ * is a `mutation`, not a `query`, and that is not a style choice — a Convex
+ * query's `ctx.db` is a GenericDatabaseReader with no write methods, so a
+ * query cannot charge chargeBudget's `chatBudget` row or spend a rate-limit
+ * counter on `chatReads`. Both are structurally impossible to add to a
+ * `query` without another mechanism entirely. The other three reads
+ * (chatPointerFor, recentMessagesFor, messagesSinceFor) stay queries and stay
+ * unmetered, and that is a decision, not an oversight:
+ *
+ * - chatPointerFor IS the subscription a client holds open. It cannot be a
+ *   mutation and remain what makes chat live.
+ * - messagesSinceFor is the hot path on every wake, and messagesSinceFor's own
+ *   comment records that its bound is enforced by Convex's per-function
+ *   documents-read quota, not by argument shape.
+ * - recentMessagesFor runs once on open and again only on a revision jump; its
+ *   comment records the same RECENT_WINDOW bound.
+ *
+ * All three take a fixed-shape argument (chatPointerFor and recentMessagesFor
+ * take none beyond teamId; messagesSinceFor's `since` is normally the client's
+ * own last-seen timestamp) and read a bounded window. Convex caches a query's
+ * result per exact (function, arguments) pair and serves repeats of the same
+ * call from that cache without re-reading the database — confirmed against
+ * Convex's own docs (docs.convex.dev/functions/query-functions), which state
+ * plainly that identical arguments are what the cache keys on, and that
+ * distinct arguments each execute fresh. So hammering one of these three with
+ * the SAME arguments is free after the first call; hammering them with
+ * VARYING arguments (a moving `since`) is bounded the same way it already is
+ * today, at RECENT_WINDOW(+1) per call. olderMessagesFor is the one read whose
+ * whole job is walking `before` backwards — a different argument on every
+ * call, by design, which is exactly what defeats that cache. That is what
+ * makes it the one read worth metering rather than a reason the other three
+ * need it too.
  */
 
 /**
@@ -118,9 +153,11 @@ async function readCursorFor(ctx: WriterCtx, playerId: Id<'players'>, teamId: Id
 
 /** The subset of a `chatReads` row that a caller may write. */
 type ReadCursorFields = {
-  lastReadAt: number
+  lastReadAt?: number
   postWindowStartedAt?: number
   postsInWindow?: number
+  scrollWindowStartedAt?: number
+  scrollsInWindow?: number
 }
 
 /**
@@ -145,6 +182,14 @@ type ReadCursorFields = {
  * before merging) and opening a conversation would silently reset every
  * player's rate limit on every read. Pinned in chat.test.ts: "markReadFor
  * leaves the rate-limit window alone."
+ *
+ * `lastReadAt` IS OPTIONAL HERE, unlike on the `chatReads` schema, for
+ * olderMessagesFor's sake: paging through history is not the same claim as
+ * "you have seen everything up to now" that sendMessageFor and markReadFor
+ * make, so a scroll-only write must not invent one. On insert, where the
+ * schema's required field has to come from somewhere, an omitted
+ * `lastReadAt` defaults to 0 — "never read" — the same honest zero
+ * chatPointerFor already returns for a team that has never chatted.
  */
 async function upsertReadCursor(
   ctx: WriterCtx,
@@ -154,7 +199,7 @@ async function upsertReadCursor(
   fields: ReadCursorFields,
 ): Promise<void> {
   if (cursor === null) {
-    await ctx.db.insert('chatReads', { playerId, teamId, ...fields })
+    await ctx.db.insert('chatReads', { playerId, teamId, lastReadAt: fields.lastReadAt ?? 0, ...fields })
     return
   }
   await ctx.db.patch(cursor._id, fields)
@@ -340,20 +385,50 @@ export async function messagesSinceFor(
  * Deliberately NOT subscribed by the client — scrollback does not live-update,
  * which is correct for history and is what keeps a deep scroll from becoming
  * permanently expensive.
+ *
+ * A `mutation`, NOT a `query` — see the note atop this file for why. Because
+ * `before` moves on every call (that is the whole point of paging backwards),
+ * this is also the one read Convex's per-argument query cache cannot help:
+ * each page is a distinct argument, so each page would hit the database
+ * whether this were a query or not. That is what makes it worth metering and
+ * rate-limiting where the other three reads are not — see the top-of-file
+ * note for the full reasoning.
+ *
+ * THE RATE CHECK COMES BEFORE THE READ, same reasoning as sendMessageFor:
+ * refusing after paying the I/O it is being refused for would defeat the
+ * point. The cursor is read once and reused for the write below, exactly as
+ * sendMessageFor reuses its own read of the same row.
  */
 export async function olderMessagesFor(
-  ctx: ReaderCtx,
+  ctx: WriterCtx,
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
   before: number,
 ): Promise<Array<ChatMessage>> {
   await requireTeamMemberFor(ctx, playerId, teamId)
+  const now = Date.now()
+
+  const cursor = await readCursorFor(ctx, playerId, teamId)
+  const window = nextScrollWindow(cursor ?? {}, now)
+  if (window === null) throw accessError('SCROLL_RATE_LIMITED')
 
   const newestFirst = await ctx.db
     .query('chatMessages')
     .withIndex('by_team_createdAt', (q) => q.eq('teamId', teamId).lt('createdAt', before))
     .order('desc')
     .take(RECENT_WINDOW)
+
+  await chargeBudget(ctx, budgetIncrementForScroll(), now)
+  // Only `lastReadAt` is conditional — window is always present, since a
+  // refusal above already returned before this line. Built this way rather
+  // than `{ lastReadAt: cursor?.lastReadAt, ...window }` because that spells
+  // `lastReadAt: undefined` when there is no cursor yet, an EXPLICIT key on
+  // the object rather than an absent one — upsertReadCursor's insert-path
+  // default (`fields.lastReadAt ?? 0`) would be clobbered right back to
+  // `undefined` by the later `...fields` spread. Omitting the key entirely
+  // when there is nothing to preserve is what makes that default reachable.
+  const fields = cursor === null ? window : { lastReadAt: cursor.lastReadAt, ...window }
+  await upsertReadCursor(ctx, cursor, playerId, teamId, fields)
 
   return newestFirst.reverse().map(toChatMessage)
 }
@@ -445,7 +520,10 @@ export const messagesSince = query({
   },
 })
 
-export const olderMessages = query({
+// A `mutation`, NOT a `query` — see olderMessagesFor's own comment, and the
+// note atop this file, for why this one read needs write access to meter and
+// rate-limit itself and the other three do not.
+export const olderMessages = mutation({
   args: { teamId: v.id('teams'), before: v.number() },
   handler: async (ctx, { teamId, before }) => {
     const player = await requirePlayer(ctx)
