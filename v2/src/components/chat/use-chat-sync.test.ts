@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { isCurrentRequest, nextSinceOutcome, nextSyncAction } from './use-chat-sync.ts'
+import {
+  beforeForOlder,
+  isCurrentRequest,
+  mergeOlder,
+  nextOlderOutcome,
+  nextSinceOutcome,
+  nextSyncAction,
+} from './use-chat-sync.ts'
 import type { ChatMessage } from './use-chat-sync.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -79,5 +86,80 @@ describe('nextSinceOutcome', () => {
     const outcome = nextSinceOutcome(held, { gap: false, messages: [] })
     expect(outcome).toEqual({ kind: 'messages', messages: held })
     expect(outcome.kind === 'messages' && outcome.messages).toBe(held)
+  })
+})
+
+// Scrollback's three pure decisions. Shared helper rather than three copies of
+// the one inside `nextSinceOutcome` above; `body` doubles as an identity label
+// in the assertions, which is why it varies here and does not there.
+const older = (createdAt: number, body = `m${createdAt}`): ChatMessage => ({
+  _id: `msg_${createdAt}` as Id<'chatMessages'>,
+  playerId: 'player_1' as Id<'players'>,
+  body,
+  createdAt,
+})
+
+describe('beforeForOlder', () => {
+  // NOT 0, and not "just fire it anyway". `olderMessages` is a metered,
+  // rate-limited mutation: a request that can only come back empty still
+  // spends one of the ten pages a minute the caller gets.
+  it('has nothing to page from when nothing is held', () => {
+    expect(beforeForOlder([])).toBeNull()
+  })
+
+  // The OLDEST held, not the newest: the server takes messages strictly
+  // before this timestamp, so anything else re-reads a page we already have.
+  it('pages from the oldest held message', () => {
+    expect(beforeForOlder([older(100), older(200), older(300)])).toBe(100)
+  })
+})
+
+describe('nextOlderOutcome', () => {
+  it('puts a fetched page ahead of the pages already held', () => {
+    expect(nextOlderOutcome([older(300)], [older(100), older(200)])).toEqual({
+      kind: 'pages',
+      pages: [older(100), older(200), older(300)],
+    })
+  })
+
+  // History only ever grows NEWER, so an empty page is proof there is nothing
+  // before this point — permanently, not just now. That is what lets the
+  // route retire the button rather than leave it there to spend rate-limit
+  // budget on a question already answered.
+  it('reports the start of history when a page comes back empty', () => {
+    expect(nextOlderOutcome([older(300)], [])).toEqual({ kind: 'start' })
+  })
+
+  it('stays oldest-first across successive pages', () => {
+    const first = nextOlderOutcome([], [older(300)])
+    const pages = first.kind === 'pages' ? first.pages : []
+    expect(nextOlderOutcome(pages, [older(100), older(200)])).toEqual({
+      kind: 'pages',
+      pages: [older(100), older(200), older(300)],
+    })
+  })
+})
+
+describe('mergeOlder', () => {
+  it('renders held pages ahead of the live window', () => {
+    expect(mergeOlder([older(100)], [older(200)])).toEqual([older(100), older(200)])
+  })
+
+  // THE DUPLICATE-KEY BUG THIS EXISTS TO PREVENT. The live window is the
+  // newest RECENT_WINDOW messages, refetched whole on every delete — so
+  // deleting a recent message pulls one older message INTO the window, and
+  // that message may already be sitting in a page scrollback fetched earlier.
+  // Rendered as-is that is the same `_id` twice in one <ol>. The live copy
+  // wins because it is the one the pointer keeps current.
+  it('drops an older copy of a message the live window has since taken in', () => {
+    const shown = mergeOlder([older(100), older(200)], [older(200, 'live'), older(300)])
+    expect(shown).toEqual([older(100), older(200, 'live'), older(300)])
+  })
+
+  // The same Object.is bail-out `nextSinceOutcome` protects: before anyone
+  // presses "load older" this runs on every single render of the list.
+  it('is the live window itself, by reference, when no page is held', () => {
+    const live = [older(200)]
+    expect(mergeOlder([], live)).toBe(live)
   })
 })

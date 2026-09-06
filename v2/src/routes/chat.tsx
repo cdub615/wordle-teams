@@ -1,8 +1,15 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { useChatMessages, useChatPointer } from '#/components/chat/use-chat-sync.ts'
+import {
+  beforeForOlder,
+  mergeOlder,
+  nextOlderOutcome,
+  useChatMessages,
+  useChatPointer,
+} from '#/components/chat/use-chat-sync.ts'
 import type { ChatMessage } from '#/components/chat/use-chat-sync.ts'
 import { MessageList } from '#/components/chat/message-list.tsx'
 import { Composer } from '#/components/chat/composer.tsx'
@@ -53,6 +60,38 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   const { data: myPlayerId } = useQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const deleteMessage = useMutation({ mutationFn: useConvexMutation(api.chat.deleteMessage) })
   const sendMessage = useMutation({ mutationFn: useConvexMutation(api.chat.send) })
+
+  // SCROLLBACK IS HELD HERE, DELIBERATELY APART FROM `useChatMessages`. That
+  // hook's `window` action replaces its whole array on every delete and on
+  // every coalesced update, so history merged into it would be thrown away by
+  // the next refetch — the user's loaded pages vanishing for a reason they
+  // cannot see. `mergeOlder` puts the two halves back together at render time
+  // and drops the one message that can legitimately appear in both.
+  const [olderPages, setOlderPages] = useState<Array<ChatMessage>>([])
+  const [atStart, setAtStart] = useState(false)
+  const loadOlder = useMutation({ mutationFn: useConvexMutation(api.chat.olderMessages) })
+
+  // Scrollback belongs to ONE team, and `teamId` is a prop, not a remount:
+  // `/chat?team=<id>` is a search param, so navigating between two teams
+  // re-renders this component rather than replacing it, and team A's history
+  // would otherwise stay on screen under team B's live window.
+  // `useChatMessages` resets its own refs for exactly this reason; this is the
+  // same hazard on the half of the state it does not own.
+  //
+  // THE REF IS THE OTHER HALF OF THE SAME RESET, and it is not redundant with
+  // clearing the state. A scrollback page already in flight when the switch
+  // happens resolves AFTER this has run, and its `setOlderPages` would then
+  // splice team A's history into team B's list — the emptied array does
+  // nothing to stop a later write to it. `handleLoadOlder` reads this ref on
+  // resolve and drops a page that no longer belongs to the team on screen,
+  // the same job `requestId` does for a superseded fetch inside
+  // `useChatMessages`.
+  const shownTeamId = useRef(teamId)
+  useEffect(() => {
+    shownTeamId.current = teamId
+    setOlderPages([])
+    setAtStart(false)
+  }, [teamId])
 
   if (pointer.isPending) return <p className="p-4">Loading…</p>
   if (pointer.error) return <p className="p-4">Could not load chat.</p>
@@ -115,13 +154,50 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
     }
   }
 
+  const shown = mergeOlder(olderPages, messages)
+  const before = beforeForOlder(shown)
+
+  // DOES NOT RETHROW, unlike handleDelete and handleSend above, and the
+  // difference is the caller rather than the policy: `onLoadOlder` is a plain
+  // `() => void`, so nothing awaits this. Rethrowing would only raise an
+  // unhandled rejection. There is also nothing for a child to decide here —
+  // the composer keeps its text and the confirm popover stays open on a
+  // rejection, but a page that did not arrive simply leaves the list as it was.
+  //
+  // ON SCROLL_RATE_LIMITED IT DOES NOT RETRY. `mutationErrorMessage` maps that
+  // code to its own copy ("You're scrolling back very quickly…") rather than
+  // the generic fallback, and an automatic retry would spend another of the
+  // ten pages a minute the caller has just run out of.
+  const handleLoadOlder = async (): Promise<void> => {
+    if (before === null) return
+    try {
+      const page = await loadOlder.mutateAsync({ teamId, before })
+      if (shownTeamId.current !== teamId) return
+      const outcome = nextOlderOutcome(olderPages, page)
+      if (outcome.kind === 'start') setAtStart(true)
+      else setOlderPages(outcome.pages)
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Could not load older messages'))
+    }
+  }
+
   return (
     <>
       <MessageList
-        messages={messages}
+        messages={shown}
         nameFor={nameFor}
         canDelete={canDelete}
         onDelete={(messageId) => handleDelete(messageId)}
+        // WITHHELD, NOT DISABLED, once history runs out or before anything is
+        // held to page back from — MessageList renders no control at all
+        // without it. A greyed-out button would claim there is more history
+        // behind a rate limit.
+        onLoadOlder={atStart || before === null ? undefined : () => void handleLoadOlder()}
+        // TanStack's own in-flight flag rather than a second copy of it in
+        // useState: it is set before the request goes out and cleared however
+        // the promise settles, which is exactly the window the button must be
+        // disabled for and one fewer try/finally to get wrong.
+        loadingOlder={loadOlder.isPending}
       />
       <Composer onSend={handleSend} />
     </>

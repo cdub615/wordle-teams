@@ -14,6 +14,11 @@ type Props = {
   // error report.
   onDelete?: (id: Id<'chatMessages'>) => Promise<void>
   canDelete: (message: ChatMessage) => boolean
+  // Absent — not merely inert — once there is nothing older to fetch, which is
+  // how the control retires itself: the route stops passing it after a page
+  // comes back empty. See nextOlderOutcome in use-chat-sync.ts.
+  onLoadOlder?: () => void
+  loadingOlder?: boolean
 }
 
 /**
@@ -44,8 +49,29 @@ type Props = {
  * `onDelete`'s promise resolves; a rejection leaves it open, sitting next to
  * whatever toast the caller raised, exactly like current-team-card's
  * `handleRemove`.
+ *
+ * "LOAD OLDER" IS DISABLED IN FLIGHT, AND THAT IS NOT COSMETIC. `olderMessages`
+ * is a MUTATION rather than a query — it is the one read that charges the
+ * bandwidth meter, which a Convex query cannot do because queries cannot write
+ * — and it is rate-limited to ten pages per player per team per minute. A
+ * double-click spends two of those ten on one page of history. Worse, the two
+ * overlapping requests contend on the caller's own `chatReads` row, which
+ * `sendMessageFor`, `markReadFor` and `olderMessagesFor` all write, costing an
+ * OCC retry. `disabled` is the whole guard; there is no server-side
+ * de-duplication behind it.
+ *
+ * THE CONTROL IS ABSENT, NOT DISABLED, WHEN THERE IS NOTHING TO LOAD — the
+ * route withholds `onLoadOlder` in that case. A permanently greyed-out button
+ * would claim there is history behind it that a rate limit is keeping away.
  */
-export function MessageList({ messages, nameFor, onDelete, canDelete }: Props) {
+export function MessageList({
+  messages,
+  nameFor,
+  onDelete,
+  canDelete,
+  onLoadOlder,
+  loadingOlder,
+}: Props) {
   const [openId, setOpenId] = useState<Id<'chatMessages'> | null>(null)
   const [pendingId, setPendingId] = useState<Id<'chatMessages'> | null>(null)
 
@@ -69,32 +95,47 @@ export function MessageList({ messages, nameFor, onDelete, canDelete }: Props) {
   }
 
   return (
-    <ol className="flex flex-col gap-3 p-4" data-testid="chat-messages">
-      {messages.map((message) => (
-        <li key={message._id} className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">{nameFor(message.playerId)}</span>
-          <span className="whitespace-pre-wrap break-words">{message.body}</span>
-          {onDelete && canDelete(message) ? (
-            <ConfirmPopover
-              open={openId === message._id}
-              onOpenChange={(open) => setOpenId(open ? message._id : null)}
-              trigger={
-                <button
-                  type="button"
-                  className="self-start text-xs text-muted-foreground underline"
-                  aria-label={`Delete message from ${nameFor(message.playerId)}`}
-                >
-                  Delete
-                </button>
-              }
-              message="Delete this message? This can't be undone."
-              confirmLabel="Delete"
-              pending={pendingId === message._id}
-              onConfirm={() => void handleConfirm(message._id)}
-            />
-          ) : null}
-        </li>
-      ))}
-    </ol>
+    // `flex flex-col` so the button's `self-center` has a cross axis to centre
+    // against; the <ol> below is a flex column in its own right already.
+    <div className="flex flex-col">
+      {onLoadOlder ? (
+        <button
+          type="button"
+          className="self-center p-2 text-xs underline disabled:opacity-50"
+          onClick={onLoadOlder}
+          disabled={loadingOlder}
+          data-testid="chat-load-older"
+        >
+          {loadingOlder ? 'Loading…' : 'Load older messages'}
+        </button>
+      ) : null}
+      <ol className="flex flex-col gap-3 p-4" data-testid="chat-messages">
+        {messages.map((message) => (
+          <li key={message._id} className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">{nameFor(message.playerId)}</span>
+            <span className="whitespace-pre-wrap break-words">{message.body}</span>
+            {onDelete && canDelete(message) ? (
+              <ConfirmPopover
+                open={openId === message._id}
+                onOpenChange={(open) => setOpenId(open ? message._id : null)}
+                trigger={
+                  <button
+                    type="button"
+                    className="self-start text-xs text-muted-foreground underline"
+                    aria-label={`Delete message from ${nameFor(message.playerId)}`}
+                  >
+                    Delete
+                  </button>
+                }
+                message="Delete this message? This can't be undone."
+                confirmLabel="Delete"
+                pending={pendingId === message._id}
+                onConfirm={() => void handleConfirm(message._id)}
+              />
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }

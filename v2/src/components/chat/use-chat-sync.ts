@@ -126,6 +126,79 @@ export function nextSinceOutcome(
   return { kind: 'messages', messages: [...held, ...result.messages] }
 }
 
+export type OlderOutcome =
+  | { kind: 'start' }
+  | { kind: 'pages'; pages: Array<ChatMessage> }
+
+/**
+ * The `before` argument for the next scrollback page, or `null` when there is
+ * nothing to page back from.
+ *
+ * THE NULL IS NOT DEFENSIVE TIDINESS. `olderMessages` is the one read that is
+ * a MUTATION rather than a query — it has to write to charge the bandwidth
+ * meter, which a Convex query cannot do — and it is rate-limited to ten pages
+ * per player per team per minute (RATE_LIMIT_SCROLLS). Firing it with a
+ * made-up `before` of 0 spends one of those ten on a request that can only
+ * come back empty.
+ *
+ * THE OLDEST HELD, NOT THE NEWEST: olderMessagesFor takes messages strictly
+ * `lt` this timestamp, so anything newer re-reads a page we already have and
+ * charges the meter for it.
+ */
+export function beforeForOlder(shown: Array<ChatMessage>): number | null {
+  return shown.length === 0 ? null : shown[0].createdAt
+}
+
+/**
+ * What to do with a scrollback page's result — the backwards twin of
+ * `nextSinceOutcome`, and pure for the same reason.
+ *
+ * AN EMPTY PAGE MEANS THE START OF HISTORY, PERMANENTLY. History only ever
+ * grows newer, so nothing can later appear before a point the server has
+ * already said it has nothing before. That is what lets the route retire the
+ * button entirely rather than leave it there to spend rate-limit budget
+ * re-asking a settled question.
+ *
+ * PAGES GO IN FRONT, AND THIS IS THE ONLY PLACE THAT ORDER IS DECIDED. Each
+ * page is strictly older than everything held when it was requested, and the
+ * server already returns it oldest-first, so a plain prepend keeps the whole
+ * array oldest-first across any number of pages.
+ */
+export function nextOlderOutcome(
+  held: Array<ChatMessage>,
+  page: Array<ChatMessage>,
+): OlderOutcome {
+  if (page.length === 0) return { kind: 'start' }
+  return { kind: 'pages', pages: [...page, ...held] }
+}
+
+/**
+ * The messages to render: scrollback pages ahead of the live window.
+ *
+ * DEDUPES BY `_id`, AND THAT IS THE POINT OF THE FUNCTION. The two arrays are
+ * kept apart on purpose — a `window` action replaces the live half wholesale
+ * (see `useChatMessages`), and merging scrollback into that state would let
+ * every refetch throw the user's loaded history away. Keeping them separate
+ * costs one overlap: the live window is the newest RECENT_WINDOW messages, so
+ * deleting one of them pulls the next-oldest message INTO the window — and
+ * that message may already be sitting in a scrollback page fetched earlier.
+ * Rendered as-is that is the same `_id` twice in one `<ol>`: a duplicate React
+ * key and a message shown twice. The LIVE copy wins, because it is the one the
+ * pointer keeps current.
+ *
+ * RETURNS `live` UNCHANGED — THE SAME REFERENCE — WHEN NO PAGE IS HELD, for
+ * the reason `nextSinceOutcome` does: this runs on every render of the list,
+ * and before anyone presses "load older" that is every render there is.
+ */
+export function mergeOlder(
+  pages: Array<ChatMessage>,
+  live: Array<ChatMessage>,
+): Array<ChatMessage> {
+  if (pages.length === 0) return live
+  const liveIds = new Set(live.map((message) => message._id))
+  return [...pages.filter((message) => !liveIds.has(message._id)), ...live]
+}
+
 /**
  * Fetch `recentMessages` fresh, bypassing TanStack's cache.
  *
