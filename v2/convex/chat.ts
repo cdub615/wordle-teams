@@ -102,13 +102,22 @@ async function bumpChatMeta(
  * Charge the month's bandwidth budget `bytes`, and set `degraded` once the
  * threshold is crossed.
  *
- * CHARGED FROM BOTH sendMessageFor (budgetIncrementFor) AND deleteMessageFor
- * (budgetIncrementForDelete) — this function only accumulates and persists,
- * it does not know which operation it is pricing. That split matters: a
- * delete costs roughly 17x a send, because every connected client refetches
- * its whole window rather than appending one message (see
- * budgetIncrementForDelete). Charging only sends would leave the meter blind
- * to the single most expensive path in the feature.
+ * CHARGED FROM THREE CALLERS, and this function only accumulates and persists
+ * — it does not know which operation it is pricing:
+ *   sendMessageFor      budgetIncrementFor       teamSize x one wake
+ *   deleteMessageFor    budgetIncrementForDelete teamSize x a WHOLE window
+ *   olderMessagesFor    budgetIncrementForScroll one window, ONE client
+ *
+ * Those differ for real reasons. A delete costs roughly 17x a send, because
+ * every connected client refetches its window rather than appending one
+ * message. A scroll costs a window too, but for the asking client alone —
+ * nobody else does any work because somebody paged back, so nobody else is
+ * charged. Charging only sends would leave the meter blind to both.
+ *
+ * ALL THREE WRITE THE SAME ROW, which makes chatBudget the one hot document
+ * in this schema (see below). Scroll writes are bounded by RATE_LIMIT_SCROLLS
+ * at ten per player per team per minute, so the added contention is small,
+ * but it is a third writer where this comment previously named two.
  *
  * WHY A METER AT ALL. The modelled worst case is ~7% of Convex's free-tier
  * database-I/O allowance, which is a large margin and not a guarantee. This

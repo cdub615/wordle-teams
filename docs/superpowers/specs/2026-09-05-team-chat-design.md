@@ -2,8 +2,9 @@
 
 **Epic:** `wordle-teams-qix` (post-v2 roadmap #1)
 **Phase:** 7.5 — delivered WITH v2, before the Phase 8 cutover
-**Status:** approved 2026-09-05. Revised twice the same day — see "Revision 1"
-below, and the delete-charge note in §6 (revision 2).
+**Status:** approved 2026-09-05. Revised three times the same day — "Revision 1"
+below (pointer + incremental fetch), the delete-charge note in §6 (revision 2),
+and the scrollback charge plus its mutation conversion in §4/§6 (revision 3).
 Replaces the epic's stub body.
 
 ---
@@ -267,7 +268,12 @@ not for *data transfer*.
    `createdAt` greater than the newest it already holds, via
    `by_team_createdAt`. In a live conversation that is one document.
 3. **On opening chat**, the client loads the newest 30 messages once.
-4. **"Load older"** is a separate one-shot query, not subscribed.
+4. **"Load older"** is a separate one-shot call, not subscribed — and it is a
+   **mutation, not a query** (revision 3). A Convex query cannot write, so a
+   query cannot charge the meter or hold a rate-limit counter; scrollback was
+   already specified as unsubscribed, so making it a mutation costs nothing
+   architecturally and is what allows it to be metered at all. **Part 2 must
+   call it with `useMutation`, not `useQuery`.**
 
 Together, a message costs a connected client roughly 450 bytes instead of
 7.5 KB — see §6 for why it is 450 rather than 350.
@@ -372,6 +378,35 @@ own `lastReadAt`.
 If `now - postWindowStartedAt >= 60_000`, reset the window to `now` and the
 count to 1; otherwise increment and reject once it exceeds 20. No additional
 document is read to enforce it.
+
+### Scrollback is charged and rate-limited; the other reads are not
+
+Added in revision 3, closing a Critical finding: reads were entirely unmetered
+while Convex queries count against the same hard cap as mutations.
+
+**Only `olderMessages` could be fixed, and only it needed to be.** A query
+cannot write, so the three reads that must stay queries — the pointer, the
+window on open, and the incremental fetch — cannot meter themselves. They do
+not need to: each is bounded per call, and Convex caches a query result per
+exact (function, arguments) pair, so repeating one with the same arguments is
+served from cache without re-reading. `olderMessages` walks `before` backwards,
+a different argument every call by design, which is exactly what defeats that
+cache — and it returns a full window, the largest read in the feature.
+
+  charge   one window for the ONE asking client, NOT multiplied by team size
+           — nobody else does work because somebody paged back
+  limit    RATE_LIMIT_SCROLLS, ten pages per player per team per minute,
+           refused with its own SCROLL_RATE_LIMITED code so a reader is not
+           shown copy written for someone typing too fast
+
+**A contract Part 2 must respect.** Ten a minute is generous for a human
+clicking "load older", but it is a *fixed* window and it assumes a manual,
+one-shot action. If Part 2 turns scrollback into an eager or automatic
+infinite-scroll fetch, a single fast gesture can fire several pages in seconds
+and trip the limit long before a person would call it fast. Part 2 should
+disable the control while a request is in flight — that also avoids an OCC
+retry on the caller's own `chatReads` row, which all three writers share — and
+must handle a refusal by backing off rather than retrying immediately.
 
 ### The budget meter, which makes the bound hard
 

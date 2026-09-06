@@ -23,6 +23,15 @@ export const RECENT_WINDOW = 30
  * 200B for the pointer read (chatMeta plus the budget row, both small) and
  * ~250B for the one new message it then fetches.
  */
+/**
+ * One message document, as a round estimate. THE SINGLE PLACE THIS NUMBER
+ * LIVES: BYTES_PER_WAKE, BYTES_PER_DELETE_WAKE and BYTES_PER_SCROLL_PAGE are
+ * all built from it, and two of those were previously separate copies of the
+ * same literal expression. Change it here and every cost in the meter moves
+ * together, which is the only way they stay comparable to each other.
+ */
+export const BYTES_PER_MESSAGE_ESTIMATE = 250
+
 export const BYTES_PER_WAKE = 450
 
 /**
@@ -155,7 +164,7 @@ export function budgetIncrementFor(teamSize: number): number {
  * delete roughly 17x a send, and it is the single most expensive operation in
  * the feature.
  */
-export const BYTES_PER_DELETE_WAKE = RECENT_WINDOW * 250
+export const BYTES_PER_DELETE_WAKE = RECENT_WINDOW * BYTES_PER_MESSAGE_ESTIMATE
 
 export function budgetIncrementForDelete(teamSize: number): number {
   return teamSize * BYTES_PER_DELETE_WAKE
@@ -173,7 +182,7 @@ export function budgetIncrementForDelete(teamSize: number): number {
  * one-shot fetch the caller asked for; nobody else's client does any work
  * because of it, so nobody else is charged for it.
  */
-export const BYTES_PER_SCROLL_PAGE = RECENT_WINDOW * 250
+export const BYTES_PER_SCROLL_PAGE = RECENT_WINDOW * BYTES_PER_MESSAGE_ESTIMATE
 
 export function budgetIncrementForScroll(): number {
   return BYTES_PER_SCROLL_PAGE
