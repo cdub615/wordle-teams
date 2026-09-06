@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nextSyncAction } from './use-chat-sync.ts'
+import { isCurrentRequest, nextSyncAction } from './use-chat-sync.ts'
 
 const at = (lastMessageAt: number, revision: number) => ({ lastMessageAt, revision, degraded: false })
 
@@ -27,5 +27,24 @@ describe('nextSyncAction', () => {
   // append would miss the deletion, so the window wins.
   it('prefers the window when both moved by more than one revision', () => {
     expect(nextSyncAction(at(500, 3), at(600, 5), 500)).toEqual({ kind: 'window' })
+  })
+})
+
+describe('isCurrentRequest', () => {
+  it('is current when nothing has dispatched since', () => {
+    expect(isCurrentRequest(1, 1)).toBe(true)
+  })
+
+  // The ordinary race this guards against: a fetch dispatched as #1 is still
+  // resolving when the pointer fires again and dispatches #2. #1's answer, if
+  // applied, would overwrite whatever #2 goes on to set.
+  it('is stale once a later request has dispatched', () => {
+    expect(isCurrentRequest(1, 2)).toBe(false)
+  })
+
+  // Not merely "not equal": an id from the future never wins either, which is
+  // what keeps this a plain equality check rather than mine >= latest.
+  it('is stale when checked against an id from before it was dispatched', () => {
+    expect(isCurrentRequest(2, 1)).toBe(false)
   })
 })

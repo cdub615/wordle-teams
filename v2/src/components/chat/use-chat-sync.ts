@@ -61,6 +61,25 @@ export function nextSyncAction(
   return { kind: 'window' }
 }
 
+/**
+ * Whether a dispatched fetch (`mine`) is still the one whose result should be
+ * applied, given the request counter's current value (`latest`). Pure, and
+ * tested alongside `nextSyncAction` for the same reason: it is the whole of a
+ * second piece of reasoning this file depends on, not incidental plumbing.
+ *
+ * THE POINTER FIRES ON EVERY MESSAGE IN THE TEAM, so in a live conversation
+ * overlapping fetches are the normal case, not a rare race: a `window` or
+ * `since` fetch dispatched behind an earlier one can resolve first over the
+ * network, since network order does not have to match dispatch order. Without
+ * this check, whichever response's PROMISE resolves last would win — not
+ * whichever one was dispatched last — which lets an older answer overwrite
+ * state a newer one already set: a deleted message reappearing, or a message
+ * flickering back out after being appended.
+ */
+export function isCurrentRequest(mine: number, latest: number): boolean {
+  return mine === latest
+}
+
 export type ChatMessage = {
   _id: Id<'chatMessages'>
   playerId: Id<'players'>
@@ -128,7 +147,20 @@ function loadSince(queryClient: ReturnType<typeof useQueryClient>, teamId: Id<'t
  * dependency so the pointer resubscribes. Without the reset, switching teams
  * without an unmount would compare team B's pointer against team A's last
  * value and compute `since` against team A's held timestamps: wrong actions,
- * not merely stale ones.
+ * not merely stale ones. The reset also bumps `requestId` (see below) so a
+ * still-in-flight fetch from the old team cannot land after the switch.
+ *
+ * `requestId` GUARDS AGAINST OUT-OF-ORDER RESOLUTION. The pointer can fire
+ * again before a fetch it already triggered has resolved — a live
+ * conversation does this routinely, not rarely — and `fetchQuery` promises
+ * are not guaranteed to settle in dispatch order. Every dispatch stamps
+ * itself with the counter's new value and every resolve checks
+ * `isCurrentRequest` before touching state, so a response that arrives after
+ * being superseded is discarded rather than applied over newer data. The
+ * gap-triggered window refetch stamps itself again with the SAME `mine`
+ * rather than allocating a new id: it is still answering the one dispatch
+ * that triggered it, so a third dispatch happening while it is in flight
+ * must invalidate it exactly the same way.
  */
 export function useChatMessages(teamId: Id<'teams'>) {
   const pointer = useChatPointer(teamId)
@@ -136,6 +168,7 @@ export function useChatMessages(teamId: Id<'teams'>) {
   const heldRef = useRef<Array<ChatMessage>>(messages)
   const previousPointer = useRef<ChatPointerValue | null>(null)
   const previousTeamId = useRef(teamId)
+  const requestId = useRef(0)
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -143,15 +176,20 @@ export function useChatMessages(teamId: Id<'teams'>) {
   }, [messages])
 
   useEffect(() => {
-    const current = pointer.data
-    if (!current) return
-
+    // Checked, and the counter bumped, BEFORE the `!current` guard below: the
+    // new team's own pointer can still be loading when this runs, and an old
+    // team's fetch dispatched before the switch must not be allowed to land
+    // just because nothing has dispatched for the new team yet.
     if (previousTeamId.current !== teamId) {
       previousTeamId.current = teamId
       previousPointer.current = null
       heldRef.current = []
       setMessages([])
+      requestId.current += 1
     }
+
+    const current = pointer.data
+    if (!current) return
 
     const held = heldRef.current
     const newestHeld = held.length === 0 ? 0 : held[held.length - 1].createdAt
@@ -160,16 +198,27 @@ export function useChatMessages(teamId: Id<'teams'>) {
 
     if (action.kind === 'none') return
 
+    const mine = ++requestId.current
+
     if (action.kind === 'window') {
-      void loadWindow(queryClient, teamId).then(setMessages)
+      void loadWindow(queryClient, teamId).then((result) => {
+        if (!isCurrentRequest(mine, requestId.current)) return
+        setMessages(result)
+      })
       return
     }
 
     void loadSince(queryClient, teamId, action.since).then((result) => {
+      if (!isCurrentRequest(mine, requestId.current)) return
       // A gap means the server refused to send a truncated list rather than one
       // a caller could mistake for complete — the recovery is a window refetch.
       if (result.gap) {
-        void loadWindow(queryClient, teamId).then(setMessages)
+        void loadWindow(queryClient, teamId).then((windowResult) => {
+          // Re-checked: this second, chained fetch can itself be superseded
+          // by a new dispatch while it is in flight, same as the first.
+          if (!isCurrentRequest(mine, requestId.current)) return
+          setMessages(windowResult)
+        })
         return
       }
       setMessages((held) => [...held, ...result.messages])
