@@ -555,6 +555,27 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     expect(jsxProps(PICKER, 'UnreadDot').get('className')).toBe('"absolute right-1 top-1"')
   })
 
+  test('the controls row FITS a phone rather than wrapping on one, which no gate can see', () => {
+    // THE ONE ASSERTION HERE THAT IS A PROXY FOR A MEASUREMENT, and it is
+    // worth having because the measurement has no gate at all. e2e's
+    // billing.spec.ts checks `scrollWidth - clientWidth <= 0` at 390x844 —
+    // which a WRAPPED row satisfies perfectly. That is exactly how the row
+    // reached the owner's phone with four controls on one line and the primary
+    // "+" stranded on a second: green everywhere, broken on the device.
+    //
+    // Measured against the built stylesheet at 390x844 with the team name at
+    // TeamPicker's cap: 401px of content into 374px before, 361px after. The
+    // two trims are the cap below `sm` and this gap; both are restored at `sm`,
+    // and neither touches BoardEntryButton. If you are changing either,
+    // re-measure rather than deleting the test — routes/app.tsx carries the
+    // table and the method.
+    const row = codeOf(read(APP))
+    expect(row).toMatch(/className="flex flex-wrap items-center gap-1\.5 sm:gap-2 md:col-span-3"/)
+    expect(codeOf(read(PICKER))).toMatch(
+      /className="relative max-w-\[7\.5rem\] px-2 text-xs sm:max-w-\[9\.5rem\] md:max-w-none md:px-4 md:text-sm"/,
+    )
+  })
+
   test('neither placement reaches convex/lib/chat.ts, which would ship auth.ts to the browser', () => {
     // THE BUG THIS COST AN AFTERNOON OF, recorded on convex/lib/chatLimits.ts:
     // lib/chat.ts -> access.ts -> auth.ts, which THROWS AT MODULE SCOPE without

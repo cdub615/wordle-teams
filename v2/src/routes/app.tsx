@@ -292,31 +292,44 @@ function Dashboard() {
           about WHEN it mounts, not where it lands. It reads last month's winner
           for the SELECTED team, which is v1's behaviour too. */}
       <MonthlyWinnerCelebration teamId={teamParam as Id<'teams'>} />
-      {/* `flex-wrap` IS PART OF wordle-teams-qix.25, NOT A TIDY-UP, AND IT IS
-          MEASURED. This row was EXACTLY at the edge of a 390px viewport before
-          "Team chat" joined it, and billing.spec.ts asserts
-          `scrollWidth - clientWidth <= 0` there — the same document-wide
-          horizontal scrollbar the "Team settings" block below records once
-          costing 64px.
+      {/* THIS ROW FITS A PHONE ON ONE LINE, AND IT ONLY JUST DOES. Five
+          controls live here — team picker, month picker, "Team settings",
+          "Team chat" and BoardEntryButton — and at 390px there are 374px to
+          put them in, after `.page-max`'s own 0.5rem gutters.
 
-          Measured against the BUILT stylesheet in headless chromium at
-          390x844, with the team name at TeamPicker's own `max-w-[9.5rem]` cap
-          (the widest it can ever be) and tailwind-merge's `px-2`-over-`px-4`
-          resolution applied by hand:
+          THE FIRST ATTEMPT WAS `flex-wrap` ALONE, AND IT WAS WRONG. It stopped
+          the document scrolling sideways (billing.spec.ts asserts
+          `scrollWidth - clientWidth <= 0` at 390x844, and the "Team settings"
+          note below records that overflow once costing 64px), but wrapping is
+          not the same as fitting: the owner's phone put four controls on line
+          one and dropped the "+" — the page's PRIMARY action — onto a line of
+          its own, pinned hard right by its `ml-auto` under a strip of empty
+          space. It looked broken because it was.
 
-            4 controls, nowrap   row 374px, viewport 374px, overflow 0
-            5 controls, nowrap   row 401px,                 overflow 19px
-            5 controls, wrap     row 374px,                 overflow 0
+          MEASURED AGAINST THE BUILT STYLESHEET IN HEADLESS CHROMIUM AT
+          390x844, with the team name long enough to hold TeamPicker at its cap
+          — the widest this row can ever be — and tailwind-merge's
+          `px-2`-over-`px-4` resolution applied by hand:
 
-          So the row had no room left at all, and any fifth control — this one
-          or the next one — overflows the document rather than the row. Wrapping
-          only happens when it must, so a short team name still keeps every
-          control on one line; a long one drops the primary call to action onto
-          a second line instead of pushing the page sideways. Fixing it by
-          shrinking TeamPicker's cap was the alternative and is worse: that
-          truncation is tuned to its own content, and the next control added
-          would be back here anyway. */}
-      <div className="flex flex-wrap items-center gap-2 md:col-span-3">
+            before   152 + 97 + 34 + 34 + 52, gap 8   row 401px   OVER by 27
+            after    120 + 97 + 34 + 34 + 52, gap 6   row 361px   13px spare
+
+          TWO TRIMS, BOTH REVERSED AT `sm`, AND NEITHER TOUCHES THE "+".
+          TeamPicker's cap drops 9.5rem -> 7.5rem below `sm` (see its own note:
+          it is the only control here whose width is someone's data rather than
+          a fixed label, so it is the one that should yield), and this gap goes
+          8px -> 6px. The two icon-only buttons keep their `px-2`: at 34px they
+          are already under the 44px touch target guidance, and taking padding
+          off a control someone has to hit with a thumb is a worse trade than
+          two pixels of gap. BoardEntryButton is untouched at 52px, so the
+          primary action stays the widest thing in the row after the picker.
+
+          `flex-wrap` STAYS AS A BACKSTOP, NOT AS THE FIX. Nothing in the
+          measured case wraps any more, but a larger system font size, a 320px
+          device or a sixth control would each put this back over the edge, and
+          a wrapped row is still a better failure than a page that scrolls
+          sideways. */}
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 md:col-span-3">
         <TeamPicker
           teams={teams}
           value={teamParam}
