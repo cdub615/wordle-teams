@@ -1196,7 +1196,7 @@ git commit -m "docs(chat): bring chat under the user-content and privacy terms"
 **Files:**
 - Create: `v2/e2e/chat.spec.ts`
 
-- [ ] **Step 1: Write the e2e**
+- [x] **Step 1: Write the e2e**
 
 §8 calls for exactly one: **a non-member cannot read a team's chat.** None of the
 four gates would catch a regression in an authorization rule, and e2e sits
@@ -1206,7 +1206,7 @@ Follow the existing patterns in `v2/e2e/invites.spec.ts` for signing in as two
 players. Assert that a non-member navigating to `/chat?team=<id>` sees the
 refusal rather than the conversation.
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 ```
 cd v2 && pnpm e2e --grep chat
@@ -1216,7 +1216,7 @@ cd v2 && pnpm e2e --grep chat
 will silently test old code — a two-day-old process once made every run test
 stale code here. Confirm nothing is already on :3000 before running.
 
-- [ ] **Step 3: Strengthen the beta smoke test, which currently passes on a broken app**
+- [x] **Step 3: Strengthen the beta smoke test, which currently passes on a broken app**
 
 Found 2026-09-06 while diagnosing a beta outage. `.github/workflows/deploy-v2.yml`'s
 "Smoke test beta" step does only this:
@@ -1263,7 +1263,7 @@ Remember the memory cap on every `bd` command:
 systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0 --quiet bd note wordle-teams-qix "..."
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /home/cdub/projects/wordle-teams

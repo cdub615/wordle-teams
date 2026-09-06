@@ -92,6 +92,39 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
+      # THE CHECK THAT WOULD HAVE CAUGHT THE 2026-09-06 BETA OUTAGE, and it sits
+      # BEFORE the Worker deploy on purpose: a bundle carrying this fault never
+      # reaches beta at all, rather than being caught after everyone can see it.
+      #
+      # convex/auth.ts THROWS AT MODULE SCOPE when process.env.SITE_URL is
+      # falsy — which in a browser it always is. A module-scope throw is a side
+      # effect, so no bundler may tree-shake it away: one frontend import of
+      # anything that transitively reaches auth.ts drags the whole module into a
+      # client chunk, and the route owning that chunk dies on load. It happened
+      # for real — src/components/chat/composer.tsx imported one integer from
+      # convex/lib/chat.ts, which imports ../access.ts, which imports ./auth.ts
+      # (56d4b88) — and /chat was dead on beta for an afternoon.
+      #
+      # NO OTHER STEP HERE CAN SEE IT. Lint inspects specifiers, not the graph
+      # behind them; tsc and vitest never evaluate a browser bundle; `vite build`
+      # emits the broken chunk happily, because a module-scope throw is valid
+      # JavaScript. The fault lives in the SHAPE of the emitted bundle, so the
+      # emitted bundle is the only place it can be looked for.
+      #
+      # The throw string is the fingerprint: measured present in dist/client
+      # before that fix and absent after. Nothing legitimate puts it in a browser
+      # bundle, so a match is always this bug.
+      - name: The auth module must not reach the client bundle
+        run: |
+          set -euo pipefail
+          if grep -rl 'SITE_URL is not set' dist/client/; then
+            echo "::error::A client chunk contains convex/auth.ts's module-scope throw."
+            echo "Some frontend import reaches convex/access.ts or convex/auth.ts."
+            echo "Frontend constants belong in convex/lib/chatLimits.ts, which imports nothing."
+            exit 1
+          fi
+          echo "clean: no module-scope auth throw in dist/client"
+
       # Publishes the Worker and keeps the beta.wordleteams.com custom domain
       # binding declared in v2/wrangler.jsonc. Uploads dist/ from the build above.
       - name: Deploy the Worker
@@ -102,9 +135,60 @@ jobs:
           workingDirectory: v2
           command: deploy
 
-      - name: Smoke test beta
+      # RENAMED FROM "Smoke test beta", AND THE NAME IS HALF THE FIX. This proves
+      # that ONE signed-out route renders its own content, and nothing whatever
+      # about any authenticated screen. The old name invited exactly the reading
+      # that let /chat stay dead on beta with this step green.
+      #
+      # IT USED TO ASSERT ONLY A STATUS CODE, WHICH A BROKEN APP RETURNS. A React
+      # error boundary catching a thrown ConvexError still answers 200 carrying
+      # an error page, and the body — the only place the evidence lives — went to
+      # /dev/null. So it now keeps the body and asserts on it: the sign-in form's
+      # own copy must be present, and neither error boundary's heading may be.
+      # ("Something went wrong!" is TanStack's default, rendered by any route
+      # without an errorComponent; "Ruh roh, something went wrong!" is
+      # src/components/dashboard-error.tsx. One case-insensitive substring
+      # catches both.)
+      #
+      # -a ON EVERY grep, and it is not decoration: the served HTML carries bytes
+      # grep reads as binary (typographic ellipses in the copy), and without -a
+      # it prints "binary file matches" and reports a match count of 0.
+      #
+      # WHY NOT AN AUTHENTICATED CHECK, which is the other half of the hole.
+      # Signing in from CI would need to read an OTP back through
+      # convex/testOtps.ts, which is gated on E2E_TEST_MODE — and that flag is
+      # deliberately NOT set on beta (see convex/reminders.ts, which names it as
+      # what stands between a config slip and mailing real people, and
+      # convex/e2eSeed.ts, which says the same). Turning it on to make this step
+      # possible would trade a real mail-safety guarantee for a smoke test. The
+      # alternative, parking a genuine account's credentials in CI secrets, puts
+      # a standing login for the live app in the deploy pipeline. Neither is
+      # worth it, so the check stays signed-out — and the step above is what
+      # actually catches the class of bug an authenticated one was wanted for,
+      # earlier and without any of that.
+      #
+      # THE /chat PROBE IS DELIBERATELY MODEST. A 307 to /login proves the route
+      # exists and its beforeLoad guard ran — that the non-split half of the
+      # route module loads server-side and refuses an anonymous visitor. It says
+      # NOTHING about the lazily loaded component chunk, which is where the
+      # 2026-09-06 fault actually was. Do not read it as "chat works".
+      - name: Smoke test beta (signed-out routes only)
         run: |
           set -euo pipefail
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://beta.wordleteams.com/login)
+
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 https://beta.wordleteams.com/login)
           echo "beta.wordleteams.com/login -> $code"
           test "$code" = "200"
+
+          if grep -aqi 'something went wrong' "$body"; then
+            echo "::error::/login answered 200 but rendered an error boundary."
+            exit 1
+          fi
+          grep -aq 'Sign in' "$body"
+          grep -aq 'Send code' "$body"
+          echo "/login rendered the sign-in form, not an error page"
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://beta.wordleteams.com/chat)
+          echo "beta.wordleteams.com/chat (no session) -> $code"
+          test "$code" = "307"
