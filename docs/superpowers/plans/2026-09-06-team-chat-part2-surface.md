@@ -1216,7 +1216,37 @@ cd v2 && pnpm e2e --grep chat
 will silently test old code — a two-day-old process once made every run test
 stale code here. Confirm nothing is already on :3000 before running.
 
-- [ ] **Step 3: Measure the bandwidth, which is the GA gate**
+- [ ] **Step 3: Strengthen the beta smoke test, which currently passes on a broken app**
+
+Found 2026-09-06 while diagnosing a beta outage. `.github/workflows/deploy-v2.yml`'s
+"Smoke test beta" step does only this:
+
+```
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://beta.wordleteams.com/login)
+test "$code" = "200"
+```
+
+**It asserts a status code, and the app's error boundary renders with a 200.**
+A React boundary catching a thrown `ConvexError` still returns a successful
+response carrying an error page — so this passes while every visitor sees
+"Something went wrong!". The body, which is where the evidence lives, is
+discarded to `/dev/null`.
+
+**And it only ever hits `/login`, the one route that touches no authenticated
+Convex function.** Everything else 307s to login when signed out, so an
+unauthenticated curl cannot reach the code that breaks.
+
+At minimum, assert on content rather than status — that the page contains
+something it should, and does NOT contain the error boundary's heading. That is
+a few lines and closes the first hole outright.
+
+The second hole needs an authenticated request, which is what this task's own
+e2e already does. Decide deliberately between running one spec against beta
+post-deploy and accepting the narrower check — and if the narrower one is kept,
+**rename the step so its name states what it actually proves**, so nobody reads
+more into a green than it carries.
+
+- [ ] **Step 4: Measure the bandwidth, which is the GA gate**
 
 Acceptance criterion 8 of the spec, and it also discharges `wordle-teams-dcu`,
 open since Phase 3.
@@ -1233,11 +1263,11 @@ Remember the memory cap on every `bd` command:
 systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0 --quiet bd note wordle-teams-qix "..."
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 cd /home/cdub/projects/wordle-teams
-git add v2/e2e/chat.spec.ts
+git add v2/e2e/chat.spec.ts .github/workflows/deploy-v2.yml
 git commit -m "test(chat): the one e2e no quality gate would catch"
 ```
 
