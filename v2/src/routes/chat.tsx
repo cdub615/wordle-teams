@@ -1,6 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { convexQuery } from '@convex-dev/react-query'
-import { useChatPointer } from '#/components/chat/use-chat-sync.ts'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { useChatMessages, useChatPointer } from '#/components/chat/use-chat-sync.ts'
+import type { ChatMessage } from '#/components/chat/use-chat-sync.ts'
+import { MessageList } from '#/components/chat/message-list.tsx'
+import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -41,18 +46,60 @@ function ChatRoute() {
 }
 
 /**
- * DELIBERATELY MINIMAL FOR NOW. Task 2 needs exactly one thing from this
- * screen: a live pointer subscription whose value is visible, so two browsers
- * can be watched side by side. The message list, composer and scrollback are
- * Tasks 3-5 and must not be built here.
+ * `data-testid="chat-pointer"` STAYS, ALONGSIDE THE REAL LIST NOW. Task 2 is
+ * an outstanding spike that needs to watch the live pointer value in two
+ * browsers side by side, and it has not run yet — removing the debug block
+ * here would take that away before the spike has reported. A later task
+ * removes it once that happens. The composer and scrollback are Tasks 5 and
+ * 6 and must not be built here.
  */
 function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   const pointer = useChatPointer(teamId)
+  const { messages } = useChatMessages(teamId)
+  const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
+  const { data: myPlayerId } = useQuery(convexQuery(api.scores.getMyPlayerId, {}))
+  const deleteMessage = useMutation({ mutationFn: useConvexMutation(api.chat.deleteMessage) })
+
   if (pointer.isPending) return <p className="p-4">Loading…</p>
   if (pointer.error) return <p className="p-4">Could not load chat.</p>
+
+  const team = teams?.find((candidate) => candidate.id === teamId)
+
+  // A PLAYER ID NOT AMONG CURRENT MEMBERS RENDERS AS "Former member" —
+  // documented behaviour, not a fallback: messages deliberately outlive their
+  // author leaving the team (see message-list.tsx). This also covers `team`
+  // being undefined for the few renders before getMyTeams resolves.
+  const nameFor = (playerId: Id<'players'>): string => {
+    const member = team?.members.find((candidate) => candidate.id === playerId)
+    return member ? `${member.firstName} ${member.lastName}` : 'Former member'
+  }
+
+  // Mirrors the server rule in deleteMessageFor (convex/chat.ts): the author
+  // may delete their own message, and the team's owner may delete any.
+  const canDelete = (message: ChatMessage): boolean => {
+    if (!team) return false
+    return team.isOwner || message.playerId === myPlayerId
+  }
+
+  const handleDelete = async (messageId: Id<'chatMessages'>) => {
+    try {
+      await deleteMessage.mutateAsync({ messageId })
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Could not delete that message'))
+    }
+  }
+
   return (
-    <pre className="p-4 text-xs" data-testid="chat-pointer">
-      {JSON.stringify(pointer.data, null, 2)}
-    </pre>
+    <>
+      <pre className="p-4 text-xs" data-testid="chat-pointer">
+        {JSON.stringify(pointer.data, null, 2)}
+      </pre>
+      <MessageList
+        messages={messages}
+        nameFor={nameFor}
+        canDelete={canDelete}
+        onDelete={(messageId) => handleDelete(messageId)}
+      />
+    </>
   )
 }
