@@ -702,6 +702,36 @@ describe('markReadFor', () => {
       expect(cursor?.postWindowStartedAt).toBeDefined()
     })
   })
+
+  // THE SAME HAZARD, THE OTHER PAIR OF FIELDS. All three writers patch the one
+  // chatReads row with disjoint field sets, so a merge cannot zero the others —
+  // but only the post window was pinned by a test. A future change widening
+  // sendMessageFor's or markReadFor's field set would silently reset a player's
+  // SCROLL limit every time they posted or opened a conversation, and nothing
+  // would have caught it. Covers scroll-vs-send and scroll-vs-markRead at once.
+  test('leaves the scroll window alone, and the post window with it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      for (let i = 0; i < 4; i++) {
+        await ctx.db.insert('chatMessages', { teamId: team, playerId: ada, body: `m${i}`, createdAt: 1000 + i })
+      }
+
+      await olderMessagesFor(ctx, ada, team, 1003)
+      await olderMessagesFor(ctx, ada, team, 1002)
+      await sendMessageFor(ctx, ada, team, 'a post between scrolls')
+      await markReadFor(ctx, ada, team)
+
+      const cursor = await ctx.db
+        .query('chatReads')
+        .withIndex('by_player_team', (q) => q.eq('playerId', ada).eq('teamId', team))
+        .unique()
+      expect(cursor?.scrollsInWindow).toBe(2)
+      expect(cursor?.scrollWindowStartedAt).toBeDefined()
+      expect(cursor?.postsInWindow).toBe(1)
+    })
+  })
 })
 
 describe('deleteMessageFor', () => {
