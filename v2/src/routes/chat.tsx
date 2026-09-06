@@ -81,16 +81,31 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
 
   // Mirrors the server rule in deleteMessageFor (convex/chat.ts): the author
   // may delete their own message, and the team's owner may delete any.
+  //
+  // `myPlayerId === undefined` GUARDS THE SAME GAP `nameFor` HAD, on the
+  // other query: getMyPlayerId resolves independently of getMyTeams, and
+  // TanStack leaves `data` `undefined` until it does — `null` is its real
+  // "no player" answer, so comparing an unloaded `undefined` against
+  // `message.playerId` would just happen to read `false` and hide a
+  // non-owner's own Delete control for a moment, rather than assert
+  // something false the way an unloaded `nameFor` would. Milder, but the
+  // same root cause, so it gets the same explicit "not loaded yet" branch.
   const canDelete = (message: ChatMessage): boolean => {
-    if (!team) return false
+    if (!team || myPlayerId === undefined) return false
     return team.isOwner || message.playerId === myPlayerId
   }
 
-  const handleDelete = async (messageId: Id<'chatMessages'>) => {
+  // REJECTS ON FAILURE RATHER THAN SWALLOWING THE ERROR, which is what makes
+  // MessageList's close-on-success behaviour possible: it is this promise's
+  // rejection that tells the confirm popover to stay open instead of closing
+  // as if the delete had gone through. The toast still fires here, once,
+  // regardless of who is awaiting the rejection.
+  const handleDelete = async (messageId: Id<'chatMessages'>): Promise<void> => {
     try {
       await deleteMessage.mutateAsync({ messageId })
     } catch (error) {
       toast.error(mutationErrorMessage(error, 'Could not delete that message'))
+      throw error
     }
   }
 
