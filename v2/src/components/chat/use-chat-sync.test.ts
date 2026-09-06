@@ -11,6 +11,7 @@ import {
   nextSinceOutcome,
   nextSyncAction,
   teamPickerLabel,
+  unreadTeamIds,
 } from './use-chat-sync.ts'
 import type { ChatMessage } from './use-chat-sync.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -166,6 +167,66 @@ describe('mergeOlder', () => {
   it('is the live window itself, by reference, when no page is held', () => {
     const live = [older(200)]
     expect(mergeOlder([], live)).toBe(live)
+  })
+})
+
+/**
+ * THE ARGUMENT THAT REPLACED A FULL `teams` SCAN (wordle-teams-w7g2), and the
+ * single thing standing between the badge and TWO Convex subscriptions.
+ *
+ * `unreadTeams` used to take no arguments, so every caller of it — the
+ * dashboard, the picker's trigger, each row badge — hashed to one TanStack
+ * query key for free. Now that it takes ids, the key IS the ids, and two
+ * callers that build the same set in a different order get two cache entries,
+ * two subscriptions and two server executions for one answer. Sorting is what
+ * makes the key a function of the SET rather than of the order somebody
+ * happened to render in.
+ */
+describe('unreadTeamIds', () => {
+  const alpha = 'team_alpha'
+  const beta = 'team_beta'
+  const gamma = 'team_gamma'
+
+  it('is the ids, in an order that does not depend on the caller', () => {
+    expect(unreadTeamIds([{ id: gamma }, { id: alpha }, { id: beta }])).toEqual([
+      alpha,
+      beta,
+      gamma,
+    ])
+  })
+
+  // THE PROPERTY THE SINGLE SUBSCRIPTION RESTS ON, stated directly rather than
+  // implied by the case above: the same teams in any order are the same key.
+  it('is the same array for the same teams however they arrive', () => {
+    expect(unreadTeamIds([{ id: beta }, { id: alpha }])).toEqual(
+      unreadTeamIds([{ id: alpha }, { id: beta }]),
+    )
+  })
+
+  it('does not reorder the caller\'s own list', () => {
+    // TeamPicker renders `teams` in createdAt order and the menu must keep it.
+    // `.sort()` mutates in place, so building the ids without copying first
+    // would silently re-sort the picker alphabetically.
+    const teams = [{ id: gamma }, { id: alpha }]
+    unreadTeamIds(teams)
+    expect(teams).toEqual([{ id: gamma }, { id: alpha }])
+  })
+
+  /**
+   * `undefined` IN, `undefined` OUT, WHICH IS NOT THE SAME AS `[]`.
+   *
+   * An unresolved TEAMS list is not an empty one. Collapsing it to `[]` would
+   * send a real query asking about no teams, get a real `[]` back, and
+   * `hasUnread` would then read that as the settled answer "nothing unread" —
+   * the badge asserting something it has not been told. `undefined` keeps the
+   * query skipped and leaves `hasUnread` in its own not-loaded branch.
+   */
+  it('stays unresolved while the teams list is', () => {
+    expect(unreadTeamIds(undefined)).toBeUndefined()
+  })
+
+  it('is empty for someone with no teams, which IS an answer', () => {
+    expect(unreadTeamIds([])).toEqual([])
   })
 })
 

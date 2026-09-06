@@ -474,6 +474,10 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
   const APP = './routes/app.tsx'
   const PICKER = './components/team-picker.tsx'
   const CHAT = './routes/chat.tsx'
+  // The badge component and the hook module behind it — not routes, but the
+  // other two halves of the unread wiring asserted below.
+  const BADGE = './components/chat/unread-badge.tsx'
+  const SYNC = './components/chat/use-chat-sync.ts'
 
   // The two `<Link>`s in app.tsx's controls row: "Team settings" and this. A
   // `find` rather than an index, so reordering the row is not a failure.
@@ -607,6 +611,48 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     // built bundle; this catches it in the file, where the fix is.
     for (const path of [APP, PICKER, CHAT]) {
       expect(read(path)).not.toMatch(/from '.*convex\/lib\/chat\.ts'/)
+    }
+  })
+
+  /**
+   * ONE SUBSCRIPTION FOR EVERY DOT ON THE PAGE, WHICH STOPPED BEING FREE IN
+   * wordle-teams-w7g2.
+   *
+   * `unreadTeams` used to take no arguments, so the dashboard's read, the
+   * picker's trigger and every row badge hashed to the same TanStack query key
+   * whatever anyone did. Now the key IS the team ids: a caller that derives its
+   * own list, or derives the same list in a different order, opens a SECOND
+   * Convex subscription and runs the query twice for one answer — and nothing
+   * about that is visible in lint, typecheck, tests or the built bundle. It
+   * renders correctly. It just costs double, permanently, on the read every
+   * authenticated session holds open.
+   *
+   * So the wiring is pinned in three parts: the query is named in exactly one
+   * module, the ids are derived exactly once, and both consumers are handed
+   * that one value rather than building their own.
+   */
+  test('every unread dot shares ONE subscription, because the ids are derived once and passed down', () => {
+    // PART ONE: one module names the query. `useUnreadTeams` is the only place
+    // the args expression is written, so there is no second spelling of it to
+    // drift.
+    for (const path of [APP, PICKER, BADGE]) {
+      expect(codeOf(read(path))).not.toMatch(/api\.chat\.unreadTeams/)
+    }
+    expect(codeOf(read(SYNC))).toMatch(/convexQuery\(api\.chat\.unreadTeams,/)
+
+    // PART TWO: derived once, in the one component that already holds the
+    // teams. `unreadTeamIds` sorts, which is what makes the key a function of
+    // the SET rather than of render order — see its own tests.
+    expect(codeOf(read(APP))).toMatch(/const teamIds = unreadTeamIds\(teams\)/)
+
+    // PART THREE: that value, not a locally rebuilt one, reaches both
+    // consumers. `'teamIds'` bare — a `teams.map(...)` inline here would
+    // type-check and render an identical page.
+    expect(jsxProps(APP, 'TeamPicker').get('teamIds')).toBe('teamIds')
+    expect(jsxProps(APP, 'UnreadBadge').get('teamIds')).toBe('teamIds')
+    expect(jsxProps(PICKER, 'UnreadBadge').get('teamIds')).toBe('teamIds')
+    for (const path of [PICKER, BADGE]) {
+      expect(codeOf(read(path))).toMatch(/useUnreadTeams\(teamIds\)/)
     }
   })
 })

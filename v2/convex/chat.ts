@@ -1,4 +1,4 @@
-import { v } from 'convex/values'
+import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, requirePlayer, requireTeamMemberFor, requireTeamOwnerFor } from './access'
 import {
@@ -12,7 +12,6 @@ import {
   nextScrollWindow,
   requireBody,
 } from './lib/chat.ts'
-import { getMyTeamsFor } from './teams.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { ReaderCtx, WriterCtx } from './winners.ts'
 
@@ -507,7 +506,38 @@ export async function markReadFor(
 }
 
 /**
- * Which of the caller's teams have messages they have not read.
+ * Whether the caller is on `teamId`, as a boolean rather than as a throw.
+ *
+ * WRAPS requireTeamMemberFor RATHER THAN REIMPLEMENTING IT. The rule — the
+ * team must exist AND list this player, with the same answer either way so a
+ * probe cannot tell those apart — belongs to access.ts, and a second copy of
+ * it here is the copy that would drift. What is different is only what the
+ * CALLER wants done about a `false`, and that is unreadTeamsFor's decision to
+ * make (it skips; see its own comment).
+ *
+ * CATCHES EXACTLY NOT_A_MEMBER AND RETHROWS EVERYTHING ELSE. A bare
+ * `catch { return false }` would swallow a read error, an OCC failure or a
+ * future code from the same helper and silently report "not a member" for it —
+ * turning an outage into a badge that is merely wrong, which is the harder bug
+ * to notice.
+ */
+async function isTeamMemberFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<boolean> {
+  try {
+    await requireTeamMemberFor(ctx, playerId, teamId)
+    return true
+  } catch (error) {
+    const data = error instanceof ConvexError ? (error.data as { code?: string } | null) : null
+    if (data?.code === 'NOT_A_MEMBER') return false
+    throw error
+  }
+}
+
+/**
+ * Which of `teamIds` have messages the caller has not read.
  *
  * READS NO MESSAGES, which is the point. A badge is a comparison of two small
  * documents per team — the team's chatMeta pointer against the caller's own
@@ -519,12 +549,48 @@ export async function markReadFor(
  * the hourly push sweep is where a COUNT is affordable, because it runs once
  * per team per hour rather than on every page load).
  *
- * NO MEMBERSHIP CHECK IS NEEDED HERE and that is not an oversight, despite the
- * note atop this file that every function checks membership, reads included. It
- * starts from the caller's own teams — getMyTeamsFor filters `teams` by
- * playerIds — and never accepts a teamId from anyone, so there is nothing to
- * probe and nothing to gate. Every other function in this file takes a teamId
- * as an argument and must therefore gate on it.
+ * IT TAKES THE IDS RATHER THAN DERIVING THEM, AND THAT IS wordle-teams-w7g2.
+ * This used to call getMyTeamsFor, which opens `ctx.db.query('teams').collect()`
+ * — a FULL TABLE SCAN of ~149 teams plus a `get` per member to build names and
+ * rosters — to answer a question whose entire output is a list of team ids. The
+ * document count was the smaller half of the cost. The bigger half was
+ * invalidation: a Convex query is re-run when anything in its READ SET changes,
+ * and the read set was the whole `teams` table, so every rename, invite, join
+ * and billing change anywhere in the app re-fired this for EVERY connected
+ * player — and by Part 2 essentially every authenticated session holds it open,
+ * because the badge is on the dashboard. Taking the ids narrows the read set to
+ * three small documents per team (the team for the gate, its chatMeta, the
+ * caller's chatReads), so the app-wide fan-out DISAPPEARS rather than merely
+ * getting cheaper. Indexing was not an option: membership lives only in
+ * `teams.playerIds`, an array, and Convex cannot index array membership (see
+ * the schema comment on `teams`).
+ *
+ * MEMBERSHIP IS CHECKED PER ID, and this comment used to say the opposite —
+ * that no check was needed because the ids came from the caller's own teams and
+ * none was ever accepted as an argument. Taking them from the client INVERTS
+ * exactly that reasoning: any id can now arrive here, so every id is gated. The
+ * caller supplies the list; it does not supply the permission.
+ *
+ * AN ID THE CALLER IS NOT ON IS SKIPPED, NOT THROWN ON. The client's team list
+ * is a live subscription that can legitimately lag — someone removed from a
+ * team goes on holding its id until getMyTeams re-resolves — and a throw would
+ * take the WHOLE badge down for that moment, since one bad id poisons the call
+ * and no team gets a dot. The security is identical either way: the id is not
+ * answered about, and nothing about it (not even whether a team exists, which
+ * requireTeamMemberFor is careful about) reaches the caller. Skipping degrades
+ * one entry; throwing degrades all of them.
+ *
+ * DEDUPED, because the badge's own arithmetic depends on it: hasUnreadElsewhere
+ * subtracts the selected team by COUNT — "exactly one entry, never a range", in
+ * its words — so a repeated id would silently under-report the picker's trigger
+ * dot. The client sorts its ids; nothing in the wire format stops it repeating
+ * one.
+ *
+ * THE LENGTH IS NOT CAPPED, and the bound is the same one messagesSinceFor
+ * documents for itself: Convex's per-function documents-read quota. A caller
+ * passing thousands of ids gets a failed query rather than a slow one, and it
+ * is their own badge they broke. A cap here would be a second, hand-maintained
+ * number for a list that is in practice one to six teams long.
  *
  * A TEAM WITH NO chatMeta ROW IS SILENTLY SKIPPED, and that is the correct
  * answer rather than a missing case: bumpChatMeta creates that row on the first
@@ -540,23 +606,25 @@ export async function markReadFor(
 export async function unreadTeamsFor(
   ctx: ReaderCtx,
   playerId: Id<'players'>,
+  teamIds: Array<Id<'teams'>>,
 ): Promise<Array<Id<'teams'>>> {
-  const teams = await getMyTeamsFor(ctx, playerId)
   const unread: Array<Id<'teams'>> = []
 
-  for (const team of teams) {
+  for (const teamId of new Set(teamIds)) {
+    if (!(await isTeamMemberFor(ctx, playerId, teamId))) continue
+
     const meta = await ctx.db
       .query('chatMeta')
-      .withIndex('by_team', (q) => q.eq('teamId', team.id))
+      .withIndex('by_team', (q) => q.eq('teamId', teamId))
       .unique()
     if (meta === null) continue
 
     const cursor = await ctx.db
       .query('chatReads')
-      .withIndex('by_player_team', (q) => q.eq('playerId', playerId).eq('teamId', team.id))
+      .withIndex('by_player_team', (q) => q.eq('playerId', playerId).eq('teamId', teamId))
       .unique()
 
-    if (meta.lastMessageAt > (cursor?.lastReadAt ?? 0)) unread.push(team.id)
+    if (meta.lastMessageAt > (cursor?.lastReadAt ?? 0)) unread.push(teamId)
   }
 
   return unread
@@ -659,10 +727,18 @@ export const markRead = mutation({
   },
 })
 
+// TAKES THE TEAM IDS, WHICH IS THE ONE THING THE CLIENT ALREADY KNOWS —
+// routes/app.tsx holds them from api.teams.getMyTeams before this ever runs.
+// See unreadTeamsFor for why deriving them here cost a full `teams` scan and,
+// far worse, re-fired this subscription for every connected player on every
+// team write in the app.
+//
+// EVERY ID IS GATED SERVER-SIDE. `v.array(v.id('teams'))` only says the ids are
+// well-formed; it says nothing about whose they are.
 export const unreadTeams = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { teamIds: v.array(v.id('teams')) },
+  handler: async (ctx, { teamIds }) => {
     const player = await requirePlayer(ctx)
-    return await unreadTeamsFor(ctx, player._id)
+    return await unreadTeamsFor(ctx, player._id, teamIds)
   },
 })

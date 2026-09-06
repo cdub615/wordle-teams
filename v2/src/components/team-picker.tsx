@@ -1,5 +1,3 @@
-import { convexQuery } from '@convex-dev/react-query'
-import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Plus, Sparkles } from 'lucide-react'
 import { Button } from '#/components/ui/button.tsx'
 import {
@@ -13,8 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu.tsx'
 import { UnreadBadge, UnreadDot } from '#/components/chat/unread-badge.tsx'
-import { hasUnreadElsewhere, teamPickerLabel } from '#/components/chat/use-chat-sync.ts'
-import { api } from '../../convex/_generated/api'
+import { hasUnreadElsewhere, teamPickerLabel, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -33,6 +30,7 @@ export type TeamOption = { id: string; name: string }
 
 export function TeamPicker({
   teams,
+  teamIds,
   value,
   isPro,
   onChange,
@@ -40,6 +38,12 @@ export function TeamPicker({
   onUpgrade,
 }: {
   teams: Array<TeamOption>
+  /**
+   * The SAME ids routes/app.tsx passes to its own UnreadBadge, sorted by
+   * `unreadTeamIds` — not derived from `teams` here, deliberately. See the
+   * comment on the query call below.
+   */
+  teamIds: Array<Id<'teams'>> | undefined
   value: string
   isPro: boolean
   onChange: (teamId: string) => void
@@ -52,11 +56,20 @@ export function TeamPicker({
    * down, and a hook called conditionally is the one thing React does not
    * forgive.
    *
-   * NOT A SECOND SUBSCRIPTION. `unreadTeams` takes no arguments, so this call,
-   * the badges in the menu below and routes/app.tsx's own read all hash to the
-   * SAME TanStack query key and share ONE Convex subscription.
+   * NOT A SECOND SUBSCRIPTION — but that stopped being automatic in
+   * wordle-teams-w7g2. `unreadTeams` used to take no arguments, so this call,
+   * the badges in the menu below and routes/app.tsx's own read hashed to the
+   * same TanStack query key whatever anyone did. The query now takes the
+   * caller's team ids, and the ids ARE the key, so sharing one subscription
+   * depends on sharing one VALUE: `teamIds` is derived once in routes/app.tsx
+   * and handed to this component and to every badge below.
+   *
+   * DO NOT REBUILD IT FROM `teams`. `teams.map((team) => team.id)` right here
+   * would type-check, render an identical menu, and quietly open a second
+   * subscription the moment its order differed from the sorted one — a cost
+   * with no visible symptom in any gate.
    */
-  const { data: unread } = useQuery(convexQuery(api.chat.unreadTeams, {}))
+  const { data: unread } = useUnreadTeams(teamIds)
 
   if (teams.length === 0) return null
 
@@ -145,11 +158,12 @@ export function TeamPicker({
                   which is the question someone on two or three teams actually
                   has.
 
-                  ONE SUBSCRIPTION FOR THE WHOLE MENU, not one per row.
-                  `unreadTeams` takes no arguments, so every badge here shares a
-                  TanStack query key with every other and with the dashboard's,
-                  and a menu of ten teams costs one read. Do not "optimise" this
-                  into a per-team query.
+                  ONE SUBSCRIPTION FOR THE WHOLE MENU, not one per row. Every
+                  badge here is handed the SAME `teamIds` — the trigger's own
+                  read above included, and the dashboard's — so they share a
+                  TanStack query key and a menu of ten teams costs one read. Do
+                  not "optimise" this into a per-team query, and do not let a
+                  row build its own id list.
 
                   NO ARIA WORK NEEDED HERE, unlike the dashboard button: a
                   menuitemradio takes its accessible name FROM its content, so
@@ -165,7 +179,7 @@ export function TeamPicker({
                   under the global `box-sizing: border-box` and draw a smaller
                   dot rather than a spaced one. */}
               <span className="ml-auto pl-3">
-                <UnreadBadge teamId={team.id as Id<'teams'>} />
+                <UnreadBadge teamId={team.id as Id<'teams'>} teamIds={teamIds} />
               </span>
             </DropdownMenuRadioItem>
           ))}

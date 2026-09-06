@@ -1037,7 +1037,7 @@ describe('unreadTeamsFor', () => {
 
       await sendMessageFor(ctx, bob, team, 'hello ada')
 
-      expect(await unreadTeamsFor(ctx, ada)).toEqual([team])
+      expect(await unreadTeamsFor(ctx, ada, [team])).toEqual([team])
     })
   })
 
@@ -1049,7 +1049,7 @@ describe('unreadTeamsFor', () => {
       const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
       await sendMessageFor(ctx, ada, team, 'mine')
 
-      expect(await unreadTeamsFor(ctx, ada)).toEqual([])
+      expect(await unreadTeamsFor(ctx, ada, [team])).toEqual([])
     })
   })
 
@@ -1063,11 +1063,20 @@ describe('unreadTeamsFor', () => {
 
       await markReadFor(ctx, ada, team)
 
-      expect(await unreadTeamsFor(ctx, ada)).toEqual([])
+      expect(await unreadTeamsFor(ctx, ada, [team])).toEqual([])
     })
   })
 
-  test('never reports a team the caller is not on', async () => {
+  /**
+   * THE TEST THAT CHANGED MEANING WHEN THE IDS STARTED COMING FROM THE CLIENT.
+   *
+   * It used to prove something about `getMyTeamsFor`: a stranger's team list
+   * simply did not contain this team, so there was nothing to report. Now the
+   * id arrives from the caller — the whole point of the argument — and this is
+   * the only thing standing between an outsider and "does that team have
+   * traffic", which is a question about a conversation they cannot read.
+   */
+  test('never reports a team the caller is not on, even when handed its id', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
@@ -1075,7 +1084,100 @@ describe('unreadTeamsFor', () => {
       const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
       await sendMessageFor(ctx, ada, team, 'private')
 
-      expect(await unreadTeamsFor(ctx, mallory)).toEqual([])
+      expect(await unreadTeamsFor(ctx, mallory, [team])).toEqual([])
+    })
+  })
+
+  /**
+   * SKIPPED, NOT THROWN, AND THE DIFFERENCE IS THE WHOLE BADGE.
+   *
+   * The client's team list is a live subscription that can legitimately lag by
+   * a moment — someone removed from a team goes on holding its id until
+   * getMyTeams re-resolves. A throw would take the ENTIRE badge down for that
+   * moment (one id poisons the call, so no team gets a dot), to no security
+   * benefit whatsoever: the id is skipped either way and nothing about it
+   * reaches the caller. Skipping degrades one entry; throwing degrades all of
+   * them.
+   */
+  test('skips only the ids the caller is not on, and still answers about the rest', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const mallory = await ctx.db.insert('players', aPlayer({ email: 'mallory@example.com' }))
+      const theirs = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const ours = await ctx.db.insert(
+        'teams',
+        aTeam({ name: 'Ours', playerIds: [ada, mallory], owner: ada }),
+      )
+
+      await sendMessageFor(ctx, ada, theirs, 'private')
+      await sendMessageFor(ctx, ada, ours, 'hello mallory')
+
+      expect(await unreadTeamsFor(ctx, mallory, [theirs, ours])).toEqual([ours])
+    })
+  })
+
+  // A team deleted while the client still held its id — the same stale-list
+  // case, and requireTeamMemberFor deliberately cannot tell it apart from
+  // "not yours". It must not throw here either.
+  test('skips an id no team exists for', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const gone = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await ctx.db.delete(gone)
+
+      expect(await unreadTeamsFor(ctx, ada, [gone])).toEqual([])
+    })
+  })
+
+  /**
+   * THE READ SET IS THE ARGUMENT, WHICH IS THE POINT OF wordle-teams-w7g2.
+   * This used to enumerate the caller's teams itself — a full `teams` scan, so
+   * ANY team write anywhere in the app re-fired the subscription for EVERY
+   * connected player. A team the caller is on but did not ask about proves the
+   * enumeration is gone: derived-from-the-caller would report it, and reading
+   * only what it was handed does not.
+   */
+  test('answers about the ids it was given and never enumerates the caller\'s other teams', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const asked = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      const unasked = await ctx.db.insert(
+        'teams',
+        aTeam({ name: 'Unasked', playerIds: [ada, bob], owner: ada }),
+      )
+
+      await sendMessageFor(ctx, bob, asked, 'hello')
+      await sendMessageFor(ctx, bob, unasked, 'hello')
+
+      expect(await unreadTeamsFor(ctx, ada, [asked])).toEqual([asked])
+    })
+  })
+
+  // hasUnreadElsewhere subtracts the selected team by COUNT — "one entry, never
+  // a range" is its own comment — so a duplicated id would silently under-report
+  // the trigger dot. The client sorts its ids; nothing stops it repeating one.
+  test('reports a team at most once however many times its id is passed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      await sendMessageFor(ctx, bob, team, 'hello')
+
+      expect(await unreadTeamsFor(ctx, ada, [team, team, team])).toEqual([team])
+    })
+  })
+
+  test('is empty for a caller who asks about nothing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+
+      expect(await unreadTeamsFor(ctx, ada, [])).toEqual([])
     })
   })
 })
@@ -1099,7 +1201,7 @@ describe('rejoining a team', () => {
       await resetChatCursorFor(ctx, gone, team)                // they rejoin
       await ctx.db.patch(team, { playerIds: [ada, gone] })
 
-      expect(await unreadTeamsFor(ctx, gone)).toEqual([team])
+      expect(await unreadTeamsFor(ctx, gone, [team])).toEqual([team])
     })
   })
 
@@ -1122,7 +1224,7 @@ describe('rejoining a team', () => {
       await invitePlayerFor(ctx, ada, { teamId: team, email: 'gone@example.com', today })
 
       expect((await ctx.db.get(team))!.playerIds).toContain(gone)
-      expect(await unreadTeamsFor(ctx, gone)).toEqual([team])
+      expect(await unreadTeamsFor(ctx, gone, [team])).toEqual([team])
     })
   })
 
@@ -1144,7 +1246,7 @@ describe('rejoining a team', () => {
       await upgradeTeamInvitesFor(ctx, gone)
 
       expect((await ctx.db.get(team))!.playerIds).toContain(gone)
-      expect(await unreadTeamsFor(ctx, gone)).toEqual([team])
+      expect(await unreadTeamsFor(ctx, gone, [team])).toEqual([team])
     })
   })
 
@@ -1169,7 +1271,7 @@ describe('rejoining a team', () => {
       await upgradeTeamInvitesFor(ctx, stays)
 
       expect((await ctx.db.get(team))!.invited).toEqual([])
-      expect(await unreadTeamsFor(ctx, stays)).toEqual([])
+      expect(await unreadTeamsFor(ctx, stays, [team])).toEqual([])
     })
   })
 })

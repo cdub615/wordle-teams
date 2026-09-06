@@ -200,6 +200,60 @@ export function mergeOlder(
 }
 
 /**
+ * The argument `unreadTeams` takes: the caller's team ids, sorted.
+ *
+ * WHY THE QUERY TAKES IDS AT ALL (wordle-teams-w7g2). It used to take none and
+ * work the list out server-side, which meant a full scan of the `teams` table
+ * on every execution — and, far worse, a read set covering that whole table, so
+ * ANY team write anywhere in the app re-fired this subscription for EVERY
+ * connected player. The client already holds its own teams (routes/app.tsx has
+ * them from `api.teams.getMyTeams`), so handing them over turns an app-wide
+ * fan-out into three small documents per team. Membership is still checked
+ * per id on the server — see unreadTeamsFor — because an argument is not a
+ * permission.
+ *
+ * SORTED, AND THAT IS THE WHOLE REASON THIS IS A FUNCTION RATHER THAN AN INLINE
+ * `.map`. The TanStack query key hashes the arguments, so the ids ARE the key:
+ * two callers building the same set in a different order would open two
+ * subscriptions and run the query twice for one answer. Sorting makes the key a
+ * function of the SET. (routes/app.tsx derives it once and passes it down,
+ * which is belt and braces — this is the braces.)
+ *
+ * COPIES BEFORE SORTING. `.sort()` mutates in place, and the array it is given
+ * is derived from the `teams` list the picker renders IN CREATED ORDER; `.map`
+ * already returns a fresh array, and that is load-bearing rather than
+ * incidental.
+ *
+ * `undefined` IN, `undefined` OUT, WHICH IS NOT `[]`. An unresolved teams list
+ * is not an empty one: `[]` is a real question with the real answer "nothing
+ * unread", and `hasUnread` would settle on it. `undefined` skips the query
+ * instead and leaves `hasUnread` in its not-loaded branch — see useUnreadTeams.
+ */
+export function unreadTeamIds(
+  teams: Array<{ id: string }> | undefined,
+): Array<Id<'teams'>> | undefined {
+  if (teams === undefined) return undefined
+  return teams.map((team) => team.id as Id<'teams'>).sort()
+}
+
+/**
+ * THE ONE PLACE `api.chat.unreadTeams` IS NAMED, which is what makes "one
+ * subscription for every dot on the page" a property of the code rather than a
+ * habit. The dashboard, the picker's trigger and every row badge call this with
+ * the same `teamIds`, so they share a query key.
+ *
+ * `'skip'` RATHER THAN A QUERY FOR NO TEAMS when the ids are not known yet:
+ * @convex-dev/react-query turns that into `enabled: false`, leaving `data`
+ * `undefined` — which `hasUnread` and `hasUnreadElsewhere` already read as "not
+ * loaded, draw nothing". Passing `{ teamIds: [] }` instead would fetch a
+ * genuine `[]` and let the badge claim "nothing unread" about a list it has not
+ * seen.
+ */
+export function useUnreadTeams(teamIds: Array<Id<'teams'>> | undefined) {
+  return useQuery(convexQuery(api.chat.unreadTeams, teamIds === undefined ? 'skip' : { teamIds }))
+}
+
+/**
  * Whether a team should show an unread dot, given the whole cross-team answer.
  *
  * `undefined` IS "NOT LOADED YET" AND MUST READ AS "NO DOT" — the same
@@ -210,10 +264,11 @@ export function mergeOlder(
  * no dot for a moment is invisible, whereas defaulting the unknown state to a
  * dot would flash a badge on every team on every page load.
  *
- * THE ARRAY IS THE WHOLE ANSWER, not a per-team query. `unreadTeams` takes no
- * arguments, so every badge on a page shares one TanStack query key and
- * therefore one Convex subscription — rendering ten badges costs one read, not
- * ten. That is only true while nothing parameterises this by team.
+ * THE ARRAY IS THE WHOLE ANSWER, not a per-team query. Every badge on a page
+ * calls `useUnreadTeams` with the SAME ids, so they share one TanStack query
+ * key and therefore one Convex subscription — rendering ten badges costs one
+ * read, not ten. That is only true while nothing parameterises this by a single
+ * team; see `unreadTeamIds` for what keeps the shared argument shared.
  */
 export function hasUnread(
   unread: Array<Id<'teams'>> | undefined,
@@ -244,10 +299,11 @@ export function hasUnread(
  * the query resolves, and reading that as "unread" would flash a dot on every
  * page load. Here `unread?.length ?? 0` counts an unresolved query as nothing
  * unread, and `hasUnread` — the one place that rule is written down — decides
- * the only other term. A team appears in `unreadTeams` at most once
- * (unreadTeamsFor walks each team the player is on exactly once and pushes at
- * most one id), so subtracting the selected team is subtracting exactly one
- * entry, never a range.
+ * the only other term. A team appears in `unreadTeams` at most once —
+ * unreadTeamsFor DEDUPES the ids it is handed before walking them, precisely so
+ * this subtraction stays honest now that the list comes from the client — so
+ * subtracting the selected team is subtracting exactly one entry, never a
+ * range.
  *
  * `selected` MAY BE `undefined`, and that is a real state rather than
  * defensiveness: routes/app.tsx renders TeamPicker for the renders before

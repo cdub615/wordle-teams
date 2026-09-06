@@ -2,7 +2,7 @@ import { createFileRoute, redirect, useNavigate, Link } from '@tanstack/react-ro
 import { MessageSquare, Settings } from 'lucide-react'
 import { Suspense } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
-import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
+import { useSuspenseQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
@@ -11,7 +11,7 @@ import { useHydrated } from '#/lib/use-hydrated.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
-import { chatEntryLabel, hasUnread } from '#/components/chat/use-chat-sync.ts'
+import { chatEntryLabel, hasUnread, unreadTeamIds, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
 import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
 import { MonthPicker, monthOptions } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
@@ -120,22 +120,38 @@ function Dashboard() {
   const { data: isPro } = useSuspenseQuery(convexQuery(api.teams.amIPro, {}))
   const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
   /**
+   * THE ARGUMENT THAT REPLACED A FULL `teams` SCAN (wordle-teams-w7g2), AND
+   * THE ONE PLACE IT IS DERIVED.
+   *
+   * `unreadTeams` used to take none and work the list out server-side, which
+   * meant its read set was the entire `teams` table — so every rename, invite,
+   * join and billing change ANYWHERE in the app re-fired this subscription for
+   * EVERY connected player, and by Part 2 essentially every authenticated
+   * session holds it open. The client already has its own teams, three lines
+   * up; handing them over narrows the read set to three small documents per
+   * team. The server still gates every id (see unreadTeamsFor) — this list is
+   * a question, not a permission.
+   *
+   * DERIVED HERE AND PASSED DOWN, to TeamPicker and to the badge below, rather
+   * than rebuilt by each. The ids are the TanStack query key now, so two
+   * callers with the same set in a different order would open TWO Convex
+   * subscriptions for one answer, with no symptom any gate can see.
+   * `unreadTeamIds` sorts for the same reason; both halves are pinned in
+   * src/routes.test.ts.
+   */
+  const teamIds = unreadTeamIds(teams)
+  /**
    * THE ONE SUBSCRIPTION BEHIND EVERY UNREAD DOT ON THIS PAGE, read here only
    * for the "Team chat" button's accessible NAME (see chatEntryLabel). The
-   * dots themselves are drawn by `UnreadBadge`, which reads the same query.
+   * dots themselves are drawn by `UnreadBadge`, which is handed the same
+   * `teamIds` and so shares this very subscription.
    *
-   * THAT IS NOT A SECOND SUBSCRIPTION. `unreadTeams` takes no arguments, so
-   * this call, the badge beside it and every badge inside TeamPicker's menu
-   * hash to the SAME TanStack query key and therefore share ONE Convex
-   * subscription — the property UnreadBadge's comment asks callers not to
-   * break by parameterising the query per team.
-   *
-   * `useQuery`, NOT `useSuspenseQuery` LIKE ITS THREE NEIGHBOURS: none of the
-   * three prefetched-in-the-loader queries above wants a fourth round trip
-   * added to the critical path for a decoration, and `hasUnread` already reads
-   * the unresolved `undefined` as "no dot".
+   * `useQuery` UNDER THE HOOD, NOT `useSuspenseQuery` LIKE ITS THREE
+   * NEIGHBOURS: none of the three prefetched-in-the-loader queries above wants
+   * a fourth round trip added to the critical path for a decoration, and
+   * `hasUnread` already reads the unresolved `undefined` as "no dot".
    */
-  const { data: unreadTeams } = useQuery(convexQuery(api.chat.unreadTeams, {}))
+  const { data: unreadTeams } = useUnreadTeams(teamIds)
   const [createOpen, setCreateOpen] = useState(false)
   /**
    * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
@@ -332,6 +348,10 @@ function Dashboard() {
       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 md:col-span-3">
         <TeamPicker
           teams={teams}
+          // THE SAME VALUE THE BADGE BELOW GETS, AND THAT IS THE POINT — see
+          // the note on `teamIds` above. TeamPicker deliberately does not
+          // derive it from `teams`, which it already has.
+          teamIds={teamIds}
           value={teamParam}
           isPro={isPro}
           onChange={(team) => navigate({ to: Route.fullPath, search: { team, month: monthParam } })}
@@ -437,7 +457,11 @@ function Dashboard() {
             <Link to="/chat" search={{ team: teamParam }}>
               <MessageSquare className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Team chat</span>
-              <UnreadBadge teamId={teamParam as Id<'teams'>} className="absolute right-1 top-1" />
+              <UnreadBadge
+                teamId={teamParam as Id<'teams'>}
+                teamIds={teamIds}
+                className="absolute right-1 top-1"
+              />
             </Link>
           </Button>
         )}

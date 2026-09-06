@@ -1,7 +1,4 @@
-import { convexQuery } from '@convex-dev/react-query'
-import { useQuery } from '@tanstack/react-query'
-import { hasUnread } from './use-chat-sync.ts'
-import { api } from '../../../convex/_generated/api'
+import { hasUnread, useUnreadTeams } from './use-chat-sync.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -15,12 +12,20 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * hourly push sweep is where a count is affordable, because it runs once per
  * team per hour rather than on every render. So: presence-of-unread only.
  *
- * ONE SUBSCRIPTION FOR EVERY BADGE ON THE PAGE. `unreadTeams` takes no
- * arguments, so all instances of this component share a single TanStack query
- * key and therefore a single Convex subscription — a team list with ten badges
- * costs one read, not ten. That is why the query is not parameterised by team
- * and the filtering happens here instead; do not "optimise" it into an
- * `unreadFor(teamId)` query, which would turn one subscription into N.
+ * ONE SUBSCRIPTION FOR EVERY BADGE ON THE PAGE. Every instance calls
+ * `useUnreadTeams` with the SAME `teamIds`, so they share a single TanStack
+ * query key and therefore a single Convex subscription — a team list with ten
+ * badges costs one read, not ten. That is why the query is not parameterised by
+ * the badge's own team and the filtering happens here instead; do not
+ * "optimise" it into an `unreadFor(teamId)` query, which would turn one
+ * subscription into N.
+ *
+ * `teamIds` IS A PROP RATHER THAN SOMETHING THIS DERIVES (wordle-teams-w7g2).
+ * The query now takes the caller's teams, and the ids are the query key — so a
+ * badge that built its own list, however correctly, would be free to build it
+ * in a different order and open a second subscription for the same answer. It
+ * is derived ONCE, in routes/app.tsx, and passed down through TeamPicker to
+ * here. Pass it through; do not rebuild it.
  *
  * NO LOADING OR ERROR BRANCH, DELIBERATELY. `hasUnread` reads both the
  * unresolved (`undefined`) state and a failure as "no dot", and rendering
@@ -34,8 +39,16 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * module scope throws without SITE_URL, and a module-scope throw is a side
  * effect no bundler may tree-shake. See the banner on convex/lib/chatLimits.ts.
  */
-export function UnreadBadge({ teamId, className }: { teamId: Id<'teams'>; className?: string }) {
-  const { data: unread } = useQuery(convexQuery(api.chat.unreadTeams, {}))
+export function UnreadBadge({
+  teamId,
+  teamIds,
+  className,
+}: {
+  teamId: Id<'teams'>
+  teamIds: Array<Id<'teams'>> | undefined
+  className?: string
+}) {
+  const { data: unread } = useUnreadTeams(teamIds)
 
   if (!hasUnread(unread, teamId)) return null
 
