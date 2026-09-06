@@ -308,30 +308,306 @@ export function shouldShowLoadOlder(state: {
 }
 
 /**
- * Whether a route replaces the site footer with its own full-height layout.
+ * WHERE THE READER'S PLACE IS RESTORED TO AFTER A SCROLLBACK PAGE IS PREPENDED
+ * (wordle-teams-9ozu).
  *
- * ONLY /chat, AND ONLY BECAUSE /chat IS NOT A DOCUMENT. Every other route in
- * the app is prose or cards that scroll under a footer; chat is a viewport-tall
- * column whose composer is pinned to the bottom edge and whose message list
- * scrolls inside it. A footer below that either pushes the composer off screen
- * or, worse, makes the page scroll past it — which is what it did, and what the
- * owner's phone screenshot shows.
+ * THE BUG THIS FIXES IS THE ONLY ONE IN CHAT THAT PUNISHES SUCCESS. "Load older
+ * messages" inserts a page of history ABOVE everything on screen while the
+ * browser holds `scrollTop` constant — and `scrollTop` is measured from the top
+ * of the CONTENT, not from what the reader is looking at. So the moment the
+ * page lands, the thing under the reader's eyes is thrown DOWN the viewport by
+ * the full height of the inserted page: they asked for older messages and were
+ * shown a different part of the conversation than the one they were reading,
+ * with no indication of where they went. On a full page that is roughly a
+ * screen and a half of displacement.
  *
- * A PATHNAME PREDICATE RATHER THAN A FLAG ON THE ROUTE, matching what this
- * codebase already does for every other route-conditional decision it makes:
- * `cachePolicyFor` (lib/cache-policy.ts) and `isMaintenanceGated`
- * (lib/maintenance.ts) are both pure functions of a pathname, tested without a
- * router. There was NO existing idiom for route-conditional CHROME — __root.tsx
- * rendered Header, Outlet and Footer unconditionally — so this follows the
- * closest thing the repo had rather than inventing a mechanism.
+ * THE CORRECTION IS THE HEIGHT DELTA, AND IT IS EXACT RATHER THAN AN ESTIMATE.
+ * Everything inserted goes above the reader's position, so the content that was
+ * above them grew by exactly `after - before` — and adding that to `scrollTop`
+ * puts the same pixel of content back under the same pixel of viewport. No
+ * per-message measurement, no anchor element, nothing that has to agree with
+ * the layout.
  *
- * THE TRAILING SLASH IS NORMALISED for the same reason those two normalise it:
- * `/chat/` and `/chat` are the same route, and a reader who arrives on the
- * former would otherwise get the footer back and the broken layout with it.
+ * `before` IS CAPTURED AT THE CLICK, NOT IN THE LAYOUT EFFECT, and that is the
+ * whole reason this is a two-argument function rather than a one-argument one.
+ * By the time an effect runs, React has already committed the taller list, so
+ * there is no "before" left in the DOM to read. See message-list.tsx.
+ *
+ * CLAMPED AT ZERO because a NEGATIVE scrollTop is silently coerced to 0 by the
+ * browser anyway, and a caller reading this value back would then disagree with
+ * the element. It only arises if content shrank across the same commit, which a
+ * prepend cannot cause on its own — a delete arriving in the same frame can.
  */
-export function hidesSiteFooter(pathname: string): boolean {
-  const normalised = pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname
-  return normalised === '/chat'
+export function anchoredScrollTop(
+  before: { scrollTop: number; scrollHeight: number },
+  afterScrollHeight: number,
+): number {
+  return Math.max(0, before.scrollTop + (afterScrollHeight - before.scrollHeight))
+}
+
+/**
+ * HOW LONG A PAUSE BREAKS A RUN OF BUBBLES, and how long a pause earns a time
+ * separator above the next one. Two numbers, deliberately an order of magnitude
+ * apart, because they answer two different questions.
+ *
+ * RUN_GAP_MS IS "IS THIS STILL THE SAME UTTERANCE": someone typing three
+ * sentences as three messages is one thought, and drawing three separately
+ * tailed bubbles with a name over each turns a conversation into a list. Five
+ * minutes is long enough to cover typing and a re-read, short enough that
+ * coming back after making a coffee starts a new bubble group.
+ *
+ * SEPARATOR_GAP_MS IS "HAS TIME PASSED WORTH TELLING THE READER ABOUT". An hour
+ * is the interval iMessage uses, and the reason it is not five minutes is that
+ * a separator is a full-width interruption of the conversation: at the run
+ * threshold every pause for a phone call would stamp a timestamp across the
+ * thread.
+ *
+ * A DAY BOUNDARY OVERRIDES THE HOUR (see `separatorBefore`). Two messages six
+ * minutes apart across midnight are six minutes apart and a day apart, and it
+ * is the second fact that a reader scrolling back needs.
+ */
+export const RUN_GAP_MS = 5 * 60_000
+export const SEPARATOR_GAP_MS = 60 * 60_000
+
+/**
+ * Intl formatters are expensive to construct and this file formats one per
+ * separator on every render of the list, so they are built once per (shape,
+ * zone) pair and kept.
+ *
+ * KEYED BY THE ZONE AS WELL AS THE SHAPE. `timeZone` is a parameter rather than
+ * a constant precisely so the tests can pin it (see below), and a cache keyed
+ * on the shape alone would hand the second test the first test's zone.
+ *
+ * `en-US` IS PINNED, matching lib/format-day.ts, which pins it for the same
+ * reason: the strings this produces are asserted character for character, and a
+ * suite that inherited the host's locale would pass in one place and fail in
+ * another.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>()
+
+function formatterFor(
+  shape: string,
+  options: Intl.DateTimeFormatOptions,
+  timeZone: string | undefined,
+): Intl.DateTimeFormat {
+  const key = `${shape}|${timeZone ?? ''}`
+  const held = formatters.get(key)
+  if (held) return held
+  const made = new Intl.DateTimeFormat('en-US', { ...options, timeZone })
+  formatters.set(key, made)
+  return made
+}
+
+/**
+ * Which calendar day a timestamp falls on, as a whole number of days, in the
+ * zone the reader is actually in.
+ *
+ * A NUMBER RATHER THAN A `Date`, AND THE SUBTRACTION IS WHY. "Yesterday" is a
+ * question about calendar days, not about elapsed milliseconds: 00:30 and 23:30
+ * are an hour apart and on different days, and a `now - then > 86_400_000`
+ * rule calls the first "Today" until half past midnight and then calls it
+ * "Yesterday" without the message having moved. Converting each side to a day
+ * index first makes the comparison exact.
+ *
+ * IT GOES THROUGH `Date.UTC` ON PARTS THAT WERE ALREADY RESOLVED IN THE TARGET
+ * ZONE, which is the part that survives DST. The parts come out of Intl, so
+ * they are the local calendar date; re-composing them as UTC gives a day index
+ * on a grid where every day is exactly 24 hours long, so the difference between
+ * two of them is a count of calendar days even across the 23- and 25-hour ones.
+ * Stepping back `n * 86_400_000` from `now` instead — the obvious version —
+ * lands on the wrong day twice a year.
+ *
+ * `timeZone` UNDEFINED MEANS THE HOST'S ZONE, which is what the app wants: the
+ * reader's own idea of "today" is the only one the label can mean. Tests pass
+ * an explicit zone so that "today" is a fact about the fixture rather than
+ * about the machine running it.
+ */
+export function chatDayIndex(timestamp: number, timeZone?: string): number {
+  const parts = formatterFor(
+    'day',
+    { year: 'numeric', month: 'numeric', day: 'numeric' },
+    timeZone,
+  ).formatToParts(new Date(timestamp))
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value)
+  return Date.UTC(value('year'), value('month') - 1, value('day')) / 86_400_000
+}
+
+/**
+ * The text of a time separator: how long ago, plus the clock time.
+ *
+ * FOUR SHAPES, NARROWING AS THE MESSAGE GETS OLDER — `Today 14:05`,
+ * `Yesterday 23:58`, `Thursday 09:12`, `Aug 12, 2026 09:12`. The weekday band
+ * stops at seven days for the reason weekday names exist at all: "Thursday"
+ * means one specific day only while there is exactly one Thursday in living
+ * memory, and a nine-day-old message labelled "Thursday" is a lie a reader has
+ * no way to detect.
+ *
+ * 24-HOUR TIME, PINNED WITH `hourCycle` RATHER THAN `hour12: false`. The two
+ * are not synonyms: `hour12: false` resolves to the h24 cycle in some ICU
+ * builds, which renders midnight as `24:05`. `hourCycle: 'h23'` says the thing
+ * that was meant, and the midnight case is asserted.
+ *
+ * A FUTURE TIMESTAMP FALLS THROUGH TO THE FULL DATE. Clock skew between a
+ * sender's device and the reader's is real and small, so same-day skew still
+ * reads "Today"; anything further ahead is strange enough that naming the date
+ * is more honest than "Yesterday" arithmetic run backwards.
+ */
+export function separatorLabel(timestamp: number, now: number, timeZone?: string): string {
+  const when = new Date(timestamp)
+  const time = formatterFor(
+    'time',
+    { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
+    timeZone,
+  ).format(when)
+
+  const days = chatDayIndex(now, timeZone) - chatDayIndex(timestamp, timeZone)
+  if (days === 0) return `Today ${time}`
+  if (days === 1) return `Yesterday ${time}`
+  if (days > 1 && days < 7) {
+    return `${formatterFor('weekday', { weekday: 'long' }, timeZone).format(when)} ${time}`
+  }
+  return `${formatterFor('date', { month: 'short', day: 'numeric', year: 'numeric' }, timeZone).format(when)} ${time}`
+}
+
+/**
+ * The separator to draw above a message, or `null` for the ordinary case of one
+ * message following another in the same breath.
+ *
+ * THE FIRST MESSAGE ON SCREEN ALWAYS GETS ONE. It is the oldest thing loaded,
+ * so there is nothing above it to date it by — and after a scrollback page
+ * lands, the message that used to be first no longer is, which means the
+ * separator moves up with the history rather than being duplicated.
+ *
+ * THE DAY BOUNDARY IS A SECOND, INDEPENDENT TRIGGER, not a consequence of the
+ * hour. Two messages at 23:58 and 00:03 are five minutes apart and on different
+ * days; without this the reader scrolling back through a long night sees one
+ * unbroken column and no indication that the date changed under them.
+ */
+export function separatorBefore(
+  message: ChatMessage,
+  previous: ChatMessage | undefined,
+  now: number,
+  timeZone?: string,
+): string | null {
+  if (
+    previous !== undefined &&
+    message.createdAt - previous.createdAt < SEPARATOR_GAP_MS &&
+    chatDayIndex(message.createdAt, timeZone) === chatDayIndex(previous.createdAt, timeZone)
+  ) {
+    return null
+  }
+  return separatorLabel(message.createdAt, now, timeZone)
+}
+
+/**
+ * Whether a message opens a new run of bubbles.
+ *
+ * THREE THINGS BREAK A RUN, and the third is the one that is easy to miss. A
+ * different author, obviously; a pause longer than RUN_GAP_MS, obviously; and a
+ * TIME SEPARATOR, because a separator is a horizontal rule through the
+ * conversation and a run whose bubbles are split across one is not a run — the
+ * tail would sit on the last bubble ABOVE the separator and the name above the
+ * first bubble below it would be missing. That is why this takes the separator
+ * as an argument rather than recomputing a gap: there is exactly one rule for
+ * when a separator appears (`separatorBefore`, which also fires on a day
+ * boundary at five minutes' distance) and this must agree with it by
+ * construction rather than by coincidence.
+ */
+export function startsRun(
+  message: ChatMessage,
+  previous: ChatMessage | undefined,
+  afterSeparator: boolean,
+): boolean {
+  if (previous === undefined || afterSeparator) return true
+  if (previous.playerId !== message.playerId) return true
+  return message.createdAt - previous.createdAt > RUN_GAP_MS
+}
+
+/**
+ * Whether the author's name is drawn above a bubble.
+ *
+ * NEVER OVER YOUR OWN MESSAGES, which is not a space saving — it is what makes
+ * the two columns mean something. Your messages are the ones on the right in
+ * green; labelling them with your own name is the UI telling you something you
+ * cannot fail to know, and it costs the visual asymmetry that identifies the
+ * other column as someone else's.
+ *
+ * ONCE PER RUN, at the top. A name over every bubble turns four consecutive
+ * messages from one person into four separate arrivals.
+ */
+export function showsAuthorName(startsRun: boolean, mine: boolean): boolean {
+  return startsRun && !mine
+}
+
+/**
+ * Everything the list needs to know about one message's PLACE in the
+ * conversation. The component reads these; it decides none of them.
+ */
+export type MessageRow = {
+  message: ChatMessage
+  mine: boolean
+  startsRun: boolean
+  endsRun: boolean
+  showsName: boolean
+  separator: string | null
+}
+
+/**
+ * The whole of the bubble layout, as data.
+ *
+ * THIS EXISTS BECAUSE THE ALTERNATIVE IS UNTESTABLE BY CONSTRUCTION. Every
+ * decision here — which side a bubble sits on, whether it carries a tail,
+ * whether a name goes above it, whether a separator interrupts — is the kind of
+ * thing that gets written inline in a `.map` in JSX, and this suite runs on
+ * edge-runtime with no DOM and picks up `*.test.ts` only, so a decision made in
+ * a `.tsx` file is a decision asserted by nothing. Returning rows instead means
+ * message-list.tsx contains no conditional that is not a className.
+ *
+ * `endsRun` IS READ FROM THE NEXT MESSAGE, WHICH IS WHY THIS TAKES THE WHOLE
+ * ARRAY. "Is this the last bubble of its run" cannot be answered while looking
+ * at one message and its predecessor — it is exactly "does the NEXT message
+ * start a new run" — and it is the flag the tail hangs off. A per-message
+ * helper would have had to look forwards anyway, one element at a time, and
+ * would have recomputed the whole `startsRun` chain to do it.
+ *
+ * `myPlayerId` MAY BE `undefined`, AND THAT IS A LOADED-STATE BRANCH RATHER
+ * THAN DEFENSIVENESS — the same one routes/chat.tsx's `canDelete` carries.
+ * getMyPlayerId resolves independently of the messages, and `undefined` there
+ * would compare unequal to every author, so the first paint would put EVERY
+ * bubble in the left-hand column and then re-lay them out. Reading it as "no
+ * message is mine yet" is what that produces; it is a visible flicker rather
+ * than a wrong claim, and there is nothing better available until the id lands.
+ *
+ * `now` IS A PARAMETER, NOT `Date.now()` READ INSIDE. It is what makes "Today"
+ * a fact about the arguments — the same reason `timeZone` is threaded through
+ * rather than left to the host.
+ */
+export function messageRows(
+  messages: Array<ChatMessage>,
+  myPlayerId: Id<'players'> | null | undefined,
+  now: number,
+  timeZone?: string,
+): Array<MessageRow> {
+  const rows = messages.map((message, index) => {
+    const previous = index === 0 ? undefined : messages[index - 1]
+    const separator = separatorBefore(message, previous, now, timeZone)
+    const opens = startsRun(message, previous, separator !== null)
+    const mine = myPlayerId !== undefined && myPlayerId !== null && message.playerId === myPlayerId
+    return {
+      message,
+      mine,
+      startsRun: opens,
+      // Filled in below, once the next row's `startsRun` is known.
+      endsRun: true,
+      showsName: showsAuthorName(opens, mine),
+      separator,
+    }
+  })
+
+  for (let index = 0; index < rows.length - 1; index++) {
+    rows[index].endsRun = rows[index + 1].startsRun
+  }
+  return rows
 }
 
 /**

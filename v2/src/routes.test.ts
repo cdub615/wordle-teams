@@ -618,9 +618,9 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
    * THE SHELL WIRING, WHICH IS PURE FUNCTIONS ATTACHED TO NOTHING WITHOUT IT.
    *
    * `hidesSiteFooter` and `shouldShowLoadOlder` are tested where they live
-   * (components/chat/use-chat-sync.ts), and both would stay green if
-   * __root.tsx rendered the footer unconditionally and routes/chat.tsx handed
-   * the list the wrong number. Neither miswiring is visible to lint, typecheck
+   * (lib/site-chrome.ts and components/chat/use-chat-sync.ts), and both would
+   * stay green if __root.tsx rendered the footer unconditionally and
+   * routes/chat.tsx handed the list the wrong number. Neither miswiring is visible to lint, typecheck
    * or build, and neither can be caught by rendering: this suite runs on
    * edge-runtime with no DOM. Same string-reading rationale as every block
    * above.
@@ -640,6 +640,26 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     // conditional at all. A copy left behind would render it on /chat anyway
     // and look, in the diff, like the gate had been added.
     expect(root.match(/<Footer \/>/g)).toHaveLength(1)
+  })
+
+  test('and the root reaches lib/ for that rule, never into the chat module', () => {
+    /**
+     * A BUNDLING ASSERTION WEARING A TEST'S CLOTHES (wordle-teams-qix.26).
+     * `hidesSiteFooter` shipped inside components/chat/use-chat-sync.ts, so
+     * __root.tsx — the one route present in every chunk graph there is —
+     * imported a chat module. Rollup hoisted use-chat-sync into a chunk shared
+     * between the entry and /chat, and every visitor to the marketing pages
+     * downloaded chat's pointer sync and its Convex api imports to answer one
+     * string comparison about a pathname.
+     *
+     * NEITHER HALF IS SUFFICIENT ALONE. Asserting only the lib import would be
+     * satisfied by an __root.tsx that imported BOTH; asserting only the absence
+     * would be satisfied by deleting the gate, which restores the broken
+     * layout the test above pins.
+     */
+    const root = read(ROOT)
+    expect(root).toMatch(/import \{ hidesSiteFooter \} from '#\/lib\/site-chrome\.ts'/)
+    expect(root).not.toMatch(/from '#?\/?.*components\/chat\//)
   })
 
   test("and the load-older gate reads the LIVE window's length, not the merged list", () => {

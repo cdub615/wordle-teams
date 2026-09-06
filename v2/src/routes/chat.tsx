@@ -381,6 +381,10 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
       <MessageList
         messages={shown}
         nameFor={nameFor}
+        // THE SAME `undefined` BRANCH `canDelete` GUARDS, handed on rather than
+        // resolved here: getMyPlayerId resolves independently of the messages,
+        // and `messageRows` reads "not loaded" as "no bubble is mine yet".
+        myPlayerId={myPlayerId}
         canDelete={canDelete}
         onDelete={(messageId) => handleDelete(messageId)}
         // WITHHELD, NOT DISABLED, once history runs out or before anything is

@@ -208,6 +208,22 @@ describe('AA contrast for the two coloured pairs the marketing landing renders',
     }
   })
 
+  test('chat\'s own bubbles clear AA against the green they are painted on', () => {
+    // components/chat/message-list.tsx paints a player's OWN messages
+    // `bg-accent-solid text-accent-solid-foreground` — which is the reason
+    // --accent-solid-foreground exists as a token at all, and until chat there
+    // was no consumer of it to measure. This is normal-sized body copy on a
+    // solid fill, so the bar is 4.5 and not the 3 the icons above take.
+    //
+    // #ffffff on #15803d is 5.00 light; #052e16 on #22c55e is 6.54 dark. The
+    // dark pairing is the one worth having a gate on: it is the only place in
+    // the app where a NEAR-BLACK foreground is asserted, so a well-meaning
+    // "make the dark foreground light like everything else" change goes red
+    // here instead of shipping unreadable text.
+    expectRatio('light', '--accent-solid-foreground', '--accent-solid', 4.5)
+    expectRatio('dark', '--accent-solid-foreground', '--accent-solid', 4.5)
+  })
+
   test('the feature-card icons clear the 3:1 graphics bar on the sunken band', () => {
     // 3:1, not 4.5: components/home/feature-cards.tsx renders --accent-solid as
     // an aria-hidden icon, which is a non-text contrast case. It measures 4.56

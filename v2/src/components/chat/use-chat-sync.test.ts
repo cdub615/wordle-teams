@@ -1,21 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import {
+  anchoredScrollTop,
   AT_TOP_SLACK_PX,
   beforeForOlder,
+  chatDayIndex,
   chatEntryLabel,
   chatHeading,
   hasUnread,
   hasUnreadElsewhere,
-  hidesSiteFooter,
   isAtTop,
   isCurrentRequest,
   isNearBottom,
   mergeOlder,
+  messageRows,
   NEAR_BOTTOM_SLACK_PX,
   nextOlderOutcome,
   nextSinceOutcome,
   nextSyncAction,
+  RUN_GAP_MS,
+  SEPARATOR_GAP_MS,
+  separatorBefore,
+  separatorLabel,
   shouldShowLoadOlder,
+  showsAuthorName,
+  startsRun,
   teamPickerLabel,
   unreadTeamIds,
 } from './use-chat-sync.ts'
@@ -522,29 +530,293 @@ describe('shouldShowLoadOlder', () => {
   })
 })
 
-describe('hidesSiteFooter', () => {
-  it('suppresses the footer on the one route that lays itself out to the viewport', () => {
-    expect(hidesSiteFooter('/chat')).toBe(true)
+describe('anchoredScrollTop', () => {
+  // THE BUG (wordle-teams-9ozu): a scrollback page inserts above the reader
+  // while the browser holds `scrollTop` constant, so what they were reading is
+  // pushed down the viewport by the full height of the inserted page. 4200 -
+  // 3000 is a page and a half of a 390x844 phone's message panel.
+  it('moves the reader down by exactly what was inserted above them', () => {
+    expect(anchoredScrollTop({ scrollTop: 0, scrollHeight: 3000 }, 4200)).toBe(1200)
   })
 
-  // `/chat/` and `/chat` are the same route; the trailing-slash spelling would
-  // otherwise get the footer back, and the broken layout with it.
-  it('suppresses it for the trailing-slash spelling of that route', () => {
-    expect(hidesSiteFooter('/chat/')).toBe(true)
+  // The reader is not always at 0 when the page lands — `isAtTop` allows a few
+  // pixels of slack, and a fast scroll can be mid-flick.
+  it('preserves an offset that was not exactly the top', () => {
+    expect(anchoredScrollTop({ scrollTop: 6, scrollHeight: 3000 }, 4200)).toBe(1206)
   })
 
-  // EVERY OTHER ROUTE KEEPS IT, which is the half a wrong `startsWith` would
-  // quietly break: the footer carries the only links to /privacy and /terms.
-  it('leaves every other route alone', () => {
-    for (const pathname of ['/', '/app', '/about', '/privacy', '/terms', '/team', '/login']) {
-      expect(hidesSiteFooter(pathname), pathname).toBe(false)
-    }
+  // A page that came back empty inserts nothing, and the correction must then
+  // be a no-op rather than a nudge.
+  it('leaves the reader alone when nothing was inserted', () => {
+    expect(anchoredScrollTop({ scrollTop: 120, scrollHeight: 3000 }, 3000)).toBe(120)
   })
 
-  // NOT `startsWith('/chat')`. There is no nested chat route today, and a
-  // hypothetical /chatter or /chat-settings would silently lose its footer.
-  it('does not match a route that merely begins with the same letters', () => {
-    expect(hidesSiteFooter('/chatter')).toBe(false)
-    expect(hidesSiteFooter('/chat-settings')).toBe(false)
+  // A delete landing in the same commit can shrink the list past the reader's
+  // offset. The browser coerces a negative scrollTop to 0 anyway; agreeing with
+  // it here keeps the value we compute and the value the element holds the same
+  // number.
+  it('clamps to the top rather than going negative', () => {
+    expect(anchoredScrollTop({ scrollTop: 50, scrollHeight: 3000 }, 2000)).toBe(0)
+  })
+})
+
+/**
+ * THE TIMEZONE IS PINNED EXPLICITLY IN EVERY ONE OF THESE, AND THAT IS NOT
+ * DECORATION. This repo has shipped a date test that killed its mutant on the
+ * author's machine and passed under `TZ=UTC`, which is what CI runs. The
+ * mechanism here is a parameter rather than an env var or a mock: `separatorLabel`
+ * and `chatDayIndex` take `timeZone`, so every assertion below names the zone it
+ * is asserting in and the host's zone cannot reach any of them. The app passes
+ * `undefined` and gets the reader's own zone, which is the only "today" a label
+ * can honestly mean.
+ *
+ * AND EVERY TIMESTAMP IS AN ABSOLUTE INSTANT — `Date.parse` of a `Z` string, not
+ * a local-time literal — so the fixtures are the same instants no matter where
+ * they are read.
+ *
+ * NO CASE HERE IS DERIVED FROM THE CURRENT DATE, deliberately. The suite's test
+ * count has drifted across a date rollover before; a fixed `now` fixture is both
+ * a fixed count and a fixed set of expected strings.
+ */
+const utc = (iso: string) => Date.parse(iso)
+
+// 2026-08-20 is a Thursday. Every relative label below is measured from noon on
+// that day.
+const NOW = utc('2026-08-20T12:00:00Z')
+
+describe('separatorLabel', () => {
+  it('says Today for a message on the same calendar day', () => {
+    expect(separatorLabel(utc('2026-08-20T14:05:00Z'), NOW, 'UTC')).toBe('Today 14:05')
+  })
+
+  // THE h23 PIN. `hour12: false` resolves to the h24 cycle in some ICU builds
+  // and renders this as `24:05`; `hourCycle: 'h23'` is the thing that was meant.
+  it('renders midnight as 00:xx, not 24:xx', () => {
+    expect(separatorLabel(utc('2026-08-20T00:05:00Z'), NOW, 'UTC')).toBe('Today 00:05')
+  })
+
+  it('says Yesterday for the calendar day before, however few hours ago that is', () => {
+    // 23:58 the previous evening is twelve hours ago and is NOT "Today" — the
+    // whole reason the comparison is on day indices rather than elapsed ms.
+    expect(separatorLabel(utc('2026-08-19T23:58:00Z'), NOW, 'UTC')).toBe('Yesterday 23:58')
+  })
+
+  it('names the weekday inside the last week', () => {
+    expect(separatorLabel(utc('2026-08-18T09:12:00Z'), NOW, 'UTC')).toBe('Tuesday 09:12')
+    expect(separatorLabel(utc('2026-08-14T09:12:00Z'), NOW, 'UTC')).toBe('Friday 09:12')
+  })
+
+  // SEVEN DAYS IS THE EDGE, AND IT IS THE DATE SIDE OF IT. A weekday name only
+  // identifies one day while there is one of it in living memory; "Thursday"
+  // for a message exactly a week old names today as much as it names then.
+  it('falls back to the date at exactly a week, and beyond it', () => {
+    expect(separatorLabel(utc('2026-08-13T09:12:00Z'), NOW, 'UTC')).toBe('Aug 13, 2026 09:12')
+    expect(separatorLabel(utc('2025-12-31T23:00:00Z'), NOW, 'UTC')).toBe('Dec 31, 2025 23:00')
+  })
+
+  // Small clock skew between the sender's device and the reader's is real, and
+  // a message stamped a few minutes ahead on the same day is still "Today".
+  it('reads a slightly-future stamp on the same day as Today', () => {
+    expect(separatorLabel(utc('2026-08-20T12:03:00Z'), NOW, 'UTC')).toBe('Today 12:03')
+  })
+
+  it('names the date for a stamp far enough ahead to be strange', () => {
+    expect(separatorLabel(utc('2026-08-25T08:00:00Z'), NOW, 'UTC')).toBe('Aug 25, 2026 08:00')
+  })
+
+  // THE POINT OF THREADING THE ZONE THROUGH AT ALL. One instant, two zones, two
+  // different true answers — and neither of them is the host's.
+  it('answers in the zone it is given, not in the one the host is in', () => {
+    const instant = utc('2026-08-20T02:30:00Z')
+    expect(separatorLabel(instant, NOW, 'UTC')).toBe('Today 02:30')
+    expect(separatorLabel(instant, NOW, 'America/New_York')).toBe('Yesterday 22:30')
+  })
+
+  // DST, WHICH IS WHY chatDayIndex GOES THROUGH Date.UTC ON RESOLVED PARTS
+  // RATHER THAN SUBTRACTING 86_400_000. 2026-11-01 is the Sunday US DST ends,
+  // so the local day before it is 25 hours long; an elapsed-ms rule calls this
+  // pair the same day.
+  it('counts a 25-hour local day as one day', () => {
+    const sunday = utc('2026-11-01T12:00:00Z')
+    expect(separatorLabel(sunday, sunday, 'America/New_York')).toBe('Today 07:00')
+    expect(separatorLabel(utc('2026-10-31T12:00:00Z'), sunday, 'America/New_York')).toBe(
+      'Yesterday 08:00',
+    )
+  })
+})
+
+describe('chatDayIndex', () => {
+  it('is one apart for two adjacent calendar days in the given zone', () => {
+    expect(
+      chatDayIndex(utc('2026-08-20T00:30:00Z'), 'UTC') -
+        chatDayIndex(utc('2026-08-19T23:30:00Z'), 'UTC'),
+    ).toBe(1)
+  })
+
+  // The same two instants are an hour apart and on the SAME local day in a zone
+  // where neither has crossed midnight yet.
+  it('is zero for two instants that share a calendar day in that zone', () => {
+    expect(
+      chatDayIndex(utc('2026-08-20T00:30:00Z'), 'America/New_York') -
+        chatDayIndex(utc('2026-08-19T23:30:00Z'), 'America/New_York'),
+    ).toBe(0)
+  })
+})
+
+// A message fixture with a controllable author and stamp. `older` above is
+// single-author by design; runs are entirely about the author changing.
+const said = (playerId: string, createdAt: number): ChatMessage => ({
+  _id: `msg_${playerId}_${createdAt}` as Id<'chatMessages'>,
+  playerId: playerId as Id<'players'>,
+  body: `${playerId}@${createdAt}`,
+  createdAt,
+})
+
+const ME = 'player_me' as Id<'players'>
+const THEM = 'player_them'
+
+describe('separatorBefore', () => {
+  it('always dates the oldest message on screen, which has nothing above it', () => {
+    expect(separatorBefore(said(THEM, NOW), undefined, NOW, 'UTC')).toBe('Today 12:00')
+  })
+
+  it('stays out of the way of a continuing conversation', () => {
+    const first = said(THEM, NOW - 10 * 60_000)
+    expect(separatorBefore(said(ME, NOW), first, NOW, 'UTC')).toBeNull()
+  })
+
+  it('interrupts once the pause is longer than the separator gap', () => {
+    const first = said(THEM, NOW - SEPARATOR_GAP_MS)
+    expect(separatorBefore(said(THEM, NOW), first, NOW, 'UTC')).toBe('Today 12:00')
+  })
+
+  // A DAY BOUNDARY IS AN INDEPENDENT TRIGGER, not a consequence of the hour.
+  // Five minutes across midnight is five minutes AND a different date, and the
+  // second fact is the one a reader scrolling back needs.
+  it('interrupts across midnight even five minutes apart', () => {
+    const before = utc('2026-08-19T23:58:00Z')
+    const after = utc('2026-08-20T00:03:00Z')
+    expect(separatorBefore(said(THEM, after), said(THEM, before), NOW, 'UTC')).toBe('Today 00:03')
+  })
+
+  // ...and the same pair is NOT a boundary in a zone where neither instant has
+  // crossed midnight, which is the zone parameter doing real work rather than
+  // being threaded through for symmetry.
+  it('does not interrupt across a midnight the reader is not at yet', () => {
+    const before = utc('2026-08-19T23:58:00Z')
+    const after = utc('2026-08-20T00:03:00Z')
+    expect(
+      separatorBefore(said(THEM, after), said(THEM, before), NOW, 'America/New_York'),
+    ).toBeNull()
+  })
+})
+
+describe('startsRun', () => {
+  it('opens a run at the top of the list', () => {
+    expect(startsRun(said(THEM, NOW), undefined, false)).toBe(true)
+  })
+
+  it('keeps one author talking in a single run', () => {
+    expect(startsRun(said(THEM, NOW), said(THEM, NOW - 60_000), false)).toBe(false)
+  })
+
+  it('opens a run when the author changes, however fast the reply', () => {
+    expect(startsRun(said(ME, NOW), said(THEM, NOW - 1_000), false)).toBe(true)
+  })
+
+  // EXACTLY THE GAP IS STILL THE SAME RUN; past it is a new one.
+  it('opens a run once one author has paused longer than the run gap', () => {
+    const previous = said(THEM, NOW - RUN_GAP_MS)
+    expect(startsRun(said(THEM, NOW), previous, false)).toBe(false)
+    expect(startsRun(said(THEM, NOW), said(THEM, NOW - RUN_GAP_MS - 1), false)).toBe(true)
+  })
+
+  // THE HALF THAT IS EASY TO MISS. A separator is a rule drawn through the
+  // conversation; a run split across one would put the tail on the bubble above
+  // it and leave the bubble below it unnamed.
+  it('always opens a run below a separator, whatever the gap says', () => {
+    expect(startsRun(said(THEM, NOW), said(THEM, NOW - 1_000), true)).toBe(true)
+  })
+})
+
+describe('showsAuthorName', () => {
+  it('names another person once, at the top of their run', () => {
+    expect(showsAuthorName(true, false)).toBe(true)
+    expect(showsAuthorName(false, false)).toBe(false)
+  })
+
+  // NEVER OVER YOUR OWN. The right-hand green column is already the whole of
+  // that claim, and labelling it costs the asymmetry that identifies the other
+  // side as somebody else.
+  it('never names you to yourself', () => {
+    expect(showsAuthorName(true, true)).toBe(false)
+    expect(showsAuthorName(false, true)).toBe(false)
+  })
+})
+
+describe('messageRows', () => {
+  const shape = (rows: ReturnType<typeof messageRows>) =>
+    rows.map((row) => ({
+      mine: row.mine,
+      startsRun: row.startsRun,
+      endsRun: row.endsRun,
+      showsName: row.showsName,
+      separator: row.separator,
+    }))
+
+  it('groups a run and tails only its last bubble', () => {
+    const rows = messageRows(
+      [said(THEM, NOW - 120_000), said(THEM, NOW - 60_000), said(THEM, NOW)],
+      ME,
+      NOW,
+      'UTC',
+    )
+    expect(shape(rows)).toEqual([
+      { mine: false, startsRun: true, endsRun: false, showsName: true, separator: 'Today 11:58' },
+      { mine: false, startsRun: false, endsRun: false, showsName: false, separator: null },
+      { mine: false, startsRun: false, endsRun: true, showsName: false, separator: null },
+    ])
+  })
+
+  it('starts a new run, and a new tail, when the other person replies', () => {
+    const rows = messageRows([said(THEM, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC')
+    expect(shape(rows)).toEqual([
+      { mine: false, startsRun: true, endsRun: true, showsName: true, separator: 'Today 11:59' },
+      { mine: true, startsRun: true, endsRun: true, showsName: false, separator: null },
+    ])
+  })
+
+  it('breaks the run at a separator and names the same author again below it', () => {
+    const rows = messageRows(
+      [said(THEM, NOW - SEPARATOR_GAP_MS - 60_000), said(THEM, NOW)],
+      ME,
+      NOW,
+      'UTC',
+    )
+    expect(rows[0].endsRun).toBe(true)
+    expect(rows[1].startsRun).toBe(true)
+    expect(rows[1].showsName).toBe(true)
+    expect(rows[1].separator).toBe('Today 12:00')
+  })
+
+  // THE LOADED-STATE BRANCH getMyPlayerId FORCES. `undefined` compares unequal
+  // to every author, so without this every bubble would sit in the left column
+  // for the first paint — which is what this asserts, rather than a crash.
+  it('claims nothing is yours until getMyPlayerId has answered', () => {
+    const rows = messageRows([said(THEM, NOW - 1_000), said('player_me', NOW)], undefined, NOW, 'UTC')
+    expect(rows.map((row) => row.mine)).toEqual([false, false])
+    // ...and `null`, its real "no player" answer, means the same thing here.
+    expect(messageRows([said('player_me', NOW)], null, NOW, 'UTC')[0].mine).toBe(false)
+  })
+
+  it('holds an empty conversation without inventing a row', () => {
+    expect(messageRows([], ME, NOW, 'UTC')).toEqual([])
+  })
+
+  // The last message on screen always closes its run, since there is nothing
+  // below it to continue one.
+  it('tails the newest message whatever came before it', () => {
+    const rows = messageRows([said(ME, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC')
+    expect(rows[rows.length - 1].endsRun).toBe(true)
   })
 })

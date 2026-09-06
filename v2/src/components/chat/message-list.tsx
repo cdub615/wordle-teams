@@ -1,12 +1,23 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { ConfirmPopover } from '#/components/confirm-popover.tsx'
-import { isAtTop, isNearBottom, shouldShowLoadOlder } from './use-chat-sync.ts'
+import {
+  anchoredScrollTop,
+  isAtTop,
+  isNearBottom,
+  messageRows,
+  shouldShowLoadOlder,
+} from './use-chat-sync.ts'
 import type { ChatMessage } from './use-chat-sync.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 type Props = {
   messages: Array<ChatMessage>
   nameFor: (playerId: Id<'players'>) => string
+  // WHOSE MESSAGES GO ON THE RIGHT, IN GREEN. `undefined` is "getMyPlayerId has
+  // not answered yet" and `null` is its real "no player" answer; both mean no
+  // message is claimed as yours, which is a first-paint flicker rather than a
+  // wrong claim. See `messageRows`.
+  myPlayerId?: Id<'players'> | null
   // A PROMISE THAT REJECTS ON FAILURE, not a fire-and-forget void callback.
   // That rejection is the only signal this component has for "did the delete
   // actually happen" — see the pending/close-on-success note below. The
@@ -92,10 +103,19 @@ type Props = {
  * messages, which is the part of a conversation everyone actually reads.
  * `shouldShowLoadOlder` is the whole of that rule and is tested; nothing about
  * it is decided in the JSX below.
+ *
+ * THE BUBBLES ARE DECIDED ENTIRELY BY `messageRows`, AND THAT IS THE POINT.
+ * Which side a message sits on, whether its author is named, whether it carries
+ * a tail, whether a time separator interrupts above it — every one of those is
+ * the kind of decision that gets written inline in the `.map` below, and this
+ * repo's suite runs on edge-runtime with no DOM and collects `*.test.ts` only,
+ * so a decision made in this file is a decision asserted by nothing. Everything
+ * below is a className hanging off a boolean somebody else computed.
  */
 export function MessageList({
   messages,
   nameFor,
+  myPlayerId,
   onDelete,
   canDelete,
   onLoadOlder,
@@ -116,6 +136,31 @@ export function MessageList({
   // rather than to the oldest one the browser happened to lay out first.
   const followRef = useRef(true)
   const [atTop, setAtTop] = useState(false)
+
+  /*
+    WHERE THE READER WAS STANDING WHEN THEY ASKED FOR HISTORY (wordle-teams-9ozu).
+
+    CAPTURED AT THE CLICK, WHICH IS THE ONLY MOMENT THE "BEFORE" EXISTS. By the
+    time the layout effect below runs, React has already committed the taller
+    list into the DOM and the pre-prepend `scrollHeight` is gone — there is
+    nothing left to measure. The click is also the only thing that can cause a
+    prepend, so there is no case where a prepend happens with no anchor.
+
+    THE OLDEST `_id` IS STORED WITH IT AS THE PROOF THAT A PREPEND ACTUALLY
+    HAPPENED, and both halves of that check are needed. A page that comes back
+    EMPTY leaves this anchor set with nothing to apply it to; the list can later
+    change for unrelated reasons (a delete slides the live window, dropping its
+    oldest message), and applying a stale height delta then would throw the
+    reader somewhere arbitrary. So the effect requires the oldest message to
+    have CHANGED and the one that was oldest to still be PRESENT — which is
+    exactly the signature of "content was inserted above" and is not the
+    signature of "the window slid".
+  */
+  const prependAnchor = useRef<{
+    scrollTop: number
+    scrollHeight: number
+    oldestId: Id<'chatMessages'> | null
+  } | null>(null)
 
   const readPosition = useCallback(() => {
     const scroller = scrollerRef.current
@@ -143,13 +188,39 @@ export function MessageList({
     scroll event, when it was still a fact about where the reader had put
     themselves.
 
+    THE PREPEND BRANCH COMES FIRST AND RETURNS, BEATING `followRef`. The two can
+    both be true at once and they want opposite things: a conversation shorter
+    than its own panel is "near the bottom" by definition (`isNearBottom`'s last
+    case) AND at its top, so loading history into it would otherwise scroll the
+    reader to the newest message — the exact opposite of what they just asked
+    for. Holding their place is the stronger claim, because they made it with a
+    click.
+
     `readPosition()` AFTERWARDS keeps `atTop` honest across an update that
     changes the geometry without a scroll event — a delete shortening the list,
-    or the first window arriving into an empty panel. Neither fires `onScroll`.
+    the first window arriving into an empty panel, or the prepend above, which
+    moves the reader off the top and must retire the "Load older" button until
+    they scroll back up to it. None of those fires `onScroll`.
   */
   useLayoutEffect(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
+
+    const anchor = prependAnchor.current
+    if (anchor !== null && anchor.oldestId !== null) {
+      const oldest = messages.length === 0 ? null : messages[0]._id
+      const prepended =
+        oldest !== anchor.oldestId &&
+        scroller.scrollHeight > anchor.scrollHeight &&
+        messages.some((message) => message._id === anchor.oldestId)
+      if (prepended) {
+        prependAnchor.current = null
+        scroller.scrollTop = anchoredScrollTop(anchor, scroller.scrollHeight)
+        readPosition()
+        return
+      }
+    }
+
     if (followRef.current) scroller.scrollTop = scroller.scrollHeight
     readPosition()
   }, [messages, readPosition])
@@ -169,11 +240,39 @@ export function MessageList({
     }
   }
 
+  const handleLoadOlder = () => {
+    const scroller = scrollerRef.current
+    if (scroller) {
+      prependAnchor.current = {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        oldestId: messages.length === 0 ? null : messages[0]._id,
+      }
+    }
+    onLoadOlder?.()
+  }
+
   const showLoadOlder = shouldShowLoadOlder({
     canLoadOlder: onLoadOlder !== undefined,
     windowLength,
     atTop,
   })
+
+  /*
+    `Date.now()` AT RENDER, NOT PINNED IN STATE, so "Today" stops being today at
+    midnight in a tab that has been open all evening rather than at the next
+    remount.
+
+    IT IS NOT A HYDRATION HAZARD HERE, WHICH IS THE ONLY REASON IT IS SAFE.
+    `useChatMessages` starts at `[]` and fills in from an effect, so the server
+    renders the empty state and no separator label is produced on that side at
+    all — there is no server string for a client one to disagree with.
+
+    THE ZONE IS THE HOST'S, DELIBERATELY (the omitted third argument). "Today"
+    can only honestly mean the reader's own day; the parameter exists so the
+    tests can pin a zone, not so the app can choose one.
+  */
+  const rows = messageRows(messages, myPlayerId, Date.now())
 
   return (
     // `min-h-0` IS WHAT MAKES `flex-1` ACTUALLY BOUND THIS BOX. A flex item's
@@ -191,14 +290,14 @@ export function MessageList({
         <button
           type="button"
           className="self-center p-2 text-xs underline disabled:opacity-50"
-          onClick={onLoadOlder}
+          onClick={handleLoadOlder}
           disabled={loadingOlder}
           data-testid="chat-load-older"
         >
           {loadingOlder ? 'Loading…' : 'Load older messages'}
         </button>
       ) : null}
-      {messages.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="p-4 text-sm text-muted-foreground">No messages yet. Say something.</p>
       ) : (
         // `mt-auto` PINS A SHORT CONVERSATION TO THE BOTTOM of the panel rather
@@ -206,29 +305,106 @@ export function MessageList({
         // which is where every chat client puts it and where the composer
         // expects it to grow from. It does nothing once the list is taller than
         // the panel.
-        <ol className="mt-auto flex flex-col gap-3 p-4" data-testid="chat-messages">
-          {messages.map((message) => (
-            <li key={message._id} className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{nameFor(message.playerId)}</span>
-              <span className="whitespace-pre-wrap break-words">{message.body}</span>
-              {onDelete && canDelete(message) ? (
-                <ConfirmPopover
-                  open={openId === message._id}
-                  onOpenChange={(open) => setOpenId(open ? message._id : null)}
-                  trigger={
-                    <button
-                      type="button"
-                      className="self-start text-xs text-muted-foreground underline"
-                      aria-label={`Delete message from ${nameFor(message.playerId)}`}
-                    >
-                      Delete
-                    </button>
-                  }
-                  message="Delete this message? This can't be undone."
-                  confirmLabel="Delete"
-                  pending={pendingId === message._id}
-                  onConfirm={() => void handleConfirm(message._id)}
-                />
+        //
+        // NO `gap` ANY MORE: the spacing between two bubbles is not one number.
+        // Inside a run it is hairline (`mt-0.5`) so the bubbles read as one
+        // utterance; between runs it is a real break (`mt-3`). A gap would add
+        // itself to both.
+        <ol className="mt-auto flex flex-col p-4" data-testid="chat-messages">
+          {rows.map((row) => (
+            <li
+              key={row.message._id}
+              className={`flex flex-col ${
+                row.separator !== null ? 'mt-1' : row.startsRun ? 'mt-3' : 'mt-0.5'
+              } ${row.mine ? 'items-end' : 'items-start'} first:mt-0`}
+            >
+              {/* CENTRED ACROSS THE WHOLE LIST, WHICH `w-full` IS WHAT BUYS —
+                  the row it sits in is aligned to one edge or the other for the
+                  bubble's sake, and a separator inherited into that alignment
+                  would sit under the last bubble rather than across the
+                  conversation. */}
+              {row.separator !== null ? (
+                <span className="w-full py-2 text-center text-xs text-muted-foreground">
+                  {row.separator}
+                </span>
+              ) : null}
+              {/* ONCE PER RUN, AND NEVER OVER YOUR OWN — see showsAuthorName.
+                  `px-3` lines it up with the bubble's own padding rather than
+                  with the bubble's edge, so the name sits over the first
+                  character of the message. */}
+              {row.showsName ? (
+                <span className="px-3 pb-0.5 text-xs text-muted-foreground">
+                  {nameFor(row.message.playerId)}
+                </span>
+              ) : null}
+              {/*
+                THE BUBBLE. `bg-accent-solid`, NOT `bg-primary` — the same call
+                today-panel.tsx's progress fill and unread-badge.tsx's dot both
+                made (wordle-teams-5jcn.21): `--primary` maps to `--text`, which
+                is near-white in dark, so "my messages" painted with it would be
+                a column of white slabs rather than the brand green. The
+                foreground is the token minted for exactly this pairing,
+                `--accent-solid-foreground`: #ffffff on #15803d is 5.00:1 in
+                light and #052e16 on #22c55e is 6.54:1 in dark, both clear of
+                AA, and both measured out of styles.css by styles.test.ts rather
+                than quoted here and left to rot.
+
+                THE OTHER SIDE IS `bg-muted text-foreground`, the app's neutral
+                band — `--surface-sunken`, the dark grey iMessage uses for the
+                other person in dark mode and the light grey it uses in light.
+                That pairing is already asserted at AA by styles.test.ts's
+                `--text on --surface-sunken`.
+
+                THE TAIL IS A FLATTENED CORNER ON THE LAST BUBBLE OF A RUN, on
+                the side the run is aligned to — which is what iMessage draws and
+                what makes a run read as one utterance with an end rather than as
+                a stack of separate arrivals. Done with a border radius rather
+                than a pseudo-element on purpose: a pointer hung off the side of
+                a bubble is one more thing that can stick out past a 390px
+                viewport, and this route already has to be measured for
+                horizontal overflow.
+
+                `max-w-[75%]` IS THE OTHER HALF OF "THIS READS AS A
+                CONVERSATION". A bubble that spans the full width has no side to
+                be on, so the alignment that identifies the author disappears on
+                exactly the long messages where it is most needed.
+              */}
+              <div
+                className={`max-w-[75%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm ${
+                  row.mine
+                    ? `bg-accent-solid text-accent-solid-foreground ${row.endsRun ? 'rounded-br-sm' : ''}`
+                    : `bg-muted text-foreground ${row.endsRun ? 'rounded-bl-sm' : ''}`
+                }`}
+              >
+                {row.message.body}
+              </div>
+              {onDelete && canDelete(row.message) ? (
+                // THE TRIGGER ITSELF IS UNTOUCHED — part 3 replaces the whole
+                // affordance with a long-press menu, so changing it here would
+                // be work done twice. It gains only a row to sit in, which puts
+                // it under the bubble it belongs to instead of at the far side
+                // of the list: the button's own `self-start` is an align-self,
+                // so in a ROW it acts on the cross axis and moves nothing
+                // horizontally.
+                <div className={`flex w-full ${row.mine ? 'justify-end' : 'justify-start'}`}>
+                  <ConfirmPopover
+                    open={openId === row.message._id}
+                    onOpenChange={(open) => setOpenId(open ? row.message._id : null)}
+                    trigger={
+                      <button
+                        type="button"
+                        className="self-start text-xs text-muted-foreground underline"
+                        aria-label={`Delete message from ${nameFor(row.message.playerId)}`}
+                      >
+                        Delete
+                      </button>
+                    }
+                    message="Delete this message? This can't be undone."
+                    confirmLabel="Delete"
+                    pending={pendingId === row.message._id}
+                    onConfirm={() => void handleConfirm(row.message._id)}
+                  />
+                </div>
               ) : null}
             </li>
           ))}
