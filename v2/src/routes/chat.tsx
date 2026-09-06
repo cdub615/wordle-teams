@@ -67,10 +67,15 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
 
   // A PLAYER ID NOT AMONG CURRENT MEMBERS RENDERS AS "Former member" —
   // documented behaviour, not a fallback: messages deliberately outlive their
-  // author leaving the team (see message-list.tsx). This also covers `team`
-  // being undefined for the few renders before getMyTeams resolves.
+  // author leaving the team (see message-list.tsx). "Not loaded yet" is NOT
+  // the same claim: `team` is undefined for the few renders before
+  // getMyTeams resolves, and "Former member" is a factual statement about
+  // membership, not a placeholder — saying it about a live teammate because a
+  // query has not settled would be a lie the UI tells for a few hundred
+  // milliseconds. That case renders an empty name instead.
   const nameFor = (playerId: Id<'players'>): string => {
-    const member = team?.members.find((candidate) => candidate.id === playerId)
+    if (!team) return ''
+    const member = team.members.find((candidate) => candidate.id === playerId)
     return member ? `${member.firstName} ${member.lastName}` : 'Former member'
   }
 
