@@ -102,8 +102,39 @@ export function Composer({ onSend, disabled }: Props) {
     // input grows upward, which is where a send control belongs; `shrink-0`
     // because this is the fixed-size end of chat.tsx's flex column and the
     // message list above it is the part that gives.
+    //
+    // THE BOTTOM PADDING IS `max(1rem, env(safe-area-inset-bottom))`, AND BOTH
+    // HALVES ARE DELIBERATE. `p-3` alone put the Send button's baseline 12px
+    // from the very bottom edge of the phone, which the owner reported as
+    // squished — measured at 390x844, the composer's box ended exactly on the
+    // viewport's last pixel with nothing under it. 1rem is the base that gives
+    // it room to breathe.
+    //
+    // THE `max()` IS THE SHAPE RATHER THAN A PLAIN `pb-4` BECAUSE OF WHAT IT
+    // BECOMES LATER. On a device with a home indicator, the inset is the space
+    // the OS will draw its own furniture in, and it is larger than 1rem — so
+    // the same declaration is "breathing room" today and "clear of the home
+    // indicator" the day the app opts into the full screen, with no second
+    // number to remember.
+    //
+    // `env(safe-area-inset-bottom)` EVALUATES TO 0 TODAY, AND THAT IS EXPECTED
+    // RATHER THAN DEAD CODE. The viewport meta in __root.tsx is
+    // `width=device-width, initial-scale=1` with NO `viewport-fit=cover`, and
+    // without that the insets are all zero — so `max()` falls through to the
+    // 1rem base, which is exactly the behaviour asked for. Adding
+    // `viewport-fit=cover` is an app-wide change: it lets content extend under
+    // the notch and the home indicator on EVERY route, and every page would
+    // need its own look before that is safe. Deliberately not done here. This
+    // is the app's first safe-area handling of any kind; there was no idiom to
+    // match.
+    //
+    // NOTHING ELSE ABOUT THE LAYOUT MOVES. This is padding on an element that
+    // is already in ordinary document flow — no `position: fixed`, no scroll
+    // lock, no `overflow: hidden` anywhere on the shell — so the iOS keyboard
+    // behaviour the whole composer depends on is untouched. See the note above
+    // on why that matters.
     <form
-      className="sticky bottom-0 flex shrink-0 items-end gap-2 border-t bg-background p-3"
+      className="sticky bottom-0 flex shrink-0 items-end gap-2 border-t bg-background p-3 pb-[max(1rem,env(safe-area-inset-bottom))]"
       onSubmit={(e) => {
         e.preventDefault()
         void submit()
