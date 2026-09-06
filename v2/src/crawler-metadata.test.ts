@@ -167,8 +167,8 @@ describe('public/robots.txt', () => {
     expect(robots.groups[0].userAgents).toEqual(['*'])
   })
 
-  test('disallows exactly /app, /team, /me, /complete-profile and /api', () => {
-    // SORTED AND EXHAUSTIVE, not five toContain calls. The mutation a
+  test('disallows exactly /app, /team, /me, /chat, /complete-profile and /api', () => {
+    // SORTED AND EXHAUSTIVE, not six toContain calls. The mutation a
     // `toContain('Disallow: /app')` cannot see is an ADDED rule — a
     // `Disallow: /privacy` slipped in beneath these would deindex the legal
     // pages and satisfy every positive assertion in the file.
@@ -177,9 +177,13 @@ describe('public/robots.txt', () => {
     // entry rather than riding along on `/app`'s prefix match: routes/team.tsx
     // is a sibling top-level route, not nested under /app, so a pathname of
     // `/team` does not start with `/app` and the older rule does not reach it.
+    //
+    // /chat JOINED IN Part 2 Task 1, for the same reason: it is its own
+    // top-level route and everything it renders requires a signed-in player.
     expect([...robots.groups[0].disallow].sort()).toEqual([
       '/api',
       '/app',
+      '/chat',
       '/complete-profile',
       '/me',
       '/team',

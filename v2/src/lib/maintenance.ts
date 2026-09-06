@@ -73,14 +73,14 @@ export const MAINTENANCE_PATH = '/maintenance'
 /**
  * The route subtrees whose descendants are gated as well as their own path.
  *
- * NONE OF THE FOUR HAS A CHILD ROUTE TODAY — src/routeTree.gen.ts lists
- * exactly `/app`, `/team`, `/me` and `/complete-profile`. They are matched as
- * subtrees anyway because v1's matcher did the same thing for the same
- * reason: it lists `'/me'` next to `'/me/:path*'` and `'/complete-profile'`
- * next to its `:path*` form "rather than relying on zero-segment matching, so
- * a protected route can never fall through by accident". A child added later
- * is covered on the day it is added rather than on the day someone remembers
- * this file.
+ * NONE OF THE FIVE HAS A CHILD ROUTE TODAY — src/routeTree.gen.ts lists
+ * exactly `/app`, `/team`, `/me`, `/chat` and `/complete-profile`. They are
+ * matched as subtrees anyway because v1's matcher did the same thing for the
+ * same reason: it lists `'/me'` next to `'/me/:path*'` and
+ * `'/complete-profile'` next to its `:path*` form "rather than relying on
+ * zero-segment matching, so a protected route can never fall through by
+ * accident". A child added later is covered on the day it is added rather
+ * than on the day someone remembers this file.
  *
  * `/team` JOINED THIS SET IN wordle-teams-5jcn.29, THE DAY IT WAS ADDED —
  * which is this module's whole argument for reading the route list out of the
@@ -90,8 +90,12 @@ export const MAINTENANCE_PATH = '/maintenance'
  * dashboard is during an outage, and leaving it ungated would make it the one
  * page still trying to talk to a dead backend while everything else correctly
  * says so.
+ *
+ * `/chat` JOINED THE DAY IT WAS ADDED TOO (Part 2 Task 1), for the identical
+ * reason: its one query goes through the same Convex deployment as everything
+ * else on this list.
  */
-const GATED_SUBTREES = ['/app', '/team', '/me', '/complete-profile'] as const
+const GATED_SUBTREES = ['/app', '/team', '/me', '/chat', '/complete-profile'] as const
 
 /**
  * AN ALLOWLIST, NOT A FILTER — and the exclusions are the deliberate part.

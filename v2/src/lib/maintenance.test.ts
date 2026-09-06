@@ -55,14 +55,16 @@ describe('isMaintenanceGated', () => {
     // each protected path listed alongside its ':path*' form. /branding has no
     // v2 counterpart; /app is where the dashboard lives. /team joined this list
     // in wordle-teams-5jcn.29 — team settings reads and writes the same Convex
-    // backend /app does, so it is exactly as broken during an outage.
-    for (const path of ['/', '/login', '/app', '/team', '/me', '/complete-profile'])
+    // backend /app does, so it is exactly as broken during an outage. /chat
+    // joined in Part 2 Task 1 for the same reason.
+    for (const path of ['/', '/login', '/app', '/team', '/me', '/chat', '/complete-profile'])
       expect(isMaintenanceGated(path), `${path} should be gated`).toBe(true)
 
     for (const path of [
       '/app/teams/abc123',
       '/team/anything',
       '/me/anything',
+      '/chat/anything',
       '/complete-profile/step-2',
     ])
       expect(isMaintenanceGated(path), `${path} should be gated`).toBe(true)
@@ -160,6 +162,7 @@ describe('every route the app has, sorted into gated and not', () => {
       '/api/auth/$',
       '/api/funnel',
       '/app',
+      '/chat',
       '/complete-profile',
       '/home',
       '/login',
@@ -173,14 +176,15 @@ describe('every route the app has, sorted into gated and not', () => {
     ])
   })
 
-  test('the split is exactly the six app paths, and nothing else', () => {
+  test('the split is exactly the seven app paths, and nothing else', () => {
     // /maintenance is in the UNGATED list, where it has to be: it is what
     // src/server.ts redirects a gated request to, so gating it is a browser
     // following this Worker in a circle. /team joined the gated side in
-    // wordle-teams-5jcn.29.
+    // wordle-teams-5jcn.29; /chat joined it in Part 2 Task 1.
     expect(paths.filter(isMaintenanceGated)).toEqual([
       '/',
       '/app',
+      '/chat',
       '/complete-profile',
       '/login',
       '/me',

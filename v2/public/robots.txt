@@ -26,6 +26,11 @@
 #                     because production PWA installs carry start_url: /me and
 #                     an installed iOS PWA never adopts a new one. It IS /app,
 #                     so it is excluded like /app.
+#   /chat             team chat (Part 2, Task 1). Every query it renders goes
+#                     through Convex's requirePlayer, so a signed-out crawler
+#                     gets an error state and nothing worth indexing — same
+#                     reasoning as /app and /team, which this route will grow
+#                     to resemble.
 #   /complete-profile a step inside sign-up. Meaningless without a session.
 #   /api              /api/auth/$ is Better Auth's proxy to Convex and
 #                     /api/funnel takes analytics beacons. Neither speaks HTML.
@@ -51,6 +56,7 @@ Allow: /
 Disallow: /app
 Disallow: /team
 Disallow: /me
+Disallow: /chat
 Disallow: /complete-profile
 Disallow: /api
 
