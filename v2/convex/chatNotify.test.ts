@@ -183,8 +183,12 @@ describe('pendingChatNotificationsFor', () => {
   })
 
   test('a team whose document has been deleted is skipped, not thrown on', async () => {
-    // chatMeta is not cascaded on team deletion, so an orphan row is reachable.
-    // One of those must not take the whole sweep down for everybody else.
+    // deleteTeamFor DOES cascade chatMeta, so this state is not reachable
+    // through the app today — the row is written directly here. The branch
+    // exists for the paths that cascade does not cover (a copy or migration
+    // writing chatMeta, a future delete path forgetting one of the three
+    // tables), and the cost of getting it wrong is the whole sweep dying on
+    // one row and delivering nothing to anybody.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())

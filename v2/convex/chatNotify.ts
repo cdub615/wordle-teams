@@ -104,9 +104,14 @@ export async function pendingChatNotificationsFor(
   const pending: Array<PendingChatNotification> = []
 
   for (const meta of metas) {
-    // chatMeta is not cascaded when a team is deleted, so an orphan row is
-    // reachable. Skipping is the answer, not throwing: one orphan must not
-    // take the sweep down for every other team in the deployment.
+    // NOT REACHABLE TODAY, AND KEPT ANYWAY. deleteTeamFor (teams.ts) cascades
+    // chatMeta along with the messages and the cursors, so a live deployment
+    // should hold no row whose team is gone. This branch is for the states
+    // that cascade does not cover: a copy or a migration that writes chatMeta
+    // without going through it, and any future delete path that forgets one of
+    // the three tables. Skipping is the answer rather than throwing, because
+    // one orphan must not take the sweep down for every other team in the
+    // deployment — a sweep that dies here delivers nothing to anybody.
     const team = await ctx.db.get(meta.teamId)
     if (team === null) continue
 
