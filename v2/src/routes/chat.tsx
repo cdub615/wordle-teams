@@ -46,14 +46,6 @@ function ChatRoute() {
   return <ChatPanel teamId={team as Id<'teams'>} />
 }
 
-/**
- * `data-testid="chat-pointer"` STAYS, ALONGSIDE THE REAL LIST AND COMPOSER
- * NOW. Task 2 is an outstanding spike that needs to watch the live pointer
- * value in two browsers side by side, and it has not run yet — removing the
- * debug block here would take that away before the spike has reported. A
- * later task removes it once that happens. Scrollback is Task 6 and must not
- * be built here.
- */
 function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   const pointer = useChatPointer(teamId)
   const { messages } = useChatMessages(teamId)
@@ -125,9 +117,6 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
 
   return (
     <>
-      <pre className="p-4 text-xs" data-testid="chat-pointer">
-        {JSON.stringify(pointer.data, null, 2)}
-      </pre>
       <MessageList
         messages={messages}
         nameFor={nameFor}
