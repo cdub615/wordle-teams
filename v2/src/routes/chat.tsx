@@ -1,10 +1,12 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, redirect, Link } from '@tanstack/react-router'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { ArrowLeft } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   beforeForOlder,
+  chatHeading,
   mergeOlder,
   nextOlderOutcome,
   useChatMessages,
@@ -13,6 +15,8 @@ import {
 import type { ChatMessage } from '#/components/chat/use-chat-sync.ts'
 import { MessageList } from '#/components/chat/message-list.tsx'
 import { Composer } from '#/components/chat/composer.tsx'
+import { Button } from '#/components/ui/button.tsx'
+import { Skeleton } from '#/components/ui/skeleton.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
@@ -51,6 +55,67 @@ function ChatRoute() {
   const { team } = Route.useSearch()
   if (!team) return <p className="p-4">No team selected.</p>
   return <ChatPanel teamId={team as Id<'teams'>} />
+}
+
+/**
+ * THE WAY OUT, AND THE ANSWER TO "WHICH TEAM AM I IN". Until this, /chat
+ * rendered the global header, the message list and the composer, and nothing
+ * else: no route back to the app but the browser's own button, and no mention
+ * anywhere of whose conversation was on screen. The push notification's body is
+ * "New messages in TEAMNAME", so the one visitor most likely to arrive here
+ * cold was the one given the least to orient by.
+ *
+ * THE SHAPE IS routes/team.tsx'S, NOT A NEW ONE. That is the app's other
+ * team-scoped page and it already answers this exact problem — a ghost
+ * icon-Button wrapping a Link with an ArrowLeft and an `aria-label`, then the
+ * page's `h1` beside it. Copied down to the label wording ("Back to
+ * dashboard"), because two team-scoped pages that go back differently is a
+ * worse outcome than either shape on its own.
+ *
+ * `search={{ team: teamId }}` IS THE POINT OF THE CONTROL. A bare `to="/app"`
+ * would land on whatever team the dashboard defaults to, which for someone who
+ * followed a notification into a SECOND team is the wrong one — and silently
+ * so, since /app's own search sync would then rewrite the URL to match.
+ *
+ * THE HEADING RENDERS IN ALL THREE OF `chatHeading`'S STATES and asserts a
+ * name in only one of them. `pending` gets a Skeleton — the app's own idiom
+ * everywhere else — plus screen-reader-only text, so the page still has a
+ * named `h1` rather than an empty one for the few hundred milliseconds before
+ * getMyTeams answers. `unnamed` gets the generic "Team chat": that is the
+ * outsider case as well as the stale-link one, and the team whose messages
+ * someone may not read is a team whose NAME they may not have either.
+ */
+function ChatHeader({
+  teamId,
+  heading,
+}: {
+  teamId: Id<'teams'>
+  heading: ReturnType<typeof chatHeading>
+}) {
+  return (
+    <div className="flex items-center gap-2 border-b p-3">
+      <Button variant="ghost" size="icon" aria-label="Back to dashboard" asChild>
+        <Link to="/app" search={{ team: teamId }}>
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      </Button>
+      {/* `truncate` FOR THE SAME REASON TeamPicker'S LABEL HAS IT: a team name
+          is someone's data, not a fixed string, and a long one on a 390px
+          phone would otherwise push this row wider than the viewport. */}
+      <h1 className="truncate text-xl font-bold">
+        {heading.kind === 'named' ? (
+          heading.name
+        ) : heading.kind === 'unnamed' ? (
+          'Team chat'
+        ) : (
+          <>
+            <Skeleton className="h-6 w-40" />
+            <span className="sr-only">Loading team name</span>
+          </>
+        )}
+      </h1>
+    </div>
+  )
 }
 
 function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
@@ -125,10 +190,28 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
     markRead({ teamId }).catch(() => {})
   }, [markRead, teamId])
 
-  if (pointer.isPending) return <p className="p-4">Loading…</p>
-  if (pointer.error) return <p className="p-4">Could not load chat.</p>
-
+  // RESOLVED ABOVE THE EARLY RETURNS, NOT BELOW THEM, so the header can render
+  // in the pending and error branches too. Those two were the deadest ends of
+  // the lot: "Loading…" and "Could not load chat." on a page with no way back
+  // and nothing naming the team, which is exactly what an outsider following a
+  // stale link saw.
   const team = teams?.find((candidate) => candidate.id === teamId)
+  const header = <ChatHeader teamId={teamId} heading={chatHeading(teams, teamId)} />
+
+  if (pointer.isPending)
+    return (
+      <>
+        {header}
+        <p className="p-4">Loading…</p>
+      </>
+    )
+  if (pointer.error)
+    return (
+      <>
+        {header}
+        <p className="p-4">Could not load chat.</p>
+      </>
+    )
 
   // A PLAYER ID NOT AMONG CURRENT MEMBERS RENDERS AS "Former member" —
   // documented behaviour, not a fallback: messages deliberately outlive their
@@ -215,6 +298,7 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
 
   return (
     <>
+      {header}
       <MessageList
         messages={shown}
         nameFor={nameFor}

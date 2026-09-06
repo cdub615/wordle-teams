@@ -322,6 +322,44 @@ export function chatEntryLabel(unread: boolean): string {
   return unread ? 'Team chat, unread messages' : 'Team chat'
 }
 
+export type ChatHeadingState =
+  | { kind: 'pending' }
+  | { kind: 'named'; name: string }
+  | { kind: 'unnamed' }
+
+/**
+ * What the chat page's heading may claim, given `getMyTeams` and the team in
+ * the URL.
+ *
+ * THE PAGE NEVER NAMED THE CONVERSATION AT ALL BEFORE THIS, which matters most
+ * for the visitor it was least able to help: the push notification's body is
+ * "New messages in TEAMNAME", and tapping it landed someone on a route that
+ * showed a message list and a composer and nothing that confirmed WHICH team
+ * they had opened.
+ *
+ * THREE STATES, BECAUSE TWO WOULD LIE IN ONE OF THEM. `teams` is `undefined`
+ * until getMyTeams resolves and an ARRAY WITHOUT THIS TEAM when the visitor is
+ * not on it — a stale link, a team they have left, or the outsider
+ * e2e/chat.spec.ts drives at this route deliberately. Collapsing those two into
+ * "no name" would be harmless; collapsing either into a NAME is the bug
+ * routes/chat.tsx's `nameFor` comment describes, one heading up: a claim
+ * asserted from data that has not arrived. So the caller gets to render a
+ * placeholder for one and a generic title for the other.
+ *
+ * `unnamed` IS ALSO A PRIVACY BOUNDARY, not only a correctness one. The team
+ * whose chat an outsider cannot read is a team whose NAME they should not be
+ * handed either, and this returns the same answer for "not a member" as for
+ * "no such team" — the caller has nothing to leak.
+ */
+export function chatHeading(
+  teams: Array<{ id: string; name: string }> | undefined,
+  teamId: Id<'teams'>,
+): ChatHeadingState {
+  if (teams === undefined) return { kind: 'pending' }
+  const team = teams.find((candidate) => candidate.id === teamId)
+  return team === undefined ? { kind: 'unnamed' } : { kind: 'named', name: team.name }
+}
+
 /**
  * Fetch `recentMessages` fresh, bypassing TanStack's cache.
  *

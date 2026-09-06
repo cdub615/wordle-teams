@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   beforeForOlder,
   chatEntryLabel,
+  chatHeading,
   hasUnread,
   hasUnreadElsewhere,
   isCurrentRequest,
@@ -297,5 +298,49 @@ describe('teamPickerLabel', () => {
     const long = 'Some very long team name'
     expect(teamPickerLabel(long, true)).toContain(long)
     expect(teamPickerLabel(long, false)).toContain(long)
+  })
+})
+/**
+ * The chat page's heading, which until now did not exist: /chat rendered a
+ * message list and a composer and never said whose conversation it was.
+ */
+describe('chatHeading', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+  const teams = [
+    { id: 'team_alpha', name: 'White Famiglia' },
+    { id: 'team_beta', name: 'Wordle Wizards' },
+  ]
+
+  it('names the team once getMyTeams has answered', () => {
+    expect(chatHeading(teams, alpha)).toEqual({ kind: 'named', name: 'White Famiglia' })
+  })
+
+  it('picks the team in the URL, not the first one the player is on', () => {
+    // The push notification that lands someone here names a SPECIFIC team, and
+    // the whole point of the heading is confirming which conversation opened.
+    expect(chatHeading(teams, beta)).toEqual({ kind: 'named', name: 'Wordle Wizards' })
+  })
+
+  // THE DISTINCTION THE WHOLE TYPE EXISTS FOR, and the same one `hasUnread`
+  // draws: `undefined` is TanStack's pre-resolution state, not an answer.
+  // Rendering a name from it is impossible, but rendering the OTHER state's
+  // answer — a permanent generic title — would be wrong in the opposite
+  // direction, since the name is about to arrive.
+  it('is pending while getMyTeams has not resolved', () => {
+    expect(chatHeading(undefined, alpha)).toEqual({ kind: 'pending' })
+  })
+
+  it('is unnamed for a team the player is not on, which is the outsider case', () => {
+    // e2e/chat.spec.ts drives exactly this: a signed-in account opening
+    // /chat?team=<someone else's team>. It asserts nothing of that
+    // conversation leaks — the NAME included, which is why this is not
+    // "pending" and not a name.
+    expect(chatHeading(teams, 'team_gamma' as Id<'teams'>)).toEqual({ kind: 'unnamed' })
+  })
+
+  it('is unnamed, not pending, for a player on no teams at all', () => {
+    // `[]` is a real answer, exactly as it is for hasUnread.
+    expect(chatHeading([], alpha)).toEqual({ kind: 'unnamed' })
   })
 })

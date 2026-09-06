@@ -473,6 +473,7 @@ describe('the dashboard CTA reaches the CHECKOUT, and app.tsx is where that is d
 describe('/chat is reachable from the app, which is the whole of wordle-teams-qix.25', () => {
   const APP = './routes/app.tsx'
   const PICKER = './components/team-picker.tsx'
+  const CHAT = './routes/chat.tsx'
 
   // The two `<Link>`s in app.tsx's controls row: "Team settings" and this. A
   // `find` rather than an index, so reordering the row is not a failure.
@@ -576,6 +577,27 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     )
   })
 
+  test('and /chat is not a dead end: it goes back to the dashboard for the SAME team', () => {
+    // THE RETURN LEG, WHICH IS THE OTHER HALF OF REACHABILITY. The route had
+    // exactly one exit — the browser's own back button — and the app's other
+    // team-scoped page (routes/team.tsx) has had a Link back to /app since it
+    // was written. `search` is what makes it the same team: a bare `to="/app"`
+    // lands on whatever the dashboard defaults to, which for someone who
+    // followed a push notification into their SECOND team is the wrong one.
+    const back = jsxElements(CHAT, 'Link').find((props) => props.get('to') === '"/app"')
+    expect(back, 'no <Link to="/app"> in routes/chat.tsx').toBeDefined()
+    expect(back?.get('search')).toBe('{ team: teamId }')
+  })
+
+  test('and it names the conversation from chatHeading, which has a not-loaded state', () => {
+    // NOT `team?.name`, WHICH IS THE PLAUSIBLE WRONG VERSION: `teams` is
+    // undefined until getMyTeams resolves and lacks the team entirely for an
+    // outsider, and those two want different headings — a placeholder and a
+    // generic title. Reading the name straight off the find would render an
+    // empty heading for both and leak nothing about which case it was in.
+    expect(jsxProps(CHAT, 'ChatHeader').get('heading')).toBe('chatHeading(teams, teamId)')
+  })
+
   test('neither placement reaches convex/lib/chat.ts, which would ship auth.ts to the browser', () => {
     // THE BUG THIS COST AN AFTERNOON OF, recorded on convex/lib/chatLimits.ts:
     // lib/chat.ts -> access.ts -> auth.ts, which THROWS AT MODULE SCOPE without
@@ -583,7 +605,7 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     // tree-shake, so one import drags the auth module into the client chunk and
     // kills the route. The CI grep for the throw string catches it in the
     // built bundle; this catches it in the file, where the fix is.
-    for (const path of [APP, PICKER]) {
+    for (const path of [APP, PICKER, CHAT]) {
       expect(read(path)).not.toMatch(/from '.*convex\/lib\/chat\.ts'/)
     }
   })
