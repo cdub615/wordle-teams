@@ -136,6 +136,53 @@ describe('deliverTo', () => {
     expect(sendNotification).toHaveBeenCalledTimes(2)
   })
 
+  test('sends the board-entry reminder copy when no notification is supplied', async () => {
+    // The DEFAULT, exercised end to end rather than read off the source.
+    // src/lib/sw-push.test.ts pins the literal itself byte-identical to the
+    // service worker's fallback; this pins that the literal is what actually
+    // goes on the wire for the caller — reminders.sweep — that passes nothing.
+    const t = convexTest(schema, modules)
+    const playerId = await seed(t)
+    sendNotification.mockResolvedValue(SEND_OK)
+
+    await t.action(internal.pushSend.deliverTo, { playerId, attempt: 0 })
+
+    expect(JSON.parse(sendNotification.mock.calls[0]![1] as string)).toEqual({
+      title: 'Wordle Teams',
+      body: "You have not entered today's board yet. Don't miss out on those points!",
+      url: '/app',
+    })
+  })
+
+  test('sends a supplied notification instead of the reminder copy', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await seed(t)
+    sendNotification.mockResolvedValue(SEND_OK)
+    const notification = { title: 'Wordle Teams', body: 'New messages in team 206', url: '/chat?team=x' }
+
+    await t.action(internal.pushSend.deliverTo, { playerId, attempt: 0, notification })
+
+    expect(JSON.parse(sendNotification.mock.calls[0]![1] as string)).toEqual(notification)
+  })
+
+  test('THE RETRY CARRIES THE SAME NOTIFICATION, not the reminder default', async () => {
+    // Dropping `notification` from the reschedule type-checks, lints and
+    // leaves every other test in this file green — and turns a chat
+    // notification into "you have not entered today's board yet" a minute
+    // later, for the one player whose first attempt failed.
+    const t = convexTest(schema, modules)
+    const playerId = await seed(t)
+    sendNotification.mockRejectedValueOnce(webPushError(500)).mockResolvedValueOnce(SEND_OK)
+    const notification = { title: 'Wordle Teams', body: 'New messages in team 206', url: '/chat?team=x' }
+
+    vi.useFakeTimers()
+    await t.action(internal.pushSend.deliverTo, { playerId, attempt: 0, notification })
+    await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+    expect(sendNotification).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(sendNotification.mock.calls[1]![1] as string)).toEqual(notification)
+  })
+
   test('a retryable failure on attempt 1 schedules no further retry', async () => {
     const t = convexTest(schema, modules)
     const playerId = await seed(t)

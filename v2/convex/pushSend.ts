@@ -9,6 +9,47 @@ import { safePushErrorLog } from './lib/pushErrors.ts'
 const RETRY_DELAY_MS = 60_000
 
 /**
+ * THE OTHER COPY OF THIS COPY IS `REMINDER_FALLBACK` in v2/src/lib/sw-push.ts,
+ * which `readReminder` renders — these exact three strings — when
+ * `event.data.json()` throws on a truncated or non-JSON push body. (src/sw.ts
+ * only imports the two; the test that pins the two copies byte-identical is
+ * src/lib/sw-push.test.ts.) Byte-identical today. Not shared as a module: this
+ * is a Convex 'use node' action and that is a browser service worker bundled
+ * separately by scripts/build-sw.mjs, so there is no import path between them
+ * that does not drag one runtime into the other. CHANGE BOTH, or the
+ * notification a user sees on a malformed push quietly stops matching the one
+ * they see normally.
+ *
+ * A MODULE-SCOPE CONST RATHER THAN AN INLINE LITERAL, since `deliverTo` gained
+ * a second notification type: `notification ?? REMINDER_PAYLOAD` keeps this
+ * copy the DEFAULT — what a caller passing nothing gets — rather than one of
+ * two equal branches, and keeps the literal itself in one bounded place for
+ * sw-push.test.ts to read.
+ */
+const REMINDER_PAYLOAD = {
+  title: 'Wordle Teams',
+  body: "You have not entered today's board yet. Don't miss out on those points!",
+  url: '/app',
+}
+
+/**
+ * The three fields the service worker renders — see `ReminderPayload` in
+ * src/lib/sw-push.ts, which is the reading half of this shape.
+ *
+ * `url` MUST BE A RELATIVE, SAME-ORIGIN PATH. `resolveNotificationUrl` clamps
+ * it to the worker's own origin, and that clamp is the security boundary of the
+ * worker, not a formatting nicety: anything that can put a string here — a
+ * server bug, a future feature echoing user input into a notification —
+ * otherwise becomes an open redirect that opens in the app's own window, under
+ * our icon. A payload that needs the clamp to save it is a bug on this side.
+ */
+const notificationValidator = v.object({
+  title: v.string(),
+  body: v.string(),
+  url: v.string(),
+})
+
+/**
  * Deliver one player's reminder to every endpoint they have registered.
  *
  * 'use node' IS LOAD-BEARING. web-push signs a VAPID JWT and encrypts the
@@ -28,6 +69,16 @@ const RETRY_DELAY_MS = 60_000
  * per day — so a failure here is not picked up by the next tick. Nothing else
  * would try again.
  *
+ * `notification` MAKES THIS SERVE TWO SENDERS, and defaulting is the whole
+ * point of its being optional: reminders.sweep passes nothing and gets the
+ * board-entry copy it always got, chatNotify.sweep passes the team's batched
+ * line and its `/chat?team=<id>` deep link. The alternative was a second action
+ * with its own copy of the VAPID setup, the endpoint loop, the 404/410 cleanup
+ * and the retry bound — four things that must not drift, duplicated to vary
+ * three strings. THE RETRY FORWARDS IT: rescheduling without `notification`
+ * would deliver a board-entry reminder in place of a chat notification, one
+ * minute later, to the one player whose first attempt failed.
+ *
  * THE RETRY IS PER-PLAYER, NOT PER-ENDPOINT, and that has an accepted cost: it
  * resends to EVERY subscription this player has, including one that already
  * succeeded, and the payload carries no `tag` for the push service to collapse
@@ -37,8 +88,12 @@ const RETRY_DELAY_MS = 60_000
  * narrowing later.
  */
 export const deliverTo = internalAction({
-  args: { playerId: v.id('players'), attempt: v.number() },
-  handler: async (ctx, { playerId, attempt }) => {
+  args: {
+    playerId: v.id('players'),
+    attempt: v.number(),
+    notification: v.optional(notificationValidator),
+  },
+  handler: async (ctx, { playerId, attempt, notification }) => {
     const subject = process.env.VAPID_SUBJECT
     const publicKey = process.env.VAPID_PUBLIC_KEY
     const privateKey = process.env.VAPID_PRIVATE_KEY
@@ -79,21 +134,9 @@ export const deliverTo = internalAction({
     const subscriptions = await ctx.runQuery(internal.push.subscriptionsFor, { playerId })
     if (subscriptions.length === 0) return
 
-    // THE OTHER COPY OF THIS COPY IS `REMINDER_FALLBACK` in
-    // v2/src/lib/sw-push.ts, which `readReminder` renders — these exact three
-    // strings — when `event.data.json()` throws on a truncated or non-JSON
-    // push body. (src/sw.ts only imports the two; the test that pins the two
-    // copies byte-identical is src/lib/sw-push.test.ts.) Byte-identical today. Not shared as
-    // a module: this is a Convex 'use node' action and that is a browser
-    // service worker bundled separately by scripts/build-sw.mjs, so there is no
-    // import path between them that does not drag one runtime into the other.
-    // CHANGE BOTH, or the notification a user sees on a malformed push quietly
-    // stops matching the one they see normally.
-    const payload = JSON.stringify({
-      title: 'Wordle Teams',
-      body: "You have not entered today's board yet. Don't miss out on those points!",
-      url: '/app',
-    })
+    // See REMINDER_PAYLOAD above for the copy this defaults to and why it is
+    // duplicated in the service worker.
+    const payload = JSON.stringify(notification ?? REMINDER_PAYLOAD)
 
     // NOT "TRANSIENT" — the name would claim more than this loop can know.
     // Everything that isn't 404/410 sets this, including failures that will
@@ -163,9 +206,15 @@ export const deliverTo = internalAction({
     }
 
     if (retryableFailure && attempt === 0) {
+      // `notification` IS FORWARDED, not dropped. Without it the retry sends
+      // the DEFAULT board-entry copy in place of whatever this invocation was
+      // actually delivering — a chat notification turning into "you have not
+      // entered today's board yet" a minute later, for the one player whose
+      // first attempt failed.
       await ctx.scheduler.runAfter(RETRY_DELAY_MS, internal.pushSend.deliverTo, {
         playerId,
         attempt: 1,
+        notification,
       })
     }
   },

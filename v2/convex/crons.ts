@@ -21,4 +21,27 @@ const crons = cronJobs()
 
 crons.hourly('board entry reminders', { minuteUTC: 0 }, internal.reminders.sweep, {})
 
+/**
+ * Team chat's batched push sweep (Phase 7.5, design §5).
+ *
+ * AT HALF PAST, NOT ON THE HOUR, AND THAT IS THE DECISION RATHER THAN A
+ * DEFAULT. Both sweeps are mutations that walk a table and schedule
+ * `pushSend.deliverTo` jobs, so stacking them on the same minute means one
+ * deployment-wide burst of push traffic every hour and two table walks
+ * contending for the scheduler at once. They also share a writer: the chat
+ * sweep patches `chatReads`, which the reminder sweep does not touch, but both
+ * read `players` and both enqueue into `_scheduled_functions`. Separating them
+ * by thirty minutes costs nothing — chat notifications are already an hour
+ * coarse by design — and it keeps a slow run of one from being tangled up with
+ * the other when something needs diagnosing.
+ *
+ * `{}` AND NOTHING ELSE, for the same reason spelled out above: a cron's args
+ * are serialised to JSON when THIS MODULE is evaluated, not when the job fires.
+ * `sweep` takes no arguments at all, so there is nothing here that COULD be
+ * frozen today — but the empty object is still the only correct value, and the
+ * reason it stays empty is worth knowing before somebody adds a `now` to make
+ * this testable the way reminders.sweep's is.
+ */
+crons.hourly('chat notifications', { minuteUTC: 30 }, internal.chatNotify.sweep, {})
+
 export default crons

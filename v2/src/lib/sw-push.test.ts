@@ -229,11 +229,31 @@ describe('REMINDER_FALLBACK', () => {
     // unfound anchor made `slice(-1)` yield the file's last character, so a
     // rename of the const produced a baffling `toContain` failure instead of
     // "the anchor is gone", which is what the assertion on `start` is for.
-    const start = server.indexOf('const payload = JSON.stringify')
-    expect(start, 'payload literal not found in convex/pushSend.ts').toBeGreaterThan(-1)
-    const end = server.indexOf('})', start)
-    expect(end, 'payload literal is never closed in convex/pushSend.ts').toBeGreaterThan(start)
+    //
+    // THE SECOND NOTIFICATION TYPE ARRIVED. `deliverTo` now takes an optional
+    // `notification` — chatNotify.sweep passes the team's batched line, and
+    // reminders.sweep passes nothing — so the literal moved out of the
+    // `JSON.stringify` call and into a module-scope const. That is what the
+    // anchor follows. The bound is the const's own closing brace at column
+    // zero, which is why `'\n}'` and not `'}'`: the first `}` inside the
+    // literal is the end of nothing.
+    const start = server.indexOf('const REMINDER_PAYLOAD = {')
+    expect(start, 'REMINDER_PAYLOAD not found in convex/pushSend.ts').toBeGreaterThan(-1)
+    const end = server.indexOf('\n}', start)
+    expect(end, 'REMINDER_PAYLOAD is never closed in convex/pushSend.ts').toBeGreaterThan(start)
     const segment = server.slice(start, end + 2)
+
+    // AND THAT IT IS STILL THE DEFAULT, not merely present. Bounding the
+    // segment proves the three strings agree; it says nothing about whether
+    // `deliverTo` sends them when no `notification` is passed. Swapping the
+    // operands — `notification` becoming the fallback rather than the override
+    // — would leave every assertion below green while sending the reminder
+    // copy for a chat notification, and the board-entry reminder is the caller
+    // that passes nothing at all.
+    expect(
+      server,
+      'the reminder copy is no longer what deliverTo defaults to',
+    ).toContain('JSON.stringify(notification ?? REMINDER_PAYLOAD)')
 
     // AGREEMENT, NOT TYPOGRAPHY. The previous assertions baked in each field's
     // incidental quote style — `title: '…'` single, `body: "…"` double — so

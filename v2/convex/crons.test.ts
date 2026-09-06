@@ -19,7 +19,10 @@ import crons from './crons.ts'
  * that.
  */
 describe('crons', () => {
-  test('schedules sweep hourly, on the hour, with no captured `now`', () => {
+  test('schedules both sweeps hourly, on different minutes, with no captured `now`', () => {
+    // THE WHOLE OBJECT, not a per-job lookup. `toEqual` on the map is what
+    // makes a THIRD registration — or a deleted one — a failure here rather
+    // than something nobody notices until a job silently stops running.
     expect(crons.crons).toEqual({
       'board entry reminders': {
         name: 'reminders:sweep',
@@ -27,6 +30,15 @@ describe('crons', () => {
         // NOT [{ now: <some number> }] — see the doc comment on crons.ts and
         // on sweep's `now` argument (reminders.ts) for why a captured value
         // here would freeze the clock at deploy time.
+        args: [{}],
+      },
+      'chat notifications': {
+        name: 'chatNotify:sweep',
+        // MINUTE 30, ASSERTED RATHER THAN INCIDENTAL. Moving this to 0 would
+        // put both sweeps' table walks and both bursts of push traffic on the
+        // same minute — see crons.ts for why they are kept apart — and nothing
+        // else in the suite would notice.
+        schedule: { type: 'hourly', minuteUTC: 30 },
         args: [{}],
       },
     })
