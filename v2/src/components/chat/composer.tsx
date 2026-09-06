@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button } from '#/components/ui/button.tsx'
-import { MAX_BODY_LENGTH } from '../../../convex/lib/chat.ts'
+import { MAX_BODY_LENGTH } from '../../../convex/lib/chatLimits.ts'
 
 type Props = { onSend: (body: string) => Promise<void>; disabled?: boolean }
 

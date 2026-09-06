@@ -1,5 +1,25 @@
 import { accessError } from '../access.ts'
 import { monthOf, toPuzzleDay } from './puzzleDay.ts'
+import {
+  BUDGET_THRESHOLD_BYTES,
+  BYTES_PER_DELETE_WAKE,
+  BYTES_PER_SCROLL_PAGE,
+  BYTES_PER_WAKE,
+  MAX_BODY_LENGTH,
+  RATE_LIMIT_MESSAGES,
+  RATE_LIMIT_SCROLLS,
+  RATE_LIMIT_WINDOW_MS,
+} from './chatLimits.ts'
+
+/**
+ * SERVER-ONLY. This module imports accessError, which reaches ../access.ts and
+ * on to ./auth.ts, whose module scope throws without process.env.SITE_URL.
+ * Importing it from the frontend ships that throw into a browser chunk — it
+ * did exactly that once, and broke the /chat route while every other route
+ * stayed perfectly healthy. The numbers the client needs live in
+ * ./chatLimits.ts, which imports nothing. Import from there instead.
+ */
+export * from './chatLimits.ts'
 
 /**
  * The rules of team chat that need no database.
@@ -9,14 +29,10 @@ import { monthOf, toPuzzleDay } from './puzzleDay.ts'
  * work lives in ../chat.ts. Same split as lib/scoring.ts and scores.ts.
  */
 
-export const MAX_BODY_LENGTH = 2000
 
 /** Twenty messages a minute, per player per team. See the note on the limit. */
-export const RATE_LIMIT_MESSAGES = 20
-export const RATE_LIMIT_WINDOW_MS = 60_000
 
 /** How many messages a client loads when it opens a conversation. */
-export const RECENT_WINDOW = 30
 
 /**
  * What one client's wake costs us, in bytes, as a round upper bound: roughly
@@ -30,15 +46,12 @@ export const RECENT_WINDOW = 30
  * same literal expression. Change it here and every cost in the meter moves
  * together, which is the only way they stay comparable to each other.
  */
-export const BYTES_PER_MESSAGE_ESTIMATE = 250
 
-export const BYTES_PER_WAKE = 450
 
 /**
  * 700MB of Convex's 1GB monthly database-I/O allowance, leaving headroom for
  * every other query in the app. Crossing it degrades chat, never the app.
  */
-export const BUDGET_THRESHOLD_BYTES = 700 * 1024 * 1024
 
 /**
  * A message body, trimmed, or a refusal.
@@ -113,7 +126,6 @@ export function nextPostWindow(current: PostWindow, now: number): Required<PostW
  * same order of magnitude as the send limit's worst case for a small team —
  * see the note on RATE_LIMIT_MESSAGES for why that control exists at all.
  */
-export const RATE_LIMIT_SCROLLS = 10
 
 export type ScrollWindow = {
   scrollWindowStartedAt?: number
@@ -164,7 +176,6 @@ export function budgetIncrementFor(teamSize: number): number {
  * delete roughly 17x a send, and it is the single most expensive operation in
  * the feature.
  */
-export const BYTES_PER_DELETE_WAKE = RECENT_WINDOW * BYTES_PER_MESSAGE_ESTIMATE
 
 export function budgetIncrementForDelete(teamSize: number): number {
   return teamSize * BYTES_PER_DELETE_WAKE
@@ -182,7 +193,6 @@ export function budgetIncrementForDelete(teamSize: number): number {
  * one-shot fetch the caller asked for; nobody else's client does any work
  * because of it, so nobody else is charged for it.
  */
-export const BYTES_PER_SCROLL_PAGE = RECENT_WINDOW * BYTES_PER_MESSAGE_ESTIMATE
 
 export function budgetIncrementForScroll(): number {
   return BYTES_PER_SCROLL_PAGE
