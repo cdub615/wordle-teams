@@ -17,10 +17,6 @@ const nothing: OnboardingFacts = {
 }
 
 describe('incompleteTasks', () => {
-  test('a fresh self-signup owes all three, in board/team/invite order', () => {
-    expect(incompleteTasks(nothing).map((t) => t.id)).toEqual(['board', 'team', 'invite'])
-  })
-
   test('an invited joiner owes only the board', () => {
     // completeProfileFor auto-joins them to a populated team, so create and
     // invite are both already satisfied on arrival. See convex/players.ts:226.
@@ -33,11 +29,12 @@ describe('incompleteTasks', () => {
     expect(incompleteTasks(soloTeam).map((t) => t.id)).toEqual(['invite'])
   })
 
-  test('every task carries title and hint copy', () => {
-    for (const task of incompleteTasks(nothing)) {
-      expect(task.title.length).toBeGreaterThan(0)
-      expect(task.hint.length).toBeGreaterThan(0)
-    }
+  test('every task carries its copy, attached to the right id', () => {
+    expect(incompleteTasks(nothing)).toEqual([
+      { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
+      { id: 'team', title: 'Create a team', hint: 'Where scores get compared' },
+      { id: 'invite', title: 'Invite someone', hint: 'A scoreboard needs someone to score against' },
+    ])
   })
 })
 
@@ -69,6 +66,11 @@ describe('cardHeading', () => {
   test('reads "One more thing" on the last remaining task', () => {
     const soloTeam: OnboardingFacts = { ...nothing, enteredBoard: true, hasTeam: true }
     expect(cardHeading(soloTeam)).toBe('One more thing')
+  })
+
+  test('reads "Get started" when nothing remains at all', () => {
+    const done: OnboardingFacts = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+    expect(cardHeading(done)).toBe('Get started')
   })
 })
 

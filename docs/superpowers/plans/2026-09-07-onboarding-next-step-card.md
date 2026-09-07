@@ -76,10 +76,6 @@ const nothing: OnboardingFacts = {
 }
 
 describe('incompleteTasks', () => {
-  test('a fresh self-signup owes all three, in board/team/invite order', () => {
-    expect(incompleteTasks(nothing).map((t) => t.id)).toEqual(['board', 'team', 'invite'])
-  })
-
   test('an invited joiner owes only the board', () => {
     // completeProfileFor auto-joins them to a populated team, so create and
     // invite are both already satisfied on arrival. See convex/players.ts:226.
@@ -92,11 +88,12 @@ describe('incompleteTasks', () => {
     expect(incompleteTasks(soloTeam).map((t) => t.id)).toEqual(['invite'])
   })
 
-  test('every task carries title and hint copy', () => {
-    for (const task of incompleteTasks(nothing)) {
-      expect(task.title.length).toBeGreaterThan(0)
-      expect(task.hint.length).toBeGreaterThan(0)
-    }
+  test('every task carries its copy, attached to the right id', () => {
+    expect(incompleteTasks(nothing)).toEqual([
+      { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
+      { id: 'team', title: 'Create a team', hint: 'Where scores get compared' },
+      { id: 'invite', title: 'Invite someone', hint: 'A scoreboard needs someone to score against' },
+    ])
   })
 })
 
@@ -128,6 +125,11 @@ describe('cardHeading', () => {
   test('reads "One more thing" on the last remaining task', () => {
     const soloTeam: OnboardingFacts = { ...nothing, enteredBoard: true, hasTeam: true }
     expect(cardHeading(soloTeam)).toBe('One more thing')
+  })
+
+  test('reads "Get started" when nothing remains at all', () => {
+    const done: OnboardingFacts = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+    expect(cardHeading(done)).toBe('Get started')
   })
 })
 
@@ -205,8 +207,12 @@ export type OnboardingTask = {
  * arrived by an invite link never saw it.
  *
  * "Highest", not "lowest". convex/fixtures.ts:34 gives +5 for a one-guess
- * solve down to -3 for a failure, so fewer guesses earns MORE and the biggest
- * monthly total wins. Pinned by test.
+ * solve down to -3 for a failure, so fewer guesses earns MORE — that's the
+ * illustration, not the rule. The rule lives in convex/winners.ts:175, where
+ * winnerOf takes the first entry at the maximum with a strict `>`, i.e. the
+ * BIGGEST monthly total wins. Cite winners.ts, not the fixture, if the
+ * scoring numbers ever change — the fixture only supplies concrete values.
+ * Pinned by test.
  */
 export const MODEL_LINE =
   'Everyone plays their own Wordle. Fewer guesses scores more points. Highest monthly total wins.'
@@ -245,7 +251,14 @@ export function cardHeading(facts: OnboardingFacts): string {
  *
  * The card renders from a reactive query, so without a key onboarding_view
  * would emit on every invalidation and drown the channel. See
- * next-step-card.tsx.
+ * src/components/onboarding/next-step-card.tsx.
+ *
+ * RETURNS '' FOR AN EMPTY SET, which collides with the empty-string sentinel a
+ * useRef dedupe would naturally start from. Not reachable through the card
+ * today — shouldShowCard is false at zero tasks, so it never renders — but a
+ * caller that compares against '' to mean "not yet emitted" would silently
+ * suppress a genuine all-complete emission. Compare against a separate "seen"
+ * flag, not against ''.
  */
 export function taskSetKey(tasks: OnboardingTask[]): string {
   return tasks.map((task) => task.id).join(',')
@@ -255,7 +268,7 @@ export function taskSetKey(tasks: OnboardingTask[]): string {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run from `v2/`: `pnpm vitest run src/lib/onboarding-tasks.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Commit**
 

@@ -43,8 +43,12 @@ export type OnboardingTask = {
  * arrived by an invite link never saw it.
  *
  * "Highest", not "lowest". convex/fixtures.ts:34 gives +5 for a one-guess
- * solve down to -3 for a failure, so fewer guesses earns MORE and the biggest
- * monthly total wins. Pinned by test.
+ * solve down to -3 for a failure, so fewer guesses earns MORE — that's the
+ * illustration, not the rule. The rule lives in convex/winners.ts:175, where
+ * winnerOf takes the first entry at the maximum with a strict `>`, i.e. the
+ * BIGGEST monthly total wins. Cite winners.ts, not the fixture, if the
+ * scoring numbers ever change — the fixture only supplies concrete values.
+ * Pinned by test.
  */
 export const MODEL_LINE =
   'Everyone plays their own Wordle. Fewer guesses scores more points. Highest monthly total wins.'
@@ -83,7 +87,14 @@ export function cardHeading(facts: OnboardingFacts): string {
  *
  * The card renders from a reactive query, so without a key onboarding_view
  * would emit on every invalidation and drown the channel. See
- * next-step-card.tsx.
+ * src/components/onboarding/next-step-card.tsx.
+ *
+ * RETURNS '' FOR AN EMPTY SET, which collides with the empty-string sentinel a
+ * useRef dedupe would naturally start from. Not reachable through the card
+ * today — shouldShowCard is false at zero tasks, so it never renders — but a
+ * caller that compares against '' to mean "not yet emitted" would silently
+ * suppress a genuine all-complete emission. Compare against a separate "seen"
+ * flag, not against ''.
  */
 export function taskSetKey(tasks: OnboardingTask[]): string {
   return tasks.map((task) => task.id).join(',')
