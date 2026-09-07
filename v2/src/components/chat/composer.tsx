@@ -103,16 +103,23 @@ export function Composer({ onSend, disabled }: Props) {
     // because this is the fixed-size end of chat.tsx's flex column and the
     // message list above it is the part that gives.
     //
-    // THE BOTTOM PADDING IS `max(1rem, env(safe-area-inset-bottom))`, AND BOTH
-    // HALVES ARE DELIBERATE. `p-3` alone put the Send button's baseline 12px
-    // from the very bottom edge of the phone, which the owner reported as
+    // THE BOTTOM PADDING IS `max(1.5rem, env(safe-area-inset-bottom))`, AND
+    // BOTH HALVES ARE DELIBERATE. `p-3` alone put the Send button's baseline
+    // 12px from the very bottom edge of the phone, which the owner reported as
     // squished — measured at 390x844, the composer's box ended exactly on the
-    // viewport's last pixel with nothing under it. 1rem is the base that gives
-    // it room to breathe.
+    // viewport's last pixel with nothing under it. 1rem was the first answer
+    // and the owner, looking at it on the device, said it was still not
+    // enough; 1.5rem is the second, and it is half again as much rather than
+    // another four pixels. Measured at 390x844 against the built stylesheet,
+    // the visible gap beneath the input and Send goes 12px -> 16px -> 24px,
+    // which is twice the composer's own 12px top and side padding — a
+    // deliberate asymmetry, so the bar reads as sitting OFF the bottom edge
+    // rather than being padded evenly and happening to end there.
     //
-    // THE `max()` IS THE SHAPE RATHER THAN A PLAIN `pb-4` BECAUSE OF WHAT IT
+    // THE `max()` IS THE SHAPE RATHER THAN A PLAIN `pb-6` BECAUSE OF WHAT IT
     // BECOMES LATER. On a device with a home indicator, the inset is the space
-    // the OS will draw its own furniture in, and it is larger than 1rem — so
+    // the OS will draw its own furniture in, and on the phones where it is
+    // largest (34px on a notched iPhone in portrait) it exceeds this base — so
     // the same declaration is "breathing room" today and "clear of the home
     // indicator" the day the app opts into the full screen, with no second
     // number to remember.
@@ -121,7 +128,7 @@ export function Composer({ onSend, disabled }: Props) {
     // RATHER THAN DEAD CODE. The viewport meta in __root.tsx is
     // `width=device-width, initial-scale=1` with NO `viewport-fit=cover`, and
     // without that the insets are all zero — so `max()` falls through to the
-    // 1rem base, which is exactly the behaviour asked for. Adding
+    // 1.5rem base, which is exactly the behaviour asked for. Adding
     // `viewport-fit=cover` is an app-wide change: it lets content extend under
     // the notch and the home indicator on EVERY route, and every page would
     // need its own look before that is safe. Deliberately not done here. This
@@ -134,7 +141,7 @@ export function Composer({ onSend, disabled }: Props) {
     // behaviour the whole composer depends on is untouched. See the note above
     // on why that matters.
     <form
-      className="sticky bottom-0 flex shrink-0 items-end gap-2 border-t bg-background p-3 pb-[max(1rem,env(safe-area-inset-bottom))]"
+      className="sticky bottom-0 flex shrink-0 items-end gap-2 border-t bg-background p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
       onSubmit={(e) => {
         e.preventDefault()
         void submit()
