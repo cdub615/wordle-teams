@@ -1515,7 +1515,12 @@ Expected: PASS, 6 tests.
 
 - [ ] **Step 7: Render the card in the route**
 
-In `v2/src/routes/app.tsx`, add the status subscription alongside the existing queries in the component body (near the `teams` query):
+> **REWRITTEN 2026-09-07, after Task 8 landed.** The previous version predated
+> `BoardEntrySurface` and left `onBoard` as "wire it to the existing button's open
+> state if one is lifted". It also missed a hydration hazard and two findings that
+> came out of Task 8's review. All four are handled below.
+
+Add to the component body, near the existing `teams` query:
 
 ```ts
   const { data: onboardingStatus } = useSuspenseQuery(convexQuery(api.onboarding.getStatus, {}))
@@ -1523,28 +1528,57 @@ In `v2/src/routes/app.tsx`, add the status subscription alongside the existing q
     mutationFn: useConvexMutation(api.onboarding.dismiss),
   })
   const onboardingFacts = onboardingFactsFrom(teams, onboardingStatus)
+
+  const [boardOpen, setBoardOpen] = useState(false)
+  const [boardMonth, setBoardMonth] = useState<string | null>(null)
 ```
 
-`useMutation` and `useConvexMutation` are already imported in this file's sibling components; if they are not imported in `app.tsx`, add them from `@tanstack/react-query` and `@convex-dev/react-query` respectively, matching `create-team-dialog.tsx:4-5`.
+`useMutation` / `useConvexMutation` come from `@tanstack/react-query` and `@convex-dev/react-query`, matching `create-team-dialog.tsx:4-5`.
 
-Then define the shared element once, above the returns:
+**The month is a client-only fact, and this is the hydration hazard.** The `teams.length === 0` branch returns at `app.tsx:222`, *before* the `!teamParam || !monthParam` guard at `:238` fills the params in — so a team-less player has no `monthParam` at all. Deriving "this month" during render would put a server-rendered guess into the HTML and mismatch on hydration, which is a minified React #418 in production; `today-panel.tsx` and `scores-table.tsx` both document this rule. Compute it in the **click handler** instead, which is post-hydration by construction:
 
 ```tsx
-  // Rendered by BOTH branches below. The no-team branch used to short-circuit
-  // to TeamsEmptyState and show nothing else; it now shows the card, and the
-  // card's own "create a team" task is what that empty state used to be.
   const onboarding = (
     <NextStepCard
       facts={onboardingFacts}
-      onBoard={() => setBoardEntryOpen(true)}
+      onBoard={() => {
+        // `today` is client-only. Deriving it here rather than during render is
+        // what keeps it out of the SSR pass — the rule today-panel.tsx states.
+        setBoardMonth(monthParam ?? monthOf(toPuzzleDay(new Date())))
+        setBoardOpen(true)
+      }}
       onTeam={() => setCreateOpen(true)}
-      onInvite={() => setInviteOpen(true)}
+      onInvite={() => void navigate({ to: '/team', search: { team: teamParam } })}
       onDismiss={() => void dismissOnboarding.mutateAsync({})}
     />
   )
 ```
 
-Replace the `teams.length === 0` branch (lines 222-232) with:
+`monthOf` and `toPuzzleDay` are already imported in this file.
+
+Then the surface itself, rendered by both branches. **Give it its own Suspense boundary** — this is Task 8's review finding: `BoardEntryButton` sits at `:537`, above all three existing boundaries (`:579`, `:587`, `:639`). On the team path that never bites because `getTeamMonth` is already warm from `TodayPanel`. Nothing warms `getMyMonth`, so without a boundary here the **first** tap by a team-less player suspends all the way to the route boundary and blanks the page — hitting precisely the person this epic exists to convert, on their first meaningful action:
+
+```tsx
+  const boardSurface = boardMonth && (
+    <Suspense fallback={null}>
+      <BoardEntrySurface
+        open={boardOpen}
+        onOpenChange={setBoardOpen}
+        // NOT `as Id<'teams'>`. Since Task 8 made teamId optional, an undefined
+        // slipping through a bare cast no longer throws inside getTeamMonth —
+        // it silently routes to the solo form and shows a team-less prefill on
+        // a team page. Keeping `| undefined` in the type makes the team-less
+        // case explicit rather than accidental.
+        teamId={teamParam as Id<'teams'> | undefined}
+        month={boardMonth}
+      />
+    </Suspense>
+  )
+```
+
+No `trigger` prop: the card's task button is the trigger, and `BoardEntrySurface` renders no button without it — pinned by `button.hook.test.ts`'s `no trigger prop means no button`.
+
+Replace the `teams.length === 0` branch (`:222-232`) with:
 
 ```tsx
   if (teams.length === 0) {
@@ -1552,6 +1586,7 @@ Replace the `teams.length === 0` branch (lines 222-232) with:
       <main className="page-max mt-2 md:mt-6">
         {upgradePending && <CheckoutPending className="mb-4" />}
         {onboarding}
+        {boardSurface}
         <CreateTeamDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -1562,11 +1597,9 @@ Replace the `teams.length === 0` branch (lines 222-232) with:
   }
 ```
 
-And render `{onboarding}` as the first child of the main dashboard's container, immediately above `TodayPanel`.
+And render `{onboarding}` as the first child of the main dashboard container, immediately above `TodayPanel`, with `{boardSurface}` alongside the other dialogs.
 
-**`setBoardEntryOpen` and `setInviteOpen` do not exist yet in `app.tsx`.** For this task, wire `onBoard` and `onInvite` to the controls that already exist:
-- `onInvite` — navigate to `/team` where `CurrentTeamCard` hosts `InvitePlayerDialog`: `() => void navigate({ to: '/team', search: { team: teamParam } })`. When `teams.length === 0` the invite task cannot be reached anyway, because `hasTeam` false means the team task is showing too and the user has somewhere to go.
-- `onBoard` — Task 8 gives this a real home. Until then, wire it to the existing `BoardEntryButton`'s open state if one is lifted, or leave it navigating to the dashboard's board-entry control. **Do not ship this task without Task 8.**
+**`onInvite` navigates to `/team`** for now, where `CurrentTeamCard` already hosts `InvitePlayerDialog`. Plan B's Task 5 repoints it at the share-a-link dialog. The invite task cannot be reached from the no-team branch anyway: `hasTeam` false means the create task is showing too.
 
 - [ ] **Step 8: Delete the empty state, and fix every e2e assertion that named it**
 
