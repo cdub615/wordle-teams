@@ -761,6 +761,184 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
 })
 
 /**
+ * `/join/$token`, THE ROUTE WHOSE URLs LIVE IN OTHER PEOPLE'S CHAT HISTORIES.
+ *
+ * THE SAME CRITERION AS `/me` AT THE TOP OF THIS FILE, arrived at by a
+ * different road. `/me` is pinned because installed PWAs have it burned in;
+ * this is pinned because an invite link is pasted into a chat, a group thread
+ * or an email and then sits there, outside this repo and outside anyone's
+ * ability to reissue it. Rename the path and `routeTree.gen.ts` regenerates
+ * happily, all four gates stay green, and every link already shared 404s with
+ * no symptom on this side at all. Nothing in `src/` links here either — the
+ * URL is produced by a share sheet and consumed by a stranger — so it is dead
+ * code to lint, typecheck, `vitest run` and build alike.
+ *
+ * THE PARAM IS PART OF THE PATH, which is why the generated tree is asserted
+ * as `/join/$token` rather than "a route starting /join". This is the app's
+ * first NAMED `$param` route (the splat at `/api/auth/$` predates it), and
+ * TanStack's generator nests on any shared path prefix — the hazard recorded
+ * at routes/team.tsx:30-45 — so a later `join.tsx` beside this file would
+ * reparent it and change the URL without touching this source.
+ *
+ * THREE THINGS BEYOND EXISTENCE ARE PINNED HERE, AND NONE OF THEM IS ABOUT
+ * ROUTING. All three are properties of the token's short life between the two
+ * files, all three are invisible to every gate, and all three were mutated to
+ * check that they are: swapping sessionStorage for localStorage, moving the
+ * clear to after the consume call, and moving the stash back into beforeLoad
+ * (which is where it was written, and where it never runs — see that test).
+ * Each of the three passed lint, typecheck, `vitest run` and build untouched
+ * before these assertions existed.
+ *
+ * SOURCE ASSERTIONS, LIKE EVERY BLOCK ABOVE, AND WITH THE SAME LIMIT. A route
+ * module cannot be imported under vitest — createFileRoute registers against a
+ * router that does not exist — and `Dashboard` is not exported from
+ * routes/app.tsx (the guard below forbids it), so the effect that spends the
+ * token cannot be rendered here at any price. These pin the SHAPE that ships,
+ * not the behaviour. Behaviour would need the effect lifted into `lib/` as its
+ * own hook, the way useStartUpgrade was; that is worth doing and is not done.
+ */
+describe('/join/$token, the route shared invite links point at', () => {
+  const JOIN = './routes/join.$token.tsx'
+  const APP = './routes/app.tsx'
+  // Read inside each test rather than at describe scope, so a deleted file is
+  // a named assertion failure instead of a bare ENOENT during collection.
+  const source = () => codeOf(read(JOIN))
+  const app = () => codeOf(read(APP))
+
+  test('exists as a route file, and is still the /join/$token route', () => {
+    expect(
+      existsSync(new URL(JOIN, import.meta.url)),
+      'src/routes/join.$token.tsx is gone. It is not dead code — every invite ' +
+        'link ever shared points at it; see the note above.',
+    ).toBe(true)
+    expect(source()).toMatch(/createFileRoute\(\s*['"]\/join\/\$token['"]\s*\)/)
+  })
+
+  test('is in the generated route tree, at /join/$token and not under a /join parent', () => {
+    // The generated tree pins the URL independently of the file's name, so a
+    // rename or a move still goes red here. Both the `path` and the `id` are
+    // checked: the generator writes an `id` of `/join/$token` for a top-level
+    // route and a nested one would carry a different id under its parent.
+    const tree = read('./routeTree.gen.ts')
+    expect(tree).toMatch(/path: '\/join\/\$token'/)
+    expect(tree).toMatch(/id: '\/join\/\$token'/)
+  })
+
+  test('sends a signed-in holder to /app and a signed-out one to /login, and nowhere else', () => {
+    // Every `to:` in the file, in source order, for the reason spelled out in
+    // the /me block: a `toContain` goes on passing when the real target moves
+    // and the old one is left behind in a branch nothing reaches.
+    const targets = [...source().matchAll(/to:\s*['"]([^'"]*)['"]/g)].map((match) => match[1])
+    expect(targets).toEqual(['/app', '/login'])
+  })
+
+  test('the signed-OUT branch renders, and does NOT redirect out of beforeLoad', () => {
+    /**
+     * THE DEFECT THIS ROUTE SHIPPED WITH FOR ONE AFTERNOON, AND THE ONLY THING
+     * STANDING BETWEEN IT AND THE OBVIOUS REWRITE.
+     *
+     * Stashing the token in `beforeLoad` and throwing `redirect({ to:
+     * '/login' })` — guarded on `typeof window !== 'undefined'`, which reads
+     * like diligence — is unreachable on the one path this route exists for.
+     * A link in a chat message is a FRESH DOCUMENT LOAD, TanStack Start turns
+     * a beforeLoad redirect during SSR into a 307 on the wire, and a 307 with
+     * `content-length: 0` delivers no document and runs no client code. The
+     * `setItem` executed on nobody. Measured; the curl and its response are in
+     * routes/join.$token.tsx's own comment.
+     *
+     * All four gates were green on that version, and so was every assertion in
+     * this block except this one — which is why it exists. `beforeLoad` is
+     * where an author reaches first, the branch it deletes is the signed-out
+     * one, and the symptom is silent: the holder still reaches /login, signs
+     * in, and simply never joins the team.
+     */
+    const code = source()
+    // A component, and the signed-out path goes through it.
+    expect(code, 'the route no longer renders anything').toMatch(/component:\s*JoinLink/)
+    // beforeLoad redirects on ONE condition only — being signed IN. A second
+    // `throw redirect` in there is the regression, whatever it is guarded by.
+    const beforeLoad = code.slice(code.indexOf('beforeLoad:'), code.indexOf('component:'))
+    expect(beforeLoad.match(/throw redirect\(/g) ?? []).toHaveLength(1)
+    expect(beforeLoad).toMatch(/if \(context\.isAuthenticated\) throw redirect\(/)
+    // And the stash is NOT in there, since nothing in there runs in a browser.
+    expect(
+      beforeLoad,
+      'the pending token is written from beforeLoad, which on a fresh document ' +
+        'load runs only on the server — see the note above',
+    ).not.toMatch(/sessionStorage/)
+  })
+
+  test('the token waits in sessionStorage — never localStorage — at all three accesses', () => {
+    // A CAPABILITY THAT OUTLIVES ITS TAB IS ONE LEFT LYING ON A SHARED
+    // COMPUTER. localStorage compiles, renders, and works better in casual
+    // testing (it survives a tab close, so the round trip is easier to
+    // reproduce by hand) — which is exactly why nothing else would catch the
+    // swap.
+    //
+    // EXHAUSTIVE OVER THE ACCESSES RATHER THAN "sessionStorage appears
+    // somewhere": one of the three moving to localStorage leaves the other two
+    // to satisfy any looser assertion, and one is all it takes — the write in
+    // the route and the read in the dashboard are a pair, so a mismatched pair
+    // loses the invite while a MATCHED localStorage pair leaks it.
+    const accesses = (code: string) =>
+      [...code.matchAll(/window\.(\w+Storage)\.\w+\(PENDING_INVITE_KEY/g)].map((match) => match[1])
+    expect(accesses(source())).toEqual(['sessionStorage'])
+    expect(accesses(app())).toEqual(['sessionStorage', 'sessionStorage'])
+  })
+
+  test('and every one of those accesses is inside a try, because none of them may throw', () => {
+    // Private mode and disabled storage make a bare `window.sessionStorage`
+    // access THROW rather than return null, and this sits on the path of
+    // someone trying to join a team: an unhandled throw in beforeLoad is a
+    // router error boundary instead of a sign-in page, and one in the effect
+    // takes the dashboard down. The failure is invisible in every browser a
+    // developer tests in.
+    //
+    // The exact shape, not "there is a try somewhere in the file", so an
+    // access moved out of the block it is credited to goes red.
+    expect(source()).toMatch(
+      /try \{\s*window\.sessionStorage\.setItem\(PENDING_INVITE_KEY, token\)\s*\} catch \{/,
+    )
+    expect(app()).toMatch(
+      /try \{\s*token = window\.sessionStorage\.getItem\(PENDING_INVITE_KEY\) \?\? undefined\s*\} catch \{/,
+    )
+    expect(app()).toMatch(
+      /try \{\s*window\.sessionStorage\.removeItem\(PENDING_INVITE_KEY\)\s*\} catch \{/,
+    )
+  })
+
+  test('the pending token is cleared BEFORE the consume call, not after it', () => {
+    // A REFUSAL MUST NOT RETRY. consumeLink rejects an expired, revoked or
+    // unknown token with INVITE_LINK_INVALID and a capped free joiner with
+    // TEAM_LIMIT_REACHED — and a token still in storage after a refusal is
+    // read again on the NEXT dashboard render, and the one after that: an
+    // error toast the holder cannot get rid of, and a mutation per render.
+    // Clearing in a `.finally`, or after an `await`, reads as tidier and
+    // restores exactly that loop. A token is spent by being ATTEMPTED, once.
+    const code = app()
+    const cleared = code.indexOf('window.sessionStorage.removeItem(PENDING_INVITE_KEY)')
+    const consumed = code.indexOf('.mutateAsync(')
+    expect(cleared, 'nothing clears the pending invite token').toBeGreaterThan(-1)
+    expect(consumed, 'nothing consumes the invite token').toBeGreaterThan(-1)
+    // ONE mutateAsync in the file, so `consumed` is this call and not another
+    // one that happens to sit later — the index comparison below is only
+    // meaningful while that is true.
+    expect(code.match(/\.mutateAsync\(/g) ?? []).toHaveLength(1)
+    expect(cleared).toBeLessThan(consumed)
+  })
+
+  test('the dashboard shares the key with the route rather than retyping it', () => {
+    // The write and the read are in different files, and a key spelled twice
+    // is a key that can be spelled differently once. Importing it is what
+    // makes the pair a pair; a literal here would type-check and silently
+    // never find the token.
+    expect(app()).toMatch(/import \{ PENDING_INVITE_KEY \} from '\.\/join\.\$token\.tsx'/)
+    expect(app()).not.toMatch(/wt\.pendingInviteToken/)
+    expect(source()).toMatch(/export const PENDING_INVITE_KEY = 'wt\.pendingInviteToken'/)
+  })
+})
+
+/**
  * NO ROUTE FILE MAY EXPORT THE COMPONENT IT ROUTES TO (wordle-teams-xsrv).
  *
  * @tanstack/router-plugin rewrites `component:` into a lazy reference so the

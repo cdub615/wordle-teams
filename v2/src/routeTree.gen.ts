@@ -23,6 +23,7 @@ import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as ApiFunnelRouteImport } from './routes/api/funnel'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -96,6 +97,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JoinTokenRoute = JoinTokenRouteImport.update({
+  id: '/join/$token',
+  path: '/join/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiFunnelRoute = ApiFunnelRouteImport.update({
   id: '/api/funnel',
   path: '/api/funnel',
@@ -123,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/team': typeof TeamRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
+  '/join/$token': typeof JoinTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/team': typeof TeamRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
+  '/join/$token': typeof JoinTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/team': typeof TeamRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
+  '/join/$token': typeof JoinTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/terms'
     | '/api/funnel'
+    | '/join/$token'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -198,6 +208,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/terms'
     | '/api/funnel'
+    | '/join/$token'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -216,6 +227,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/terms'
     | '/api/funnel'
+    | '/join/$token'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -235,6 +247,7 @@ export interface RootRouteChildren {
   TeamRoute: typeof TeamRoute
   TermsRoute: typeof TermsRoute
   ApiFunnelRoute: typeof ApiFunnelRoute
+  JoinTokenRoute: typeof JoinTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -338,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/join/$token': {
+      id: '/join/$token'
+      path: '/join/$token'
+      fullPath: '/join/$token'
+      preLoaderRoute: typeof JoinTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/funnel': {
       id: '/api/funnel'
       path: '/api/funnel'
@@ -371,6 +391,7 @@ const rootRouteChildren: RootRouteChildren = {
   TeamRoute: TeamRoute,
   TermsRoute: TermsRoute,
   ApiFunnelRoute: ApiFunnelRoute,
+  JoinTokenRoute: JoinTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

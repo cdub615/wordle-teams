@@ -1,5 +1,6 @@
 import { createFileRoute, redirect, useNavigate, Link } from '@tanstack/react-router'
 import { MessageSquare, Settings } from 'lucide-react'
+import { toast } from 'sonner'
 import { Suspense } from 'react'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
@@ -10,6 +11,8 @@ import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
+import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { PENDING_INVITE_KEY } from './join.$token.tsx'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
 import { chatEntryLabel, hasUnread, unreadTeamIds, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
@@ -38,7 +41,15 @@ import {
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
-type DashboardSearch = { team?: string; month?: string }
+/**
+ * `join` IS NOT A FILTER LIKE THE OTHER TWO — it is a one-shot instruction
+ * carried here by routes/join.$token.tsx for an ALREADY signed-in link holder,
+ * and the effect below strips it from the URL the moment it has been read. It
+ * has to be declared here all the same: validateSearch is exhaustive, so an
+ * undeclared param is dropped on the way in and the redirect that carries it
+ * would arrive empty.
+ */
+type DashboardSearch = { team?: string; month?: string; join?: string }
 
 export const Route = createFileRoute('/app')({
   head: () => ({ meta: [{ title: pageTitle('Dashboard') }] }),
@@ -50,6 +61,7 @@ export const Route = createFileRoute('/app')({
       typeof search.month === 'string' && /^\d{4}-\d{2}$/.test(search.month)
         ? search.month
         : undefined,
+    join: typeof search.join === 'string' ? search.join : undefined,
   }),
   beforeLoad: async ({ context }) => {
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
@@ -129,7 +141,7 @@ export const Route = createFileRoute('/app')({
 })
 
 function Dashboard() {
-  const { team: teamParam, month: monthParam } = Route.useSearch()
+  const { team: teamParam, month: monthParam, join: joinParam } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const hydrated = useHydrated()
   const { data: teams } = useSuspenseQuery(convexQuery(api.teams.getMyTeams, {}))
@@ -188,6 +200,7 @@ function Dashboard() {
   const dismissOnboarding = useMutation({
     mutationFn: useConvexMutation(api.onboarding.dismiss),
   })
+  const consumeInvite = useMutation({ mutationFn: useConvexMutation(api.inviteLinks.consumeLink) })
   /**
    * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
    *
@@ -234,6 +247,68 @@ function Dashboard() {
     url.searchParams.delete(SIGNIN_PARAM)
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
   }, [])
+
+  /**
+   * THE OTHER END OF routes/join.$token.tsx, AND THE ONLY PLACE A LINK TOKEN
+   * CAN BE SPENT.
+   *
+   * `consumeLink` calls requirePlayer, so a brand-new account cannot spend a
+   * token until /complete-profile has made a player row. That is the whole
+   * reason the token travels in sessionStorage rather than being consumed by
+   * the /join route itself: the signed-out holder goes /join -> /login ->
+   * /complete-profile -> here, and only the last hop has a player. An already
+   * signed-in holder skips all of that and arrives with `?join=`, which is why
+   * both sources are read.
+   *
+   * DECLARED BEFORE useDashboardSearchSync, FOR THE SAME REASON THE CHECKOUT
+   * MARKER ABOVE IS. Effects run in the order their hooks are called, and the
+   * sync effect navigates with `{ team, month }` — a whole new search object,
+   * so `join` is gone from the URL after it runs. Reading it afterwards would
+   * find nothing on the one load it matters for.
+   *
+   * CLEARED BEFORE THE CALL, NOT AFTER, and this is the part worth being
+   * careful about. consumeLink REFUSES a token that is expired, revoked,
+   * unknown or over the free-team cap, and a refusal left in sessionStorage is
+   * retried on the next dashboard render — a toast the holder cannot dismiss
+   * for good, and a mutation call per render. A token is spent by being
+   * ATTEMPTED, once.
+   *
+   * NOTHING IN HERE MAY THROW. Private mode and disabled storage both make
+   * sessionStorage throw on access, and this sits on the path of someone who
+   * is trying to join a team; a thrown error there loses the invite AND the
+   * page. Both accesses are wrapped for that reason and not as a formality.
+   */
+  useEffect(() => {
+    let token = joinParam
+    if (!token) {
+      try {
+        token = window.sessionStorage.getItem(PENDING_INVITE_KEY) ?? undefined
+      } catch {
+        token = undefined
+      }
+    }
+    if (!token) return
+    try {
+      window.sessionStorage.removeItem(PENDING_INVITE_KEY)
+    } catch {
+      // ignored, as above
+    }
+    void consumeInvite
+      .mutateAsync({ token })
+      .then(() => toast.success('You joined the team'))
+      .catch((error: unknown) =>
+        toast.error(mutationErrorMessage(error, 'That invite link is no longer valid')),
+      )
+    // The URL is rewritten whether or not the mutation succeeds: `?join=` is a
+    // spent token either way, and leaving it on a page anyone may refresh or
+    // share hands the next reader a capability that has already been used.
+    void navigate({
+      to: Route.fullPath,
+      search: (prev) => ({ ...prev, join: undefined }),
+      replace: true,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinParam])
 
   useDashboardSearchSync({
     teamParam,

@@ -32,6 +32,13 @@
 #                     reasoning as /app and /team, which this route will grow
 #                     to resemble.
 #   /complete-profile a step inside sign-up. Meaningless without a session.
+#   /join             invite links (/join/<token>). THE ONE RULE HERE THAT IS
+#                     NOT ABOUT WASTED CRAWLS: the path segment IS the
+#                     capability. An indexed /join/<token> publishes somebody's
+#                     invite to a team in a search result, and the link is
+#                     single-use-ish rather than secret-by-obscurity only
+#                     because nothing advertises it. A prefix rule, so it
+#                     covers every token under it.
 #   /api              /api/auth/$ is Better Auth's proxy to Convex and
 #                     /api/funnel takes analytics beacons. Neither speaks HTML.
 #
@@ -58,6 +65,7 @@ Disallow: /team
 Disallow: /me
 Disallow: /chat
 Disallow: /complete-profile
+Disallow: /join
 Disallow: /api
 
 Sitemap: https://wordleteams.com/sitemap.xml

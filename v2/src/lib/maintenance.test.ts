@@ -165,6 +165,7 @@ describe('every route the app has, sorted into gated and not', () => {
       '/chat',
       '/complete-profile',
       '/home',
+      '/join/$token',
       '/login',
       '/login-error',
       '/maintenance',
@@ -176,16 +177,22 @@ describe('every route the app has, sorted into gated and not', () => {
     ])
   })
 
-  test('the split is exactly the seven app paths, and nothing else', () => {
+  test('the split is exactly the eight app paths, and nothing else', () => {
     // /maintenance is in the UNGATED list, where it has to be: it is what
     // src/server.ts redirects a gated request to, so gating it is a browser
     // following this Worker in a circle. /team joined the gated side in
     // wordle-teams-5jcn.29; /chat joined it in Part 2 Task 1.
+    //
+    // `/join/$token` IS THE FIRST ENTRY GATED BY A SUBTREE PREFIX RATHER THAN
+    // BY AN EXACT MATCH — `/join` itself is not a route — so it is also the
+    // first assertion here that exercises the `startsWith(`${subtree}/`)`
+    // branch of isMaintenanceGated against a real path.
     expect(paths.filter(isMaintenanceGated)).toEqual([
       '/',
       '/app',
       '/chat',
       '/complete-profile',
+      '/join/$token',
       '/login',
       '/me',
       '/team',

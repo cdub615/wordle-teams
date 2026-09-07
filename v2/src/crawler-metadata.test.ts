@@ -167,7 +167,7 @@ describe('public/robots.txt', () => {
     expect(robots.groups[0].userAgents).toEqual(['*'])
   })
 
-  test('disallows exactly /app, /team, /me, /chat, /complete-profile and /api', () => {
+  test('disallows exactly /app, /team, /me, /chat, /complete-profile, /join and /api', () => {
     // SORTED AND EXHAUSTIVE, not six toContain calls. The mutation a
     // `toContain('Disallow: /app')` cannot see is an ADDED rule — a
     // `Disallow: /privacy` slipped in beneath these would deindex the legal
@@ -180,11 +180,18 @@ describe('public/robots.txt', () => {
     //
     // /chat JOINED IN Part 2 Task 1, for the same reason: it is its own
     // top-level route and everything it renders requires a signed-in player.
+    //
+    // /join JOINED WITH INVITE LINKS, and it is the only entry here that is
+    // about SECRECY rather than about a crawl being pointless: the token is in
+    // the path, so an indexed /join/<token> hands a stranger the invite. The
+    // rule covers /join/$token by prefix, which is the only shape the route
+    // has.
     expect([...robots.groups[0].disallow].sort()).toEqual([
       '/api',
       '/app',
       '/chat',
       '/complete-profile',
+      '/join',
       '/me',
       '/team',
     ])

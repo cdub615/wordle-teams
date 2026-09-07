@@ -73,9 +73,10 @@ export const MAINTENANCE_PATH = '/maintenance'
 /**
  * The route subtrees whose descendants are gated as well as their own path.
  *
- * NONE OF THE FIVE HAS A CHILD ROUTE TODAY — src/routeTree.gen.ts lists
- * exactly `/app`, `/team`, `/me`, `/chat` and `/complete-profile`. They are
- * matched as subtrees anyway because v1's matcher did the same thing for the
+ * ONLY `/join` HAS A CHILD ROUTE TODAY — src/routeTree.gen.ts lists `/app`,
+ * `/team`, `/me`, `/chat` and `/complete-profile` bare, and `/join/$token`
+ * under the sixth. The other five are matched as subtrees anyway because v1's
+ * matcher did the same thing for the
  * same reason: it lists `'/me'` next to `'/me/:path*'` and
  * `'/complete-profile'` next to its `:path*` form "rather than relying on
  * zero-segment matching, so a protected route can never fall through by
@@ -94,8 +95,23 @@ export const MAINTENANCE_PATH = '/maintenance'
  * `/chat` JOINED THE DAY IT WAS ADDED TOO (Part 2 Task 1), for the identical
  * reason: its one query goes through the same Convex deployment as everything
  * else on this list.
+ *
+ * `/join` JOINED WITH INVITE LINKS, AND IT IS THE FIRST ENTRY HERE THAT IS A
+ * SUBTREE IN EARNEST: the only route under it is `/join/$token`, and the bare
+ * `/join` is not a route at all. Gated for the reason the others are and one
+ * of its own. `routes/join.$token.tsx` decides which way to send its holder
+ * from `context.isAuthenticated`, which the root route obtains from a server
+ * function that asks the Convex deployment for a token — the exact dependency
+ * that is down during an outage. Ungated, an invite link during an outage is
+ * an error boundary rather than the page that explains what is happening.
+ *
+ * IT DOES COST THE PENDING TOKEN, and that is the trade accepted here: the
+ * gate answers before beforeLoad runs, so nothing is stashed. The link itself
+ * is durable — it is sitting in the chat message it arrived in — so the holder
+ * clicks it again afterwards. A sessionStorage entry is not the artefact worth
+ * keeping an outage page off a route for.
  */
-const GATED_SUBTREES = ['/app', '/team', '/me', '/chat', '/complete-profile'] as const
+const GATED_SUBTREES = ['/app', '/team', '/me', '/chat', '/complete-profile', '/join'] as const
 
 /**
  * AN ALLOWLIST, NOT A FILTER — and the exclusions are the deliberate part.
