@@ -1621,6 +1621,10 @@ git commit -m "feat(onboarding): render the next-step card on /app, retire Teams
 - Modify: `v2/src/components/board-entry/form.tsx:39-47`
 - Modify: `v2/src/components/board-entry/button.tsx`
 - Test: `v2/convex/scores.test.ts`
+- Test (new): `v2/src/components/board-entry/button.hook.test.ts` — the trigger render prop
+- Test (new): `v2/src/components/board-entry/form.hook.test.ts` — prefill scoping and the solo `playWeekends` default
+
+Both test files were added by Step 9 after review; the directory previously held only `board-input.test.ts` and `pick-default-day.test.ts`, so neither `form.tsx` nor `button.tsx` had any test at all.
 
 **Why this task exists.** `upsertBoard` takes no `teamId` (`convex/scores.ts:256`) and `dailyScores` has no team column, so the *write* already works with no team. Only the *read* is blocked: `BoardEntryForm` gets its prefill from `getTeamMonth(teamId, month)` (`form.tsx:47`) and its `showLetters` from the team. This is the one piece of "let them play immediately" that is not free.
 
@@ -1717,6 +1721,33 @@ describe('scores.getMyMonth', () => {
     expect(score).toMatchObject({ answer: 'crane', guesses: ['stare', 'crane'] })
   })
 
+  test("a row with no answer at all comes back as '', not undefined", async () => {
+    // THE `?? ''` FALLBACK, WHICH NOTHING ELSE IN THIS FILE REACHES. `answer`
+    // is v.optional in the schema — v1 rows predate it — and getTeamMonthFor
+    // coalesces it for exactly that reason (scores.ts:96-101). Drop the
+    // coalesce here and all four gates stay green: the shape test above asserts
+    // Object.keys, which still lists `answer` when the value is undefined, and
+    // every other fixture in this file sets one. The TYPE link does not catch
+    // it either — `string | undefined` still satisfies the team branch's
+    // `string`. Only a row with the field genuinely absent proves it, and the
+    // symptom it prevents is React dropping an uncontrolled contentEditable
+    // back to its previous text in the entry form.
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('dailyScores', {
+        playerId: ada,
+        puzzleDay: '2026-09-04',
+        date: Date.now(),
+        guesses: ['stare'],
+      })
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    const [score] = await as.query(api.scores.getMyMonth, { month: '2026-09' })
+    expect(score.answer).toBe('')
+  })
+
   test('is empty rather than throwing for a caller with no player row', async () => {
     const t = convexTest(schema, modules)
     betterAuthTest.register(t)
@@ -1754,9 +1785,17 @@ Add to `v2/convex/scores.ts`:
  *
  * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:96-101), deliberately,
  * so the form derives from one shape whichever query fed it. It reads the same
- * index through the same monthRange bounds for the same reason: `end` is
- * '<month>-31' as a LEXICAL bound on 'YYYY-MM-DD', so it includes a 30-day
- * month's last day and cannot reach into the next month.
+ * index through the same monthRange bounds for the same reason: given a
+ * WELL-FORMED 'YYYY-MM', `end` is '<month>-31' as a LEXICAL bound on
+ * 'YYYY-MM-DD', so it includes a 30-day month's last day and cannot reach into
+ * the next month.
+ *
+ * THAT GUARANTEE IS CONDITIONAL ON THE ARGUMENT'S SHAPE, and `v.string()` does
+ * not enforce it: `{ month: '2026' }` bounds '2026-01'..'2026-31', which
+ * lexically brackets every day of the year. The route is what enforces the
+ * shape — app.tsx's validateSearch requires /^\d{4}-\d{2}$/ before a month can
+ * reach here — and getTeamMonthFor has exactly the same property, so this is a
+ * shared pre-existing contract rather than something to patch in one caller.
  *
  * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
  * /app, which is reachable in the window before a player row exists.
@@ -1783,7 +1822,7 @@ export const getMyMonth = query({
 })
 ```
 
-`${month}-31` as the upper bound is a lexical comparison on `YYYY-MM-DD`, so it correctly includes a 30-day month's last day and cannot reach into the next month. Confirm `currentPlayer` is imported in this file; `requirePlayer` already is.
+`${month}-31` as the upper bound is a lexical comparison on `YYYY-MM-DD`, so it correctly includes a 30-day month's last day and cannot reach into the next month **for a well-formed `YYYY-MM`**. It is not a validator: `{ month: '2026' }` bounds `'2026-01'..'2026-31'` and returns the whole year. `app.tsx`'s `validateSearch` enforces `/^\d{4}-\d{2}$/` before a month can reach here, and `getTeamMonthFor` shares the property, so this is a pre-existing contract of the pair rather than something to patch in one caller — do not add validation to just this query. Confirm `currentPlayer` is imported in this file; `requirePlayer` already is.
 
 - [ ] **Step 4: Run it and watch it pass**
 
@@ -1848,6 +1887,26 @@ Expected: all four `=0`. The rendered app is unchanged by this task — `BoardEn
 ```bash
 git add v2/convex/scores.ts v2/convex/scores.test.ts v2/src/components/board-entry/
 git commit -m "feat(board-entry): let a team-less player enter today's board"
+```
+
+- [ ] **Step 9: Defend it (added after review of `70cbbc9`)**
+
+The code above was reviewed and found correct — the form-body diff is a pure move, `BoardEntryButton`'s DOM and accessible names are identical at both breakpoints, and `getMyMonth` is right across every month of a leap and a common year. **The defences were not.** Six mutants were planted against the shipped commit and four survived all four gates; one survived the e2e suite as well. Every one is this plan's recurring shape — *an assertion satisfied by something other than the guard it is named for*.
+
+| Mutant | Why it lived |
+| --- | --- |
+| Invert the `trigger` callback so each breakpoint renders the other's trigger | Both triggers answer to `getByRole('button', { name: 'Board Entry' })` — that is what `label` is for — so all five e2e specs are blind. Symptom is `text-sm` where `text-xs` belongs. |
+| Drop `?? ''` from `answer: score.answer ?? ''` | `Object.keys` still lists `answer` when the value is `undefined`, and every fixture set one. The type link does not help: `string \| undefined` still satisfies the team branch's `string`. |
+| `player.id === myPlayerId` → `!==` in the team branch | `signInWithTeam` builds a ONE-MEMBER team, so `find(!==)` returns `undefined`, falls through `?? []`, and looks exactly like a fresh board. |
+| Solo `playWeekends={true}` → `{false}` | The one genuinely new product decision in the task, shipped with a five-line justification and zero assertions. |
+
+Close them with two new test files (see the Files list). Assert on what the accessible name **collapses** — which mechanism supplies the name, plus the icon-only button's own `text-xs` — never on "a button named Board Entry exists", which the mutant satisfies. For the score shape, add a fixture row with `answer` genuinely **omitted** (the schema has it optional) and assert `''` comes back. For the prefill scoping, build the TWO-member team e2e never builds, put the teammate's board on the selected day and the caller's nowhere, and assert the form prefills empty; add the mirror so it cannot be satisfied by a form that never prefills at all. For `playWeekends`, assert the prop each branch hands `DatePicker` — `date-picker.hook.test.ts:101` already owns what the picker *does* with the flag.
+
+Also soften `getMyMonth`'s doc comment: the "cannot reach into the next month" guarantee holds only for a well-formed `YYYY-MM`. Do not add validation; see Step 3.
+
+```bash
+git add v2/convex/scores.ts v2/convex/scores.test.ts v2/src/components/board-entry/ docs/superpowers/plans/2026-09-07-onboarding-next-step-card.md
+git commit -m "test(board-entry): defend the trigger contract, the score shape and the solo default"
 ```
 
 ---

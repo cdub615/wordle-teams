@@ -171,9 +171,17 @@ export const getMyPlayerId = query({
  *
  * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:96-101), deliberately,
  * so the form derives from one shape whichever query fed it. It reads the same
- * index through the same monthRange bounds for the same reason: `end` is
- * '<month>-31' as a LEXICAL bound on 'YYYY-MM-DD', so it includes a 30-day
- * month's last day and cannot reach into the next month.
+ * index through the same monthRange bounds for the same reason: given a
+ * WELL-FORMED 'YYYY-MM', `end` is '<month>-31' as a LEXICAL bound on
+ * 'YYYY-MM-DD', so it includes a 30-day month's last day and cannot reach into
+ * the next month.
+ *
+ * THAT GUARANTEE IS CONDITIONAL ON THE ARGUMENT'S SHAPE, and `v.string()` does
+ * not enforce it: `{ month: '2026' }` bounds '2026-01'..'2026-31', which
+ * lexically brackets every day of the year. The route is what enforces the
+ * shape — app.tsx's validateSearch requires /^\d{4}-\d{2}$/ before a month can
+ * reach here — and getTeamMonthFor has exactly the same property, so this is a
+ * shared pre-existing contract rather than something to patch in one caller.
  *
  * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
  * /app, which is reachable in the window before a player row exists.

@@ -705,6 +705,33 @@ describe('scores.getMyMonth', () => {
     expect(score).toMatchObject({ answer: 'crane', guesses: ['stare', 'crane'] })
   })
 
+  test("a row with no answer at all comes back as '', not undefined", async () => {
+    // THE `?? ''` FALLBACK, WHICH NOTHING ELSE IN THIS FILE REACHES. `answer`
+    // is v.optional in the schema — v1 rows predate it — and getTeamMonthFor
+    // coalesces it for exactly that reason (scores.ts:96-101). Drop the
+    // coalesce here and all four gates stay green: the shape test above asserts
+    // Object.keys, which still lists `answer` when the value is undefined, and
+    // every other fixture in this file sets one. The TYPE link does not catch
+    // it either — `string | undefined` still satisfies the team branch's
+    // `string`. Only a row with the field genuinely absent proves it, and the
+    // symptom it prevents is React dropping an uncontrolled contentEditable
+    // back to its previous text in the entry form.
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('dailyScores', {
+        playerId: ada,
+        puzzleDay: '2026-09-04',
+        date: Date.now(),
+        guesses: ['stare'],
+      })
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    const [score] = await as.query(api.scores.getMyMonth, { month: '2026-09' })
+    expect(score.answer).toBe('')
+  })
+
   test('is empty rather than throwing for a caller with no player row', async () => {
     const t = convexTest(schema, modules)
     betterAuthTest.register(t)
