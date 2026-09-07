@@ -508,7 +508,6 @@ Append to `v2/convex/inviteLinks.ts`:
 ```ts
 import { isProFor } from './access'
 import { resetChatCursorFor } from './chat.ts'
-import { getMyTeamsFor } from './teams.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 
 export const consumeLink = mutation({
@@ -542,9 +541,13 @@ export const consumeLink = mutation({
 
     // THE CAP, re-enforced. See the test of the same name for why this cannot
     // be inherited from the email path.
-    if (!(await isProFor(ctx, player._id))) {
-      const mine = await getMyTeamsFor(ctx, player._id)
-      if (mine.length >= FREE_TEAM_LIMIT) throw accessError('TEAM_LIMIT_REACHED')
+    if (!(await isProFor(ctx, playerId))) {
+      // COUNTED THE WAY completeProfileFor COUNTS IT (players.ts:208), not via
+      // getMyTeamsFor. That helper resolves every member of every team to build a
+      // display payload; this needs a number. Same scan, none of the fan-out.
+      const allTeams = await ctx.db.query('teams').collect()
+      const mine = allTeams.filter((t) => t.playerIds.includes(playerId)).length
+      if (mine >= FREE_TEAM_LIMIT) throw accessError('TEAM_LIMIT_REACHED')
     }
 
     // BEFORE the roster patch, so no window exists in which they are a member
@@ -557,6 +560,20 @@ export const consumeLink = mutation({
 ```
 
 Move the added imports up to the existing import block rather than leaving them mid-file. Reuse `access.ts`'s real error codes.
+
+
+**Two shape requirements this task inherits, both verified:**
+
+1. **Write it as `consumeLinkFor(ctx, playerId, token)` with a thin `consumeLink`
+   mutation wrapper**, matching `createLinkFor` / `revokeLinkFor` from the previous
+   task and the rest of this codebase. The tests then call the helper directly inside
+   `t.run` with no auth setup.
+2. **`TEAM_LIMIT_REACHED` is a new code and must reach three files** — the `AccessCode`
+   union (`convex/access.ts:43-61`), the hand-maintained `code === '…' ||` allowlist in
+   `convexErrorCode` (`src/lib/convex-error.ts:17-36`), and the copy `switch` below it.
+   Typecheck catches an omission from the switch, via its exhaustive `never`; it does
+   **not** catch an omission from the allowlist, which silently degrades the message to
+   the generic recovery text. Verified during the previous task.
 
 - [ ] **Step 4: Run it and watch it pass**
 
