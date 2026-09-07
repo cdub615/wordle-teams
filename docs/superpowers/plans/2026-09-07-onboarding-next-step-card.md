@@ -2014,7 +2014,7 @@ Match the existing item structure exactly — this task adds one entry, it does 
 
 - [ ] **Step 2: Write the failing test**
 
-Add to `v2/src/components/app-menu.hook.test.ts`, following that file's existing render helper:
+Add to `v2/src/components/app-menu.hook.test.ts`. **There is no `renderMenu` helper** — an earlier revision of this plan invented one. The file's real idiom is module-level `let` state (`isAuthenticated`, `isPro`, `currentUser`, …) that the mocked hooks read, then `render(createElement(AppMenu))` followed by its `openMenu()` helper, which uses `fireEvent.pointerDown` because a Radix menu does not open on a plain click (`:229-233`). Follow that.
 
 ```ts
 test('offers to replay onboarding once it has been dismissed', () => {
