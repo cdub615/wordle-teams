@@ -54,12 +54,24 @@ export function NextStepCard({
    *
    * A ref rather than state: recording what we sent must not itself cause a
    * render, or the effect re-runs and we are back where we started.
+   *
+   * PER MOUNT IS THE DELIBERATE SCOPE, not an accident of using a ref. A fresh
+   * mount means a genuine navigation back to /app, which is a genuine new view;
+   * hoisting this to a module-level Set would dedupe across the whole session
+   * and make the view/click ratio meaningless as a funnel denominator, since
+   * the clicks would keep counting while the views stopped. What the ref is
+   * for is the SAME mount re-entering a set it already reported — see the
+   * re-entry test, and note the dep array alone does not cover that.
+   *
+   * Allocated lazily inside the effect: `useRef(new Set())` would build and
+   * discard a Set on every render.
    */
-  const reported = useRef(new Set<string>())
+  const reported = useRef<Set<string> | null>(null)
   useEffect(() => {
     if (!visible) return
-    if (reported.current.has(key)) return
-    reported.current.add(key)
+    const seen = (reported.current ??= new Set<string>())
+    if (seen.has(key)) return
+    seen.add(key)
     trackFunnel({ name: 'onboarding_view', tasks: key })
   }, [visible, key])
 
@@ -76,6 +88,14 @@ export function NextStepCard({
    *
    * A dismissal is deliberately NOT a completion; it is its own event, or the
    * activation number would flatter itself.
+   *
+   * `completed` IS A SEPARATE GUARD FROM `sawIncomplete`, AND ALSO LOAD-BEARING.
+   * The dep is [tasks.length], so React's own memoization delivers "once" for a
+   * one-way trip and hides this latch entirely. It earns its place on a ROUND
+   * TRIP: tasks.length goes 0 -> 1 -> 0 whenever a fact comes back — a team is
+   * deleted and recreated, an invite is cancelled, a dismissal is undone — and
+   * without the latch every such cycle emits another onboarding_complete and
+   * inflates the activation count permanently.
    */
   const sawIncomplete = useRef(false)
   const completed = useRef(false)
@@ -133,12 +153,24 @@ export function NextStepCard({
           <Button
             key={task.id}
             variant="outline"
-            className="h-auto w-full justify-start py-3 text-left"
+            className="h-auto w-full justify-start whitespace-normal py-3 text-left"
             onClick={act(task.id, runners[task.id])}
           >
+            {/*
+              `whitespace-normal` on the Button above overrides the
+              `whitespace-nowrap` in buttonVariants' base (ui/button.tsx), and
+              `break-words` here is the same pairing chat/message-list.tsx:721
+              and confirm-popover.tsx:46 already use. Without both, the longest
+              hint — "A scoreboard needs someone to score against" — escapes the
+              button border at 360px and forces the whole document to scroll
+              horizontally at 320px. `h-auto` lets the button grow but nothing
+              in it lets the text wrap.
+            */}
             <span className="flex flex-col items-start">
               <span className="font-semibold">{task.title}</span>
-              <span className="text-muted-foreground text-sm font-normal">{task.hint}</span>
+              <span className="text-muted-foreground break-words text-sm font-normal">
+                {task.hint}
+              </span>
             </span>
           </Button>
         ))}

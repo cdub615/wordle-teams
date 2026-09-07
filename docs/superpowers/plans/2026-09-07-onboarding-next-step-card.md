@@ -960,168 +960,210 @@ git commit -m "feat(funnel): activation-half events for the onboarding card"
 Create `v2/src/components/onboarding/next-step-card.hook.test.ts`:
 
 ```ts
-// @vitest-environment jsdom
-//
-// jsdom, not the suite's default edge-runtime (vitest.config.ts), because this
-// renders the real component. `.hook.test.ts` matches the existing precedents,
-// and `.test.ts` rather than `.test.tsx` because vitest.config.ts's glob is
-// `src/**/*.test.ts`, so elements go through `createElement` by hand.
-//
-// WHY THIS FILE EXISTS: the dedupe below is invisible to every gate. Deleting
-// the emitted-set guard type-checks, lints, builds and passes every other
-// test — the card simply fires onboarding_view on every reactive invalidation
-// and drowns the LogSnag channel, which is only observable in production.
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { createElement } from 'react'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { NextStepCard } from './next-step-card.tsx'
-import { MODEL_LINE, type OnboardingFacts } from '#/lib/onboarding-tasks.ts'
+ // @vitest-environment jsdom
+ //
+ // jsdom, not the suite's default edge-runtime (vitest.config.ts), because this
+ // renders the real component. `.hook.test.ts` matches the existing precedents,
+ // and `.test.ts` rather than `.test.tsx` because vitest.config.ts's glob is
+ // `src/**/*.test.ts`, so elements go through `createElement` by hand.
+ //
+ // WHY THIS FILE EXISTS: the dedupe below is invisible to every gate. Deleting
+ // the emitted-set guard type-checks, lints, builds and passes every other
+ // test — the card simply fires onboarding_view on every reactive invalidation
+ // and drowns the LogSnag channel, which is only observable in production.
+ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+ import { createElement } from 'react'
+ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+ import { NextStepCard } from './next-step-card.tsx'
+ import { MODEL_LINE, type OnboardingFacts } from '#/lib/onboarding-tasks.ts'
 
-const sent: string[] = []
+ const sent: string[] = []
 
-vi.mock('#/lib/funnel.ts', () => ({
-  trackFunnel: (event: { name: string; tasks?: string; task?: string }) => {
-    sent.push([event.name, event.tasks ?? event.task ?? ''].join(':'))
-  },
-  SIGNIN_PARAM: 'signin',
-}))
+ vi.mock('#/lib/funnel.ts', () => ({
+   trackFunnel: (event: { name: string; tasks?: string; task?: string }) => {
+     sent.push([event.name, event.tasks ?? event.task ?? ''].join(':'))
+   },
+   SIGNIN_PARAM: 'signin',
+ }))
 
-const nothing: OnboardingFacts = {
-  enteredBoard: false,
-  hasTeam: false,
-  hasInvited: false,
-  dismissed: false,
-}
+ const nothing: OnboardingFacts = {
+   enteredBoard: false,
+   hasTeam: false,
+   hasInvited: false,
+   dismissed: false,
+ }
 
-const noop = () => {}
-const handlers = { onBoard: noop, onTeam: noop, onInvite: noop, onDismiss: noop }
+ const noop = () => {}
+ const handlers = { onBoard: noop, onTeam: noop, onInvite: noop, onDismiss: noop }
 
-beforeEach(() => {
-  sent.length = 0
-})
-afterEach(cleanup)
+ beforeEach(() => {
+   sent.length = 0
+ })
+ afterEach(cleanup)
 
-describe('NextStepCard', () => {
-  test('renders all three tasks and the model line for a fresh signup', () => {
-    render(createElement(NextStepCard, { facts: nothing, ...handlers }))
-    expect(screen.getByText("Enter today's board")).toBeTruthy()
-    expect(screen.getByText('Create a team')).toBeTruthy()
-    expect(screen.getByText('Invite someone')).toBeTruthy()
-    expect(screen.getByText(MODEL_LINE)).toBeTruthy()
-  })
+ describe('NextStepCard', () => {
+   test('renders all three tasks and the model line for a fresh signup', () => {
+     render(createElement(NextStepCard, { facts: nothing, ...handlers }))
+     expect(screen.getByText("Enter today's board")).toBeTruthy()
+     expect(screen.getByText('Create a team')).toBeTruthy()
+     expect(screen.getByText('Invite someone')).toBeTruthy()
+     expect(screen.getByText(MODEL_LINE)).toBeTruthy()
+   })
 
-  test('an invited joiner sees only the board task', () => {
-    const joiner = { ...nothing, hasTeam: true, hasInvited: true }
-    render(createElement(NextStepCard, { facts: joiner, ...handlers }))
-    expect(screen.getByText("Enter today's board")).toBeTruthy()
-    // Satisfied tasks VANISH rather than rendering as pre-checked busywork the
-    // user did not do. This is the design's wording and its intent.
-    expect(screen.queryByText('Create a team')).toBeNull()
-    expect(screen.queryByText('Invite someone')).toBeNull()
-  })
+   test('an invited joiner sees only the board task', () => {
+     const joiner = { ...nothing, hasTeam: true, hasInvited: true }
+     render(createElement(NextStepCard, { facts: joiner, ...handlers }))
+     expect(screen.getByText("Enter today's board")).toBeTruthy()
+     // Satisfied tasks VANISH rather than rendering as pre-checked busywork the
+     // user did not do. This is the design's wording and its intent.
+     expect(screen.queryByText('Create a team')).toBeNull()
+     expect(screen.queryByText('Invite someone')).toBeNull()
+   })
 
-  test('renders nothing once every task is complete', () => {
-    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
-    const { container } = render(createElement(NextStepCard, { facts: done, ...handlers }))
-    expect(container.textContent).toBe('')
-  })
+   test('renders nothing once every task is complete', () => {
+     const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+     const { container } = render(createElement(NextStepCard, { facts: done, ...handlers }))
+     expect(container.textContent).toBe('')
+     // SILENCE IS THE OTHER HALF, and textContent alone does not assert it: the
+     // blank screen comes from `if (!visible) return null` in the render path,
+     // so deleting the effect's own `if (!visible) return` leaves this passing
+     // while every activated player emits `onboarding_view:` on every /app load.
+     // That empty `tasks` is also exactly the empty-string key taskSetKey's doc
+     // comment warns callers about.
+     expect(sent).toEqual([])
+   })
 
-  test('renders nothing when dismissed', () => {
-    const { container } = render(
-      createElement(NextStepCard, { facts: { ...nothing, dismissed: true }, ...handlers }),
-    )
-    expect(container.textContent).toBe('')
-  })
+   test('renders nothing when dismissed', () => {
+     const { container } = render(
+       createElement(NextStepCard, { facts: { ...nothing, dismissed: true }, ...handlers }),
+     )
+     expect(container.textContent).toBe('')
+     // As above: a dismissed player must be silent, not merely blank. Without
+     // the effect's visibility gate this one emits the full task set forever.
+     expect(sent).toEqual([])
+   })
 
-  test('emits onboarding_view once per task set, not once per render', () => {
-    const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
-    rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
-    rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
-    expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-      'onboarding_view:board,team,invite',
-    ])
-  })
+   test('emits onboarding_view once per task set, not once per render', () => {
+     const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
+     rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
+     rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
+     expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
+       'onboarding_view:board,team,invite',
+     ])
+   })
 
-  test('emits again when the task set actually changes', () => {
-    const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
-    rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
-    expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-      'onboarding_view:board,team,invite',
-      'onboarding_view:board,invite',
-    ])
-  })
+   test('emits again when the task set actually changes', () => {
+     const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
+     rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
+     expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
+       'onboarding_view:board,team,invite',
+       'onboarding_view:board,invite',
+     ])
+   })
 
-  test('does not re-emit onboarding_view when an already-seen task set is re-entered', () => {
-    // THIS is the test that actually pins the `reported` ref; the two above do
-    // not. The effect's deps are [visible, key], both primitives, so React
-    // already skips the effect on a rerender that leaves the task set alone —
-    // delete the ref entirely and 'once per task set, not once per render'
-    // still passes. The ref only earns its place when a set is RE-ENTERED, and
-    // these facts do come back: an invite expires and hasInvited goes
-    // true -> false, a team is deleted, a dismissal is undone. Without the ref
-    // every such round trip puts another onboarding_view in the channel.
-    const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
-    rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
-    rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
-    expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-      'onboarding_view:board,team,invite',
-      'onboarding_view:board,invite',
-    ])
-  })
+   test('does not re-emit onboarding_view when an already-seen task set is re-entered', () => {
+     // THIS is the test that actually pins the `reported` ref; the two above do
+     // not. The effect's deps are [visible, key], both primitives, so React
+     // already skips the effect on a rerender that leaves the task set alone —
+     // delete the ref entirely and 'once per task set, not once per render'
+     // still passes. The ref only earns its place when a set is RE-ENTERED, and
+     // these facts do come back: an invite expires and hasInvited goes
+     // true -> false, a team is deleted, a dismissal is undone. Without the ref
+     // every such round trip puts another onboarding_view in the channel.
+     const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
+     rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
+     rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
+     expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
+       'onboarding_view:board,team,invite',
+       'onboarding_view:board,invite',
+     ])
+   })
 
-  test('does NOT emit onboarding_complete for someone who arrives already finished', () => {
-    // Every activated player mounts this on every /app load with zero tasks.
-    // Firing here would emit one completion per page view for the whole
-    // activated population and destroy the metric this epic is measured by.
-    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
-    render(createElement(NextStepCard, { facts: done, ...handlers }))
-    expect(sent.filter((entry) => entry.startsWith('onboarding_complete'))).toEqual([])
-  })
+   test('does NOT emit onboarding_complete for someone who arrives already finished', () => {
+     // Every activated player mounts this on every /app load with zero tasks.
+     // Firing here would emit one completion per page view for the whole
+     // activated population and destroy the metric this epic is measured by.
+     const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+     render(createElement(NextStepCard, { facts: done, ...handlers }))
+     expect(sent.filter((entry) => entry.startsWith('onboarding_complete'))).toEqual([])
+   })
 
-  test('emits onboarding_complete once when the last task finishes', () => {
-    const { rerender } = render(
-      createElement(NextStepCard, {
-        facts: { ...nothing, hasTeam: true, hasInvited: true },
-        ...handlers,
-      }),
-    )
-    rerender(
-      createElement(NextStepCard, {
-        facts: { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false },
-        ...handlers,
-      }),
-    )
-    expect(sent.filter((entry) => entry.startsWith('onboarding_complete'))).toEqual([
-      'onboarding_complete:',
-    ])
-  })
+   test('emits onboarding_complete once when the last task finishes', () => {
+     const { rerender } = render(
+       createElement(NextStepCard, {
+         facts: { ...nothing, hasTeam: true, hasInvited: true },
+         ...handlers,
+       }),
+     )
+     rerender(
+       createElement(NextStepCard, {
+         facts: { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false },
+         ...handlers,
+       }),
+     )
+     expect(sent.filter((entry) => entry.startsWith('onboarding_complete'))).toEqual([
+       'onboarding_complete:',
+     ])
+   })
 
-  test('a task button reports which task and calls its handler', () => {
-    const calls: string[] = []
-    render(
-      createElement(NextStepCard, {
-        facts: nothing,
-        onBoard: () => calls.push('board'),
-        onTeam: () => calls.push('team'),
-        onInvite: () => calls.push('invite'),
-        onDismiss: noop,
-      }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: /Invite someone/ }))
-    expect(calls).toEqual(['invite'])
-    expect(sent).toContain('onboarding_task_click:invite')
-  })
+   test('emits onboarding_complete once across a complete / un-complete / re-complete trip', () => {
+     // THIS is the test that pins the `completed` latch; the one above does not.
+     // The dep is [tasks.length] and that test rerenders into the zero-task
+     // state exactly once, so React's memoization supplies the "once" on its
+     // own — drop the latch and it still passes. The latch is for the round
+     // trip, and these are the same facts coming back that the re-entry test
+     // above lists: here the player finishes, deletes their team, and finishes
+     // again. Without the latch that player is counted as activated twice, and
+     // the activation number is the one thing this epic is measured by.
+     const oneLeft = { ...nothing, hasTeam: true, hasInvited: true }
+     const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+     const { rerender } = render(createElement(NextStepCard, { facts: oneLeft, ...handlers }))
+     rerender(createElement(NextStepCard, { facts: done, ...handlers }))
+     rerender(createElement(NextStepCard, { facts: { ...done, hasTeam: false }, ...handlers }))
+     rerender(createElement(NextStepCard, { facts: done, ...handlers }))
+     expect(sent.filter((entry) => entry.startsWith('onboarding_complete'))).toEqual([
+       'onboarding_complete:',
+     ])
+   })
 
-  test('dismiss reports and calls its handler', () => {
-    const calls: string[] = []
-    render(
-      createElement(NextStepCard, { facts: nothing, ...handlers, onDismiss: () => calls.push('x') }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: /Dismiss/ }))
-    expect(calls).toEqual(['x'])
-    expect(sent).toContain('onboarding_dismiss:')
-  })
-})
+   test('every task button reports its own id and calls its own handler', () => {
+     // ALL THREE, because `Record<OnboardingTaskId, () => void>` makes the KEYS
+     // exhaustive and says nothing about which callback each key holds. Clicking
+     // only one button leaves the other two edges of the map unpinned, and
+     // swapping `board` and `team` in it — so that tapping "Enter today's board"
+     // opens the Create Team dialog on the screen where signups already stall —
+     // type-checks, lints and passes every other test.
+     const calls: string[] = []
+     render(
+       createElement(NextStepCard, {
+         facts: nothing,
+         onBoard: () => calls.push('board'),
+         onTeam: () => calls.push('team'),
+         onInvite: () => calls.push('invite'),
+         onDismiss: noop,
+       }),
+     )
+     fireEvent.click(screen.getByRole('button', { name: /Enter today's board/ }))
+     fireEvent.click(screen.getByRole('button', { name: /Create a team/ }))
+     fireEvent.click(screen.getByRole('button', { name: /Invite someone/ }))
+     expect(calls).toEqual(['board', 'team', 'invite'])
+     expect(sent.filter((entry) => entry.startsWith('onboarding_task_click'))).toEqual([
+       'onboarding_task_click:board',
+       'onboarding_task_click:team',
+       'onboarding_task_click:invite',
+     ])
+   })
+
+   test('dismiss reports and calls its handler', () => {
+     const calls: string[] = []
+     render(
+       createElement(NextStepCard, { facts: nothing, ...handlers, onDismiss: () => calls.push('x') }),
+     )
+     fireEvent.click(screen.getByRole('button', { name: /Dismiss/ }))
+     expect(calls).toEqual(['x'])
+     expect(sent).toContain('onboarding_dismiss:')
+   })
+ })
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1134,160 +1176,192 @@ Expected: FAIL — cannot resolve `./next-step-card.tsx`.
 Create `v2/src/components/onboarding/next-step-card.tsx`:
 
 ```tsx
-import { useEffect, useRef } from 'react'
-import { X } from 'lucide-react'
-import { Button } from '#/components/ui/button.tsx'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card.tsx'
-import { trackFunnel } from '#/lib/funnel.ts'
-import {
-  MODEL_LINE,
-  cardHeading,
-  incompleteTasks,
-  shouldShowCard,
-  taskSetKey,
-  type OnboardingFacts,
-  type OnboardingTaskId,
-} from '#/lib/onboarding-tasks.ts'
+ import { useEffect, useRef } from 'react'
+ import { X } from 'lucide-react'
+ import { Button } from '#/components/ui/button.tsx'
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+ import { trackFunnel } from '#/lib/funnel.ts'
+ import {
+   MODEL_LINE,
+   cardHeading,
+   incompleteTasks,
+   shouldShowCard,
+   taskSetKey,
+   type OnboardingFacts,
+   type OnboardingTaskId,
+ } from '#/lib/onboarding-tasks.ts'
 
-/**
- * What a player who has not finished onboarding sees at the top of /app.
- *
- * REPLACES TeamsEmptyState OUTRIGHT. That component handled exactly one state —
- * "you have no team" — which is now one of three tasks here, and it rendered
- * INSTEAD of the dashboard, which is why a team-less player had nothing to do
- * (wordle-teams-456 traced a signup whose entire lifetime was 39 seconds and
- * ended on that screen).
- *
- * PRESENTATIONAL. Every action is a callback, because the dialogs these open
- * are already mounted by routes/app.tsx and owning them here would mean a
- * second CreateTeamDialog on the same page.
- */
-export function NextStepCard({
-  facts,
-  onBoard,
-  onTeam,
-  onInvite,
-  onDismiss,
-}: {
-  facts: OnboardingFacts
-  onBoard: () => void
-  onTeam: () => void
-  onInvite: () => void
-  onDismiss: () => void
-}) {
-  const tasks = incompleteTasks(facts)
-  const visible = shouldShowCard(facts)
-  const key = taskSetKey(tasks)
+ /**
+  * What a player who has not finished onboarding sees at the top of /app.
+  *
+  * REPLACES TeamsEmptyState OUTRIGHT. That component handled exactly one state —
+  * "you have no team" — which is now one of three tasks here, and it rendered
+  * INSTEAD of the dashboard, which is why a team-less player had nothing to do
+  * (wordle-teams-456 traced a signup whose entire lifetime was 39 seconds and
+  * ended on that screen).
+  *
+  * PRESENTATIONAL. Every action is a callback, because the dialogs these open
+  * are already mounted by routes/app.tsx and owning them here would mean a
+  * second CreateTeamDialog on the same page.
+  */
+ export function NextStepCard({
+   facts,
+   onBoard,
+   onTeam,
+   onInvite,
+   onDismiss,
+ }: {
+   facts: OnboardingFacts
+   onBoard: () => void
+   onTeam: () => void
+   onInvite: () => void
+   onDismiss: () => void
+ }) {
+   const tasks = incompleteTasks(facts)
+   const visible = shouldShowCard(facts)
+   const key = taskSetKey(tasks)
 
-  /**
-   * THE DEDUPE, and the reason this component has a test at all.
-   *
-   * This card renders from a reactive Convex subscription, and getMyTeams is
-   * invalidated by every team in the system (teams.ts:61). Emitting on render
-   * would put an onboarding_view in LogSnag every time any stranger renamed a
-   * team. The ref holds the task sets already reported in THIS mount, so the
-   * event fires on genuine state changes and nothing else.
-   *
-   * A ref rather than state: recording what we sent must not itself cause a
-   * render, or the effect re-runs and we are back where we started.
-   */
-  const reported = useRef(new Set<string>())
-  useEffect(() => {
-    if (!visible) return
-    if (reported.current.has(key)) return
-    reported.current.add(key)
-    trackFunnel({ name: 'onboarding_view', tasks: key })
-  }, [visible, key])
+   /**
+    * THE DEDUPE, and the reason this component has a test at all.
+    *
+    * This card renders from a reactive Convex subscription, and getMyTeams is
+    * invalidated by every team in the system (teams.ts:61). Emitting on render
+    * would put an onboarding_view in LogSnag every time any stranger renamed a
+    * team. The ref holds the task sets already reported in THIS mount, so the
+    * event fires on genuine state changes and nothing else.
+    *
+    * A ref rather than state: recording what we sent must not itself cause a
+    * render, or the effect re-runs and we are back where we started.
+    *
+    * PER MOUNT IS THE DELIBERATE SCOPE, not an accident of using a ref. A fresh
+    * mount means a genuine navigation back to /app, which is a genuine new view;
+    * hoisting this to a module-level Set would dedupe across the whole session
+    * and make the view/click ratio meaningless as a funnel denominator, since
+    * the clicks would keep counting while the views stopped. What the ref is
+    * for is the SAME mount re-entering a set it already reported — see the
+    * re-entry test, and note the dep array alone does not cover that.
+    *
+    * Allocated lazily inside the effect: `useRef(new Set())` would build and
+    * discard a Set on every render.
+    */
+   const reported = useRef<Set<string> | null>(null)
+   useEffect(() => {
+     if (!visible) return
+     const seen = (reported.current ??= new Set<string>())
+     if (seen.has(key)) return
+     seen.add(key)
+     trackFunnel({ name: 'onboarding_view', tasks: key })
+   }, [visible, key])
 
-  /**
-   * Completion, emitted once, ON THE TRANSITION rather than on the state.
-   *
-   * `sawIncomplete` is the whole point and this is wrong without it. An
-   * activated player mounts this component on EVERY /app load with zero
-   * incomplete tasks, so firing whenever `tasks.length === 0` would emit an
-   * onboarding_complete per page view for the entire activated population —
-   * swamping the channel and destroying the one number this epic is measured
-   * by. The event has to mean "they just finished", which requires having seen
-   * them unfinished first.
-   *
-   * A dismissal is deliberately NOT a completion; it is its own event, or the
-   * activation number would flatter itself.
-   */
-  const sawIncomplete = useRef(false)
-  const completed = useRef(false)
-  useEffect(() => {
-    if (tasks.length > 0) {
-      sawIncomplete.current = true
-      return
-    }
-    if (!sawIncomplete.current || completed.current) return
-    completed.current = true
-    trackFunnel({ name: 'onboarding_complete' })
-  }, [tasks.length])
+   /**
+    * Completion, emitted once, ON THE TRANSITION rather than on the state.
+    *
+    * `sawIncomplete` is the whole point and this is wrong without it. An
+    * activated player mounts this component on EVERY /app load with zero
+    * incomplete tasks, so firing whenever `tasks.length === 0` would emit an
+    * onboarding_complete per page view for the entire activated population —
+    * swamping the channel and destroying the one number this epic is measured
+    * by. The event has to mean "they just finished", which requires having seen
+    * them unfinished first.
+    *
+    * A dismissal is deliberately NOT a completion; it is its own event, or the
+    * activation number would flatter itself.
+    *
+    * `completed` IS A SEPARATE GUARD FROM `sawIncomplete`, AND ALSO LOAD-BEARING.
+    * The dep is [tasks.length], so React's own memoization delivers "once" for a
+    * one-way trip and hides this latch entirely. It earns its place on a ROUND
+    * TRIP: tasks.length goes 0 -> 1 -> 0 whenever a fact comes back — a team is
+    * deleted and recreated, an invite is cancelled, a dismissal is undone — and
+    * without the latch every such cycle emits another onboarding_complete and
+    * inflates the activation count permanently.
+    */
+   const sawIncomplete = useRef(false)
+   const completed = useRef(false)
+   useEffect(() => {
+     if (tasks.length > 0) {
+       sawIncomplete.current = true
+       return
+     }
+     if (!sawIncomplete.current || completed.current) return
+     completed.current = true
+     trackFunnel({ name: 'onboarding_complete' })
+   }, [tasks.length])
 
-  if (!visible) return null
+   if (!visible) return null
 
-  const act = (id: OnboardingTaskId, run: () => void) => () => {
-    trackFunnel({ name: 'onboarding_task_click', task: id })
-    run()
-  }
+   const act = (id: OnboardingTaskId, run: () => void) => () => {
+     trackFunnel({ name: 'onboarding_task_click', task: id })
+     run()
+   }
 
-  const runners: Record<OnboardingTaskId, () => void> = {
-    board: onBoard,
-    team: onTeam,
-    invite: onInvite,
-  }
+   const runners: Record<OnboardingTaskId, () => void> = {
+     board: onBoard,
+     team: onTeam,
+     invite: onInvite,
+   }
 
-  return (
-    <Card className="mb-4">
-      <CardHeader className="relative">
-        <CardTitle asChild>
-          <h2>{cardHeading(facts)}</h2>
-        </CardTitle>
-        <CardDescription>{MODEL_LINE}</CardDescription>
-        {/*
-          An icon-only control needs a real accessible name. v1's tooltip-only
-          OAuth labels are the cautionary tale this app already paid for
-          (wordle-teams-390): a Tooltip does not open on tap, and the login
-          traffic here is heavily iPhone.
-        */}
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Dismiss getting started"
-          className="absolute right-2 top-2"
-          onClick={() => {
-            trackFunnel({ name: 'onboarding_dismiss' })
-            onDismiss()
-          }}
-        >
-          <X size={16} />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        {tasks.map((task) => (
-          <Button
-            key={task.id}
-            variant="outline"
-            className="h-auto w-full justify-start py-3 text-left"
-            onClick={act(task.id, runners[task.id])}
-          >
-            <span className="flex flex-col items-start">
-              <span className="font-semibold">{task.title}</span>
-              <span className="text-muted-foreground text-sm font-normal">{task.hint}</span>
-            </span>
-          </Button>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
+   return (
+     <Card className="mb-4">
+       <CardHeader className="relative">
+         <CardTitle asChild>
+           <h2>{cardHeading(facts)}</h2>
+         </CardTitle>
+         <CardDescription>{MODEL_LINE}</CardDescription>
+         {/*
+           An icon-only control needs a real accessible name. v1's tooltip-only
+           OAuth labels are the cautionary tale this app already paid for
+           (wordle-teams-390): a Tooltip does not open on tap, and the login
+           traffic here is heavily iPhone.
+         */}
+         <Button
+           variant="ghost"
+           size="icon"
+           aria-label="Dismiss getting started"
+           className="absolute right-2 top-2"
+           onClick={() => {
+             trackFunnel({ name: 'onboarding_dismiss' })
+             onDismiss()
+           }}
+         >
+           <X size={16} />
+         </Button>
+       </CardHeader>
+       <CardContent className="flex flex-col gap-2">
+         {tasks.map((task) => (
+           <Button
+             key={task.id}
+             variant="outline"
+             className="h-auto w-full justify-start whitespace-normal py-3 text-left"
+             onClick={act(task.id, runners[task.id])}
+           >
+             {/*
+               `whitespace-normal` on the Button above overrides the
+               `whitespace-nowrap` in buttonVariants' base (ui/button.tsx), and
+               `break-words` here is the same pairing chat/message-list.tsx:721
+               and confirm-popover.tsx:46 already use. Without both, the longest
+               hint — "A scoreboard needs someone to score against" — escapes the
+               button border at 360px and forces the whole document to scroll
+               horizontally at 320px. `h-auto` lets the button grow but nothing
+               in it lets the text wrap.
+             */}
+             <span className="flex flex-col items-start">
+               <span className="font-semibold">{task.title}</span>
+               <span className="text-muted-foreground break-words text-sm font-normal">
+                 {task.hint}
+               </span>
+             </span>
+           </Button>
+         ))}
+       </CardContent>
+     </Card>
+   )
+ }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run from `v2/`: `pnpm vitest run src/components/onboarding/next-step-card.hook.test.ts`
-Expected: PASS, 11 tests.
+Expected: PASS, 12 tests.
 
 If the accessible-name query fails, check how `Button` composes its content in `src/components/ui/button.tsx` — the name is the visible text, and the dismiss control's name comes from `aria-label`.
 

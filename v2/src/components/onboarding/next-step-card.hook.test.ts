@@ -62,6 +62,13 @@ describe('NextStepCard', () => {
     const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
     const { container } = render(createElement(NextStepCard, { facts: done, ...handlers }))
     expect(container.textContent).toBe('')
+    // SILENCE IS THE OTHER HALF, and textContent alone does not assert it: the
+    // blank screen comes from `if (!visible) return null` in the render path,
+    // so deleting the effect's own `if (!visible) return` leaves this passing
+    // while every activated player emits `onboarding_view:` on every /app load.
+    // That empty `tasks` is also exactly the empty-string key taskSetKey's doc
+    // comment warns callers about.
+    expect(sent).toEqual([])
   })
 
   test('renders nothing when dismissed', () => {
@@ -69,6 +76,9 @@ describe('NextStepCard', () => {
       createElement(NextStepCard, { facts: { ...nothing, dismissed: true }, ...handlers }),
     )
     expect(container.textContent).toBe('')
+    // As above: a dismissed player must be silent, not merely blank. Without
+    // the effect's visibility gate this one emits the full task set forever.
+    expect(sent).toEqual([])
   })
 
   test('emits onboarding_view once per task set, not once per render', () => {
@@ -134,7 +144,33 @@ describe('NextStepCard', () => {
     ])
   })
 
-  test('a task button reports which task and calls its handler', () => {
+  test('emits onboarding_complete once across a complete / un-complete / re-complete trip', () => {
+    // THIS is the test that pins the `completed` latch; the one above does not.
+    // The dep is [tasks.length] and that test rerenders into the zero-task
+    // state exactly once, so React's memoization supplies the "once" on its
+    // own — drop the latch and it still passes. The latch is for the round
+    // trip, and these are the same facts coming back that the re-entry test
+    // above lists: here the player finishes, deletes their team, and finishes
+    // again. Without the latch that player is counted as activated twice, and
+    // the activation number is the one thing this epic is measured by.
+    const oneLeft = { ...nothing, hasTeam: true, hasInvited: true }
+    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+    const { rerender } = render(createElement(NextStepCard, { facts: oneLeft, ...handlers }))
+    rerender(createElement(NextStepCard, { facts: done, ...handlers }))
+    rerender(createElement(NextStepCard, { facts: { ...done, hasTeam: false }, ...handlers }))
+    rerender(createElement(NextStepCard, { facts: done, ...handlers }))
+    expect(sent.filter((entry) => entry.startsWith('onboarding_complete'))).toEqual([
+      'onboarding_complete:',
+    ])
+  })
+
+  test('every task button reports its own id and calls its own handler', () => {
+    // ALL THREE, because `Record<OnboardingTaskId, () => void>` makes the KEYS
+    // exhaustive and says nothing about which callback each key holds. Clicking
+    // only one button leaves the other two edges of the map unpinned, and
+    // swapping `board` and `team` in it — so that tapping "Enter today's board"
+    // opens the Create Team dialog on the screen where signups already stall —
+    // type-checks, lints and passes every other test.
     const calls: string[] = []
     render(
       createElement(NextStepCard, {
@@ -145,9 +181,15 @@ describe('NextStepCard', () => {
         onDismiss: noop,
       }),
     )
+    fireEvent.click(screen.getByRole('button', { name: /Enter today's board/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Create a team/ }))
     fireEvent.click(screen.getByRole('button', { name: /Invite someone/ }))
-    expect(calls).toEqual(['invite'])
-    expect(sent).toContain('onboarding_task_click:invite')
+    expect(calls).toEqual(['board', 'team', 'invite'])
+    expect(sent.filter((entry) => entry.startsWith('onboarding_task_click'))).toEqual([
+      'onboarding_task_click:board',
+      'onboarding_task_click:team',
+      'onboarding_task_click:invite',
+    ])
   })
 
   test('dismiss reports and calls its handler', () => {
