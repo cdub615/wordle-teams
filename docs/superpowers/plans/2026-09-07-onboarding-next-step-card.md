@@ -1556,6 +1556,16 @@ Add to the component body, near the existing `teams` query:
 
 `monthOf` and `toPuzzleDay` are already imported in this file.
 
+**Why not reuse the existing pattern?** `app.tsx:252` already does exactly this
+guard — `const currentMonth = hydrated ? monthOf(toPuzzleDay(new Date())) : monthParam`,
+via `useHydrated()` at `:118`. It is the right idiom and you should read it. But it
+sits *below* the `teams.length === 0` early return at `:222`, so it is not reachable
+from the branch that needs it, and hoisting it would make every render of the
+no-team branch depend on a hydration flag for a value only a click ever consumes.
+Computing it in the handler is post-hydration by construction and needs no flag.
+If you find hoisting cleaner once you are in the file, that is a defensible call —
+say so in your report rather than doing it silently.
+
 Then the surface itself, rendered by both branches. **Give it its own Suspense boundary** — this is Task 8's review finding: `BoardEntryButton` sits at `:537`, above all three existing boundaries (`:579`, `:587`, `:639`). On the team path that never bites because `getTeamMonth` is already warm from `TodayPanel`. Nothing warms `getMyMonth`, so without a boundary here the **first** tap by a team-less player suspends all the way to the route boundary and blanks the page — hitting precisely the person this epic exists to convert, on their first meaningful action:
 
 ```tsx
