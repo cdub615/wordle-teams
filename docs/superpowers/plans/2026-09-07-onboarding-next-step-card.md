@@ -2122,51 +2122,78 @@ If something old is listening, kill it before running. **e2e sits outside the fo
 
 - [ ] **Step 1: Write the spec**
 
-Create `v2/e2e/onboarding.spec.ts`, following the seeding helpers in the existing `e2e/invites.spec.ts`:
+> **Helpers verified 2026-09-07.** An earlier revision elided these as "…". They are:
+>
+> - `signIn(page, email?)` — `e2e/sign-in.ts:31`, returns the email, defaults to a unique `e2e+…@wordleteams.com`.
+> - `completeProfile(page, { firstName?, lastName? })` — `e2e/complete-profile.ts:39`.
+> - `openAppMenu(page)` — `e2e/app-menu.ts:32`.
+> - `api.e2eSeed.ensureTeamFor({ email })` — seeds a player **with their own team**. There is no shared `signInWithTeam`; `board-entry.spec.ts:19` and `teams.spec.ts:28` each carry their own four-line copy. Copy that shape rather than importing.
+>
+> The card now shows **at most two** tasks. `team` and `invite` are mutually
+> exclusive — one needs `hasTeam` false, the other true — so no path ever shows three.
+
+Create `v2/e2e/onboarding.spec.ts` covering the three entry paths:
 
 ```ts
 import { expect, test } from '@playwright/test'
+import { ConvexHttpClient } from 'convex/browser'
+import { api } from '../convex/_generated/api'
+import { signIn } from './sign-in'
+import { completeProfile } from './complete-profile'
+import { openAppMenu } from './app-menu'
 
-test.describe('onboarding next-step card', () => {
-  test('a fresh signup sees its two tasks and can play with no team', async ({ page }) => {
-    // Seed an account with a player row, no team, no boards.
-    await page.goto('/app')
-    await expect(page.getByText('Get started')).toBeVisible()
-    await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Create a team/ })).toBeVisible()
-    // NOT the invite task — it needs a team to point at, and asserting its
-    // ABSENCE here is what pins the dead end fixed after Task 7. See the
-    // correction note on Task 1.
-    await expect(page.getByRole('button', { name: /Invite someone/ })).toBeHidden()
+/** A player who already owns a team, mirroring board-entry.spec.ts:19. */
+async function signInWithTeam(page: Page): Promise<string> {
+  const email = `e2e+${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
+  const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+  await convex.mutation(api.e2eSeed.ensureTeamFor, { email })
+  await signIn(page, email)
+  return email
+}
 
-    // The point of the whole design: this works with no team.
-    await page.getByRole('button', { name: /Enter today's board/ }).click()
-    await expect(page.getByRole('dialog')).toBeVisible()
-  })
+test('a fresh signup owes board and team, and can play with no team at all', async ({ page }) => {
+  await signIn(page)
+  await completeProfile(page)
 
-  test('the board task disappears once a board is entered', async ({ page }) => {
-    await page.goto('/app')
-    // ...enter a board through the dialog, using the same steps as the existing
-    // board-entry spec...
-    await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeHidden()
-    await expect(page.getByRole('button', { name: /Create a team/ })).toBeVisible()
-  })
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Create a team/ })).toBeVisible()
+  // The prerequisite: you cannot invite anyone to a team that does not exist,
+  // and offering it here was a dead end that redirected straight back (qt4.7).
+  await expect(page.getByRole('button', { name: /Invite someone/ })).toBeHidden()
 
-  test('dismissing hides the card and the menu offers it back', async ({ page }) => {
-    await page.goto('/app')
-    await page.getByRole('button', { name: 'Dismiss getting started' }).click()
-    await expect(page.getByText('Get started')).toBeHidden()
+  // The point of the whole design: board entry works with NO team.
+  await page.getByRole('button', { name: /Enter today's board/ }).click()
+  await expect(page.getByRole('dialog', { name: 'Add or Update Board' })).toBeVisible()
+})
 
-    await page.reload()
-    await expect(page.getByText('Get started')).toBeHidden() // the flag is server-side
+test('a player with a team of one owes board and invite, not create', async ({ page }) => {
+  await signInWithTeam(page)
 
-    // ...open the app menu and click "Show getting started"...
-    await expect(page.getByText('Get started')).toBeVisible()
-  })
+  await expect(page.getByRole('button', { name: /Invite someone/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Create a team/ })).toBeHidden()
+})
+
+test('dismissing survives a reload, and the menu offers it back', async ({ page }) => {
+  await signInWithTeam(page)
+  await page.getByRole('button', { name: 'Dismiss getting started' }).click()
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeHidden()
+
+  // Server-side flag, not localStorage — the reload is the assertion.
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeHidden()
+
+  await openAppMenu(page)
+  await page.getByRole('menuitem', { name: /Show getting started/ }).click()
+  await expect(page.getByRole('heading', { name: /Get started|One more thing/ })).toBeVisible()
 })
 ```
 
-Fill the elided steps from the neighbouring specs rather than inventing selectors — `e2e/invites.spec.ts` already has the seed-and-sign-in helper, and the board-entry spec already has the dialog interaction.
+**Check the heading each case actually produces before asserting on it.** `cardHeading`
+returns `'One more thing'` when exactly one task remains and `'Get started'` otherwise —
+so a seeded team-of-one who has not played owes two (board, invite) and reads
+"Get started", but one who has played owes one and reads "One more thing". Run it and
+match reality rather than trusting these strings.
 
 - [ ] **Step 2: Run it**
 
