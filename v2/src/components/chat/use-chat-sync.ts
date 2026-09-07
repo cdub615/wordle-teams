@@ -672,6 +672,181 @@ export function messageRows(
   return rows
 }
 
+/* ---------------------------------------------------------------------------
+ * The two iMessage gestures (wordle-teams-qix.26, part 3).
+ *
+ * EVERYTHING BELOW IS A DECISION, AND EVERY ONE OF THEM WOULD OTHERWISE LIVE
+ * INSIDE A POINTER HANDLER IN message-list.tsx. This suite runs on
+ * edge-runtime with no DOM and collects `*.test.ts` only, so a threshold
+ * compared inline in an `onPointerMove` is a threshold asserted by nothing —
+ * the same argument `messageRows` is built on. The component keeps the timers,
+ * the refs and the element it writes a transform onto; it decides none of the
+ * numbers.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * BOTH GESTURES ARE TOUCH GESTURES, AND THAT IS THE DESKTOP ANSWER.
+ *
+ * A mouse has a right button, so the delete menu has a real desktop
+ * affordance: `contextmenu` opens the same menu the long press does, and no
+ * press timer is ever armed for a mouse (a mouse press that sits still for
+ * half a second is someone reading, not someone asking for anything).
+ *
+ * THE TIMESTAMP REVEAL GETS NO DESKTOP EQUIVALENT AT ALL, deliberately. There
+ * is no drag-to-reveal idiom on a mouse; a horizontal drag across a message
+ * list means "select this text", which is the one thing a desktop reader
+ * actually does in a chat log, and consuming it to slide the conversation
+ * sideways would trade a real interaction for a decorative one. A trackpad's
+ * two-finger horizontal swipe arrives as a `wheel` event and would not reach a
+ * pointer handler regardless. The information is not withheld: part 2's time
+ * separators already stamp the conversation at every hour-long pause and every
+ * day boundary, which is where a desktop reader finds a message's time.
+ */
+export function isTouchGesture(pointerType: string): boolean {
+  return pointerType === 'touch' || pointerType === 'pen'
+}
+
+/**
+ * How long a finger must rest on a bubble before its menu opens, and how far
+ * it may stray in the meantime.
+ *
+ * 500ms IS THE BRIEF'S NUMBER AND IT IS FASTER THAN RADIX'S OWN CONTEXT-MENU
+ * TIMER (700ms). iOS opens its own callout at roughly this point, so a longer
+ * press is a press that has already been answered by something else.
+ *
+ * THE SLOP IS THE WHOLE BUG THIS PATTERN IS FAMOUS FOR. A list is scrolled by
+ * putting a finger on a message and moving it, which is a press on a bubble
+ * that lasts far longer than half a second; without a movement threshold every
+ * scroll of a conversation ends with a delete menu over whichever bubble the
+ * finger happened to land on. 10 CSS pixels is under a finger's own resting
+ * jitter but far under the 8px at which this file commits a drag to an axis,
+ * so a gesture that has been recognised as a swipe has already cancelled the
+ * press it started as.
+ */
+export const LONG_PRESS_MS = 500
+export const LONG_PRESS_SLOP_PX = 10
+
+export type PressPoint = { x: number; y: number }
+
+/**
+ * Whether a pointer has wandered far enough since it went down to mean
+ * something other than a long press.
+ *
+ * STRAIGHT-LINE DISTANCE, NOT PER-AXIS. A diagonal drag of 9px across and 9px
+ * down is 12.7px of movement and is plainly a drag; a rule comparing each axis
+ * against the slop separately would call it a stationary press.
+ */
+export function movedOffPress(
+  start: PressPoint,
+  current: PressPoint,
+  slop: number = LONG_PRESS_SLOP_PX,
+): boolean {
+  return Math.hypot(current.x - start.x, current.y - start.y) > slop
+}
+
+/**
+ * Which keys open a bubble's menu.
+ *
+ * THIS EXISTS BECAUSE THE VISIBLE DELETE LINK IS GONE. Replacing a control
+ * anyone could tab to with a gesture only a pointer can perform would put
+ * deletion out of reach of a keyboard entirely, so the bubble is focusable and
+ * these three keys open the same menu the long press does. They are the three
+ * Radix's own menu triggers answer to, which is what makes this consistent
+ * with every other menu in the app (the app menu, the team picker, the month
+ * picker) rather than a fourth convention.
+ *
+ * `ContextMenu`/`Shift+F10` IS NOT LISTED AND IS STILL HANDLED: browsers fire
+ * a `contextmenu` event for those on the focused element, which is the same
+ * event a right-click delivers, so the menu's `onContextMenu` already answers
+ * them.
+ */
+export function opensMenuFromKey(key: string): boolean {
+  return key === 'Enter' || key === ' ' || key === 'ArrowDown'
+}
+
+/**
+ * How far the conversation slides left at a full reveal, in CSS pixels.
+ *
+ * MEASURED AT 390x844 AGAINST THE BUILT STYLESHEET, not chosen: the label sits
+ * at the message row's right edge plus `pl-3`, so at 56px of travel a
+ * `2:05 PM` lands roughly 18px clear of the viewport's right edge and a
+ * `14:05` roughly 30px, both fully inside the strip the slide opens up.
+ */
+export const TIME_REVEAL_PX = 56
+
+/**
+ * How far the pointer must move before the gesture is committed to an axis.
+ *
+ * UNDER THE LONG-PRESS SLOP, DELIBERATELY, so the two thresholds resolve in
+ * the order they have to: by the time a drag is a drag, the press it began as
+ * is already cancelled.
+ */
+export const AXIS_LOCK_SLOP_PX = 8
+
+export type DragAxis = 'undecided' | 'horizontal' | 'vertical'
+
+/**
+ * Which way a drag has committed, given how far it has travelled.
+ *
+ * THE LOCK IS THE WHOLE REASON THE REVEAL DOES NOT FIGHT THE SCROLL. A finger
+ * never moves on exactly one axis, so a reveal driven by raw horizontal
+ * displacement slides the conversation sideways during every vertical scroll.
+ * Answering `undecided` until the movement is unambiguous, and then answering
+ * the SAME thing for the rest of the gesture (the caller keeps the answer), is
+ * what makes a scroll a scroll and a swipe a swipe.
+ *
+ * `undecided` IS NOT `vertical`, AND THE DIFFERENCE MATTERS. Until the slop is
+ * cleared nothing has been decided, so nothing moves and nothing is refused;
+ * collapsing the two would make the first eight pixels of every swipe a
+ * scroll, which is what a reveal that "feels sticky" is made of.
+ *
+ * TIES GO TO VERTICAL. `>` rather than `>=` on the horizontal comparison means
+ * a perfectly diagonal drag scrolls, which is the safer failure: a reveal that
+ * did not open costs a reader nothing, and a scroll that did not happen is the
+ * app refusing to move.
+ */
+export function dragAxis(dx: number, dy: number, slop: number = AXIS_LOCK_SLOP_PX): DragAxis {
+  if (Math.abs(dx) <= slop && Math.abs(dy) <= slop) return 'undecided'
+  return Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical'
+}
+
+/**
+ * How far the conversation is translated left, for a horizontal drag of `dx`.
+ *
+ * LEFTWARD ONLY. `dx >= 0` is a drag to the RIGHT, and there is nothing on the
+ * left of a message to reveal — sliding the conversation the other way would
+ * open a strip of empty background and drag the bubbles off their own edge.
+ *
+ * CLAMPED AT THE STRIP'S WIDTH RATHER THAN TRACKING THE FINGER FOREVER. The
+ * timestamp is fully visible at `TIME_REVEAL_PX`; every pixel past that moves
+ * the conversation off screen to show something already on screen. A hard
+ * clamp also means the release always animates the same distance, so the
+ * snap-back reads as one motion rather than as a variable-length rewind.
+ */
+export function revealOffset(dx: number, max: number = TIME_REVEAL_PX): number {
+  if (dx >= 0) return 0
+  return Math.min(-dx, max)
+}
+
+/**
+ * How long the snap-back takes when the finger lifts.
+ *
+ * ZERO UNDER `prefers-reduced-motion`, WHICH IS THE HONEST ANSWER RATHER THAN
+ * A SHORTER ANIMATION. The drag itself is not animation — it is the
+ * conversation following a finger, one-to-one, and stopping that would be
+ * removing the gesture rather than damping it. The release is the only part
+ * the app animates on its own, so the release is the only part the preference
+ * governs.
+ *
+ * ASKED IN JAVASCRIPT, per this repo's rule (lib/use-reduced-motion.ts): a
+ * `@media (prefers-reduced-motion: reduce)` block in styles.css is a rule no
+ * gate here can observe, because vitest has no CSSOM. This is a number a test
+ * can read.
+ */
+export function revealSnapBackMs(reducedMotion: boolean): number {
+  return reducedMotion ? 0 : 180
+}
+
 /**
  * The argument `unreadTeams` takes: the caller's team ids, sorted.
  *

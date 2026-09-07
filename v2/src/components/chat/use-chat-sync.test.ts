@@ -2,22 +2,31 @@ import { describe, expect, it } from 'vitest'
 import {
   anchoredScrollTop,
   AT_TOP_SLACK_PX,
+  AXIS_LOCK_SLOP_PX,
   beforeForOlder,
   chatDayIndex,
   chatEntryLabel,
   chatHeading,
   clockTime,
+  dragAxis,
   hasUnread,
   hasUnreadElsewhere,
   isAtTop,
   isCurrentRequest,
   isNearBottom,
+  isTouchGesture,
+  LONG_PRESS_MS,
+  LONG_PRESS_SLOP_PX,
   mergeOlder,
   messageRows,
+  movedOffPress,
   NEAR_BOTTOM_SLACK_PX,
   nextOlderOutcome,
   nextSinceOutcome,
   nextSyncAction,
+  opensMenuFromKey,
+  revealOffset,
+  revealSnapBackMs,
   RUN_GAP_MS,
   SEPARATOR_GAP_MS,
   separatorBefore,
@@ -26,6 +35,7 @@ import {
   showsAuthorName,
   startsRun,
   teamPickerLabel,
+  TIME_REVEAL_PX,
   unreadTeamIds,
 } from './use-chat-sync.ts'
 import type { ChatMessage, ScrollPosition } from './use-chat-sync.ts'
@@ -883,5 +893,166 @@ describe('messageRows', () => {
   it('tails the newest message whatever came before it', () => {
     const rows = messageRows([said(ME, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC', 'en-GB')
     expect(rows[rows.length - 1].endsRun).toBe(true)
+  })
+})
+
+
+/* ---------------------------------------------------------------------------
+ * The two iMessage gestures. Everything a pointer handler in message-list.tsx
+ * would otherwise have decided inline, where nothing could assert it.
+ * ------------------------------------------------------------------------ */
+
+describe('isTouchGesture', () => {
+  it('arms for a finger and a stylus', () => {
+    expect(isTouchGesture('touch')).toBe(true)
+    expect(isTouchGesture('pen')).toBe(true)
+  })
+
+  // THE DESKTOP DECISION, AS AN ASSERTION. A mouse never arms a press timer —
+  // it has a right button, and `contextmenu` opens the same menu — and it never
+  // drags the conversation sideways, because a horizontal drag with a mouse is
+  // a text selection.
+  it('does not arm for a mouse, or for a pointer type it has never heard of', () => {
+    expect(isTouchGesture('mouse')).toBe(false)
+    expect(isTouchGesture('')).toBe(false)
+    expect(isTouchGesture('trackpad')).toBe(false)
+  })
+})
+
+describe('movedOffPress', () => {
+  const origin = { x: 100, y: 200 }
+
+  it('holds the press through a finger\'s own jitter', () => {
+    expect(movedOffPress(origin, { x: 100, y: 200 })).toBe(false)
+    expect(movedOffPress(origin, { x: 104, y: 197 })).toBe(false)
+  })
+
+  // THE BUG THIS WHOLE FUNCTION EXISTS FOR: scrolling a conversation is a press
+  // on a bubble that lasts far longer than the timer.
+  it('cancels the press once the finger is plainly scrolling', () => {
+    expect(movedOffPress(origin, { x: 100, y: 260 })).toBe(true)
+    expect(movedOffPress(origin, { x: 40, y: 200 })).toBe(true)
+  })
+
+  // STRAIGHT-LINE DISTANCE, NOT PER-AXIS: neither axis clears the slop on its
+  // own here, and the movement is still 12.7px.
+  it('measures the diagonal rather than either axis alone', () => {
+    expect(movedOffPress(origin, { x: 109, y: 209 })).toBe(true)
+  })
+
+  // The threshold is exclusive, so exactly the slop is still a press.
+  it('treats exactly the slop as a press and one pixel past it as a drag', () => {
+    expect(movedOffPress(origin, { x: 100 + LONG_PRESS_SLOP_PX, y: 200 })).toBe(false)
+    expect(movedOffPress(origin, { x: 100 + LONG_PRESS_SLOP_PX + 1, y: 200 })).toBe(true)
+  })
+
+  it('takes the slop as an argument so the caller is not the only thing that knows it', () => {
+    expect(movedOffPress(origin, { x: 103, y: 200 }, 2)).toBe(true)
+    expect(movedOffPress(origin, { x: 103, y: 200 }, 40)).toBe(false)
+  })
+
+  // THE TWO THRESHOLDS MUST RESOLVE IN THIS ORDER. A drag that has committed to
+  // an axis has already travelled past the axis lock; if the press slop were
+  // the smaller of the two, a swipe could open a menu on the way out.
+  it('is a looser threshold than the axis lock, so a committed drag has already cancelled', () => {
+    expect(LONG_PRESS_SLOP_PX).toBeGreaterThan(AXIS_LOCK_SLOP_PX)
+  })
+
+  it('presses for half a second, faster than Radix\'s own 700ms context-menu timer', () => {
+    expect(LONG_PRESS_MS).toBe(500)
+  })
+})
+
+describe('opensMenuFromKey', () => {
+  // THE KEYBOARD PATH THE REMOVED DELETE LINK USED TO BE. These are the three
+  // keys Radix's own menu triggers answer to, so chat's bubble menu opens the
+  // same way the app menu and the team picker do.
+  it('opens on the three keys every other menu in the app opens on', () => {
+    expect(opensMenuFromKey('Enter')).toBe(true)
+    expect(opensMenuFromKey(' ')).toBe(true)
+    expect(opensMenuFromKey('ArrowDown')).toBe(true)
+  })
+
+  it('leaves every other key to the browser', () => {
+    for (const key of ['Escape', 'Tab', 'ArrowUp', 'a', 'Spacebar', 'Space', '']) {
+      expect(opensMenuFromKey(key)).toBe(false)
+    }
+  })
+})
+
+describe('dragAxis', () => {
+  // NOTHING IS DECIDED UNTIL THE MOVEMENT IS UNAMBIGUOUS, which is what stops
+  // the first few pixels of every swipe from being eaten as a scroll.
+  it('withholds an answer inside the slop', () => {
+    expect(dragAxis(0, 0)).toBe('undecided')
+    expect(dragAxis(-7, 3)).toBe('undecided')
+    expect(dragAxis(AXIS_LOCK_SLOP_PX, AXIS_LOCK_SLOP_PX)).toBe('undecided')
+  })
+
+  it('commits to horizontal for a swipe', () => {
+    expect(dragAxis(-40, 6)).toBe('horizontal')
+    expect(dragAxis(40, -6)).toBe('horizontal')
+  })
+
+  // THE HALF THAT KEEPS THE LIST SCROLLABLE. A scroll is a vertical drag and
+  // must never translate the conversation sideways, however much sideways drift
+  // a thumb adds.
+  it('commits to vertical for a scroll, drift and all', () => {
+    expect(dragAxis(6, -80)).toBe('vertical')
+    expect(dragAxis(-20, 90)).toBe('vertical')
+  })
+
+  // TIES GO TO VERTICAL: a reveal that did not open costs a reader nothing, a
+  // scroll that did not happen is the app refusing to move.
+  it('gives a perfectly diagonal drag to the scroll', () => {
+    expect(dragAxis(30, 30)).toBe('vertical')
+    expect(dragAxis(-30, -30)).toBe('vertical')
+  })
+
+  it('takes the slop as an argument', () => {
+    expect(dragAxis(-5, 0, 2)).toBe('horizontal')
+    expect(dragAxis(-5, 0, 40)).toBe('undecided')
+  })
+})
+
+describe('revealOffset', () => {
+  it('follows the finger one-to-one while there is strip left to open', () => {
+    expect(revealOffset(-1)).toBe(1)
+    expect(revealOffset(-24)).toBe(24)
+    expect(revealOffset(-TIME_REVEAL_PX)).toBe(TIME_REVEAL_PX)
+  })
+
+  // CLAMPED: past this the conversation would slide off screen to reveal
+  // something already fully visible.
+  it('clamps at the strip\'s width however far the finger goes', () => {
+    expect(revealOffset(-57)).toBe(TIME_REVEAL_PX)
+    expect(revealOffset(-400)).toBe(TIME_REVEAL_PX)
+    expect(revealOffset(-4000)).toBe(TIME_REVEAL_PX)
+  })
+
+  // LEFTWARD ONLY. There is nothing on the left of a message to reveal, and
+  // dragging right would open a strip of empty background.
+  it('refuses to open anything for a rightward drag', () => {
+    expect(revealOffset(0)).toBe(0)
+    expect(revealOffset(1)).toBe(0)
+    expect(revealOffset(500)).toBe(0)
+  })
+
+  it('takes the width as an argument rather than only reading the constant', () => {
+    expect(revealOffset(-100, 20)).toBe(20)
+    expect(revealOffset(-10, 20)).toBe(10)
+  })
+})
+
+describe('revealSnapBackMs', () => {
+  it('animates the release for everyone who has not asked otherwise', () => {
+    expect(revealSnapBackMs(false)).toBe(180)
+  })
+
+  // NOT MERELY SHORTER. The drag itself still follows the finger — that is the
+  // gesture, not an animation — and only the release is the app moving
+  // something on its own, so only the release is switched off.
+  it('snaps back instantly under prefers-reduced-motion', () => {
+    expect(revealSnapBackMs(true)).toBe(0)
   })
 })
