@@ -12,6 +12,7 @@ import {
   recentMessagesFor,
   resetChatCursorFor,
   sendMessageFor,
+  unreadBadgeFor,
   unreadTeamsFor,
 } from './chat.ts'
 import { deleteTeamFor, invitePlayerFor, leaveTeamFor } from './teams.ts'
@@ -1404,6 +1405,72 @@ describe('unreadTeamsFor', () => {
       const ada = await ctx.db.insert('players', aPlayer())
 
       expect(await unreadTeamsFor(ctx, ada, [])).toEqual([])
+    })
+  })
+})
+
+/**
+ * THE BADGE'S OWN VALVE (wordle-teams-pnhe).
+ *
+ * `unreadTeams` is the widest subscription chat opens — it is held on /app, so
+ * essentially every authenticated session, and a send in any of your teams
+ * writes that team's `chatMeta` and re-fires it. Part 1's valve shed the
+ * pointer and left this one running, so degrading chat quieted the conversation
+ * and left the badge traffic alone.
+ *
+ * A CLIENT CANNOT SHED WHAT IT CANNOT SEE, and /app has no pointer to learn
+ * `degraded` from. So the flag rides back on the answer the dashboard is
+ * ALREADY subscribed to, rather than on a second subscription that would cost
+ * exactly what shedding this one saves.
+ */
+describe('unreadBadgeFor', () => {
+  test('carries the unread ids and the app-wide degraded flag together', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      await sendMessageFor(ctx, bob, team, 'hello ada')
+
+      expect(await unreadBadgeFor(ctx, ada, [team])).toEqual({ unread: [team], degraded: false })
+
+      await ctx.db.insert('chatDegraded', { month: budgetMonthFor(Date.now()), degraded: true })
+
+      expect(await unreadBadgeFor(ctx, ada, [team])).toEqual({ unread: [team], degraded: true })
+    })
+  })
+
+  // THE READ SET IS THE CONTRACT HERE TOO, for chatPointerFor's reason. What is
+  // being pinned is that the ONE app-wide document added is `chatDegraded` —
+  // the row publishDegraded writes only when the boolean actually flips — and
+  // NOT `chatBudget`, which every send, delete and scrollback page in every
+  // team writes. Reading the counter here would reproduce wordle-teams-0lg2 on
+  // the one subscription with even wider reach than the pointer had.
+  test('adds the flag document to its read set and never the hot counter row', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+
+      const watched = watchReads(ctx.db)
+      await unreadBadgeFor({ db: watched.db }, ada, [team])
+
+      expect(watched.tables).toEqual(new Set(['chatMeta', 'chatReads', 'chatDegraded']))
+      expect(watched.gets).toEqual([team])
+    })
+  })
+
+  // The flag is app-wide, so it is answered even for a caller with no teams at
+  // all — otherwise a player who has just been removed from their last team
+  // would hold a live subscription nothing could ever tell to stop.
+  test('answers the flag for a caller who asks about no teams', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('chatDegraded', { month: budgetMonthFor(Date.now()), degraded: true })
+
+      expect(await unreadBadgeFor(ctx, ada, [])).toEqual({ unread: [], degraded: true })
     })
   })
 })

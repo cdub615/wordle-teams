@@ -400,10 +400,7 @@ export async function chatPointerFor(
     .withIndex('by_team', (q) => q.eq('teamId', teamId))
     .unique()
 
-  const published = await ctx.db
-    .query('chatDegraded')
-    .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
-    .unique()
+  const degraded = await publishedDegradedFor(ctx)
 
   return {
     lastMessageAt: meta?.lastMessageAt ?? 0,
@@ -415,8 +412,32 @@ export async function chatPointerFor(
     // different way: it recomputes against the current threshold on EVERY
     // charge and republishes, so this is at most one chat write behind the
     // truth, app-wide. An absent row means the month has never degraded.
-    degraded: published?.degraded ?? false,
+    degraded,
   }
+}
+
+/**
+ * Whether chat is degraded right now, as the two subscriptions that have to
+ * shed themselves both read it.
+ *
+ * ONE COPY, BECAUSE TWO READ SETS DEPEND ON IT BEING THE SAME DOCUMENT. The
+ * pointer and the unread badge are the only live subscriptions the app opens,
+ * and the whole valve rests on one write to this row waking both of them at
+ * once. A second spelling of this read — a different month key, the counter row
+ * by mistake — would degrade one and leave the other holding its socket, which
+ * is precisely the half-fix wordle-teams-pnhe was filed for.
+ *
+ * ABSENT MEANS NOT DEGRADED. publishDegraded never creates the row while the
+ * answer is `false`, so in a month that never crosses the threshold this reads
+ * a row that does not exist — and an absent-row read is still a read set entry,
+ * which is what makes the row's eventual CREATION wake every holder.
+ */
+async function publishedDegradedFor(ctx: ReaderCtx): Promise<boolean> {
+  const published = await ctx.db
+    .query('chatDegraded')
+    .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
+    .unique()
+  return published?.degraded ?? false
 }
 
 /**
@@ -754,6 +775,65 @@ export async function unreadTeamsFor(
   return unread
 }
 
+export type UnreadBadgeAnswer = {
+  unread: Array<Id<'teams'>>
+  degraded: boolean
+}
+
+/**
+ * What the dashboard's badge subscription answers: the unread ids AND whether
+ * chat is degraded.
+ *
+ * THE FLAG RIDES BACK ON THIS ANSWER BECAUSE /app HAS NO POINTER
+ * (wordle-teams-pnhe). Part 1 wired the degradation valve to the chat pointer,
+ * which is where `degraded` was published and read — and the pointer only
+ * exists on /chat. `api.chat.unreadTeams` is the OTHER live subscription, held
+ * on the dashboard by essentially every authenticated session, with a read set
+ * spanning the caller's team document, `chatMeta` and `chatReads` for every
+ * team they are on. A send in any of your teams writes that team's `chatMeta`,
+ * so it went on re-firing while chat was supposedly degraded.
+ *
+ * THE ALTERNATIVE WAS A SECOND SUBSCRIPTION, AND IT DEFEATS THE POINT. A
+ * standalone `api.chat.degraded` query would tell the dashboard exactly this,
+ * and would be a websocket watch held open by every authenticated session for
+ * as long as they are signed in — trading one held socket for another, which is
+ * the one outcome not worth shipping. Adding the flag to an answer the client
+ * is ALREADY subscribed to costs no new socket and no new round trip.
+ *
+ * IT COSTS ONE MORE DOCUMENT IN THE READ SET, AND THAT IS THE POINT RATHER
+ * THAN THE PRICE. `chatDegraded` is written only when the boolean actually
+ * flips (see publishDegraded), so in a normal month it is never written, never
+ * created, and invalidates nothing. When it IS written, every dashboard in the
+ * app wakes once — which is exactly the signal each of them needs in order to
+ * drop this very subscription. Contrast `chatBudget`, the hot counter row, which
+ * would re-fire this on every chat write anywhere in the app (wordle-teams-0lg2,
+ * one query along).
+ *
+ * ONE-WAY, AND DELIBERATELY SO. Once the client sheds this subscription nothing
+ * can tell it the flag has cleared, exactly as with the pointer — but the
+ * pointer has a manual refresh button and the badge has no such affordance and
+ * should not grow one. The badge instead resumes on the next load or
+ * navigation, when the dashboard remounts with nothing seen and opens the
+ * subscription afresh. Design §6: degrading chat is always preferable to Convex
+ * refusing mutations app-wide.
+ *
+ * STILL UNMETERED, AND STRUCTURALLY UNMETERABLE. A Convex `query` has a
+ * GenericDatabaseReader, so it cannot charge `chatBudget` — the same reason the
+ * three other reads are unmetered, recorded at the top of this file. Shedding is
+ * therefore the only lever the valve has over this traffic, which is what makes
+ * it worth pulling rather than arguing the badge is small.
+ */
+export async function unreadBadgeFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamIds: Array<Id<'teams'>>,
+): Promise<UnreadBadgeAnswer> {
+  return {
+    unread: await unreadTeamsFor(ctx, playerId, teamIds),
+    degraded: await publishedDegradedFor(ctx),
+  }
+}
+
 /**
  * Forget what a player had read in a team, called when they are ADDED to one.
  *
@@ -859,10 +939,14 @@ export const markRead = mutation({
 //
 // EVERY ID IS GATED SERVER-SIDE. `v.array(v.id('teams'))` only says the ids are
 // well-formed; it says nothing about whose they are.
+//
+// IT ALSO CARRIES `degraded`, WHICH IS NOT A CONVENIENCE. This is the only live
+// subscription the dashboard holds, so it is the only channel that can ask the
+// dashboard to drop it — see unreadBadgeFor.
 export const unreadTeams = query({
   args: { teamIds: v.array(v.id('teams')) },
   handler: async (ctx, { teamIds }) => {
     const player = await requirePlayer(ctx)
-    return await unreadTeamsFor(ctx, player._id, teamIds)
+    return await unreadBadgeFor(ctx, player._id, teamIds)
   },
 })

@@ -132,26 +132,32 @@ function Dashboard() {
    * team. The server still gates every id (see unreadTeamsFor) — this list is
    * a question, not a permission.
    *
-   * DERIVED HERE AND PASSED DOWN, to TeamPicker and to the badge below, rather
-   * than rebuilt by each. The ids are the TanStack query key now, so two
-   * callers with the same set in a different order would open TWO Convex
-   * subscriptions for one answer, with no symptom any gate can see.
-   * `unreadTeamIds` sorts for the same reason; both halves are pinned in
-   * src/routes.test.ts.
+   * DERIVED HERE AND PASSED TO THE ONE HOOK CALL, rather than rebuilt by each
+   * consumer. The ids are the TanStack query key now, so two callers with the
+   * same set in a different order would open TWO Convex subscriptions for one
+   * answer, with no symptom any gate can see. `unreadTeamIds` sorts for the
+   * same reason; both halves are pinned in src/routes.test.ts.
    */
   const teamIds = unreadTeamIds(teams)
   /**
-   * THE ONE SUBSCRIPTION BEHIND EVERY UNREAD DOT ON THIS PAGE, read here only
-   * for the "Team chat" button's accessible NAME (see chatEntryLabel). The
-   * dots themselves are drawn by `UnreadBadge`, which is handed the same
-   * `teamIds` and so shares this very subscription.
+   * THE ONE SUBSCRIPTION BEHIND EVERY UNREAD DOT ON THIS PAGE, AND NOW THE ONE
+   * CALL SITE (wordle-teams-pnhe). It feeds the "Team chat" button's accessible
+   * NAME (see chatEntryLabel) and, as a prop, every `UnreadBadge` on the page —
+   * the dashboard's own and the ones inside TeamPicker's menu.
+   *
+   * THE CONSUMERS TAKE THE ANSWER, NOT THE HOOK, and that is a requirement
+   * rather than tidiness. This hook SHEDS its subscription while chat is
+   * degraded, and `removeQueries` on a key a second component is still
+   * observing gets that query rebuilt and refetched on the spot — so one
+   * observer is the precondition for the valve working at all. See
+   * `useUnreadTeams`.
    *
    * `useQuery` UNDER THE HOOD, NOT `useSuspenseQuery` LIKE ITS THREE
    * NEIGHBOURS: none of the three prefetched-in-the-loader queries above wants
    * a fourth round trip added to the critical path for a decoration, and
    * `hasUnread` already reads the unresolved `undefined` as "no dot".
    */
-  const { data: unreadTeams } = useUnreadTeams(teamIds)
+  const { unread: unreadTeams } = useUnreadTeams(teamIds)
   const [createOpen, setCreateOpen] = useState(false)
   /**
    * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
@@ -410,9 +416,10 @@ function Dashboard() {
         <TeamPicker
           teams={teams}
           // THE SAME VALUE THE BADGE BELOW GETS, AND THAT IS THE POINT — see
-          // the note on `teamIds` above. TeamPicker deliberately does not
-          // derive it from `teams`, which it already has.
-          teamIds={teamIds}
+          // the note on the hook above. TeamPicker deliberately does not read
+          // it for itself, which would open a second observer of the one
+          // subscription the valve has to be able to remove.
+          unread={unreadTeams}
           value={teamParam}
           isPro={isPro}
           onChange={(team) => navigate({ to: Route.fullPath, search: { team, month: monthParam } })}
@@ -520,7 +527,7 @@ function Dashboard() {
               <span className="hidden lg:inline">Team chat</span>
               <UnreadBadge
                 teamId={teamParam as Id<'teams'>}
-                teamIds={teamIds}
+                unread={unreadTeams}
                 className="absolute right-1 top-1"
               />
             </Link>

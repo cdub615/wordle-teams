@@ -704,23 +704,30 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
   })
 
   /**
-   * ONE SUBSCRIPTION FOR EVERY DOT ON THE PAGE, WHICH STOPPED BEING FREE IN
-   * wordle-teams-w7g2.
+   * ONE SUBSCRIPTION FOR EVERY DOT ON THE PAGE, AND SINCE wordle-teams-pnhe,
+   * ONE OBSERVER OF IT.
    *
-   * `unreadTeams` used to take no arguments, so the dashboard's read, the
-   * picker's trigger and every row badge hashed to the same TanStack query key
-   * whatever anyone did. Now the key IS the team ids: a caller that derives its
-   * own list, or derives the same list in a different order, opens a SECOND
-   * Convex subscription and runs the query twice for one answer — and nothing
-   * about that is visible in lint, typecheck, tests or the built bundle. It
-   * renders correctly. It just costs double, permanently, on the read every
-   * authenticated session holds open.
+   * wordle-teams-w7g2 made the team ids the query key, so a caller that derived
+   * its own list — or the same list in a different order — opened a SECOND
+   * Convex subscription and ran the query twice for one answer, with nothing
+   * about it visible in lint, typecheck, tests or the built bundle.
    *
-   * So the wiring is pinned in three parts: the query is named in exactly one
-   * module, the ids are derived exactly once, and both consumers are handed
-   * that one value rather than building their own.
+   * pnhe raised the stakes from cost to correctness. `useUnreadTeams` now SHEDS
+   * that subscription while chat is degraded, and shedding means
+   * `queryClient.removeQueries` — @convex-dev/react-query closes its websocket
+   * watch on the cache's `removed` event and deliberately not on
+   * `observerRemoved`. Remove a query a second component is still observing and
+   * TanStack rebuilds it and refetches on the spot, so the socket the valve just
+   * closed comes straight back. Sharing a key was enough to share a
+   * subscription; it is not enough to remove one. ONE CALLER IS THE
+   * PRECONDITION, and routes/chat.tsx gave up its own `useChatPointer` call for
+   * the identical reason.
+   *
+   * So the wiring is pinned in four parts: the query is named in exactly one
+   * module, CALLED from exactly one component, the ids are derived exactly once,
+   * and both consumers are handed the ANSWER rather than reading it themselves.
    */
-  test('every unread dot shares ONE subscription, because the ids are derived once and passed down', () => {
+  test('every unread dot shares ONE subscription, and exactly one component observes it', () => {
     // PART ONE: one module names the query. `useUnreadTeams` is the only place
     // the args expression is written, so there is no second spelling of it to
     // drift.
@@ -729,19 +736,25 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     }
     expect(codeOf(read(SYNC))).toMatch(/convexQuery\(api\.chat\.unreadTeams,/)
 
-    // PART TWO: derived once, in the one component that already holds the
+    // PART TWO: one component CALLS it. This is the part that stopped being
+    // optional in pnhe — a second `useUnreadTeams` anywhere in src/ is a second
+    // observer, and a second observer silently defeats the shed.
+    expect(codeOf(read(APP))).toMatch(/useUnreadTeams\(teamIds\)/)
+    for (const path of [PICKER, BADGE]) {
+      expect(codeOf(read(path))).not.toMatch(/useUnreadTeams/)
+    }
+
+    // PART THREE: derived once, in the one component that already holds the
     // teams. `unreadTeamIds` sorts, which is what makes the key a function of
     // the SET rather than of render order — see its own tests.
     expect(codeOf(read(APP))).toMatch(/const teamIds = unreadTeamIds\(teams\)/)
 
-    // PART THREE: that value, not a locally rebuilt one, reaches both
-    // consumers. `'teamIds'` bare — a `teams.map(...)` inline here would
-    // type-check and render an identical page.
-    expect(jsxProps(APP, 'TeamPicker').get('teamIds')).toBe('teamIds')
-    expect(jsxProps(APP, 'UnreadBadge').get('teamIds')).toBe('teamIds')
-    expect(jsxProps(PICKER, 'UnreadBadge').get('teamIds')).toBe('teamIds')
-    for (const path of [PICKER, BADGE]) {
-      expect(codeOf(read(path))).toMatch(/useUnreadTeams\(teamIds\)/)
-    }
+    // PART FOUR: the ANSWER, not a second read of it, reaches both consumers.
+    // `'unreadTeams'` bare — the local name app.tsx binds it to — because a
+    // `useUnreadTeams(...)` inline here would type-check and render an
+    // identical page.
+    expect(jsxProps(APP, 'TeamPicker').get('unread')).toBe('unreadTeams')
+    expect(jsxProps(APP, 'UnreadBadge').get('unread')).toBe('unreadTeams')
+    expect(jsxProps(PICKER, 'UnreadBadge').get('unread')).toBe('unread')
   })
 })

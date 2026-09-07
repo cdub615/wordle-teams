@@ -92,8 +92,15 @@ export function pointerFor(seen: SeenPointer | null, teamId: Id<'teams'>): ChatP
  * `null` IS LIVE, WHICH IS THE ONLY POSSIBLE ANSWER. `degraded` arrives ON the
  * pointer, so a client that has read no pointer has to open the subscription to
  * learn whether it should be holding one. The exposure is one wake wide.
+ *
+ * IT TAKES ANYTHING CARRYING `degraded`, NOT A `ChatPointerValue`
+ * (wordle-teams-pnhe). The dashboard's unread-badge answer carries the same
+ * flag for the same purpose, and there are exactly two live subscriptions in
+ * the app to decide about. One rule, applied twice, is what keeps them
+ * degrading together; a second copy of `seen?.degraded === true` is the copy
+ * that would be left behind by the next change to what degradation means.
  */
-export function pointerMode(seen: ChatPointerValue | null): PointerMode {
+export function pointerMode<T extends { degraded: boolean }>(seen: T | null): PointerMode {
   return seen?.degraded === true ? 'manual' : 'live'
 }
 
@@ -1122,21 +1129,113 @@ export function unreadTeamIds(
   return teams.map((team) => team.id as Id<'teams'>).sort()
 }
 
+/** What `api.chat.unreadTeams` answers — see unreadBadgeFor in convex/chat.ts. */
+export type UnreadAnswer = { unread: Array<Id<'teams'>>; degraded: boolean }
+
 /**
- * THE ONE PLACE `api.chat.unreadTeams` IS NAMED, which is what makes "one
- * subscription for every dot on the page" a property of the code rather than a
- * habit. The dashboard, the picker's trigger and every row badge call this with
- * the same `teamIds`, so they share a query key.
+ * The arguments the badge subscription may be opened with, or `'skip'`.
  *
- * `'skip'` RATHER THAN A QUERY FOR NO TEAMS when the ids are not known yet:
- * @convex-dev/react-query turns that into `enabled: false`, leaving `data`
+ * TWO REASONS NOT TO OPEN IT, AND THEY ARE DELIBERATELY ONE ANSWER.
+ *
+ * The first is the older one: the ids are not known yet.
+ * @convex-dev/react-query turns `'skip'` into `enabled: false`, leaving `data`
  * `undefined` — which `hasUnread` and `hasUnreadElsewhere` already read as "not
  * loaded, draw nothing". Passing `{ teamIds: [] }` instead would fetch a
  * genuine `[]` and let the badge claim "nothing unread" about a list it has not
  * seen.
+ *
+ * The second is wordle-teams-pnhe: while the month is degraded this
+ * subscription is the one the valve has to shed, and it is the one with the
+ * wider reach — held on /app by essentially every authenticated session, with
+ * `chatMeta` for every team the caller is on in its read set, so a send in any
+ * of their teams re-fired it while chat was supposedly quiet.
+ *
+ * `'skip'` IS ONLY HALF OF SHEDDING, AND THE HOOK OWES THE OTHER HALF. Setting
+ * `enabled: false` removes the observer; @convex-dev/react-query closes its
+ * Convex watch on the query cache's `removed` event and, in as many words,
+ * deliberately NOT on `observerRemoved`. So this alone leaves the websocket
+ * alive for a full gcTime — five minutes by default — per degraded client. See
+ * `shouldDropSubscription`, which is the same rule the pointer uses, and
+ * use-unread-teams.hook.test.ts, which proves the socket actually closes.
  */
-export function useUnreadTeams(teamIds: Array<Id<'teams'>> | undefined) {
-  return useQuery(convexQuery(api.chat.unreadTeams, teamIds === undefined ? 'skip' : { teamIds }))
+export function unreadArgs(
+  teamIds: Array<Id<'teams'>> | undefined,
+  mode: PointerMode,
+): { teamIds: Array<Id<'teams'>> } | 'skip' {
+  if (teamIds === undefined || mode === 'manual') return 'skip'
+  return { teamIds }
+}
+
+/**
+ * THE ONE PLACE `api.chat.unreadTeams` IS NAMED, AND NOW THE ONE PLACE IT IS
+ * CALLED. routes/app.tsx holds it and hands the answer down to TeamPicker and
+ * to every UnreadBadge, rather than each of them calling this for itself.
+ *
+ * THAT STOPPED BEING A STYLE PREFERENCE WHEN THE HOOK LEARNED TO SHED
+ * (wordle-teams-pnhe). Sharing a query key was always enough to share one
+ * subscription; it is NOT enough to remove one. `queryClient.removeQueries`
+ * tears the entry out of the cache, and an observer still watching that key
+ * simply rebuilds it and refetches — so a second caller would either re-open
+ * the socket the first one just closed, or (worse) have its own subscription
+ * removed out from under it. The pointer met the same constraint from the other
+ * side, and routes/chat.tsx dropped its own `useChatPointer` call for it: ONE
+ * OBSERVER IS THE PRECONDITION FOR REMOVING A QUERY. Here it is guaranteed by
+ * there being one caller, not by effect ordering between components.
+ *
+ * THE ANSWER IS HELD IN STATE RATHER THAN READ OFF THE QUERY, for the reason
+ * `useChatMessages` holds `seen`: the query is gone once shed, so `data` would
+ * be `undefined` and every dot on the dashboard would VANISH the instant chat
+ * degraded — reporting something false where the honest answer is "the last
+ * thing we heard". It also makes the mode self-healing in the one way that is
+ * available here: a fresh mount starts with nothing seen, so a load or a
+ * navigation re-opens the subscription and learns whether the flag has cleared.
+ *
+ * THERE IS NO REFRESH BUTTON, AND THAT IS THE DIFFERENCE FROM THE POINTER. A
+ * conversation that stops updating needs an affordance; a dot does not, and
+ * adding one would be a control whose entire job is to spend the bandwidth the
+ * valve just saved. Design §6 asks for chat to degrade, not for it to keep its
+ * liveness by another route.
+ */
+export function useUnreadTeams(teamIds: Array<Id<'teams'>> | undefined): {
+  unread: Array<Id<'teams'>> | undefined
+  degraded: boolean
+} {
+  const [seen, setSeen] = useState<UnreadAnswer | null>(null)
+  const mode = pointerMode(seen)
+  const query = useQuery(convexQuery(api.chat.unreadTeams, unreadArgs(teamIds, mode)))
+  const previousMode = useRef<PointerMode>(mode)
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    if (query.data) setSeen(query.data)
+  }, [query.data])
+
+  // WHERE THE SOCKET IS ACTUALLY CLOSED. By the time this runs, `useQuery` has
+  // already moved this render's observer onto the `'skip'` key — its own
+  // `setOptions` effect is registered above this one, so it flushes first —
+  // which leaves the real query in the cache with NO observers and its watch
+  // still open. Removing it fires `removed`, which is the only event
+  // @convex-dev/react-query unsubscribes on.
+  //
+  // ON THE TRANSITION, NOT ON THE STATE, exactly as the pointer does it: a rule
+  // that removed on every degraded render would be removing a key nothing is
+  // holding, over and over, on every unrelated re-render of the dashboard.
+  useEffect(() => {
+    const from = previousMode.current
+    previousMode.current = mode
+    if (!shouldDropSubscription(from, mode)) return
+    // Guarded because the key has to be the one that was actually opened. With
+    // no ids there was never a real query — `unreadArgs` answered `'skip'` for
+    // that reason too — and `{ teamIds: undefined }` would name a key nothing
+    // has ever subscribed to.
+    if (teamIds === undefined) return
+    queryClient.removeQueries({
+      queryKey: convexQuery(api.chat.unreadTeams, { teamIds }).queryKey,
+      exact: true,
+    })
+  }, [mode, teamIds, queryClient])
+
+  return { unread: seen?.unread, degraded: mode === 'manual' }
 }
 
 /**

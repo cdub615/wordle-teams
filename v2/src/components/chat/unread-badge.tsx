@@ -1,4 +1,4 @@
-import { hasUnread, useUnreadTeams } from './use-chat-sync.ts'
+import { hasUnread } from './use-chat-sync.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -12,24 +12,26 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * hourly push sweep is where a count is affordable, because it runs once per
  * team per hour rather than on every render. So: presence-of-unread only.
  *
- * ONE SUBSCRIPTION FOR EVERY BADGE ON THE PAGE. Every instance calls
- * `useUnreadTeams` with the SAME `teamIds`, so they share a single TanStack
- * query key and therefore a single Convex subscription — a team list with ten
- * badges costs one read, not ten. That is why the query is not parameterised by
- * the badge's own team and the filtering happens here instead; do not
- * "optimise" it into an `unreadFor(teamId)` query, which would turn one
- * subscription into N.
+ * ONE SUBSCRIPTION FOR EVERY BADGE ON THE PAGE, AND THIS COMPONENT DOES NOT
+ * OPEN IT. `unread` is the whole cross-team answer, read once in routes/app.tsx
+ * and handed down — through TeamPicker to the row badges, and directly to the
+ * dashboard's own. The filtering happens here rather than server-side for the
+ * same reason it always did: a query parameterised by the badge's own team
+ * would turn one subscription into N.
  *
- * `teamIds` IS A PROP RATHER THAN SOMETHING THIS DERIVES (wordle-teams-w7g2).
- * The query now takes the caller's teams, and the ids are the query key — so a
- * badge that built its own list, however correctly, would be free to build it
- * in a different order and open a second subscription for the same answer. It
- * is derived ONCE, in routes/app.tsx, and passed down through TeamPicker to
- * here. Pass it through; do not rebuild it.
+ * IT USED TO CALL `useUnreadTeams` ITSELF, WITH A `teamIds` PROP, and sharing
+ * a query key was enough to share a subscription (wordle-teams-w7g2). It is not
+ * enough to REMOVE one: the hook now sheds that subscription outright while
+ * chat is degraded (wordle-teams-pnhe), and `removeQueries` on a key another
+ * component is still observing gets it rebuilt and refetched immediately. One
+ * observer is the precondition, so there is now exactly one caller of the hook
+ * and everything else takes the answer as a prop. Pass it through; do not call
+ * the hook here.
  *
  * NO LOADING OR ERROR BRANCH, DELIBERATELY. `hasUnread` reads both the
- * unresolved (`undefined`) state and a failure as "no dot", and rendering
- * nothing is the right answer for both: a badge is decoration on someone
+ * unresolved (`undefined`) state and a failure as "no dot" — and, since the
+ * valve, the same `undefined` covers a caller who has not yet heard anything at
+ * all. Rendering nothing is the right answer for all of them: a badge is decoration on someone
  * else's UI, and a spinner or an error message in its place would be louder
  * than the thing it is annotating. The absence of a dot understates unread
  * state for a moment; it never asserts anything false.
@@ -41,15 +43,14 @@ import type { Id } from '../../../convex/_generated/dataModel'
  */
 export function UnreadBadge({
   teamId,
-  teamIds,
+  unread,
   className,
 }: {
   teamId: Id<'teams'>
-  teamIds: Array<Id<'teams'>> | undefined
+  /** The whole cross-team answer, from routes/app.tsx. See above. */
+  unread: Array<Id<'teams'>> | undefined
   className?: string
 }) {
-  const { data: unread } = useUnreadTeams(teamIds)
-
   if (!hasUnread(unread, teamId)) return null
 
   return <UnreadDot className={className} label="Unread messages" />

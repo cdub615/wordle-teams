@@ -45,6 +45,7 @@ import {
   startsRun,
   teamPickerLabel,
   TIME_REVEAL_PX,
+  unreadArgs,
   unreadTeamIds,
 } from './use-chat-sync.ts'
 import type { ChatMessage, ScrollPosition } from './use-chat-sync.ts'
@@ -262,6 +263,80 @@ describe('unreadTeamIds', () => {
 
   it('is empty for someone with no teams, which IS an answer', () => {
     expect(unreadTeamIds([])).toEqual([])
+  })
+})
+
+/**
+ * THE BADGE'S HALF OF THE DEGRADATION VALVE (wordle-teams-pnhe).
+ *
+ * Part 1 shed the chat pointer and left this subscription running — the one
+ * held on /app by essentially every authenticated session, whose read set
+ * covers `chatMeta` for every team the caller is on, so a send in any of their
+ * teams re-fired it while chat was supposedly degraded. It is also the one the
+ * meter cannot see: a Convex `query` has a read-only `db` and structurally
+ * cannot charge `chatBudget`, so shedding is the only lever there is.
+ *
+ * THIS FUNCTION IS ONLY HALF THE FIX, AND SAYING SO IS THE POINT. `'skip'`
+ * compiles to `enabled: false`, which removes the OBSERVER and leaves
+ * @convex-dev/react-query's websocket watch open for a full gcTime. The other
+ * half is `removeQueries`, and it is pinned against the real library in
+ * use-unread-teams.hook.test.ts, because no assertion on this return value can
+ * see a socket.
+ */
+describe('unreadArgs', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+
+  it('asks about the caller\'s teams while the month is inside its budget', () => {
+    expect(unreadArgs([alpha, beta], 'live')).toEqual({ teamIds: [alpha, beta] })
+  })
+
+  it('asks nothing at all while chat is degraded, ids or no ids', () => {
+    expect(unreadArgs([alpha, beta], 'manual')).toBe('skip')
+  })
+
+  // The older of the two reasons to skip, and it must survive the newer one:
+  // an unresolved teams list is not an empty one, and `{ teamIds: [] }` would
+  // fetch a genuine `[]` that `hasUnread` reads as the settled answer "nothing
+  // unread" about a list nobody has seen.
+  it('asks nothing before the teams list resolves', () => {
+    expect(unreadArgs(undefined, 'live')).toBe('skip')
+  })
+
+  it('asks nothing when both reasons hold at once', () => {
+    expect(unreadArgs(undefined, 'manual')).toBe('skip')
+  })
+
+  // The empty list IS a question — "these zero teams" — and the caller is on
+  // the dashboard holding a subscription that has to be sheddable, so it is
+  // asked rather than skipped. unreadBadgeFor answers the degraded flag for it.
+  it('asks about an empty team list, which is a real question', () => {
+    expect(unreadArgs([], 'live')).toEqual({ teamIds: [] })
+  })
+})
+
+/**
+ * ONE RULE FOR BOTH SUBSCRIPTIONS. `pointerMode` decides whether to hold the
+ * chat pointer AND whether to hold the unread badge, from the same `degraded`
+ * flag published on the same month-keyed row — which is what makes them shed
+ * together on the single write that flips it.
+ */
+describe('pointerMode, applied to the badge answer', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+
+  it('holds the badge subscription while the month is inside its budget', () => {
+    expect(pointerMode({ unread: [alpha], degraded: false })).toBe('live')
+  })
+
+  it('drops it on the same flag the pointer drops on', () => {
+    expect(pointerMode({ unread: [alpha], degraded: true })).toBe('manual')
+  })
+
+  // A dashboard that has heard nothing yet must open the subscription, because
+  // hearing the flag is the only way to learn it should not be holding one.
+  // The exposure is one wake wide, exactly as it is for the pointer.
+  it('is live before anything has been heard', () => {
+    expect(pointerMode(null)).toBe('live')
   })
 })
 
