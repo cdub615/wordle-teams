@@ -372,7 +372,11 @@ Check `WriterCtx`'s real export site before importing it — `winners.ts` is whe
 - [ ] **Step 5: Commit**
 
 ```bash
-git add v2/convex/inviteLinks.ts v2/convex/inviteLinks.test.ts
+# Five files, not two: the new code touches access.ts and convex-error.ts, and a
+# new Convex module regenerates api.d.ts. Committing only the first two leaves a
+# broken tree.
+git add v2/convex/inviteLinks.ts v2/convex/inviteLinks.test.ts \
+        v2/convex/access.ts v2/src/lib/convex-error.ts v2/convex/_generated/api.d.ts
 git commit -m "feat(invites): create and revoke shareable invite links"
 ```
 
@@ -516,7 +520,10 @@ export const consumeLink = mutation({
       .withIndex('by_token', (q) => q.eq('token', token))
       .unique()
 
-    // One message for all three dead-link states. Distinguishing "revoked"
+    // ONE MESSAGE FOR ALL THREE DEAD-LINK STATES, and this path must establish
+    // that itself — it does NOT inherit it from revokeLinkFor, whose two refusals
+    // ARE distinguishable (see the comment there). This one is reachable BEFORE
+    // sign-in, which is what makes the difference. Distinguishing "revoked"
     // from "expired" from "never existed" to an unauthenticated-ish caller
     // tells a stranger which tokens once existed, and none of the three gives
     // the holder anything different to do.

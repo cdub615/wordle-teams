@@ -57,25 +57,24 @@ export async function revokeLinkFor(
     .query('inviteLinks')
     .withIndex('by_token', (q) => q.eq('token', token))
     .unique()
-  // Ownership is checked AFTER existence, but both answer with a refusal the
-  // caller cannot tell apart from the other — see the consume path, where that
-  // property matters more.
+  // THESE TWO REFUSALS ARE DISTINGUISHABLE, and that is a deliberate limit rather
+  // than a property to lean on. An unknown token answers INVITE_LINK_INVALID; a
+  // real token on a team you do not own answers NOT_TEAM_OWNER, and this file's
+  // tests assert exactly that pair. So a signed-in caller can use revokeLink as an
+  // oracle for "does this token exist".
   //
-  // CORRECTION, and do not carry the sentence above into the consume path as if
-  // it were true here: the two refusals ARE distinguishable. An unknown token
-  // answers INVITE_LINK_INVALID; a real token on a team you do not own answers
-  // NOT_TEAM_OWNER, and this file's own tests assert exactly that pair. So any
-  // signed-in caller can use revokeLink as an oracle for "does this token
-  // exist". That is tolerable HERE and only here: you must already hold the
-  // token to ask, and holding it is already the capability. It would NOT be
-  // tolerable on the consume path, which is reachable before sign-in — that
-  // path has to answer every failure (unknown, expired, revoked, cap reached)
-  // with one indistinguishable refusal, and it will have to do so on its own
-  // rather than by inheriting a property this function does not actually have.
+  // TOLERABLE HERE AND ONLY HERE: you must already hold the token to ask, and
+  // holding it IS the capability, so the oracle tells you nothing you did not
+  // already have. It would NOT be tolerable on the consume path, which is
+  // reachable BEFORE sign-in. That path answers unknown, expired and revoked with
+  // one indistinguishable refusal, and it has to establish that itself rather than
+  // inherit a property this function does not have. (The cap refusal there is
+  // deliberately NOT folded in: a legitimate holder blocked by the free-tier cap
+  // can act on that, and telling them to upgrade is the point.)
   //
-  // The ordering the first sentence describes is also unobservable: ownership
-  // cannot be checked until the row is loaded, so swapping the two lines
-  // changes no outcome for any input (planted and confirmed — no test moved).
+  // The order of the two checks below is unobservable — ownership cannot be tested
+  // until the row is loaded, so swapping them changes no outcome for any input.
+  // Planted and confirmed: no test moves.
   if (!link) throw accessError('INVITE_LINK_INVALID')
   await requireTeamOwnerFor(ctx, playerId, link.teamId)
   await ctx.db.patch(link._id, { revokedAt: Date.now() })
