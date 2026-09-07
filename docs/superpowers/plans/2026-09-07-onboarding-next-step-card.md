@@ -2037,24 +2037,61 @@ Expected: FAIL — no such text.
 
 - [ ] **Step 4: Add the menu entry**
 
-In `v2/src/components/app-menu.tsx`, subscribe to the status and call the replay mutation:
+> **Corrected 2026-09-07 against the real `app-menu.tsx`.** The earlier version used
+> `onSelect`, bare `DropdownMenuItem` children, `void mutateAsync`, and an ungated
+> query. All four differ from this file.
+
+Subscribe using this file's own skip idiom (`app-menu.tsx:83-91` — every query here
+passes `'skip'` rather than an `enabled` flag), and add the mutation imports:
 
 ```tsx
-  const { data: onboardingStatus } = useQuery(convexQuery(api.onboarding.getStatus, {}))
+  const { data: onboardingStatus } = useQuery(
+    convexQuery(api.onboarding.getStatus, isAuthenticated ? {} : 'skip'),
+  )
   const replayOnboarding = useMutation({ mutationFn: useConvexMutation(api.onboarding.replay) })
 ```
 
-and render the item only when dismissed, matching the file's existing item markup:
+`useMutation` comes from `@tanstack/react-query` and `useConvexMutation` from
+`@convex-dev/react-query`; this file currently imports `useConvexAction` from the
+latter but not `useConvexMutation`, so add it.
+
+Render the item inside the existing `isAuthenticated &&` block, matching the
+structure of its neighbours exactly — `onClick` (not `onSelect`), an icon with
+`aria-hidden`, and the label in a `<span>`:
 
 ```tsx
   {onboardingStatus?.dismissed && (
-    <DropdownMenuItem onSelect={() => void replayOnboarding.mutateAsync({})}>
-      Show getting started
+    <DropdownMenuItem
+      onClick={() =>
+        replayOnboarding.mutate(
+          {},
+          {
+            // Reported rather than toasted, matching monthly-winner-celebration.tsx:105
+            // and the dismiss half in app.tsx: nothing the viewer can do about it, and
+            // the failure mode is benign — the menu item is simply still there.
+            onError: (error: unknown) => captureError(error, { where: 'onboarding.replay' }),
+          },
+        )
+      }
+    >
+      <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" />
+      <span>Show getting started</span>
     </DropdownMenuItem>
   )}
 ```
 
-Use `useQuery`, not `useSuspenseQuery` — this menu mounts globally, including on `/complete-profile` where no player row exists yet, and a suspense boundary there is not wanted. Match whatever the surrounding items use for the component name (`DropdownMenuItem` vs a wrapper).
+Pick whichever `lucide-react` icon fits the set already imported at the top of the
+file; `Sparkles` is a suggestion, not a requirement.
+
+**`mutate` with `onError`, not `void mutateAsync`.** `void mutateAsync` on a
+rejecting mutation is an unhandled promise rejection, and `replay` calls
+`requirePlayer`, which throws. There is no `void mutateAsync` anywhere in `src/`.
+This is the same correction Task 7 had to make for `dismiss`.
+
+**Why this item matters more than it looks.** Until it lands, dismissing the card
+is irreversible for the player, and the card now appears for every v1 migrant
+sitting on a solo team — a permanent "One more thing / Invite someone" whose only
+escape is a dismissal they can never undo.
 
 - [ ] **Step 5: Run it and watch it pass**
 
