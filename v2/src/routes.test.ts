@@ -581,6 +581,38 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     )
   })
 
+  test('and it fits LANDSCAPE too, which is a different and wider problem', () => {
+    // `lg`, NOT `sm`, AND THAT IS THE WHOLE FIX FOR wordle-teams-mkix. The
+    // measurement above was taken at 390x844 portrait — the one orientation
+    // this row is not widest in. Rotated, the viewport more than doubles, but
+    // BoardEntryButton's own `useMediaQuery('(min-width: 768px)')` swaps the
+    // icon-only trigger for the labelled one (48px -> 141px), TeamPicker and
+    // MonthPicker take their `md` type scale, and `.page-max`'s gutter grows
+    // 0.5rem -> 1.5rem a side. Re-measured the same way at every width rather
+    // than one: 777px of content into 720px usable at 768, and into 750px at
+    // 844 once landscape safe-area insets are accounted for. Two lines both
+    // times, with the primary "+" alone on the second.
+    //
+    // Phone landscape IS the `md` band — 844 and 926 both live in it — so the
+    // labels must not come back until `lg`, where the narrowest device is a
+    // tablet. After the move: 565px into 720px at 768, 565px into 750px at 844
+    // with insets, 777px into 976px at 1024. If you are moving these back to
+    // `sm`, measure 768 and 844-with-insets first; `sm` is not the boundary
+    // that binds.
+    // `codeOf` strips comments, so app.tsx's own note — which quotes these
+    // class strings while explaining them — cannot satisfy these assertions.
+    const app = codeOf(read(APP))
+    for (const label of ['Team settings', 'Team chat'])
+      expect(app).toContain(`<span className="hidden lg:inline">${label}</span>`)
+    // The padding travels with the label — an icon-only button that still took
+    // `px-4` at `sm` would pay 32px a side for a label that is not there.
+    expect(app).toContain('className="px-2 text-foreground lg:px-4"')
+    expect(app).toContain('className="relative px-2 text-foreground lg:px-4"')
+    // AND NOTHING TOOK IT OUT OF THE PRIMARY ACTION. BoardEntryButton keeps its
+    // own end of the row; the two controls that yielded are the secondary ones.
+    expect(app).toContain('<div className="ml-auto">')
+  })
+
   test('and /chat is not a dead end: it goes back to the dashboard for the SAME team', () => {
     // THE RETURN LEG, WHICH IS THE OTHER HALF OF REACHABILITY. The route had
     // exactly one exit — the browser's own back button — and the app's other

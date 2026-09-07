@@ -344,7 +344,68 @@ function Dashboard() {
           measured case wraps any more, but a larger system font size, a 320px
           device or a sixth control would each put this back over the edge, and
           a wrapped row is still a better failure than a page that scrolls
-          sideways. */}
+          sideways.
+
+          AND THEN IT WRAPPED AGAIN, IN LANDSCAPE (wordle-teams-mkix). Every
+          measurement above was taken at 390x844 portrait, which is the one
+          orientation this row is NOT widest in. Rotate the phone and the
+          viewport more than doubles, but four separate things expand at
+          `md` (768px) AT ONCE while the space to put them in SHRINKS:
+
+            BoardEntryButton  48 -> 141   its `useMediaQuery('(min-width:
+                                          768px)')` flips from the icon-only
+                                          Sheet trigger to the labelled Dialog
+                                          one — a JS media query, not a class,
+                                          which is why grepping for `sm:` finds
+                                          nothing to blame
+            TeamPicker       152 -> 192   `md:max-w-none md:px-4 md:text-sm`
+            MonthPicker      101 -> 132   `md:px-4 md:text-sm`
+            .page-max         -32         its gutter goes 0.5rem -> 1.5rem a
+                                          side at the same 48rem boundary
+
+          MEASURED THE SAME WAY AS THE TABLE ABOVE — real components bundled
+          over the BUILT stylesheet in headless chromium, team name at the
+          picker's 15-character truncation — but at every width, not one:
+
+            768   content 777 into 720 usable    2 LINES
+            844   content 777 into 796 usable    1 line, 19px spare
+            844   with 47px safe-area insets, 750 usable    2 LINES
+
+          That last row is the owner's phone. `viewport-fit=cover` is on, so in
+          landscape `.page-max`'s `max(1.5rem, env(safe-area-inset-*))` resolves
+          to the cutout, not the gutter, and the usable width is 46px less than
+          the viewport. A harness that leaves `env()` at its headless zero
+          measures a device that does not exist.
+
+          THE FIX IS THAT PHONE LANDSCAPE IS `md`, SO `md` MUST STAY ICON-ONLY.
+          844 and 926 both sit in the `md` band; the smallest thing in that band
+          that is not a phone is a tablet. So the two secondary labels moved
+          from `sm` to `lg` (1024px) — `hidden lg:inline`, with the matching
+          `px-2` -> `lg:px-4` — and nothing else changed:
+
+            768   content 565 into 720 usable    155px spare
+            844   with insets, 565 into 750      185px spare
+            640   content 401 into 624           223px spare
+            1024  content 777 into 976           199px spare
+
+          WHAT WAS DELIBERATELY NOT DONE. TeamPicker's `md:max-w-none` was the
+          obvious co-conspirator and it is measured innocent: with the labels
+          gone the `md` band has 155px of slack, so re-capping the trigger there
+          would truncate someone's team name to buy room nothing needs. The
+          `md` split for the picker and the month is about a phone-vs-tablet
+          TYPE SCALE, which is a real distinction at 768; the labels are about
+          horizontal room, which is not. BoardEntryButton's 768px switch stayed
+          too — it chooses Dialog over Sheet, a different interaction and not a
+          width tweak, and the labelled form IS the prominent primary action
+          this row is required to keep.
+
+          `ml-auto` ALSO STAYED, and it is what made the failure look like a
+          bug rather than a squeeze: on the wrapped row the "+" was the only
+          item on line two and `ml-auto` pinned it hard right under empty space.
+          It is not the cause — a row that fits never wraps — and removing it
+          would demote the primary action from its own end of the row to sit
+          flush against the two secondary controls at every width. The
+          measurements above are what keep it safe. */}
       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 md:col-span-3">
         <TeamPicker
           teams={teams}
@@ -411,12 +472,12 @@ function Dashboard() {
           <Button
             variant="outline"
             aria-label="Team settings"
-            className="px-2 text-foreground sm:px-4"
+            className="px-2 text-foreground lg:px-4"
             asChild
           >
             <Link to="/team" search={{ team: teamParam }}>
               <Settings className="h-4 w-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Team settings</span>
+              <span className="hidden lg:inline">Team settings</span>
             </Link>
           </Button>
         )}
@@ -426,7 +487,7 @@ function Dashboard() {
             point, and `UnreadBadge` rendered nowhere in `src/`.
 
             A COPY OF "Team settings" ABOVE, DOWN TO THE `size`-less Button,
-            the `px-2 sm:px-4` collapse, the `aria-label`, the `aria-hidden`
+            the `px-2 lg:px-4` collapse, the `aria-label`, the `aria-hidden`
             icon and `text-foreground` — every one of those has a reason
             recorded on that block and none of them is weaker here. Gated on
             `selectedTeam` for its reason too: a stale `?team=` would otherwise
@@ -451,12 +512,12 @@ function Dashboard() {
           <Button
             variant="outline"
             aria-label={chatEntryLabel(hasUnread(unreadTeams, teamParam as Id<'teams'>))}
-            className="relative px-2 text-foreground sm:px-4"
+            className="relative px-2 text-foreground lg:px-4"
             asChild
           >
             <Link to="/chat" search={{ team: teamParam }}>
               <MessageSquare className="h-4 w-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Team chat</span>
+              <span className="hidden lg:inline">Team chat</span>
               <UnreadBadge
                 teamId={teamParam as Id<'teams'>}
                 teamIds={teamIds}
