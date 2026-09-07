@@ -15,6 +15,7 @@ import {
   unreadTeamsFor,
 } from './chat.ts'
 import { deleteTeamFor, invitePlayerFor, leaveTeamFor } from './teams.ts'
+import { completeProfileFor } from './players.ts'
 import { upgradeTeamInvitesFor } from './billing.ts'
 import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
 import {
@@ -1354,9 +1355,12 @@ describe('rejoining a team', () => {
   })
 
   // THE TEST ABOVE CALLS THE HELPER DIRECTLY AND SO PROVES NOTHING ABOUT THE
-  // CALL SITES. These two are the ones that fail if either wiring is dropped —
-  // one per add-member path — because the whole point of the fix is that BOTH
-  // paths get it and a fix on one looks done while being half absent.
+  // CALL SITES. These three are the ones that fail if any wiring is dropped —
+  // one per add-member path — because the whole point of the fix is that ALL
+  // THREE get it and a fix on two looks done while being a third absent. The
+  // third (completeProfileFor) is wordle-teams-0yhm: it was missed for a whole
+  // task, because teams.ts names the three paths in a comment and the plan
+  // named only two.
   test('re-inviting a departed member resets their cursor', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -1420,6 +1424,40 @@ describe('rejoining a team', () => {
 
       expect((await ctx.db.get(team))!.invited).toEqual([])
       expect(await unreadTeamsFor(ctx, stays, [team])).toEqual([])
+    })
+  })
+
+  // wordle-teams-0yhm. THE THIRD ADD PATH, and the one the original fix missed.
+  // completeProfileFor appends a player to an existing roster exactly as the
+  // other two do — teams.ts's own comment names it as one of the three ways an
+  // invite becomes membership — and it is reachable for a player row that
+  // ALREADY EXISTS: the helper patches rather than inserting ("a
+  // double-submitted form is enough", and a copied v1 player has had a row
+  // since the migration), and the public mutation guards only on the Better
+  // Auth email, never on the absence of a player. So a stale chatReads row can
+  // be sitting there when this runs, and it says they have read everything up
+  // to the day they left.
+  test('completing a profile at a re-invited address resets the rejoiner cursor', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, gone], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'before they left')
+      await markReadFor(ctx, gone, team)
+      await leaveTeamFor(ctx, gone, { teamId: team, today })
+      // Re-invited after leaving: the address is parked on the roster again.
+      await ctx.db.patch(team, { invited: ['gone@example.com'] })
+
+      await sendMessageFor(ctx, ada, team, 'while they were away')
+
+      // They resubmit the profile form at that address, which claims the parked
+      // invite and puts them back on the roster.
+      await completeProfileFor(ctx, 'gone@example.com', { firstName: 'Gone', lastName: 'Player' }, today)
+
+      expect((await ctx.db.get(team))!.playerIds).toContain(gone)
+      expect(await unreadTeamsFor(ctx, gone, [team])).toEqual([team])
     })
   })
 })

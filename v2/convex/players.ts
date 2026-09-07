@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import { accessError, currentPlayer, isProFor, playerForEmail } from './access'
+import { resetChatCursorFor } from './chat.ts'
 import { isCompleteName } from './lib/invite.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
@@ -232,6 +233,33 @@ export async function completeProfileFor(
       if (freeSlots <= 0) continue
       freeSlots -= 1
     }
+
+    // wordle-teams-0yhm. THE THIRD ADD PATH, and it was missed when the other
+    // two were wired (teams.ts's invitePlayerFor and billing.ts's
+    // upgradeTeamInvitesFor). A previous stint on this team leaves a
+    // `chatReads` row behind — removal never cleans one up, deliberately — and
+    // it says they have read everything up to the day they left. Rejoining on
+    // top of it means no unread badge for anything said while they were gone.
+    //
+    // NOT UNREACHABLE, WHICH IS WHY IT IS HERE RATHER THAN ARGUED AWAY. The
+    // common case for this function is somebody with no player row at all, who
+    // by definition has no cursor to be stale — but this branch is reached for
+    // an EXISTING row too (see the idempotence note above: a double-submitted
+    // form is enough, and every copied v1 player has had a row since the
+    // migration), and the mutation below guards only on the caller's email,
+    // never on the absence of a player. Nothing structural keeps a stale
+    // cursor out.
+    //
+    // ONLY ON THE BRANCH THAT ACTUALLY JOINS THEM, exactly as
+    // upgradeTeamInvitesFor draws the same line: when `alreadyMember`, this
+    // pass is only clearing a stale address off a roster they are already on,
+    // and wiping a CURRENT member's cursor would mark a conversation they have
+    // been reading all along unread.
+    //
+    // BEFORE the patch, so no window exists in which they are on the roster
+    // holding a stale cursor. See resetChatCursorFor in chat.ts for why this is
+    // done on add rather than on the three separate removal paths.
+    if (!alreadyMember) await resetChatCursorFor(ctx, playerId, team._id)
 
     await ctx.db.patch(team._id, {
       invited: team.invited.filter((entry) => entry.trim().toLowerCase() !== email),
