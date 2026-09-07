@@ -1376,6 +1376,14 @@ git commit -m "feat(onboarding): the next-step card"
 
 ## Task 7: Wire the card into `/app` and delete the empty state
 
+> **SEQUENCING CORRECTED 2026-09-07: run Task 8 BEFORE this one.** As originally
+> written, Task 7 shipped a card whose "Enter today's board" task had nothing to
+> open for a team-less player, and the plan managed that with a "must land
+> together" warning instead of fixing it. Task 8's steps are independent of this
+> one, so running it first removes the broken intermediate state entirely. Task 8
+> now also extracts `BoardEntrySurface`, which this task's `onBoard` renders.
+> The beads edge is flipped to match: `qt4.7` depends on `qt4.8`.
+
 **Files:**
 - Modify: `v2/src/routes/app.tsx` (imports; the `teams.length === 0` branch at 222-232; the main render)
 - Delete: `v2/src/components/teams/empty-state.tsx`
@@ -1560,11 +1568,25 @@ And render `{onboarding}` as the first child of the main dashboard's container, 
 - `onInvite` — navigate to `/team` where `CurrentTeamCard` hosts `InvitePlayerDialog`: `() => void navigate({ to: '/team', search: { team: teamParam } })`. When `teams.length === 0` the invite task cannot be reached anyway, because `hasTeam` false means the team task is showing too and the user has somewhere to go.
 - `onBoard` — Task 8 gives this a real home. Until then, wire it to the existing `BoardEntryButton`'s open state if one is lifted, or leave it navigating to the dashboard's board-entry control. **Do not ship this task without Task 8.**
 
-- [ ] **Step 8: Delete the empty state**
+- [ ] **Step 8: Delete the empty state, and fix every e2e assertion that named it**
 
 ```bash
 git rm v2/src/components/teams/empty-state.tsx
 ```
+
+**FIVE e2e references depend on that component's heading, across THREE files** — verified by grep on 2026-09-07, and this is more than an earlier note in this plan claimed:
+
+```
+e2e/complete-profile.spec.ts:45    getByRole('heading', { name: /not on a team yet/i })
+e2e/complete-profile.spec.ts:53    same
+e2e/complete-profile.spec.ts:129   same
+e2e/invites.spec.ts:414            same, on the `newcomer` context
+e2e/board-entry.spec.ts:10         prose in a doc comment, not an assertion
+```
+
+Update the four assertions to the card's heading, and correct the comment. **This will not be caught by any gate** — e2e sits outside `test`/`lint`/`typecheck`/`build`, so all four stay green while these rot. Run `pnpm exec playwright test e2e/complete-profile.spec.ts e2e/invites.spec.ts` before you commit, after checking what holds port 3000.
+
+Decide deliberately whether `/app` should carry an `h1` once this component is gone — it is currently the route's only one. The card's `h2` is the right *relative* level (`TodayPanel:93` is also `h2`), so the honest options are to promote the card's heading on this route or to accept that `/app` starts at `h2`. Either is defensible; picking one by accident is not.
 
 - [ ] **Step 9: Run all four gates**
 
@@ -1589,6 +1611,10 @@ git commit -m "feat(onboarding): render the next-step card on /app, retire Teams
 ---
 
 ## Task 8: Team-less board entry
+
+> **RUN THIS BEFORE TASK 7** (sequencing corrected 2026-09-07). Nothing here
+> touches `src/routes/app.tsx`; all route wiring is Task 7's. See that task's
+> banner for why the order changed.
 
 **Files:**
 - Modify: `v2/convex/scores.ts` (add a team-less prefill query)
@@ -1715,15 +1741,23 @@ Derive `showLetters` with a default when there is no team:
 
 **Adapt the exact property paths to whatever `getTeamMonth` actually returns** — read `form.tsx:47-70` first and keep its existing derivation for the team case unchanged. Only the team-less branch is new.
 
-- [ ] **Step 6: Make the button's team optional**
+- [ ] **Step 6: Split the surface from its trigger**
 
-In `v2/src/components/board-entry/button.tsx`, change `teamId: Id<'teams'>` to `teamId?: Id<'teams'>` and pass it through unchanged. The `label` prop already exists and defaults to `'Board Entry'`; the card should pass `label="Enter today's board"` so the two controls on one page do not share an accessible name — that hazard is documented at `button.tsx:36-46`.
+This is the step the original plan hand-waved as "lift the board-entry state", and it needs stating properly.
 
-- [ ] **Step 7: Wire it to the card**
+`BoardEntryButton` owns `open` in local state and renders it behind a `DialogTrigger` / `SheetTrigger` whose trigger **is** the visible button (`button.tsx:56`, and again in the Sheet branch). The onboarding card's "Enter today's board" task is a *different* control that has to open that same surface, and it cannot reach a trigger's internal state.
 
-In `v2/src/routes/app.tsx`, lift the board-entry open state so the card can drive it, and pass `teamId={teamParam ?? undefined}`. Replace the Task 7 placeholder `onBoard` with the real setter.
+So extract the body into a controlled, trigger-less component and let the button compose it:
 
-- [ ] **Step 8: Run all four gates**
+- Create `v2/src/components/board-entry/surface.tsx` exporting `BoardEntrySurface({ open, onOpenChange, teamId, month })`, holding everything `BoardEntryButton` currently renders **except** the `DialogTrigger` / `SheetTrigger` and the `useState`. Move the `useMediaQuery` desktop/mobile branch, the `useVisualViewport` sizing, the Radix `Title`/`Description` requirements and the `BoardEntryForm` render into it verbatim — this is a move, not a rewrite.
+- `BoardEntryButton` keeps its `useState`, its trigger button and its `label` prop, and renders `<BoardEntrySurface open={open} onOpenChange={setOpen} … />`. Its rendered output must be unchanged.
+- `teamId` becomes `teamId?: Id<'teams'>` on both, passed straight through.
+
+**Do not skip the `label` prop.** It defaults to `'Board Entry'` and exists because two controls sharing one accessible name is a hazard for a locator and a screen reader both — documented at `button.tsx:36-46`. The card passes its own label, and `/app` will now have the toolbar button *and* the card's task button on one page.
+
+**Do NOT touch `v2/src/routes/app.tsx` in this task.** Task 7 does every bit of the route wiring, including rendering a controlled `BoardEntrySurface` for the card. Keeping app.tsx out of this task is what lets Task 8 land on its own without a half-wired card in the tree.
+
+- [ ] **Step 7: Run all four gates**
 
 ```bash
 pnpm test:once; echo "test=$?"
@@ -1732,12 +1766,12 @@ pnpm typecheck; echo "typecheck=$?"
 pnpm build;     echo "build=$?"
 ```
 
-Expected: all four `=0`.
+Expected: all four `=0`. The rendered app is unchanged by this task — `BoardEntryButton` looks and behaves exactly as before; only its internals moved.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add v2/convex/scores.ts v2/convex/scores.test.ts v2/src/components/board-entry/ v2/src/routes/app.tsx
+git add v2/convex/scores.ts v2/convex/scores.test.ts v2/src/components/board-entry/
 git commit -m "feat(board-entry): let a team-less player enter today's board"
 ```
 
