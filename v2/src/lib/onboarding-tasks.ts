@@ -44,10 +44,11 @@ export type OnboardingTask = {
  *
  * "Highest", not "lowest". convex/fixtures.ts:34 gives +5 for a one-guess
  * solve down to -3 for a failure, so fewer guesses earns MORE — that's the
- * illustration, not the rule. The rule lives in convex/winners.ts:175, where
- * winnerOf takes the first entry at the maximum with a strict `>`, i.e. the
- * BIGGEST monthly total wins. Cite winners.ts, not the fixture, if the
- * scoring numbers ever change — the fixture only supplies concrete values.
+ * illustration, not the rule. The rule lives in convex/lib/scoring.ts:119's
+ * winnerOf, whose doc comment states a strict `>` while walking the list in
+ * order, so the BIGGEST monthly total wins. Cite scoring.ts, not the fixture,
+ * if the scoring numbers ever change — the fixture only supplies concrete
+ * values.
  * Pinned by test.
  */
 export const MODEL_LINE =

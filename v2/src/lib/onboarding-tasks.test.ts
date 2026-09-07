@@ -76,9 +76,11 @@ describe('cardHeading', () => {
 
 describe('MODEL_LINE', () => {
   // The scoring defaults (convex/fixtures.ts:34) run +5 for one guess down to
-  // -3 for a failure, so the HIGHEST monthly total wins. An earlier draft of
-  // this copy said "lowest", which would teach the wrong rule on the one
-  // screen built to explain the model. Pinned so it cannot regress.
+  // -3 for a failure — that's the illustration. The rule itself lives in
+  // convex/lib/scoring.ts:119's winnerOf: a strict `>` while walking the list
+  // in order, so the HIGHEST monthly total wins. An earlier draft of this
+  // copy said "lowest", which would teach the wrong rule on the one screen
+  // built to explain the model. Pinned so it cannot regress.
   test('says highest wins, never lowest', () => {
     expect(MODEL_LINE).toContain('Highest monthly total wins')
     expect(MODEL_LINE.toLowerCase()).not.toContain('lowest')

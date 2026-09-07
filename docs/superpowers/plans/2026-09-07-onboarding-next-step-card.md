@@ -135,9 +135,11 @@ describe('cardHeading', () => {
 
 describe('MODEL_LINE', () => {
   // The scoring defaults (convex/fixtures.ts:34) run +5 for one guess down to
-  // -3 for a failure, so the HIGHEST monthly total wins. An earlier draft of
-  // this copy said "lowest", which would teach the wrong rule on the one
-  // screen built to explain the model. Pinned so it cannot regress.
+  // -3 for a failure — that's the illustration. The rule itself lives in
+  // convex/lib/scoring.ts:119's winnerOf: a strict `>` while walking the list
+  // in order, so the HIGHEST monthly total wins. An earlier draft of this
+  // copy said "lowest", which would teach the wrong rule on the one screen
+  // built to explain the model. Pinned so it cannot regress.
   test('says highest wins, never lowest', () => {
     expect(MODEL_LINE).toContain('Highest monthly total wins')
     expect(MODEL_LINE.toLowerCase()).not.toContain('lowest')
@@ -187,7 +189,7 @@ export type OnboardingTaskId = 'board' | 'team' | 'invite'
  * WinnerRow. Where each is sourced is the component's problem, not this one's.
  */
 export type OnboardingFacts = {
-  /** Has ≥1 dailyScores row with NON-EMPTY guesses. See convex/onboarding.ts. */
+  /** Has >=1 dailyScores row with NON-EMPTY guesses. See convex/onboarding.ts. */
   enteredBoard: boolean
   hasTeam: boolean
   /** On a team with another member, OR holding a pending invite. */
@@ -208,10 +210,11 @@ export type OnboardingTask = {
  *
  * "Highest", not "lowest". convex/fixtures.ts:34 gives +5 for a one-guess
  * solve down to -3 for a failure, so fewer guesses earns MORE — that's the
- * illustration, not the rule. The rule lives in convex/winners.ts:175, where
- * winnerOf takes the first entry at the maximum with a strict `>`, i.e. the
- * BIGGEST monthly total wins. Cite winners.ts, not the fixture, if the
- * scoring numbers ever change — the fixture only supplies concrete values.
+ * illustration, not the rule. The rule lives in convex/lib/scoring.ts:119's
+ * winnerOf, whose doc comment states a strict `>` while walking the list in
+ * order, so the BIGGEST monthly total wins. Cite scoring.ts, not the fixture,
+ * if the scoring numbers ever change — the fixture only supplies concrete
+ * values.
  * Pinned by test.
  */
 export const MODEL_LINE =
