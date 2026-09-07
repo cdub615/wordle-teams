@@ -68,7 +68,10 @@ describe('onboarding.getStatus', () => {
   })
 
   test('finds a non-empty row even when an empty one sorts first', async () => {
-    // The scan must not stop at the first row it sees.
+    // The scan must not stop at the first row it sees, in EITHER traversal
+    // direction. An empty row at both ends (2026-09-01 and 2026-09-03), with
+    // the only non-empty row in the middle, means neither an ascending nor a
+    // descending scan can pass by examining just the first row it meets.
     const t = convexTest(schema, modules)
     betterAuthTest.register(t)
     await t.run(async (ctx) => {
@@ -86,6 +89,13 @@ describe('onboarding.getStatus', () => {
         date: Date.now(),
         answer: 'crane',
         guesses: ['crane'],
+      })
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2026-09-03',
+        date: Date.now(),
+        answer: '',
+        guesses: [],
       })
     })
     const as = await authenticatedAs(t, 'd@example.com')
@@ -115,13 +125,18 @@ describe('onboarding.dismiss and replay', () => {
   test('dismiss sets the flag and replay clears it', async () => {
     const t = convexTest(schema, modules)
     betterAuthTest.register(t)
-    await t.run(async (ctx) => {
-      await ctx.db.insert('players', aPlayer({ email: 'e@example.com' }))
+    const playerId = await t.run(async (ctx) => {
+      return await ctx.db.insert('players', aPlayer({ email: 'e@example.com' }))
     })
     const as = await authenticatedAs(t, 'e@example.com')
 
     await as.mutation(api.onboarding.dismiss, {})
     expect((await as.query(api.onboarding.getStatus, {}))?.dismissed).toBe(true)
+
+    // The flag is a TIMESTAMP, not a boolean, so the design can stay
+    // measurable — that value is load-bearing, not just its presence.
+    const stamp = await t.run(async (ctx) => (await ctx.db.get(playerId))?.onboardingDismissedAt)
+    expect(stamp).toBeGreaterThan(Date.now() - 60_000)
 
     await as.mutation(api.onboarding.replay, {})
     expect((await as.query(api.onboarding.getStatus, {}))?.dismissed).toBe(false)
@@ -137,5 +152,23 @@ describe('onboarding.dismiss and replay', () => {
     await as.mutation(api.onboarding.dismiss, {})
     await as.mutation(api.onboarding.dismiss, {})
     expect((await as.query(api.onboarding.getStatus, {}))?.dismissed).toBe(true)
+  })
+
+  // THE OTHER HALF OF `requirePlayer`: a session and user genuinely exist
+  // (Better Auth is satisfied), but no `players` row matches that email.
+  // dismiss/replay use requirePlayer, not currentPlayer, so both must refuse
+  // rather than silently no-op — matching chat.test.ts's
+  // "refuses an authenticated caller with no player row, with NO_PLAYER".
+  test('dismiss and replay refuse an authenticated caller with no player row, with NO_PLAYER', async () => {
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    const asStranger = await authenticatedAs(t, 'stranger@example.com')
+
+    await expect(asStranger.mutation(api.onboarding.dismiss, {})).rejects.toMatchObject({
+      data: { code: 'NO_PLAYER' },
+    })
+    await expect(asStranger.mutation(api.onboarding.replay, {})).rejects.toMatchObject({
+      data: { code: 'NO_PLAYER' },
+    })
   })
 })

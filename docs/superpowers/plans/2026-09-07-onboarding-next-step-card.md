@@ -413,7 +413,10 @@ describe('onboarding.getStatus', () => {
   })
 
   test('finds a non-empty row even when an empty one sorts first', async () => {
-    // The scan must not stop at the first row it sees.
+    // The scan must not stop at the first row it sees, in EITHER traversal
+    // direction. An empty row at both ends (2026-09-01 and 2026-09-03), with
+    // the only non-empty row in the middle, means neither an ascending nor a
+    // descending scan can pass by examining just the first row it meets.
     const t = convexTest(schema, modules)
     betterAuthTest.register(t)
     await t.run(async (ctx) => {
@@ -431,6 +434,13 @@ describe('onboarding.getStatus', () => {
         date: Date.now(),
         answer: 'crane',
         guesses: ['crane'],
+      })
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2026-09-03',
+        date: Date.now(),
+        answer: '',
+        guesses: [],
       })
     })
     const as = await authenticatedAs(t, 'd@example.com')
@@ -460,13 +470,18 @@ describe('onboarding.dismiss and replay', () => {
   test('dismiss sets the flag and replay clears it', async () => {
     const t = convexTest(schema, modules)
     betterAuthTest.register(t)
-    await t.run(async (ctx) => {
-      await ctx.db.insert('players', aPlayer({ email: 'e@example.com' }))
+    const playerId = await t.run(async (ctx) => {
+      return await ctx.db.insert('players', aPlayer({ email: 'e@example.com' }))
     })
     const as = await authenticatedAs(t, 'e@example.com')
 
     await as.mutation(api.onboarding.dismiss, {})
     expect((await as.query(api.onboarding.getStatus, {}))?.dismissed).toBe(true)
+
+    // The flag is a TIMESTAMP, not a boolean, so the design can stay
+    // measurable — that value is load-bearing, not just its presence.
+    const stamp = await t.run(async (ctx) => (await ctx.db.get(playerId))?.onboardingDismissedAt)
+    expect(stamp).toBeGreaterThan(Date.now() - 60_000)
 
     await as.mutation(api.onboarding.replay, {})
     expect((await as.query(api.onboarding.getStatus, {}))?.dismissed).toBe(false)
@@ -482,6 +497,24 @@ describe('onboarding.dismiss and replay', () => {
     await as.mutation(api.onboarding.dismiss, {})
     await as.mutation(api.onboarding.dismiss, {})
     expect((await as.query(api.onboarding.getStatus, {}))?.dismissed).toBe(true)
+  })
+
+  // THE OTHER HALF OF `requirePlayer`: a session and user genuinely exist
+  // (Better Auth is satisfied), but no `players` row matches that email.
+  // dismiss/replay use requirePlayer, not currentPlayer, so both must refuse
+  // rather than silently no-op — matching chat.test.ts's
+  // "refuses an authenticated caller with no player row, with NO_PLAYER".
+  test('dismiss and replay refuse an authenticated caller with no player row, with NO_PLAYER', async () => {
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    const asStranger = await authenticatedAs(t, 'stranger@example.com')
+
+    await expect(asStranger.mutation(api.onboarding.dismiss, {})).rejects.toMatchObject({
+      data: { code: 'NO_PLAYER' },
+    })
+    await expect(asStranger.mutation(api.onboarding.replay, {})).rejects.toMatchObject({
+      data: { code: 'NO_PLAYER' },
+    })
   })
 })
 ```
@@ -531,18 +564,35 @@ export const getStatus = query({
     const player = await currentPlayer(ctx)
     if (!player) return null
 
-    // NON-EMPTY GUESSES, not mere row existence. v2 deletes a board when both
-    // guesses and answer are empty (scores.ts:233), so rows born in v2 always
-    // carry real guesses — but rows COPIED from v1 predate that rule, and
-    // wordle-teams-456 counts non-empty guesses for exactly this reason.
+    // NON-EMPTY GUESSES, not mere row existence. The real guarantee is
+    // boardIsValid's `rows[0].length === 5` requirement for any non-empty
+    // submission (lib/board.ts:59-60, enforced at scores.ts:211) — a row with
+    // guesses but no first entry never passes that check, so it can never be
+    // written. scores.ts:233's delete-on-fully-empty rule is a secondary,
+    // narrower point: it only covers the case where BOTH guesses and answer
+    // are empty, and would not by itself rule out a row like
+    // `{ guesses: [], answer: 'crane' }`. Together they mean rows born in v2
+    // always carry real guesses — but rows COPIED from v1 predate both rules,
+    // and wordle-teams-456 counts non-empty guesses for exactly this reason.
     // Without the filter, every migrated empty row reads as an activation.
+    //
+    // DESCENDING, not ascending. The rows that motivate the filter — migrated
+    // v1 empties — are the OLDEST a player has; the row that flips
+    // enteredBoard true is the NEWEST one they enter. Walking oldest-first
+    // means a long-tenured migrated player's every prior empty row gets
+    // examined before the scan reaches the one that matters; walking
+    // newest-first finds it on the first row. Strictly better or equal in
+    // every case, and it also narrows the recorded read range once
+    // enteredBoard is true (see chat.test.ts's watchReads on why the READ SET,
+    // not just the return value, is what makes a subscription cheap or not).
     //
     // Iterated with an early break rather than collected: a heavy player has
     // thousands of these rows and we need to know only whether ONE qualifies.
     let enteredBoard = false
     for await (const board of ctx.db
       .query('dailyScores')
-      .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))) {
+      .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))
+      .order('desc')) {
       if (board.guesses.length > 0) {
         enteredBoard = true
         break
@@ -575,7 +625,7 @@ export const replay = mutation({
 - [ ] **Step 4: Run test to verify it passes**
 
 Run from `v2/`: `pnpm vitest run convex/onboarding.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 9 tests.
 
 If `requirePlayer` is not exported from `convex/access.ts`, check how `convex/scores.ts` imports it and match that — `upsertBoard` uses it (`convex/scores.ts:266`).
 

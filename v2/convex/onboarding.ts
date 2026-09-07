@@ -31,18 +31,35 @@ export const getStatus = query({
     const player = await currentPlayer(ctx)
     if (!player) return null
 
-    // NON-EMPTY GUESSES, not mere row existence. v2 deletes a board when both
-    // guesses and answer are empty (scores.ts:233), so rows born in v2 always
-    // carry real guesses — but rows COPIED from v1 predate that rule, and
-    // wordle-teams-456 counts non-empty guesses for exactly this reason.
+    // NON-EMPTY GUESSES, not mere row existence. The real guarantee is
+    // boardIsValid's `rows[0].length === 5` requirement for any non-empty
+    // submission (lib/board.ts:59-60, enforced at scores.ts:211) — a row with
+    // guesses but no first entry never passes that check, so it can never be
+    // written. scores.ts:233's delete-on-fully-empty rule is a secondary,
+    // narrower point: it only covers the case where BOTH guesses and answer
+    // are empty, and would not by itself rule out a row like
+    // `{ guesses: [], answer: 'crane' }`. Together they mean rows born in v2
+    // always carry real guesses — but rows COPIED from v1 predate both rules,
+    // and wordle-teams-456 counts non-empty guesses for exactly this reason.
     // Without the filter, every migrated empty row reads as an activation.
+    //
+    // DESCENDING, not ascending. The rows that motivate the filter — migrated
+    // v1 empties — are the OLDEST a player has; the row that flips
+    // enteredBoard true is the NEWEST one they enter. Walking oldest-first
+    // means a long-tenured migrated player's every prior empty row gets
+    // examined before the scan reaches the one that matters; walking
+    // newest-first finds it on the first row. Strictly better or equal in
+    // every case, and it also narrows the recorded read range once
+    // enteredBoard is true (see chat.test.ts's watchReads on why the READ SET,
+    // not just the return value, is what makes a subscription cheap or not).
     //
     // Iterated with an early break rather than collected: a heavy player has
     // thousands of these rows and we need to know only whether ONE qualifies.
     let enteredBoard = false
     for await (const board of ctx.db
       .query('dailyScores')
-      .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))) {
+      .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))
+      .order('desc')) {
       if (board.guesses.length > 0) {
         enteredBoard = true
         break
