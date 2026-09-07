@@ -6,6 +6,7 @@ import {
   chatDayIndex,
   chatEntryLabel,
   chatHeading,
+  clockTime,
   hasUnread,
   hasUnreadElsewhere,
   isAtTop,
@@ -586,50 +587,73 @@ const NOW = utc('2026-08-20T12:00:00Z')
 
 describe('separatorLabel', () => {
   it('says Today for a message on the same calendar day', () => {
-    expect(separatorLabel(utc('2026-08-20T14:05:00Z'), NOW, 'UTC')).toBe('Today 14:05')
+    expect(separatorLabel(utc('2026-08-20T14:05:00Z'), NOW, 'UTC', 'en-GB')).toBe('Today 14:05')
   })
 
-  // THE h23 PIN. `hour12: false` resolves to the h24 cycle in some ICU builds
-  // and renders this as `24:05`; `hourCycle: 'h23'` is the thing that was meant.
-  it('renders midnight as 00:xx, not 24:xx', () => {
-    expect(separatorLabel(utc('2026-08-20T00:05:00Z'), NOW, 'UTC')).toBe('Today 00:05')
+  // MIDNIGHT, WHICH USED TO BE THE `hourCycle: 'h23'` PIN'S TEST AND IS NOW THE
+  // LOCALE'S. A 24-hour locale writes it `00:05` — not `24:05`, which some ICU
+  // builds produce from `hour12: false`, and not `0:05`, which is what
+  // `{ hour: 'numeric' }` produces and is not how a 24-hour clock is written.
+  it('renders midnight as 00:xx in a 24-hour locale', () => {
+    expect(separatorLabel(utc('2026-08-20T00:05:00Z'), NOW, 'UTC', 'en-GB')).toBe('Today 00:05')
+  })
+
+  // THE OWNER'S BUG. An American reader was shown `Today 14:00`, which is not a
+  // clock anyone in that locale reads. Nothing in this file decides 12 versus
+  // 24; the locale does, and these two assertions are the whole proof.
+  it('writes the same instant as a 12-hour clock where that is customary', () => {
+    expect(separatorLabel(utc('2026-08-20T14:05:00Z'), NOW, 'UTC', 'en-US')).toBe('Today 2:05 PM')
+    expect(separatorLabel(utc('2026-08-20T00:05:00Z'), NOW, 'UTC', 'en-US')).toBe('Today 12:05 AM')
+    expect(separatorLabel(utc('2026-08-19T23:58:00Z'), NOW, 'UTC', 'en-US')).toBe(
+      'Yesterday 11:58 PM',
+    )
+  })
+
+  // THE WORDS DO NOT MOVE WITH THE CLOCK. "Today", the weekday and the date are
+  // CHAT_LABEL_LOCALE's, because the app is written in English and half a
+  // translation is worse than none; only the time follows the reader.
+  it('keeps the weekday and the date in the app locale whatever the clock does', () => {
+    expect(separatorLabel(utc('2026-08-18T09:12:00Z'), NOW, 'UTC', 'de-DE')).toBe('Tuesday 09:12')
+    expect(separatorLabel(utc('2026-08-13T09:12:00Z'), NOW, 'UTC', 'en-US')).toBe(
+      'Aug 13, 2026 9:12 AM',
+    )
   })
 
   it('says Yesterday for the calendar day before, however few hours ago that is', () => {
     // 23:58 the previous evening is twelve hours ago and is NOT "Today" — the
     // whole reason the comparison is on day indices rather than elapsed ms.
-    expect(separatorLabel(utc('2026-08-19T23:58:00Z'), NOW, 'UTC')).toBe('Yesterday 23:58')
+    expect(separatorLabel(utc('2026-08-19T23:58:00Z'), NOW, 'UTC', 'en-GB')).toBe('Yesterday 23:58')
   })
 
   it('names the weekday inside the last week', () => {
-    expect(separatorLabel(utc('2026-08-18T09:12:00Z'), NOW, 'UTC')).toBe('Tuesday 09:12')
-    expect(separatorLabel(utc('2026-08-14T09:12:00Z'), NOW, 'UTC')).toBe('Friday 09:12')
+    expect(separatorLabel(utc('2026-08-18T09:12:00Z'), NOW, 'UTC', 'en-GB')).toBe('Tuesday 09:12')
+    expect(separatorLabel(utc('2026-08-14T09:12:00Z'), NOW, 'UTC', 'en-GB')).toBe('Friday 09:12')
   })
 
   // SEVEN DAYS IS THE EDGE, AND IT IS THE DATE SIDE OF IT. A weekday name only
   // identifies one day while there is one of it in living memory; "Thursday"
   // for a message exactly a week old names today as much as it names then.
   it('falls back to the date at exactly a week, and beyond it', () => {
-    expect(separatorLabel(utc('2026-08-13T09:12:00Z'), NOW, 'UTC')).toBe('Aug 13, 2026 09:12')
-    expect(separatorLabel(utc('2025-12-31T23:00:00Z'), NOW, 'UTC')).toBe('Dec 31, 2025 23:00')
+    expect(separatorLabel(utc('2026-08-13T09:12:00Z'), NOW, 'UTC', 'en-GB')).toBe('Aug 13, 2026 09:12')
+    expect(separatorLabel(utc('2025-12-31T23:00:00Z'), NOW, 'UTC', 'en-GB')).toBe('Dec 31, 2025 23:00')
   })
 
   // Small clock skew between the sender's device and the reader's is real, and
   // a message stamped a few minutes ahead on the same day is still "Today".
   it('reads a slightly-future stamp on the same day as Today', () => {
-    expect(separatorLabel(utc('2026-08-20T12:03:00Z'), NOW, 'UTC')).toBe('Today 12:03')
+    expect(separatorLabel(utc('2026-08-20T12:03:00Z'), NOW, 'UTC', 'en-GB')).toBe('Today 12:03')
   })
 
   it('names the date for a stamp far enough ahead to be strange', () => {
-    expect(separatorLabel(utc('2026-08-25T08:00:00Z'), NOW, 'UTC')).toBe('Aug 25, 2026 08:00')
+    expect(separatorLabel(utc('2026-08-25T08:00:00Z'), NOW, 'UTC', 'en-GB')).toBe('Aug 25, 2026 08:00')
   })
 
   // THE POINT OF THREADING THE ZONE THROUGH AT ALL. One instant, two zones, two
   // different true answers — and neither of them is the host's.
   it('answers in the zone it is given, not in the one the host is in', () => {
     const instant = utc('2026-08-20T02:30:00Z')
-    expect(separatorLabel(instant, NOW, 'UTC')).toBe('Today 02:30')
-    expect(separatorLabel(instant, NOW, 'America/New_York')).toBe('Yesterday 22:30')
+    expect(separatorLabel(instant, NOW, 'UTC', 'en-GB')).toBe('Today 02:30')
+    expect(separatorLabel(instant, NOW, 'America/New_York', 'en-GB')).toBe('Yesterday 22:30')
   })
 
   // DST, WHICH IS WHY chatDayIndex GOES THROUGH Date.UTC ON RESOLVED PARTS
@@ -638,10 +662,49 @@ describe('separatorLabel', () => {
   // pair the same day.
   it('counts a 25-hour local day as one day', () => {
     const sunday = utc('2026-11-01T12:00:00Z')
-    expect(separatorLabel(sunday, sunday, 'America/New_York')).toBe('Today 07:00')
-    expect(separatorLabel(utc('2026-10-31T12:00:00Z'), sunday, 'America/New_York')).toBe(
+    expect(separatorLabel(sunday, sunday, 'America/New_York', 'en-GB')).toBe('Today 07:00')
+    expect(separatorLabel(utc('2026-10-31T12:00:00Z'), sunday, 'America/New_York', 'en-GB')).toBe(
       'Yesterday 08:00',
     )
+  })
+})
+
+describe('clockTime', () => {
+  // The four locales the coordinator named, on one instant.
+  it('asks the locale whether this is 2:05 PM or 14:05', () => {
+    const instant = utc('2026-08-20T14:05:00Z')
+    expect(clockTime(instant, 'UTC', 'en-US')).toBe('2:05 PM')
+    expect(clockTime(instant, 'UTC', 'en-GB')).toBe('14:05')
+    expect(clockTime(instant, 'UTC', 'de-DE')).toBe('14:05')
+    expect(clockTime(instant, 'UTC', 'fr-FR')).toBe('14:05')
+  })
+
+  // ICU 72 changed the separator before AM/PM from U+0020 to U+202F, so without
+  // the normalisation these bytes depend on which ICU the host was built
+  // against — the locale trap's cousin, and it would split this suite between a
+  // developer's Node and CI's.
+  it('separates the day period with an ordinary space, whatever ICU emits', () => {
+    const rendered = clockTime(utc('2026-08-20T14:05:00Z'), 'UTC', 'en-US')
+    expect(rendered).toBe('2:05 PM')
+    expect(rendered).not.toMatch(/[\u202f\u00a0]/)
+  })
+
+  it('reads the zone it is given, not the one the host is in', () => {
+    const instant = utc('2026-08-20T02:30:00Z')
+    expect(clockTime(instant, 'UTC', 'en-GB')).toBe('02:30')
+    expect(clockTime(instant, 'America/New_York', 'en-GB')).toBe('22:30')
+  })
+
+  // THE HALF THE SWIPE-REVEAL DEPENDS ON. The per-message timestamp under a
+  // swipe and the separator above it are the same instant rendered twice; if
+  // they disagreed about 12 versus 24 hours the list would contradict itself.
+  it('is exactly the clock half of the separator it sits under', () => {
+    const instant = utc('2026-08-20T14:05:00Z')
+    for (const locale of ['en-US', 'en-GB', 'de-DE']) {
+      expect(separatorLabel(instant, NOW, 'UTC', locale)).toBe(
+        `Today ${clockTime(instant, 'UTC', locale)}`,
+      )
+    }
   })
 })
 
@@ -677,17 +740,17 @@ const THEM = 'player_them'
 
 describe('separatorBefore', () => {
   it('always dates the oldest message on screen, which has nothing above it', () => {
-    expect(separatorBefore(said(THEM, NOW), undefined, NOW, 'UTC')).toBe('Today 12:00')
+    expect(separatorBefore(said(THEM, NOW), undefined, NOW, 'UTC', 'en-GB')).toBe('Today 12:00')
   })
 
   it('stays out of the way of a continuing conversation', () => {
     const first = said(THEM, NOW - 10 * 60_000)
-    expect(separatorBefore(said(ME, NOW), first, NOW, 'UTC')).toBeNull()
+    expect(separatorBefore(said(ME, NOW), first, NOW, 'UTC', 'en-GB')).toBeNull()
   })
 
   it('interrupts once the pause is longer than the separator gap', () => {
     const first = said(THEM, NOW - SEPARATOR_GAP_MS)
-    expect(separatorBefore(said(THEM, NOW), first, NOW, 'UTC')).toBe('Today 12:00')
+    expect(separatorBefore(said(THEM, NOW), first, NOW, 'UTC', 'en-GB')).toBe('Today 12:00')
   })
 
   // A DAY BOUNDARY IS AN INDEPENDENT TRIGGER, not a consequence of the hour.
@@ -696,7 +759,7 @@ describe('separatorBefore', () => {
   it('interrupts across midnight even five minutes apart', () => {
     const before = utc('2026-08-19T23:58:00Z')
     const after = utc('2026-08-20T00:03:00Z')
-    expect(separatorBefore(said(THEM, after), said(THEM, before), NOW, 'UTC')).toBe('Today 00:03')
+    expect(separatorBefore(said(THEM, after), said(THEM, before), NOW, 'UTC', 'en-GB')).toBe('Today 00:03')
   })
 
   // ...and the same pair is NOT a boundary in a zone where neither instant has
@@ -706,7 +769,7 @@ describe('separatorBefore', () => {
     const before = utc('2026-08-19T23:58:00Z')
     const after = utc('2026-08-20T00:03:00Z')
     expect(
-      separatorBefore(said(THEM, after), said(THEM, before), NOW, 'America/New_York'),
+      separatorBefore(said(THEM, after), said(THEM, before), NOW, 'America/New_York', 'en-GB'),
     ).toBeNull()
   })
 })
@@ -770,6 +833,7 @@ describe('messageRows', () => {
       ME,
       NOW,
       'UTC',
+      'en-GB',
     )
     expect(shape(rows)).toEqual([
       { mine: false, startsRun: true, endsRun: false, showsName: true, separator: 'Today 11:58' },
@@ -779,7 +843,7 @@ describe('messageRows', () => {
   })
 
   it('starts a new run, and a new tail, when the other person replies', () => {
-    const rows = messageRows([said(THEM, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC')
+    const rows = messageRows([said(THEM, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC', 'en-GB')
     expect(shape(rows)).toEqual([
       { mine: false, startsRun: true, endsRun: true, showsName: true, separator: 'Today 11:59' },
       { mine: true, startsRun: true, endsRun: true, showsName: false, separator: null },
@@ -792,6 +856,7 @@ describe('messageRows', () => {
       ME,
       NOW,
       'UTC',
+      'en-GB',
     )
     expect(rows[0].endsRun).toBe(true)
     expect(rows[1].startsRun).toBe(true)
@@ -803,20 +868,20 @@ describe('messageRows', () => {
   // to every author, so without this every bubble would sit in the left column
   // for the first paint — which is what this asserts, rather than a crash.
   it('claims nothing is yours until getMyPlayerId has answered', () => {
-    const rows = messageRows([said(THEM, NOW - 1_000), said('player_me', NOW)], undefined, NOW, 'UTC')
+    const rows = messageRows([said(THEM, NOW - 1_000), said('player_me', NOW)], undefined, NOW, 'UTC', 'en-GB')
     expect(rows.map((row) => row.mine)).toEqual([false, false])
     // ...and `null`, its real "no player" answer, means the same thing here.
-    expect(messageRows([said('player_me', NOW)], null, NOW, 'UTC')[0].mine).toBe(false)
+    expect(messageRows([said('player_me', NOW)], null, NOW, 'UTC', 'en-GB')[0].mine).toBe(false)
   })
 
   it('holds an empty conversation without inventing a row', () => {
-    expect(messageRows([], ME, NOW, 'UTC')).toEqual([])
+    expect(messageRows([], ME, NOW, 'UTC', 'en-GB')).toEqual([])
   })
 
   // The last message on screen always closes its run, since there is nothing
   // below it to continue one.
   it('tails the newest message whatever came before it', () => {
-    const rows = messageRows([said(ME, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC')
+    const rows = messageRows([said(ME, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC', 'en-GB')
     expect(rows[rows.length - 1].endsRun).toBe(true)
   })
 })

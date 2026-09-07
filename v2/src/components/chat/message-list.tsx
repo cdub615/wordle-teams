@@ -268,9 +268,13 @@ export function MessageList({
     renders the empty state and no separator label is produced on that side at
     all — there is no server string for a client one to disagree with.
 
-    THE ZONE IS THE HOST'S, DELIBERATELY (the omitted third argument). "Today"
-    can only honestly mean the reader's own day; the parameter exists so the
-    tests can pin a zone, not so the app can choose one.
+    THE ZONE AND THE LOCALE ARE BOTH THE HOST'S, DELIBERATELY (the two omitted
+    arguments). "Today" can only honestly mean the reader's own day, and
+    "2:05 PM" versus "14:05" can only honestly mean the reader's own
+    convention; the parameters exist so the tests can pin them, not so the app
+    can choose. Passing either explicitly here would be this file deciding
+    something about a reader it knows nothing about — which is exactly the bug
+    the pinned `hourCycle: 'h23'` was: it stamped 14:00 on an American phone.
   */
   const rows = messageRows(messages, myPlayerId, Date.now())
 

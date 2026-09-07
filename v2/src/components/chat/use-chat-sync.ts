@@ -370,18 +370,26 @@ export const RUN_GAP_MS = 5 * 60_000
 export const SEPARATOR_GAP_MS = 60 * 60_000
 
 /**
+ * The locale the app's own WORDS are written in, and the one every formatter
+ * here uses except the clock.
+ *
+ * PINNED, matching lib/format-day.ts, which pins it for the same reason: the
+ * strings these produce are asserted character for character, and a suite that
+ * inherited the host's locale would pass in one place and fail in another. The
+ * separator's own vocabulary ("Today", "Yesterday") is English regardless, so a
+ * German weekday beside an English "Yesterday" would be half a translation.
+ */
+export const CHAT_LABEL_LOCALE = 'en-US'
+
+/**
  * Intl formatters are expensive to construct and this file formats one per
  * separator on every render of the list, so they are built once per (shape,
- * zone) pair and kept.
+ * zone, locale) triple and kept.
  *
- * KEYED BY THE ZONE AS WELL AS THE SHAPE. `timeZone` is a parameter rather than
- * a constant precisely so the tests can pin it (see below), and a cache keyed
- * on the shape alone would hand the second test the first test's zone.
- *
- * `en-US` IS PINNED, matching lib/format-day.ts, which pins it for the same
- * reason: the strings this produces are asserted character for character, and a
- * suite that inherited the host's locale would pass in one place and fail in
- * another.
+ * KEYED BY THE ZONE AND THE LOCALE AS WELL AS THE SHAPE. Both are parameters
+ * rather than constants precisely so the tests can pin them (see below), and a
+ * cache keyed on the shape alone would hand the second test the first test's
+ * zone — or, now, the first test's locale.
  */
 const formatters = new Map<string, Intl.DateTimeFormat>()
 
@@ -389,13 +397,52 @@ function formatterFor(
   shape: string,
   options: Intl.DateTimeFormatOptions,
   timeZone: string | undefined,
+  locale: string | undefined,
 ): Intl.DateTimeFormat {
-  const key = `${shape}|${timeZone ?? ''}`
+  const key = `${shape}|${timeZone ?? ''}|${locale ?? ''}`
   const held = formatters.get(key)
   if (held) return held
-  const made = new Intl.DateTimeFormat('en-US', { ...options, timeZone })
+  const made = new Intl.DateTimeFormat(locale, { ...options, timeZone })
   formatters.set(key, made)
   return made
+}
+
+/**
+ * A wall-clock time in whatever shape the READER'S locale writes one: `2:05 PM`
+ * in en-US, `14:05` in en-GB and de-DE.
+ *
+ * THE POINT IS THAT NOTHING HERE DECIDES 12- VERSUS 24-HOUR. This used to pass
+ * `hourCycle: 'h23'` and stamp `Today 14:00` on an American owner's phone,
+ * which is not a clock anybody in that locale reads. Passing `hour12: true`
+ * instead would have been the identical bug pointed the other way — it would
+ * have printed `2:05 PM` in Berlin. Neither option is passed at all; CLDR
+ * already knows, per locale, which one is customary, and this asks it.
+ *
+ * `timeStyle: 'short'` RATHER THAN `hour`/`minute` FIELDS, AND THE DIFFERENCE
+ * IS THE LEADING ZERO. `{ hour: 'numeric', minute: '2-digit' }` renders
+ * midnight as `0:05` in every 24-hour locale, which is not how a 24-hour clock
+ * is written and is a visible regression from the `00:05` this replaces;
+ * `{ hour: '2-digit' }` fixes that and breaks the other side instead, giving
+ * en-US `02:05 PM`. `timeStyle: 'short'` is the locale's OWN short-time
+ * pattern, so en-GB keeps `00:05` and en-US gets `2:05 PM` without this file
+ * choosing a field width for either.
+ *
+ * THE NARROW NO-BREAK SPACE IS FLATTENED TO AN ORDINARY ONE. ICU 72 changed the
+ * separator before `AM`/`PM` from U+0020 to U+202F, so the exact bytes of
+ * `2:05 PM` depend on which ICU the host was built against — the same class of
+ * trap as reading the host's time zone, and one that would make these
+ * assertions pass on a developer's Node and fail on CI's. Normalising here
+ * makes the output a function of the arguments alone.
+ *
+ * `locale` UNDEFINED MEANS THE RUNTIME'S OWN, exactly as `timeZone` undefined
+ * means the host's zone: the reader's conventions are the only ones a clock in
+ * their own chat can honestly use. Tests pass an explicit locale so that "2:05
+ * PM" is a fact about the fixture rather than about the machine running it.
+ */
+export function clockTime(timestamp: number, timeZone?: string, locale?: string): string {
+  return formatterFor('time', { timeStyle: 'short' }, timeZone, locale)
+    .format(new Date(timestamp))
+    .replace(/[\u202f\u00a0]/g, ' ')
 }
 
 /**
@@ -421,12 +468,21 @@ function formatterFor(
  * reader's own idea of "today" is the only one the label can mean. Tests pass
  * an explicit zone so that "today" is a fact about the fixture rather than
  * about the machine running it.
+ *
+ * THE LOCALE IS PINNED HERE AND TAKES NO PARAMETER, WHICH IS THE ONE PLACE IN
+ * THIS FILE THAT IS TRUE. Everything else formats a string for a reader;
+ * this PARSES the parts back out with `Number`, and a locale whose default
+ * numbering system is not `latn` — `ar-EG`, `fa-IR`, `ne-NP` — writes those
+ * digits in a script `Number` reads as `NaN`. The day index would then be
+ * `NaN` for every message and every separator would read "Today". This asks a
+ * calendar question, not a presentation one, so it asks it in a fixed locale.
  */
 export function chatDayIndex(timestamp: number, timeZone?: string): number {
   const parts = formatterFor(
     'day',
     { year: 'numeric', month: 'numeric', day: 'numeric' },
     timeZone,
+    CHAT_LABEL_LOCALE,
   ).formatToParts(new Date(timestamp))
   const value = (type: string) => Number(parts.find((part) => part.type === type)?.value)
   return Date.UTC(value('year'), value('month') - 1, value('day')) / 86_400_000
@@ -435,38 +491,42 @@ export function chatDayIndex(timestamp: number, timeZone?: string): number {
 /**
  * The text of a time separator: how long ago, plus the clock time.
  *
- * FOUR SHAPES, NARROWING AS THE MESSAGE GETS OLDER — `Today 14:05`,
- * `Yesterday 23:58`, `Thursday 09:12`, `Aug 12, 2026 09:12`. The weekday band
- * stops at seven days for the reason weekday names exist at all: "Thursday"
- * means one specific day only while there is exactly one Thursday in living
- * memory, and a nine-day-old message labelled "Thursday" is a lie a reader has
- * no way to detect.
+ * FOUR SHAPES, NARROWING AS THE MESSAGE GETS OLDER — `Today 2:05 PM`,
+ * `Yesterday 11:58 PM`, `Thursday 9:12 AM`, `Aug 12, 2026 9:12 AM` for an
+ * American reader; the same four with `14:05`, `23:58`, `09:12` for a British
+ * one. The weekday band stops at seven days for the reason weekday names exist
+ * at all: "Thursday" means one specific day only while there is exactly one
+ * Thursday in living memory, and a nine-day-old message labelled "Thursday" is
+ * a lie a reader has no way to detect.
  *
- * 24-HOUR TIME, PINNED WITH `hourCycle` RATHER THAN `hour12: false`. The two
- * are not synonyms: `hour12: false` resolves to the h24 cycle in some ICU
- * builds, which renders midnight as `24:05`. `hourCycle: 'h23'` says the thing
- * that was meant, and the midnight case is asserted.
+ * THE CLOCK IS THE READER'S, THE WORDS ARE THE APP'S. `clockTime` asks CLDR
+ * whether this locale writes 2:05 PM or 14:05 and passes no opinion of its
+ * own; the weekday and the date stay on `CHAT_LABEL_LOCALE` beside "Today" and
+ * "Yesterday", which are English because the app is. Localising `Aug 12` into
+ * `12. Aug.` under an English "Yesterday" would be half a translation, and
+ * lib/format-day.ts already pins the same locale for the same date shapes.
  *
  * A FUTURE TIMESTAMP FALLS THROUGH TO THE FULL DATE. Clock skew between a
  * sender's device and the reader's is real and small, so same-day skew still
  * reads "Today"; anything further ahead is strange enough that naming the date
  * is more honest than "Yesterday" arithmetic run backwards.
  */
-export function separatorLabel(timestamp: number, now: number, timeZone?: string): string {
+export function separatorLabel(
+  timestamp: number,
+  now: number,
+  timeZone?: string,
+  locale?: string,
+): string {
   const when = new Date(timestamp)
-  const time = formatterFor(
-    'time',
-    { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
-    timeZone,
-  ).format(when)
+  const time = clockTime(timestamp, timeZone, locale)
 
   const days = chatDayIndex(now, timeZone) - chatDayIndex(timestamp, timeZone)
   if (days === 0) return `Today ${time}`
   if (days === 1) return `Yesterday ${time}`
   if (days > 1 && days < 7) {
-    return `${formatterFor('weekday', { weekday: 'long' }, timeZone).format(when)} ${time}`
+    return `${formatterFor('weekday', { weekday: 'long' }, timeZone, CHAT_LABEL_LOCALE).format(when)} ${time}`
   }
-  return `${formatterFor('date', { month: 'short', day: 'numeric', year: 'numeric' }, timeZone).format(when)} ${time}`
+  return `${formatterFor('date', { month: 'short', day: 'numeric', year: 'numeric' }, timeZone, CHAT_LABEL_LOCALE).format(when)} ${time}`
 }
 
 /**
@@ -488,6 +548,7 @@ export function separatorBefore(
   previous: ChatMessage | undefined,
   now: number,
   timeZone?: string,
+  locale?: string,
 ): string | null {
   if (
     previous !== undefined &&
@@ -496,7 +557,7 @@ export function separatorBefore(
   ) {
     return null
   }
-  return separatorLabel(message.createdAt, now, timeZone)
+  return separatorLabel(message.createdAt, now, timeZone, locale)
 }
 
 /**
@@ -587,10 +648,11 @@ export function messageRows(
   myPlayerId: Id<'players'> | null | undefined,
   now: number,
   timeZone?: string,
+  locale?: string,
 ): Array<MessageRow> {
   const rows = messages.map((message, index) => {
     const previous = index === 0 ? undefined : messages[index - 1]
-    const separator = separatorBefore(message, previous, now, timeZone)
+    const separator = separatorBefore(message, previous, now, timeZone, locale)
     const opens = startsRun(message, previous, separator !== null)
     const mine = myPlayerId !== undefined && myPlayerId !== null && message.playerId === myPlayerId
     return {
