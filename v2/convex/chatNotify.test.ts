@@ -4,7 +4,12 @@ import schema from './schema'
 import { internal } from './_generated/api'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { markReadFor, sendMessageFor } from './chat.ts'
-import { markChatNotifiedFor, pendingChatNotificationsFor } from './chatNotify.ts'
+import {
+  MAX_NOTIFIED_TEAM_NAME,
+  chatNotificationBody,
+  markChatNotifiedFor,
+  pendingChatNotificationsFor,
+} from './chatNotify.ts'
 import type { Id } from './_generated/dataModel'
 import type { ReaderCtx, WriterCtx } from './winners.ts'
 
@@ -230,6 +235,79 @@ describe('pendingChatNotificationsFor', () => {
   })
 })
 
+/**
+ * THE PUSH BODY, AND WHY IT IS CLAMPED (wordle-teams-5gm3).
+ *
+ * NOT AN INJECTION RISK, and worth writing down so nobody re-litigates it: the
+ * Notification API takes plain text rather than markup, and the deep link is
+ * built server-side from the team ID and clamped to the worker's own origin
+ * (resolveNotificationUrl in src/lib/sw-push.ts). A crafted team name cannot
+ * inject anything anywhere.
+ *
+ * WHAT IS WRONG IS THAT SOMEBODY ELSE CHOOSES THE CUT. Team names have no
+ * length limit at any layer — requireName only rejects an empty one — so an
+ * unclamped body is as long as somebody typed, and the operating system
+ * truncates it at a point that varies by platform, by device and by whether the
+ * shade is expanded. It can cut mid-word, and it can push the words that
+ * identify this as a CHAT notification off the end entirely, which is the one
+ * part a reader needs to decide whether to tap.
+ *
+ * THE BOARD REMINDER DOES NOT SHARE THIS. Its body is a fixed literal in
+ * pushSend.ts (REMINDER_PAYLOAD) with nothing interpolated into it, and its
+ * byte-identical twin in src/lib/sw-push.ts is fixed too. This is the only
+ * push body in the app built from user-supplied text.
+ */
+describe('chatNotificationBody', () => {
+  test('names the team, which is the whole point of the notification', () => {
+    expect(chatNotificationBody('Wordle Wizards')).toBe('New messages in Wordle Wizards')
+  })
+
+  test('leaves a name that fits exactly alone, ellipsis and all', () => {
+    const exact = 'x'.repeat(MAX_NOTIFIED_TEAM_NAME)
+    expect(chatNotificationBody(exact)).toBe(`New messages in ${exact}`)
+  })
+
+  // THE CUT IS OURS, AND IT IS VISIBLE. A body that simply ran on would be cut
+  // by the OS with no mark at all, so the reader cannot tell a long name from a
+  // truncated one.
+  test('clamps a longer name to a deliberate width, with an ellipsis', () => {
+    const body = chatNotificationBody('y'.repeat(MAX_NOTIFIED_TEAM_NAME + 50))
+    expect(body).toBe(`New messages in ${'y'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}\u2026`)
+    expect(body.endsWith('\u2026')).toBe(true)
+  })
+
+  // ONE ELLIPSIS CHARACTER, NOT THREE DOTS, so the clamped name is exactly
+  // MAX_NOTIFIED_TEAM_NAME long rather than two characters over the budget it
+  // was clamped to.
+  test('never exceeds the budget it clamps to', () => {
+    const name = [...chatNotificationBody('z'.repeat(500))].slice('New messages in '.length)
+    expect(name).toHaveLength(MAX_NOTIFIED_TEAM_NAME)
+  })
+
+  // COUNTED IN CODE POINTS, NOT UTF-16 UNITS. `String.prototype.slice` cuts
+  // between the halves of a surrogate pair, so a name of emoji clamped by
+  // `.slice` ends in a lone surrogate — which renders as the replacement
+  // glyph in the shade. Every astral character here is two UTF-16 units, so a
+  // naive slice would also produce a name half the intended length.
+  test('does not cut an emoji in half', () => {
+    const body = chatNotificationBody('🎉'.repeat(MAX_NOTIFIED_TEAM_NAME + 10))
+    const name = body.slice('New messages in '.length)
+    expect([...name]).toHaveLength(MAX_NOTIFIED_TEAM_NAME)
+    expect(name).not.toContain('\uFFFD')
+    expect(name).toBe(`${'🎉'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}\u2026`)
+  })
+
+  // TRAILING SPACE GOES BEFORE THE ELLIPSIS DOES. Cutting mid-word can leave
+  // the last kept character a space, and "Team … " reads as a rendering bug
+  // rather than as a deliberate truncation.
+  test('does not leave a space sitting in front of the ellipsis', () => {
+    const name = `${'a'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)} bcdef`
+    expect(chatNotificationBody(name)).toBe(
+      `New messages in ${'a'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}\u2026`,
+    )
+  })
+})
+
 describe('sweep', () => {
   test('schedules one batched push per owed member, deep-linked to the team', async () => {
     const t = convexTest(schema, modules)
@@ -263,6 +341,35 @@ describe('sweep', () => {
         },
       },
     ])
+  })
+
+  // THE WIRING, NOT THE HELPER. chatNotificationBody can be perfect and unused:
+  // the body is composed at the one call site above, and a clamp that is not
+  // called there is a clamp that does nothing. Driven through the real sweep
+  // for the same reason the leave-path tests avoid resetChatCursorFor.
+  test('clamps a long team name in the body it actually schedules', async () => {
+    const t = convexTest(schema, modules)
+    const longName = 'W'.repeat(MAX_NOTIFIED_TEAM_NAME + 60)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert(
+        'players',
+        aPlayer({ email: 'bob@example.com', reminderDeliveryMethods: ['push'] }),
+      )
+      const team = await ctx.db.insert(
+        'teams',
+        aTeam({ name: longName, playerIds: [ada, bob], owner: ada }),
+      )
+      await sendMessageFor(ctx, ada, team, 'hello')
+    })
+
+    await t.mutation(internal.chatNotify.sweep, {})
+
+    const jobs = await scheduledPushJobs(t)
+    const { body } = (jobs[0]!.args as Array<{ notification: { body: string } }>)[0].notification
+    expect(body).toBe(chatNotificationBody(longName))
+    expect(body).not.toContain(longName)
+    expect(body.endsWith('\u2026')).toBe(true)
   })
 
   test('a second sweep with nothing new schedules nothing', async () => {
