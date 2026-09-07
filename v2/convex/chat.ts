@@ -8,6 +8,7 @@ import {
   budgetIncrementForScroll,
   budgetMonthFor,
   isOverBudget,
+  nextMessageTime,
   nextPostWindow,
   nextScrollWindow,
   requireBody,
@@ -62,24 +63,34 @@ import type { ReaderCtx, WriterCtx } from './winners.ts'
  * need it too.
  */
 
+/** A team's pointer row, or null if it has never had a message. */
+async function chatMetaFor(ctx: ReaderCtx, teamId: Id<'teams'>) {
+  return await ctx.db
+    .query('chatMeta')
+    .withIndex('by_team', (q) => q.eq('teamId', teamId))
+    .unique()
+}
+
 /**
  * Advance a team's pointer, which is what wakes every connected client.
  *
  * REVISION BUMPS ON EVERY HISTORY CHANGE, not only on new messages. A delete
  * does not move lastMessageAt, so a client watching the timestamp alone would
  * go on showing a message that is gone.
+ *
+ * TAKES THE ALREADY-FETCHED ROW, for the same reason upsertReadCursor does:
+ * sendMessageFor has to read it BEFORE the insert now — nextMessageTime needs
+ * the team's newest timestamp to stamp the message with one that cannot tie it
+ * — so fetching it again in here would be a second read of a document the
+ * caller already paid for. `null` means the team has never chatted.
  */
 async function bumpChatMeta(
   ctx: WriterCtx,
+  existing: Doc<'chatMeta'> | null,
   teamId: Id<'teams'>,
   now: number,
   movesLastMessage: boolean,
 ): Promise<void> {
-  const existing = await ctx.db
-    .query('chatMeta')
-    .withIndex('by_team', (q) => q.eq('teamId', teamId))
-    .unique()
-
   if (existing === null) {
     // movesLastMessage is ignored here, and that is safe only by an invariant
     // worth stating: `false` is passed on a delete (see deleteMessageFor), a
@@ -87,7 +98,9 @@ async function bumpChatMeta(
     // sendMessageFor — which creates this row. So `false` never reaches this
     // branch. The invariant is NOT enforced by a type; it rests on nothing
     // else inserting into chatMessages. If you are adding a seed script or a
-    // migration that does, this insert needs to honour the flag.
+    // migration that does, this insert needs to honour the flag — and its rows
+    // need nextMessageTime's per-team-unique stamp too, for the reason
+    // schema.ts records on chatMessages.
     await ctx.db.insert('chatMeta', { teamId, lastMessageAt: now, revision: 1 })
     return
   }
@@ -294,12 +307,33 @@ export async function sendMessageFor(
   // signature, and no reader should have to work out which signature applies.
   if (window === null) throw accessError('RATE_LIMITED')
 
-  const id = await ctx.db.insert('chatMessages', { teamId, playerId, body, createdAt: now })
-  await bumpChatMeta(ctx, teamId, now, true)
+  // NOT `now` (wordle-teams-isw5). Two messages in one team may never share a
+  // `createdAt`, because both paging reads compare a client-held timestamp with
+  // a STRICT inequality and would drop one of a pair forever — see
+  // nextMessageTime, which is where that argument lives. The pointer row is
+  // read here rather than inside bumpChatMeta because this is what it is for:
+  // `lastMessageAt` IS the team's newest message time, so it is exactly the
+  // value the next stamp has to clear.
+  //
+  // TWO CONCURRENT SENDS IN ONE TEAM CANNOT BOTH COMMIT ON THE SAME READ, which
+  // is what makes this a real invariant rather than a narrowing of the window.
+  // Both read this row (by index range, so an absent row counts too) and both
+  // write it, so Convex's OCC conflicts and retries one of them, and the retry
+  // reads the other's `lastMessageAt`. Uniqueness does not depend on the two
+  // transactions being spaced apart in time.
+  const meta = await chatMetaFor(ctx, teamId)
+  const createdAt = nextMessageTime(meta?.lastMessageAt, now)
+
+  const id = await ctx.db.insert('chatMessages', { teamId, playerId, body, createdAt })
+  await bumpChatMeta(ctx, meta, teamId, createdAt, true)
   await chargeBudget(ctx, budgetIncrementFor(team.playerIds.length), now)
 
-  // Sending is reading — you have seen your own message.
-  await upsertReadCursor(ctx, cursor, playerId, teamId, { lastReadAt: now, ...window })
+  // Sending is reading — you have seen your own message. STAMPED WITH THE
+  // MESSAGE'S OWN TIME, not with `now`: chatNotify's `lastMessageAt > seen`
+  // test relies on those two being exactly equal for the sender (see its
+  // "STRICTLY GREATER, ON BOTH" note), and a `now` that trails a clamped
+  // `createdAt` would make senders notify themselves.
+  await upsertReadCursor(ctx, cursor, playerId, teamId, { lastReadAt: createdAt, ...window })
 
   return id
 }
@@ -563,8 +597,11 @@ export async function deleteMessageFor(
 
   await ctx.db.delete(messageId)
   const now = Date.now()
-  // History changed without the newest message moving — see bumpChatMeta.
-  await bumpChatMeta(ctx, message.teamId, now, false)
+  // History changed without the newest message moving — see bumpChatMeta. The
+  // row is read here rather than inside it only because sendMessageFor needs
+  // it before its own insert; this is the same one read, moved out.
+  const meta = await chatMetaFor(ctx, message.teamId)
+  await bumpChatMeta(ctx, meta, message.teamId, now, false)
   // A DELETE, NOT A SEND — see budgetIncrementForDelete. Every connected
   // client refetches its whole window, not one message, so this is charged at
   // the delete rate, not the send rate.

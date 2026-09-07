@@ -6,6 +6,7 @@ import {
   budgetIncrementFor,
   budgetMonthFor,
   isOverBudget,
+  nextMessageTime,
   nextPostWindow,
   requireBody,
 } from './chat.ts'
@@ -81,5 +82,33 @@ describe('the budget meter', () => {
   test('keys the budget by calendar month', () => {
     expect(budgetMonthFor(new Date(2026, 8, 5, 12).getTime())).toBe('2026-09')
     expect(budgetMonthFor(new Date(2026, 11, 31, 12).getTime())).toBe('2026-12')
+  })
+})
+
+describe('nextMessageTime', () => {
+  test('uses the clock when the team has never had a message', () => {
+    expect(nextMessageTime(undefined, 10_000)).toBe(10_000)
+  })
+
+  test('uses the clock when it has moved past the newest message', () => {
+    expect(nextMessageTime(9_000, 10_000)).toBe(10_000)
+  })
+
+  // THE WHOLE POINT (wordle-teams-isw5). A second message in the same
+  // millisecond as the newest one must not share its timestamp, or both paging
+  // reads skip one of them forever.
+  test('steps past a message written in the same millisecond', () => {
+    expect(nextMessageTime(10_000, 10_000)).toBe(10_001)
+  })
+
+  test('steps past again for a third message in that same millisecond', () => {
+    expect(nextMessageTime(nextMessageTime(10_000, 10_000), 10_000)).toBe(10_002)
+  })
+
+  // A clock that jumped backwards (an NTP correction, a redeployed host) must
+  // not be able to write a message that sorts BEFORE one already stored, which
+  // would put it behind every client's high-water mark and out of reach.
+  test('never goes backwards when the clock does', () => {
+    expect(nextMessageTime(10_000, 5_000)).toBe(10_001)
   })
 })

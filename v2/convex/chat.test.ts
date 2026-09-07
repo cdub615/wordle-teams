@@ -1,5 +1,5 @@
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema'
 import { api } from './_generated/api'
@@ -634,6 +634,83 @@ describe('the chat reads', () => {
 
       const older = await olderMessagesFor(ctx, ada, team, 1003)
       expect(older.map((m) => m.body)).toEqual(['m0', 'm1', 'm2'])
+    })
+  })
+
+  /**
+   * wordle-teams-isw5. BOTH PAGING QUERIES USE A STRICT INEQUALITY ON A CURSOR
+   * THE CLIENT TAKES FROM A MESSAGE IT HOLDS — `.lt('createdAt', before)` going
+   * back, `.gt('createdAt', since)` coming forward. That is only sound if no
+   * two messages in a team share a `createdAt`, and two writes inside one
+   * millisecond is all it takes to break it. The loss is SILENT AND PERMANENT
+   * rather than transient: the cursor only ever moves further from the skipped
+   * message, so no later page can pick it up.
+   *
+   * THE CLOCK IS FROZEN, NOT THE ROWS HAND-WRITTEN. Both sends go through
+   * sendMessageFor, which is what makes these tests about the collision the
+   * product can actually produce rather than about a row shape a test invented.
+   * `Date.now` is stubbed rather than vitest's fake timers being switched on,
+   * because convex-test's harness is promise-driven and taking over the timer
+   * queue is a much larger hammer than this needs.
+   */
+  describe('two messages written in the same millisecond', () => {
+    const SAME_MS = 1_700_000_000_000
+
+    test('scrollback returns the twin sitting on the page boundary', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const ada = await ctx.db.insert('players', aPlayer())
+        const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(SAME_MS)
+        await sendMessageFor(ctx, ada, team, 'twin a')
+        await sendMessageFor(ctx, ada, team, 'twin b')
+        clock.mockRestore()
+
+        // Enough newer messages that the loaded window cuts BETWEEN the twins:
+        // the newest RECENT_WINDOW is `twin b` plus these.
+        for (let i = 0; i < RECENT_WINDOW - 1; i++) {
+          await ctx.db.insert('chatMessages', {
+            teamId: team,
+            playerId: ada,
+            body: `later${i}`,
+            createdAt: SAME_MS + 100 + i,
+          })
+        }
+
+        const window = await recentMessagesFor(ctx, ada, team)
+        expect(window).toHaveLength(RECENT_WINDOW)
+        expect(window[0].body).toBe('twin b')
+
+        // The client pages back from the oldest message it holds, which is
+        // exactly what beforeForOlder gives it.
+        const older = await olderMessagesFor(ctx, ada, team, window[0].createdAt)
+        expect(older.map((m) => m.body)).toEqual(['twin a'])
+      })
+    })
+
+    test('the incremental fetch returns the twin written after the client caught up', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const ada = await ctx.db.insert('players', aPlayer())
+        const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(SAME_MS)
+        await sendMessageFor(ctx, ada, team, 'twin a')
+
+        // The client wakes on the first twin's pointer and catches up, which
+        // sets its high-water mark to that message's timestamp.
+        const first = await messagesSinceFor(ctx, ada, team, 0)
+        expect(first.gap === false && first.messages.map((m) => m.body)).toEqual(['twin a'])
+        const newestHeld = first.gap === false ? first.messages[first.messages.length - 1].createdAt : 0
+
+        // The second twin lands in the same millisecond as the first.
+        await sendMessageFor(ctx, ada, team, 'twin b')
+        clock.mockRestore()
+
+        const second = await messagesSinceFor(ctx, ada, team, newestHeld)
+        expect(second.gap === false && second.messages.map((m) => m.body)).toEqual(['twin b'])
+      })
     })
   })
 

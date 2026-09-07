@@ -330,6 +330,18 @@ export default defineSchema({
   // client wake range-scans "messages since T" on by_team_createdAt, which is
   // the hot path of the entire feature. Relying on _creationTime as an implicit
   // trailing index field may well work; this is not the place to find out.
+  //
+  // createdAt IS UNIQUE WITHIN A TEAM, AND BOTH PAGING READS DEPEND ON IT
+  // (wordle-teams-isw5). They walk this index with STRICT inequalities against
+  // a timestamp the client took off a message it already holds — `lt` going
+  // back, `gt` coming forward — so two messages sharing a createdAt means one
+  // of them is skipped, and skipped permanently, because the cursor only ever
+  // moves away from it. The uniqueness is not enforced by the schema (Convex
+  // has no unique constraint and could not express "per team" if it did); it is
+  // established at the only place messages are written, by sendMessageFor via
+  // lib/chat.ts's nextMessageTime, which clamps the clock past the team's
+  // newest message. ANYTHING ELSE THAT INSERTS HERE — a seed script, a
+  // migration — must stamp its rows the same way.
   chatMessages: defineTable({
     teamId: v.id('teams'),
     playerId: v.id('players'),

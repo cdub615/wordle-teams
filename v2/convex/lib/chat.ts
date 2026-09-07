@@ -155,6 +155,62 @@ export function nextScrollWindow(current: ScrollWindow, now: number): Required<S
 }
 
 /**
+ * The `createdAt` to stamp on a team's next message: `now`, unless that would
+ * tie or trail the newest message the team already has, in which case one
+ * millisecond past it.
+ *
+ * THIS IS WHAT MAKES A SCALAR CURSOR SOUND (wordle-teams-isw5). Both paging
+ * reads compare a client-held timestamp with a STRICT inequality —
+ * olderMessagesFor's `.lt('createdAt', before)`, messagesSinceFor's
+ * `.gt('createdAt', since)` — and both cursors are taken from a message the
+ * client already holds. If a second message shares that timestamp, the strict
+ * comparison excludes it, and the exclusion is PERMANENT rather than transient:
+ * the backwards cursor only ever moves older and the forwards cursor only ever
+ * moves newer, so no later page can pick the skipped message up. It is simply
+ * never displayed. Two writes inside one millisecond is the whole of the
+ * precondition.
+ *
+ * SO UNIQUENESS IS ESTABLISHED ON THE WRITE SIDE, WHERE IT COSTS NOTHING,
+ * rather than by teaching both reads to break ties. The alternatives were a
+ * `(createdAt, _id)` tuple cursor and a separate per-team sequence number, and
+ * both are worse here:
+ *
+ *   - A TUPLE CURSOR CANNOT BE EXPRESSED. Convex will not index `_id` at all —
+ *     an index field path is a document field or `_creationTime`, and nothing
+ *     else — so the only available tiebreaker is `_creationTime`, which every
+ *     index already carries implicitly as its final field. But a Convex index
+ *     range is equalities followed by ONE bound, so "everything before
+ *     (T, C)" is two queries, not one: the tail of the tie group at T, plus
+ *     everything strictly older than T. That is a second read on the hot path,
+ *     a `_creationTime` on the wire that ChatMessage deliberately drops, and a
+ *     cursor the client must carry as a pair through nextSyncAction,
+ *     nextSinceOutcome and beforeForOlder.
+ *   - A PER-TEAM SEQUENCE NUMBER is this function with an extra field, an extra
+ *     index and a backfill: `seq` would have to be optional to stay additive,
+ *     and every row written before it would sort together under `undefined` —
+ *     which is the same tie, over the whole of history, until a migration
+ *     removes it.
+ *
+ * This needs no schema change, no index change, no client change and no extra
+ * document read: sendMessageFor already has the team's `chatMeta` row in hand
+ * to bump it.
+ *
+ * IT RESTS ON sendMessageFor BEING THE ONLY WRITER of chatMessages, the same
+ * invariant bumpChatMeta already depends on and states. A seed script or a
+ * migration that inserts messages directly must stamp them the same way, or it
+ * reintroduces exactly this bug in the rows it writes.
+ *
+ * THE DRIFT FROM THE WALL CLOCK IS AT MOST ONE MILLISECOND PER COLLIDING
+ * MESSAGE, and only while a team is writing faster than the clock ticks. A
+ * displayed time is a minute-resolution string (clockTime), and both rate-limit
+ * windows are computed from the real `Date.now()`, not from this — so nothing a
+ * user sees or is refused by moves.
+ */
+export function nextMessageTime(lastMessageAt: number | undefined, now: number): number {
+  return Math.max(now, (lastMessageAt ?? 0) + 1)
+}
+
+/**
  * What to charge the monthly budget for one message.
  *
  * DELIBERATELY CONSERVATIVE: every member is billed as though they were
