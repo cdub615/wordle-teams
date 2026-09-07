@@ -1051,6 +1051,24 @@ describe('NextStepCard', () => {
     ])
   })
 
+  test('does not re-emit onboarding_view when an already-seen task set is re-entered', () => {
+    // THIS is the test that actually pins the `reported` ref; the two above do
+    // not. The effect's deps are [visible, key], both primitives, so React
+    // already skips the effect on a rerender that leaves the task set alone —
+    // delete the ref entirely and 'once per task set, not once per render'
+    // still passes. The ref only earns its place when a set is RE-ENTERED, and
+    // these facts do come back: an invite expires and hasInvited goes
+    // true -> false, a team is deleted, a dismissal is undone. Without the ref
+    // every such round trip puts another onboarding_view in the channel.
+    const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
+    rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
+    rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
+    expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
+      'onboarding_view:board,team,invite',
+      'onboarding_view:board,invite',
+    ])
+  })
+
   test('does NOT emit onboarding_complete for someone who arrives already finished', () => {
     // Every activated player mounts this on every /app load with zero tasks.
     // Firing here would emit one completion per page view for the whole
@@ -1269,7 +1287,7 @@ export function NextStepCard({
 - [ ] **Step 4: Run test to verify it passes**
 
 Run from `v2/`: `pnpm vitest run src/components/onboarding/next-step-card.hook.test.ts`
-Expected: PASS, 9 tests.
+Expected: PASS, 11 tests.
 
 If the accessible-name query fails, check how `Button` composes its content in `src/components/ui/button.tsx` — the name is the visible text, and the dismiss control's name comes from `aria-label`.
 
