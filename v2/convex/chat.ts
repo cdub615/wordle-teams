@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values'
-import { mutation, query } from './_generated/server'
+import { internalMutation, mutation, query } from './_generated/server'
+import { internal } from './_generated/api'
 import { accessError, requirePlayer, requireTeamMemberFor, requireTeamOwnerFor } from './access'
 import {
   RECENT_WINDOW,
@@ -14,7 +15,7 @@ import {
   requireBody,
 } from './lib/chat.ts'
 import type { Doc, Id } from './_generated/dataModel'
-import type { ReaderCtx, WriterCtx } from './winners.ts'
+import type { ReaderCtx, SchedulingCtx, WriterCtx } from './winners.ts'
 
 /**
  * Team chat (wordle-teams-qix). Phase 7.5.
@@ -880,6 +881,96 @@ export async function resetChatCursorFor(
   const cursor = await readCursorFor(ctx, playerId, teamId)
   if (cursor !== null) await ctx.db.delete(cursor._id)
 }
+
+/**
+ * How many of a team's messages one transaction may collect (wordle-teams-qix.10).
+ *
+ * 200 reads and 200 writes, against Convex's per-mutation ceilings of 16384
+ * documents read and 8192 written. That is roughly 2.5% of the write budget, so
+ * the rest of the cascade — monthlyWinners, scoringSystems, chatMeta, chatReads
+ * and the team document, all of them bounded by roster and calendar rather than
+ * by traffic — fits alongside it with an order of magnitude to spare. The
+ * margin is the point: this number exists so that no team can ever be too
+ * chatty to delete, and a page sized to just fit would be a number that has to
+ * be re-derived every time the cascade grows a table.
+ *
+ * SMALL RATHER THAN LARGE, DELIBERATELY. A bigger page would mean fewer
+ * scheduled runs, and fewer runs is worth nothing here: team deletion is rare
+ * and owner-driven, the purge is invisible once the team document is gone, and
+ * each run is a few hundred KB. What a bigger page WOULD buy is a shorter
+ * distance to the ceiling this exists to stay away from.
+ */
+export const CHAT_HISTORY_PAGE = 200
+
+/**
+ * Delete up to one page of a team's messages, and schedule the next page if
+ * there is one.
+ *
+ * WHY A TEAM'S HISTORY IS THE ONE UNBOUNDED THING IN THIS FEATURE. Chat has NO
+ * RETENTION POLICY, by design — the spec chose infinite history because storage
+ * is trivial and the reactive window is what governs cost — so `chatMessages`
+ * for one team grows for as long as the team exists. Every other read here is
+ * bounded by `.take(RECENT_WINDOW)`; the cascade was the exception, collecting
+ * all of it in one transaction. At today's scale (149 teams, ~70 players who
+ * have ever entered a board) no team is close. The failure when one is, is the
+ * worst shape available: the delete exceeds Convex's per-function limits and
+ * the team CANNOT BE DELETED AT ALL, and the more it was used the more
+ * certainly.
+ *
+ * PAGED ACROSS SCHEDULED CALLS RATHER THAN BOUNDED WITH A GUARD, and the choice
+ * is worth stating. A guard — refuse, or delete what fits and report — turns an
+ * eventual hard failure into an immediate visible one, which is honest and
+ * still leaves the owner unable to delete their team. Paging removes the
+ * failure instead of relocating it, and it costs one internalMutation and one
+ * `runAfter(0)` because the work is already idempotent: each run re-queries
+ * from the index, so a retry, an overlap or a crash between pages resumes
+ * rather than corrupting anything.
+ *
+ * THE TEAM DOCUMENT IS ALREADY GONE BY THE TIME THE SECOND PAGE RUNS, and that
+ * is safe rather than a race. Every chat read is gated on membership of a team
+ * that no longer exists, so the remaining messages are unreachable by anyone;
+ * chatNotify's sweep skips a chatMeta row whose team is gone and says so; and
+ * `by_team_createdAt` finds the rows perfectly well without the team. What the
+ * owner asked for — the team stops existing — happens in the transaction they
+ * asked in.
+ *
+ * IF A SCHEDULED PAGE FAILS, rows are left behind rather than the deletion
+ * being undone. That is strictly better than the state this replaces, where the
+ * whole delete failed and the team survived intact, and it is why the team
+ * document goes first rather than last.
+ *
+ * `take(PAGE + 1)` DISTINGUISHES "a full page" FROM "a full page and more",
+ * which is the same trick messagesSinceFor uses to tell a window from a gap. A
+ * team whose history fits exactly reads one extra document and schedules
+ * nothing.
+ */
+export async function purgeChatHistoryFor(
+  ctx: SchedulingCtx,
+  teamId: Id<'teams'>,
+): Promise<void> {
+  const page = await ctx.db
+    .query('chatMessages')
+    .withIndex('by_team_createdAt', (q) => q.eq('teamId', teamId))
+    .take(CHAT_HISTORY_PAGE + 1)
+
+  for (const row of page.slice(0, CHAT_HISTORY_PAGE)) await ctx.db.delete(row._id)
+
+  if (page.length > CHAT_HISTORY_PAGE) {
+    await ctx.scheduler.runAfter(0, internal.chat.purgeChatHistory, { teamId })
+  }
+}
+
+// THE CONTINUATION, AND THE ONLY REASON purgeChatHistoryFor NEEDS A SCHEDULER.
+// `internalMutation`, so it is unreachable from the client: it takes a team id
+// and deletes that team's messages with no membership check at all, which is
+// correct only because the sole caller is the cascade that has already removed
+// the team. Nothing on the public API surface may reach it.
+export const purgeChatHistory = internalMutation({
+  args: { teamId: v.id('teams') },
+  handler: async (ctx, { teamId }) => {
+    await purgeChatHistoryFor(ctx, teamId)
+  },
+})
 
 export const pointer = query({
   args: { teamId: v.id('teams') },

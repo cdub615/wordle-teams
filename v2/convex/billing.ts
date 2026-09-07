@@ -7,7 +7,7 @@ import { resetChatCursorFor } from './chat.ts'
 import { cascadeDeleteTeam } from './teams.ts'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
 import type { GenericDatabaseReader } from 'convex/server'
-import type { WriterCtx } from './winners.ts'
+import type { SchedulingCtx, WriterCtx } from './winners.ts'
 
 /**
  * Billing. Phase 5 (wt-ksh.6).
@@ -397,7 +397,10 @@ export const myPendingInviteCount = query({
  * webhook. Every caller owes the verification that establishes it.
  */
 export async function downgradeTeamRemovalFor(
-  ctx: WriterCtx,
+  // SchedulingCtx, not WriterCtx: the branch below cascades a team nobody is
+  // left on, and the cascade pages chat history across scheduled calls
+  // (wordle-teams-qix.10).
+  ctx: SchedulingCtx,
   playerId: Id<'players'>,
 ): Promise<void> {
   // Collect-and-filter, because Convex cannot index array membership — the

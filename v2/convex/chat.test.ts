@@ -4,6 +4,7 @@ import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema'
 import { api } from './_generated/api'
 import {
+  CHAT_HISTORY_PAGE,
   chatPointerFor,
   deleteMessageFor,
   markReadFor,
@@ -1060,6 +1061,106 @@ describe('deleting a team', () => {
       expect(await ctx.db.query('chatMessages').collect()).toEqual([])
       expect(await ctx.db.query('chatMeta').collect()).toEqual([])
       expect(await ctx.db.query('chatReads').collect()).toEqual([])
+    })
+  })
+
+  /**
+   * A TEAM'S HISTORY IS UNBOUNDED, AND ITS DELETION MUST NOT BE
+   * (wordle-teams-qix.10).
+   *
+   * Chat has no retention policy by design — the spec chose infinite history
+   * because storage is trivial and the REACTIVE WINDOW is what governs cost —
+   * so a team's message count grows for as long as the team exists. That makes
+   * deletion the one operation in this feature whose cost scales with total
+   * history rather than with a window, and a single `.collect()` over it is a
+   * transaction that eventually exceeds what Convex lets one function read and
+   * write. The failure mode is the worst available: the team CANNOT BE DELETED
+   * AT ALL, permanently, and the more it was used the more certainly.
+   *
+   * THE BOUND IS PROVEN BY CONVEX'S OWN QUOTA, not by an assertion on a count —
+   * the same technique messagesSinceFor's "never scans unboundedly" uses.
+   * convex-test reimplements the per-function write limit, so tightening it
+   * below the team's history makes an unpaged cascade fail here exactly the way
+   * it would in production, while a paged one passes.
+   */
+  test('deletes a team with more history than one transaction may write', async () => {
+    const t = convexTest({
+      schema,
+      modules,
+      // Comfortably above one page and far below the history below, so the
+      // limit is a statement about the CASCADE rather than about the seed.
+      transactionLimits: { documentsWritten: CHAT_HISTORY_PAGE + 100 },
+    })
+    const { ada, team } = await t.run(async (ctx) => {
+      const player = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [player], owner: player }))
+      return { ada: player, team: teamId }
+    })
+
+    // Seeded in batches, because each `t.run` is itself a transaction under the
+    // same tightened limit. Two and a bit pages' worth.
+    const total = CHAT_HISTORY_PAGE * 2 + 37
+    for (let batch = 0; batch < total; batch += 100) {
+      await t.run(async (ctx) => {
+        for (let i = batch; i < Math.min(batch + 100, total); i++) {
+          await ctx.db.insert('chatMessages', {
+            teamId: team,
+            playerId: ada,
+            body: `m${i}`,
+            createdAt: 1000 + i,
+          })
+        }
+      })
+    }
+
+    vi.useFakeTimers()
+    try {
+      await t.run(async (ctx) => await deleteTeamFor(ctx, ada, team))
+
+      // THE TEAM IS GONE IMMEDIATELY, and that is deliberate rather than
+      // incidental: the owner asked for a deletion and gets one, in the
+      // transaction they asked in. What is deferred is collecting the history,
+      // which nobody can reach once the team document is gone — every chat read
+      // is gated on membership of a team that no longer exists.
+      expect(await t.run(async (ctx) => await ctx.db.get(team))).toBeNull()
+
+      // ONE PAGE, NOT THE LOT. This is the bound stated as a number rather than
+      // inferred from the fact that the write did not blow up.
+      expect(await t.run(async (ctx) => (await ctx.db.query('chatMessages').collect()).length)).toBe(
+        total - CHAT_HISTORY_PAGE,
+      )
+
+      await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+      // AND IT FINISHES. A bound that left history behind would be a leak
+      // dressed as a fix.
+      expect(await t.run(async (ctx) => await ctx.db.query('chatMessages').collect())).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // A team small enough to fit is still collected in the one transaction the
+  // owner asked in — the paging must not defer work that never needed
+  // deferring, or every ordinary deletion would leave rows behind for a
+  // scheduled run to pick up and a test asserting "gone" would be racing it.
+  test('needs no second pass for a team whose history fits in one page', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      for (let i = 0; i < CHAT_HISTORY_PAGE; i++) {
+        await ctx.db.insert('chatMessages', {
+          teamId: team,
+          playerId: ada,
+          body: `m${i}`,
+          createdAt: 1000 + i,
+        })
+      }
+
+      await deleteTeamFor(ctx, ada, team)
+
+      expect(await ctx.db.query('chatMessages').collect()).toEqual([])
     })
   })
 

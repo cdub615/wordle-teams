@@ -6,7 +6,7 @@ import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { systemFor } from './lib/scoringSystem.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
-import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
+import type { GenericDatabaseReader, GenericDatabaseWriter, Scheduler } from 'convex/server'
 
 /**
  * Monthly-winner recomputation, extracted from scores.ts (wordle-teams-4gj).
@@ -52,6 +52,23 @@ export type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
  * so convex-test's `t.run` callback ctx satisfies it with no cast.
  */
 export type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
+
+/**
+ * A writer that can also SCHEDULE — the ctx a function needs when its work does
+ * not fit in one transaction and must continue in another.
+ *
+ * ADDED FOR THE TEAM-DELETION CASCADE (wordle-teams-qix.10), which pages a
+ * team's chat history across scheduled calls rather than collecting all of it
+ * at once. It is a strict widening of WriterCtx and satisfied with no cast by
+ * every real mutation ctx AND by convex-test's `t.run` callback, which builds a
+ * full mutation ctx — the same property WriterCtx's own comment relies on.
+ *
+ * NARROWER THAN MutationCtx ON PURPOSE, for the reason WriterCtx and ReaderCtx
+ * exist at all: a signature that asked for the whole ctx would be claiming
+ * access to storage, auth and `runQuery` that these functions do not use, and
+ * would stop convex-test's callback from satisfying it structurally.
+ */
+export type SchedulingCtx = WriterCtx & { scheduler: Scheduler }
 
 /**
  * 'YYYY-MM' split into the two NUMBERS the monthlyWinners row stores.

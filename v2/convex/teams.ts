@@ -10,7 +10,7 @@ import {
   requireTeamOwnerFor,
   requireTeamMemberFor,
 } from './access'
-import { resetChatCursorFor } from './chat.ts'
+import { purgeChatHistoryFor, resetChatCursorFor } from './chat.ts'
 import { sendEmail } from './email.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
@@ -19,7 +19,7 @@ import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader } from 'convex/server'
-import type { WriterCtx } from './winners.ts'
+import type { SchedulingCtx, WriterCtx } from './winners.ts'
 import type { PuzzleDay } from './lib/puzzleDay.ts'
 
 /**
@@ -270,7 +270,7 @@ export const updateTeam = mutation({
  * recomputeTeamMonths and loadTeamMonthSystem both take a Doc<'teams'>, and only
  * the authorization-free read monthsWithWinners takes a bare id.
  */
-export async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Promise<void> {
+export async function cascadeDeleteTeam(ctx: SchedulingCtx, team: Doc<'teams'>): Promise<void> {
   const winners = await ctx.db
     .query('monthlyWinners')
     .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id))
@@ -288,11 +288,14 @@ export async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Pro
   // chatDegraded is the signal derived from it, so deleting a team must not
   // hand back bandwidth that has already been spent, nor un-degrade an app that
   // has already spent it.
-  const messages = await ctx.db
-    .query('chatMessages')
-    .withIndex('by_team_createdAt', (q) => q.eq('teamId', team._id))
-    .collect()
-  for (const row of messages) await ctx.db.delete(row._id)
+  // PAGED, NOT COLLECTED (wordle-teams-qix.10). This is the one table whose size
+  // is a function of how much a team TALKED rather than of its roster or the
+  // calendar, and chat keeps history forever by design — so a bare `.collect()`
+  // here made deletion the one operation that a long-lived chatty team could
+  // eventually be too big for, with the team then undeletable for good. The
+  // first page goes now; purgeChatHistoryFor schedules the rest, which nobody
+  // can reach once the team document below is gone.
+  await purgeChatHistoryFor(ctx, team._id)
 
   const meta = await ctx.db
     .query('chatMeta')
@@ -325,7 +328,10 @@ export async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Pro
  * The cascade, and why it is written out by hand, is cascadeDeleteTeam above.
  */
 export async function deleteTeamFor(
-  ctx: WriterCtx,
+  // SchedulingCtx, not WriterCtx: the cascade pages a team's chat history
+  // across scheduled calls (wordle-teams-qix.10), so every caller of it owes a
+  // scheduler. Every real mutation ctx has one, and so does convex-test's.
+  ctx: SchedulingCtx,
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
 ): Promise<void> {
@@ -414,7 +420,8 @@ export const removeMember = mutation({
  * with an administrator can never be emptied by leaving.
  */
 export async function leaveTeamFor(
-  ctx: WriterCtx,
+  // SchedulingCtx for deleteTeamFor's reason: its empty-roster branch cascades.
+  ctx: SchedulingCtx,
   playerId: Id<'players'>,
   args: { teamId: Id<'teams'>; today: PuzzleDay },
 ): Promise<void> {
