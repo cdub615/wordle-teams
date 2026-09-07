@@ -453,6 +453,31 @@ export default defineSchema({
     degraded: v.boolean(),
   }).index('by_month', ['month']),
 
+  /**
+   * SHAREABLE TEAM INVITES. wordle-teams-qt4.
+   *
+   * WHY A TABLE RATHER THAN A FIELD ON `teams`. Revoking and rotating are the
+   * operations that matter here — a link is a capability that anyone holding
+   * it can use, so being able to kill one without disturbing the team document
+   * is the point. A single token column on `teams` makes "revoke" mean
+   * "overwrite", which silently breaks any link already shared.
+   *
+   * THE TOKEN IS THE SECRET AND THE KEY. It is looked up by `by_token` on the
+   * unauthenticated join path, so it must be unguessable; see createLink.
+   *
+   * NOT NULLABLE-BY-OMISSION: `revokedAt` absent means live, exactly as
+   * players.onboardingDismissedAt does.
+   */
+  inviteLinks: defineTable({
+    teamId: v.id('teams'),
+    token: v.string(),
+    createdBy: v.id('players'),
+    expiresAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  })
+    .index('by_token', ['token'])
+    .index('by_team', ['teamId']),
+
   // --- Phase 0 scaffolding, still in use ---
 
   statusMessages: defineTable({
