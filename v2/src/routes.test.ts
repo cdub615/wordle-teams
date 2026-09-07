@@ -780,22 +780,22 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
  * at routes/team.tsx:30-45 — so a later `join.tsx` beside this file would
  * reparent it and change the URL without touching this source.
  *
- * THREE THINGS BEYOND EXISTENCE ARE PINNED HERE, AND NONE OF THEM IS ABOUT
- * ROUTING. All three are properties of the token's short life between the two
- * files, all three are invisible to every gate, and all three were mutated to
- * check that they are: swapping sessionStorage for localStorage, moving the
- * clear to after the consume call, and moving the stash back into beforeLoad
- * (which is where it was written, and where it never runs — see that test).
- * Each of the three passed lint, typecheck, `vitest run` and build untouched
- * before these assertions existed.
+ * WHAT ELSE IS PINNED HERE, AND WHAT DELIBERATELY IS NOT. The mechanics of the
+ * token itself — sessionStorage over localStorage, the read that clears, the
+ * throw-safety — moved to lib/pending-invite.ts and are EXECUTED in
+ * lib/pending-invite.test.ts, which is worth more than any assertion this file
+ * could make about them. What is left here is the WIRING those functions are
+ * useless without, and it is exactly the part no gate can see: that both
+ * branches reach `rememberPendingInvite`, that the dashboard reaches
+ * `takePendingInvite` before it spends anything, and that neither file went
+ * back to writing storage out of a `beforeLoad` that never runs in a browser.
  *
  * SOURCE ASSERTIONS, LIKE EVERY BLOCK ABOVE, AND WITH THE SAME LIMIT. A route
  * module cannot be imported under vitest — createFileRoute registers against a
  * router that does not exist — and `Dashboard` is not exported from
  * routes/app.tsx (the guard below forbids it), so the effect that spends the
- * token cannot be rendered here at any price. These pin the SHAPE that ships,
- * not the behaviour. Behaviour would need the effect lifted into `lib/` as its
- * own hook, the way useStartUpgrade was; that is worth doing and is not done.
+ * token cannot be rendered here at any price. Lifting that effect into `lib/`
+ * as its own hook, the way useStartUpgrade was, is filed rather than done.
  */
 describe('/join/$token, the route shared invite links point at', () => {
   const JOIN = './routes/join.$token.tsx'
@@ -832,7 +832,14 @@ describe('/join/$token, the route shared invite links point at', () => {
     expect(targets).toEqual(['/app', '/login'])
   })
 
-  test('the signed-OUT branch renders, and does NOT redirect out of beforeLoad', () => {
+  test('and hands the signed-in one the token in the URL, which is the fast carrier', () => {
+    // Without the search param the signed-in branch is a navigation to a
+    // dashboard that has nothing to spend — it would fall back to the stash,
+    // which works, and would quietly make the faster path dead code.
+    expect(source()).toMatch(/\{ to: '\/app', search: \{ join: token \}, replace: true \}/)
+  })
+
+  test('NEITHER route writes storage from a beforeLoad, because that never runs in a browser', () => {
     /**
      * THE DEFECT THIS ROUTE SHIPPED WITH FOR ONE AFTERNOON, AND THE ONLY THING
      * STANDING BETWEEN IT AND THE OBVIOUS REWRITE.
@@ -848,93 +855,127 @@ describe('/join/$token, the route shared invite links point at', () => {
      *
      * All four gates were green on that version, and so was every assertion in
      * this block except this one — which is why it exists. `beforeLoad` is
-     * where an author reaches first, the branch it deletes is the signed-out
-     * one, and the symptom is silent: the holder still reaches /login, signs
-     * in, and simply never joins the team.
+     * where an author reaches first, and the symptom is silent: the holder
+     * still reaches /login, signs in, and simply never joins the team.
+     *
+     * THE WHOLE FILE, NOT JUST THE STASH. This route now has no `beforeLoad`
+     * at all, exactly as routes/home.tsx has none, and for a comparable
+     * reason: there is nothing it could do here that would not be a server-only
+     * decision about a client-only fact.
      */
-    const code = source()
-    // A component, and the signed-out path goes through it.
-    expect(code, 'the route no longer renders anything').toMatch(/component:\s*JoinLink/)
-    // beforeLoad redirects on ONE condition only — being signed IN. A second
-    // `throw redirect` in there is the regression, whatever it is guarded by.
-    const beforeLoad = code.slice(code.indexOf('beforeLoad:'), code.indexOf('component:'))
-    expect(beforeLoad.match(/throw redirect\(/g) ?? []).toHaveLength(1)
-    expect(beforeLoad).toMatch(/if \(context\.isAuthenticated\) throw redirect\(/)
-    // And the stash is NOT in there, since nothing in there runs in a browser.
     expect(
-      beforeLoad,
-      'the pending token is written from beforeLoad, which on a fresh document ' +
-        'load runs only on the server — see the note above',
-    ).not.toMatch(/sessionStorage/)
+      source(),
+      'routes/join.$token.tsx has grown a beforeLoad. On a fresh document load ' +
+        'that runs only on the server, where there is no sessionStorage to write ' +
+        'and no client code to follow a redirect — see the note above.',
+    ).not.toMatch(/beforeLoad/)
+    // And the dashboard end, where a beforeLoad DOES legitimately exist: the
+    // token must not be read from it either, for the identical reason.
+    const appBeforeLoad = app().slice(app().indexOf('beforeLoad:'), app().indexOf('loader:'))
+    expect(appBeforeLoad).not.toMatch(/PendingInvite/)
   })
 
-  test('the token waits in sessionStorage — never localStorage — at all three accesses', () => {
-    // A CAPABILITY THAT OUTLIVES ITS TAB IS ONE LEFT LYING ON A SHARED
-    // COMPUTER. localStorage compiles, renders, and works better in casual
-    // testing (it survives a tab close, so the round trip is easier to
-    // reproduce by hand) — which is exactly why nothing else would catch the
-    // swap.
+  test('both branches stash the token, since /complete-profile drops the search param', () => {
+    // THE GAP THIS CLOSED. `/app`'s beforeLoad redirects an account with no
+    // players row to /complete-profile, and that redirect drops `?join=` — so
+    // anyone who authenticated and abandoned onboarding half way followed a
+    // link, was told they were joining a team, and completed their profile into
+    // nothing. That population is the reason this epic exists.
     //
-    // EXHAUSTIVE OVER THE ACCESSES RATHER THAN "sessionStorage appears
-    // somewhere": one of the three moving to localStorage leaves the other two
-    // to satisfy any looser assertion, and one is all it takes — the write in
-    // the route and the read in the dashboard are a pair, so a mismatched pair
-    // loses the invite while a MATCHED localStorage pair leaks it.
-    const accesses = (code: string) =>
-      [...code.matchAll(/window\.(\w+Storage)\.\w+\(PENDING_INVITE_KEY/g)].map((match) => match[1])
-    expect(accesses(source())).toEqual(['sessionStorage'])
-    expect(accesses(app())).toEqual(['sessionStorage', 'sessionStorage'])
+    // ONE UNCONDITIONAL CALL, OUTSIDE THE BRANCH, which is the whole claim: a
+    // `rememberPendingInvite` inside the `else` reads as correct, keeps the
+    // signed-out path working, and restores the bug exactly.
+    const code = source()
+    expect(code.match(/rememberPendingInvite\(token\)/g) ?? []).toHaveLength(1)
+    const remembered = code.indexOf('rememberPendingInvite(token)')
+    const branched = code.indexOf('isAuthenticated')
+    // Stashed BEFORE the navigation decision is even read, so there is no
+    // branch it can be inside.
+    expect(remembered).toBeGreaterThan(-1)
+    expect(remembered).toBeLessThan(code.indexOf('void navigate('))
+    expect(branched).toBeGreaterThan(-1)
   })
 
-  test('and every one of those accesses is inside a try, because none of them may throw', () => {
-    // Private mode and disabled storage make a bare `window.sessionStorage`
-    // access THROW rather than return null, and this sits on the path of
-    // someone trying to join a team: an unhandled throw in beforeLoad is a
-    // router error boundary instead of a sign-in page, and one in the effect
-    // takes the dashboard down. The failure is invisible in every browser a
-    // developer tests in.
-    //
-    // The exact shape, not "there is a try somewhere in the file", so an
-    // access moved out of the block it is credited to goes red.
-    expect(source()).toMatch(
-      /try \{\s*window\.sessionStorage\.setItem\(PENDING_INVITE_KEY, token\)\s*\} catch \{/,
-    )
-    expect(app()).toMatch(
-      /try \{\s*token = window\.sessionStorage\.getItem\(PENDING_INVITE_KEY\) \?\? undefined\s*\} catch \{/,
-    )
-    expect(app()).toMatch(
-      /try \{\s*window\.sessionStorage\.removeItem\(PENDING_INVITE_KEY\)\s*\} catch \{/,
-    )
-  })
-
-  test('the pending token is cleared BEFORE the consume call, not after it', () => {
+  test('the dashboard takes the token — clearing it — before it spends anything', () => {
     // A REFUSAL MUST NOT RETRY. consumeLink rejects an expired, revoked or
     // unknown token with INVITE_LINK_INVALID and a capped free joiner with
     // TEAM_LIMIT_REACHED — and a token still in storage after a refusal is
     // read again on the NEXT dashboard render, and the one after that: an
     // error toast the holder cannot get rid of, and a mutation per render.
-    // Clearing in a `.finally`, or after an `await`, reads as tidier and
-    // restores exactly that loop. A token is spent by being ATTEMPTED, once.
+    //
+    // `takePendingInvite` makes the clear structural rather than ordered, and
+    // its own test executes that. What is left for this file is that the
+    // dashboard actually CALLS it, unconditionally, and before the mutation —
+    // moving it inside a `if (!fromUrl)` would leave the stashed copy behind on
+    // every signed-in arrival, where BOTH carriers are filled.
     const code = app()
-    const cleared = code.indexOf('window.sessionStorage.removeItem(PENDING_INVITE_KEY)')
+    const taken = code.indexOf('takePendingInvite()')
     const consumed = code.indexOf('.mutateAsync(')
-    expect(cleared, 'nothing clears the pending invite token').toBeGreaterThan(-1)
+    expect(taken, 'nothing reads the pending invite token').toBeGreaterThan(-1)
     expect(consumed, 'nothing consumes the invite token').toBeGreaterThan(-1)
     // ONE mutateAsync in the file, so `consumed` is this call and not another
     // one that happens to sit later — the index comparison below is only
     // meaningful while that is true.
     expect(code.match(/\.mutateAsync\(/g) ?? []).toHaveLength(1)
-    expect(cleared).toBeLessThan(consumed)
+    expect(taken).toBeLessThan(consumed)
   })
 
-  test('the dashboard shares the key with the route rather than retyping it', () => {
-    // The write and the read are in different files, and a key spelled twice
-    // is a key that can be spelled differently once. Importing it is what
-    // makes the pair a pair; a literal here would type-check and silently
-    // never find the token.
-    expect(app()).toMatch(/import \{ PENDING_INVITE_KEY \} from '\.\/join\.\$token\.tsx'/)
-    expect(app()).not.toMatch(/wt\.pendingInviteToken/)
-    expect(source()).toMatch(/export const PENDING_INVITE_KEY = 'wt\.pendingInviteToken'/)
+  test('and empties the URL carrier too, synchronously, before it spends anything', () => {
+    /**
+     * THE SECOND CARRIER NEEDED THE SAME DISCIPLINE, AND IT WAS MEASURED
+     * RATHER THAN ASSUMED. On the signed-in path the token arrives BOTH in
+     * `?join=` and in storage, and instrumenting the effect showed it running
+     * three times for one arrival — twice with `joinParam` still set, because
+     * the second run is a REMOUNT and React re-runs effects on a remount
+     * whatever the dependency array says. The storage carrier refused the
+     * second time; the URL carrier handed the token over again, because
+     * `navigate()` is asynchronous and the router still held the param.
+     * consumeLink ran twice and the holder got two toasts.
+     *
+     * `window.history.replaceState` IS THE FIX AND A `navigate()` IS NOT.
+     * Synchronous, so the remount cannot beat it, and the same mechanism the
+     * funnel marker three effects up already uses for the identical reason —
+     * its comment says "so a refresh or a share cannot double-count". A
+     * `useRef` guard is the plausible wrong fix: a remount resets it too.
+     */
+    const code = app()
+    const deleted = code.indexOf("url.searchParams.delete('join')")
+    // SEARCHED FROM THE DELETE, not from the top of the file: the funnel
+    // effect three hooks up writes an identical replaceState for SIGNIN_PARAM,
+    // and an `indexOf` from zero finds THAT one — which would let this whole
+    // assertion pass with no replaceState in the invite effect at all.
+    const replaced = code.indexOf("window.history.replaceState({}, '', url.pathname", deleted)
+    const consumed = code.indexOf('.mutateAsync(')
+    expect(deleted, 'nothing removes ?join= from the URL').toBeGreaterThan(-1)
+    expect(replaced, 'the stripped URL is never written back to the address bar').toBeGreaterThan(
+      deleted,
+    )
+    expect(replaced).toBeLessThan(consumed)
+    // AND THE TOKEN IS READ FROM `window.location`, NOT FROM THE ROUTER. The
+    // router's copy is what survived the remount; reading `joinParam` here and
+    // merely replaceState-ing the address bar would look identical in a diff
+    // and restore the double consume exactly.
+    expect(code).toMatch(/const fromUrl = url\.searchParams\.get\('join'\) \?\? undefined/)
+    expect(code).toMatch(/const token = fromUrl \?\? stashed/)
+  })
+
+  test('the key lives in lib/, and neither route file spells it', () => {
+    // The write and the read are in different route modules, and a key spelled
+    // twice is a key that can be spelled differently once — the write succeeds,
+    // the read finds nothing, and the invite is lost with nothing to see. lib/
+    // is where every other cross-route constant lives (SIGNIN_PARAM,
+    // STORAGE_KEY), and the storage mechanics went with it.
+    expect(source()).toMatch(
+      /import \{ rememberPendingInvite \} from '#\/lib\/pending-invite\.ts'/,
+    )
+    expect(app()).toMatch(/import \{ takePendingInvite \} from '#\/lib\/pending-invite\.ts'/)
+    for (const code of [source(), app()]) {
+      expect(code).not.toMatch(/wt\.pendingInviteToken/)
+      // NOR THE STORE ITSELF. A route reaching straight for sessionStorage is
+      // how the wrapped, tested helpers get bypassed by something that reads
+      // like an obvious inline simplification.
+      expect(code).not.toMatch(/sessionStorage|localStorage/)
+    }
   })
 })
 

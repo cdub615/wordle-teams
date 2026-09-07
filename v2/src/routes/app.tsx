@@ -12,7 +12,7 @@ import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
-import { PENDING_INVITE_KEY } from './join.$token.tsx'
+import { takePendingInvite } from '#/lib/pending-invite.ts'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
 import { chatEntryLabel, hasUnread, unreadTeamIds, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
@@ -254,11 +254,17 @@ function Dashboard() {
    *
    * `consumeLink` calls requirePlayer, so a brand-new account cannot spend a
    * token until /complete-profile has made a player row. That is the whole
-   * reason the token travels in sessionStorage rather than being consumed by
-   * the /join route itself: the signed-out holder goes /join -> /login ->
-   * /complete-profile -> here, and only the last hop has a player. An already
-   * signed-in holder skips all of that and arrives with `?join=`, which is why
-   * both sources are read.
+   * reason the token waits somewhere rather than being consumed by the /join
+   * route itself: the signed-out holder goes /join -> /login ->
+   * /complete-profile -> here, and only the last hop has a player.
+   *
+   * TWO CARRIERS, AND NEITHER IS REDUNDANT. `?join=` is the faster one and is
+   * preferred whenever it survives. It does not always survive: the beforeLoad
+   * above redirects an account with no player row to /complete-profile, and
+   * that redirect drops the search params — which lost the invite outright for
+   * anyone who authenticated but abandoned onboarding half way. sessionStorage
+   * is the carrier that survives that hop, so routes/join.$token.tsx fills in
+   * both and this reads whichever arrived.
    *
    * DECLARED BEFORE useDashboardSearchSync, FOR THE SAME REASON THE CHECKOUT
    * MARKER ABOVE IS. Effects run in the order their hooks are called, and the
@@ -266,47 +272,58 @@ function Dashboard() {
    * so `join` is gone from the URL after it runs. Reading it afterwards would
    * find nothing on the one load it matters for.
    *
-   * CLEARED BEFORE THE CALL, NOT AFTER, and this is the part worth being
-   * careful about. consumeLink REFUSES a token that is expired, revoked,
-   * unknown or over the free-team cap, and a refusal left in sessionStorage is
-   * retried on the next dashboard render — a toast the holder cannot dismiss
-   * for good, and a mutation call per render. A token is spent by being
-   * ATTEMPTED, once.
-   *
-   * NOTHING IN HERE MAY THROW. Private mode and disabled storage both make
-   * sessionStorage throw on access, and this sits on the path of someone who
-   * is trying to join a team; a thrown error there loses the invite AND the
-   * page. Both accesses are wrapped for that reason and not as a formality.
+   * THE CLEAR AND THE THROW-SAFETY ARE NOT THIS FILE'S TO GET RIGHT any more —
+   * `takePendingInvite` reads and clears as one operation, and neither of its
+   * two functions can throw at a storage failure. Both properties have real
+   * tests in lib/pending-invite.test.ts, which is worth more than the source
+   * assertions this file can be held to: `Dashboard` is not exported and a
+   * route module cannot be rendered under vitest.
    */
   useEffect(() => {
-    let token = joinParam
-    if (!token) {
-      try {
-        token = window.sessionStorage.getItem(PENDING_INVITE_KEY) ?? undefined
-      } catch {
-        token = undefined
-      }
+    // BOTH CARRIERS ARE EMPTIED BEFORE EITHER IS SPENT, and the URL is emptied
+    // through `window.location` + replaceState rather than through the router
+    // — exactly as the funnel marker above is, and for exactly the reason its
+    // comment gives: "so a refresh or a share cannot double-count".
+    //
+    // MEASURED, and this is not defensive coding. Instrumenting this effect on
+    // the signed-in path showed it running THREE times for one arrival:
+    //
+    //   joinParam=<token> stashed=<token>      -> consumed
+    //   joinParam=<token> stashed=undefined    -> consumed AGAIN
+    //   joinParam=undefined
+    //
+    // The second run has the same dependency value as the first, so it is a
+    // REMOUNT of Dashboard, and React re-runs effects on a remount whatever the
+    // deps say. `takePendingInvite` had already emptied the storage carrier —
+    // which is why that one refused — but `navigate()` is asynchronous, so the
+    // router still held `?join=` and handed it over a second time. A `useRef`
+    // guard would not have helped: a remount resets it too.
+    //
+    // consumeLinkFor is idempotent (`if (team.playerIds.includes(playerId))
+    // return`), so the damage was two toasts rather than two roster entries.
+    // Two toasts is still wrong, and the next carrier added here will not
+    // necessarily land in front of an idempotent mutation.
+    const stashed = takePendingInvite()
+    const url = new URL(window.location.href)
+    const fromUrl = url.searchParams.get('join') ?? undefined
+    if (fromUrl) {
+      url.searchParams.delete('join')
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash)
     }
+    const token = fromUrl ?? stashed
     if (!token) return
-    try {
-      window.sessionStorage.removeItem(PENDING_INVITE_KEY)
-    } catch {
-      // ignored, as above
-    }
     void consumeInvite
       .mutateAsync({ token })
       .then(() => toast.success('You joined the team'))
       .catch((error: unknown) =>
         toast.error(mutationErrorMessage(error, 'That invite link is no longer valid')),
       )
-    // The URL is rewritten whether or not the mutation succeeds: `?join=` is a
-    // spent token either way, and leaving it on a page anyone may refresh or
-    // share hands the next reader a capability that has already been used.
-    void navigate({
-      to: Route.fullPath,
-      search: (prev) => ({ ...prev, join: undefined }),
-      replace: true,
-    })
+    // NO `navigate()` TO TIDY THE URL, deliberately. replaceState above already
+    // did it, synchronously, which is the whole point; a navigation here would
+    // additionally race useDashboardSearchSync's. The router's own search state
+    // keeps a spent `join` until that sync effect rewrites it moments later,
+    // and nothing reads it in the meantime — the funnel marker above leaves
+    // `signin` in exactly the same state for the same reason.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinParam])
 
