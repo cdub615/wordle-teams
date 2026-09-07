@@ -81,6 +81,19 @@ export default defineSchema({
     reminderDeliveryTime: v.string(), // wall-clock 'HH:MM:SS' in the player's own zone
     lastBoardEntryReminder: v.optional(v.number()),
     createdAt: v.optional(v.number()), // the ORIGINAL creation time; _creationTime is when we copied it
+
+    // WHEN THE PLAYER DISMISSED THE ONBOARDING CARD, absent if they never did.
+    //
+    // SERVER-SIDE, NOT localStorage, matching the monthly-winner dialog's
+    // hasSeen (lib/celebration.ts): the flag has to follow one person across
+    // their phone and their laptop, and it has to be readable by whatever
+    // measures activation later. A per-device flag would do neither.
+    //
+    // A TIMESTAMP RATHER THAN A BOOLEAN, because "when did they give up on
+    // onboarding" is a question the activation review will actually ask, and a
+    // boolean cannot answer it. Nothing reads the value yet; absence is the
+    // only thing the UI tests.
+    onboardingDismissedAt: v.optional(v.number()),
   })
     .index('by_legacyId', ['legacyId'])
     .index('by_email', ['email']),
