@@ -144,7 +144,17 @@ export function PullToRefresh() {
       // Decorative only — nothing here is announced. A completed pull ends in
       // a full page reload, which is its own, unmistakable feedback.
       aria-hidden="true"
-      className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-center"
+      // `pt-[env(safe-area-inset-top)]` (wordle-teams-8h2p). `top-0` on a
+      // `fixed` element is the PHYSICAL top edge under `viewport-fit=cover`,
+      // so without this the spinner would be drawn behind the status bar on a
+      // notched phone — and this component only ever renders in standalone
+      // mode, which is exactly where there is no browser chrome above it.
+      //
+      // A bare `env()` rather than a `max()`: this box has no top padding
+      // today, so its base is 0 and the inset is purely additive. The `mt-2`
+      // on the dial inside, and the `-32px` in the transform below, are
+      // measured against the box's own padding edge and so travel with it.
+      className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-center pt-[env(safe-area-inset-top)]"
       style={{
         transform: `translateY(${distance - 32}px)`,
         opacity: progress,

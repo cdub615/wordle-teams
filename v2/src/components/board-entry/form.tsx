@@ -206,8 +206,28 @@ export function BoardEntryForm({
       </div>
 
       {/* Sticky so it pins above the mobile keyboard; hidden on desktop, where
-          BoardInput renders its own submit. */}
-      <div className="sticky bottom-0 flex w-full shrink-0 flex-row space-x-2 bg-background pt-2 md:invisible md:h-0 md:p-0">
+          BoardInput renders its own submit.
+
+          `pb-[env(safe-area-inset-bottom)]` (wordle-teams-8h2p). This row is
+          the last thing in a `side="top"` Sheet whose `maxHeight` is bound to
+          the visual viewport, so with the keyboard closed the sheet's bottom
+          edge IS the bottom of the screen — and under `viewport-fit=cover`
+          that is the physical edge, with the home indicator drawn over the
+          last 34px of it. The Sheet's own `p-6` puts 24px below these buttons,
+          which is not enough to clear it.
+
+          A bare `env()`, not a `max()`: this element carries `pt-2` and no
+          bottom padding at all, so its base here is 0 and the inset is purely
+          additive — a `max()` against a non-zero base would move the buttons
+          up on every flat screen for nothing. On iOS the inset collapses to 0
+          while the software keyboard is up, which is the state where the
+          sheet's bottom edge is the keyboard rather than the screen, so the
+          two cases agree without a media query.
+
+          `md:p-0` STILL WINS ON DESKTOP: it is a later, more specific-in-
+          source-order padding utility than this one, and tailwind-merge keeps
+          both because they are different variants. */}
+      <div className="sticky bottom-0 flex w-full shrink-0 flex-row space-x-2 bg-background pb-[env(safe-area-inset-bottom)] pt-2 md:invisible md:h-0 md:p-0">
         <Button type="button" variant="outline" className="w-full" onClick={onSuccess}>
           Cancel
         </Button>

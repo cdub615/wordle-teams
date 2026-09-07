@@ -144,7 +144,38 @@ export default function Header() {
     // deliberately: `hidden` would make this a scroll container and break the
     // `sticky` positioning above. The dropdown is unaffected — shadcn's
     // DropdownMenuContent renders through a Radix Portal, outside this element.
-    <header className="sticky top-0 z-50 overflow-x-clip border-b border-line-subtle bg-background/80 backdrop-blur-lg">
+    //
+    // `pt-[env(safe-area-inset-top)]` ON THE HEADER ELEMENT, NOT ON THE `nav`
+    // INSIDE IT, AND THAT PLACEMENT IS THE WHOLE POINT (wordle-teams-8h2p).
+    // A background paints across an element's PADDING box, so putting the
+    // inset here means `bg-background/80` and `backdrop-blur-lg` extend up
+    // through the status-bar strip and the bar reads as one continuous
+    // translucent surface from the physical top edge down to its border. The
+    // same padding on the `nav` would have left the header's own box starting
+    // below the notch, with the page's raw background — and whatever scrolled
+    // under it — showing through a 47-59px band above it: a visible seam
+    // exactly where a blurred bar is least able to hide one.
+    //
+    // A BARE `env()`, NOT `max(<base>, env())`, AND THIS IS THE ONE PLACE THAT
+    // IS DELIBERATELY NOT THE `max()` IDIOM composer.tsx established. This
+    // padding is ADDITIVE — it stacks on the `py-3 sm:py-4` the `nav` already
+    // carries — so its correct value on a flat screen is zero, which is what
+    // `env()` already evaluates to there. Wrapping it in a `max()` against any
+    // non-zero base would push the wordmark down on every phone without a
+    // notch, which is precisely the "right on a notched device, wrong on a
+    // flat one" failure. `max()` is right where the declaration REPLACES an
+    // existing spacing value; a bare `env()` is right where it adds to one.
+    //
+    // `sticky top-0` IS UNCHANGED AND STILL CORRECT. Under `viewport-fit=cover`
+    // the layout viewport starts at the physical top edge, so `top-0` pins the
+    // header's border box — padding included — to y=0, and the inset region
+    // stays covered while the page scrolls beneath it.
+    //
+    // routes/chat.tsx NEEDS NO CHANGE FOR THIS. `useChatShellHeight` measures
+    // this element's real document offset rather than assuming a height, so
+    // the chat shell shrinks by the inset on its own; HEADER_ESTIMATE_PX is
+    // only the SSR guess, corrected in a layout effect before paint.
+    <header className="sticky top-0 z-50 overflow-x-clip border-b border-line-subtle bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-lg">
       {/*
         `page-max`, NOT `page-wrap`. The two cap at the same 1440 but gutter
         differently below it: page-wrap keeps a flat 1rem at every width, while

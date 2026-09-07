@@ -39,7 +39,21 @@ export default function Footer() {
     // `px-4` OFF THE FOOTER ELEMENT for the same reason it came off the header:
     // the inner band below carries the gutter, so this was a second one stacked
     // on the first. The element still spans full width for its top border.
-    <footer className="mt-20 border-t border-line-subtle pb-14 pt-10 text-sm text-muted-foreground">
+    // `pb-[max(3.5rem,env(safe-area-inset-bottom))]` REPLACES `pb-14`
+    // (wordle-teams-8h2p). Nothing here is positioned, but under
+    // `viewport-fit=cover` the END of the document is the physical bottom edge
+    // of the screen, and this is the last element in it on every route that
+    // keeps the footer — so the bottom of the legal row is where the home
+    // indicator gets drawn.
+    //
+    // `max()`, not `+`, and here that IS the right shape: 3.5rem is an
+    // existing spacing value this declaration REPLACES rather than adds to.
+    // 56px already exceeds the 34px inset of every portrait iPhone, so on
+    // today's hardware this evaluates to exactly the `pb-14` it replaces and
+    // the footer does not move; it only grows if a device ever reports more.
+    // Written out rather than left as `pb-14` so the guarantee is in the code
+    // instead of in a fact about current hardware.
+    <footer className="mt-20 border-t border-line-subtle pb-[max(3.5rem,env(safe-area-inset-bottom))] pt-10 text-sm text-muted-foreground">
       {/*
         `page-max`, THE SAME BAND THE HEADER AND THE DASHBOARD USE. All three
         share one rule — cap, centring and a gutter that tracks the grid's gap,

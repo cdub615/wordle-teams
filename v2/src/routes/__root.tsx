@@ -68,8 +68,44 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         charSet: 'utf-8',
       },
       {
+        /*
+          `viewport-fit=cover` IS WHAT MAKES `env(safe-area-inset-*)` MEAN
+          ANYTHING (wordle-teams-8h2p). Without it the browser sizes the layout
+          viewport to the SAFE area and reports every inset as 0 — which is why
+          composer.tsx's `max(1.5rem, env(safe-area-inset-bottom))` has been
+          falling through to its 1.5rem base since the day it was written, and
+          why every other `env()` added alongside this change is inert on a flat
+          screen and only grows on a notched one.
+
+          IT MATTERS MORE HERE THAN ON AN ORDINARY SITE because
+          public/manifest.json declares `"display": "standalone"`: installed,
+          there is no browser chrome to absorb the insets, so content genuinely
+          reaches the physical edges of the screen. `"orientation": "portrait"`
+          is what keeps this to a top and a bottom problem — the side cutout
+          case only exists in landscape, which the installed app cannot enter.
+
+          EVERY EDGE-ANCHORED ELEMENT WAS INSET IN THE SAME COMMIT, because a
+          half-done version of this is worse than none: the header would sit
+          under the status bar, the toast under the home indicator. The list is
+          Header, PullToRefresh, board-entry's sticky footer, Footer, the
+          Dialog/Sheet content boxes, the Toaster's offsets and `.page-max`'s
+          gutter. The composer already had its `max()` and did not change.
+
+          THE OFFLINE FALLBACK IN src/sw.ts DELIBERATELY KEEPS THE OLD META.
+          It is a self-contained document with no chrome of its own, so letting
+          the browser inset its viewport is exactly the behaviour it wants;
+          there is nothing there that needs to reach an edge.
+
+          ON iOS, THE INSTALLED APP ALSO NEEDS `apple-mobile-web-app-status-bar-style:
+          black-translucent` BEFORE THE TOP INSET IS NON-ZERO IN STANDALONE —
+          without it iOS places the web view below the status bar and reports 0.
+          NOT added here: it forces light status-bar text regardless of theme,
+          and this app has a light mode. Safari tabs and Android get the top
+          inset from this meta alone; the padding below is correct either way,
+          because it is 0 wherever the inset is 0.
+        */
         name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
+        content: 'width=device-width, initial-scale=1, viewport-fit=cover',
       },
       {
         // Matches public/manifest.json's theme_color (and its background_color,

@@ -421,10 +421,29 @@
  *
  * BOTH READ ONE NUMBER, `--page-max`, so the header cannot drift from the body
  * it sits above — which is the whole defect wordle-teams-rpql is about. */
+/* THE GUTTER IS `max(<gutter>, <inset>)` PER SIDE SINCE wordle-teams-8h2p.
+ * Under `viewport-fit=cover` the 100% this centres inside runs edge to edge of
+ * the physical display, so in a rotated browser tab the header's wordmark and
+ * the dashboard grid's first column would sit under the cutout. Per-side
+ * rather than a single value because the two insets differ in landscape — the
+ * cutout is on one side only — and `padding-inline` takes a start and an end.
+ *
+ * A NO-OP IN PORTRAIT, WHICH IS THE ONLY ORIENTATION THE INSTALLED APP HAS:
+ * manifest.json locks it, and the left/right insets are 0 there, so this
+ * computes to exactly the 0.5rem/1.5rem it replaces on every device the PWA
+ * can reach. It is for the rotated tab, and it costs nothing anywhere else.
+ *
+ * `.page-wrap` IS DELIBERATELY LEFT ALONE. It expresses its gutter as a WIDTH
+ * (`min(cap, 100% - 2rem)`) centred with `margin-inline: auto`, so an
+ * asymmetric inset cannot be expressed there without changing it into a
+ * padding — and it carries a 1rem gutter that already exceeds nothing in
+ * portrait either. The prose routes it serves are the ones least hurt by a
+ * landscape cutout; recorded here rather than fixed. */
 .page-max {
   max-width: var(--page-max);
   margin-inline: auto;
-  padding-inline: 0.5rem;
+  padding-inline: max(0.5rem, env(safe-area-inset-left))
+    max(0.5rem, env(safe-area-inset-right));
 }
 
 /* THE GUTTER MATCHES THE DASHBOARD GRID'S `gap` AT EACH BREAKPOINT — 0.5rem
@@ -446,7 +465,8 @@
  * arithmetic is written out here; if that token moves, move this with it. */
 @media (width >= 48rem) {
   .page-max {
-    padding-inline: 1.5rem;
+    padding-inline: max(1.5rem, env(safe-area-inset-left))
+      max(1.5rem, env(safe-area-inset-right));
   }
 }
 

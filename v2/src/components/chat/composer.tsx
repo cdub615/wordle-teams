@@ -124,16 +124,19 @@ export function Composer({ onSend, disabled }: Props) {
     // indicator" the day the app opts into the full screen, with no second
     // number to remember.
     //
-    // `env(safe-area-inset-bottom)` EVALUATES TO 0 TODAY, AND THAT IS EXPECTED
-    // RATHER THAN DEAD CODE. The viewport meta in __root.tsx is
-    // `width=device-width, initial-scale=1` with NO `viewport-fit=cover`, and
-    // without that the insets are all zero — so `max()` falls through to the
-    // 1.5rem base, which is exactly the behaviour asked for. Adding
-    // `viewport-fit=cover` is an app-wide change: it lets content extend under
-    // the notch and the home indicator on EVERY route, and every page would
-    // need its own look before that is safe. Deliberately not done here. This
-    // is the app's first safe-area handling of any kind; there was no idiom to
-    // match.
+    // `env(safe-area-inset-bottom)` IS LIVE AS OF wordle-teams-8h2p. It used
+    // to evaluate to 0 everywhere, because __root.tsx's viewport meta was
+    // `width=device-width, initial-scale=1` with no `viewport-fit=cover` and
+    // that is what gates the insets; the `max()` fell through to its 1.5rem
+    // base on every device. The meta now carries `viewport-fit=cover`, so on a
+    // notched phone this declaration finally does the second job it was written
+    // for and clears the home indicator. NOTHING ABOUT THIS FILE CHANGED to
+    // make that happen, which was the point of writing it as a `max()` in the
+    // first place — and the shape is now the app-wide idiom, used by
+    // ui/sheet.tsx, Footer.tsx, ui/sonner.tsx and `.page-max`. Where a
+    // declaration ADDS to existing spacing rather than replacing it (Header's
+    // `pt-[env(...)]`, PullToRefresh's, board-entry's `pb-[env(...)]`) the bare
+    // `env()` is the correct form instead; see Header.tsx for that argument.
     //
     // NOTHING ELSE ABOUT THE LAYOUT MOVES. This is padding on an element that
     // is already in ordinary document flow — no `position: fixed`, no scroll
