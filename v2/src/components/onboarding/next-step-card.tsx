@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+import { cn } from '#/lib/utils.ts'
 import { trackFunnel } from '#/lib/funnel.ts'
 import {
   MODEL_LINE,
@@ -32,12 +33,22 @@ export function NextStepCard({
   onTeam,
   onInvite,
   onDismiss,
+  className,
 }: {
   facts: OnboardingFacts
   onBoard: () => void
   onTeam: () => void
   onInvite: () => void
   onDismiss: () => void
+  /**
+   * THE CALLER'S LAYOUT, NOT THIS COMPONENT'S, exactly as CheckoutPending takes
+   * it. routes/app.tsx renders this on two branches: a plain <main>, and a grid
+   * whose every child needs `md:col-span-3` or lands in one of three columns.
+   * A wrapper element there would leave an empty grid item — and so a gap — on
+   * every render where this returns null, which is every render for an
+   * activated player.
+   */
+  className?: string
 }) {
   const tasks = incompleteTasks(facts)
   const visible = shouldShowCard(facts)
@@ -123,7 +134,7 @@ export function NextStepCard({
   }
 
   return (
-    <Card className="mb-4">
+    <Card className={cn('mb-4', className)}>
       <CardHeader className="relative">
         <CardTitle asChild>
           <h2>{cardHeading(facts)}</h2>

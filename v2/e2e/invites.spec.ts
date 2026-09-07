@@ -411,7 +411,7 @@ test('inviting someone who already has an account adds them to the team directly
     await expect(newcomer).toHaveURL('/complete-profile')
     await completeProfile(newcomer, { firstName: 'Ada', lastName: 'Lovelace' })
     await expect(newcomer).toHaveURL('/app')
-    await expect(newcomer.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
+    await expect(newcomer.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
   } finally {
     await newcomerContext.close()
   }

@@ -94,8 +94,9 @@ export const Route = createFileRoute('/team')({
       context.queryClient.ensureQueryData(convexQuery(api.teams.amIPro, {})),
       context.queryClient.ensureQueryData(convexQuery(api.scores.getMyPlayerId, {})),
     ])
-    // Nothing to administer with no team at all — that empty state is /app's
-    // own (TeamsEmptyState, gated the same way there), not a second copy here.
+    // Nothing to administer with no team at all — /app's own no-team branch
+    // (gated the same way there) is where that is handled, not a second copy
+    // here. It used to name TeamsEmptyState; the onboarding card replaced it.
     if (teams.length === 0) throw redirect({ to: '/app' })
 
     /**

@@ -7,8 +7,8 @@ import type { Page } from '@playwright/test'
 
 /**
  * Gives the freshly-created e2e account a team before signing in, so the
- * dashboard clears its "not on a team yet" empty state and the board-entry
- * button exists to click. A fresh signIn() account has no `players` row at
+ * dashboard renders its full grid rather than the no-team branch, and the
+ * toolbar's board-entry button exists to click. A fresh signIn() account has no `players` row at
  * all — see convex/e2eSeed.ts for the seeding mutation and why it is
  * committed rather than scratch tooling.
  *

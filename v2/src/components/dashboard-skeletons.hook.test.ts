@@ -260,9 +260,52 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     // in Task 9 — it now lives on routes/team.tsx (wordle-teams-5jcn.29; it
     // spent time inside TeamSettingsDialog in between, which is deleted), with
     // its own local Suspense boundary there rather than one of these three.
+    //
+    // BoardEntrySurface IS A FOURTH BOUNDARY, and it belongs to none of the
+    // above: it wraps no getTeamMonth consumer and takes no skeleton. It is in
+    // this list anyway because the assertion is deliberately the WHOLE SET
+    // rather than a filter — a filtered check would let a boundary be deleted
+    // without a word. What that one is for is pinned by the test below.
     const wrapped = boundaries().map((boundary) => boundary.child)
 
-    expect(wrapped.sort()).toEqual(['ScoresTable', 'TeamBoards', 'TodayPanel'])
+    expect(wrapped.sort()).toEqual([
+      'BoardEntrySurface',
+      'ScoresTable',
+      'TeamBoards',
+      'TodayPanel',
+    ])
+  })
+
+  test('the card-driven board surface carries a boundary of its own, with no skeleton', () => {
+    // WHY IT NEEDS ONE WHEN THE TOOLBAR'S BoardEntryButton DOES NOT. That
+    // button sits above all three boundaries above and gets away with it,
+    // because the query behind it — getTeamMonth — is already warm from
+    // TodayPanel by the time anyone can press it. This surface is opened by the
+    // onboarding card, which renders for players with NO team, and the form's
+    // team-less prefill is api.scores.getMyMonth, which nothing on this page
+    // warms. Without a boundary the FIRST tap of the card's board task suspends
+    // past everything to the route itself and DashboardSkeleton replaces the
+    // page mid-action — for the exact player the card exists to convert.
+    const byChild = new Map(boundaries().map((boundary) => [boundary.child, boundary.fallback]))
+
+    expect(byChild.has('BoardEntrySurface')).toBe(true)
+    // `null` RATHER THAN A SKELETON, and that is not laziness. What suspends
+    // here is a Dialog/Sheet that has not opened yet; there is nothing on
+    // screen for a placeholder to hold the shape of.
+    expect(byChild.get('BoardEntrySurface')).toBe('null')
+
+    // AND ITS `teamId` KEEPS `| undefined` IN THE CAST, which is here because
+    // NOTHING ELSE CAN NOTICE. Both spellings compile and behave identically
+    // today — `teamParam` is `string | undefined` either way, and a bare
+    // `as Id<'teams'>` is simply a lie the compiler accepts. The honest one is
+    // a TRIPWIRE: BoardEntrySurface's `teamId` is optional today, and if it is
+    // ever made required, `Id<'teams'> | undefined` fails typecheck right here
+    // and loudly, while the bare cast compiles and ships a runtime undefined
+    // into a required prop — silently routing a team page to the team-less
+    // solo prefill. Verified by mutation: dropping `| undefined` leaves test,
+    // lint, typecheck and build all green without this line.
+    const surfaceProps = jsxPropsOf('app.tsx', source, 'BoardEntrySurface')
+    expect(surfaceProps.get('teamId')).toContain("Id<'teams'> | undefined")
   })
 
   test('each fallback is the skeleton for the component it wraps, not a generic one', () => {

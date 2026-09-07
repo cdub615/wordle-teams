@@ -1,8 +1,8 @@
 import { createFileRoute, redirect, useNavigate, Link } from '@tanstack/react-router'
 import { MessageSquare, Settings } from 'lucide-react'
 import { Suspense } from 'react'
-import { convexQuery } from '@convex-dev/react-query'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
@@ -16,13 +16,14 @@ import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return
 import { MonthPicker, monthOptions } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
-import { TeamsEmptyState } from '#/components/teams/empty-state.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { TeamBoards } from '#/components/teams/team-boards.tsx'
 import { TodayPanel } from '#/components/today-panel.tsx'
 import { ScoringLegend } from '#/components/scoring-legend.tsx'
 import { MonthlyWinnerCelebration } from '#/components/monthly-winner-celebration.tsx'
-import { BoardEntryButton } from '#/components/board-entry/button.tsx'
+import { BoardEntryButton, BoardEntrySurface } from '#/components/board-entry/button.tsx'
+import { NextStepCard } from '#/components/onboarding/next-step-card.tsx'
+import { onboardingFactsFrom } from '#/lib/onboarding-facts.ts'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
@@ -96,6 +97,16 @@ export const Route = createFileRoute('/app')({
       context.queryClient.ensureQueryData(convexQuery(api.teams.getMyTeams, {})),
       context.queryClient.ensureQueryData(convexQuery(api.teams.amIPro, {})),
       context.queryClient.ensureQueryData(convexQuery(api.scores.getMyPlayerId, {})),
+      // THE FOURTH, ADDED WITH THE ONBOARDING CARD, AND WARMED FOR THE REASON
+      // THE PARAGRAPH ABOVE ALREADY GIVES. getStatus feeds a useSuspenseQuery in
+      // the component, so the component suspends on it whether or not it is
+      // warmed here — and an unwarmed one suspends AFTER this loader has
+      // resolved, which is a fourth round trip in SERIES rather than in
+      // parallel. Worse, that suspension has no boundary between it and the
+      // route, so `pendingComponent` (DashboardSkeleton) replaces the WHOLE
+      // page for its duration, on every /app load, including for the activated
+      // players who will never see the card at all.
+      context.queryClient.ensureQueryData(convexQuery(api.onboarding.getStatus, {})),
     ])
   },
   errorComponent: DashboardError,
@@ -119,6 +130,10 @@ function Dashboard() {
   const { data: teams } = useSuspenseQuery(convexQuery(api.teams.getMyTeams, {}))
   const { data: isPro } = useSuspenseQuery(convexQuery(api.teams.amIPro, {}))
   const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
+  // Deliberately TINY, and warmed in the loader above. See convex/onboarding.ts
+  // for why it reads nothing team-shaped: a second query built on getMyTeamsFor
+  // would double the full-teams-table fan-out for every connected client.
+  const { data: onboardingStatus } = useSuspenseQuery(convexQuery(api.onboarding.getStatus, {}))
   /**
    * THE ARGUMENT THAT REPLACED A FULL `teams` SCAN (wordle-teams-w7g2), AND
    * THE ONE PLACE IT IS DERIVED.
@@ -159,6 +174,15 @@ function Dashboard() {
    */
   const { unread: unreadTeams } = useUnreadTeams(teamIds)
   const [createOpen, setCreateOpen] = useState(false)
+  const [boardOpen, setBoardOpen] = useState(false)
+  /**
+   * NULL UNTIL THE CARD'S BOARD TASK IS PRESSED, AND THAT IS THE HYDRATION
+   * GUARDRAIL, not laziness. See where it is set below.
+   */
+  const [boardMonth, setBoardMonth] = useState<string | null>(null)
+  const dismissOnboarding = useMutation({
+    mutationFn: useConvexMutation(api.onboarding.dismiss),
+  })
   /**
    * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
    *
@@ -213,6 +237,84 @@ function Dashboard() {
     navigate: (search) => void navigate({ to: Route.fullPath, search, replace: true }),
   })
 
+  const onboardingFacts = onboardingFactsFrom(teams, onboardingStatus)
+
+  /**
+   * The onboarding card, as a FUNCTION OF ITS className rather than one shared
+   * element, for exactly the reason CheckoutPending is given a different one on
+   * each branch below: the no-team branch is a plain <main> where the card wants
+   * its own bottom margin, and the dashboard is a grid EVERY child of which
+   * carries `md:col-span-3` — without it the card would sit in one of three
+   * columns. A wrapper <div> would have done the same job at the cost of an
+   * empty grid item, and therefore a gap, on every render where the card is
+   * finished and returns null; a component returning null contributes no grid
+   * item at all, which is why the class goes on the card. Same trick
+   * MonthlyWinnerCelebration already relies on further down.
+   */
+  const onboardingCard = (className?: string) => (
+    <NextStepCard
+      className={className}
+      facts={onboardingFacts}
+      onBoard={() => {
+        // `today` is client-only. Deriving it here rather than during render is
+        // what keeps it out of the SSR pass — the rule today-panel.tsx states.
+        //
+        // AND THE NO-TEAM BRANCH IS WHY IT CANNOT REUSE `currentMonth` BELOW.
+        // That line (`hydrated ? monthOf(...) : monthParam`) is the right idiom
+        // and does the same job, but it sits below the `teams.length === 0`
+        // early return, so the branch that most needs a month never reaches it —
+        // a team-less player also never reaches the `!teamParam || !monthParam`
+        // guard that fills the params in, so `monthParam` is undefined for them.
+        // Hoisting `currentMonth` would make every render of that branch depend
+        // on a hydration flag for a value only a click ever reads; a click is
+        // post-hydration by construction and needs no flag.
+        setBoardMonth(monthParam ?? monthOf(toPuzzleDay(new Date())))
+        setBoardOpen(true)
+      }}
+      onTeam={() => setCreateOpen(true)}
+      // /team is where CurrentTeamCard already hosts InvitePlayerDialog. Not
+      // reachable from the no-team branch: `hasTeam` false means the create
+      // task is on screen too, and this one only appears once a team exists.
+      onInvite={() => void navigate({ to: '/team', search: { team: teamParam } })}
+      // `mutate`, NOT `void mutateAsync(...)`. A rejected mutateAsync with
+      // nothing attached to it is an unhandled promise rejection; `mutate`
+      // routes the same failure into the mutation's own state instead. Dismiss
+      // is idempotent and has no success UI, so there is nothing to await.
+      onDismiss={() => dismissOnboarding.mutate({})}
+    />
+  )
+
+  /**
+   * The board panel the card's first task opens, on BOTH branches.
+   *
+   * IT GETS ITS OWN SUSPENSE BOUNDARY, and this is the one place on the page
+   * that genuinely needs one. BoardEntryButton in the controls row sits above
+   * all three boundaries further down, which never bites because its
+   * getTeamMonth is already warm from TodayPanel. Nothing warms getMyMonth, the
+   * query BoardEntryForm uses when there is no team — so without a boundary
+   * here the FIRST tap by a team-less player suspends all the way to the route
+   * and blanks the page, hitting precisely the person this card exists to
+   * convert, on their first meaningful action.
+   *
+   * No `trigger` prop: the card's task button is the trigger, and
+   * BoardEntrySurface renders no button of its own without one.
+   */
+  const boardSurface = boardMonth !== null && (
+    <Suspense fallback={null}>
+      <BoardEntrySurface
+        open={boardOpen}
+        onOpenChange={setBoardOpen}
+        // NOT `as Id<'teams'>`. Since teamId became optional, an undefined
+        // slipping through a bare cast no longer throws inside getTeamMonth —
+        // it silently routes to the solo form and shows a team-less prefill on
+        // a team page. Keeping `| undefined` in the type makes the team-less
+        // case explicit rather than accidental.
+        teamId={teamParam as Id<'teams'> | undefined}
+        month={boardMonth}
+      />
+    </Suspense>
+  )
+
   // ALL THREE RETURNS BELOW RENDER THE PENDING NOTICE, and the empty state is
   // the one wordle-teams-6tn actually named: someone can upgrade before they
   // have created a single team, and that is the case where they would
@@ -223,7 +325,16 @@ function Dashboard() {
     return (
       <main className="page-max mt-2 md:mt-6">
         {upgradePending && <CheckoutPending className="mb-4" />}
-        <TeamsEmptyState onCreate={() => setCreateOpen(true)} />
+        {/* AND /app NOW STARTS AT h2 ON EVERY BRANCH, WHICH IS A DECISION, not
+            a leftover. TeamsEmptyState's <h1> was this route's only one, and it
+            only ever rendered here — the dashboard branch below has started at
+            h2 (TodayPanel's) since it was written. The card's heading is h2 so
+            that the two branches agree; promoting it to h1 on this branch alone
+            would give /app a heading level that appears and disappears as tasks
+            are completed or the card is dismissed, which is worse than starting
+            at h2 consistently. No e2e asserts a level-1 heading on /app. */}
+        {onboardingCard('mb-4')}
+        {boardSurface}
         <CreateTeamDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -303,6 +414,7 @@ function Dashboard() {
     // widget is what would make the three columns earn their keep again.
     <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 md:mt-6 md:grid-cols-3 md:gap-6">
       {upgradePending && <CheckoutPending className="md:col-span-3" />}
+      {boardSurface}
       <CreateTeamDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -537,6 +649,13 @@ function Dashboard() {
           <BoardEntryButton teamId={teamParam as Id<'teams'>} month={monthParam} />
         </div>
       </div>
+      {/* THE FIRST THING IN THE CONTENT, BUT BELOW THE CONTROLS ROW, WHICH IS A
+          DELIBERATE READING OF "top of the dashboard". Above the row would push
+          the team and month pickers — the chrome this page is navigated by, and
+          a row four separate measurements defend at 390px — down the screen for
+          a card that is temporary by design. Above the upgrade notice would be
+          worse still: that notice is first on all three returns on purpose. */}
+      {onboardingCard('md:col-span-3')}
       {/*
         THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
         ScoresTable (whose `footer` prop renders ScoringLegend, folded in

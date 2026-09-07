@@ -29,8 +29,8 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
 
   // DIRECTION ONE — needsProfile true. Before Task 6 this account reached the
   // dashboard instead: getMyTeams returns [] for a playerless caller rather
-  // than throwing, so the empty state rendered, and the only call to action on
-  // it failed with NO_PLAYER (wt-ksh.5.1).
+  // than throwing, so the no-team branch rendered, and the only call to action
+  // on it failed with NO_PLAYER (wt-ksh.5.1).
   await expect(page).toHaveURL('/complete-profile')
   await expect(page.getByRole('heading', { name: /complete your profile/i })).toBeVisible()
 
@@ -39,10 +39,10 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
   // DIRECTION TWO — needsProfile false, which is the half that cannot be
   // asserted anywhere else. The dashboard's own beforeLoad re-reads the
   // predicate on this hop, so arriving here at all proves the mutation flipped
-  // it; the empty state proves the page rendered through rather than dying on
-  // NO_PLAYER.
+  // it; the onboarding card proves the page rendered through rather than dying
+  // on NO_PLAYER.
   await expect(page).toHaveURL('/app')
-  await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
 
   // AND STAYS. A cached `true` surviving the hop would bounce the user back to
   // the form they just completed — the loop obw warns about — and would do it
@@ -50,7 +50,7 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
   // URL a moment later.
   await page.reload()
   await expect(page).toHaveURL('/app')
-  await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
 
   // The guard runs the other way too: with a player, the form is unreachable.
   await page.goto('/complete-profile')
@@ -126,7 +126,7 @@ test('a one-character first and last name saves without bouncing back', async ({
   await completeProfile(page, { firstName: 'A', lastName: 'B' })
 
   await expect(page).toHaveURL('/app')
-  await expect(page.getByRole('heading', { name: /not on a team yet/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
   await page.reload()
   await expect(page).toHaveURL('/app')
 })
