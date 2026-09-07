@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import {
@@ -757,4 +758,74 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
     expect(jsxProps(APP, 'UnreadBadge').get('unread')).toBe('unreadTeams')
     expect(jsxProps(PICKER, 'UnreadBadge').get('unread')).toBe('unread')
   })
+})
+
+/**
+ * NO ROUTE FILE MAY EXPORT THE COMPONENT IT ROUTES TO (wordle-teams-xsrv).
+ *
+ * @tanstack/router-plugin rewrites `component:` into a lazy reference so the
+ * page's markup ships in a chunk of its own. It cannot do that to a declaration
+ * the module also exports — and on the version pinned here it does not warn
+ * about the conflict, it simply declines to split the file at all. The symptom
+ * is entirely invisible from the source: src/routes/maintenance.tsx read
+ * perfectly well while its markup sat inside dist/client/assets/index-*.js, the
+ * 468 kB entry chunk every visitor downloads, and /maintenance was the only
+ * route in the app with no chunk of its own. Every gate was green.
+ *
+ * WHY THAT IS WORTH A GUARD RATHER THAN A CODE REVIEW. Splitting is what
+ * contained a real production fault: a module-scope throw rode into the client
+ * behind one imported constant, and because /chat is a lazily loaded chunk it
+ * broke /chat and nothing else. The same throw in a chunk shared by every route
+ * is the whole site down. A route that opts out of splitting is a route whose
+ * next such bug is everyone's.
+ *
+ * IT IS THE ROUTED IDENTIFIER, NOT ALL EXPORTS, and the distinction is real
+ * rather than pedantic. login-error.tsx exports `LoginErrorPage` and is FINE:
+ * its `component:` names a small non-exported wrapper, so the compiler has
+ * something it is allowed to move, and the markup is measurably inside
+ * login-error-*.js rather than the entry. Banning every named export would have
+ * been red on a file with no defect, and a guard that cries wolf gets deleted.
+ */
+describe('a route file does not export the component it routes to', () => {
+  // THE DIRECTORY AS THE PATHSPEC, NOT A `**` GLOB. git's default matching is
+  // fnmatch without FNM_PATHNAME, so `*` already crosses slashes and
+  // `src/routes/**/*.tsx` therefore REQUIRES a subdirectory — it silently
+  // matches none of the fourteen route files that sit directly in src/routes/,
+  // and the vacuity check below is what caught that.
+  const routeFiles = execSync('git ls-files src/routes', { encoding: 'utf8' })
+    .split('\n')
+    .filter((file) => file.endsWith('.tsx'))
+
+  test('there are route files to check, so this cannot pass vacuously', () => {
+    expect(routeFiles.length).toBeGreaterThan(5)
+  })
+
+  for (const file of routeFiles) {
+    test(file, () => {
+      const code = codeOf(read(`./${file.replace(/^src\//, '')}`))
+      // A REGEX RATHER THAN optionsPassedTo, because that helper THROWS on a
+      // file with no createFileRoute call at all and this loop has to survive
+      // __root.tsx and the api/ routes. Comments are already stripped, so the
+      // prose above cannot match itself.
+      //
+      // A route with no `component:` — /me is a beforeLoad redirect and nothing
+      // else — has nothing to split and nothing to get wrong.
+      const routed = code.match(/\bcomponent:\s*([A-Za-z_$][\w$]*)\s*[,}\n]/)
+      if (!routed) return
+      const component = routed[1]
+
+      expect(
+        new RegExp(
+          `export\\s+(?:default\\s+)?(?:async\\s+)?(?:function|const|let|class)\\s+${component}\\b`,
+        ).test(code),
+        `${file} exports ${component}, which is what it routes to — the router plugin then cannot code-split the file, and the page ships in the entry chunk every visitor downloads. Move it to a component file and import it.`,
+      ).toBe(false)
+
+      // The other spelling, `export { X }`, which the pattern above cannot see.
+      expect(
+        new RegExp(`export\\s*\\{[^}]*\\b${component}\\b[^}]*\\}`).test(code),
+        `${file} re-exports ${component} in an export list — the same defect as declaring it exported`,
+      ).toBe(false)
+    })
+  }
 })

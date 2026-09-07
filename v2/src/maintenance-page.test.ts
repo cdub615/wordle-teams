@@ -21,13 +21,23 @@ import { SITE_ORIGIN, pageTitle } from './lib/seo'
  *
  * `createFileRoute` is mocked because it registers against a router that does
  * not exist under vitest. Nothing else is stubbed.
+ *
+ * THE COMPONENT AND THE ROUTE NOW COME FROM TWO FILES (wordle-teams-xsrv), and
+ * the split is the thing the second case below defends. A route file may not
+ * export its component by name — @tanstack/router-plugin then declines to
+ * code-split the file, silently on this version, and the outage page rode into
+ * the entry chunk every visitor downloads. So the markup moved to
+ * components/maintenance.tsx and the route imports it. What that costs is that
+ * `component:` and the function are no longer syntactically adjacent, which is
+ * precisely why the tie between them is asserted rather than assumed.
  */
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
 }))
 
-import { MaintenancePage, Route } from './routes/maintenance'
+import { MaintenancePage } from './components/maintenance.tsx'
+import { Route } from './routes/maintenance'
 
 const BLOCKS = new Set(['h1', 'h2', 'h3', 'p'])
 
@@ -170,11 +180,15 @@ describe('the page a visitor gets during an outage', () => {
 describe('the gradient v1 painted this icon with, which does not exist here', () => {
   /**
    * Comments stripped, so this reads the CODE — the pattern src/routes.test.ts
-   * uses for the same reason. The route file's own prose QUOTES
+   * uses for the same reason. The component file's own prose QUOTES
    * `hsl(var(--color-stop-1))` while explaining why it is gone, and a scan that
    * counted that would be red on a correct file.
    */
-  const source = readFileSync(new URL('./routes/maintenance.tsx', import.meta.url), 'utf8')
+  // THE COMPONENT FILE, NOT THE ROUTE FILE. The markup — and with it the only
+  // thing that could reference a custom property — moved out in
+  // wordle-teams-xsrv; scanning the route would leave this passing on a file
+  // with no <svg> in it at all.
+  const source = readFileSync(new URL('./components/maintenance.tsx', import.meta.url), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/\/\/[^\n]*/g, '')
   const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
