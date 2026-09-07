@@ -1,6 +1,11 @@
 import { Link, useRouter } from '@tanstack/react-router'
-import { convexQuery, useConvexAction, useConvexAuth } from '@convex-dev/react-query'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  convexQuery,
+  useConvexAction,
+  useConvexAuth,
+  useConvexMutation,
+} from '@convex-dev/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CreditCard,
   Download,
@@ -14,6 +19,7 @@ import {
   Menu,
   MessagesSquare,
   MoonStar,
+  Sparkles,
   Sun,
   SunMoon,
   User as UserIcon,
@@ -44,6 +50,7 @@ import { portalOutcome } from '#/lib/billing-copy.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { STORAGE_KEY as SELECTED_TEAM_KEY } from '#/lib/dashboard-search.ts'
 import { initialsFor } from '#/lib/initials.ts'
+import { captureError } from '#/lib/sentry-capture.ts'
 import { cn } from '#/lib/utils.ts'
 import { useReducedMotion } from '#/lib/use-reduced-motion.ts'
 import { useThemeMode, type ThemeMode } from '#/lib/theme.ts'
@@ -89,10 +96,14 @@ export function AppMenu() {
   const { data: isPro } = useQuery(
     convexQuery(api.teams.amIPro, isAuthenticated ? {} : 'skip'),
   )
+  const { data: onboardingStatus } = useQuery(
+    convexQuery(api.onboarding.getStatus, isAuthenticated ? {} : 'skip'),
+  )
 
   const { mode, selectMode } = useThemeMode()
 
   const openPortal = useConvexAction(api.polar.getCustomerPortalUrl)
+  const replayOnboarding = useMutation({ mutationFn: useConvexMutation(api.onboarding.replay) })
   const [portalPending, setPortalPending] = useState(false)
   const [signOutPending, setSignOutPending] = useState(false)
 
@@ -288,6 +299,46 @@ export function AppMenu() {
                   <Mails className="mr-2 h-4 w-4" aria-hidden="true" />
                   <span>Notifications</span>
                 </DropdownMenuItem>
+                {/*
+                  THE WAY BACK, AND WHY IT MUST EXIST AT ALL. Dismissing
+                  onboarding/next-step-card.tsx writes onboardingDismissedAt
+                  and nothing else in the app clears it — without this item
+                  that dismissal is permanent, and the card now appears for
+                  every v1 migrant sitting on a solo team, so "irreversible"
+                  is not a hypothetical.
+
+                  GATED ON `onboardingStatus?.dismissed`, NOT SHOWN
+                  UNCONDITIONALLY — a player who has never dismissed anything
+                  has nothing to replay, and offering it anyway would be a
+                  menu item that does nothing a fresh visit to /app does not
+                  already do.
+
+                  `onboardingStatus` IS ITSELF BEHIND THE SURROUNDING
+                  `isAuthenticated &&` BLOCK, THE SAME AS EVERY QUERY ABOVE —
+                  see this file's doc comment on why the queries need 'skip'
+                  now that this component mounts for a signed-out visitor.
+                */}
+                {onboardingStatus?.dismissed && (
+                  <DropdownMenuItem
+                    onClick={() =>
+                      replayOnboarding.mutate(
+                        {},
+                        {
+                          // Reported rather than toasted, matching
+                          // monthly-winner-celebration.tsx's markSeen failure
+                          // and the dismiss half in app.tsx: nothing the
+                          // viewer can do about it, and the failure mode is
+                          // benign — the menu item is simply still there.
+                          onError: (error: unknown) =>
+                            captureError(error, { where: 'onboarding.replay' }),
+                        },
+                      )
+                    }
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" />
+                    <span>Show getting started</span>
+                  </DropdownMenuItem>
+                )}
               </>
             )}
 

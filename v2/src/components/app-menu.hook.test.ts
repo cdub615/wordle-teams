@@ -68,17 +68,37 @@ let currentUser: { name: string | null; email: string; image: string | null }
 let playerName: { firstName: string; lastName: string }
 /** What the stubbed matchMedia answers for the reduced-motion query. */
 let reducedMotion: boolean
+/**
+ * What `api.onboarding.getStatus` answers. Deliberately NOT run through the
+ * `args === 'skip'` short-circuit the other three queries share below — see
+ * the `useQuery` mock — so a test can drive this independently of
+ * `isAuthenticated` and pin the component's OWN `isAuthenticated &&` gate
+ * around "Show getting started" rather than merely re-proving the query's
+ * skip idiom (a separate, and separately tested, guard).
+ */
+let onboardingStatus: { enteredBoard: boolean; dismissed: boolean } | null | undefined
+/** The `args` the component last passed for `api.onboarding.getStatus`. */
+let onboardingQueryArgs: unknown
 
-const { openPortal, signOut, navigate, queryClientClear, toastInfo, toastError } = vi.hoisted(
-  () => ({
-    openPortal: vi.fn(),
-    signOut: vi.fn(),
-    navigate: vi.fn(),
-    queryClientClear: vi.fn(),
-    toastInfo: vi.fn(),
-    toastError: vi.fn(),
-  }),
-)
+const {
+  openPortal,
+  signOut,
+  navigate,
+  queryClientClear,
+  toastInfo,
+  toastError,
+  replayOnboarding,
+  captureError,
+} = vi.hoisted(() => ({
+  openPortal: vi.fn(),
+  signOut: vi.fn(),
+  navigate: vi.fn(),
+  queryClientClear: vi.fn(),
+  toastInfo: vi.fn(),
+  toastError: vi.fn(),
+  replayOnboarding: vi.fn(),
+  captureError: vi.fn(),
+}))
 
 // A plain anchor. The real Link needs a RouterProvider, and nothing here is
 // about routing — routes.test.ts and e2e/routes.spec.ts own the destinations.
@@ -115,6 +135,17 @@ vi.mock('@convex-dev/react-query', () => ({
     if (name === getFunctionName(api.polar.getCustomerPortalUrl)) return openPortal
     throw new Error(`AppMenu asked for an unexpected action: ${name}`)
   },
+  // KEYED BY NAME, AND THE THROW IS THE ASSERTION — same discipline as
+  // useConvexAction above. The menu reaches exactly one mutation, replay; a
+  // mutant that pointed the "Show getting started" handler at
+  // api.onboarding.dismiss instead would ask this for a mutation it does not
+  // recognise and blow up on the very first render, since the hook is called
+  // unconditionally at the top of the component.
+  useConvexMutation: (ref: FunctionReference<'mutation'>) => {
+    const name = getFunctionName(ref)
+    if (name === getFunctionName(api.onboarding.replay)) return replayOnboarding
+    throw new Error(`AppMenu asked for an unexpected mutation: ${name}`)
+  },
 }))
 
 /**
@@ -131,6 +162,10 @@ vi.mock('@convex-dev/react-query', () => ({
  */
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey, args }: { queryKey: [string, unknown]; args: unknown }) => {
+    if (queryKey[0] === getFunctionName(api.onboarding.getStatus)) {
+      onboardingQueryArgs = args
+      return { data: onboardingStatus }
+    }
     if (args === 'skip') return { data: undefined }
     if (queryKey[0] === getFunctionName(api.teams.amIPro)) return { data: isPro }
     if (queryKey[0] === getFunctionName(api.auth.getCurrentUser)) {
@@ -139,9 +174,22 @@ vi.mock('@tanstack/react-query', () => ({
     return { data: playerName }
   },
   useQueryClient: () => ({ clear: queryClientClear }),
+  // `mutate` (not `mutateAsync`), because that is what the component calls —
+  // `void mutateAsync` on a rejecting mutation would be an unhandled
+  // rejection, since `replay` calls `requirePlayer`, which throws. The
+  // rejection is routed to `onError` here exactly as react-query's real
+  // `mutate` does, so a dropped `onError` handler shows up as an unhandled
+  // rejection in this suite rather than a silently swallowed failure.
+  useMutation: ({ mutationFn }: { mutationFn: (args: unknown) => Promise<unknown> }) => ({
+    mutate: (args: unknown, options?: { onError?: (error: unknown) => void }) => {
+      Promise.resolve(mutationFn(args)).catch((error: unknown) => options?.onError?.(error))
+    },
+  }),
 }))
 
 vi.mock('sonner', () => ({ toast: { info: toastInfo, error: toastError } }))
+
+vi.mock('#/lib/sentry-capture.ts', () => ({ captureError }))
 
 /**
  * A REAL Storage, BECAUSE THIS ENVIRONMENT DOES NOT SUPPLY ONE. Measured
@@ -197,6 +245,15 @@ beforeEach(() => {
   queryClientClear.mockClear()
   toastInfo.mockClear()
   toastError.mockClear()
+  replayOnboarding.mockReset()
+  replayOnboarding.mockResolvedValue(undefined)
+  captureError.mockClear()
+  // The card is still showing by default, matching every other test in this
+  // file that does not care about onboarding — "Show getting started" must
+  // stay absent from the full item-set assertions below unless a test opts
+  // in by setting `dismissed: true`.
+  onboardingStatus = { enteredBoard: true, dismissed: false }
+  onboardingQueryArgs = undefined
 
   vi.stubGlobal('localStorage', memoryStorage())
 
@@ -720,5 +777,79 @@ describe('the avatar sits after the menu trigger, ringed, and only for a session
       'Main menu',
     ])
     expect(ring()?.closest('button')).toBeNull()
+  })
+})
+
+describe('Show getting started brings back a dismissed onboarding card', () => {
+  // The card (onboarding/next-step-card.tsx) is dismissible precisely so a
+  // deliberate solo player is not nagged forever; that is only defensible if
+  // they can get it back. Until this item existed, dismissing was permanent.
+  test('offers to replay onboarding once it has been dismissed', () => {
+    onboardingStatus = { enteredBoard: true, dismissed: true }
+    render(createElement(AppMenu))
+
+    expect(openMenu()).toContain('Show getting started')
+  })
+
+  test('does not offer the replay while the card is still showing', () => {
+    onboardingStatus = { enteredBoard: true, dismissed: false }
+    render(createElement(AppMenu))
+
+    expect(openMenu()).not.toContain('Show getting started')
+  })
+
+  test('a signed-out visitor is never offered it, however the query answers', () => {
+    // `onboardingStatus` is left at `dismissed: true` here on purpose — see
+    // the `useQuery` mock's comment above `onboardingQueryArgs`. This pins the
+    // component's own `isAuthenticated &&` gate around the item, independent
+    // of the query-level 'skip' gate the next test covers, so a mutant that
+    // moved the item out of that block is caught even though in the real app
+    // the query itself would also have refused to answer.
+    isAuthenticated = false
+    onboardingStatus = { enteredBoard: true, dismissed: true }
+    render(createElement(AppMenu))
+
+    expect(openMenu()).not.toContain('Show getting started')
+  })
+
+  test("the query itself is 'skip'ped for a signed-out visitor", () => {
+    // The other half of the previous test: a signed-out visitor's browser
+    // must never even ask the server for this player's onboarding status.
+    // Header.tsx's note on 'skip' vs `enabled: false` is why this is asserted
+    // directly rather than trusted to follow from the item being hidden.
+    isAuthenticated = false
+    render(createElement(AppMenu))
+
+    expect(onboardingQueryArgs).toBe('skip')
+  })
+
+  test('replaying calls onboarding.replay, and reports rather than hangs', async () => {
+    onboardingStatus = { enteredBoard: true, dismissed: true }
+    render(createElement(AppMenu))
+    openMenu()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Show getting started' }))
+
+    await waitFor(() => expect(replayOnboarding).toHaveBeenCalledWith({}))
+    expect(captureError).not.toHaveBeenCalled()
+  })
+
+  test('a failed replay is reported, not silently swallowed', async () => {
+    // Reported rather than toasted, matching monthly-winner-celebration.tsx's
+    // markSeen failure and the dismiss half in app.tsx: there is nothing the
+    // viewer can do about it, and the failure mode is benign — the menu item
+    // is simply still there — but a silently dropped rejection here would be
+    // an unhandled promise rejection instead, since `replay` calls
+    // `requirePlayer`, which throws for a session that has gone stale.
+    onboardingStatus = { enteredBoard: true, dismissed: true }
+    replayOnboarding.mockRejectedValue(new Error('NOT_AUTHENTICATED'))
+    render(createElement(AppMenu))
+    openMenu()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Show getting started' }))
+
+    await waitFor(() =>
+      expect(captureError).toHaveBeenCalledWith(expect.any(Error), { where: 'onboarding.replay' }),
+    )
   })
 })
