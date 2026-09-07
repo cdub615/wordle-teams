@@ -157,6 +157,49 @@ export const getMyPlayerId = query({
 })
 
 /**
+ * The caller's own scores for one month, with no team in the question.
+ *
+ * WHY THIS EXISTS. Boards are PLAYER-owned: upsertBoard takes no teamId and
+ * dailyScores has no team column, so a player with no team can already WRITE
+ * one. Only the read was blocked — the entry form prefilled from getTeamMonth,
+ * which needs a team a brand-new signup does not have. wordle-teams-456 traced
+ * a signup whose whole life was 39 seconds on a team-less screen with nothing
+ * to do; this is what gives them something to do.
+ *
+ * A MONTH, NOT A DAY. The form picks a default day from the set of days already
+ * played (form.tsx:64), so a single-day read cannot feed it.
+ *
+ * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:96-101), deliberately,
+ * so the form derives from one shape whichever query fed it. It reads the same
+ * index through the same monthRange bounds for the same reason: `end` is
+ * '<month>-31' as a LEXICAL bound on 'YYYY-MM-DD', so it includes a 30-day
+ * month's last day and cannot reach into the next month.
+ *
+ * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
+ * /app, which is reachable in the window before a player row exists.
+ */
+export const getMyMonth = query({
+  args: { month: v.string() },
+  handler: async (ctx, { month }) => {
+    const player = await currentPlayer(ctx)
+    if (!player) return []
+    const { start, end } = monthRange(month)
+    const scores = await ctx.db
+      .query('dailyScores')
+      .withIndex('by_player_and_puzzleDay', (q) =>
+        q.eq('playerId', player._id).gte('puzzleDay', start).lte('puzzleDay', end),
+      )
+      .collect()
+    return scores.map((score) => ({
+      id: score._id,
+      puzzleDay: score.puzzleDay,
+      answer: score.answer ?? '',
+      guesses: score.guesses,
+    }))
+  },
+})
+
+/**
  * Anything with a `db` writer — a mutation, or a convex-test `ctx.run` callback
  * passed to a write. Mirrors ReaderCtx above for the same reason: upsertBoardFor
  * only ever touches `ctx.db`, and keeping the parameter type to just that lets

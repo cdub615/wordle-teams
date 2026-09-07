@@ -1,8 +1,10 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
+import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema'
+import { api } from './_generated/api'
 import { addDays, addMonths, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
-import { aPlayer, aTeam } from './fixtures.ts'
+import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
 import { getTeamMonthFor, upsertBoardFor } from './scores'
 
 // `today` is now bounded server-side to ±1 day of the real clock (Step 0b), so
@@ -621,5 +623,92 @@ describe('getTeamMonthFor — scoring version resolution', () => {
       expect(august.team.system.oneGuess).toBe(20)
       expect(august.team.systemEffectiveFrom).toBe('2026-08')
     })
+  })
+})
+
+describe('scores.getMyMonth', () => {
+  test("returns only the caller's own scores, only for the month asked for", async () => {
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      for (const [playerId, puzzleDay] of [
+        [ada, '2026-09-01'],
+        [ada, '2026-09-30'],
+        [ada, '2026-08-31'],
+        [ada, '2026-10-01'],
+        [bob, '2026-09-15'],
+      ] as const) {
+        await ctx.db.insert('dailyScores', {
+          playerId,
+          puzzleDay,
+          date: Date.now(),
+          answer: 'crane',
+          guesses: ['crane'],
+        })
+      }
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    const scores = await as.query(api.scores.getMyMonth, { month: '2026-09' })
+    // Boundaries both included, neighbouring months both excluded, and nothing
+    // of Bob's — the month filter is a lexical range on puzzleDay, so an
+    // off-by-one at either end is a silent data bug rather than an error.
+    expect(scores.map((score) => score.puzzleDay)).toEqual(['2026-09-01', '2026-09-30'])
+  })
+
+  test('includes the 31st of a 31-day month', async () => {
+    // THE UPPER BOUND IS '<month>-31', AND SEPTEMBER CANNOT PROVE IT. Every
+    // assertion in the test above passes just as well with a bound of
+    // '<month>-30', because no September day exceeds it — so that test guards
+    // the lower bound and the player filter, but not this. Only a 31-day month
+    // separates the two, and getting it wrong silently drops the last board of
+    // seven months a year: no error, no empty state, just a day the player
+    // entered that the form no longer prefills.
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      for (const puzzleDay of ['2026-10-01', '2026-10-31', '2026-11-01']) {
+        await ctx.db.insert('dailyScores', {
+          playerId: ada,
+          puzzleDay,
+          date: Date.now(),
+          answer: 'crane',
+          guesses: ['crane'],
+        })
+      }
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    const scores = await as.query(api.scores.getMyMonth, { month: '2026-10' })
+    expect(scores.map((score) => score.puzzleDay)).toEqual(['2026-10-01', '2026-10-31'])
+  })
+
+  test('carries the same fields getTeamMonth puts on a score', async () => {
+    // The form derives from ONE shape regardless of which query fed it, so a
+    // drift here is a runtime break in the team-less branch only.
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('dailyScores', {
+        playerId: ada,
+        puzzleDay: '2026-09-02',
+        date: Date.now(),
+        answer: 'crane',
+        guesses: ['stare', 'crane'],
+      })
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    const [score] = await as.query(api.scores.getMyMonth, { month: '2026-09' })
+    expect(Object.keys(score).sort()).toEqual(['answer', 'guesses', 'id', 'puzzleDay'])
+    expect(score).toMatchObject({ answer: 'crane', guesses: ['stare', 'crane'] })
+  })
+
+  test('is empty rather than throwing for a caller with no player row', async () => {
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    const as = await authenticatedAs(t, 'nobody@example.com')
+    expect(await as.query(api.scores.getMyMonth, { month: '2026-09' })).toEqual([])
   })
 })

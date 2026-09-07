@@ -15,8 +15,19 @@ import { cn } from '#/lib/utils.ts'
 import { boardIsValid, toRows } from '../../../convex/lib/board.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { FunctionReturnType } from 'convex/server'
 
 const EMPTY_ROWS = ['', '', '', '', '', '']
+
+/**
+ * One month of the caller's own scores.
+ *
+ * Derived from getMyMonth's return type rather than written out, so the two
+ * queries that feed this form cannot drift apart silently: getMyMonth exists
+ * precisely to emit the shape getTeamMonthFor already emits (scores.ts:96-101),
+ * and a change to either that broke the pairing would fail here at typecheck.
+ */
+type MyScores = FunctionReturnType<typeof api.scores.getMyMonth>
 
 /**
  * Board entry. Ports v1's form.tsx AS IT STANDS ON dev, per amendment A3 — not
@@ -34,21 +45,25 @@ const EMPTY_ROWS = ['', '', '', '', '', '']
  * designed out rather than dropped: the winner write shares upsertBoard's
  * transaction, so the board landing while the standings go stale is no longer a
  * reachable state.
+ *
+ * OWNS NO QUERY, deliberately. Everything below this line is the form exactly
+ * as it was; what moved out is the pair of reads that used to sit at the top,
+ * because they are the ONLY part of board entry that ever needed a team. See
+ * BoardEntryForm at the bottom of this file for why that had to become a
+ * component boundary rather than a condition.
  */
-export function BoardEntryForm({
-  teamId,
+function BoardEntryFields({
+  myScores,
+  playWeekends,
   month,
   onSuccess,
 }: {
-  teamId: Id<'teams'>
+  myScores: MyScores
+  playWeekends: boolean
   month: string
   onSuccess: () => void
 }) {
-  const { data } = useSuspenseQuery(convexQuery(api.scores.getTeamMonth, { teamId, month }))
-  const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const upsert = useMutation({ mutationFn: useConvexMutation(api.scores.upsertBoard) })
-
-  const myScores = data.players.find((player) => player.id === myPlayerId)?.scores ?? []
 
   const [day, setDay] = useState<string | undefined>(undefined)
   const [answer, setAnswer] = useState('')
@@ -67,7 +82,7 @@ export function BoardEntryForm({
         month,
         today: toPuzzleDay(new Date()),
         playedDays: played,
-        playWeekends: data.team.playWeekends,
+        playWeekends,
       }),
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,7 +179,7 @@ export function BoardEntryForm({
           <DatePicker
             day={day}
             onSelect={setDay}
-            playWeekends={data.team.playWeekends}
+            playWeekends={playWeekends}
             tabIndex={1}
           />
         </div>
@@ -243,6 +258,84 @@ export function BoardEntryForm({
       </div>
     </form>
   )
+}
+
+/**
+ * Prefill for a player who HAS a team: today's reads, unchanged.
+ *
+ * getMyPlayerId stays here and only here. getTeamMonth returns every member's
+ * scores, so this branch has to be told which row is "you"; the solo branch
+ * below does not, because getMyMonth is already scoped to the caller.
+ */
+function TeamBoardEntryForm({
+  teamId,
+  month,
+  onSuccess,
+}: {
+  teamId: Id<'teams'>
+  month: string
+  onSuccess: () => void
+}) {
+  const { data } = useSuspenseQuery(convexQuery(api.scores.getTeamMonth, { teamId, month }))
+  const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
+
+  const myScores = data.players.find((player) => player.id === myPlayerId)?.scores ?? []
+
+  return (
+    <BoardEntryFields
+      myScores={myScores}
+      playWeekends={data.team.playWeekends}
+      month={month}
+      onSuccess={onSuccess}
+    />
+  )
+}
+
+/**
+ * Prefill for a player with NO team.
+ *
+ * `playWeekends` is true because that is v1's default for a brand-new team —
+ * create-team-dialog.tsx ships both switches on — so a team-less player sees
+ * the same set of playable days they will see on the team they are about to
+ * create. There is no team to ask, and picking false would disable weekends
+ * for someone who never chose that.
+ */
+function SoloBoardEntryForm({ month, onSuccess }: { month: string; onSuccess: () => void }) {
+  const { data: myScores } = useSuspenseQuery(convexQuery(api.scores.getMyMonth, { month }))
+
+  return (
+    <BoardEntryFields
+      myScores={myScores}
+      playWeekends={true}
+      month={month}
+      onSuccess={onSuccess}
+    />
+  )
+}
+
+/**
+ * Board entry, whichever query can feed it.
+ *
+ * SPLIT BY DATA SOURCE, NOT BY CONDITION, and that is forced rather than
+ * stylistic. The team prefill needs getTeamMonth and the team-less prefill
+ * needs getMyMonth, and exactly one of them may run — but useSuspenseQuery has
+ * no `enabled` option in TanStack Query v5, and a hook cannot be called
+ * conditionally. Components can be, so the branch is a component boundary.
+ *
+ * The team path is unchanged by this: TeamBoardEntryForm makes the same two
+ * calls this component used to make, in the same order.
+ */
+export function BoardEntryForm({
+  teamId,
+  month,
+  onSuccess,
+}: {
+  teamId?: Id<'teams'>
+  month: string
+  onSuccess: () => void
+}) {
+  if (teamId === undefined) return <SoloBoardEntryForm month={month} onSuccess={onSuccess} />
+  return <TeamBoardEntryForm teamId={teamId} month={month} onSuccess={onSuccess} />
 }
 
 export default BoardEntryForm
