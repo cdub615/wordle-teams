@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useMutation } from '@tanstack/react-query'
@@ -16,6 +16,7 @@ import {
 } from '#/components/ui/dialog.tsx'
 import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
+import { Separator } from '#/components/ui/separator.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
@@ -33,6 +34,20 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * wanted actually happened, and the likeliest next action is correcting the
  * address, so closing would make them reopen it. The field is cleared so the
  * next attempt starts fresh.
+ *
+ * THE SECOND PATH, ADDED BESIDE THE FIRST AND NOT INSTEAD OF IT. Typing an
+ * address is still the right tool when you know the address; it is a terrible
+ * one when you do not, and this app's traffic is heavily iPhone. Six of the
+ * eight most recently created production teams invited nobody at all. So there
+ * is now a "Share a link" half below the form, which mints a token
+ * (convex/inviteLinks.ts createLink) and hands the URL to the platform.
+ *
+ * BOTH BROWSER APIS ARE FEATURE-DETECTED, AND THIS IS THE APP'S FIRST USE OF
+ * EITHER — neither `navigator.share` nor `navigator.clipboard` appears anywhere
+ * else in src/. `navigator.share` is absent on most desktop browsers, and BOTH
+ * are absent outside a secure context, which is not a hypothetical: an http://
+ * LAN address is how this app gets opened on a real phone during development.
+ * See shareLink for what each absence does.
  */
 export function InvitePlayerDialog({
   open,
@@ -47,6 +62,7 @@ export function InvitePlayerDialog({
   teamName: string
 }) {
   const invite = useMutation({ mutationFn: useConvexMutation(api.teams.invitePlayer) })
+  const createLink = useMutation({ mutationFn: useConvexMutation(api.inviteLinks.createLink) })
   const { height, offsetTop } = useVisualViewport()
   // CONTROLLED, unlike /login's and /complete-profile's inputs, and the
   // difference is not an oversight. Those two are rendered into the SSR HTML,
@@ -60,6 +76,13 @@ export function InvitePlayerDialog({
   // expressible without owning the value.
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // The link half's own two pieces of state. `sharing` is the mutation's, held
+  // locally rather than read off `createLink.isPending` for parity with
+  // `submitting` above; `copied` is the only lasting confirmation the clipboard
+  // path leaves, since a toast is gone in seconds and the share sheet — the
+  // path that does NOT set it — gives its own feedback.
+  const [sharing, setSharing] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   // Reset on the OPEN transition, matching create-team-dialog.tsx: a failed
   // submit leaves `open` true, so this never clobbers what submit deliberately
@@ -67,6 +90,9 @@ export function InvitePlayerDialog({
   useEffect(() => {
     if (!open) return
     setEmail('')
+    // `copied` is reset here too, or a second visit opens on a stale "Link
+    // copied" for a link minted minutes ago. Nothing below ever clears it.
+    setCopied(false)
   }, [open])
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
@@ -133,6 +159,59 @@ export function InvitePlayerDialog({
     }
   }
 
+  /**
+   * Mint a link and hand it to the platform.
+   *
+   * navigator.share FIRST, WHERE IT EXISTS, AND THAT ORDER IS THE POINT. This
+   * is a phone-first action and the native sheet — Messages, WhatsApp, the
+   * group chat the team already lives in — is the whole reason a link beats
+   * typing an address. The clipboard is the FALLBACK, for the desktop browsers
+   * that have no share sheet at all. Reversing them would technically work and
+   * would throw away the feature's reason for existing.
+   *
+   * AN AbortError IS NOT A FAILURE. It is what both APIs throw when the user
+   * dismisses the share sheet, which is a decision they made on purpose. An
+   * error toast for it would tell somebody who just changed their mind that the
+   * app is broken.
+   *
+   * THE CLIPBOARD IS FEATURE-DETECTED TOO, not merely called. `navigator.
+   * clipboard` is `undefined` outside a secure context, so on an http:// LAN
+   * address — how this app is opened on a real phone in development — the bare
+   * call is a TypeError that lands in the catch below and reports "Could not
+   * create an invite link" about a link that was created successfully. The
+   * explicit branch says the true thing and points at the email field, which is
+   * two inches up the same dialog and still works.
+   *
+   * NOT `void createLink.mutateAsync(...)`: a rejecting mutation with nothing
+   * attached is an unhandled rejection. This is the try/catch-and-toast shape
+   * notifications-tab.tsx:213 and my-teams-card.tsx:50 use.
+   */
+  const shareLink = async () => {
+    setSharing(true)
+    try {
+      const token = await createLink.mutateAsync({ teamId })
+      const url = `${window.location.origin}/join/${token}`
+      if (navigator.share) {
+        await navigator.share({ title: `Join ${teamName} on Wordle Teams`, url })
+        return
+      }
+      if (!navigator.clipboard) {
+        toast.error('This browser cannot copy the link. Invite by email above instead.')
+        return
+      }
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      toast.success('Invite link copied')
+    } catch (error) {
+      // An AbortError is the user dismissing the share sheet, which is not a
+      // failure and must not raise a toast.
+      if (error instanceof Error && error.name === 'AbortError') return
+      toast.error(mutationErrorMessage(error, 'Could not create an invite link'))
+    } finally {
+      setSharing(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* The visual-viewport `top` is parity with the other team dialogs — see
@@ -195,6 +274,47 @@ export function InvitePlayerDialog({
             </Button>
           </DialogFooter>
         </form>
+        {/* OUTSIDE THE <form>, DELIBERATELY. Inside it this button would need
+            `type="button"` to avoid submitting the email field on every tap, and
+            a control that silently depends on one attribute for correctness is
+            the kind of thing an edit deletes. It carries `type="button"` anyway
+            — ui/button.tsx renders a bare <button>, whose default type is
+            "submit", and a future wrapper <form> would resurrect exactly that
+            bug. */}
+        <div className="w-full space-y-2">
+          <Separator />
+          <p className="text-sm font-medium">Or share a link</p>
+          <p className="text-muted-foreground text-sm">
+            {/* "a week" rather than a number of days: LINK_TTL_MS lives in
+                convex/inviteLinks.ts:10 and nothing makes this copy follow it,
+                so the vaguer sentence is the one that stays true if it moves. */}
+            Anyone with the link can join {teamName}. It stops working after a week.
+          </p>
+          {/* VISIBLE TEXT, NOT AN ICON ALONE, AND THAT IS wordle-teams-390.
+              v1's OAuth buttons were icon-only with their labels available only
+              in a hover Tooltip; a Tooltip does not open on tap, the login
+              traffic is heavily iPhone, and login conversion sat around 7%. The
+              icon here is decoration beside a real label — next-step-card.tsx's
+              dismiss button carries the same note. */}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={sharing}
+            aria-disabled={sharing}
+            onClick={shareLink}
+          >
+            {sharing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Share2 className="mr-2 h-4 w-4" />
+            )}
+            Share a link
+          </Button>
+          {copied && (
+            <p className="text-muted-foreground text-sm">Link copied to your clipboard.</p>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )

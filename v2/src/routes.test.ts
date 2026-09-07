@@ -980,6 +980,63 @@ describe('/join/$token, the route shared invite links point at', () => {
 })
 
 /**
+ * THE ONBOARDING CARD'S INVITE TASK OPENS A DIALOG ON /app, AND DOES NOT
+ * NAVIGATE TO /team.
+ *
+ * The task existed before the dialog did, and pointed at `/team` because that
+ * is where the only InvitePlayerDialog in the app was mounted
+ * (current-team-card.tsx). Repointing it is the whole of the UI half of this
+ * epic, and it is INVISIBLE TO EVERY OTHER GATE: `navigate({ to: '/team',
+ * search: { team: teamParam } })` type-checks, lints, builds and passes every
+ * unit test, because /team is a real route with a real invite control on it.
+ * Reverting the prop takes the person off the screen they were converting on
+ * and nothing goes red.
+ *
+ * A `toMatch` OVER THE FILE CANNOT DO THIS JOB. app.tsx legitimately navigates
+ * to `/team` from three other places — the "Team settings" <Link>, the chat
+ * row's sibling <Link>, and ScoringLegend's onEdit — so "does the file mention
+ * /team" is true either way. It is the PROP that has to be pinned, which is
+ * what src/test-support/source-ast.ts exists for.
+ *
+ * BOTH ENDS, LIKE THE startUpgrade BLOCK ABOVE: the prop's text, and the
+ * element it hands the state to. A prop reading `() => setInviteOpen(true)`
+ * with no dialog mounted anywhere is a button that does nothing at all, and
+ * that is a worse outcome than the navigation it replaced.
+ */
+describe('the onboarding invite task opens the invite dialog in place', () => {
+  const APP = './routes/app.tsx'
+
+  test("NextStepCard's onInvite opens the dialog rather than leaving the page", () => {
+    expect(jsxProps(APP, 'NextStepCard').get('onInvite')).toBe('() => setInviteOpen(true)')
+  })
+
+  test('and the dashboard actually mounts an InvitePlayerDialog for it to open', () => {
+    // `jsxElements` rather than a text match: a bare import left behind by a
+    // deleted element keeps the identifier in the file.
+    const dialogs = jsxElements(APP, 'InvitePlayerDialog')
+    expect(dialogs, 'routes/app.tsx mounts no InvitePlayerDialog').toHaveLength(1)
+    const props = dialogs[0]
+    expect(props.get('open')).toBe('inviteOpen')
+    expect(props.get('onOpenChange')).toBe('setInviteOpen')
+    // The team it is addressed to, named rather than defaulted. `selectedTeam`
+    // guards the mount for the same reason: a `?? ''` here would render a
+    // dialog titled "Invite Player to " for a team that is not on the payload.
+    expect(props.get('teamName')).toBe('selectedTeam.name')
+    expect(props.get('teamId')).toBe("teamParam as Id<'teams'>")
+  })
+
+  test('/team keeps its own, so this is a second entry point and not a move', () => {
+    // The one CurrentTeamCard hosts is untouched: the epic's rule is that the
+    // existing route works exactly as it did. Two mounts of one dialog is safe
+    // ONLY because they are on different routes and can never be mounted
+    // together — the reason two CreateTeamDialogs were refused earlier.
+    expect(codeOf(read('./components/teams/current-team-card.tsx'))).toMatch(
+      /<InvitePlayerDialog/,
+    )
+  })
+})
+
+/**
  * NO ROUTE FILE MAY EXPORT THE COMPONENT IT ROUTES TO (wordle-teams-xsrv).
  *
  * @tanstack/router-plugin rewrites `component:` into a lazy reference so the

@@ -20,6 +20,7 @@ import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return
 import { MonthPicker, monthOptions } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
+import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
 import { TeamBoards } from '#/components/teams/team-boards.tsx'
 import { TodayPanel } from '#/components/today-panel.tsx'
@@ -192,6 +193,17 @@ function Dashboard() {
   const { unread: unreadTeams } = useUnreadTeams(teamIds)
   const [createOpen, setCreateOpen] = useState(false)
   const [boardOpen, setBoardOpen] = useState(false)
+  /**
+   * The onboarding card's invite task, which used to be a navigation to /team.
+   *
+   * A SECOND MOUNT OF InvitePlayerDialog, NOT A MOVE. current-team-card.tsx:333
+   * keeps its own and /team is unchanged; this adds an entry point, it does not
+   * relocate the first. That is safe here in a way it was NOT for
+   * CreateTeamDialog — two of those were refused because both would have been
+   * mounted on the SAME page. These two live on different routes and can never
+   * be mounted together.
+   */
+  const [inviteOpen, setInviteOpen] = useState(false)
   /**
    * NULL UNTIL THE CARD'S BOARD TASK IS PRESSED, AND THAT IS THE HYDRATION
    * GUARDRAIL, not laziness. See where it is set below.
@@ -377,20 +389,24 @@ function Dashboard() {
         setBoardOpen(true)
       }}
       onTeam={() => setCreateOpen(true)}
-      // /team is where CurrentTeamCard already hosts InvitePlayerDialog.
+      // OPENS THE DIALOG HERE RATHER THAN NAVIGATING TO /team, which is what
+      // this used to do. The task's whole job is to get one more person into
+      // the room, and a route change to a settings page — where the invite
+      // control is one of several — is a detour off the screen the person is
+      // already on. The dialog is mounted on the dashboard branch below.
       //
-      // `teamParam` IS DEFINED WHEREVER THIS CAN BE PRESSED, and that is
-      // guaranteed by incompleteTasks rather than by anything here. An earlier
-      // version of this comment claimed the invite task was unreachable from
-      // the no-team branch because "the create task is on screen too" — that
-      // was simply false: the task list gated 'invite' on !hasInvited alone,
-      // so a brand-new signup got a live button that navigated to /team with
-      // no team id, and routes/team.tsx bounced it straight back to /app. The
-      // real guarantee is now the `hasTeam &&` in incompleteTasks: this task
-      // does not exist until a team does, so this branch cannot be reached
-      // without one. If that gate is ever relaxed, this navigation breaks
-      // again — onboarding-tasks.test.ts is what holds it.
-      onInvite={() => void navigate({ to: '/team', search: { team: teamParam } })}
+      // THE DIALOG IS ONLY MOUNTED ON THAT BRANCH, and pressing this on the
+      // team-less branch would therefore set state nothing reads. It cannot be
+      // pressed there: `hasTeam &&` in incompleteTasks is what stops the invite
+      // task from rendering at all until a team exists. That gate is not a
+      // convenience — before it existed the task was on screen for a brand-new
+      // signup, navigating to /team with no team id, and routes/team.tsx
+      // bounced it straight back to /app. If it is ever relaxed this button
+      // goes dead; onboarding-tasks.test.ts is what holds it.
+      //
+      // `teamParam` IS DEFINED WHEREVER THIS CAN BE PRESSED, by the same gate,
+      // which is why the dialog below can take it without a fallback.
+      onInvite={() => setInviteOpen(true)}
       // `mutate`, NOT `void mutateAsync(...)`. A rejected mutateAsync with
       // nothing attached to it is an unhandled promise rejection; `mutate`
       // routes the same failure into the mutation's own state instead. Dismiss
@@ -582,6 +598,31 @@ function Dashboard() {
           own — a Radix Dialog Root is not a DOM node — so its position here is
           about WHEN it mounts, not where it lands. It reads last month's winner
           for the SELECTED team, which is v1's behaviour too. */}
+      {/* THE ONBOARDING CARD'S INVITE TASK, mounted here and not on the two
+          branches above because it is the only branch that has a team to name.
+          `selectedTeam` is the guard AND the source of `teamName`; there is no
+          `?? ''` fallback because a missing team must render no dialog rather
+          than one addressed to nobody.
+
+          NOT GATED ON `selectedTeam.isOwner`, unlike current-team-card.tsx:333,
+          and the difference is that its gate protects a dialog with NO TRIGGER
+          for a non-owner — its Invite button is owner-only, so mounting it
+          would attach useVisualViewport's listeners for something that can
+          never open. Here the trigger is the onboarding card, which is not
+          owner-gated. It does not need to be: both mutations behind this dialog
+          call requireTeamOwnerFor, and a non-owner cannot see the invite task
+          in the first place — being a non-owner member means the team has a
+          second member, which makes `hasInvited` true, which removes the task.
+          Were that chain ever to break, an error toast from the server is a
+          better outcome than a button that silently does nothing. */}
+      {selectedTeam && (
+        <InvitePlayerDialog
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          teamId={teamParam as Id<'teams'>}
+          teamName={selectedTeam.name}
+        />
+      )}
       <MonthlyWinnerCelebration teamId={teamParam as Id<'teams'>} />
       {/* THIS ROW FITS A PHONE ON ONE LINE, AND IT ONLY JUST DOES. Five
           controls live here — team picker, month picker, "Team settings",
