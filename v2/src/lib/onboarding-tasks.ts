@@ -7,10 +7,19 @@
  * copy and the predicates are pinned by plain unit tests under the default
  * edge-runtime rather than only by the jsdom suite next door.
  *
- * THE THREE TASKS ARE INDEPENDENT AND CARRY NO PRECEDENCE. That is a product
+ * BOARD AND TEAM ARE INDEPENDENT AND CARRY NO PRECEDENCE. That is a product
  * decision taken 2026-09-07, not an oversight: there is no evidence for
- * whether playing first or inviting first converts better, and the funnel
+ * whether playing first or making a team first converts better, and the funnel
  * events exist to answer it after launch. Do not "fix" this into a sequence.
+ *
+ * INVITE IS THE ONE EXCEPTION, AND IT IS A PREREQUISITE RATHER THAN AN
+ * ORDERING. You cannot invite someone to nothing: with no team there is no
+ * room to invite them into, and /team — where the invite dialog lives —
+ * redirects straight back to /app for a player with no teams (routes/team.tsx).
+ * So an invite task shown to a team-less player is a CTA that cannot do
+ * anything, on the exact screen wordle-teams-456 says signups already stall
+ * on, and the onboarding_task_click it fires can never convert — which also
+ * poisons the denominator this epic is measured by. See incompleteTasks.
  */
 
 export type OnboardingTaskId = 'board' | 'team' | 'invite'
@@ -66,12 +75,23 @@ const TASK_COPY: Record<OnboardingTaskId, { title: string; hint: string }> = {
  * Fixed order is presentation, not precedence — the list must not reshuffle
  * under the reader's finger as tasks complete, and a stable order is also what
  * makes taskSetKey below a usable dedupe key.
+ *
+ * `hasTeam &&` ON THE INVITE IS THE PREREQUISITE THE HEADER DESCRIBES, and it
+ * is the one gate here that is not simply "is this fact false". The other two
+ * are independently actionable by a player who has nothing: anyone can enter a
+ * board (boards are player-owned — upsertBoard takes no teamId), and anyone can
+ * create a team. Inviting is not, because the invite needs somewhere to point.
+ *
+ * A CONSEQUENCE WORTH KNOWING: 'team' and 'invite' are now mutually exclusive —
+ * one needs hasTeam false and the other needs it true — so this returns at most
+ * TWO tasks, never three. cardHeading's "One more thing" therefore triggers at
+ * one remaining as before, but the largest set a card can show is two.
  */
 export function incompleteTasks(facts: OnboardingFacts): OnboardingTask[] {
   const ids: OnboardingTaskId[] = []
   if (!facts.enteredBoard) ids.push('board')
   if (!facts.hasTeam) ids.push('team')
-  if (!facts.hasInvited) ids.push('invite')
+  if (facts.hasTeam && !facts.hasInvited) ids.push('invite')
   return ids.map((id) => ({ id, ...TASK_COPY[id] }))
 }
 

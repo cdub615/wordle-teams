@@ -44,6 +44,17 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
   await expect(page).toHaveURL('/app')
   await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
 
+  // THE TWO TASKS A PLAYER WITH NOTHING ACTUALLY OWES, AND THE ONE THEY MUST
+  // NOT BE OFFERED. "Invite someone" shipped here briefly and was a dead end:
+  // with no team it navigated to /team, which redirects a team-less player
+  // straight back to /app, having emitted a funnel click that could never
+  // convert. incompleteTasks now gates it on hasTeam. Asserted in a real
+  // browser as well as in the unit and jsdom suites because this is the screen
+  // wordle-teams-456 is about, and the failure was invisible to every gate.
+  await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Create a team/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Invite someone/ })).toBeHidden()
+
   // AND STAYS. A cached `true` surviving the hop would bounce the user back to
   // the form they just completed — the loop obw warns about — and would do it
   // slightly after arrival, so this reloads rather than merely re-reading the

@@ -56,6 +56,22 @@ Emails stay off the wire. `getMyTeamsFor` picks fields explicitly *because* `inv
 
 Create `v2/src/lib/onboarding-tasks.test.ts`:
 
+> **CORRECTED 2026-09-07, AFTER TASK 7 SHIPPED.** The task list below was
+> written as three independent tasks. It is three, but `invite` carries a
+> PREREQUISITE the original text missed: `incompleteTasks` gated it on
+> `!hasInvited` alone, so a brand-new signup with no team was shown a live
+> "Invite someone" button that navigated to `/team` with no team id — and
+> `routes/team.tsx` redirects a team-less player straight back to `/app`. A
+> dead-end CTA on the exact screen wordle-teams-456 is about, emitting an
+> `onboarding_task_click` that can never convert. The fix is
+> `if (facts.hasTeam && !facts.hasInvited)` in `incompleteTasks`, NOT a check in
+> the route. This is a prerequisite ("you cannot invite someone to nothing"),
+> not the precedence the design forbids: board and team stay independent.
+>
+> Consequence for the expectations below: `team` and `invite` are now MUTUALLY
+> EXCLUSIVE, so a card shows at most TWO tasks and a fresh signup owes
+> `['board', 'team']`. Every expectation naming three has been corrected.
+
 ```ts
 import { describe, expect, test } from 'vitest'
 import {
@@ -89,10 +105,23 @@ describe('incompleteTasks', () => {
   })
 
   test('every task carries its copy, attached to the right id', () => {
+    // TWO FIXTURES: 'team' and 'invite' cannot co-occur — see the correction
+    // note at the head of this task.
     expect(incompleteTasks(nothing)).toEqual([
       { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
       { id: 'team', title: 'Create a team', hint: 'Where scores get compared' },
+    ])
+    expect(incompleteTasks({ ...nothing, hasTeam: true })).toEqual([
+      { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
       { id: 'invite', title: 'Invite someone', hint: 'A scoreboard needs someone to score against' },
+    ])
+  })
+
+  test('the invite task needs a team first, because it has nowhere to point without one', () => {
+    expect(incompleteTasks(nothing).map((t) => t.id)).not.toContain('invite')
+    expect(incompleteTasks({ ...nothing, hasTeam: true }).map((t) => t.id)).toEqual([
+      'board',
+      'invite',
     ])
   })
 })
@@ -102,7 +131,7 @@ describe('shouldShowCard', () => {
     expect(shouldShowCard(nothing)).toBe(true)
   })
 
-  test('retires when all three are complete', () => {
+  test('retires when every task is complete', () => {
     const done: OnboardingFacts = {
       enteredBoard: true,
       hasTeam: true,
@@ -148,7 +177,7 @@ describe('MODEL_LINE', () => {
 
 describe('taskSetKey', () => {
   test('is stable for the same set and distinct across sets', () => {
-    expect(taskSetKey(incompleteTasks(nothing))).toBe('board,team,invite')
+    expect(taskSetKey(incompleteTasks(nothing))).toBe('board,team')
     expect(taskSetKey(incompleteTasks({ ...nothing, hasTeam: true }))).toBe('board,invite')
   })
 })
@@ -1002,7 +1031,7 @@ Create `v2/src/components/onboarding/next-step-card.hook.test.ts`:
  afterEach(cleanup)
 
  describe('NextStepCard', () => {
-   test('renders all three tasks and the model line for a fresh signup', () => {
+   test('renders the two tasks a fresh signup owes, and the model line', () => {
      render(createElement(NextStepCard, { facts: nothing, ...handlers }))
      expect(screen.getByText("Enter today's board")).toBeTruthy()
      expect(screen.getByText('Create a team')).toBeTruthy()
@@ -1048,7 +1077,7 @@ Create `v2/src/components/onboarding/next-step-card.hook.test.ts`:
      rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
      rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
      expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-       'onboarding_view:board,team,invite',
+       'onboarding_view:board,team',
      ])
    })
 
@@ -1056,7 +1085,7 @@ Create `v2/src/components/onboarding/next-step-card.hook.test.ts`:
      const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
      rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
      expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-       'onboarding_view:board,team,invite',
+       'onboarding_view:board,team',
        'onboarding_view:board,invite',
      ])
    })
@@ -1074,7 +1103,7 @@ Create `v2/src/components/onboarding/next-step-card.hook.test.ts`:
      rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
      rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
      expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-       'onboarding_view:board,team,invite',
+       'onboarding_view:board,team',
        'onboarding_view:board,invite',
      ])
    })
@@ -1609,7 +1638,21 @@ Replace the `teams.length === 0` branch (`:222-232`) with:
 
 And render `{onboarding}` as the first child of the main dashboard container, immediately above `TodayPanel`, with `{boardSurface}` alongside the other dialogs.
 
-**`onInvite` navigates to `/team`** for now, where `CurrentTeamCard` already hosts `InvitePlayerDialog`. Plan B's Task 5 repoints it at the share-a-link dialog. The invite task cannot be reached from the no-team branch anyway: `hasTeam` false means the create task is showing too.
+**`onInvite` navigates to `/team`** for now, where `CurrentTeamCard` already hosts `InvitePlayerDialog`. Plan B's Task 5 repoints it at the share-a-link dialog.
+
+> **THIS PARAGRAPH USED TO END WITH A FALSE CLAIM**, corrected 2026-09-07 after
+> Task 7 shipped it into a code comment: "The invite task cannot be reached from
+> the no-team branch anyway: `hasTeam` false means the create task is showing
+> too." Both halves are wrong. `incompleteTasks` pushed `invite` on
+> `!hasInvited` ALONE, with no `hasTeam` dependence, so the two tasks rendered
+> TOGETHER for a fresh signup — and the create task being on screen was never a
+> reason the invite one would not be. A team-less player could tap it, fire a
+> funnel click, navigate to `/team` with `team: undefined` and be redirected
+> straight back to `/app`.
+>
+> The fix is in the pure module, not here: `incompleteTasks` now gates the
+> invite push on `facts.hasTeam`, so `teamParam` is guaranteed defined wherever
+> this callback can run. See the correction note on Task 1.
 
 - [ ] **Step 8: Delete the empty state, and fix every e2e assertion that named it**
 
@@ -2048,13 +2091,16 @@ Create `v2/e2e/onboarding.spec.ts`, following the seeding helpers in the existin
 import { expect, test } from '@playwright/test'
 
 test.describe('onboarding next-step card', () => {
-  test('a fresh signup sees all three tasks and can play with no team', async ({ page }) => {
+  test('a fresh signup sees its two tasks and can play with no team', async ({ page }) => {
     // Seed an account with a player row, no team, no boards.
     await page.goto('/app')
     await expect(page.getByText('Get started')).toBeVisible()
     await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /Create a team/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Invite someone/ })).toBeVisible()
+    // NOT the invite task — it needs a team to point at, and asserting its
+    // ABSENCE here is what pins the dead end fixed after Task 7. See the
+    // correction note on Task 1.
+    await expect(page.getByRole('button', { name: /Invite someone/ })).toBeHidden()
 
     // The point of the whole design: this works with no team.
     await page.getByRole('button', { name: /Enter today's board/ }).click()

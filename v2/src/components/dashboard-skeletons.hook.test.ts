@@ -23,7 +23,7 @@ import {
   ScoringSystemCardSkeleton,
   TeamBoardsSkeleton,
 } from './dashboard-skeletons.tsx'
-import { jsxPropsOf, parseSource } from '#/test-support/source-ast.ts'
+import { codeOf, jsxPropsOf, parseSource } from '#/test-support/source-ast.ts'
 import { SYSTEM_FIELDS } from '../../convex/lib/scoringSystem.ts'
 
 afterEach(cleanup)
@@ -306,6 +306,45 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     // lint, typecheck and build all green without this line.
     const surfaceProps = jsxPropsOf('app.tsx', source, 'BoardEntrySurface')
     expect(surfaceProps.get('teamId')).toContain("Id<'teams'> | undefined")
+  })
+
+  /**
+   * THE DASHBOARD BRANCH OF THE ONBOARDING WIRING, WHICH NOTHING ELSE SEES.
+   *
+   * Every other test of this feature runs on an account with NO teams — the
+   * unit tests pass facts directly, the jsdom tests render the card alone, and
+   * both e2e sites that reach the card are freshly-completed profiles. So
+   * `onboardingFactsFrom(teams, ...)` and `onboardingFactsFrom([], ...)` are
+   * indistinguishable to the whole suite, and so is deleting the card from the
+   * grid branch outright. Measured, not assumed: those two mutations plus
+   * dropping the loader's warming all passed test, lint, typecheck and build.
+   *
+   * SOURCE ASSERTIONS BECAUSE THE RENDER IS OUT OF REACH, the same trade the
+   * teamId tripwire above makes. Rendering this route under vitest would need
+   * a router, a Convex client and four seeded queries; these three lines cost
+   * nothing and catch the mutations that actually happened.
+   */
+  describe('the onboarding card is wired into the dashboard branch, not only the empty one', () => {
+    const code = codeOf(source)
+
+    test('the grid branch renders the card, spanning all three columns', () => {
+      // `md:col-span-3` is not decoration here: every child of this grid
+      // carries it, and without it the card lands in one of three columns at
+      // md and above while the page around it stays full width.
+      expect(code).toContain("onboardingCard('md:col-span-3')")
+    })
+
+    test('the no-team branch renders it too, in its own centred box', () => {
+      expect(code).toMatch(/onboardingCard\('[^']*\bmax-w-md\b[^']*'\)/)
+    })
+
+    test('the facts come from the live team list, not a literal', () => {
+      // `onboardingFactsFrom([], status)` type-checks and behaves identically
+      // for the team-less player every other test uses — and permanently tells
+      // a player WITH a team that they have none, so the card offers "Create a
+      // team" forever and the invite task can never appear.
+      expect(code).toContain('onboardingFactsFrom(teams,')
+    })
   })
 
   test('each fallback is the skeleton for the component it wraps, not a generic one', () => {

@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card.tsx'
-import { cn } from '#/lib/utils.ts'
 import { trackFunnel } from '#/lib/funnel.ts'
 import {
   MODEL_LINE,
@@ -42,11 +41,16 @@ export function NextStepCard({
   onDismiss: () => void
   /**
    * THE CALLER'S LAYOUT, NOT THIS COMPONENT'S, exactly as CheckoutPending takes
-   * it. routes/app.tsx renders this on two branches: a plain <main>, and a grid
-   * whose every child needs `md:col-span-3` or lands in one of three columns.
-   * A wrapper element there would leave an empty grid item — and so a gap — on
-   * every render where this returns null, which is every render for an
-   * activated player.
+   * it — which is why NO margin or width is baked in here. routes/app.tsx
+   * renders this on two branches that want genuinely different boxes: a plain
+   * <main>, where it is a centred card with its own bottom margin, and a grid
+   * whose every child needs `md:col-span-3` or lands in one of three columns
+   * AND whose vertical rhythm is the grid's own `gap` — a baked-in `mb-4` made
+   * this the one child with 24px under it where every other pair has 8px.
+   *
+   * A wrapper element in the grid would have solved the column half at the cost
+   * of an empty grid item, and so a stray gap, on every render where this
+   * returns null — which is every render for an activated player.
    */
   className?: string
 }) {
@@ -134,7 +138,7 @@ export function NextStepCard({
   }
 
   return (
-    <Card className={cn('mb-4', className)}>
+    <Card className={className}>
       <CardHeader className="relative">
         <CardTitle asChild>
           <h2>{cardHeading(facts)}</h2>
@@ -145,6 +149,17 @@ export function NextStepCard({
           OAuth labels are the cautionary tale this app already paid for
           (wordle-teams-390): a Tooltip does not open on tap, and the login
           traffic here is heavily iPhone.
+        */}
+        {/*
+          40x40 (`size="icon"` is h-10 w-10), UNDER THE 44pt THE iOS HIG ASKS
+          FOR, AND KNOWINGLY SO. This is the primary escape hatch on a card
+          shown to a heavily-iPhone audience, so the question is a fair one —
+          but every `size="icon"` Button in this app is 40x40, and the two
+          icon-only controls in the dashboard toolbar are 34px wide with a
+          recorded reason. Fixing it HERE would make this the one control in
+          the app with a bespoke touch target and would not help the others;
+          the fix belongs in ui/button.tsx's `icon` size, as a project-wide
+          call. Recorded rather than inherited silently.
         */}
         <Button
           variant="ghost"

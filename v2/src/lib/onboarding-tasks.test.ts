@@ -30,11 +30,58 @@ describe('incompleteTasks', () => {
   })
 
   test('every task carries its copy, attached to the right id', () => {
+    // TWO FIXTURES RATHER THAN ONE, because 'team' and 'invite' can no longer
+    // appear together: one wants hasTeam false and the other wants it true.
+    // All three copies are still asserted, which is what this test is for.
     expect(incompleteTasks(nothing)).toEqual([
       { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
       { id: 'team', title: 'Create a team', hint: 'Where scores get compared' },
+    ])
+    expect(incompleteTasks({ ...nothing, hasTeam: true })).toEqual([
+      { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
       { id: 'invite', title: 'Invite someone', hint: 'A scoreboard needs someone to score against' },
     ])
+  })
+
+  test('the invite task needs a team first, because it has nowhere to point without one', () => {
+    // THE DEAD END THIS PREVENTS, and the reason the gate is here rather than
+    // in the route. Without `hasTeam &&`, a brand-new signup — the 87%
+    // wordle-teams-456 is about — is shown a live "Invite someone" button that
+    // fires onboarding_task_click and navigates to /team with no team id, and
+    // routes/team.tsx redirects it straight back to /app. Nothing happens, and
+    // the funnel gains a click that can never convert.
+    //
+    // NOT the precedence the header forbids: board and team remain independent
+    // of each other and of this. This is "the action is impossible", not "do
+    // this one second".
+    expect(incompleteTasks(nothing).map((t) => t.id)).toEqual(['board', 'team'])
+    expect(incompleteTasks(nothing).map((t) => t.id)).not.toContain('invite')
+
+    // And it appears the moment a team exists — the gate defers the task, it
+    // does not delete it.
+    expect(incompleteTasks({ ...nothing, hasTeam: true }).map((t) => t.id)).toEqual([
+      'board',
+      'invite',
+    ])
+  })
+
+  test('a card never shows more than two tasks, since team and invite are exclusive', () => {
+    // Guards the claim incompleteTasks' own comment makes, over every one of
+    // the eight fact combinations rather than the two spot-checked above.
+    for (const enteredBoard of [false, true]) {
+      for (const hasTeam of [false, true]) {
+        for (const hasInvited of [false, true]) {
+          const ids = incompleteTasks({ enteredBoard, hasTeam, hasInvited, dismissed: false }).map(
+            (t) => t.id,
+          )
+          expect(ids.length).toBeLessThanOrEqual(2)
+          expect(ids.includes('team') && ids.includes('invite')).toBe(false)
+          // The invite task never reaches a player with no team, in ANY
+          // combination — this is the assertion the dead end would trip.
+          if (!hasTeam) expect(ids).not.toContain('invite')
+        }
+      }
+    }
   })
 })
 
@@ -43,7 +90,7 @@ describe('shouldShowCard', () => {
     expect(shouldShowCard(nothing)).toBe(true)
   })
 
-  test('retires when all three are complete', () => {
+  test('retires when every task is complete', () => {
     const done: OnboardingFacts = {
       enteredBoard: true,
       hasTeam: true,
@@ -89,7 +136,9 @@ describe('MODEL_LINE', () => {
 
 describe('taskSetKey', () => {
   test('is stable for the same set and distinct across sets', () => {
-    expect(taskSetKey(incompleteTasks(nothing))).toBe('board,team,invite')
+    // 'board,team' rather than the 'board,team,invite' this once read: the
+    // invite task now waits for a team. See the prerequisite test above.
+    expect(taskSetKey(incompleteTasks(nothing))).toBe('board,team')
     expect(taskSetKey(incompleteTasks({ ...nothing, hasTeam: true }))).toBe('board,invite')
   })
 })

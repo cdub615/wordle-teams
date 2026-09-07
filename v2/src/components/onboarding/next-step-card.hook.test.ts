@@ -40,12 +40,27 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('NextStepCard', () => {
-  test('renders all three tasks and the model line for a fresh signup', () => {
+  test('renders the two tasks a fresh signup owes, and the model line', () => {
     render(createElement(NextStepCard, { facts: nothing, ...handlers }))
     expect(screen.getByText("Enter today's board")).toBeTruthy()
     expect(screen.getByText('Create a team')).toBeTruthy()
-    expect(screen.getByText('Invite someone')).toBeTruthy()
     expect(screen.getByText(MODEL_LINE)).toBeTruthy()
+
+    // AND NOT THE INVITE, WHICH IS THE DEAD END THIS RENDERS THE PROOF OF.
+    // incompleteTasks gates 'invite' on hasTeam because /team redirects a
+    // team-less player straight back to /app — so before that gate this button
+    // was on screen, clickable, and did nothing but emit a funnel click that
+    // could never convert. Asserted HERE as well as in onboarding-tasks.test.ts
+    // because this is the level a reader checks when they ask "what does a new
+    // signup actually see".
+    expect(screen.queryByText('Invite someone')).toBeNull()
+  })
+
+  test('the invite task appears once a team exists', () => {
+    // The other half of the gate: deferred, not deleted.
+    render(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
+    expect(screen.getByText('Invite someone')).toBeTruthy()
+    expect(screen.queryByText('Create a team')).toBeNull()
   })
 
   test('an invited joiner sees only the board task', () => {
@@ -86,7 +101,7 @@ describe('NextStepCard', () => {
     rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
     rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
     expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-      'onboarding_view:board,team,invite',
+      'onboarding_view:board,team',
     ])
   })
 
@@ -94,7 +109,7 @@ describe('NextStepCard', () => {
     const { rerender } = render(createElement(NextStepCard, { facts: nothing, ...handlers }))
     rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
     expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-      'onboarding_view:board,team,invite',
+      'onboarding_view:board,team',
       'onboarding_view:board,invite',
     ])
   })
@@ -112,7 +127,7 @@ describe('NextStepCard', () => {
     rerender(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
     rerender(createElement(NextStepCard, { facts: { ...nothing }, ...handlers }))
     expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([
-      'onboarding_view:board,team,invite',
+      'onboarding_view:board,team',
       'onboarding_view:board,invite',
     ])
   })
@@ -165,25 +180,34 @@ describe('NextStepCard', () => {
   })
 
   test('every task button reports its own id and calls its own handler', () => {
-    // ALL THREE, because `Record<OnboardingTaskId, () => void>` makes the KEYS
-    // exhaustive and says nothing about which callback each key holds. Clicking
-    // only one button leaves the other two edges of the map unpinned, and
+    // ALL THREE EDGES, because `Record<OnboardingTaskId, () => void>` makes the
+    // KEYS exhaustive and says nothing about which callback each key holds.
+    // Clicking only one button leaves the other edges of the map unpinned, and
     // swapping `board` and `team` in it — so that tapping "Enter today's board"
     // opens the Create Team dialog on the screen where signups already stall —
     // type-checks, lints and passes every other test.
+    //
+    // TWO RENDERS RATHER THAN ONE, and that is forced rather than stylistic:
+    // since the invite task gained its hasTeam prerequisite, 'team' and
+    // 'invite' cannot be on screen at the same time. Covering all three from a
+    // single fixture is no longer possible, and dropping one of them to keep
+    // one render would leave exactly the unpinned edge this test exists for.
     const calls: string[] = []
-    render(
-      createElement(NextStepCard, {
-        facts: nothing,
-        onBoard: () => calls.push('board'),
-        onTeam: () => calls.push('team'),
-        onInvite: () => calls.push('invite'),
-        onDismiss: noop,
-      }),
-    )
+    const spies = {
+      onBoard: () => calls.push('board'),
+      onTeam: () => calls.push('team'),
+      onInvite: () => calls.push('invite'),
+      onDismiss: noop,
+    }
+
+    const teamless = render(createElement(NextStepCard, { facts: nothing, ...spies }))
     fireEvent.click(screen.getByRole('button', { name: /Enter today's board/ }))
     fireEvent.click(screen.getByRole('button', { name: /Create a team/ }))
+    teamless.unmount()
+
+    render(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...spies }))
     fireEvent.click(screen.getByRole('button', { name: /Invite someone/ }))
+
     expect(calls).toEqual(['board', 'team', 'invite'])
     expect(sent.filter((entry) => entry.startsWith('onboarding_task_click'))).toEqual([
       'onboarding_task_click:board',

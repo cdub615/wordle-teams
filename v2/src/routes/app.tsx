@@ -8,6 +8,7 @@ import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
+import { captureError } from '#/lib/sentry-capture.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
@@ -63,7 +64,7 @@ export const Route = createFileRoute('/app')({
     if (needsProfile) throw redirect({ to: '/complete-profile' })
   },
   /**
-   * ISSUED TOGETHER, NOT IN SEQUENCE (`wordle-teams-dpi`). The three are
+   * ISSUED TOGETHER, NOT IN SEQUENCE (`wordle-teams-dpi`). They are
    * independent of one another, so awaiting them one at a time made the SSR of
    * the dashboard pay the SUM of three round-trips where it can pay the MAX.
    * This is on the path every OTP sign-in and every OAuth callback takes, which
@@ -88,9 +89,13 @@ export const Route = createFileRoute('/app')({
    *
    * `__root.tsx` has a comment explaining why the Header's two queries are
    * deliberately NOT prefetched. That reasoning is about `useQuery` versus
-   * `useSuspenseQuery` and does not apply here: these three feed
+   * `useSuspenseQuery` and does not apply here: every one of these feeds
    * `useSuspenseQuery`, so the component suspends on them whether or not the
    * loader warmed them, and warming them in parallel is strictly better.
+   *
+   * THE MEASUREMENTS ABOVE WERE TAKEN AT THREE QUERIES. onboarding.getStatus
+   * made it four (see its own note below); the shape of the argument is
+   * unchanged — still MAX rather than SUM — but the numbers were not re-taken.
    */
   loader: async ({ context }) => {
     await Promise.all([
@@ -115,9 +120,9 @@ export const Route = createFileRoute('/app')({
    *
    * COVERS THE NAVIGATION INTO /app, NOT A TEAM OR MONTH SWITCH — the two are
    * different moments and both needed fixing. The loader above prefetches
-   * getMyTeams, amIPro and getMyPlayerId, none of which depend on team or
-   * month, so it does NOT re-run when either changes; that case is handled by
-   * the Suspense boundaries in the component below.
+   * getMyTeams, amIPro, getMyPlayerId and onboarding.getStatus, none of which
+   * depend on team or month, so it does NOT re-run when either changes; that
+   * case is handled by the Suspense boundaries in the component below.
    */
   pendingComponent: DashboardSkeleton,
   component: Dashboard,
@@ -248,39 +253,72 @@ function Dashboard() {
    * columns. A wrapper <div> would have done the same job at the cost of an
    * empty grid item, and therefore a gap, on every render where the card is
    * finished and returns null; a component returning null contributes no grid
-   * item at all, which is why the class goes on the card. Same trick
-   * MonthlyWinnerCelebration already relies on further down.
+   * item at all, which is why the class goes on the card.
+   *
+   * CheckoutPending, two lines into each branch below, is the precedent for the
+   * PROP — same component, `mb-4` on one branch and `md:col-span-3` on the
+   * other. MonthlyWinnerCelebration is the precedent for the other half of the
+   * argument only: it is a grid child that renders no element, and so costs the
+   * grid nothing. It takes no className and is not a model for this prop.
    */
   const onboardingCard = (className?: string) => (
     <NextStepCard
       className={className}
       facts={onboardingFacts}
       onBoard={() => {
-        // `today` is client-only. Deriving it here rather than during render is
-        // what keeps it out of the SSR pass — the rule today-panel.tsx states.
-        //
-        // AND THE NO-TEAM BRANCH IS WHY IT CANNOT REUSE `currentMonth` BELOW.
-        // That line (`hydrated ? monthOf(...) : monthParam`) is the right idiom
-        // and does the same job, but it sits below the `teams.length === 0`
-        // early return, so the branch that most needs a month never reaches it —
-        // a team-less player also never reaches the `!teamParam || !monthParam`
-        // guard that fills the params in, so `monthParam` is undefined for them.
-        // Hoisting `currentMonth` would make every render of that branch depend
-        // on a hydration flag for a value only a click ever reads; a click is
-        // post-hydration by construction and needs no flag.
+        // COMPUTED IN THE HANDLER BECAUSE `currentMonth` IS OUT OF REACH, and
+        // that — not hydration on its own — is the argument. A render-scope
+        // const that only ever feeds a click handler never reaches the DOM, so
+        // deriving the month during render could not by itself produce the
+        // hydration mismatch today-panel.tsx and scores-table.tsx warn about.
+        // What is actually true is narrower and sufficient: `currentMonth` at
+        // the bottom of this component (`hydrated ? monthOf(...) : monthParam`)
+        // is the right idiom and does this job, but it sits BELOW the
+        // `teams.length === 0` early return, so the branch that most needs a
+        // month cannot reach it — and a team-less player never reaches the
+        // `!teamParam || !monthParam` guard either, so `monthParam` is
+        // undefined for them. Hoisting `currentMonth` above the return would
+        // make every render of that branch depend on a hydration flag for a
+        // value only a click ever reads. A click is post-hydration by
+        // construction, so the handler needs no flag at all.
         setBoardMonth(monthParam ?? monthOf(toPuzzleDay(new Date())))
         setBoardOpen(true)
       }}
       onTeam={() => setCreateOpen(true)}
-      // /team is where CurrentTeamCard already hosts InvitePlayerDialog. Not
-      // reachable from the no-team branch: `hasTeam` false means the create
-      // task is on screen too, and this one only appears once a team exists.
+      // /team is where CurrentTeamCard already hosts InvitePlayerDialog.
+      //
+      // `teamParam` IS DEFINED WHEREVER THIS CAN BE PRESSED, and that is
+      // guaranteed by incompleteTasks rather than by anything here. An earlier
+      // version of this comment claimed the invite task was unreachable from
+      // the no-team branch because "the create task is on screen too" — that
+      // was simply false: the task list gated 'invite' on !hasInvited alone,
+      // so a brand-new signup got a live button that navigated to /team with
+      // no team id, and routes/team.tsx bounced it straight back to /app. The
+      // real guarantee is now the `hasTeam &&` in incompleteTasks: this task
+      // does not exist until a team does, so this branch cannot be reached
+      // without one. If that gate is ever relaxed, this navigation breaks
+      // again — onboarding-tasks.test.ts is what holds it.
       onInvite={() => void navigate({ to: '/team', search: { team: teamParam } })}
       // `mutate`, NOT `void mutateAsync(...)`. A rejected mutateAsync with
       // nothing attached to it is an unhandled promise rejection; `mutate`
       // routes the same failure into the mutation's own state instead. Dismiss
       // is idempotent and has no success UI, so there is nothing to await.
-      onDismiss={() => dismissOnboarding.mutate({})}
+      //
+      // REPORTED, NOT TOASTED — monthly-winner-celebration.tsx's markSeen is
+      // the house pattern for this exact shape and its reasoning transfers
+      // whole. The card does not hide optimistically, so a failure leaves the
+      // X visibly doing nothing, and without this line that is invisible
+      // everywhere: no toast, no Sentry event, no retry. It matters more than
+      // the usual fire-and-forget because dismiss is the ONLY escape for the
+      // population this card is newly permanent for — a v1 migrant on a solo
+      // team sees "One more thing / Invite someone" on every load, and
+      // replay-from-the-menu (qt4.9) is still an open task.
+      onDismiss={() =>
+        dismissOnboarding.mutate(
+          {},
+          { onError: (error: unknown) => captureError(error, { where: 'onboarding.dismiss' }) },
+        )
+      }
     />
   )
 
@@ -324,16 +362,37 @@ function Dashboard() {
   if (teams.length === 0) {
     return (
       <main className="page-max mt-2 md:mt-6">
+        {/*
+          THE ROUTE'S <h1>, VISUALLY HIDDEN, AND ON ALL THREE RETURNS SO IT IS
+          STABLE (wordle-teams review of qt4.7). ui/card.tsx's own note states
+          the doctrine — "a Card used as a page's main region silently leaves
+          that page with no h1. That is an accessibility defect, not just a
+          testing inconvenience" — and until now /app was the only route in the
+          app without one: about, chat, complete-profile, login, login-error,
+          maintenance, privacy, team, terms and the landing hero all have theirs.
+          TeamsEmptyState carried this route's only h1 and it rendered on ONE
+          branch, so the dashboard proper never had one at all.
+
+          HIDDEN RATHER THAN DRAWN because this page has no title in its design
+          and inventing one would be a visual change the review did not ask for.
+          `sr-only` is the app's existing spelling for this (notifications-tab).
+
+          NOT THE ONBOARDING CARD'S HEADING PROMOTED TO h1, which was the first
+          thing tried and is worse: it would give /app a top heading level that
+          appears and disappears as tasks are completed or the card is dismissed.
+          The card stays at h2, which is the right level RELATIVE to this — the
+          same level TodayPanel uses.
+        */}
+        <h1 className="sr-only">Dashboard</h1>
         {upgradePending && <CheckoutPending className="mb-4" />}
-        {/* AND /app NOW STARTS AT h2 ON EVERY BRANCH, WHICH IS A DECISION, not
-            a leftover. TeamsEmptyState's <h1> was this route's only one, and it
-            only ever rendered here — the dashboard branch below has started at
-            h2 (TodayPanel's) since it was written. The card's heading is h2 so
-            that the two branches agree; promoting it to h1 on this branch alone
-            would give /app a heading level that appears and disappears as tasks
-            are completed or the card is dismissed, which is worse than starting
-            at h2 consistently. No e2e asserts a level-1 heading on /app. */}
-        {onboardingCard('mb-4')}
+        {/* `mx-auto max-w-md` KEEPS TeamsEmptyState'S BOX, which is the one
+            thing worth carrying over from it. This branch is a plain <main>
+            inside `.page-max`, so without a cap the card runs the full 1232px
+            at desktop with its task buttons stretched across it, where the
+            component it replaces was a centred 448px card. The
+            dashboard branch wants the opposite — full width, in a grid — which
+            is exactly why this class is the caller's and not the card's. */}
+        {onboardingCard('mx-auto mb-4 max-w-md')}
         {boardSurface}
         <CreateTeamDialog
           open={createOpen}
@@ -349,6 +408,9 @@ function Dashboard() {
   if (!teamParam || !monthParam) {
     return (
       <main className="page-max mt-2 md:mt-6">
+        {/* The route's <h1>, on every return so it is stable. Full note on the
+            no-team branch above. */}
+        <h1 className="sr-only">Dashboard</h1>
         {upgradePending && <CheckoutPending className="mb-4" />}
         <Skeleton className="h-96 w-full rounded-lg" />
       </main>
@@ -413,6 +475,9 @@ function Dashboard() {
     // sizing specifically, with no flexbox equivalent. A future multi-column
     // widget is what would make the three columns earn their keep again.
     <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 md:mt-6 md:grid-cols-3 md:gap-6">
+      {/* The route's <h1>, on every return so it is stable. Full note on the
+          no-team branch above. */}
+      <h1 className="sr-only">Dashboard</h1>
       {upgradePending && <CheckoutPending className="md:col-span-3" />}
       {boardSurface}
       <CreateTeamDialog
@@ -646,6 +711,25 @@ function Dashboard() {
           </Button>
         )}
         <div className="ml-auto">
+          {/* THE CAST IS SAFE BECAUSE OF THE EARLY RETURN, NOT BECAUSE THE
+              VALUE IS FIXED. `teamParam` is `string | undefined`, and every
+              cast like it in this block — TodayPanel's, ScoresTable's,
+              MonthlyWinnerCelebration's — leans on the same one thing: the
+              `!teamParam || !monthParam` return above, which means nothing
+              below it renders until both params are real strings.
+
+              IT IS NOT "teamId is fixed for the life of the mount", which is
+              false and worth saying so explicitly: TeamPicker changes `?team=`
+              through `navigate`, this route does not remount on a search
+              change, and so this prop DOES change under a live component.
+              That is fine — BoardEntryForm re-keys on it — but it means the
+              invariant is about the guard, not about stability.
+
+              CONTRAST THE CARD-DRIVEN SURFACE ABOVE, which keeps
+              `| undefined` in its cast. It is rendered by BOTH branches,
+              including the team-less one that returns before this guard, so
+              there `undefined` is a real value and the honest type is the
+              point. Here it cannot be. */}
           <BoardEntryButton teamId={teamParam as Id<'teams'>} month={monthParam} />
         </div>
       </div>
