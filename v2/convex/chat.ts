@@ -835,33 +835,42 @@ export async function unreadBadgeFor(
 }
 
 /**
- * Forget what a player had read in a team, called when they are ADDED to one.
+ * Forget what a player had read in a team. Called on BOTH ends of membership:
+ * when they are added to one, and when they are taken off one that survives.
  *
- * WHY ON ADD RATHER THAN ON REMOVE. A departed member's cursor outlives them
- * whenever the team itself survives, and three separate paths remove a player
- * (removeMemberFor, leaveTeamFor, and the Phase 5 downgrade in billing.ts). An
- * invariant spread across three call sites and every future one is the shape
- * that rots — the same argument that made the team-deletion cascade index by
- * team rather than walk the roster. Addition happens in two places, and the
- * only visible symptom is here: a rejoining member would otherwise arrive
- * already caught up on everything said while they were gone.
+ * IT USED TO BE ON ADD ONLY, AND THAT WAS wordle-teams-qix.11. The argument
+ * then was that an invariant spread across three removal paths
+ * (removeMemberFor, leaveTeamFor, and the Phase 5 downgrade in billing.ts) is
+ * the shape that rots, so the fix went where the only visible symptom was — a
+ * rejoining member arriving already caught up on everything said while they
+ * were gone. What that reasoning got wrong is that the two are not
+ * alternatives. The add side fixes the symptom; it fires only when somebody
+ * actually comes back, so for everyone who does not, the row simply stays —
+ * one per removal, per player, for as long as the team lives.
+ *
+ * WHAT KEEPS IT FROM ROTTING IS NOT THE CALL SITES. cascadeDeleteTeam collects
+ * `chatReads` BY TEAM, which reaches a cursor no removal path collected —
+ * including one written before this was wired, or by a future path that forgets.
+ * The removal paths are the collection; the by-team cascade is the backstop
+ * that holds whether or not every one of them is right. Both, not either.
  *
  * A FOURTH WRITER OF THE CONTENDED `chatReads` ROW, which sendMessageFor,
  * markReadFor and olderMessagesFor already share — and the one that costs
  * nothing. The other three are written by a member DURING a conversation, and
  * two of them overlapping is the OCC retry Task 6's `disabled` guard exists to
- * avoid. This one runs at the moment somebody is put ON the roster, when by
- * definition they are not yet a member and so cannot be holding any of the
- * other three: every one of those is gated on CURRENT membership. It is one
- * delete, once per join, off the chat hot path entirely.
- *
- * Leaves the orphaned row alone when nobody rejoins. It is small, unreachable
- * (every read is gated on CURRENT membership) and harmless.
+ * avoid. This one runs at the moment somebody is put ON or taken OFF the
+ * roster, when by definition they are not a member and so cannot be holding any
+ * of the other three: every one of those is gated on CURRENT membership. It is
+ * one delete, off the chat hot path entirely.
  *
  * DELETING RATHER THAN ZEROING also clears the stale rate-limit windows
  * (postWindowStartedAt/postsInWindow and the scroll pair live on this same
- * row), which a returning member should not inherit. A zeroed lastReadAt would
- * fix the badge and leave them mid-window on somebody else's limit.
+ * row) and `lastNotifiedAt`, none of which a returning member should inherit. A
+ * zeroed lastReadAt would fix the badge and leave them mid-window on somebody
+ * else's limit.
+ *
+ * A MISSING ROW IS NOT AN ERROR. Somebody who never opened the conversation has
+ * no cursor at all, which is why both ends can call this unconditionally.
  */
 export async function resetChatCursorFor(
   ctx: WriterCtx,

@@ -81,6 +81,19 @@ export type PruneBatchReport = {
   // nothing above this loop ever deletes a pushSubscriptions row by any other
   // route, so there is no second path for this counter to miss.
   pushSubscriptionsDeleted: number
+  // TEAM CHAT'S READ CURSORS (wordle-teams-qix.11). `chatReads.playerId` is an
+  // id('players') like playerMembership's and pushSubscriptions', and dangles
+  // identically — but unlike either of those, a cursor can leave by TWO routes:
+  // with its team, through cascadeDeleteTeam's by_team collect, or with its
+  // player, through the by_player sweep below. It is counted exactly once, the
+  // way monthlyWinnersDeleted is and for the same dry-run reason.
+  //
+  // THE FOURTH PATH THAT TAKES A PLAYER OFF A SURVIVING TEAM, after
+  // removeMemberFor, leaveTeamFor and the Phase 5 downgrade — all three of
+  // which now call resetChatCursorFor. This one is different in that it deletes
+  // the player as well, so the row it leaves behind is unreachable by anything,
+  // not merely by its former owner.
+  chatReadsDeleted: number
   teamsDeleted: number
   teamRostersPatched: number
   // SWEPT ON THE FINAL BATCH ONLY, and the counter is why. "Is this address an
@@ -108,6 +121,7 @@ const emptyReport = (cursor: string, isDone: boolean): PruneBatchReport => ({
   scoringSystemsDeleted: 0,
   playerMembershipsDeleted: 0,
   pushSubscriptionsDeleted: 0,
+  chatReadsDeleted: 0,
   teamsDeleted: 0,
   teamRostersPatched: 0,
   teamInvitesCleared: 0,
@@ -229,6 +243,9 @@ export const pruneBatch = internalMutation({
     // would make the dry run over-predict exactly the rows the write handles
     // first, and the dry run's whole value is that it predicts the write.
     const winnersAlreadyCounted = new Set<string>()
+    // The same guard for chat cursors, which leave by the same two routes. See
+    // chatReadsDeleted on the report type.
+    const cursorsAlreadyCounted = new Set<string>()
 
     // --- teams: rosters, invites, and the ones left with nobody ---------------
 
@@ -268,6 +285,17 @@ export const pruneBatch = internalMutation({
             .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', team._id))
             .collect()
         ).length
+
+        // BY TEAM, exactly as cascadeDeleteTeam collects them, so a cursor
+        // belonging to somebody who left this team long ago is counted here
+        // too — it is about to be deleted whether or not its owner is in this
+        // batch, or a player at all any more.
+        const doomedCursors = await ctx.db
+          .query('chatReads')
+          .withIndex('by_team', (q) => q.eq('teamId', team._id))
+          .collect()
+        for (const row of doomedCursors) cursorsAlreadyCounted.add(row._id)
+        report.chatReadsDeleted += doomedCursors.length
 
         // AN INVITE ON A DOOMED TEAM IS DISCARDED WITH IT, and that is reported
         // rather than refused. Nineteen such addresses existed locally, at
@@ -370,6 +398,21 @@ export const pruneBatch = internalMutation({
         .collect()
       report.pushSubscriptionsDeleted += subscriptions.length
       if (execute) for (const row of subscriptions) await ctx.db.delete(row._id)
+
+      // TEAM CHAT'S CURSORS, on teams that SURVIVED the loop above — the same
+      // shape as the winner sweep, and skipping what a team deletion has
+      // already accounted for for the same reason. This is also what makes the
+      // ROSTER TRIM complete: that branch takes the player off `playerIds` and
+      // would otherwise leave their cursor pointing at a team they are no
+      // longer on and a player who no longer exists.
+      const cursors = (
+        await ctx.db
+          .query('chatReads')
+          .withIndex('by_player', (q) => q.eq('playerId', player._id))
+          .collect()
+      ).filter((row) => !cursorsAlreadyCounted.has(row._id))
+      report.chatReadsDeleted += cursors.length
+      if (execute) for (const row of cursors) await ctx.db.delete(row._id)
 
       // LAST, ALWAYS. Everything above needs the player's id to find its rows,
       // and a pass that had already deleted the player document would leave them

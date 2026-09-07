@@ -86,10 +86,14 @@ const [, PUSH_METHOD] = METHODS
  *
  * THE ROSTER DECIDES, NOT THE CURSOR TABLE. Cursors are read through `by_team`
  * (one indexed range read per team, rather than one point read per member) and
- * that index returns rows for FORMER members too — resetChatCursorFor clears a
- * cursor on add, never on remove, and says so. Iterating `team.playerIds` and
- * looking each one up in the map is what keeps a leaver out; iterating the
- * cursors instead would push at people who are no longer on the team.
+ * that index can still return rows for FORMER members. Since
+ * wordle-teams-qix.11 every removal path calls resetChatCursorFor, so the
+ * common case leaves none — but a row written before that was wired, or by a
+ * future path that forgets, is exactly what this index would hand back.
+ * Iterating `team.playerIds` and looking each one up in the map is what keeps a
+ * leaver out; iterating the cursors instead would push at people who are no
+ * longer on the team, and would do so on a rule that depends on every removal
+ * path being right rather than on the roster it can read.
  */
 export async function pendingChatNotificationsFor(
   ctx: ReaderCtx,

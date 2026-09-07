@@ -429,6 +429,11 @@ export async function downgradeTeamRemovalFor(
       continue
     }
 
+    // Their cursor leaves with them (wordle-teams-qix.11) — the third of the
+    // three paths that take a player off a team the team survives, and the one
+    // furthest from chat. See resetChatCursorFor in chat.ts.
+    await resetChatCursorFor(ctx, playerId, team._id)
+
     await ctx.db.patch(team._id, {
       playerIds: remaining,
       // Reassign only if they owned it. playerIds is append-ordered, so [0] of

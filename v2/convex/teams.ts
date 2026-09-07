@@ -300,13 +300,14 @@ export async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Pro
     .collect()
   for (const row of meta) await ctx.db.delete(row._id)
 
-  // BY TEAM, NOT BY ROSTER, and the difference is a permanent leak. Walking
-  // team.playerIds reaches only members still on the team at delete time — a
-  // player who LEFT earlier is no longer in it, so their cursor would outlive
-  // the team with nothing able to find it again. THREE paths remove a player
-  // from a team (removeMemberFor, leaveTeamFor, and the Phase 5 downgrade in
-  // billing.ts), so "have every removal path clean up" is an invariant that
-  // would rot. Indexing by team makes the cascade complete by construction.
+  // BY TEAM, NOT BY ROSTER, AND STILL BY TEAM NOW THAT EVERY REMOVAL PATH
+  // CLEANS UP TOO (wordle-teams-qix.11). Walking team.playerIds would reach
+  // only members still on the team at delete time, so any cursor the removal
+  // paths did not collect — a row written before they were wired, or by a
+  // future path that forgets — would outlive the team with nothing able to find
+  // it again. The removal paths are the collection; this index is the backstop
+  // that does not depend on all of them being right, which is what "an
+  // invariant spread across every future call site rots" actually asks for.
   const cursors = await ctx.db
     .query('chatReads')
     .withIndex('by_team', (q) => q.eq('teamId', team._id))
@@ -378,6 +379,10 @@ export async function removeMemberFor(
   await ctx.db.patch(team._id, {
     playerIds: team.playerIds.filter((memberId) => memberId !== args.playerId),
   })
+  // Their cursor leaves with them (wordle-teams-qix.11) — see
+  // resetChatCursorFor, which is also called on every ADD path and says why
+  // both ends are wired rather than one.
+  await resetChatCursorFor(ctx, args.playerId, team._id)
 
   const updated = (await ctx.db.get(team._id))!
   await recomputeTeamMonths(ctx, updated, await monthsWithWinners(ctx, team._id), today)
@@ -448,6 +453,9 @@ export async function leaveTeamFor(
   }
 
   await ctx.db.patch(team._id, { playerIds: remaining })
+  // Their cursor leaves with them (wordle-teams-qix.11). Not needed on the
+  // branch above, where cascadeDeleteTeam collects every cursor `by_team`.
+  await resetChatCursorFor(ctx, playerId, team._id)
 
   // The leaver stops being eligible to have won any month — divergence 5, the
   // same reason removeMember recomputes. Against the POST-PATCH document:

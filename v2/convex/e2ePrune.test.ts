@@ -56,6 +56,7 @@ async function census(t: ReturnType<typeof convexTest>) {
     scoringSystems: await ctx.db.query('scoringSystems').collect(),
     playerMembership: await ctx.db.query('playerMembership').collect(),
     pushSubscriptions: await ctx.db.query('pushSubscriptions').collect(),
+    chatReads: await ctx.db.query('chatReads').collect(),
   }))
 }
 
@@ -295,6 +296,59 @@ describe('legitimate data is left alone', () => {
     // The e2e invite is retired; the non-e2e one is untouched.
     expect(left.teams[0].invited).toEqual([REAL_ADDRESS])
     expect(left.monthlyWinners[0].hasSeenCelebration).toEqual([ids.real])
+  })
+
+  /**
+   * THE FOURTH REMOVAL PATH (wordle-teams-qix.11).
+   *
+   * qix.11 named three paths that take a player off a team the team survives —
+   * removeMemberFor, leaveTeamFor and the Phase 5 downgrade — and all three now
+   * collect the departing member's `chatReads` row. This is the fourth, and it
+   * is the only one that also deletes the PLAYER, which makes the leftover row
+   * a dangling `id('players')` rather than merely an orphan: exactly the class
+   * of reference this whole mutation exists to prevent, and the same argument
+   * its own comment makes for playerMembership and pushSubscriptions.
+   */
+  test('a departing e2e player takes their chat cursors and leaves everyone else\'s', async () => {
+    const t = convexTest(schema, modules)
+    const ids = await t.run(async (ctx) => {
+      const real = await ctx.db.insert('players', aPlayer({ email: REAL_ADDRESS }))
+      const debris = await ctx.db.insert(
+        'players',
+        aPlayer({ email: E2E_ADDRESS, legacyId: `e2e-${E2E_ADDRESS}` }),
+      )
+      const shared = await ctx.db.insert(
+        'teams',
+        aTeam({ name: 'Shared', playerIds: [real, debris], owner: real }),
+      )
+      // A team that is ALL debris, so it is deleted rather than trimmed. Its
+      // cursor leaves through cascadeDeleteTeam, and the by_player sweep must
+      // not count it a second time — the hazard monthlyWinnersDeleted already
+      // carries, on a dry run where neither delete has happened.
+      const doomed = await ctx.db.insert(
+        'teams',
+        aTeam({ name: 'Doomed', playerIds: [debris], owner: debris }),
+      )
+      for (const teamId of [shared, doomed]) {
+        await ctx.db.insert('chatReads', { playerId: debris, teamId, lastReadAt: 1 })
+      }
+      await ctx.db.insert('chatReads', { playerId: real, teamId: shared, lastReadAt: 2 })
+      return { real, debris, shared }
+    })
+
+    // THE DRY RUN PREDICTS THE WRITE, which is the whole reason the dedupe set
+    // exists: nothing is deleted here, so both routes to a cursor can see the
+    // same row and a naive counter would report three where two go.
+    const dry = await prune(t, false)
+    expect(dry.chatReadsDeleted).toBe(2)
+
+    const totals = await prune(t, true)
+    expect(totals.chatReadsDeleted).toBe(2)
+
+    const left = await census(t)
+    expect(left.chatReads.map((row) => ({ playerId: row.playerId, teamId: row.teamId }))).toEqual([
+      { playerId: ids.real, teamId: ids.shared },
+    ])
   })
 
   test('an already-empty team with no e2e member is not swept up', async () => {

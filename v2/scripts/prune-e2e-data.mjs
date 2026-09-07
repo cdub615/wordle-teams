@@ -109,6 +109,7 @@ const TOTAL_KEYS = [
   'scoringSystemsDeleted',
   'playerMembershipsDeleted',
   'pushSubscriptionsDeleted',
+  'chatReadsDeleted',
   'teamsDeleted',
   'teamRostersPatched',
   'teamInvitesCleared',

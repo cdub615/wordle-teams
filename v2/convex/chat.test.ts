@@ -15,9 +15,9 @@ import {
   unreadBadgeFor,
   unreadTeamsFor,
 } from './chat.ts'
-import { deleteTeamFor, invitePlayerFor, leaveTeamFor } from './teams.ts'
+import { deleteTeamFor, invitePlayerFor, leaveTeamFor, removeMemberFor } from './teams.ts'
 import { completeProfileFor } from './players.ts'
-import { upgradeTeamInvitesFor } from './billing.ts'
+import { downgradeTeamRemovalFor, upgradeTeamInvitesFor } from './billing.ts'
 import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
 import {
   BUDGET_THRESHOLD_BYTES,
@@ -1471,6 +1471,158 @@ describe('unreadBadgeFor', () => {
       await ctx.db.insert('chatDegraded', { month: budgetMonthFor(Date.now()), degraded: true })
 
       expect(await unreadBadgeFor(ctx, ada, [])).toEqual({ unread: [], degraded: true })
+    })
+  })
+})
+
+/**
+ * LEAVING A TEAM THAT SURVIVES (wordle-teams-qix.11).
+ *
+ * Task 8 collected a departed member's cursor when the TEAM was deleted, by
+ * indexing the cascade on `by_team` so a leaver it could no longer find on the
+ * roster was still reached. The case it left open is the team that survives:
+ * removeMemberFor, leaveTeamFor's non-empty branch and the Phase 5 downgrade
+ * all took a player off a roster and left their `chatReads` row behind, with
+ * nothing that could ever find it again short of deleting the team.
+ *
+ * THE ROW IS NOT MERELY UNTIDY. It carries `lastReadAt`, so a member who
+ * rejoins arrives already "caught up" on everything said while they were gone;
+ * resetChatCursorFor on the ADD paths is what fixes that symptom, and it is
+ * still there, but it only fires when somebody actually comes back. It also
+ * carries the post and scroll rate-limit windows and `lastNotifiedAt`, none of
+ * which a returning member should inherit and none of which anybody who never
+ * returns should be storing.
+ *
+ * THESE TESTS GO THROUGH THE REAL REMOVAL PATHS, NOT THROUGH THE HELPER. The
+ * add-side tests below make exactly that distinction and record why: calling
+ * resetChatCursorFor directly proves nothing about the call sites, and the
+ * whole risk here is a fix that reaches two paths of three and looks done.
+ */
+describe('leaving a team that survives', () => {
+  test('the owner removing a member takes their cursor with them', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+      await markReadFor(ctx, bob, team)
+
+      await removeMemberFor(ctx, ada, { teamId: team, playerId: bob, today })
+
+      expect(
+        await ctx.db
+          .query('chatReads')
+          .withIndex('by_player_team', (q) => q.eq('playerId', bob).eq('teamId', team))
+          .unique(),
+      ).toBeNull()
+      // Ada's own cursor is untouched — sending stamped it, and she is still
+      // on the team.
+      expect(
+        await ctx.db
+          .query('chatReads')
+          .withIndex('by_player_team', (q) => q.eq('playerId', ada).eq('teamId', team))
+          .unique(),
+      ).not.toBeNull()
+    })
+  })
+
+  test('a member leaving takes their own cursor with them', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+      await markReadFor(ctx, bob, team)
+
+      await leaveTeamFor(ctx, bob, { teamId: team, today })
+
+      expect((await ctx.db.get(team))!.playerIds).toEqual([ada])
+      expect(
+        await ctx.db
+          .query('chatReads')
+          .withIndex('by_player_team', (q) => q.eq('playerId', bob).eq('teamId', team))
+          .unique(),
+      ).toBeNull()
+    })
+  })
+
+  // THE THIRD PATH, AND THE ONE FURTHEST FROM CHAT. A revoked subscription
+  // takes a free account back to two teams by removing them from the rest —
+  // teams that keep their other members, so the cursor is orphaned exactly as
+  // it is on the two paths above. Missing this one is what wordle-teams-0yhm
+  // did on the add side, one file over.
+  test('the downgrade removing a player takes their cursor with them', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      // Two owned teams are kept; the third is the one she is removed from, and
+      // Bob is on it so it survives her leaving.
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada, createdAt: 1 }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada, createdAt: 2 }))
+      const third = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [bob, ada], owner: bob, createdAt: 3 }),
+      )
+      await sendMessageFor(ctx, bob, third, 'hello')
+      await markReadFor(ctx, ada, third)
+
+      await downgradeTeamRemovalFor(ctx, ada)
+
+      expect((await ctx.db.get(third))!.playerIds).toEqual([bob])
+      expect(
+        await ctx.db
+          .query('chatReads')
+          .withIndex('by_player_team', (q) => q.eq('playerId', ada).eq('teamId', third))
+          .unique(),
+      ).toBeNull()
+    })
+  })
+
+  // A LEAVER'S CURSOR GOES; NOBODY ELSE'S DOES. The row is found by
+  // (playerId, teamId), so the risk of getting this wrong is not that it misses
+  // — it is that it takes a teammate's cursor, or the leaver's cursor in a team
+  // they are still on, and silently marks a whole conversation unread.
+  test('leaves every other cursor alone, in this team and in others', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const left = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      const kept = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      for (const team of [left, kept]) {
+        await sendMessageFor(ctx, ada, team, 'hello')
+        await markReadFor(ctx, bob, team)
+      }
+
+      await leaveTeamFor(ctx, bob, { teamId: left, today })
+
+      const rows = await ctx.db.query('chatReads').collect()
+      expect(rows.map((row) => ({ playerId: row.playerId, teamId: row.teamId }))).toEqual([
+        // Ada's cursor in the team Bob left — she sent, so sending stamped it.
+        { playerId: ada, teamId: left },
+        { playerId: ada, teamId: kept },
+        // Bob is still on `kept`, so his cursor there is untouched.
+        { playerId: bob, teamId: kept },
+      ])
+    })
+  })
+
+  // NOTHING TO COLLECT IS NOT AN ERROR. Somebody who never opened the
+  // conversation has no cursor at all — resetChatCursorFor's own no-op branch —
+  // and removing them must not care.
+  test('removes a member who never opened the conversation', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+
+      await removeMemberFor(ctx, ada, { teamId: team, playerId: bob, today })
+
+      expect((await ctx.db.get(team))!.playerIds).toEqual([ada])
     })
   })
 })
