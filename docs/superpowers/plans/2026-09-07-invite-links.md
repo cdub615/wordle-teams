@@ -390,106 +390,274 @@ git commit -m "feat(invites): create and revoke shareable invite links"
 
 - [ ] **Step 1: Write the failing test**
 
+> **Synced 2026-09-07 to what shipped.** The original block here was written
+> mutation-style, against `api.inviteLinks.consumeLink` with a `withOwnedTeam` helper
+> that **does not exist anywhere in this repo** — it could not have run. It also
+> contradicted the shape requirements added further down this same task. The block
+> below is the real one.
+
 Append to `v2/convex/inviteLinks.test.ts`:
 
 ```ts
-describe('inviteLinks.consumeLink', () => {
+describe('consumeLinkFor', () => {
   test('puts the holder on the team', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId, as } = await withOwnedTeam(t, 'o1@example.com')
-    const token = await as.mutation(api.inviteLinks.createLink, { teamId })
-
     await t.run(async (ctx) => {
-      await ctx.db.insert('players', aPlayer({ email: 'joiner@example.com' }))
-    })
-    const joiner = await authenticatedAs(t, 'joiner@example.com')
-    await joiner.mutation(api.inviteLinks.consumeLink, { token })
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+      const joiner = await ctx.db.insert('players', aPlayer({ email: 'joiner@example.com' }))
 
-    const team = await t.run(async (ctx) => await ctx.db.get(teamId))
-    expect(team?.playerIds).toHaveLength(2)
+      await consumeLinkFor(ctx, joiner, token)
+
+      const team = await ctx.db.get(teamId)
+      expect(team?.playerIds).toEqual([ada, joiner])
+    })
   })
 
   test('is idempotent for someone already on the team', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId, as } = await withOwnedTeam(t, 'o2@example.com')
-    const token = await as.mutation(api.inviteLinks.createLink, { teamId })
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
 
-    // The owner following their own link must not be added twice — a duplicate
-    // id shows the person twice on the team card and enters them twice in the
-    // month recompute. teams.ts:266 records the same hazard on the email path.
-    await as.mutation(api.inviteLinks.consumeLink, { token })
-    const team = await t.run(async (ctx) => await ctx.db.get(teamId))
-    expect(team?.playerIds).toHaveLength(1)
+      // The owner following their own link must not be added twice — a duplicate
+      // id shows the person twice on the team card and enters them twice in the
+      // month recompute. teams.ts:266 records the same hazard on the email path.
+      await consumeLinkFor(ctx, ada, token)
+      await consumeLinkFor(ctx, ada, token)
+
+      const team = await ctx.db.get(teamId)
+      expect(team?.playerIds).toEqual([ada])
+    })
+  })
+
+  test('an already-member pass leaves a live chat cursor alone', async () => {
+    // The other half of idempotence, and the one no roster assertion can see.
+    // resetChatCursorFor DELETES the row, so running it on a current member
+    // would mark a conversation they have been reading all along unread —
+    // exactly the line players.ts draws with its `if (!alreadyMember)`.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+      await ctx.db.insert('chatReads', { playerId: ada, teamId, lastReadAt: 1234 })
+
+      await consumeLinkFor(ctx, ada, token)
+
+      const cursors = await ctx.db.query('chatReads').collect()
+      expect(cursors).toHaveLength(1)
+      expect(cursors[0].lastReadAt).toBe(1234)
+    })
+  })
+
+  test('clears a returning member stale chat cursor', async () => {
+    // A previous stint on this team leaves a chatReads row behind — removal
+    // never cleans one up, deliberately — and it says they have read everything
+    // up to the day they left. Rejoining on top of it means no unread badge for
+    // anything said while they were gone. players.ts:262 does the same on the
+    // email path; this is the fourth add path and owes the same.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+      const returner = await ctx.db.insert('players', aPlayer({ email: 'back@example.com' }))
+      await ctx.db.insert('chatReads', { playerId: returner, teamId, lastReadAt: 1234 })
+
+      await consumeLinkFor(ctx, returner, token)
+
+      expect(await ctx.db.query('chatReads').collect()).toHaveLength(0)
+    })
   })
 
   test('refuses an expired link', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId, as } = await withOwnedTeam(t, 'o3@example.com')
-    const token = await as.mutation(api.inviteLinks.createLink, { teamId })
     await t.run(async (ctx) => {
-      const link = await ctx.db.query('inviteLinks').first()
-      await ctx.db.patch(link!._id, { expiresAt: Date.now() - 1 })
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+      const [link] = await ctx.db.query('inviteLinks').collect()
+      await ctx.db.patch(link._id, { expiresAt: Date.now() - 1 })
+      const late = await ctx.db.insert('players', aPlayer({ email: 'late@example.com' }))
+
+      await expect(consumeLinkFor(ctx, late, token)).rejects.toMatchObject({
+        data: { code: 'INVITE_LINK_INVALID' },
+      })
+      expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada])
     })
-    await t.run(async (ctx) => {
-      await ctx.db.insert('players', aPlayer({ email: 'late@example.com' }))
-    })
-    const late = await authenticatedAs(t, 'late@example.com')
-    await expect(late.mutation(api.inviteLinks.consumeLink, { token })).rejects.toThrow()
   })
 
   test('refuses a revoked link', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId, as } = await withOwnedTeam(t, 'o4@example.com')
-    const token = await as.mutation(api.inviteLinks.createLink, { teamId })
-    await as.mutation(api.inviteLinks.revokeLink, { token })
     await t.run(async (ctx) => {
-      await ctx.db.insert('players', aPlayer({ email: 'revoked@example.com' }))
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+      await revokeLinkFor(ctx, ada, token)
+      const who = await ctx.db.insert('players', aPlayer({ email: 'revoked@example.com' }))
+
+      await expect(consumeLinkFor(ctx, who, token)).rejects.toMatchObject({
+        data: { code: 'INVITE_LINK_INVALID' },
+      })
+      expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada])
     })
-    const who = await authenticatedAs(t, 'revoked@example.com')
-    await expect(who.mutation(api.inviteLinks.consumeLink, { token })).rejects.toThrow()
   })
 
   test('refuses an unknown token', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
     await t.run(async (ctx) => {
-      await ctx.db.insert('players', aPlayer({ email: 'nobody@example.com' }))
+      const nobody = await ctx.db.insert('players', aPlayer({ email: 'nobody@example.com' }))
+      await expect(consumeLinkFor(ctx, nobody, 'deadbeef')).rejects.toMatchObject({
+        data: { code: 'INVITE_LINK_INVALID' },
+      })
     })
-    const who = await authenticatedAs(t, 'nobody@example.com')
-    await expect(
-      who.mutation(api.inviteLinks.consumeLink, { token: 'deadbeef' }),
-    ).rejects.toThrow()
+  })
+
+  test('refuses a link whose team is gone', async () => {
+    // A FOURTH DEAD STATE, and it is reachable: cascadeDeleteTeam (teams.ts)
+    // does not collect inviteLinks rows, so deleting a team leaves every link
+    // it issued dangling. Folded into the same refusal as the other three — it
+    // gives the holder nothing different to do, and answering differently
+    // would tell a stranger that this team once existed.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+      await ctx.db.delete(teamId)
+      const who = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
+
+      await expect(consumeLinkFor(ctx, who, token)).rejects.toMatchObject({
+        data: { code: 'INVITE_LINK_INVALID' },
+      })
+    })
+  })
+
+  test('answers every dead-link state with one indistinguishable refusal', async () => {
+    // THE PROPERTY ITSELF, asserted as an equality rather than as four separate
+    // literals, because the literals are what a future edit changes one of.
+    // This path is reachable BEFORE sign-in, so distinguishing "revoked" from
+    // "expired" from "the team is gone" from "never existed" tells a stranger
+    // which tokens once existed. It does NOT inherit this from revokeLinkFor,
+    // whose two refusals ARE distinguishable — see the comment there.
+    //
+    // The cap refusal is deliberately NOT in this set: a legitimate holder
+    // blocked by the free-tier cap can act on it, and telling them to upgrade
+    // is the point.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const stranger = await ctx.db.insert('players', aPlayer({ email: 's@example.com' }))
+      const mkTeam = async () =>
+        await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      const expiredTeam = await mkTeam()
+      const expired = await createLinkFor(ctx, ada, expiredTeam)
+      const expiredRow = await ctx.db
+        .query('inviteLinks')
+        .withIndex('by_token', (q) => q.eq('token', expired))
+        .unique()
+      await ctx.db.patch(expiredRow!._id, { expiresAt: Date.now() - 1 })
+
+      const revokedTeam = await mkTeam()
+      const revoked = await createLinkFor(ctx, ada, revokedTeam)
+      await revokeLinkFor(ctx, ada, revoked)
+
+      const goneTeam = await mkTeam()
+      const gone = await createLinkFor(ctx, ada, goneTeam)
+      await ctx.db.delete(goneTeam)
+
+      const refusalFor = async (token: string) => {
+        try {
+          await consumeLinkFor(ctx, stranger, token)
+        } catch (error) {
+          return (error as { data: unknown }).data
+        }
+        throw new Error(`consumeLinkFor unexpectedly accepted ${token}`)
+      }
+
+      // ANCHORED FIRST. Without this line the three equalities below are
+      // satisfied by four IDENTICAL non-refusals — `undefined === undefined`
+      // passes just as well, and did: this test was green against a
+      // consumeLinkFor that did not exist yet, because every call threw the
+      // same TypeError. Pinning the baseline to the real code is what makes
+      // the equalities mean what they say.
+      const unknown = await refusalFor('nosuchtokenatall')
+      expect(unknown).toEqual({ code: 'INVITE_LINK_INVALID' })
+      expect(await refusalFor(expired)).toEqual(unknown)
+      expect(await refusalFor(revoked)).toEqual(unknown)
+      expect(await refusalFor(gone)).toEqual(unknown)
+    })
   })
 
   test('REFUSES a non-pro joiner already at the free team cap', async () => {
     // THE HOLE THIS CLOSES. completeProfileFor enforces FREE_TEAM_LIMIT during
-    // its invited-scan (players.ts:179-197) and invitePlayerFor enforces it
-    // when parking an address. A link join runs NEITHER, so without this check
-    // the link bypasses the cap entirely.
+    // its invited-scan and invitePlayerFor enforces it when parking an address.
+    // A link join runs NEITHER, so without this check the link bypasses the cap
+    // entirely.
     //
     // And note the behavioural difference from the email path, which is
     // deliberate: an email invite over the cap PARKS the address for a later
     // upgrade. A link cannot park, so it must refuse.
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId, as } = await withOwnedTeam(t, 'o5@example.com')
-    const token = await as.mutation(api.inviteLinks.createLink, { teamId })
-
     await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+
       const capped = await ctx.db.insert('players', aPlayer({ email: 'capped@example.com' }))
+      // DERIVED FROM THE CONSTANT, never a literal 2: a test written against a
+      // literal keeps passing straight through a change to the cap, which
+      // lib/teamLimits.ts calls out explicitly.
       for (let i = 0; i < FREE_TEAM_LIMIT; i++) {
         await ctx.db.insert('teams', aTeam({ name: `existing ${i}`, playerIds: [capped] }))
       }
-    })
-    const capped = await authenticatedAs(t, 'capped@example.com')
-    await expect(capped.mutation(api.inviteLinks.consumeLink, { token })).rejects.toThrow()
 
-    const team = await t.run(async (ctx) => await ctx.db.get(teamId))
-    expect(team?.playerIds).toHaveLength(1)
+      await expect(consumeLinkFor(ctx, capped, token)).rejects.toMatchObject({
+        data: { code: 'TEAM_LIMIT_REACHED' },
+      })
+      expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada])
+    })
+  })
+
+  test('lets a non-pro joiner one team below the cap in', async () => {
+    // THE OTHER SIDE OF THE SAME BOUNDARY. Without this, `mine >= 0` would pass
+    // the refusal test above just as well and lock everybody out.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+
+      const joiner = await ctx.db.insert('players', aPlayer({ email: 'nearly@example.com' }))
+      for (let i = 0; i < FREE_TEAM_LIMIT - 1; i++) {
+        await ctx.db.insert('teams', aTeam({ name: `existing ${i}`, playerIds: [joiner] }))
+      }
+
+      await consumeLinkFor(ctx, joiner, token)
+      expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada, joiner])
+    })
+  })
+
+  test('lets a PRO joiner past the free cap in', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+
+      const pro = await ctx.db.insert('players', aPlayer({ email: 'pro@example.com' }))
+      await ctx.db.insert('playerMembership', { playerId: pro, membershipStatus: 'pro' })
+      for (let i = 0; i < FREE_TEAM_LIMIT + 1; i++) {
+        await ctx.db.insert('teams', aTeam({ name: `existing ${i}`, playerIds: [pro] }))
+      }
+
+      await consumeLinkFor(ctx, pro, token)
+      expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada, pro])
+    })
   })
 })
 ```
@@ -506,57 +674,73 @@ Expected: FAIL — `api.inviteLinks.consumeLink` undefined.
 Append to `v2/convex/inviteLinks.ts`:
 
 ```ts
-import { isProFor } from './access'
-import { resetChatCursorFor } from './chat.ts'
-import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
+export async function consumeLinkFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  token: string,
+): Promise<void> {
+  const link = await ctx.db
+    .query('inviteLinks')
+    .withIndex('by_token', (q) => q.eq('token', token))
+    .unique()
 
-export const consumeLink = mutation({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
-    const player = await requirePlayer(ctx)
-    const link = await ctx.db
-      .query('inviteLinks')
-      .withIndex('by_token', (q) => q.eq('token', token))
-      .unique()
+  if (!link || link.revokedAt !== undefined || link.expiresAt < Date.now()) {
+    throw accessError('INVITE_LINK_INVALID')
+  }
 
-    // ONE MESSAGE FOR ALL THREE DEAD-LINK STATES, and this path must establish
-    // that itself — it does NOT inherit it from revokeLinkFor, whose two refusals
-    // ARE distinguishable (see the comment there). This one is reachable BEFORE
-    // sign-in, which is what makes the difference. Distinguishing "revoked"
-    // from "expired" from "never existed" to an unauthenticated-ish caller
-    // tells a stranger which tokens once existed, and none of the three gives
-    // the holder anything different to do.
-    if (!link || link.revokedAt !== undefined || link.expiresAt < Date.now()) {
-      throw accessError('INVITE_LINK_INVALID')
-    }
+  // THE FOURTH DEAD STATE, ANSWERED WITH THE SAME CODE rather than the
+  // INVALID_TEAM the plan named. Two reasons, and it is a deliberate departure.
+  // First, INVALID_TEAM's copy is "A team needs a name." — written for a
+  // rejected rename, and simply false here. Second, this state is REACHABLE:
+  // cascadeDeleteTeam (teams.ts) collects monthlyWinners, scoringSystems, chat
+  // history, chatMeta and chatReads, but NOT inviteLinks, so deleting a
+  // team leaves every link it ever issued dangling. Answering differently would
+  // tell a stranger holding an old link that the team once existed.
+  const team = await ctx.db.get(link.teamId)
+  if (!team) throw accessError('INVITE_LINK_INVALID')
 
-    const team = await ctx.db.get(link.teamId)
-    if (!team) throw accessError('INVALID_TEAM')
+  // IDEMPOTENT, AND BEFORE THE CAP CHECK. Appending unconditionally would put
+  // the same id in the roster twice, which shows the person twice on the team
+  // card and enters them twice in recomputeTeamMonth's candidate list — the
+  // exact hazard teams.ts:266 records on the email path. Returning here also
+  // means a current member is never refused by the cap for a team they are
+  // already counted on, and never has a live chat cursor wiped: the same line
+  // players.ts draws with its `if (!alreadyMember)`.
+  if (team.playerIds.includes(playerId)) return
 
-    // Idempotent. Appending unconditionally would put the same id in the
-    // roster twice, which shows the person twice on the team card and enters
-    // them twice in recomputeTeamMonth's candidate list — the exact hazard
-    // teams.ts:266 records on the email path.
-    if (team.playerIds.includes(player._id)) return
+  // THE CAP, RE-ENFORCED. FREE_TEAM_LIMIT is enforced in exactly two places
+  // today and a link join runs NEITHER: completeProfileFor applies it during
+  // its invited-scan, and invitePlayerFor applies it when parking an address.
+  // Without this the link is a hole the size of the whole cap.
+  //
+  // REFUSING IS NEW BEHAVIOUR, DELIBERATELY. The email path never refuses — it
+  // PARKS the address in teams.invited and continues, and billing.ts's
+  // upgradeTeamInvitesFor releases it on upgrade. A link has nowhere to park,
+  // so TEAM_LIMIT_REACHED is a new code rather than a reused one.
+  if (!(await isProFor(ctx, playerId))) {
+    // COUNTED THE WAY completeProfileFor COUNTS IT, not via getMyTeamsFor. That
+    // helper resolves every member of every team to build a display payload;
+    // this needs a number. Same collect-and-filter scan — Convex cannot index
+    // array membership — with none of the fan-out.
+    const allTeams = await ctx.db.query('teams').collect()
+    const mine = allTeams.filter((t) => t.playerIds.includes(playerId)).length
+    if (mine >= FREE_TEAM_LIMIT) throw accessError('TEAM_LIMIT_REACHED')
+  }
 
-    // THE CAP, re-enforced. See the test of the same name for why this cannot
-    // be inherited from the email path.
-    if (!(await isProFor(ctx, playerId))) {
-      // COUNTED THE WAY completeProfileFor COUNTS IT (players.ts:208), not via
-      // getMyTeamsFor. That helper resolves every member of every team to build a
-      // display payload; this needs a number. Same scan, none of the fan-out.
-      const allTeams = await ctx.db.query('teams').collect()
-      const mine = allTeams.filter((t) => t.playerIds.includes(playerId)).length
-      if (mine >= FREE_TEAM_LIMIT) throw accessError('TEAM_LIMIT_REACHED')
-    }
-
-    // BEFORE the roster patch, so no window exists in which they are a member
-    // holding a stale cursor — chat.ts's resetChatCursorFor documents the
-    // ordering rule and players.ts:262 follows it on the email path.
-    await resetChatCursorFor(ctx, player._id, team._id)
-    await ctx.db.patch(team._id, { playerIds: [...team.playerIds, player._id] })
-  },
-})
+  // BEFORE THE ROSTER PATCH, so no window exists in which they are a member
+  // holding a stale cursor. chat.ts's resetChatCursorFor documents the ordering
+  // rule and players.ts:262 follows it on the email path. A previous stint on
+  // this team leaves a chatReads row behind — removal never cleans one up,
+  // deliberately — saying they have read everything up to the day they left.
+  //
+  // THAT THE RESET HAPPENS IS COVERED; THAT IT HAPPENS FIRST IS NOT. Swapping
+  // these two lines moves no test — planted and confirmed — because both run
+  // inside one Convex transaction and nothing in the harness can observe the
+  // interleaving. Keeping the order is a code-review obligation, the same kind
+  // revokeLinkFor's comment records about its own unobservable check order.
+  await resetChatCursorFor(ctx, playerId, team._id)
+  await ctx.db.patch(team._id, { playerIds: [...team.playerIds, playerId] })
+}
 ```
 
 Move the added imports up to the existing import block rather than leaving them mid-file. Reuse `access.ts`'s real error codes.
@@ -578,7 +762,7 @@ Move the added imports up to the existing import block rather than leaving them 
 - [ ] **Step 4: Run it and watch it pass**
 
 Run from `v2/`: `pnpm vitest run convex/inviteLinks.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 19 tests in this file.
 
 - [ ] **Step 5: Commit**
 
