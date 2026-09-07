@@ -74,13 +74,12 @@ export function CreateTeamDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/*
-        shadcn's default DialogContent is `w-full max-w-lg`, which is
-        edge-to-edge with square corners below the `sm` (640px) breakpoint —
-        `sm:rounded-lg` never applies. v1 explicitly overrides this on both
-        its team dialogs (create-team.tsx, update-team.tsx) with
-        `w-11/12 rounded-lg`, so the dialog is inset with visible side
-        margins and rounded corners even on a phone. This is parity with
-        that shape, not a v2 stylistic choice.
+        THE INSET AND THE ROUNDING MOVED INTO ui/dialog.tsx (wordle-teams-2uet).
+        shadcn's stock DialogContent is `w-full max-w-lg ... sm:rounded-lg`,
+        edge-to-edge and square-cornered below 640px; v1 overrides it on both
+        its team dialogs, and so did five of this app's seven callers, which is
+        what made it the default rather than a per-call-site correction. The
+        rendered dialog is unchanged.
       */}
       {/*
         The Team Name input autofocuses on open (Radix's default), which pulls
@@ -99,7 +98,6 @@ export function CreateTeamDialog({
         keeps a tall keyboard from clipping the footer outright.
       */}
       <DialogContent
-        className="w-11/12 rounded-lg overflow-y-auto"
         style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
       >
         <DialogHeader>

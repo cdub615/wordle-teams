@@ -79,10 +79,10 @@ export function UpdateTeamDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* w-11/12 rounded-lg matches v1. shadcn's DialogContent default is
-          `w-full max-w-lg ... sm:rounded-lg`, so below 640px it is
-          edge-to-edge AND square-cornered. Both of v1's team dialogs
-          override it the same way. Caught on a phone screenshot. */}
+      {/* THE `w-11/12 rounded-lg` THAT USED TO BE HERE IS NOW ui/dialog.tsx's
+          default (wordle-teams-2uet) — five of seven callers were pasting it.
+          v1's own team dialogs override shadcn the same way, so this is still
+          parity with them; it is just no longer this file's job to say so. */}
       {/*
         Same keyboard-aware centering as create-team-dialog.tsx: this Dialog
         is centered at every width via `top-[50%] translate-y-[-50%]`, not a
@@ -95,7 +95,6 @@ export function UpdateTeamDialog({
         the keyboard.
       */}
       <DialogContent
-        className="w-11/12 rounded-lg overflow-y-auto"
         style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
       >
         <DialogHeader>

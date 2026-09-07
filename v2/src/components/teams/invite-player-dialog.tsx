@@ -135,11 +135,12 @@ export function InvitePlayerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* w-11/12 rounded-lg and the visual-viewport `top` are parity with the
-          other team dialogs — see create-team-dialog.tsx for why both are
-          load-bearing on a phone. */}
+      {/* The visual-viewport `top` is parity with the other team dialogs — see
+          create-team-dialog.tsx for why it is load-bearing on a phone. The
+          `w-11/12 rounded-lg` that used to sit beside it is ui/dialog.tsx's
+          default now (wordle-teams-2uet); the `w-11/12` box the comment below
+          measures against is therefore still the box this renders in. */}
       <DialogContent
-        className="w-11/12 rounded-lg overflow-y-auto"
         style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
       >
         {/* NO WRAPPING OR TRUNCATING CLASSES HERE, DELIBERATELY, even though

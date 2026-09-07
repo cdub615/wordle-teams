@@ -277,10 +277,12 @@ export function ScoringSystemEditor({
   if (isDesktop) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        {/* w-11/12 rounded-lg matches v1 and update-team-dialog.tsx: shadcn's
-            DialogContent default is `w-full max-w-lg ... sm:rounded-lg`, so
-            below 640px it is edge-to-edge AND square-cornered. */}
-        <DialogContent className="w-11/12 rounded-lg">
+        {/* NO WIDTH OR RADIUS OVERRIDE ANY MORE. This used to pass
+            `w-11/12 rounded-lg` because shadcn's stock DialogContent is
+            edge-to-edge and square-cornered below 640px; five of seven callers
+            were pasting the same two utilities, so ui/dialog.tsx owns them now
+            (wordle-teams-2uet). The rendered result is unchanged. */}
+        <DialogContent>
           <DialogHeader className="pb-4">
             <DialogTitle className="text-2xl">Scoring System</DialogTitle>
             <DialogDescription>Points awarded by number of attempts</DialogDescription>

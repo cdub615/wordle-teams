@@ -101,23 +101,42 @@ describe('no component paints TEXT with a BACKGROUND token', () => {
 /**
  * AN INSET DIALOG MUST ROUND ITS OWN CORNERS.
  *
- * ui/dialog.tsx rounds at `sm:` and above only. That is stock shadcn and it is
- * RIGHT for a dialog left at full width on a phone — a full-bleed sheet meeting
- * the screen edge squarely is the intended look, and two dialogs rely on it.
+ * THE RULE MOVED INTO THE COMPONENT (wordle-teams-2uet) AND THIS GUARD STAYED.
+ * ui/dialog.tsx used to round at `sm:` and above only — stock shadcn, and right
+ * for a panel left full width on a phone — so every caller that narrowed the
+ * panel had to remember to round it too. Five of seven did; settings-dialog.tsx
+ * shipped with the `w-11/12` and not the `rounded-lg` and was the only surface
+ * in the app with square corners. The default now carries both, so no caller
+ * has to.
  *
- * But the moment a caller narrows the panel (`w-11/12`), it is inset from the
- * edges and square corners just look broken. Four of the five inset dialogs
- * paired `w-11/12` with `rounded-lg`; settings-dialog.tsx did not, and was the
- * only surface in the app with unrounded corners.
+ * WHAT IS LEFT TO CHECK IS THE NEXT CALLER. A call site can still narrow the
+ * panel further, or opt back into full bleed, and the pairing is exactly as
+ * easy to get half right as it was before. The first case below is what stops
+ * the loop from passing vacuously now that no caller narrows anything: it reads
+ * the component's own default and fails if the pair comes apart THERE, which is
+ * the single place it would now go wrong for everybody at once.
  *
  * NOTHING ELSE CAN SEE THIS. It type-checks, lints and builds identically
- * either way, and styles.test.ts measures colour tokens. Like the text-muted
- * bug above it, the only signal was a person looking at the screen — which is
- * the argument for pinning it here rather than trusting the next author to
- * notice.
+ * either way, and styles.test.ts measures colour tokens.
+ * ui/dialog.hook.test.ts asserts the rendered element; this asserts the source,
+ * for every file that never renders under vitest.
  */
 describe('a dialog that narrows itself also rounds itself', () => {
   const dialogs = sources.filter((file) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8').includes('<DialogContent'))
+
+  test('the shared default narrows and rounds, so no caller has to', () => {
+    // The pair, in ui/dialog.tsx's own class string. Red if either half is
+    // dropped, and red if `rounded-lg` retreats behind `sm:` again — which is
+    // the specific regression that would put square corners back on every
+    // phone-width dialog in the app at once.
+    const component = codeOf(
+      readFileSync(new URL('./components/ui/dialog.tsx', import.meta.url), 'utf8'),
+    )
+    const [defaults] = component.match(/"fixed left-\[50%\][^"]*"/) ?? []
+    expect(defaults, "ui/dialog.tsx's DialogContent class string moved").toBeDefined()
+    expect(defaults).toMatch(/\bw-\d+\/\d+\b/)
+    expect(defaults).toMatch(/(?<![\w:-])rounded-lg\b/)
+  })
 
   test('there are dialogs to check, so this cannot pass vacuously', () => {
     expect(dialogs.length).toBeGreaterThan(3)

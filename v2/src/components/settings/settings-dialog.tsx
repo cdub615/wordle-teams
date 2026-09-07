@@ -49,22 +49,19 @@ export function SettingsDialog({
   displayName?: string | null
 }) {
   /*
-   * `rounded-lg` IS NOT OPTIONAL ONCE `w-11/12` IS SET, and this dialog shipped
-   * without it. ui/dialog.tsx rounds at `sm:` and above only, which is stock
-   * shadcn and correct for a dialog that is FULL WIDTH on a phone: a full-bleed
-   * sheet with square corners against the screen edge is the intended look, and
-   * board-entry/button.tsx and monthly-winner-celebration.tsx both rely on it.
-   * Narrowing to 11/12 pulls the panel off the edges, and square corners on an
-   * inset panel just look broken.
+   * ONLY THE PADDING IS THIS DIALOG'S OWN NOW. It used to carry `w-11/12
+   * rounded-lg` as well — and shipped once with the `w-11/12` and not the
+   * `rounded-lg`, which is exactly the failure mode of a correction that five
+   * separate call sites each had to remember. ui/dialog.tsx carries both as its
+   * default since wordle-teams-2uet, so the pair can no longer come apart, and
+   * ui/dialog.hook.test.ts asserts the padding below does not knock them off.
    *
-   * The other four inset dialogs already pair them — scoring-system-editor,
-   * create-team, invite-player and update-team all pass `w-11/12 rounded-lg`.
-   * This one was the single exception. styles-utilities.test.ts pins the
-   * pairing, because nothing else can see it: it type-checks, lints and builds
-   * either way.
+   * `px-3 py-4 md:p-6` STAYS, because it is genuinely this dialog's: it holds a
+   * tab strip whose triggers need the horizontal room that the shared `p-6`
+   * spends on margin.
    */
   return (
-    <DialogContent className="w-11/12 rounded-lg px-3 py-4 md:p-6">
+    <DialogContent className="px-3 py-4 md:p-6">
       <VisuallyHidden.Root>
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
