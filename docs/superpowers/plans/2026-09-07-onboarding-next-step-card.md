@@ -345,25 +345,29 @@ Create `v2/convex/onboarding.test.ts`:
 ```ts
 import { describe, expect, test } from 'vitest'
 import { convexTest } from 'convex-test'
+import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema.ts'
 import { api } from './_generated/api'
-import { aPlayer, asPlayer, betterAuthTest } from './fixtures.ts'
+import { aPlayer, authenticatedAs } from './fixtures.ts'
+
+// Every convexTest call site in this repo passes `modules`; see chat.test.ts:35.
+const modules = import.meta.glob('./**/*.ts')
 
 describe('onboarding.getStatus', () => {
   test('is null for a caller with no player row', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
-    const as = await asPlayer(t, 'nobody@example.com')
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    const as = await authenticatedAs(t, 'nobody@example.com')
     expect(await as.query(api.onboarding.getStatus, {})).toBeNull()
   })
 
   test('enteredBoard is false with no boards at all', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'a@example.com' }))
     })
-    const as = await asPlayer(t, 'a@example.com')
+    const as = await authenticatedAs(t, 'a@example.com')
     expect(await as.query(api.onboarding.getStatus, {})).toEqual({
       enteredBoard: false,
       dismissed: false,
@@ -375,8 +379,8 @@ describe('onboarding.getStatus', () => {
     // empty-guess rows exist in copied data. wordle-teams-456 counts non-empty
     // guesses for exactly this reason: without the filter every migrated empty
     // row reads as an activation and the number is inflated.
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer({ email: 'b@example.com' }))
       await ctx.db.insert('dailyScores', {
@@ -387,13 +391,13 @@ describe('onboarding.getStatus', () => {
         guesses: [],
       })
     })
-    const as = await asPlayer(t, 'b@example.com')
+    const as = await authenticatedAs(t, 'b@example.com')
     expect((await as.query(api.onboarding.getStatus, {}))?.enteredBoard).toBe(false)
   })
 
   test('a row with real guesses counts as entered', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer({ email: 'c@example.com' }))
       await ctx.db.insert('dailyScores', {
@@ -404,14 +408,14 @@ describe('onboarding.getStatus', () => {
         guesses: ['stare', 'crane'],
       })
     })
-    const as = await asPlayer(t, 'c@example.com')
+    const as = await authenticatedAs(t, 'c@example.com')
     expect((await as.query(api.onboarding.getStatus, {}))?.enteredBoard).toBe(true)
   })
 
   test('finds a non-empty row even when an empty one sorts first', async () => {
     // The scan must not stop at the first row it sees.
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer({ email: 'd@example.com' }))
       await ctx.db.insert('dailyScores', {
@@ -429,13 +433,13 @@ describe('onboarding.getStatus', () => {
         guesses: ['crane'],
       })
     })
-    const as = await asPlayer(t, 'd@example.com')
+    const as = await authenticatedAs(t, 'd@example.com')
     expect((await as.query(api.onboarding.getStatus, {}))?.enteredBoard).toBe(true)
   })
 
   test("does not see another player's boards", async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'mine@example.com' }))
       const otherId = await ctx.db.insert('players', aPlayer({ email: 'other@example.com' }))
@@ -447,19 +451,19 @@ describe('onboarding.getStatus', () => {
         guesses: ['crane'],
       })
     })
-    const as = await asPlayer(t, 'mine@example.com')
+    const as = await authenticatedAs(t, 'mine@example.com')
     expect((await as.query(api.onboarding.getStatus, {}))?.enteredBoard).toBe(false)
   })
 })
 
 describe('onboarding.dismiss and replay', () => {
   test('dismiss sets the flag and replay clears it', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'e@example.com' }))
     })
-    const as = await asPlayer(t, 'e@example.com')
+    const as = await authenticatedAs(t, 'e@example.com')
 
     await as.mutation(api.onboarding.dismiss, {})
     expect((await as.query(api.onboarding.getStatus, {}))?.dismissed).toBe(true)
@@ -469,12 +473,12 @@ describe('onboarding.dismiss and replay', () => {
   })
 
   test('dismiss is idempotent', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'f@example.com' }))
     })
-    const as = await asPlayer(t, 'f@example.com')
+    const as = await authenticatedAs(t, 'f@example.com')
     await as.mutation(api.onboarding.dismiss, {})
     await as.mutation(api.onboarding.dismiss, {})
     expect((await as.query(api.onboarding.getStatus, {}))?.dismissed).toBe(true)
@@ -482,7 +486,7 @@ describe('onboarding.dismiss and replay', () => {
 })
 ```
 
-**Before running:** open `v2/convex/fixtures.ts` and confirm the exact names of the player fixture and the authenticated-instance helper. This plan assumes `aPlayer`, `asPlayer` and `betterAuthTest` (the last two are referenced in that file's own doc comment). If they differ, fix the import — do not invent new fixtures.
+**The imports above are verified, not assumed** (checked 2026-09-07 against `convex/chat.test.ts`). `convex/fixtures.ts` exports `aPlayer`, `aTeam` and `authenticatedAs` — there is no `asPlayer`, and `betterAuthTest` is a DEFAULT import from `@convex-dev/better-auth/test`, not a fixture. `betterAuthTest.register(t)` is called synchronously, not awaited. All 413 `convexTest` call sites in this repo pass `modules`; omitting it will fail. Do not invent new fixtures.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -596,14 +600,14 @@ Append to the existing `describe` block for `getMyTeams` in `v2/convex/teams.tes
 
 ```ts
 test('hasPendingInvite is true when an address is parked, false when not', async () => {
-  const t = convexTest(schema)
-  await betterAuthTest.register(t)
+  const t = convexTest(schema, modules)
+  betterAuthTest.register(t)
   await t.run(async (ctx) => {
     const playerId = await ctx.db.insert('players', aPlayer({ email: 'owner@example.com' }))
     await ctx.db.insert('teams', aTeam({ name: 'parked', playerIds: [playerId], invited: ['friend@example.com'] }))
     await ctx.db.insert('teams', aTeam({ name: 'alone', playerIds: [playerId], invited: [] }))
   })
-  const as = await asPlayer(t, 'owner@example.com')
+  const as = await authenticatedAs(t, 'owner@example.com')
   const teams = await as.query(api.teams.getMyTeams, {})
 
   const parked = teams.find((team) => team.name === 'parked')
@@ -616,13 +620,13 @@ test('the wire payload still carries no email addresses', async () => {
   // getMyTeamsFor picks fields explicitly BECAUSE `invited` holds real
   // addresses (teams.ts:108). hasPendingInvite is a boolean precisely so that
   // stays true. This asserts the property rather than the comment.
-  const t = convexTest(schema)
-  await betterAuthTest.register(t)
+  const t = convexTest(schema, modules)
+  betterAuthTest.register(t)
   await t.run(async (ctx) => {
     const playerId = await ctx.db.insert('players', aPlayer({ email: 'owner2@example.com' }))
     await ctx.db.insert('teams', aTeam({ playerIds: [playerId], invited: ['secret@example.com'] }))
   })
-  const as = await asPlayer(t, 'owner2@example.com')
+  const as = await authenticatedAs(t, 'owner2@example.com')
   const teams = await as.query(api.teams.getMyTeams, {})
   expect(JSON.stringify(teams)).not.toContain('secret@example.com')
 })
@@ -1353,20 +1357,20 @@ Append to `v2/convex/scores.test.ts`:
 ```ts
 describe('scores.getMyBoard', () => {
   test('returns null when the player has no board that day', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'g@example.com' }))
     })
-    const as = await asPlayer(t, 'g@example.com')
+    const as = await authenticatedAs(t, 'g@example.com')
     expect(await as.query(api.scores.getMyBoard, { puzzleDay: '2026-09-07' })).toBeNull()
   })
 
   test('returns the board for a player on NO team', async () => {
     // The whole point: a team-less player can play, and their score is waiting
     // for them the moment they create or join a team.
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer({ email: 'h@example.com' }))
       await ctx.db.insert('dailyScores', {
@@ -1377,7 +1381,7 @@ describe('scores.getMyBoard', () => {
         guesses: ['stare', 'crane'],
       })
     })
-    const as = await asPlayer(t, 'h@example.com')
+    const as = await authenticatedAs(t, 'h@example.com')
     expect(await as.query(api.scores.getMyBoard, { puzzleDay: '2026-09-07' })).toMatchObject({
       answer: 'crane',
       guesses: ['stare', 'crane'],
@@ -1385,7 +1389,7 @@ describe('scores.getMyBoard', () => {
   })
 
   test('is null for an unauthenticated caller rather than throwing', async () => {
-    const t = convexTest(schema)
+    const t = convexTest(schema, modules)
     expect(await t.query(api.scores.getMyBoard, { puzzleDay: '2026-09-07' })).toBeNull()
   })
 })
@@ -1681,6 +1685,6 @@ Close the child issues, and record on `wordle-teams-qt4` that the pre-launch act
 
 **Not covered here, by design:** invite links, which the spec calls the largest single piece and separable. They are `docs/superpowers/plans/2026-09-07-invite-links.md`. Until that plan lands, the invite task navigates to `/team`, where `InvitePlayerDialog` already lives.
 
-**Known soft spots**, flagged rather than hidden. Task 7 leaves `onBoard` provisional until Task 8 lifts the board-entry state — **the two must land together**. Task 8's form edit depends on the exact shape `getTeamMonth` returns, which the implementer must read first; the step says so rather than guessing. Task 3's test imports `aPlayer`, `asPlayer` and `betterAuthTest` from `convex/fixtures.ts` and the step says to confirm those names before running. Task 9's menu markup must match its neighbours.
+**Known soft spots**, flagged rather than hidden. Task 7 leaves `onBoard` provisional until Task 8 lifts the board-entry state — **the two must land together**. Task 8's form edit depends on the exact shape `getTeamMonth` returns, which the implementer must read first; the step says so rather than guessing. Task 3's convex-test idiom was originally wrong in this plan and is now corrected against `chat.test.ts` — `authenticatedAs` not `asPlayer`, `betterAuthTest` as a default package import, and `convexTest(schema, modules)`. Task 9's menu markup must match its neighbours.
 
 **Type consistency.** `OnboardingFacts` carries the same four properties in Tasks 1, 6 and 7. `OnboardingTaskId` is `'board' | 'team' | 'invite'` in Task 1 and the `TASK_IDS` allowlist in Task 5 mirrors it (a Set literal, deliberately, so `funnel-payload.ts` stays importable from the Worker route). `taskSetKey` produces the comma-joined string that `onboarding_view`'s `tasks` tag consumes in Task 5 and asserts in Task 6.

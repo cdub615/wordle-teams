@@ -116,9 +116,13 @@ Create `v2/convex/inviteLinks.test.ts`:
 ```ts
 import { describe, expect, test } from 'vitest'
 import { convexTest } from 'convex-test'
+import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema.ts'
 import { api } from './_generated/api'
-import { aPlayer, aTeam, asPlayer, betterAuthTest } from './fixtures.ts'
+import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
+
+// Every convexTest call site in this repo passes `modules`; see chat.test.ts:35.
+const modules = import.meta.glob('./**/*.ts')
 
 /** Seeds an owner and their team, returns both ids and an authed instance. */
 async function withOwnedTeam(t: ReturnType<typeof convexTest>, email: string) {
@@ -127,13 +131,13 @@ async function withOwnedTeam(t: ReturnType<typeof convexTest>, email: string) {
     const teamId = await ctx.db.insert('teams', aTeam({ owner: playerId, playerIds: [playerId] }))
     return { playerId, teamId }
   })
-  return { ...ids, as: await asPlayer(t, email) }
+  return { ...ids, as: await authenticatedAs(t, email) }
 }
 
 describe('inviteLinks.createLink', () => {
   test('returns a token and stores a live row', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId, as } = await withOwnedTeam(t, 'owner@example.com')
 
     const token = await as.mutation(api.inviteLinks.createLink, { teamId })
@@ -151,8 +155,8 @@ describe('inviteLinks.createLink', () => {
     // randomness, so nothing demonstrates what the runtime permits inside a
     // mutation. If the generator is not actually random, this fails loudly
     // here rather than shipping guessable capability URLs.
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId, as } = await withOwnedTeam(t, 'owner2@example.com')
 
     const tokens = new Set<string>()
@@ -163,21 +167,21 @@ describe('inviteLinks.createLink', () => {
   })
 
   test('a non-owner cannot create one', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId } = await withOwnedTeam(t, 'owner3@example.com')
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'stranger@example.com' }))
     })
-    const stranger = await asPlayer(t, 'stranger@example.com')
+    const stranger = await authenticatedAs(t, 'stranger@example.com')
     await expect(stranger.mutation(api.inviteLinks.createLink, { teamId })).rejects.toThrow()
   })
 })
 
 describe('inviteLinks.revokeLink', () => {
   test('a revoked link stops working', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId, as } = await withOwnedTeam(t, 'owner4@example.com')
     const token = await as.mutation(api.inviteLinks.createLink, { teamId })
 
@@ -293,15 +297,15 @@ Append to `v2/convex/inviteLinks.test.ts`:
 ```ts
 describe('inviteLinks.consumeLink', () => {
   test('puts the holder on the team', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId, as } = await withOwnedTeam(t, 'o1@example.com')
     const token = await as.mutation(api.inviteLinks.createLink, { teamId })
 
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'joiner@example.com' }))
     })
-    const joiner = await asPlayer(t, 'joiner@example.com')
+    const joiner = await authenticatedAs(t, 'joiner@example.com')
     await joiner.mutation(api.inviteLinks.consumeLink, { token })
 
     const team = await t.run(async (ctx) => await ctx.db.get(teamId))
@@ -309,8 +313,8 @@ describe('inviteLinks.consumeLink', () => {
   })
 
   test('is idempotent for someone already on the team', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId, as } = await withOwnedTeam(t, 'o2@example.com')
     const token = await as.mutation(api.inviteLinks.createLink, { teamId })
 
@@ -323,8 +327,8 @@ describe('inviteLinks.consumeLink', () => {
   })
 
   test('refuses an expired link', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId, as } = await withOwnedTeam(t, 'o3@example.com')
     const token = await as.mutation(api.inviteLinks.createLink, { teamId })
     await t.run(async (ctx) => {
@@ -334,30 +338,30 @@ describe('inviteLinks.consumeLink', () => {
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'late@example.com' }))
     })
-    const late = await asPlayer(t, 'late@example.com')
+    const late = await authenticatedAs(t, 'late@example.com')
     await expect(late.mutation(api.inviteLinks.consumeLink, { token })).rejects.toThrow()
   })
 
   test('refuses a revoked link', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId, as } = await withOwnedTeam(t, 'o4@example.com')
     const token = await as.mutation(api.inviteLinks.createLink, { teamId })
     await as.mutation(api.inviteLinks.revokeLink, { token })
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'revoked@example.com' }))
     })
-    const who = await asPlayer(t, 'revoked@example.com')
+    const who = await authenticatedAs(t, 'revoked@example.com')
     await expect(who.mutation(api.inviteLinks.consumeLink, { token })).rejects.toThrow()
   })
 
   test('refuses an unknown token', async () => {
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'nobody@example.com' }))
     })
-    const who = await asPlayer(t, 'nobody@example.com')
+    const who = await authenticatedAs(t, 'nobody@example.com')
     await expect(
       who.mutation(api.inviteLinks.consumeLink, { token: 'deadbeef' }),
     ).rejects.toThrow()
@@ -372,8 +376,8 @@ describe('inviteLinks.consumeLink', () => {
     // And note the behavioural difference from the email path, which is
     // deliberate: an email invite over the cap PARKS the address for a later
     // upgrade. A link cannot park, so it must refuse.
-    const t = convexTest(schema)
-    await betterAuthTest.register(t)
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     const { teamId, as } = await withOwnedTeam(t, 'o5@example.com')
     const token = await as.mutation(api.inviteLinks.createLink, { teamId })
 
@@ -383,7 +387,7 @@ describe('inviteLinks.consumeLink', () => {
         await ctx.db.insert('teams', aTeam({ name: `existing ${i}`, playerIds: [capped] }))
       }
     })
-    const capped = await asPlayer(t, 'capped@example.com')
+    const capped = await authenticatedAs(t, 'capped@example.com')
     await expect(capped.mutation(api.inviteLinks.consumeLink, { token })).rejects.toThrow()
 
     const team = await t.run(async (ctx) => await ctx.db.get(teamId))
