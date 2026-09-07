@@ -979,6 +979,21 @@ git commit -m "feat(invites): share an invite link from the invite dialog"
 **Files:**
 - Create: `v2/e2e/invite-links.spec.ts`
 
+> **PREREQUISITE FOUND IN TASK 4, and this spec cannot pass without it.** The local
+> anonymous Convex backend predates `qt4.12`–`qt4.14`, so it answers
+> `Could not find public function for 'inviteLinks:createLink'`. The spec must mint a
+> real token, so the functions have to reach that deployment first:
+>
+> ```bash
+> CONVEX_DEPLOY_KEY= CONVEX_URL= mise exec node@22.23.2 -- pnpm exec convex dev
+> ```
+>
+> The blank-variable prefix is what targets `anonymous:anonymous-v2` instead of beta —
+> `CONVEX_DEPLOY_KEY` sits uncommented in `v2/.env.local`, so a **bare** `convex dev`
+> pushes to the live beta deployment. Task 7 of the card plan ran exactly this
+> successfully; Task 4's implementer stopped short of it and correctly said so rather
+> than claiming the join worked.
+
 - [ ] **Step 1: Check the port before anything else**
 
 ```bash
@@ -1036,7 +1051,13 @@ grep -rn "SITE_URL" dist/client/ | head
 
 Expected: all `=0`, and **no `SITE_URL` hits** — `convex/auth.ts` throws at module scope without it, which is always true in a browser, and that throw cannot be tree-shaken. Nothing here should reach `convex/access.ts`, but `inviteLinks.ts` imports it, so this check matters more in this plan than in the card one.
 
-- [ ] **Step 5: Commit and close the issues**
+- [ ] **Step 5: One copy fix, then commit**
+
+`InvitePlayerDialog`'s `DialogDescription` still reads "Enter the player's email address",
+which described the whole dialog before `qt4.16` added the share half and now describes
+only its top half. One line, and it is the first thing a reader of that dialog sees.
+
+- [ ] **Step 6: Commit and close the issues**
 
 ```bash
 git add v2/e2e/invite-links.spec.ts
