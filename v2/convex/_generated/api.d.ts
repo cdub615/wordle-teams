@@ -39,6 +39,7 @@ import type * as lib_scoringSystem from "../lib/scoringSystem.js";
 import type * as lib_teamLimits from "../lib/teamLimits.js";
 import type * as me from "../me.js";
 import type * as migrate from "../migrate.js";
+import type * as onboarding from "../onboarding.js";
 import type * as players from "../players.js";
 import type * as polar from "../polar.js";
 import type * as push from "../push.js";
@@ -91,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   "lib/teamLimits": typeof lib_teamLimits;
   me: typeof me;
   migrate: typeof migrate;
+  onboarding: typeof onboarding;
   players: typeof players;
   polar: typeof polar;
   push: typeof push;
