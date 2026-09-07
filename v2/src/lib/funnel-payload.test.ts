@@ -64,3 +64,46 @@ describe('toLogSnagPayload', () => {
     expect(toLogSnagPayload({ name: 'login_view' }, 'production')?.tags.env).toBe('production')
   })
 })
+
+describe('onboarding events', () => {
+  test('onboarding_view carries the incomplete task set', () => {
+    const payload = toLogSnagPayload({ name: 'onboarding_view', tasks: 'board,team' }, 'beta')
+    expect(payload?.event).toBe('Onboarding viewed')
+    expect(payload?.tags.tasks).toBe('board,team')
+    expect(payload?.tags.env).toBe('beta')
+  })
+
+  test('onboarding_task_click carries the task', () => {
+    const payload = toLogSnagPayload({ name: 'onboarding_task_click', task: 'invite' }, 'prod')
+    expect(payload?.event).toBe('Onboarding task clicked')
+    expect(payload?.tags.task).toBe('invite')
+  })
+
+  test('onboarding_complete and onboarding_dismiss are allowed', () => {
+    expect(toLogSnagPayload({ name: 'onboarding_complete' }, 'beta')?.event).toBe(
+      'Onboarding complete',
+    )
+    expect(toLogSnagPayload({ name: 'onboarding_dismiss' }, 'beta')?.event).toBe(
+      'Onboarding dismissed',
+    )
+  })
+
+  test('an unknown task id is dropped, not passed through', () => {
+    // /api/funnel is public and unauthenticated. Tags are BUILT from
+    // allowlists, never forwarded, or anyone could write arbitrary tags into
+    // the project's LogSnag.
+    const payload = toLogSnagPayload({ name: 'onboarding_task_click', task: 'evil' }, 'beta')
+    expect(payload).not.toBeNull()
+    expect(payload?.tags.task).toBeUndefined()
+  })
+
+  test('unknown ids inside a task set are filtered out', () => {
+    const payload = toLogSnagPayload({ name: 'onboarding_view', tasks: 'board,evil' }, 'beta')
+    expect(payload?.tags.tasks).toBe('board')
+  })
+
+  test('a task set of only unknown ids sets no tag at all', () => {
+    const payload = toLogSnagPayload({ name: 'onboarding_view', tasks: 'evil,worse' }, 'beta')
+    expect(payload?.tags.tasks).toBeUndefined()
+  })
+})

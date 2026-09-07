@@ -29,6 +29,17 @@ export type FunnelEvent =
   | { name: 'login_provider_click'; provider: string }
   | { name: 'login_code_requested' }
   | { name: 'login_callback_arrived'; method: 'oauth' | 'otp' }
+  // ACTIVATION HALF (wordle-teams-qt4). The login events above answer "did they
+  // get in"; these answer "did they then do anything", which is the larger leak
+  // — 82% of players have never entered a board.
+  //
+  // `tasks` is the comma-joined incomplete set from taskSetKey, and it doubles
+  // as the funnel STAGE: the player's own state is the stage, so there is no
+  // separate step counter that can drift out of sync with what is on screen.
+  | { name: 'onboarding_view'; tasks: string }
+  | { name: 'onboarding_task_click'; task: string }
+  | { name: 'onboarding_complete' }
+  | { name: 'onboarding_dismiss' }
 
 /**
  * Ship one event to /api/funnel, which forwards it to LogSnag.

@@ -19,10 +19,23 @@ const EVENTS = new Map<string, { event: string; icon: string }>([
   ['login_provider_click', { event: 'Login provider clicked', icon: '🔘' }],
   ['login_code_requested', { event: 'Login code requested', icon: '📧' }],
   ['login_callback_arrived', { event: 'Login completed', icon: '✅' }],
+  ['onboarding_view', { event: 'Onboarding viewed', icon: '🧭' }],
+  ['onboarding_task_click', { event: 'Onboarding task clicked', icon: '👉' }],
+  ['onboarding_complete', { event: 'Onboarding complete', icon: '🎉' }],
+  ['onboarding_dismiss', { event: 'Onboarding dismissed', icon: '🙈' }],
 ])
 
 const PROVIDERS = new Set(['google', 'microsoft', 'github', 'discord'])
 const METHODS = new Set(['oauth', 'otp'])
+
+/**
+ * The onboarding task ids, allowlisted for the same reason PROVIDERS is:
+ * /api/funnel is public and unauthenticated, so tags are BUILT here and never
+ * forwarded from the body. Must stay in step with OnboardingTaskId in
+ * lib/onboarding-tasks.ts — a Set literal rather than an import because this
+ * module is also reached from the Worker route and stays dependency-free.
+ */
+const TASK_IDS = new Set(['board', 'team', 'invite'])
 
 export type LogSnagPayload = {
   event: string
@@ -32,7 +45,7 @@ export type LogSnagPayload = {
 
 export function toLogSnagPayload(body: unknown, env: string): LogSnagPayload | null {
   if (typeof body !== 'object' || body === null) return null
-  const { name, provider, method } = body as Record<string, unknown>
+  const { name, provider, method, task, tasks } = body as Record<string, unknown>
 
   const spec = typeof name === 'string' ? EVENTS.get(name) : undefined
   if (!spec) return null
@@ -43,6 +56,14 @@ export function toLogSnagPayload(body: unknown, env: string): LogSnagPayload | n
   const tags: Record<string, string> = { env }
   if (typeof provider === 'string' && PROVIDERS.has(provider)) tags.provider = provider
   if (typeof method === 'string' && METHODS.has(method)) tags.method = method
+  if (typeof task === 'string' && TASK_IDS.has(task)) tags.task = task
+  if (typeof tasks === 'string') {
+    // Filtered element-wise, not accepted or rejected whole: a set carrying one
+    // bad id still has useful known ids in it, and dropping the tag entirely
+    // would lose them. An all-unknown set yields no tag rather than an empty one.
+    const known = tasks.split(',').filter((id) => TASK_IDS.has(id))
+    if (known.length > 0) tags.tasks = known.join(',')
+  }
 
   return { event: spec.event, icon: spec.icon, tags }
 }
