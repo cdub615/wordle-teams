@@ -1051,6 +1051,15 @@ describe('NextStepCard', () => {
     ])
   })
 
+  test('does NOT emit onboarding_complete for someone who arrives already finished', () => {
+    // Every activated player mounts this on every /app load with zero tasks.
+    // Firing here would emit one completion per page view for the whole
+    // activated population and destroy the metric this epic is measured by.
+    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+    render(createElement(NextStepCard, { facts: done, ...handlers }))
+    expect(sent.filter((entry) => entry.startsWith('onboarding_complete'))).toEqual([])
+  })
+
   test('emits onboarding_complete once when the last task finishes', () => {
     const { rerender } = render(
       createElement(NextStepCard, {
@@ -1173,13 +1182,27 @@ export function NextStepCard({
   }, [visible, key])
 
   /**
-   * Completion, emitted once. `tasks.length === 0` is the only true finish —
-   * a dismissal is a different event and deliberately not counted as one, or
-   * the activation number would flatter itself.
+   * Completion, emitted once, ON THE TRANSITION rather than on the state.
+   *
+   * `sawIncomplete` is the whole point and this is wrong without it. An
+   * activated player mounts this component on EVERY /app load with zero
+   * incomplete tasks, so firing whenever `tasks.length === 0` would emit an
+   * onboarding_complete per page view for the entire activated population —
+   * swamping the channel and destroying the one number this epic is measured
+   * by. The event has to mean "they just finished", which requires having seen
+   * them unfinished first.
+   *
+   * A dismissal is deliberately NOT a completion; it is its own event, or the
+   * activation number would flatter itself.
    */
+  const sawIncomplete = useRef(false)
   const completed = useRef(false)
   useEffect(() => {
-    if (tasks.length > 0 || completed.current) return
+    if (tasks.length > 0) {
+      sawIncomplete.current = true
+      return
+    }
+    if (!sawIncomplete.current || completed.current) return
     completed.current = true
     trackFunnel({ name: 'onboarding_complete' })
   }, [tasks.length])
