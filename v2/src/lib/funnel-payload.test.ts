@@ -106,4 +106,31 @@ describe('onboarding events', () => {
     const payload = toLogSnagPayload({ name: 'onboarding_view', tasks: 'evil,worse' }, 'beta')
     expect(payload?.tags.tasks).toBeUndefined()
   })
+
+  test('a repeated id cannot inflate the tag', () => {
+    const payload = toLogSnagPayload(
+      { name: 'onboarding_view', tasks: 'board,'.repeat(1000) },
+      'beta',
+    )
+    expect(payload?.tags.tasks).toBe('board')
+  })
+
+  test('prototype-chain keys are not allowlisted values', () => {
+    for (const hostile of ['__proto__', 'constructor', 'toString', 'valueOf']) {
+      expect(
+        toLogSnagPayload({ name: 'onboarding_task_click', task: hostile }, 'beta')?.tags.task,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'onboarding_view', tasks: hostile }, 'beta')?.tags.tasks,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'login_provider_click', provider: hostile }, 'beta')?.tags
+          .provider,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'login_callback_arrived', method: hostile }, 'beta')?.tags
+          .method,
+      ).toBeUndefined()
+    }
+  })
 })

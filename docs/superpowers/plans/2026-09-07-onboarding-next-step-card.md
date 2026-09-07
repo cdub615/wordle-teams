@@ -784,6 +784,40 @@ describe('onboarding events', () => {
     const payload = toLogSnagPayload({ name: 'onboarding_view', tasks: 'evil,worse' }, 'beta')
     expect(payload?.tags.tasks).toBeUndefined()
   })
+
+  test('a repeated id cannot inflate the tag', () => {
+    // The element-wise filter above bounds the ALPHABET to three known ids but
+    // not the COUNT: 'board,'.repeat(100000) passes it untouched and forwards a
+    // ~600KB tag to a third party from a public, unauthenticated endpoint.
+    const payload = toLogSnagPayload(
+      { name: 'onboarding_view', tasks: 'board,'.repeat(1000) },
+      'beta',
+    )
+    expect(payload?.tags.tasks).toBe('board')
+  })
+
+  test('prototype-chain keys are not allowlisted values', () => {
+    // TASK_IDS, PROVIDERS and METHODS are Sets, not object literals, for the
+    // same reason EVENTS is a Map: an object-literal allowlist plus `in` or `[]`
+    // lookup resolves '__proto__'/'constructor'/etc up the prototype chain and
+    // passes a truthy check for a value that was never allowed.
+    for (const hostile of ['__proto__', 'constructor', 'toString', 'valueOf']) {
+      expect(
+        toLogSnagPayload({ name: 'onboarding_task_click', task: hostile }, 'beta')?.tags.task,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'onboarding_view', tasks: hostile }, 'beta')?.tags.tasks,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'login_provider_click', provider: hostile }, 'beta')?.tags
+          .provider,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'login_callback_arrived', method: hostile }, 'beta')?.tags
+          .method,
+      ).toBeUndefined()
+    }
+  })
 })
 ```
 
@@ -794,14 +828,40 @@ Expected: FAIL — `toLogSnagPayload` returns `null` for `onboarding_view`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `v2/src/lib/funnel-payload.ts`, add four entries to the `EVENTS` map:
+In `v2/src/lib/funnel-payload.ts`, replace the `EVENTS` map with a `Record` keyed by
+`FunnelEvent['name']` feeding a `Map`, so adding a variant to the union without an
+entry here is a compile error rather than an event that silently vanishes at
+runtime (this module exists precisely because server logs cannot explain a
+funnel loss):
 
 ```ts
-  ['onboarding_view', { event: 'Onboarding viewed', icon: '🧭' }],
-  ['onboarding_task_click', { event: 'Onboarding task clicked', icon: '👉' }],
-  ['onboarding_complete', { event: 'Onboarding complete', icon: '🎉' }],
-  ['onboarding_dismiss', { event: 'Onboarding dismissed', icon: '🙈' }],
+import type { FunnelEvent } from './funnel.ts'
+
+// A RECORD FOR COMPLETENESS, A MAP FOR LOOKUP, and both halves matter.
+// The Record's key type is FunnelEvent['name'], so adding a variant to that
+// union without adding it here is a COMPILE error rather than an event that
+// silently vanishes at runtime -- which is the worst failure this module can
+// have, given it exists because server logs cannot explain a funnel loss.
+// The lookup still goes through a Map because EVENTS['__proto__'] on a literal
+// resolves up the prototype chain and passes a truthy check for a name that was
+// never allowed; a unit test caught exactly that.
+const EVENT_SPECS: Record<FunnelEvent['name'], { event: string; icon: string }> = {
+  login_view: { event: 'Login viewed', icon: '👀' },
+  login_provider_click: { event: 'Login provider clicked', icon: '🔘' },
+  login_code_requested: { event: 'Login code requested', icon: '📧' },
+  login_callback_arrived: { event: 'Login completed', icon: '✅' },
+  onboarding_view: { event: 'Onboarding viewed', icon: '🧭' },
+  onboarding_task_click: { event: 'Onboarding task clicked', icon: '👉' },
+  onboarding_complete: { event: 'Onboarding complete', icon: '🎉' },
+  onboarding_dismiss: { event: 'Onboarding dismissed', icon: '🙈' },
+}
+const EVENTS = new Map(Object.entries(EVENT_SPECS))
 ```
+
+`import type` is fully erased at compile time (this repo's tsconfig sets
+`verbatimModuleSyntax`, which enforces the `type` modifier on type-only
+imports), so this does not give `funnel-payload.ts` a runtime dependency on
+`funnel.ts` — it stays reachable from the Worker route exactly as before.
 
 Below the existing `METHODS` set, add:
 
@@ -830,7 +890,19 @@ and, after the existing `method` branch:
     // Filtered element-wise, not accepted or rejected whole: a set carrying one
     // bad id still has useful known ids in it, and dropping the tag entirely
     // would lose them. An all-unknown set yields no tag rather than an empty one.
-    const known = tasks.split(',').filter((id) => TASK_IDS.has(id))
+    //
+    // Deduped, not just filtered. The filter alone bounds the ALPHABET to three
+    // known ids but not the COUNT — 'board,'.repeat(100000) passes the filter
+    // untouched and forwards a ~600KB tag to a third party from a public,
+    // unauthenticated endpoint. That is both CPU cost (the split/filter/join
+    // scales with input size) and Sentry-amplification risk (an oversized tag
+    // hitting an undocumented LogSnag limit turns into a captureError in
+    // logsnag.ts, and sentry-capture.ts has no sampling or dedupe). Dedupe
+    // bounds the result at three by construction and is semantically right
+    // anyway: a task SET should not contain duplicates, and taskSetKey can
+    // never emit one. Set preserves first-seen order, so the canonical
+    // board,team,invite ordering survives.
+    const known = [...new Set(tasks.split(',').filter((id) => TASK_IDS.has(id)))]
     if (known.length > 0) tags.tasks = known.join(',')
   }
 ```
