@@ -32,7 +32,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'INVALID_PUSH_ENDPOINT' ||
     code === 'INVALID_MESSAGE' ||
     code === 'RATE_LIMITED' ||
-    code === 'SCROLL_RATE_LIMITED'
+    code === 'SCROLL_RATE_LIMITED' ||
+    code === 'INVITE_LINK_INVALID'
   ) {
     return code
   }
@@ -143,6 +144,17 @@ export function typedCodeMessage(code: AccessCode): string {
       return 'You are sending messages very quickly — give it a moment.'
     case 'SCROLL_RATE_LIMITED':
       return "You're scrolling back very quickly — give it a moment."
+    case 'INVITE_LINK_INVALID':
+      // Read by someone a friend handed a link to, who has done NOTHING wrong:
+      // the link expired, or the team's owner withdrew it. So the copy names
+      // the link as the thing that stopped working and points at the one action
+      // that helps — ask for another — rather than implying the holder turned
+      // up somewhere they should not have. It also does not say WHICH of
+      // expired/revoked/unknown it was: revokeLinkFor and the consume path
+      // answer all three identically on purpose (see AccessCode in
+      // convex/access.ts), and copy that distinguished them would leak back
+      // exactly what the single code exists to hide.
+      return 'That invite link no longer works. Ask whoever shared it for a new one.'
     default: {
       const _exhaustive: never = code
       return _exhaustive

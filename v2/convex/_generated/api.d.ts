@@ -21,6 +21,7 @@ import type * as email from "../email.js";
 import type * as fixtures from "../fixtures.js";
 import type * as http from "../http.js";
 import type * as inviteEmails from "../inviteEmails.js";
+import type * as inviteLinks from "../inviteLinks.js";
 import type * as lib_board from "../lib/board.js";
 import type * as lib_chat from "../lib/chat.js";
 import type * as lib_chatLimits from "../lib/chatLimits.js";
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   fixtures: typeof fixtures;
   http: typeof http;
   inviteEmails: typeof inviteEmails;
+  inviteLinks: typeof inviteLinks;
   "lib/board": typeof lib_board;
   "lib/chat": typeof lib_chat;
   "lib/chatLimits": typeof lib_chatLimits;

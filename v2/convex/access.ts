@@ -40,6 +40,12 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // nextScrollWindow — a DISTINCT code from RATE_LIMITED, not a reuse, because
 // RATE_LIMITED's copy ("You are sending messages very quickly") names the
 // wrong action for a refused scroll.
+// INVITE_LINK_INVALID is thrown in inviteLinks.ts, by revokeLinkFor, for a
+// token no live row matches. It is DELIBERATELY the single answer for every
+// way a token can fail — unknown, expired, revoked — so the refusal a holder
+// sees never tells them which, and so a probe cannot use the distinction to
+// enumerate live tokens. Its copy is written for someone a friend handed a
+// link to, who has done nothing wrong.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -59,6 +65,7 @@ export type AccessCode =
   | 'INVALID_MESSAGE'
   | 'RATE_LIMITED'
   | 'SCROLL_RATE_LIMITED'
+  | 'INVITE_LINK_INVALID'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
