@@ -926,7 +926,33 @@ Render a button wired to `shareLink`, with visible text (not an icon alone) — 
 
 - [ ] **Step 2: Point the onboarding card at it**
 
-In `v2/src/routes/app.tsx`, replace the Task 7 placeholder from the card plan — `onInvite` navigating to `/team` — with opening this dialog directly.
+> **Specified 2026-09-07** — an earlier revision said only "opening this dialog directly",
+> which does not say where the dialog comes from.
+
+`InvitePlayerDialog` is currently rendered in exactly one place: `CurrentTeamCard:333`, which
+lives on `/team`. The onboarding card is on `/app`. So "open it directly" means **mounting a
+second instance in `app.tsx`**, and `onInvite` setting its open state instead of navigating.
+
+That is safe here, and it is worth saying why, because this plan already rejected the same
+move once: two `CreateTeamDialog`s were refused in the card plan because both would have been
+mounted on the **same page**. These two are on **different routes** and can never be mounted
+together.
+
+Its props are `{ open, onOpenChange, teamId, teamName }` (`invite-player-dialog.tsx:38-49`),
+and `app.tsx` has both — `teamParam` for the id, and the name from the `teams` array it
+already holds. Note the invite task only renders when `hasTeam` is true (the prerequisite added
+in `qt4.7`), so `teamParam` is guaranteed defined at that callback; state the invariant rather
+than casting past it.
+
+Keep the `/team` route working exactly as it does — this adds a second entry point, it does not
+move the first.
+
+**This is the app's first use of `navigator.share` and `navigator.clipboard`.** Neither appears
+anywhere in `src/` today. Both need feature detection rather than assumption, both require a
+secure context, and both can reject — clipboard on a permissions refusal, share on anything
+including the user simply dismissing the sheet. The `AbortError` branch in the snippet above is
+that last case and must NOT raise an error toast: dismissing a share sheet is a decision, not a
+failure.
 
 - [ ] **Step 3: Run all four gates**
 
