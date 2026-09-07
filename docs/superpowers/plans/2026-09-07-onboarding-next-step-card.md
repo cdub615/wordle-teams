@@ -646,39 +646,50 @@ git commit -m "feat(onboarding): status query and dismiss/replay mutations"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to the existing `describe` block for `getMyTeams` in `v2/convex/teams.test.ts` (match the file's existing fixture style; if the block is named differently, add a new `describe('getMyTeams hasPendingInvite')`):
+Add a new `describe` block to `v2/convex/teams.test.ts`, alongside the existing `describe('getMyTeamsFor')` at line 26.
+
+**Note the idiom, which is this file's and NOT the one the other convex tasks use.** `teams.test.ts` imports the `getMyTeamsFor` HELPER directly (`teams.test.ts:5`) and calls it inside `t.run(async (ctx) => ...)`. It does not go through `api.teams.getMyTeams`, does not import `betterAuthTest`, and needs no `authenticatedAs` — there is no auth in the picture at all, because the helper takes a `playerId` argument. Match that.
 
 ```ts
-test('hasPendingInvite is true when an address is parked, false when not', async () => {
-  const t = convexTest(schema, modules)
-  betterAuthTest.register(t)
-  await t.run(async (ctx) => {
-    const playerId = await ctx.db.insert('players', aPlayer({ email: 'owner@example.com' }))
-    await ctx.db.insert('teams', aTeam({ name: 'parked', playerIds: [playerId], invited: ['friend@example.com'] }))
-    await ctx.db.insert('teams', aTeam({ name: 'alone', playerIds: [playerId], invited: [] }))
-  })
-  const as = await authenticatedAs(t, 'owner@example.com')
-  const teams = await as.query(api.teams.getMyTeams, {})
+describe('getMyTeamsFor hasPendingInvite', () => {
+  test('is true when an address is parked, false when not', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert(
+        'teams',
+        aTeam({ name: 'parked', playerIds: [ada], owner: ada, invited: ['friend@example.com'] }),
+      )
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 207, name: 'alone', playerIds: [ada], owner: ada, invited: [] }),
+      )
 
-  const parked = teams.find((team) => team.name === 'parked')
-  const alone = teams.find((team) => team.name === 'alone')
-  expect(parked?.hasPendingInvite).toBe(true)
-  expect(alone?.hasPendingInvite).toBe(false)
-})
-
-test('the wire payload still carries no email addresses', async () => {
-  // getMyTeamsFor picks fields explicitly BECAUSE `invited` holds real
-  // addresses (teams.ts:108). hasPendingInvite is a boolean precisely so that
-  // stays true. This asserts the property rather than the comment.
-  const t = convexTest(schema, modules)
-  betterAuthTest.register(t)
-  await t.run(async (ctx) => {
-    const playerId = await ctx.db.insert('players', aPlayer({ email: 'owner2@example.com' }))
-    await ctx.db.insert('teams', aTeam({ playerIds: [playerId], invited: ['secret@example.com'] }))
+      const teams = await getMyTeamsFor(ctx, ada)
+      // Located by name rather than by index: getMyTeamsFor sorts on createdAt,
+      // which the aTeam fixture does not set, so both compare equal and the
+      // order is insertion order by accident rather than by contract.
+      expect(teams.find((team) => team.name === 'parked')?.hasPendingInvite).toBe(true)
+      expect(teams.find((team) => team.name === 'alone')?.hasPendingInvite).toBe(false)
+    })
   })
-  const as = await authenticatedAs(t, 'owner2@example.com')
-  const teams = await as.query(api.teams.getMyTeams, {})
-  expect(JSON.stringify(teams)).not.toContain('secret@example.com')
+
+  test('the payload still carries no email addresses', async () => {
+    // getMyTeamsFor picks its fields by hand BECAUSE `invited` holds real
+    // addresses (teams.ts:108-110). hasPendingInvite is a boolean precisely so
+    // that stays true. This asserts the property rather than trusting the comment.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [ada], owner: ada, invited: ['secret@example.com'] }),
+      )
+
+      const teams = await getMyTeamsFor(ctx, ada)
+      expect(JSON.stringify(teams)).not.toContain('secret@example.com')
+    })
+  })
 })
 ```
 
