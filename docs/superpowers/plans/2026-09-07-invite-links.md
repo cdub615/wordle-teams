@@ -147,102 +147,147 @@ git commit -m "feat(invites): inviteLinks table"
 - Create: `v2/convex/inviteLinks.ts`
 - Test: `v2/convex/inviteLinks.test.ts`
 
+> **REWRITTEN 2026-09-07 against the real codebase.** The earlier version routed
+> everything through `authenticatedAs` and invented error codes. This repo's actual
+> pattern is exported `*For` helpers taking an explicit `playerId`, thin `mutation`
+> wrappers around them (`teams.ts`'s `updateTeam` is the model), and tests calling the
+> helpers **directly inside `t.run`** with no auth setup at all — which is how
+> `teams.test.ts` and `chat.test.ts` do it. Follow that.
+>
+> Ownership is `requireTeamOwnerFor(ctx, playerId, teamId)` (`access.ts:176`). It returns
+> the team and throws `NOT_TEAM_OWNER`; the member check beneath it throws `NOT_A_MEMBER`
+> for a missing team **and** a non-member alike, deliberately not distinguishing them. So
+> you need no `INVALID_TEAM` here.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `v2/convex/inviteLinks.test.ts`:
 
 ```ts
-import { describe, expect, test } from 'vitest'
 import { convexTest } from 'convex-test'
-import betterAuthTest from '@convex-dev/better-auth/test'
-import schema from './schema.ts'
-import { api } from './_generated/api'
-import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
+import { describe, expect, test } from 'vitest'
+import schema from './schema'
+import { aPlayer, aTeam } from './fixtures.ts'
+import { createLinkFor, revokeLinkFor } from './inviteLinks.ts'
 
-// Every convexTest call site in this repo passes `modules`; see chat.test.ts:35.
 const modules = import.meta.glob('./**/*.ts')
 
-/** Seeds an owner and their team, returns both ids and an authed instance. */
-async function withOwnedTeam(t: ReturnType<typeof convexTest>, email: string) {
-  const ids = await t.run(async (ctx) => {
-    const playerId = await ctx.db.insert('players', aPlayer({ email }))
-    const teamId = await ctx.db.insert('teams', aTeam({ owner: playerId, playerIds: [playerId] }))
-    return { playerId, teamId }
-  })
-  return { ...ids, as: await authenticatedAs(t, email) }
-}
-
-describe('inviteLinks.createLink', () => {
-  test('returns a token and stores a live row', async () => {
+describe('createLinkFor', () => {
+  test('stores a live row and returns its token', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId, as } = await withOwnedTeam(t, 'owner@example.com')
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
-    const token = await as.mutation(api.inviteLinks.createLink, { teamId })
-    expect(typeof token).toBe('string')
-    expect(token.length).toBeGreaterThanOrEqual(16)
+      const token = await createLinkFor(ctx, ada, teamId)
+      expect(typeof token).toBe('string')
+      expect(token.length).toBeGreaterThanOrEqual(32)
 
-    const rows = await t.run(async (ctx) => await ctx.db.query('inviteLinks').collect())
-    expect(rows).toHaveLength(1)
-    expect(rows[0].revokedAt).toBeUndefined()
-    expect(rows[0].expiresAt).toBeGreaterThan(Date.now())
+      const rows = await ctx.db.query('inviteLinks').collect()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ teamId, token, createdBy: ada })
+      expect(rows[0].revokedAt).toBeUndefined()
+      expect(rows[0].expiresAt).toBeGreaterThan(Date.now())
+    })
   })
 
   test('two links never collide', async () => {
-    // THIS TEST IS THE POINT OF THE TASK. Nothing else in convex/ uses
-    // randomness, so nothing demonstrates what the runtime permits inside a
-    // mutation. If the generator is not actually random, this fails loudly
-    // here rather than shipping guessable capability URLs.
+    // THIS TEST IS THE POINT OF THE TASK. Nothing else in convex/ uses randomness,
+    // so nothing in this repo demonstrates what the runtime permits inside a
+    // mutation. If the generator is not actually random, this fails loudly here
+    // rather than shipping guessable capability URLs.
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId, as } = await withOwnedTeam(t, 'owner2@example.com')
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
 
-    const tokens = new Set<string>()
-    for (let i = 0; i < 25; i++) {
-      tokens.add(await as.mutation(api.inviteLinks.createLink, { teamId }))
-    }
-    expect(tokens.size).toBe(25)
+      const tokens = new Set<string>()
+      for (let i = 0; i < 25; i++) tokens.add(await createLinkFor(ctx, ada, teamId))
+      expect(tokens.size).toBe(25)
+    })
   })
 
-  test('a non-owner cannot create one', async () => {
+  test('a member who does not own the team cannot create one', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId } = await withOwnedTeam(t, 'owner3@example.com')
     await t.run(async (ctx) => {
-      await ctx.db.insert('players', aPlayer({ email: 'stranger@example.com' }))
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+
+      await expect(createLinkFor(ctx, bob, teamId)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
+      })
     })
-    const stranger = await authenticatedAs(t, 'stranger@example.com')
-    await expect(stranger.mutation(api.inviteLinks.createLink, { teamId })).rejects.toThrow()
+  })
+
+  test('a stranger to the team cannot create one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const outsider = await ctx.db.insert('players', aPlayer({ email: 'out@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await expect(createLinkFor(ctx, outsider, teamId)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+    })
   })
 })
 
-describe('inviteLinks.revokeLink', () => {
-  test('a revoked link stops working', async () => {
+describe('revokeLinkFor', () => {
+  test('stamps revokedAt', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
-    const { teamId, as } = await withOwnedTeam(t, 'owner4@example.com')
-    const token = await as.mutation(api.inviteLinks.createLink, { teamId })
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
 
-    await as.mutation(api.inviteLinks.revokeLink, { token })
-    const rows = await t.run(async (ctx) => await ctx.db.query('inviteLinks').collect())
-    expect(rows[0].revokedAt).toBeGreaterThan(0)
+      await revokeLinkFor(ctx, ada, token)
+      const [row] = await ctx.db.query('inviteLinks').collect()
+      expect(row.revokedAt).toBeGreaterThan(0)
+    })
+  })
+
+  test('a non-owner cannot revoke', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+
+      await expect(revokeLinkFor(ctx, bob, token)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
+      })
+    })
+  })
+
+  test('an unknown token is refused as INVITE_LINK_INVALID', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await expect(revokeLinkFor(ctx, ada, 'nosuchtoken')).rejects.toMatchObject({
+        data: { code: 'INVITE_LINK_INVALID' },
+      })
+    })
   })
 })
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
 
-Run from `v2/`: `pnpm vitest run convex/inviteLinks.test.ts`
-Expected: FAIL — `api.inviteLinks` undefined.
+`pnpm vitest run convex/inviteLinks.test.ts` → FAIL, cannot resolve `./inviteLinks.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
-Create `v2/convex/inviteLinks.ts`:
+Add `INVITE_LINK_INVALID` to the `AccessCode` union (`convex/access.ts:43-61`) — and remember it must also reach `src/lib/convex-error.ts` in two places; see the error-codes section above. Then create `v2/convex/inviteLinks.ts`:
 
 ```ts
 import { v } from 'convex/values'
 import { mutation } from './_generated/server'
-import { accessError, requirePlayer } from './access'
+import { accessError, requirePlayer, requireTeamOwnerFor } from './access'
+import type { Id } from './_generated/dataModel'
+import type { WriterCtx } from './winners.ts'
 
 /** Seven days. Long enough to sit unread in a chat, short enough to expire. */
 const LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -250,15 +295,15 @@ const LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000
 /**
  * An opaque, unguessable token.
  *
- * THIS IS A CAPABILITY, not an identifier: anyone holding it joins the team,
- * which is the whole difference between a link and an email invite. It is
- * looked up on an UNAUTHENTICATED path, so guessability is the only thing
- * standing between a stranger and somebody's team.
+ * THIS IS A CAPABILITY, NOT AN IDENTIFIER: anyone holding it joins the team, which
+ * is the whole difference between a link and an email invite. It is looked up on a
+ * path reachable before sign-in, so guessability is the only thing standing between
+ * a stranger and somebody's team.
  *
- * crypto.getRandomValues rather than Math.random, which is seeded and
- * predictable. The test "two links never collide" is what actually proves this
- * runs — nothing else in convex/ uses randomness, so there was no precedent to
- * copy and the behaviour is asserted rather than assumed.
+ * crypto.getRandomValues, NOT Math.random, which is seeded and predictable. Nothing
+ * else in convex/ uses randomness, so there was no precedent to copy — the test
+ * "two links never collide" is what actually proves this runs in this runtime rather
+ * than a comment asserting it does.
  */
 function newToken(): string {
   const bytes = new Uint8Array(16)
@@ -266,25 +311,44 @@ function newToken(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
+export async function createLinkFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<string> {
+  await requireTeamOwnerFor(ctx, playerId, teamId)
+  const token = newToken()
+  await ctx.db.insert('inviteLinks', {
+    teamId,
+    token,
+    createdBy: playerId,
+    expiresAt: Date.now() + LINK_TTL_MS,
+  })
+  return token
+}
+
+export async function revokeLinkFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  token: string,
+): Promise<void> {
+  const link = await ctx.db
+    .query('inviteLinks')
+    .withIndex('by_token', (q) => q.eq('token', token))
+    .unique()
+  // Ownership is checked AFTER existence, but both answer with a refusal the
+  // caller cannot tell apart from the other — see the consume path, where that
+  // property matters more.
+  if (!link) throw accessError('INVITE_LINK_INVALID')
+  await requireTeamOwnerFor(ctx, playerId, link.teamId)
+  await ctx.db.patch(link._id, { revokedAt: Date.now() })
+}
+
 export const createLink = mutation({
   args: { teamId: v.id('teams') },
   handler: async (ctx, { teamId }) => {
     const player = await requirePlayer(ctx)
-    const team = await ctx.db.get(teamId)
-    if (!team) throw accessError('INVALID_TEAM')
-    // Owner-only, matching the other team-admin mutations in teams.ts. Match
-    // whatever helper those use (requireOwner / assertOwner) rather than
-    // hand-rolling this check — read teams.ts's updateTeam first.
-    if (team.owner !== player._id) throw accessError('NOT_TEAM_OWNER')
-
-    const token = newToken()
-    await ctx.db.insert('inviteLinks', {
-      teamId,
-      token,
-      createdBy: player._id,
-      expiresAt: Date.now() + LINK_TTL_MS,
-    })
-    return token
+    return await createLinkFor(ctx, player._id, teamId)
   },
 })
 
@@ -292,26 +356,18 @@ export const revokeLink = mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const player = await requirePlayer(ctx)
-    const link = await ctx.db
-      .query('inviteLinks')
-      .withIndex('by_token', (q) => q.eq('token', token))
-      .unique()
-    if (!link) throw accessError('INVITE_LINK_INVALID')
-    const team = await ctx.db.get(link.teamId)
-    if (team?.owner !== player._id) throw accessError('NOT_TEAM_OWNER')
-    await ctx.db.patch(link._id, { revokedAt: Date.now() })
+    await revokeLinkFor(ctx, player._id, token)
   },
 })
 ```
 
-**The codes above are verified**, not placeholders — see the error-codes section near the top of this plan. `INVITE_LINK_INVALID` and `TEAM_LIMIT_REACHED` are new and must be added in all three places listed there.
+Check `WriterCtx`'s real export site before importing it — `winners.ts` is where `players.ts` gets it from, but confirm rather than assume.
 
 - [ ] **Step 4: Run it and watch it pass**
 
-Run from `v2/`: `pnpm vitest run convex/inviteLinks.test.ts`
-Expected: PASS, 4 tests.
+`pnpm vitest run convex/inviteLinks.test.ts` → PASS, 7 tests.
 
-**If "two links never collide" fails**, `crypto.getRandomValues` is unavailable in this runtime. Move generation to an `action` (which has full Node access) that calls an internal mutation to insert. Do not fall back to `Math.random`.
+**If "two links never collide" fails**, `crypto.getRandomValues` is unavailable in this runtime. **STOP and report it — do not improvise a fallback, and above all do not reach for `Math.random`.** These are capability URLs on a pre-auth path. The fallback is generating the token in an `action` (full Node) that calls an internal mutation to insert, and that is a large enough shape change to be worth a decision rather than a guess.
 
 - [ ] **Step 5: Commit**
 
