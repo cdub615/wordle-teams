@@ -767,12 +767,25 @@ export function opensMenuFromKey(key: string): boolean {
 /**
  * How far the conversation slides left at a full reveal, in CSS pixels.
  *
- * MEASURED AT 390x844 AGAINST THE BUILT STYLESHEET, not chosen: the label sits
- * at the message row's right edge plus `pl-3`, so at 56px of travel a
- * `2:05 PM` lands roughly 18px clear of the viewport's right edge and a
- * `14:05` roughly 30px, both fully inside the strip the slide opens up.
+ * THIS IS A WIDTH BUDGET, NOT A FEEL. The label's LEFT edge is parked exactly
+ * on the clip boundary (see the stamp's `left-full ml-4` in message-list.tsx),
+ * so the slide is the only thing that uncovers it and this number is the whole
+ * of how much of it can be uncovered. A label wider than this would have its
+ * tail clipped at full reveal.
+ *
+ * 72px IS THE WIDEST LABEL PLUS ROOM. Measured in the page's own font — Inter
+ * at `text-[11px]` with `tabular-nums`, in headless chromium against the built
+ * stylesheet — the formatter's widest output is en-US `12:00 AM` at 52px;
+ * `10:38 PM` and `11:58 PM` are 51px, and every 24-hour locale is 31px. At 72px
+ * of travel the widest lands 20px clear of the viewport's right edge and the
+ * narrowest 41px.
+ *
+ * IT WAS 56px AND THAT WAS TOO TIGHT, which is the second half of the bug this
+ * number is now sized against: 56 left the widest label 4px from the edge, and
+ * a margin of four pixels is not a margin. The first half was that the label
+ * was not parked on the clip boundary at all — see message-list.tsx.
  */
-export const TIME_REVEAL_PX = 56
+export const TIME_REVEAL_PX = 72
 
 /**
  * How far the pointer must move before the gesture is committed to an axis.

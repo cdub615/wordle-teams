@@ -1024,8 +1024,12 @@ describe('revealOffset', () => {
 
   // CLAMPED: past this the conversation would slide off screen to reveal
   // something already fully visible.
+  // AGAINST THE CONSTANT, NOT AGAINST A COPY OF IT. This read `-57` when the
+  // strip was 56px wide, which is a test that stops testing the clamp the
+  // moment the width moves — and it did move, from 56 to 72, when the widest
+  // label the formatter can emit turned out not to fit in the old one.
   it('clamps at the strip\'s width however far the finger goes', () => {
-    expect(revealOffset(-57)).toBe(TIME_REVEAL_PX)
+    expect(revealOffset(-(TIME_REVEAL_PX + 1))).toBe(TIME_REVEAL_PX)
     expect(revealOffset(-400)).toBe(TIME_REVEAL_PX)
     expect(revealOffset(-4000)).toBe(TIME_REVEAL_PX)
   })

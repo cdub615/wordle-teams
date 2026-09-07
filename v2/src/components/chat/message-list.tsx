@@ -487,10 +487,13 @@ export function MessageList({
               */}
               {/*
                 THE BUBBLE GETS A ROW OF ITS OWN, WHICH IS WHAT THE TIMESTAMP
-                HANGS OFF. `w-full` makes this row span the whole list, so
-                `left-full` on the label below is the CONVERSATION'S right edge
-                rather than the bubble's — the times line up in a column instead
-                of stepping in and out with each message's length. The
+                HANGS OFF. `w-full` makes this row span the whole list, so the
+                label below anchors to the CONVERSATION'S right edge rather than
+                to the bubble's — the times line up in a column instead of
+                stepping in and out with each message's length. That anchor is
+                the list's CONTENT edge, one padding short of the edge the
+                scroller clips at, which is what the label's own `ml-4` closes.
+                The
                 `justify-*` reproduces exactly the alignment the `<li>`'s own
                 `items-*` gave the bubble, and `max-w-[75%]` now resolves
                 against a box the same width as the one it did before, so
@@ -511,10 +514,30 @@ export function MessageList({
                   onDelete={onDelete && canDelete(row.message) ? onDelete : undefined}
                 />
                 {/*
-                  THE REVEALED TIMESTAMP, PARKED OFF THE RIGHT EDGE. It is in
-                  the DOM at all times and never toggled, because the reveal is
-                  a transform on the `<ol>` and nothing here re-renders while a
-                  finger is moving — see the drag handlers above.
+                  THE REVEALED TIMESTAMP, PARKED EXACTLY ON THE CLIP BOUNDARY.
+
+                  `ml-4` IS THE WHOLE BUG FIX AND IT MUST EQUAL THE `<ol>`'s
+                  `p-4`. `left-full` alone anchors this to the ROW's right edge,
+                  and the row lives inside the list's 16px padding — so the
+                  label started 16px INSIDE the scroller's clip edge and 4px of
+                  its first digit was on screen at rest, under no drag at all.
+                  The owner read those digits off a real phone. The margin
+                  pushes the anchor out to the clip edge, where zero pixels of
+                  it can show however wide the formatted time happens to be:
+                  "12:00 AM" is 21px wider than "14:05", and the resting state
+                  must not depend on which one a reader's locale produces. The
+                  two numbers are one number written twice; the 390x844
+                  measurement asserts the overhang is 0 for the widest label the
+                  formatter can emit, so they cannot drift apart silently.
+
+                  NO `pl-3` ANY MORE. The gap between the bubble and its time is
+                  the list's own padding, for free: at full reveal the bubble's
+                  right edge is 16px further left than the label's, by
+                  construction. Padding here would only eat into TIME_REVEAL_PX.
+
+                  IT IS IN THE DOM AT ALL TIMES AND NEVER TOGGLED, because the
+                  reveal is a transform on the `<ol>` and nothing here
+                  re-renders while a finger is moving — see the drag handlers.
 
                   `whitespace-nowrap` IS LOAD-BEARING. An absolutely positioned
                   box with `left: 100%` and no `right` has zero available width,
@@ -529,7 +552,7 @@ export function MessageList({
                 */}
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-0 left-full flex items-center whitespace-nowrap pl-3 text-[11px] tabular-nums text-muted-foreground"
+                  className="pointer-events-none absolute inset-y-0 left-full ml-4 flex items-center whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
                 >
                   {clockTime(row.message.createdAt)}
                 </span>
