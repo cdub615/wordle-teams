@@ -246,7 +246,13 @@ export function InvitePlayerDialog({
             while a dialog is open. Check the dialog's own scrollWidth. */}
         <DialogHeader>
           <DialogTitle>Invite Player to {teamName}</DialogTitle>
-          <DialogDescription>Enter the player&apos;s email address</DialogDescription>
+          {/* DESCRIBES BOTH HALVES, because since the share control was added
+              below there are two. This read "Enter the player's email address",
+              which was accurate when the email form was the whole dialog and
+              since then has described only its top half — the first thing a
+              reader of this dialog sees, telling them the one path they may not
+              have an address for is the only path there is. */}
+          <DialogDescription>Invite by email, or share a link</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="w-full space-y-6">
           <div className="space-y-2">
