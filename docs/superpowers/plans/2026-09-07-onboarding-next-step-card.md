@@ -1639,8 +1639,9 @@ Append to `v2/convex/scores.test.ts`, matching that file's existing idiom:
 
 ```ts
 describe('scores.getMyMonth', () => {
-  test('returns only the caller\'s own scores, only for the month asked for', async () => {
+  test("returns only the caller's own scores, only for the month asked for", async () => {
     const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
@@ -1660,7 +1661,7 @@ describe('scores.getMyMonth', () => {
         })
       }
     })
-    const as = await authenticatedAs(t, 'ada@example.com')
+    const as = await authenticatedAs(t, 'member@example.com')
     const scores = await as.query(api.scores.getMyMonth, { month: '2026-09' })
     // Boundaries both included, neighbouring months both excluded, and nothing
     // of Bob's — the month filter is a lexical range on puzzleDay, so an
@@ -1668,10 +1669,38 @@ describe('scores.getMyMonth', () => {
     expect(scores.map((score) => score.puzzleDay)).toEqual(['2026-09-01', '2026-09-30'])
   })
 
+  test('includes the 31st of a 31-day month', async () => {
+    // THE UPPER BOUND IS '<month>-31', AND SEPTEMBER CANNOT PROVE IT. Every
+    // assertion in the test above passes just as well with a bound of
+    // '<month>-30', because no September day exceeds it — so that test guards
+    // the lower bound and the player filter, but not this. Only a 31-day month
+    // separates the two, and getting it wrong silently drops the last board of
+    // seven months a year: no error, no empty state, just a day the player
+    // entered that the form no longer prefills.
+    const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      for (const puzzleDay of ['2026-10-01', '2026-10-31', '2026-11-01']) {
+        await ctx.db.insert('dailyScores', {
+          playerId: ada,
+          puzzleDay,
+          date: Date.now(),
+          answer: 'crane',
+          guesses: ['crane'],
+        })
+      }
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    const scores = await as.query(api.scores.getMyMonth, { month: '2026-10' })
+    expect(scores.map((score) => score.puzzleDay)).toEqual(['2026-10-01', '2026-10-31'])
+  })
+
   test('carries the same fields getTeamMonth puts on a score', async () => {
     // The form derives from ONE shape regardless of which query fed it, so a
     // drift here is a runtime break in the team-less branch only.
     const t = convexTest(schema, modules)
+    betterAuthTest.register(t)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       await ctx.db.insert('dailyScores', {
@@ -1682,7 +1711,7 @@ describe('scores.getMyMonth', () => {
         guesses: ['stare', 'crane'],
       })
     })
-    const as = await authenticatedAs(t, 'ada@example.com')
+    const as = await authenticatedAs(t, 'member@example.com')
     const [score] = await as.query(api.scores.getMyMonth, { month: '2026-09' })
     expect(Object.keys(score).sort()).toEqual(['answer', 'guesses', 'id', 'puzzleDay'])
     expect(score).toMatchObject({ answer: 'crane', guesses: ['stare', 'crane'] })
@@ -1697,7 +1726,9 @@ describe('scores.getMyMonth', () => {
 })
 ```
 
-Check `aPlayer()`'s default email before running and use whatever it actually is in the `authenticatedAs` calls.
+**Three corrections found during implementation, already folded into the block above.** `aPlayer()`'s default email is `member@example.com`, not `ada@example.com`. `authenticatedAs` requires `betterAuthTest.register(t)` first, which the original block omitted. And the query reuses `monthRange(month)` from `convex/lib/puzzleDay.ts:51` — already imported in `scores.ts` and already what `getTeamMonthFor` uses — rather than inlining the same template literals.
+
+**A fourth correction is why there are four tests rather than three.** The original block claimed its boundary assertion guarded "an off-by-one at either end". It did not: mutating the upper bound from `-31` to `-30` SURVIVED, because September has no 31st, so both bounds include `2026-09-30` identically. Only a **31-day** month separates them, which is what the October test exists for. This is the same recurring shape as four earlier defects in this plan — an assertion satisfied by something other than the guard it is named for.
 
 - [ ] **Step 2: Run it and watch it fail**
 
@@ -1722,7 +1753,10 @@ Add to `v2/convex/scores.ts`:
  * played (form.tsx:64), so a single-day read cannot feed it.
  *
  * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:96-101), deliberately,
- * so the form derives from one shape whichever query fed it.
+ * so the form derives from one shape whichever query fed it. It reads the same
+ * index through the same monthRange bounds for the same reason: `end` is
+ * '<month>-31' as a LEXICAL bound on 'YYYY-MM-DD', so it includes a 30-day
+ * month's last day and cannot reach into the next month.
  *
  * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
  * /app, which is reachable in the window before a player row exists.
@@ -1732,13 +1766,11 @@ export const getMyMonth = query({
   handler: async (ctx, { month }) => {
     const player = await currentPlayer(ctx)
     if (!player) return []
+    const { start, end } = monthRange(month)
     const scores = await ctx.db
       .query('dailyScores')
       .withIndex('by_player_and_puzzleDay', (q) =>
-        q
-          .eq('playerId', player._id)
-          .gte('puzzleDay', `${month}-01`)
-          .lte('puzzleDay', `${month}-31`),
+        q.eq('playerId', player._id).gte('puzzleDay', start).lte('puzzleDay', end),
       )
       .collect()
     return scores.map((score) => ({
@@ -1767,6 +1799,38 @@ export const getMyMonth = query({
 4. `BoardEntryForm({ teamId, month, onSuccess })` — the existing export, now with `teamId?: Id<'teams'>`, returning `SoloBoardEntryForm` when `teamId` is undefined and `TeamBoardEntryForm` otherwise.
 
 The team path must be behaviourally unchanged. `getMyPlayerId` stays in the team branch only — the solo branch does not need it, because `getMyMonth` is already scoped to the caller.
+
+- [ ] **Step 6: Split the surface from its trigger**
+
+> This step was accidentally deleted from an earlier revision of this plan and is
+> restored here documenting **what actually shipped in `70cbbc9`**, not a fresh
+> design. The implementer built it from prose when they found the step missing.
+
+`BoardEntryButton` owns `open` in local state behind a `DialogTrigger` / `SheetTrigger` whose trigger **is** its visible button. The onboarding card's task button is a different control that must open the same surface and cannot reach a trigger's internal state. So extract the body into a controlled component that the button composes:
+
+```tsx
+export function BoardEntrySurface({
+  open,
+  onOpenChange,
+  teamId,
+  month,
+  trigger,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  teamId?: Id<'teams'>
+  month: string
+  trigger?: (isDesktop: boolean) => ReactNode
+})
+```
+
+**`trigger` is a render prop, and that is forced rather than stylistic.** The desktop and mobile triggers differ — visible text versus an `aria-label` — and a Radix trigger must be a descendant of its own root, so the caller cannot hand over one node and the `useMediaQuery` call has to stay inside the surface. Task 7 omits `trigger` entirely for the card's controlled panel.
+
+`BoardEntryButton` keeps its `useState`, its two trigger buttons and its `label` prop, and renders the surface. **Its rendered DOM must be unchanged** — `e2e/board-entry.spec.ts` selects on `getByRole('button', { name: 'Board Entry' })` and `getByRole('dialog', { name: 'Add or Update Board' })`, and e2e sits outside the four gates, so a regression here is invisible to them.
+
+The `label` prop matters: two controls sharing one accessible name is a hazard for a locator and a screen reader both (`button.tsx:36-46`), and after Task 7 `/app` carries the toolbar button *and* the card's task button on one page.
+
+**Do NOT touch `src/routes/app.tsx`.** All route wiring is Task 7's.
 
 - [ ] **Step 7: Run all four gates**
 
