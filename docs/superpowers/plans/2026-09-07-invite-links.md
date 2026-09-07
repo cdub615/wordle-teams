@@ -20,6 +20,44 @@
 
 ---
 
+## Error codes: verified, and there are THREE places to touch
+
+An earlier revision of this plan used `NO_TEAM`, `NOT_OWNER`, `NO_INVITE`, `TEAM_LIMIT`
+and `INVITE_LINK_DEAD` as placeholders and said to check them. Checked on 2026-09-07 —
+**none of those five exists.** The real union is at `convex/access.ts:43-61`, and the
+codes to reuse are:
+
+| need | real code |
+|---|---|
+| no such team | `INVALID_TEAM` |
+| caller is not the owner | `NOT_TEAM_OWNER` |
+| no player row | `NO_PLAYER` |
+
+**Two genuinely new codes are required**, because nothing existing fits:
+
+- `INVITE_LINK_INVALID` — one code for expired, revoked and unknown together. Do not
+  split them: distinguishing them tells a stranger which tokens once existed, and none
+  of the three gives the holder anything different to do.
+- `TEAM_LIMIT_REACHED` — the cap refusal. **There is no existing code for this and that
+  is not an oversight:** the email path never refuses, it *parks* the address and
+  `continue`s (`teams.ts:614`, `players.ts:228`). A link cannot park, so refusal is a
+  genuinely new outcome for this codebase.
+
+**Adding a code means editing three files, and missing one degrades silently:**
+
+1. `convex/access.ts:43-61` — the `AccessCode` union.
+2. `src/lib/convex-error.ts:17-36` — a hand-maintained `code === '…' ||` allowlist inside
+   `convexErrorCode`. A code in the union but absent here returns `null`, and the UI shows
+   the generic recovery message instead. Nothing catches that; it is the same drift hazard
+   the funnel `EVENTS` map had before `qt4.5` typed it against its union.
+3. `src/lib/convex-error.ts:~142` — the `switch` that maps a code to user-facing copy.
+
+Write the copy deliberately. `INVITE_LINK_INVALID` is read by someone who was handed a
+link by a friend and has done nothing wrong, so it should say the link is expired or
+withdrawn and suggest asking for a new one — not imply they did something illegitimate.
+`TEAM_LIMIT_REACHED` is read by a non-Pro player already on `FREE_TEAM_LIMIT` teams and
+should name the upgrade, since that is the only thing that resolves it.
+
 ## The three things this must get right
 
 Repeated from the spec because each one is a place where a plausible implementation is wrong.
@@ -233,11 +271,11 @@ export const createLink = mutation({
   handler: async (ctx, { teamId }) => {
     const player = await requirePlayer(ctx)
     const team = await ctx.db.get(teamId)
-    if (!team) throw accessError('NO_TEAM')
+    if (!team) throw accessError('INVALID_TEAM')
     // Owner-only, matching the other team-admin mutations in teams.ts. Match
     // whatever helper those use (requireOwner / assertOwner) rather than
     // hand-rolling this check — read teams.ts's updateTeam first.
-    if (team.owner !== player._id) throw accessError('NOT_OWNER')
+    if (team.owner !== player._id) throw accessError('NOT_TEAM_OWNER')
 
     const token = newToken()
     await ctx.db.insert('inviteLinks', {
@@ -258,15 +296,15 @@ export const revokeLink = mutation({
       .query('inviteLinks')
       .withIndex('by_token', (q) => q.eq('token', token))
       .unique()
-    if (!link) throw accessError('NO_INVITE')
+    if (!link) throw accessError('INVITE_LINK_INVALID')
     const team = await ctx.db.get(link.teamId)
-    if (team?.owner !== player._id) throw accessError('NOT_OWNER')
+    if (team?.owner !== player._id) throw accessError('NOT_TEAM_OWNER')
     await ctx.db.patch(link._id, { revokedAt: Date.now() })
   },
 })
 ```
 
-**Before running:** read `convex/access.ts` for the real error-code names. `NO_TEAM`, `NOT_OWNER` and `NO_INVITE` are placeholders for whatever that module already defines — reuse its codes, do not add new ones without checking.
+**The codes above are verified**, not placeholders — see the error-codes section near the top of this plan. `INVITE_LINK_INVALID` and `TEAM_LIMIT_REACHED` are new and must be added in all three places listed there.
 
 - [ ] **Step 4: Run it and watch it pass**
 
@@ -427,11 +465,11 @@ export const consumeLink = mutation({
     // tells a stranger which tokens once existed, and none of the three gives
     // the holder anything different to do.
     if (!link || link.revokedAt !== undefined || link.expiresAt < Date.now()) {
-      throw accessError('INVITE_LINK_DEAD')
+      throw accessError('INVITE_LINK_INVALID')
     }
 
     const team = await ctx.db.get(link.teamId)
-    if (!team) throw accessError('NO_TEAM')
+    if (!team) throw accessError('INVALID_TEAM')
 
     // Idempotent. Appending unconditionally would put the same id in the
     // roster twice, which shows the person twice on the team card and enters
@@ -443,7 +481,7 @@ export const consumeLink = mutation({
     // be inherited from the email path.
     if (!(await isProFor(ctx, player._id))) {
       const mine = await getMyTeamsFor(ctx, player._id)
-      if (mine.length >= FREE_TEAM_LIMIT) throw accessError('TEAM_LIMIT')
+      if (mine.length >= FREE_TEAM_LIMIT) throw accessError('TEAM_LIMIT_REACHED')
     }
 
     // BEFORE the roster patch, so no window exists in which they are a member
@@ -717,7 +755,7 @@ git commit -m "test(e2e): joining by invite link, signed out and dead"
 
 **Spec coverage.** `inviteLinks` table with `teamId`, `token`, `createdBy`, `expiresAt`, `revokedAt` and a `by_token` index — Task 1. Separate table rather than a field on `teams`, for revoke and rotate — Task 1's comment. `/join/$token` with both the signed-in and signed-out paths — Task 4. Cap re-enforced with an explicit refusal rather than parking — Task 3, with a test named for it. Link-as-capability accepted and mitigated by expiry and revoke — Tasks 1, 2, 3. Token generation proven rather than assumed — Task 2, with the fallback named if the test fails.
 
-**Placeholder scan.** The two e2e specs carry elided steps marked `...`, pointing at the neighbouring spec to copy from. That is deliberate: inventing selectors for a suite this plan has not read would be worse than naming the source. Everything else carries real code. `NO_TEAM` / `NOT_OWNER` / `NO_INVITE` / `TEAM_LIMIT` / `INVITE_LINK_DEAD` are flagged in-line as placeholders for `access.ts`'s real codes, with an instruction to read that file rather than add new ones.
+**Placeholder scan.** The two e2e specs carry elided steps marked `...`, pointing at the neighbouring spec to copy from. That is deliberate: inventing selectors for a suite this plan has not read would be worse than naming the source. Everything else carries real code. The error codes are no longer placeholders: checked against `convex/access.ts:43-61` on 2026-09-07, three are reused (`INVALID_TEAM`, `NOT_TEAM_OWNER`, `NO_PLAYER`) and two are genuinely new (`INVITE_LINK_INVALID`, `TEAM_LIMIT_REACHED`) — see the error-codes section, including the three files each new code must be added to.
 
 **Type consistency.** `token` is a `string` in the schema, in `createLink`'s return, in `revokeLink` and `consumeLink`'s args, in `PENDING_INVITE_KEY`'s stored value and in the `join` search param throughout. `teamId` is `v.id('teams')` in both mutations and `Id<'teams'>` in the dialog, matching `InvitePlayerDialog`'s existing prop.
 
