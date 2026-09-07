@@ -59,7 +59,16 @@ export default defineConfig({
    */
   workers: 2,
 
-  use: { baseURL: 'http://localhost:3000' },
+  /**
+   * THE LOCALE IS PINNED, AND AS OF wordle-teams-8klr IT IS LOAD-BEARING RATHER
+   * THAN TIDY. settings/notifications-tab.tsx used to hardcode a US 12-hour
+   * clock; it now formats the reminder hour with lib/clock-time.ts, which asks
+   * CLDR — so `6:00 PM` is `18:00` to a browser launched in en-GB, and the
+   * assertion in e2e/settings.spec.ts would then be a fact about whoever ran it.
+   * Chromium inherits the host's locale by default, so without this line the
+   * suite is green on an American laptop and red on a British one.
+   */
+  use: { baseURL: 'http://localhost:3000', locale: 'en-US' },
   webServer: {
     command: 'pnpm dev',
     // BACK ON `/` AS OF PHASE 7 TASK 4, which built the marketing landing there.

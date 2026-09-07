@@ -7,10 +7,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu.tsx'
+import { clockTime } from '#/lib/clock-time.ts'
 import { useReducedMotion } from '#/lib/use-reduced-motion.ts'
 import {
   anchoredScrollTop,
-  clockTime,
   dragAxis,
   isAtTop,
   isNearBottom,

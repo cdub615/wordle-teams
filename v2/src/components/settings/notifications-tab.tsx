@@ -17,6 +17,7 @@ import {
 } from '#/components/ui/select.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { Switch } from '#/components/ui/switch.tsx'
+import { clockTime } from '#/lib/clock-time.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { applyPushToggle, browserPush } from '#/lib/push-subscribe.ts'
 import { canonicalTimeZone, TIME_ZONE_GROUPS, unlistedZoneOption } from '#/lib/time-zones.ts'
@@ -24,23 +25,42 @@ import { useMediaQuery } from '#/lib/use-media-query.ts'
 import type { SubscribeFailureReason } from '#/lib/push-subscribe.ts'
 
 /**
- * '13:00:00' -> '1 PM'. Display only; never sent to the server.
+ * '13:00:00' -> '1:00 PM' for a US reader, '13:00' for a British or German one.
+ * Display only; never sent to the server.
+ *
+ * IT ASKS CLDR RATHER THAN DOING THE ARITHMETIC (wordle-teams-8klr). This used
+ * to slice the hour out, compare it to 12 and append a hardcoded 'AM'/'PM',
+ * which stamps a US 12-hour clock on every reader on earth — the same bug the
+ * chat separator shipped pointed the other way, where a pinned `hourCycle:
+ * 'h23'` printed 14:00 on an American phone. `clockTime` passes no opinion
+ * about 12 versus 24 and lets the locale decide, which is the only answer that
+ * is right in more than one country. It lives in lib/ precisely so this file
+ * can reach it: it was written for components/chat/, and a settings component
+ * importing out of the chat module would drag that module's imports in behind
+ * it.
+ *
+ * A FIXED UTC INSTANT CARRIES THE WALL CLOCK, and the zone is pinned to 'UTC'
+ * for that reason. The stored value is a wall-clock time in the PLAYER'S OWN
+ * zone already (convex/lib/reminders.ts's LocalTime) — 18:00:00 means six in
+ * the evening wherever they are — so re-resolving it into any zone at all,
+ * including the browser's, would shift the number the player themselves chose.
+ * The date is arbitrary and never shown. The LOCALE, by contrast, is left
+ * undefined so it follows the reader; tests pass one explicitly.
  *
  * ONLY FOR A VALUE REMINDER_TIMES ACTUALLY OFFERS. A value outside that list
  * — reachable only from data older than updateReminderTimeFor's validation,
  * since nothing this UI writes can produce one — is returned RAW rather than
- * run through the on-the-hour arithmetic below: '23:30:00' sliced and rounded
- * would print '11 PM', a plausible-looking, on-the-hour string that is
- * neither what is stored nor a time the sweep (isDueThisHour) can ever match.
- * Showing the raw string is honest about that; a confident-looking wrong
- * answer is worse than an odd-looking right one.
+ * formatted: '23:30:00' run through the old on-the-hour arithmetic printed
+ * '11 PM', a plausible-looking, on-the-hour string that is neither what is
+ * stored nor a time the sweep (isDueThisHour) can ever match. Showing the raw
+ * string is honest about that; a confident-looking wrong answer is worse than
+ * an odd-looking right one.
  */
-export function label(time: string): string {
+export function label(time: string, locale?: string): string {
   if (!REMINDER_TIMES.includes(time)) return time
   const hour = Number(time.slice(0, 2))
-  const suffix = hour < 12 ? 'AM' : 'PM'
-  const twelve = hour % 12 === 0 ? 12 : hour % 12
-  return `${twelve} ${suffix}`
+  const minute = Number(time.slice(3, 5))
+  return clockTime(Date.UTC(2026, 0, 1, hour, minute), 'UTC', locale)
 }
 
 /**

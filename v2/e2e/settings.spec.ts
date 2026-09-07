@@ -101,12 +101,18 @@ test('changing the reminder time and toggling Email each report success and pers
   await openAppMenu(page)
   await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
 
-  // Seeded reminderDeliveryTime is '18:00:00' -> '6 PM' (notifications-tab.tsx
+  // Seeded reminderDeliveryTime is '18:00:00' -> '6:00 PM' (notifications-tab.tsx
   // label()), so this locator also pins the display format is what the tab
   // actually loaded, not a placeholder.
-  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('6 PM')
+  //
+  // '6:00 PM' RATHER THAN '6 PM' SINCE wordle-teams-8klr. The hand-rolled
+  // 12-hour arithmetic that produced the shorter string is gone; the label is
+  // now the locale's own short-time pattern, which for en-US carries the
+  // minutes. The locale is pinned in playwright.config.ts, without which this
+  // reads '18:00' on a browser launched anywhere that writes a 24-hour clock.
+  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('6:00 PM')
   await page.getByRole('combobox', { name: 'Board Entry Reminder' }).click()
-  await page.getByRole('option', { name: '9 AM' }).click()
+  await page.getByRole('option', { name: '9:00 AM' }).click()
   await expect(page.getByText('Delivery time updated')).toBeVisible()
 
   // Seeded reminderDeliveryMethods is [] -> the switch starts unchecked.
@@ -120,7 +126,7 @@ test('changing the reminder time and toggling Email each report success and pers
   await openAppMenu(page)
   await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
 
-  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('9 AM')
+  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('9:00 AM')
   await expect(page.getByRole('switch', { name: 'Email' })).toBeChecked()
 })
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { clockTime } from '#/lib/clock-time.ts'
 import {
   anchoredScrollTop,
   AT_TOP_SLACK_PX,
@@ -8,7 +9,6 @@ import {
   chatEntryLabel,
   chatHeading,
   chatLoadState,
-  clockTime,
   dragAxis,
   hasUnread,
   hasUnreadElsewhere,
@@ -763,32 +763,13 @@ describe('separatorLabel', () => {
   })
 })
 
-describe('clockTime', () => {
-  // The four locales the coordinator named, on one instant.
-  it('asks the locale whether this is 2:05 PM or 14:05', () => {
-    const instant = utc('2026-08-20T14:05:00Z')
-    expect(clockTime(instant, 'UTC', 'en-US')).toBe('2:05 PM')
-    expect(clockTime(instant, 'UTC', 'en-GB')).toBe('14:05')
-    expect(clockTime(instant, 'UTC', 'de-DE')).toBe('14:05')
-    expect(clockTime(instant, 'UTC', 'fr-FR')).toBe('14:05')
-  })
-
-  // ICU 72 changed the separator before AM/PM from U+0020 to U+202F, so without
-  // the normalisation these bytes depend on which ICU the host was built
-  // against — the locale trap's cousin, and it would split this suite between a
-  // developer's Node and CI's.
-  it('separates the day period with an ordinary space, whatever ICU emits', () => {
-    const rendered = clockTime(utc('2026-08-20T14:05:00Z'), 'UTC', 'en-US')
-    expect(rendered).toBe('2:05 PM')
-    expect(rendered).not.toMatch(/[\u202f\u00a0]/)
-  })
-
-  it('reads the zone it is given, not the one the host is in', () => {
-    const instant = utc('2026-08-20T02:30:00Z')
-    expect(clockTime(instant, 'UTC', 'en-GB')).toBe('02:30')
-    expect(clockTime(instant, 'America/New_York', 'en-GB')).toBe('22:30')
-  })
-
+/**
+ * THE ONE clockTime CASE THAT STAYED HERE. Everything else about that function
+ * moved to lib/clock-time.test.ts with the function itself (wordle-teams-8klr);
+ * this case is not about clockTime at all — it is about separatorLabel being
+ * COMPOSED of it, which is a fact about this file.
+ */
+describe('the separator and the timestamp under it agree', () => {
   // THE HALF THE SWIPE-REVEAL DEPENDS ON. The per-message timestamp under a
   // swipe and the separator above it are the same instant rendered twice; if
   // they disagreed about 12 versus 24 hours the list would contradict itself.
