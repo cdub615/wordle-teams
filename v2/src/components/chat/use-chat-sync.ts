@@ -1,6 +1,6 @@
 import { convexQuery } from '@convex-dev/react-query'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 // convex/lib/chatLimits.ts AND NOTHING ELSE FROM convex/lib. That file imports
@@ -17,14 +17,239 @@ import { RECENT_WINDOW } from '../../../convex/lib/chatLimits.ts'
  * subscription to the message window would be ~17x more expensive per wake,
  * which is the whole argument of the design's section 4.
  */
-export function useChatPointer(teamId: Id<'teams'>) {
-  return useQuery(convexQuery(api.chat.pointer, { teamId }))
+export function useChatPointer(teamId: Id<'teams'>, mode: PointerMode = 'live') {
+  return useQuery(convexQuery(api.chat.pointer, mode === 'live' ? { teamId } : 'skip'))
 }
 
 export type ChatPointerValue = {
   lastMessageAt: number
   revision: number
   degraded: boolean
+}
+
+/* ---------------------------------------------------------------------------
+ * THE DEGRADATION VALVE, CLIENT SIDE (wordle-teams-vd1j).
+ *
+ * The server has metered bytes and published `degraded` since Part 1; nothing
+ * consumed it, so crossing 700MB changed nothing a client did and the first
+ * real symptom would have been Convex's hard 1GB cap — at which point
+ * MUTATIONS FAIL APP-WIDE and board entry goes down with chat. Design section 6
+ * is explicit that degrading chat is always the better outcome. These are the
+ * decisions that degrade it, all pure, because this suite is edge-runtime with
+ * no DOM and picks up `*.test.ts` only: a rule written inline in a hook or in
+ * JSX is a rule nothing asserts, and this one guards the whole app.
+ * ------------------------------------------------------------------------ */
+
+export type PointerMode = 'live' | 'manual'
+
+/**
+ * A pointer value together with the team it was read for.
+ */
+export type SeenPointer = { teamId: Id<'teams'>; value: ChatPointerValue }
+
+/**
+ * The last pointer seen FOR THE TEAM ON SCREEN, or `null` when the newest one
+ * held belongs to a different conversation.
+ *
+ * THE TEAM IS CARRIED WITH THE VALUE BECAUSE THE VALUE IS NOW OUR OWN STATE.
+ * It used to be read straight off `useQuery`, which re-keys the instant
+ * `teamId` changes and so could never hand back another team's answer. Holding
+ * the last pointer ourselves — the thing that lets a manual refresh feed the
+ * same sync path a subscription does — gives that guarantee up, and a pointer
+ * is entirely team-specific: `revision` and `lastMessageAt` compared across two
+ * teams produce a confidently wrong sync action, not a stale one.
+ *
+ * IT MAKES A STALE VALUE INERT RATHER THAN NEEDING IT CLEARED, which is what
+ * makes the switch safe in the awkward order it actually happens in: the new
+ * team's pointer can already be in TanStack's cache (a team visited before), so
+ * it is adopted in the SAME commit the switch is noticed in, and an effect that
+ * cleared the old value could just as easily clear the new one.
+ */
+export function pointerFor(seen: SeenPointer | null, teamId: Id<'teams'>): ChatPointerValue | null {
+  if (seen === null || seen.teamId !== teamId) return null
+  return seen.value
+}
+
+/**
+ * Whether chat should be holding its live subscription, given the last pointer
+ * value it saw from anywhere.
+ *
+ * DERIVED FROM THE LAST POINTER, NOT LATCHED IN STATE, AND THAT IS WHAT MAKES
+ * THE WHOLE MECHANISM SELF-HEALING. Dropping the subscription costs the client
+ * the only channel that could ever tell it degradation ENDED — the
+ * chicken-and-egg this design has to answer. It answers it by making the mode a
+ * function of the newest pointer the client holds, whatever read produced it: a
+ * manual refresh carries the current `degraded`, so a refresh that comes back
+ * clean puts the client back on the live subscription with nothing to reset and
+ * no second code path to get wrong.
+ *
+ * A MONTH BOUNDARY RECOVERS THROUGH THAT SAME PATH, with no calendar anywhere
+ * on the client. `chatDegraded` is keyed by month and chatPointerFor reads an
+ * absent row as `false` (see publishDegraded), so the first refresh after
+ * midnight on the 1st answers `degraded: false` and the client resumes. A
+ * reload recovers instantly for the same reason — `null` here means live.
+ *
+ * `null` IS LIVE, WHICH IS THE ONLY POSSIBLE ANSWER. `degraded` arrives ON the
+ * pointer, so a client that has read no pointer has to open the subscription to
+ * learn whether it should be holding one. The exposure is one wake wide.
+ */
+export function pointerMode(seen: ChatPointerValue | null): PointerMode {
+  return seen?.degraded === true ? 'manual' : 'live'
+}
+
+/**
+ * Whether the held subscription must be torn out of the query cache, given the
+ * mode this render moved from and to.
+ *
+ * THIS IS THE DIFFERENCE BETWEEN DROPPING THE SUBSCRIPTION AND MERELY IGNORING
+ * IT, and it is the entire point of the valve — the bandwidth goes to holding
+ * the socket open, not to reading the value. Passing `'skip'` to `convexQuery`
+ * only sets `enabled: false`, which removes the OBSERVER; @convex-dev/
+ * react-query unsubscribes its Convex watch on the query cache's `removed`
+ * event and, in as many words, deliberately NOT on `observerRemoved` ("don't
+ * clean up yet, after gcTime a 'removed' event will notify"). So skipping alone
+ * leaves the websocket subscription live for a full gcTime — five minutes by
+ * default — per degraded client. The caller answers this by removing the query
+ * outright, which fires `removed` immediately.
+ *
+ * ON THE TRANSITION, NOT ON THE STATE. The one-shot refresh fetches under that
+ * same query key and removes it again when it settles; a rule that removed on
+ * every render while manual would be tearing the key out from under a read in
+ * flight.
+ */
+export function shouldDropSubscription(previous: PointerMode, next: PointerMode): boolean {
+  return previous === 'live' && next === 'manual'
+}
+
+/**
+ * Whether the one-shot pointer read may drop its own cache entry when it
+ * settles — i.e. whether anybody is still watching that key.
+ *
+ * THE INTERLOCK FOR A RACE THE REFRESH CAN LOSE. `readPointerOnce` fetches
+ * under the live subscription's OWN query key and removes it afterwards so no
+ * websocket watch is left behind. Almost always nothing else is watching that
+ * key, because the client is only ever refreshing while degraded and degraded
+ * means skipped. The exception is narrow and real: switch teams away and back
+ * while a read is in flight, and the returning render re-opens a genuine live
+ * subscription under that same key before the read settles. Removing it then
+ * would tear down a subscription that has an observer — the one failure mode
+ * worse than not cleaning up, because the client would go quiet with no notice
+ * that it had.
+ *
+ * ZERO, NOT "NOT MINE". A one-shot `fetchQuery` registers no observer at all
+ * (that is what makes it one-shot), so the count is exactly the number of
+ * `useQuery` callers holding this key live.
+ */
+export function shouldReleaseAfterRead(observers: number): boolean {
+  return observers === 0
+}
+
+export type RefreshDecision = { kind: 'fetch' } | { kind: 'skip'; reason: 'live' | 'in-flight' }
+
+/**
+ * Whether a refresh request should actually go and read the pointer.
+ *
+ * REFUSING IN LIVE MODE IS AN INTERLOCK RATHER THAN TIDINESS. The one-shot read
+ * shares its query key with the live subscription and removes that key when it
+ * settles, so a refresh dispatched while live would tear down the subscription
+ * that makes refreshing unnecessary — and leave nothing to re-open it, since
+ * the mode never changed.
+ *
+ * REFUSING A SECOND CONCURRENT READ IS THE SAME HAZARD FROM THE OTHER SIDE: two
+ * in flight means the first one's teardown lands underneath the second one's
+ * fetch. It is also what a double tap on the button produces, which is the
+ * ordinary case rather than a rare one.
+ */
+export function refreshDecision(state: { mode: PointerMode; inFlight: boolean }): RefreshDecision {
+  if (state.mode === 'live') return { kind: 'skip', reason: 'live' }
+  if (state.inFlight) return { kind: 'skip', reason: 'in-flight' }
+  return { kind: 'fetch' }
+}
+
+/**
+ * What a degraded reader is told, or `null` when there is nothing to say.
+ *
+ * THE COPY IS HERE RATHER THAN IN JSX SO IT IS ASSERTED. Design section 6 asks
+ * for "an honest notice that live updates are paused", and honesty is a
+ * property of specific words: this names what stopped (live updates), why (this
+ * month's usage), and what still works (sending, which the server never gates —
+ * see sendMessageFor). It does not apologise, does not warn, and does not put
+ * the reader at fault for a shared app-wide budget they did not spend.
+ *
+ * "PAUSED", NOT "OFFLINE" OR "DISCONNECTED". Chat is fully working: messages
+ * send, history pages, nothing is lost. The single thing that changed is that
+ * new messages arrive when asked for instead of on their own.
+ */
+export function pausedNotice(mode: PointerMode): string | null {
+  if (mode === 'live') return null
+  return (
+    'Live updates are paused to stay within this month’s usage limit. ' +
+    'Sending still works — refresh to see new messages.'
+  )
+}
+
+/**
+ * The refresh control's label, which is also its accessible name.
+ *
+ * IT CHANGES IN FLIGHT because the button is disabled while reading and a
+ * disabled control that still says "Refresh" reads as a broken one. This is the
+ * same shape MessageList gives "Load older messages".
+ */
+export function refreshLabel(inFlight: boolean): string {
+  return inFlight ? 'Refreshing…' : 'Refresh'
+}
+
+export type ChatLoadState = 'pending' | 'error' | 'ready'
+
+/**
+ * Which of the route's three branches to render.
+ *
+ * THIS EXISTS BECAUSE A SKIPPED QUERY IS PENDING FOREVER. The route used to
+ * read `pointer.isPending` and `pointer.error` off the subscription directly,
+ * which is correct exactly while there IS a subscription — `enabled: false`
+ * leaves TanStack reporting `status: 'pending'` with no data under a query key
+ * that will never be fetched, so a degraded client would sit on "Loading…"
+ * with a whole conversation already in hand.
+ *
+ * THE HELD POINTER WINS OVER BOTH FLAGS, and that also decides a second case
+ * worth being deliberate about: a refresh that fails after a conversation is on
+ * screen leaves the conversation on screen. Replacing it with "Could not load
+ * chat." would throw away more than it reports; the route toasts instead, the
+ * way it already does for a failed scrollback page.
+ *
+ * THE ERROR BRANCH STILL BEHAVES AS IT DID FOR THE VISITOR IT MATTERS FOR: an
+ * outsider's `chat.pointer` throws on the first read, so nothing is ever seen
+ * and this answers `error` — which is what e2e/chat.spec.ts drives at.
+ */
+export function chatLoadState(state: {
+  seen: ChatPointerValue | null
+  isPending: boolean
+  hasError: boolean
+}): ChatLoadState {
+  if (state.seen !== null) return 'ready'
+  if (state.hasError) return 'error'
+  return 'pending'
+}
+
+/**
+ * Whether a successful send should be followed by a manual refresh.
+ *
+ * WITHOUT THIS, THE SENDER IS THE ONE PERSON WHO CANNOT SEE THEIR OWN MESSAGE.
+ * Design section 6 keeps sending working "so a conversation is never cut off",
+ * and with no subscription held nothing else would ever bring the sent message
+ * back onto the sender's screen — they would type into a list that does not
+ * change, which is the cut-off conversation the rule exists to prevent.
+ *
+ * ALREADY PAID FOR. sendMessageFor charges the meter teamSize x BYTES_PER_WAKE
+ * for wakes that, while degraded, nobody receives; one pointer read by the
+ * sender is inside what was already charged, and it is the cheapest read in the
+ * feature.
+ *
+ * FALSE WHILE LIVE, because the subscription delivers the sender's own message
+ * along with everyone else's and a second read would be pure duplication.
+ */
+export function shouldRefreshAfterSend(mode: PointerMode): boolean {
+  return mode === 'manual'
 }
 
 export type SyncAction =
@@ -1117,11 +1342,51 @@ function loadSince(queryClient: ReturnType<typeof useQueryClient>, teamId: Id<'t
 }
 
 /**
+ * Read the pointer ONCE, and leave no subscription behind.
+ *
+ * THE `finally` IS THE HALF THAT MATTERS. `fetchQuery` puts the result in the
+ * query cache under the pointer's own key, and @convex-dev/react-query opens a
+ * Convex watch on the cache's `added` event — so a refresh that merely fetched
+ * would re-open, for a full gcTime, exactly the subscription degradation just
+ * dropped. Removing the query fires `removed`, which is where that library
+ * unsubscribes. The read costs one wake; the socket is not held.
+ *
+ * `staleTime: 0` FOR loadWindow'S REASON, and it is not optional here either:
+ * `convexQuery` sets `staleTime: Infinity` so a live subscription never treats
+ * its own pushed updates as stale, and `fetchQuery` honours that by returning
+ * cached data without going to the network. A refresh that returned the value
+ * it already had would leave a degraded client permanently unable to learn
+ * anything — including that degradation had ended.
+ */
+async function readPointerOnce(
+  queryClient: ReturnType<typeof useQueryClient>,
+  teamId: Id<'teams'>,
+): Promise<ChatPointerValue> {
+  const options = convexQuery(api.chat.pointer, { teamId })
+  try {
+    return await queryClient.fetchQuery({ ...options, staleTime: 0 })
+  } finally {
+    const cached = queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true })
+    if (cached && shouldReleaseAfterRead(cached.getObserversCount())) {
+      queryClient.removeQueries({ queryKey: options.queryKey, exact: true })
+    }
+  }
+}
+
+/**
  * Holds one team's messages and keeps them current.
  *
  * The pointer is the only subscription. Everything else runs in response to it
  * moving, which is what keeps a wake at roughly 450 bytes instead of a whole
  * window — see the design's section 4.
+ *
+ * AND WHILE THE MONTH IS DEGRADED IT HOLDS NO SUBSCRIPTION AT ALL (design §6,
+ * wordle-teams-vd1j). `seen` is the last pointer from EITHER source — the live
+ * subscription or `refresh`'s one-shot read — and `pointerMode` turns it into
+ * the decision to subscribe or not, which is why a refresh is all it takes to
+ * both catch up on messages and, when the flag has cleared, resume live. What
+ * the effect below does with a pointer is identical in both modes; the only
+ * difference is what delivered it.
  *
  * THE EFFECT DOES NOT DEPEND ON `messages`, UNLIKE THE SKETCH THIS WAS BUILT
  * FROM. That sketch is not a runaway loop — `previousPointer.current` is
@@ -1181,11 +1446,27 @@ function loadSince(queryClient: ReturnType<typeof useQueryClient>, teamId: Id<'t
  * a genuine unmount.
  */
 export function useChatMessages(teamId: Id<'teams'>) {
-  const pointer = useChatPointer(teamId)
+  // THE LAST POINTER SEEN, WHEREVER IT CAME FROM — the live subscription or a
+  // manual refresh. Everything below reads this rather than `pointer.data`,
+  // which is what lets the two sources drive one sync path instead of two, and
+  // what makes `mode` self-healing (see `pointerMode`).
+  const [seen, setSeen] = useState<SeenPointer | null>(null)
+  // THE POINTER FOR THIS TEAM, or null while the newest one held is another
+  // team's — see `pointerFor`, which is what makes a team switch safe without
+  // an effect racing to clear this.
+  const held = pointerFor(seen, teamId)
+  const mode = pointerMode(held)
+  const pointer = useChatPointer(teamId, mode)
+  const [refreshing, setRefreshing] = useState(false)
+  // A REF AS WELL AS STATE: the second tap of a double tap happens in the same
+  // tick as the first, before any re-render has published `refreshing`, and it
+  // is the ref that `refreshDecision` can actually see in time.
+  const refreshingRef = useRef(false)
   const [messages, setMessages] = useState<Array<ChatMessage>>([])
   const heldRef = useRef<Array<ChatMessage>>(messages)
   const previousPointer = useRef<ChatPointerValue | null>(null)
   const previousTeamId = useRef(teamId)
+  const previousMode = useRef<PointerMode>(mode)
   const requestId = useRef(0)
   const isMountedRef = useRef(true)
   const queryClient = useQueryClient()
@@ -1193,6 +1474,34 @@ export function useChatMessages(teamId: Id<'teams'>) {
   useEffect(() => {
     heldRef.current = messages
   }, [messages])
+
+  // THE LIVE SUBSCRIPTION'S ONLY JOB IS TO FEED `seen`. While degraded the
+  // query is skipped, so `data` is `undefined` and this does nothing — the
+  // refresh writes the same state instead.
+  useEffect(() => {
+    if (pointer.data) setSeen({ teamId, value: pointer.data })
+  }, [pointer.data, teamId])
+
+  // WHERE THE SUBSCRIPTION IS ACTUALLY DROPPED, rather than merely stopped
+  // being read. `useChatPointer` has already moved this render's observer onto
+  // the `'skip'` key, which leaves the real query in the cache with no
+  // observers — and @convex-dev/react-query keeps its websocket watch until the
+  // cache says `removed`, deliberately not on `observerRemoved` (a full gcTime
+  // later, five minutes by default). Removing it here is what makes degrading
+  // cost nothing instead of costing five more minutes per client.
+  //
+  // ONE OBSERVER IS THE PRECONDITION, and it is why routes/chat.tsx no longer
+  // calls `useChatPointer` on its own: two components observing this key would
+  // mean removing a query somebody else is still watching.
+  useEffect(() => {
+    const from = previousMode.current
+    previousMode.current = mode
+    if (!shouldDropSubscription(from, mode)) return
+    queryClient.removeQueries({
+      queryKey: convexQuery(api.chat.pointer, { teamId }).queryKey,
+      exact: true,
+    })
+  }, [mode, teamId, queryClient])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -1212,9 +1521,16 @@ export function useChatMessages(teamId: Id<'teams'>) {
       heldRef.current = []
       setMessages([])
       requestId.current += 1
+      // `seen` IS NOT CLEARED HERE, AND MUST NOT BE. The new team's pointer may
+      // already have been adopted in this same commit (its value can be in
+      // TanStack's cache from an earlier visit), so clearing would throw away
+      // the right answer as often as the wrong one. `pointerFor` below makes
+      // the old team's value inert instead — including for `mode`, which reads
+      // `live` again through the same route, putting a client that was degraded
+      // on the old team back on a subscription for the new one.
     }
 
-    const current = pointer.data
+    const current = pointerFor(seen, teamId)
     if (!current) return
 
     const held = heldRef.current
@@ -1254,7 +1570,52 @@ export function useChatMessages(teamId: Id<'teams'>) {
     // hands out) and `loadWindow`/`loadSince` are plain module-level functions
     // closing over nothing from this render, so neither belongs in this list.
     // `messages` is deliberately excluded — see the doc comment above.
-  }, [pointer.data, teamId, queryClient])
+  }, [seen, teamId, queryClient])
 
-  return { messages, degraded: pointer.data?.degraded ?? false, isPending: pointer.isPending }
+  /**
+   * READ THE POINTER ONCE AND SYNC FROM IT — the whole of what replaces the
+   * subscription while degraded.
+   *
+   * IT NEEDS NO SYNC LOGIC OF ITS OWN. Writing `seen` re-runs the effect above,
+   * which runs the same `nextSyncAction` a pushed pointer would have: nothing
+   * when the revision has not moved, `since` for new messages, a window for a
+   * delete. And because `mode` is derived from `seen`, a refresh that comes back
+   * clean re-opens the live subscription on the next render without this
+   * function knowing that degradation can end.
+   *
+   * REJECTS RATHER THAN SWALLOWING, like handleSend and handleDelete in
+   * routes/chat.tsx: the reader ASKED for this, so a failure has to be visible.
+   * The route toasts it.
+   */
+  const refresh = useCallback(async (): Promise<void> => {
+    if (refreshDecision({ mode, inFlight: refreshingRef.current }).kind === 'skip') return
+    refreshingRef.current = true
+    setRefreshing(true)
+    try {
+      const value = await readPointerOnce(queryClient, teamId)
+      if (!isMountedRef.current) return
+      // STAMPED WITH THE TEAM IT WAS READ FOR, so a read that lands after a
+      // team switch is inert rather than wrong — the same job `requestId` does
+      // for a superseded message fetch.
+      setSeen({ teamId, value })
+    } finally {
+      refreshingRef.current = false
+      if (isMountedRef.current) setRefreshing(false)
+    }
+  }, [mode, teamId, queryClient])
+
+  return {
+    messages,
+    degraded: mode === 'manual',
+    mode,
+    // NOT `pointer.isPending` STRAIGHT THROUGH — a skipped query is pending for
+    // ever. See `chatLoadState`.
+    loadState: chatLoadState({
+      seen: held,
+      isPending: pointer.isPending,
+      hasError: pointer.error !== null,
+    }),
+    refresh,
+    refreshing,
+  }
 }

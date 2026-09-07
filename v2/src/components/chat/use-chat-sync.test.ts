@@ -7,6 +7,7 @@ import {
   chatDayIndex,
   chatEntryLabel,
   chatHeading,
+  chatLoadState,
   clockTime,
   dragAxis,
   hasUnread,
@@ -25,12 +26,20 @@ import {
   nextSinceOutcome,
   nextSyncAction,
   opensMenuFromKey,
+  pausedNotice,
+  pointerFor,
+  pointerMode,
+  refreshDecision,
+  refreshLabel,
   revealOffset,
   revealSnapBackMs,
   RUN_GAP_MS,
   SEPARATOR_GAP_MS,
   separatorBefore,
   separatorLabel,
+  shouldDropSubscription,
+  shouldRefreshAfterSend,
+  shouldReleaseAfterRead,
   shouldShowLoadOlder,
   showsAuthorName,
   startsRun,
@@ -1058,5 +1067,223 @@ describe('revealSnapBackMs', () => {
   // something on its own, so only the release is switched off.
   it('snaps back instantly under prefers-reduced-motion', () => {
     expect(revealSnapBackMs(true)).toBe(0)
+  })
+})
+
+/* ---------------------------------------------------------------------------
+ * The degradation valve (wordle-teams-vd1j).
+ *
+ * The server meters bytes and publishes `degraded`; these five functions are
+ * the whole of what the CLIENT does about it. They are the mechanism standing
+ * between a busy month and Convex refusing mutations app-wide, so every one of
+ * them is asserted here rather than left inline in a hook or in JSX.
+ * ------------------------------------------------------------------------ */
+
+const degraded = (lastMessageAt: number, revision: number) => ({
+  lastMessageAt,
+  revision,
+  degraded: true,
+})
+
+describe('pointerMode', () => {
+  // THE CHICKEN AND THE EGG. `degraded` only ever arrives ON the pointer, so a
+  // client that has never read one has to open the subscription to find out
+  // whether it should be holding one.
+  it('subscribes before anything is known', () => {
+    expect(pointerMode(null)).toBe('live')
+  })
+
+  it('keeps the subscription while the month is inside its budget', () => {
+    expect(pointerMode(at(500, 3))).toBe('live')
+  })
+
+  it('drops to manual refresh once a pointer says degraded', () => {
+    expect(pointerMode(degraded(500, 3))).toBe('manual')
+  })
+
+  // SELF-HEALING, AND THIS IS THE ASSERTION THAT SAYS SO. The mode is derived
+  // from the LAST POINTER SEEN, wherever it came from — so a manual refresh
+  // that comes back clean puts the client straight back on the live
+  // subscription with nothing else to reset.
+  it('returns to live the moment a refreshed pointer comes back clean', () => {
+    expect(pointerMode(at(900, 9))).toBe('live')
+  })
+
+  // A NEW MONTH HAS NO chatDegraded ROW AT ALL, and chatPointerFor reads an
+  // absent row as `false` — so the month boundary recovers through the same
+  // path a raised threshold does, with no client-side calendar anywhere.
+  it('recovers at a month boundary, where the flag row does not exist', () => {
+    expect(pointerMode({ lastMessageAt: 500, revision: 3, degraded: false })).toBe('live')
+  })
+})
+
+describe('pointerFor', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+
+  it('has nothing before a pointer has been read', () => {
+    expect(pointerFor(null, alpha)).toBeNull()
+  })
+
+  it('hands back the pointer read for the team on screen', () => {
+    expect(pointerFor({ teamId: alpha, value: at(500, 3) }, alpha)).toEqual(at(500, 3))
+  })
+
+  // A REVISION IS TEAM-SPECIFIC. Comparing one team's against another's does
+  // not produce a stale sync action, it produces a confident and wrong one —
+  // which is why the team is carried with the value rather than assumed.
+  it('refuses another team\'s pointer outright', () => {
+    expect(pointerFor({ teamId: beta, value: at(500, 3) }, alpha)).toBeNull()
+  })
+
+  // AND THAT ALSO RESETS THE MODE, which is the whole reason this is checked
+  // before `pointerMode` rather than after: a client degraded on one team opens
+  // a live subscription for the next one rather than inheriting manual refresh
+  // from a conversation it has left.
+  it('leaves a client degraded on another team subscribing to this one', () => {
+    expect(pointerMode(pointerFor({ teamId: beta, value: degraded(500, 3) }, alpha))).toBe('live')
+  })
+})
+
+describe('shouldDropSubscription', () => {
+  // THE POINT OF THE WHOLE VALVE. `enabled: false` alone leaves the websocket
+  // watch alive until TanStack garbage-collects the cache entry (gcTime, five
+  // minutes by default) — see @convex-dev/react-query, which unsubscribes on
+  // the cache's `removed` event and explicitly NOT on `observerRemoved`. The
+  // caller removes the query outright on this transition, so the subscription
+  // is dropped rather than merely ignored.
+  it('drops the held subscription when degradation begins', () => {
+    expect(shouldDropSubscription('live', 'manual')).toBe(true)
+  })
+
+  it('drops nothing when degradation ends', () => {
+    expect(shouldDropSubscription('manual', 'live')).toBe(false)
+  })
+
+  // ON THE TRANSITION, NOT ON THE STATE. Removing the query on every render
+  // while manual would fight the one-shot refresh, which fetches under that
+  // very key.
+  it('drops nothing while the mode is unchanged', () => {
+    expect(shouldDropSubscription('live', 'live')).toBe(false)
+    expect(shouldDropSubscription('manual', 'manual')).toBe(false)
+  })
+})
+
+describe('refreshDecision', () => {
+  it('reads the pointer again when a degraded client asks', () => {
+    expect(refreshDecision({ mode: 'manual', inFlight: false })).toEqual({ kind: 'fetch' })
+  })
+
+  // A SECOND TAP MUST NOT DISPATCH A SECOND READ: the refresh removes its own
+  // cache entry when it settles, so two in flight would have the first one's
+  // teardown land under the second one's fetch.
+  it('refuses a second read while one is in flight', () => {
+    expect(refreshDecision({ mode: 'manual', inFlight: true })).toEqual({
+      kind: 'skip',
+      reason: 'in-flight',
+    })
+  })
+
+  // REFUSING IN LIVE MODE IS A SAFETY INTERLOCK, not tidiness. The one-shot
+  // read shares a query key with the live subscription and removes it on the
+  // way out, so refreshing while live would tear down the very subscription
+  // that makes refreshing unnecessary.
+  it('refuses while the live subscription is held', () => {
+    expect(refreshDecision({ mode: 'live', inFlight: false })).toEqual({
+      kind: 'skip',
+      reason: 'live',
+    })
+    expect(refreshDecision({ mode: 'live', inFlight: true })).toEqual({
+      kind: 'skip',
+      reason: 'live',
+    })
+  })
+})
+
+describe('pausedNotice', () => {
+  it('says nothing at all while updates are live', () => {
+    expect(pausedNotice('live')).toBeNull()
+  })
+
+  // HONEST, AND NOT THE READER'S FAULT. It names what stopped (live updates),
+  // why (this month's usage), and what still works (sending) — with no
+  // apology, no alarm, and no second person doing anything wrong.
+  it('tells a degraded reader what stopped and what still works', () => {
+    expect(pausedNotice('manual')).toBe(
+      'Live updates are paused to stay within this month’s usage limit. Sending still works — refresh to see new messages.',
+    )
+  })
+})
+
+describe('refreshLabel', () => {
+  it('names the action at rest', () => {
+    expect(refreshLabel(false)).toBe('Refresh')
+  })
+
+  it('reports the read in flight rather than going silent', () => {
+    expect(refreshLabel(true)).toBe('Refreshing…')
+  })
+})
+
+describe('chatLoadState', () => {
+  it('is pending until the first pointer lands', () => {
+    expect(chatLoadState({ seen: null, isPending: true, hasError: false })).toBe('pending')
+  })
+
+  // THE OUTSIDER CASE, WHICH e2e/chat.spec.ts DRIVES: chat.pointer throws for a
+  // non-member, nothing is ever seen, and the route's "Could not load chat."
+  // is the honest answer.
+  it('is an error when the pointer refused and nothing was ever seen', () => {
+    expect(chatLoadState({ seen: null, isPending: false, hasError: true })).toBe('error')
+  })
+
+  it('is ready once a pointer value is held', () => {
+    expect(chatLoadState({ seen: at(500, 3), isPending: false, hasError: false })).toBe('ready')
+  })
+
+  // THE BUG THIS FUNCTION EXISTS FOR. A skipped query is `enabled: false` with
+  // no data of its own, so TanStack reports it pending FOREVER — reading that
+  // directly would leave a degraded client staring at "Loading…" with a full
+  // conversation already in hand.
+  it('is ready from a manually refreshed pointer even though the skipped query reports pending', () => {
+    expect(chatLoadState({ seen: degraded(500, 3), isPending: true, hasError: false })).toBe('ready')
+  })
+
+  // A LATER FAILURE DOES NOT THROW THE CONVERSATION AWAY. Once a pointer has
+  // been seen there are messages on screen, and replacing them with an error
+  // page because one refresh failed loses more than it reports; the route
+  // toasts a failed refresh instead.
+  it('stays ready when a refresh fails after a pointer was already held', () => {
+    expect(chatLoadState({ seen: at(500, 3), isPending: false, hasError: true })).toBe('ready')
+  })
+})
+
+describe('shouldRefreshAfterSend', () => {
+  // SENDING KEEPS WORKING IS THE SERVER'S HALF; SEEING WHAT YOU SENT IS THIS
+  // ONE. With no subscription held, nothing would bring the sender's own
+  // message back to their screen — a conversation cut off from the one end the
+  // spec promises stays open. The send already charged the meter for a wake
+  // nobody received, so this read is inside what was paid for.
+  it('re-reads the pointer after a send while degraded', () => {
+    expect(shouldRefreshAfterSend('manual')).toBe(true)
+  })
+
+  it('leaves the live subscription to do it otherwise', () => {
+    expect(shouldRefreshAfterSend('live')).toBe(false)
+  })
+})
+
+describe('shouldReleaseAfterRead', () => {
+  it('drops the one-shot read\'s cache entry when nothing is watching it', () => {
+    expect(shouldReleaseAfterRead(0)).toBe(true)
+  })
+
+  // THE RACE: switch teams away and back while a refresh is in flight and the
+  // returning render re-opens a real subscription under the key the read is
+  // about to clean up. Tearing that down would leave the client quiet with no
+  // notice — worse than leaving one cache entry behind.
+  it('leaves a key alone while a live subscription is watching it', () => {
+    expect(shouldReleaseAfterRead(1)).toBe(false)
+    expect(shouldReleaseAfterRead(2)).toBe(false)
   })
 })

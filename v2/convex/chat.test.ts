@@ -375,10 +375,18 @@ describe('the budget meter', () => {
         degraded: true,
       })
 
-      // NOTE: this cannot fail today — nothing in sendMessageFor consults
-      // `degraded`, so it passes by default rather than by design. It is a
-      // regression guard: if someone later makes the meter gate sending, this is
-      // what should stop them.
+      // NOTE: this still cannot fail on this side of the wire — nothing in
+      // sendMessageFor consults `degraded`, so it passes by default rather than
+      // by design. It stays a regression guard: if someone later makes the meter
+      // gate sending, this is what should stop them.
+      //
+      // WHAT CHANGED IS WHO DEPENDS ON IT (wordle-teams-vd1j). The client half
+      // of the valve now exists — a degraded client drops its pointer
+      // subscription and falls back to manual refresh — and it keeps the
+      // composer live and re-reads the pointer after a send precisely because
+      // this call is promised to work. See `shouldRefreshAfterSend` and
+      // `pointerMode` in src/components/chat/use-chat-sync.ts, whose own tests
+      // assert the client side of the same rule.
       await expect(sendMessageFor(ctx, ada, team, 'still talking')).resolves.toBeDefined()
     })
   })

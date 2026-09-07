@@ -9,8 +9,10 @@ import {
   chatHeading,
   mergeOlder,
   nextOlderOutcome,
+  pausedNotice,
+  refreshLabel,
+  shouldRefreshAfterSend,
   useChatMessages,
-  useChatPointer,
 } from '#/components/chat/use-chat-sync.ts'
 import type { ChatMessage } from '#/components/chat/use-chat-sync.ts'
 import { MessageList } from '#/components/chat/message-list.tsx'
@@ -31,7 +33,8 @@ export const Route = createFileRoute('/chat')({
   }),
   /**
    * WITHOUT THIS, THE ROUTE WAS REACHABLE AND BROKEN, not merely unguarded.
-   * `useChatPointer` calls `api.chat.pointer`, which calls `requirePlayer` on
+   * `useChatMessages` subscribes to `api.chat.pointer`, which calls
+   * `requirePlayer` on
    * the server — and that throws for two different visitors this route would
    * otherwise let through: someone with no session at all, and someone
    * signed in but without a player row yet (mid sign-up, before
@@ -183,8 +186,7 @@ function useChatShellHeight() {
 
 function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   const shell = useChatShellHeight()
-  const pointer = useChatPointer(teamId)
-  const { messages } = useChatMessages(teamId)
+  const { messages, mode, loadState, refresh, refreshing } = useChatMessages(teamId)
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
   const { data: myPlayerId } = useQuery(convexQuery(api.scores.getMyPlayerId, {}))
   const deleteMessage = useMutation({ mutationFn: useConvexMutation(api.chat.deleteMessage) })
@@ -290,8 +292,12 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
     </div>
   )
 
-  if (pointer.isPending) return frame(<p className="p-4">Loading…</p>)
-  if (pointer.error) return frame(<p className="p-4">Could not load chat.</p>)
+  // `loadState` RATHER THAN THE QUERY'S OWN FLAGS. A degraded client's pointer
+  // query is skipped, and a skipped query is `pending` for ever — reading
+  // `isPending` here would leave it on "Loading…" with a whole conversation in
+  // hand. See chatLoadState.
+  if (loadState === 'pending') return frame(<p className="p-4">Loading…</p>)
+  if (loadState === 'error') return frame(<p className="p-4">Could not load chat.</p>)
 
   // A PLAYER ID NOT AMONG CURRENT MEMBERS RENDERS AS "Former member" —
   // documented behaviour, not a fallback: messages deliberately outlive their
@@ -340,6 +346,18 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   // REJECTS ON FAILURE, exactly like handleDelete above — the composer awaits
   // this and relies on the rejection to know the send failed, which is what
   // keeps the typed text in the textarea instead of clearing it.
+  // DOES NOT RETHROW, for handleLoadOlder's reason — the button that calls it
+  // has nothing to decide on a failure. The toast is the whole report, and the
+  // conversation already on screen stays exactly as it was (chatLoadState keeps
+  // it: a refresh failing is not a chat that could not be loaded).
+  const handleRefresh = async (): Promise<void> => {
+    try {
+      await refresh()
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Could not check for new messages'))
+    }
+  }
+
   const handleSend = async (body: string): Promise<void> => {
     try {
       await sendMessage.mutateAsync({ teamId, body })
@@ -347,6 +365,13 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
       toast.error(mutationErrorMessage(error, 'Could not send that message'))
       throw error
     }
+    // AND THEN READS THE POINTER BACK, BUT ONLY WHILE DEGRADED. With no
+    // subscription held, nothing else would ever put the sender's own message
+    // on their own screen — see shouldRefreshAfterSend. Deliberately after the
+    // catch above rather than inside the `try`: a failed refresh must not be
+    // reported as a failed send, and must not make the composer keep text that
+    // was in fact delivered.
+    if (shouldRefreshAfterSend(mode)) await handleRefresh()
   }
 
   const shown = mergeOlder(olderPages, messages)
@@ -376,8 +401,45 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
     }
   }
 
+  const notice = pausedNotice(mode)
+
   return frame(
     <>
+      {/*
+        THE HONEST NOTICE (design section 6). It appears only while the meter
+        has tripped, says what stopped and what still works, and carries the
+        control that replaces the subscription.
+
+        `shrink-0` KEEPS THE LAYOUT'S ONE RULE INTACT: MessageList is the only
+        thing that may take the leftover height (`min-h-0 flex-1`), and a bar
+        that could be squeezed would let the composer drift off a short
+        viewport. Nothing here is `fixed` and nothing clips overflow — the two
+        things parts 1 and 2 refused, because they are what stop iOS lifting a
+        focused composer above the keyboard.
+
+        `role="status"` BECAUSE IT APPEARS WITHOUT BEING ASKED FOR. A reader
+        using a screen reader is told once, politely, rather than never.
+      */}
+      {notice ? (
+        <div
+          role="status"
+          data-testid="chat-degraded-notice"
+          className="flex shrink-0 items-center justify-between gap-3 border-b bg-muted/50 px-3 py-2"
+        >
+          <p className="text-xs text-muted-foreground">{notice}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => void handleRefresh()}
+            disabled={refreshing}
+            data-testid="chat-refresh"
+          >
+            {refreshLabel(refreshing)}
+          </Button>
+        </div>
+      ) : null}
       <MessageList
         messages={shown}
         nameFor={nameFor}
