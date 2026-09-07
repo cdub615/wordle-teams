@@ -147,6 +147,47 @@ describe('getMyTeamsFor', () => {
   })
 })
 
+describe('getMyTeamsFor hasPendingInvite', () => {
+  test('is true when an address is parked, false when not', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert(
+        'teams',
+        aTeam({ name: 'parked', playerIds: [ada], owner: ada, invited: ['friend@example.com'] }),
+      )
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 207, name: 'alone', playerIds: [ada], owner: ada, invited: [] }),
+      )
+
+      const teams = await getMyTeamsFor(ctx, ada)
+      // Located by name rather than by index: getMyTeamsFor sorts on createdAt,
+      // which the aTeam fixture does not set, so both compare equal and the
+      // order is insertion order by accident rather than by contract.
+      expect(teams.find((team) => team.name === 'parked')?.hasPendingInvite).toBe(true)
+      expect(teams.find((team) => team.name === 'alone')?.hasPendingInvite).toBe(false)
+    })
+  })
+
+  test('the payload still carries no email addresses', async () => {
+    // getMyTeamsFor picks its fields by hand BECAUSE `invited` holds real
+    // addresses (teams.ts:108-110). hasPendingInvite is a boolean precisely so
+    // that stays true. This asserts the property rather than trusting the comment.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [ada], owner: ada, invited: ['secret@example.com'] }),
+      )
+
+      const teams = await getMyTeamsFor(ctx, ada)
+      expect(JSON.stringify(teams)).not.toContain('secret@example.com')
+    })
+  })
+})
+
 describe('createTeamFor', () => {
   test('creates a team owned by the caller, with the default scoring system', async () => {
     const t = convexTest(schema, modules)

@@ -108,6 +108,18 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
         isOwner: team.owner === playerId,
         playWeekends: team.playWeekends,
         showLetters: team.showLetters,
+        // WHETHER AN INVITE IS OUTSTANDING, as a boolean.
+        //
+        // The onboarding card needs to know whether this player has got anyone
+        // else into the room — a second member OR a parked invite. Members are
+        // already on this payload; the invite was not, and could not be: the
+        // field holds real email addresses, which is why every field here is
+        // picked by hand rather than spread (see below).
+        //
+        // A BOOLEAN IS THE WHOLE POINT. It answers the card's question and
+        // carries no address, so the privacy property of this function is
+        // unchanged. Do not widen this to the array.
+        hasPendingInvite: team.invited.length > 0,
         // Fields are picked explicitly rather than spreading the doc, so the
         // wire payload cannot carry `invited`, which holds real email addresses.
         members: resolved.filter((member): member is NonNullable<typeof member> => member !== null),
