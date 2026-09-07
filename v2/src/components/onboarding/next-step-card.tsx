@@ -1,0 +1,148 @@
+import { useEffect, useRef } from 'react'
+import { X } from 'lucide-react'
+import { Button } from '#/components/ui/button.tsx'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+import { trackFunnel } from '#/lib/funnel.ts'
+import {
+  MODEL_LINE,
+  cardHeading,
+  incompleteTasks,
+  shouldShowCard,
+  taskSetKey,
+  type OnboardingFacts,
+  type OnboardingTaskId,
+} from '#/lib/onboarding-tasks.ts'
+
+/**
+ * What a player who has not finished onboarding sees at the top of /app.
+ *
+ * REPLACES TeamsEmptyState OUTRIGHT. That component handled exactly one state —
+ * "you have no team" — which is now one of three tasks here, and it rendered
+ * INSTEAD of the dashboard, which is why a team-less player had nothing to do
+ * (wordle-teams-456 traced a signup whose entire lifetime was 39 seconds and
+ * ended on that screen).
+ *
+ * PRESENTATIONAL. Every action is a callback, because the dialogs these open
+ * are already mounted by routes/app.tsx and owning them here would mean a
+ * second CreateTeamDialog on the same page.
+ */
+export function NextStepCard({
+  facts,
+  onBoard,
+  onTeam,
+  onInvite,
+  onDismiss,
+}: {
+  facts: OnboardingFacts
+  onBoard: () => void
+  onTeam: () => void
+  onInvite: () => void
+  onDismiss: () => void
+}) {
+  const tasks = incompleteTasks(facts)
+  const visible = shouldShowCard(facts)
+  const key = taskSetKey(tasks)
+
+  /**
+   * THE DEDUPE, and the reason this component has a test at all.
+   *
+   * This card renders from a reactive Convex subscription, and getMyTeams is
+   * invalidated by every team in the system (teams.ts:61). Emitting on render
+   * would put an onboarding_view in LogSnag every time any stranger renamed a
+   * team. The ref holds the task sets already reported in THIS mount, so the
+   * event fires on genuine state changes and nothing else.
+   *
+   * A ref rather than state: recording what we sent must not itself cause a
+   * render, or the effect re-runs and we are back where we started.
+   */
+  const reported = useRef(new Set<string>())
+  useEffect(() => {
+    if (!visible) return
+    if (reported.current.has(key)) return
+    reported.current.add(key)
+    trackFunnel({ name: 'onboarding_view', tasks: key })
+  }, [visible, key])
+
+  /**
+   * Completion, emitted once, ON THE TRANSITION rather than on the state.
+   *
+   * `sawIncomplete` is the whole point and this is wrong without it. An
+   * activated player mounts this component on EVERY /app load with zero
+   * incomplete tasks, so firing whenever `tasks.length === 0` would emit an
+   * onboarding_complete per page view for the entire activated population —
+   * swamping the channel and destroying the one number this epic is measured
+   * by. The event has to mean "they just finished", which requires having seen
+   * them unfinished first.
+   *
+   * A dismissal is deliberately NOT a completion; it is its own event, or the
+   * activation number would flatter itself.
+   */
+  const sawIncomplete = useRef(false)
+  const completed = useRef(false)
+  useEffect(() => {
+    if (tasks.length > 0) {
+      sawIncomplete.current = true
+      return
+    }
+    if (!sawIncomplete.current || completed.current) return
+    completed.current = true
+    trackFunnel({ name: 'onboarding_complete' })
+  }, [tasks.length])
+
+  if (!visible) return null
+
+  const act = (id: OnboardingTaskId, run: () => void) => () => {
+    trackFunnel({ name: 'onboarding_task_click', task: id })
+    run()
+  }
+
+  const runners: Record<OnboardingTaskId, () => void> = {
+    board: onBoard,
+    team: onTeam,
+    invite: onInvite,
+  }
+
+  return (
+    <Card className="mb-4">
+      <CardHeader className="relative">
+        <CardTitle asChild>
+          <h2>{cardHeading(facts)}</h2>
+        </CardTitle>
+        <CardDescription>{MODEL_LINE}</CardDescription>
+        {/*
+          An icon-only control needs a real accessible name. v1's tooltip-only
+          OAuth labels are the cautionary tale this app already paid for
+          (wordle-teams-390): a Tooltip does not open on tap, and the login
+          traffic here is heavily iPhone.
+        */}
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Dismiss getting started"
+          className="absolute right-2 top-2"
+          onClick={() => {
+            trackFunnel({ name: 'onboarding_dismiss' })
+            onDismiss()
+          }}
+        >
+          <X size={16} />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {tasks.map((task) => (
+          <Button
+            key={task.id}
+            variant="outline"
+            className="h-auto w-full justify-start py-3 text-left"
+            onClick={act(task.id, runners[task.id])}
+          >
+            <span className="flex flex-col items-start">
+              <span className="font-semibold">{task.title}</span>
+              <span className="text-muted-foreground text-sm font-normal">{task.hint}</span>
+            </span>
+          </Button>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
