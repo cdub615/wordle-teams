@@ -36,11 +36,17 @@ import type { Page } from '@playwright/test'
  *
  * ABSENCE ASSERTIONS ARE ORDERED AFTER A PRESENCE ASSERTION, EVERY TIME, and
  * that is not stylistic. `toBeHidden()` passes on an element that does not
- * exist — including on a page that has not finished loading, or one that failed
- * to render the card entirely — so an unanchored "Invite someone is hidden"
- * would be green against a blank screen. Each one below is preceded by an
- * assertion that the card itself is on screen, so the absence means "the card
- * rendered and chose not to offer this" rather than "nothing rendered".
+ * exist, so an unanchored "Invite someone is hidden" is equally green on a page
+ * that never drew the card at all — which is not hypothetical, it is precisely
+ * the mutant that deleted app.tsx:742 and survived every gate. Each one below is
+ * preceded by an assertion that the card itself is on screen, so the absence
+ * means "the card rendered and chose not to offer this" rather than "nothing
+ * rendered".
+ *
+ * NOT because of a mid-load blank, which is the usual reason given and does not
+ * apply here: /app is server-rendered, so the card's heading is in the initial
+ * document and a bare `toBeHidden()` fails against it immediately. Measured
+ * with a throwaway probe rather than assumed — see the note in the reload test.
  */
 
 /**
@@ -145,17 +151,25 @@ test('dismissing survives a reload, and the menu offers it back', async ({ page 
 
   await page.reload()
 
-  // THE RELOAD IS THE ASSERTION, AND THIS IS WHAT MAKES IT ONE. The flag is
-  // `players.onboardingDismissedAt`, a server-side stamp, precisely so it
-  // survives a reload and follows the player to another device — a
-  // localStorage implementation would pass a no-reload test and this one too if
-  // all it had to clear was `toBeHidden()` on a page mid-load.
+  // THE RELOAD IS THE ASSERTION. The flag is `players.onboardingDismissedAt`, a
+  // server-side stamp, precisely so it survives a reload and follows the player
+  // to another device; a client-only dismissal would pass a no-reload test.
   //
-  // So the survival is asserted POSITIVELY first: the replay item exists only
-  // when onboarding.getStatus has come back AND come back with the flag set, so
-  // seeing it proves both that the page finished loading and that the
-  // dismissal outlived the reload. Only then is the card's absence worth
-  // reading.
+  // THE BARE `toBeHidden()` AFTER A RELOAD IS NOT VACUOUS HERE, AND THAT WAS
+  // MEASURED RATHER THAN ASSUMED — the usual objection to a hidden assertion is
+  // that it also passes on a page that has not painted yet. It does not on this
+  // one: /app is server-rendered, so the card's heading is in the initial
+  // document, and a throwaway probe run against a NON-dismissed account
+  // (dismiss nothing, reload, assert hidden) failed with "Received: visible".
+  //
+  // The positive assertion below is therefore belt-and-braces rather than the
+  // load-bearing part, and it is kept for two things the absence cannot say.
+  // First, the failure it produces names the flag ("Show getting started" is
+  // missing) instead of the card, which is where a reader has to look. Second,
+  // the replay item exists ONLY when onboarding.getStatus has come back AND
+  // come back with `dismissed` set, so it distinguishes "the stamp survived"
+  // from "the card happens not to be on screen" — which the paired negative
+  // control above turns into a real two-sided check.
   await openAppMenu(page)
   await expect(replay).toBeVisible()
   await closeAppMenu(page)
