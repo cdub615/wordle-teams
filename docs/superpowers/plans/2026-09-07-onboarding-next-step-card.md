@@ -1624,55 +1624,84 @@ git commit -m "feat(onboarding): render the next-step card on /app, retire Teams
 
 **Why this task exists.** `upsertBoard` takes no `teamId` (`convex/scores.ts:256`) and `dailyScores` has no team column, so the *write* already works with no team. Only the *read* is blocked: `BoardEntryForm` gets its prefill from `getTeamMonth(teamId, month)` (`form.tsx:47`) and its `showLetters` from the team. This is the one piece of "let them play immediately" that is not free.
 
-- [ ] **Step 1: Write the failing test**
+> **REWRITTEN 2026-09-07 against the real `form.tsx`.** The original steps
+> specified a `getMyBoard({ puzzleDay })` query and two conditional
+> `useSuspenseQuery` calls. Both were wrong: the form needs a whole MONTH of the
+> player's scores (`form.tsx:64` builds a `Set` of played days to pick a default),
+> and `useSuspenseQuery` does not accept `enabled` in TanStack Query v5, so the
+> conditional-query shape is not expressible. Verified: the form consumes exactly
+> two things from `getTeamMonth` — the caller's own scores, and
+> `team.playWeekends` (`:70`, `:167`). It never reads `showLetters`.
 
-Append to `v2/convex/scores.test.ts`:
+- [ ] **Step 1: Write the failing test for a month-scoped query**
+
+Append to `v2/convex/scores.test.ts`, matching that file's existing idiom:
 
 ```ts
-describe('scores.getMyBoard', () => {
-  test('returns null when the player has no board that day', async () => {
+describe('scores.getMyMonth', () => {
+  test('returns only the caller\'s own scores, only for the month asked for', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
     await t.run(async (ctx) => {
-      await ctx.db.insert('players', aPlayer({ email: 'g@example.com' }))
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
+      for (const [playerId, puzzleDay] of [
+        [ada, '2026-09-01'],
+        [ada, '2026-09-30'],
+        [ada, '2026-08-31'],
+        [ada, '2026-10-01'],
+        [bob, '2026-09-15'],
+      ] as const) {
+        await ctx.db.insert('dailyScores', {
+          playerId,
+          puzzleDay,
+          date: Date.now(),
+          answer: 'crane',
+          guesses: ['crane'],
+        })
+      }
     })
-    const as = await authenticatedAs(t, 'g@example.com')
-    expect(await as.query(api.scores.getMyBoard, { puzzleDay: '2026-09-07' })).toBeNull()
+    const as = await authenticatedAs(t, 'ada@example.com')
+    const scores = await as.query(api.scores.getMyMonth, { month: '2026-09' })
+    // Boundaries both included, neighbouring months both excluded, and nothing
+    // of Bob's — the month filter is a lexical range on puzzleDay, so an
+    // off-by-one at either end is a silent data bug rather than an error.
+    expect(scores.map((score) => score.puzzleDay)).toEqual(['2026-09-01', '2026-09-30'])
   })
 
-  test('returns the board for a player on NO team', async () => {
-    // The whole point: a team-less player can play, and their score is waiting
-    // for them the moment they create or join a team.
+  test('carries the same fields getTeamMonth puts on a score', async () => {
+    // The form derives from ONE shape regardless of which query fed it, so a
+    // drift here is a runtime break in the team-less branch only.
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
     await t.run(async (ctx) => {
-      const playerId = await ctx.db.insert('players', aPlayer({ email: 'h@example.com' }))
+      const ada = await ctx.db.insert('players', aPlayer())
       await ctx.db.insert('dailyScores', {
-        playerId,
-        puzzleDay: '2026-09-07',
+        playerId: ada,
+        puzzleDay: '2026-09-02',
         date: Date.now(),
         answer: 'crane',
         guesses: ['stare', 'crane'],
       })
     })
-    const as = await authenticatedAs(t, 'h@example.com')
-    expect(await as.query(api.scores.getMyBoard, { puzzleDay: '2026-09-07' })).toMatchObject({
-      answer: 'crane',
-      guesses: ['stare', 'crane'],
-    })
+    const as = await authenticatedAs(t, 'ada@example.com')
+    const [score] = await as.query(api.scores.getMyMonth, { month: '2026-09' })
+    expect(Object.keys(score).sort()).toEqual(['answer', 'guesses', 'id', 'puzzleDay'])
+    expect(score).toMatchObject({ answer: 'crane', guesses: ['stare', 'crane'] })
   })
 
-  test('is null for an unauthenticated caller rather than throwing', async () => {
+  test('is empty rather than throwing for a caller with no player row', async () => {
     const t = convexTest(schema, modules)
-    expect(await t.query(api.scores.getMyBoard, { puzzleDay: '2026-09-07' })).toBeNull()
+    betterAuthTest.register(t)
+    const as = await authenticatedAs(t, 'nobody@example.com')
+    expect(await as.query(api.scores.getMyMonth, { month: '2026-09' })).toEqual([])
   })
 })
 ```
 
+Check `aPlayer()`'s default email before running and use whatever it actually is in the `authenticatedAs` calls.
+
 - [ ] **Step 2: Run it and watch it fail**
 
-Run from `v2/`: `pnpm vitest run convex/scores.test.ts -t getMyBoard`
-Expected: FAIL — `api.scores.getMyBoard` is undefined.
+`pnpm vitest run convex/scores.test.ts -t getMyMonth` → FAIL, `api.scores.getMyMonth` undefined.
 
 - [ ] **Step 3: Write the query**
 
@@ -1680,82 +1709,64 @@ Add to `v2/convex/scores.ts`:
 
 ```ts
 /**
- * The caller's own board for one puzzle day, with no team in the question.
+ * The caller's own scores for one month, with no team in the question.
  *
- * WHY THIS EXISTS SEPARATELY FROM getTeamMonth. Boards are PLAYER-owned:
- * upsertBoard takes no teamId and dailyScores has no team column, so a player
- * with no team can already write one. Only the read was blocked — the entry
- * form prefills from getTeamMonth, which needs a team that a brand-new signup
- * does not have. wordle-teams-456 traced a signup whose whole life was 39
- * seconds on a team-less screen with nothing to do; this is what gives them
- * something to do.
+ * WHY THIS EXISTS. Boards are PLAYER-owned: upsertBoard takes no teamId and
+ * dailyScores has no team column, so a player with no team can already WRITE
+ * one. Only the read was blocked — the entry form prefilled from getTeamMonth,
+ * which needs a team a brand-new signup does not have. wordle-teams-456 traced
+ * a signup whose whole life was 39 seconds on a team-less screen with nothing
+ * to do; this is what gives them something to do.
  *
- * NULL, NOT A THROW, for an unauthenticated caller: this mounts inside the
- * onboarding card, which renders during the window before a player row exists.
+ * A MONTH, NOT A DAY. The form picks a default day from the set of days already
+ * played (form.tsx:64), so a single-day read cannot feed it.
+ *
+ * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:96-101), deliberately,
+ * so the form derives from one shape whichever query fed it.
+ *
+ * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
+ * /app, which is reachable in the window before a player row exists.
  */
-export const getMyBoard = query({
-  args: { puzzleDay: v.string() },
-  handler: async (ctx, { puzzleDay }) => {
+export const getMyMonth = query({
+  args: { month: v.string() },
+  handler: async (ctx, { month }) => {
     const player = await currentPlayer(ctx)
-    if (!player) return null
-    return await ctx.db
+    if (!player) return []
+    const scores = await ctx.db
       .query('dailyScores')
       .withIndex('by_player_and_puzzleDay', (q) =>
-        q.eq('playerId', player._id).eq('puzzleDay', puzzleDay),
+        q
+          .eq('playerId', player._id)
+          .gte('puzzleDay', `${month}-01`)
+          .lte('puzzleDay', `${month}-31`),
       )
-      .first()
+      .collect()
+    return scores.map((score) => ({
+      id: score._id,
+      puzzleDay: score.puzzleDay,
+      answer: score.answer ?? '',
+      guesses: score.guesses,
+    }))
   },
 })
 ```
 
+`${month}-31` as the upper bound is a lexical comparison on `YYYY-MM-DD`, so it correctly includes a 30-day month's last day and cannot reach into the next month. Confirm `currentPlayer` is imported in this file; `requirePlayer` already is.
+
 - [ ] **Step 4: Run it and watch it pass**
 
-Run from `v2/`: `pnpm vitest run convex/scores.test.ts`
-Expected: PASS, including every pre-existing test.
+`pnpm vitest run convex/scores.test.ts` → PASS, including every pre-existing test.
 
-- [ ] **Step 5: Make the form's team optional**
+- [ ] **Step 5: Split the form by data source, not by condition**
 
-In `v2/src/components/board-entry/form.tsx`, change the prop type from `teamId: Id<'teams'>` to `teamId?: Id<'teams'>`, and replace the single `useSuspenseQuery` at line 47 with a branch that reads the team month when a team exists and the player's own board when it does not:
+`useSuspenseQuery` has no `enabled` option, and hooks cannot be called conditionally — but COMPONENTS can. Restructure `v2/src/components/board-entry/form.tsx` (currently 248 lines) into four pieces in the same file:
 
-```tsx
-  // Two sources for one prefill. With a team we join the subscription the
-  // dashboard already holds; without one we read only this player's own row.
-  const teamMonth = useSuspenseQuery({
-    ...convexQuery(api.scores.getTeamMonth, { teamId: teamId!, month }),
-    enabled: teamId !== undefined,
-  })
-  const soloBoard = useSuspenseQuery({
-    ...convexQuery(api.scores.getMyBoard, { puzzleDay }),
-    enabled: teamId === undefined,
-  })
-```
+1. `BoardEntryFields` — everything the form renders today, taking `{ myScores, playWeekends, month, onSuccess }` as props and owning no query. This is a move of the existing body; do not rewrite its logic, its `pickDefaultDay` effect, or its submit handling.
+2. `TeamBoardEntryForm({ teamId, month, onSuccess })` — keeps today's two `useSuspenseQuery` calls (`getTeamMonth` and `getMyPlayerId`), derives `myScores` exactly as `form.tsx:51` does now, and renders `BoardEntryFields` with `playWeekends={data.team.playWeekends}`.
+3. `SoloBoardEntryForm({ month, onSuccess })` — one `useSuspenseQuery` on `api.scores.getMyMonth`, and `playWeekends={true}`. That default is v1's for a new team (`create-team-dialog.tsx` defaults both switches on), so a team-less player sees what they would see on the team they are about to create.
+4. `BoardEntryForm({ teamId, month, onSuccess })` — the existing export, now with `teamId?: Id<'teams'>`, returning `SoloBoardEntryForm` when `teamId` is undefined and `TeamBoardEntryForm` otherwise.
 
-Derive `showLetters` with a default when there is no team:
-
-```tsx
-  // v1's default for a new team (create-team-dialog.tsx defaults both switches
-  // on), so a team-less player sees what they would see on the team they are
-  // about to create.
-  const showLetters = teamId === undefined ? true : teamMonth.data.showLetters
-```
-
-**Adapt the exact property paths to whatever `getTeamMonth` actually returns** — read `form.tsx:47-70` first and keep its existing derivation for the team case unchanged. Only the team-less branch is new.
-
-- [ ] **Step 6: Split the surface from its trigger**
-
-This is the step the original plan hand-waved as "lift the board-entry state", and it needs stating properly.
-
-`BoardEntryButton` owns `open` in local state and renders it behind a `DialogTrigger` / `SheetTrigger` whose trigger **is** the visible button (`button.tsx:56`, and again in the Sheet branch). The onboarding card's "Enter today's board" task is a *different* control that has to open that same surface, and it cannot reach a trigger's internal state.
-
-So extract the body into a controlled, trigger-less component and let the button compose it:
-
-- Create `v2/src/components/board-entry/surface.tsx` exporting `BoardEntrySurface({ open, onOpenChange, teamId, month })`, holding everything `BoardEntryButton` currently renders **except** the `DialogTrigger` / `SheetTrigger` and the `useState`. Move the `useMediaQuery` desktop/mobile branch, the `useVisualViewport` sizing, the Radix `Title`/`Description` requirements and the `BoardEntryForm` render into it verbatim — this is a move, not a rewrite.
-- `BoardEntryButton` keeps its `useState`, its trigger button and its `label` prop, and renders `<BoardEntrySurface open={open} onOpenChange={setOpen} … />`. Its rendered output must be unchanged.
-- `teamId` becomes `teamId?: Id<'teams'>` on both, passed straight through.
-
-**Do not skip the `label` prop.** It defaults to `'Board Entry'` and exists because two controls sharing one accessible name is a hazard for a locator and a screen reader both — documented at `button.tsx:36-46`. The card passes its own label, and `/app` will now have the toolbar button *and* the card's task button on one page.
-
-**Do NOT touch `v2/src/routes/app.tsx` in this task.** Task 7 does every bit of the route wiring, including rendering a controlled `BoardEntrySurface` for the card. Keeping app.tsx out of this task is what lets Task 8 land on its own without a half-wired card in the tree.
+The team path must be behaviourally unchanged. `getMyPlayerId` stays in the team branch only — the solo branch does not need it, because `getMyMonth` is already scoped to the caller.
 
 - [ ] **Step 7: Run all four gates**
 
