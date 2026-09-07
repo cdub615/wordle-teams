@@ -871,7 +871,11 @@ pnpm typecheck; echo "typecheck=$?"
 pnpm vitest run src/routes.test.ts; echo "routes=$?"
 ```
 
-Expected: both `=0`. `src/routes.test.ts` asserts the route table — **if it enumerates routes, add `/join/$token` to it** rather than letting the assertion fail.
+Expected: both `=0`. `src/routes.test.ts` does **not** enumerate every route, so nothing there breaks by default — but **add a block for `/join/$token` anyway**, because that file exists for exactly this case. Its header states its criterion outright: *"THE ROUTES THAT EXIST BECAUSE SOMETHING OUTSIDE THIS REPO POINTS AT THEM."* `/me` is in there because v1 PWA installs open on it.
+
+An invite link is a URL that lives in somebody's chat history, outside this repo and outside our control. If the path is ever renamed, `routeTree.gen.ts` regenerates happily and every link already shared dies silently — the precise failure that file was written to prevent. Follow the `/me` block's shape: assert the route file exists at the expected path, and assert the path appears in the checked-in `routeTree.gen.ts`.
+
+**This will be the first `$param` route in the app** — nothing under `src/routes/` uses the `$` convention yet. Read TanStack's file-naming rules rather than assuming, and confirm the generated tree registers it as `/join/$token` rather than nesting it somewhere unexpected. Note the same nesting hazard that bit `/team`, recorded at `src/routes/team.tsx:30-45`: the generator nests on **any** shared path prefix, so a file named `join.$token.tsx` and a file named `join.tsx` would make one a child of the other.
 
 - [ ] **Step 4: Commit**
 
