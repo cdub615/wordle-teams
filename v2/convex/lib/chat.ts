@@ -36,8 +36,8 @@ export * from './chatLimits.ts'
 
 /**
  * What one client's wake costs us, in bytes, as a round upper bound: roughly
- * 200B for the pointer read (chatMeta plus the budget row, both small) and
- * ~250B for the one new message it then fetches.
+ * 200B for the pointer read (chatMeta plus the month's chatDegraded row, both
+ * small) and ~250B for the one new message it then fetches.
  */
 /**
  * One message document, as a round estimate. THE SINGLE PLACE THIS NUMBER

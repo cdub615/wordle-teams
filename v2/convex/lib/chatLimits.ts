@@ -43,8 +43,14 @@ export const BYTES_PER_MESSAGE_ESTIMATE = 250
 
 /**
  * What one client's wake costs us, in bytes, as a round upper bound: roughly
- * 200B for the pointer read (chatMeta plus the budget row, both small) and
- * ~250B for the one new message it then fetches.
+ * 200B for the pointer read (chatMeta plus the month's chatDegraded row, both
+ * small, and the second usually absent) and ~250B for the one new message it
+ * then fetches.
+ *
+ * MULTIPLIED BY TEAM SIZE AND NOTHING ELSE, which is only honest because the
+ * pointer's read set is team-scoped — see chatPointerFor. While it also read
+ * the app-wide budget counter, a send woke every connected client in the app
+ * and this number counted the sending team alone (wordle-teams-0lg2).
  */
 export const BYTES_PER_WAKE = 450
 

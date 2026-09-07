@@ -283,9 +283,11 @@ export async function cascadeDeleteTeam(ctx: WriterCtx, team: Doc<'teams'>): Pro
     .collect()
   for (const row of systems) await ctx.db.delete(row._id)
 
-  // CHAT (wordle-teams-qix). Three tables, and the budget is deliberately NOT
-  // one of them: chatBudget is an app-wide monthly meter, and deleting a team
-  // must not hand back bandwidth that has already been spent.
+  // CHAT (wordle-teams-qix). Three tables, and the two month-keyed ones are
+  // deliberately NOT among them: chatBudget is an app-wide monthly meter and
+  // chatDegraded is the signal derived from it, so deleting a team must not
+  // hand back bandwidth that has already been spent, nor un-degrade an app that
+  // has already spent it.
   const messages = await ctx.db
     .query('chatMessages')
     .withIndex('by_team_createdAt', (q) => q.eq('teamId', team._id))

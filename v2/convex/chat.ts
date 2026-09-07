@@ -99,8 +99,32 @@ async function bumpChatMeta(
 }
 
 /**
- * Charge the month's bandwidth budget `bytes`, and set `degraded` once the
- * threshold is crossed.
+ * Charge the month's bandwidth budget `bytes`, and PUBLISH `degraded` when
+ * crossing the threshold changes the answer.
+ *
+ * TWO ROWS, AND THE SPLIT IS THE FIX FOR wordle-teams-0lg2. `chatBudget` is the
+ * counter: it changes on every charge, which makes it the one hot document in
+ * this schema and therefore poison in any subscription's read set.
+ * `chatDegraded` is the signal chatPointerFor reads, and it is written ONLY
+ * when the boolean actually flips — so a month that never crosses the line
+ * never writes it, never creates it, and never disturbs a single pointer.
+ * Absent means not degraded.
+ *
+ * BOTH FLAGS COME FROM ONE isOverBudget CALL IN ONE TRANSACTION, so they cannot
+ * disagree. The one on the counter row is read by nothing and kept only
+ * because dropping a required field would need a data migration (see schema.ts);
+ * the published one is the answer.
+ *
+ * RECOMPUTED, NOT LATCHED. chatPointerFor used to derive `degraded` from the
+ * byte count precisely so a stored flag could not go stale against a moved
+ * threshold. That property is preserved here rather than given up: every charge
+ * re-evaluates isOverBudget against the CURRENT threshold and republishes, so
+ * raising the ceiling clears a set flag on the next chat write anywhere in the
+ * app instead of leaving it set for the rest of the month. The staleness that
+ * remains is one chat write wide, app-wide — not one write per team, which is
+ * what putting the flag on a team's own chatMeta row would have cost, and which
+ * would have left exactly the idle-but-connected clients the valve exists to
+ * shed as the ones who never heard about it.
  *
  * CHARGED FROM THREE CALLERS, and this function only accumulates and persists
  * — it does not know which operation it is pricing:
@@ -147,9 +171,39 @@ async function chargeBudget(ctx: WriterCtx, bytes: number, now: number): Promise
 
   if (row === null) {
     await ctx.db.insert('chatBudget', { month, estimatedBytes, degraded })
+  } else {
+    await ctx.db.patch(row._id, { estimatedBytes, degraded })
+  }
+
+  await publishDegraded(ctx, month, degraded)
+}
+
+/**
+ * Record `degraded` for `month` where chatPointerFor can read it, WITHOUT
+ * WRITING ANYTHING WHEN THE ANSWER HAS NOT CHANGED.
+ *
+ * THE NO-OP IS THE WHOLE FUNCTION. This row sits in the read set of every
+ * connected client's pointer subscription, so a write here is an app-wide wake.
+ * Writing it on every charge would reproduce wordle-teams-0lg2 exactly, one
+ * table over. Reading it first to decide costs one small document inside a
+ * mutation, where read sets do not create subscriptions and where the caller is
+ * already paying for several.
+ *
+ * NOT CREATED WHILE FALSE, which is why the common case — a month that never
+ * degrades — writes nothing here at all rather than churning a row between two
+ * identical values. chatPointerFor reads an absent row as not degraded.
+ */
+async function publishDegraded(ctx: WriterCtx, month: string, degraded: boolean): Promise<void> {
+  const published = await ctx.db
+    .query('chatDegraded')
+    .withIndex('by_month', (q) => q.eq('month', month))
+    .unique()
+
+  if (published === null) {
+    if (degraded) await ctx.db.insert('chatDegraded', { month, degraded })
     return
   }
-  await ctx.db.patch(row._id, { estimatedBytes, degraded })
+  if (published.degraded !== degraded) await ctx.db.patch(published._id, { degraded })
 }
 
 /** The caller's read cursor for a team, created on first use. */
@@ -259,10 +313,42 @@ export type ChatPointer = {
 /**
  * What a client subscribes to — and the only thing it subscribes to.
  *
- * TWO SMALL DOCUMENTS, deliberately. `degraded` lives in the app-wide
- * chatBudget row, and returning it here rather than letting clients subscribe
- * to that row directly is the difference between waking one team and waking
- * every connected client in the app whenever anybody sends a message.
+ * THE READ SET IS THE CONTRACT, NOT THE RETURN VALUE. Convex re-runs a
+ * subscription when any document READ during execution changes, so every
+ * document touched here is a document whose next write wakes every client
+ * holding this open. Keep that set to the caller's own team (the team doc, its
+ * chatMeta row) plus the one deliberately low-churn document below.
+ *
+ * WHAT THIS COMMENT USED TO SAY WAS WRONG, and it is worth recording because it
+ * is a tempting mistake. It claimed that reading the app-wide `chatBudget` row
+ * HERE rather than letting clients subscribe to it directly was 'the difference
+ * between waking one team and waking every connected client in the app'. It is
+ * not, and there is no such difference: reactivity tracks READS, not which
+ * query name did the reading. Reading that row inside the pointer had exactly
+ * the fan-out that subscribing to it would have had — one send in one team
+ * re-firing every connected client's pointer across the whole app
+ * (wordle-teams-0lg2). Confirmed empirically before the fix: a single
+ * `chat:send` produced three `chat:pointer` executions.
+ *
+ * THE DAMAGE WAS THE METER, NOT THE WAKE. A spuriously woken client re-ran this
+ * (~200B), saw its own `revision` unchanged and correctly fetched nothing — but
+ * nothing charged it, because budgetIncrementFor prices a send at
+ * teamSize x BYTES_PER_WAKE, counting the sending team alone. The meter that
+ * exists to keep chat inside the free tier was therefore systematically
+ * optimistic by roughly the ratio of connected clients to team size, and the
+ * `degraded` valve could never trip on the traffic it was missing. With the
+ * read set team-scoped, teamSize is once again the true count of clients a send
+ * wakes, and budgetIncrementFor is honest.
+ *
+ * `degraded` NOW COMES FROM chatDegraded, a separate month-keyed row written
+ * only when the boolean flips — see publishDegraded. Reading it is not a
+ * betrayal of the team-scoped rule above but the one exception that earns
+ * itself: in a month that never degrades it is never written, so it never
+ * invalidates anything, and when it IS written the wake is precisely the signal
+ * every client needs. Compare the alternative of carrying `degraded` on the
+ * team's own chatMeta row, which would be perfectly team-scoped and would tell
+ * only teams that are actively chatting — never the idle-but-connected clients
+ * whose subscriptions are the cost the valve exists to shed.
  *
  * A team that has never chatted has no pointer row; zeroes are the honest
  * answer, and they make the client's "everything after 0" first fetch correct
@@ -280,21 +366,22 @@ export async function chatPointerFor(
     .withIndex('by_team', (q) => q.eq('teamId', teamId))
     .unique()
 
-  const budget = await ctx.db
-    .query('chatBudget')
+  const published = await ctx.db
+    .query('chatDegraded')
     .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
     .unique()
 
   return {
     lastMessageAt: meta?.lastMessageAt ?? 0,
     revision: meta?.revision ?? 0,
-    // DERIVED, NOT READ BACK. chargeBudget stores `degraded` because it has to
-    // write the row anyway, but a stored flag goes stale the moment the
-    // threshold moves: every row already past the OLD threshold would keep
-    // reporting degraded for the rest of the month even after the ceiling was
-    // raised. The row is already in hand here, so deriving costs nothing and
-    // removes the staleness case entirely.
-    degraded: isOverBudget(budget?.estimatedBytes ?? 0),
+    // READ, NOT DERIVED — the reverse of what this line used to do, and a real
+    // trade rather than an oversight. Deriving meant reading `estimatedBytes`
+    // off the hot counter row, which is the fan-out above. What deriving bought
+    // was immunity to a moved threshold, and publishDegraded buys that back a
+    // different way: it recomputes against the current threshold on EVERY
+    // charge and republishes, so this is at most one chat write behind the
+    // truth, app-wide. An absent row means the month has never degraded.
+    degraded: published?.degraded ?? false,
   }
 }
 

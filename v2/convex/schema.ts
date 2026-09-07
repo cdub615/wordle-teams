@@ -338,9 +338,15 @@ export default defineSchema({
   }).index('by_team_createdAt', ['teamId', 'createdAt']),
 
   // THE POINTER. Clients subscribe to THIS, not to messages. A wake reads two
-  // small documents — this row and the month's chatBudget row, which is how
+  // small documents — this row and the month's chatDegraded row, which is how
   // `degraded` reaches the client — instead of a whole message window. See
   // chatPointerFor in chat.ts, and section 4 of the design.
+  //
+  // IT USED TO BE THIS ROW AND THE MONTH'S chatBudget ROW, and that was
+  // wordle-teams-0lg2: chatBudget is written by every send, delete and
+  // scrollback page in EVERY team, so having it in the pointer's read set made
+  // one message in one team re-fire every connected client's subscription
+  // across the whole app. See chatDegraded below.
   //
   // IT IS NOT ON THE TEAM DOC, AND THAT IS THE POINT. Denormalising
   // lastMessageAt onto `teams` would make every chat message invalidate every
@@ -389,6 +395,36 @@ export default defineSchema({
   chatBudget: defineTable({
     month: v.string(), // 'YYYY-MM'
     estimatedBytes: v.number(),
+    // THE COUNTER ROW'S OWN RECORD OF ITS STATE, read by nothing. What reaches
+    // a client is chatDegraded below; this is written on the same line, from
+    // the same isOverBudget call, because the row is being patched anyway. It
+    // is kept rather than dropped because Convex validates EXISTING documents
+    // against a pushed schema, so removing a required field needs a data
+    // migration to buy nothing. See chargeBudget in chat.ts.
+    degraded: v.boolean(),
+  }).index('by_month', ['month']),
+
+  // THE DEGRADATION SIGNAL, SPLIT OFF THE COUNTER ROW ON PURPOSE
+  // (wordle-teams-0lg2). Same key, one row per month, and it holds the single
+  // boolean chatPointerFor reads.
+  //
+  // WHY A SECOND DOCUMENT RATHER THAN A FIELD ON chatBudget. A Convex
+  // subscription re-fires when any document it READ changes, and chatBudget's
+  // `estimatedBytes` changes on every send, delete and scrollback page in every
+  // team — it is the one hot document in this schema, deliberately. A pointer
+  // that read it therefore woke every connected client in the app on every
+  // message anywhere in the app. This row carries the same answer with none of
+  // that churn: chargeBudget writes it ONLY when the boolean actually changes,
+  // so in a month that never crosses the threshold the row is never written and
+  // never even created. Absent means not degraded.
+  //
+  // WHEN IT IS WRITTEN, EVERY CLIENT DOES WAKE — and that is the point rather
+  // than a leak: crossing the line is exactly the event every connected client
+  // has to learn about, since what `degraded` asks them to do is drop their
+  // live subscriptions. Once or twice a month, when it matters, instead of
+  // continuously.
+  chatDegraded: defineTable({
+    month: v.string(), // 'YYYY-MM'
     degraded: v.boolean(),
   }).index('by_month', ['month']),
 

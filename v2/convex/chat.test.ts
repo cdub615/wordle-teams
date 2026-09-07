@@ -32,6 +32,52 @@ import { toPuzzleDay } from './lib/puzzleDay.ts'
 const modules = import.meta.glob('./**/*.ts')
 const today = toPuzzleDay(new Date())
 
+/**
+ * A `db` that records WHAT IT WAS ASKED TO READ, so a test can assert a read
+ * set rather than a return value.
+ *
+ * THIS IS THE ONE THING AN ASSERTION ON A RESULT CANNOT SEE, and it is why
+ * wordle-teams-0lg2 survived a full suite. Convex re-runs a subscription when
+ * any document READ during execution changes, so what a query costs the app is
+ * decided by what it TOUCHES, not by what it returns. chatPointerFor returned
+ * exactly the right pointer the whole time it was also reading the app-wide
+ * `chatBudget` row — the one document every send, delete and scrollback page in
+ * EVERY team writes — and therefore re-firing every connected client's
+ * subscription across the whole app. Every assertion on its result passed
+ * throughout, and would go on passing if the read came back tomorrow.
+ *
+ * Wraps `query` and `get`, which are the two ways a read enters, and binds
+ * every method to the real `db` so a proxied `this` never reaches Convex's own
+ * internals.
+ */
+function watchReads<Db extends object>(db: Db): { db: Db; tables: Set<string>; gets: Array<string> } {
+  const tables = new Set<string>()
+  const gets: Array<string> = []
+
+  const watched = new Proxy(db, {
+    get(target, prop) {
+      const value: unknown = Reflect.get(target, prop)
+      if (typeof value !== 'function') return value
+      const bound = value.bind(target) as (arg: unknown) => unknown
+      if (prop === 'query') {
+        return (table: string) => {
+          tables.add(table)
+          return bound(table)
+        }
+      }
+      if (prop === 'get') {
+        return (id: string) => {
+          gets.push(id)
+          return bound(id)
+        }
+      }
+      return bound
+    },
+  })
+
+  return { db: watched, tables, gets }
+}
+
 describe('the chat schema', () => {
   // THE LOAD-BEARING ASSUMPTION OF THE WHOLE DESIGN. Every wake does a
   // "messages since T" range scan on this index. If this does not work, the
@@ -300,6 +346,18 @@ describe('the budget meter', () => {
         .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
         .unique()
       expect(budget?.degraded).toBe(true)
+
+      // AND PUBLISHES IT, which is the half that reaches a client. The counter
+      // row's own flag is written on the same line from the same computation
+      // and is read by nothing — see chargeBudget. The published row is what
+      // chatPointerFor reads, so a crossing that updated only the counter would
+      // degrade nobody.
+      const published = await ctx.db
+        .query('chatDegraded')
+        .withIndex('by_month', (q) => q.eq('month', budgetMonthFor(Date.now())))
+        .unique()
+      expect(published?.degraded).toBe(true)
+      expect((await chatPointerFor(ctx, ada, team)).degraded).toBe(true)
     })
   })
 
@@ -366,9 +424,47 @@ describe('the chat reads', () => {
     })
   })
 
-  // Pins the derivation: a row whose STORED flag disagrees with its own byte
-  // count must report the truth, not the stale flag.
-  test('derives degraded from the byte count, not the stored flag', async () => {
+  // THE READ SET, AND THE WHOLE OF wordle-teams-0lg2. The pointer is the one
+  // subscription chat holds open, so every document it reads is a document
+  // whose next write wakes the holder. Reading `chatBudget` — written by every
+  // send, delete and scrollback page in EVERY team — made one send in one team
+  // re-fire the pointer for every connected client in the app.
+  //
+  // ASSERTS THE TABLES, NOT A COUNT. A count would go on passing if
+  // `chatBudget` were swapped for another app-wide row; naming the tables is
+  // what says "nothing outside this team, and nothing anybody writes often".
+  // `gets` pins the membership gate's single `ctx.db.get(teamId)` for the same
+  // reason: it is a read of the caller's OWN team, which is the only document
+  // outside chat's tables the pointer is allowed to touch.
+  test('the pointer reads only its own team and the degradation flag', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+
+      const watched = watchReads(ctx.db)
+      await chatPointerFor({ db: watched.db }, ada, team)
+
+      expect(watched.tables).toEqual(new Set(['chatMeta', 'chatDegraded']))
+      expect(watched.gets).toEqual([team])
+    })
+  })
+
+  // REPLACES 'derives degraded from the byte count, not the stored flag'.
+  // That test pinned the pointer reading the counter row and deriving the
+  // answer from its bytes, which is exactly the read this issue removes, so it
+  // could not be kept as it was. What survives of it is its actual concern —
+  // that a flag must not go stale against a moved threshold — re-pinned below
+  // on the flag that now carries the answer.
+  //
+  // THE STALENESS THIS ACCEPTS, STATED OUTRIGHT: a counter row already over the
+  // line reports NOT degraded until the next charge publishes it. That charge
+  // is any send, delete or scrollback page ANYWHERE IN THE APP, so the window
+  // is one chat write wide, and the charge that pushed the counter over is
+  // itself the one that publishes. The state below is therefore reachable only
+  // by writing the counter row by hand, as this test does.
+  test('takes degraded from the published flag, never from the counter row', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
@@ -376,10 +472,54 @@ describe('the chat reads', () => {
       await ctx.db.insert('chatBudget', {
         month: budgetMonthFor(Date.now()),
         estimatedBytes: BUDGET_THRESHOLD_BYTES * 2,
-        degraded: false, // stale: says fine, the bytes say otherwise
+        degraded: true,
       })
 
+      expect((await chatPointerFor(ctx, ada, team)).degraded).toBe(false)
+
+      await ctx.db.insert('chatDegraded', { month: budgetMonthFor(Date.now()), degraded: true })
       expect((await chatPointerFor(ctx, ada, team)).degraded).toBe(true)
+    })
+  })
+
+  // THE OLD COMMENT'S WORRY, ANSWERED. chatPointerFor used to derive `degraded`
+  // rather than read a stored flag, because 'a stored flag goes stale the
+  // moment the threshold moves'. It does not latch here: every charge
+  // recomputes it from the live byte count against the CURRENT threshold and
+  // republishes the answer, so raising the ceiling clears a published flag on
+  // the next chat write anywhere in the app rather than leaving it set for the
+  // rest of the month.
+  test('republishes the flag on every charge rather than latching it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      // A flag published under a threshold that has since been raised: the
+      // month's bytes are nowhere near the ceiling now in force.
+      await ctx.db.insert('chatDegraded', { month: budgetMonthFor(Date.now()), degraded: true })
+
+      await sendMessageFor(ctx, ada, team, 'the ceiling moved')
+
+      expect((await chatPointerFor(ctx, ada, team)).degraded).toBe(false)
+    })
+  })
+
+  // WHAT KEEPS THE POINTER QUIET. The flag document is in the pointer's read
+  // set, so writing it wakes every connected client — which is precisely what
+  // should happen when chat degrades, and must not happen for anything else.
+  // A charge that changes nothing writes nothing, so in a normal month the row
+  // never exists and the pointer's read set never changes.
+  test('writes no flag document while the month is under budget', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+
+      await sendMessageFor(ctx, ada, team, 'one')
+      await sendMessageFor(ctx, ada, team, 'two')
+      await sendMessageFor(ctx, ada, team, 'three')
+
+      expect(await ctx.db.query('chatDegraded').collect()).toEqual([])
     })
   })
 
