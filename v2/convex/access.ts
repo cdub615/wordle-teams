@@ -46,6 +46,14 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // sees never tells them which, and so a probe cannot use the distinction to
 // enumerate live tokens. Its copy is written for someone a friend handed a
 // link to, who has done nothing wrong.
+// TEAM_LIMIT_REACHED is thrown in inviteLinks.ts, by consumeLinkFor, when a
+// non-pro joiner following a link is already on FREE_TEAM_LIMIT teams. It is
+// NOT folded into INVITE_LINK_INVALID: the link is fine and the holder is
+// legitimate, and unlike the three dead-link states there IS something they can
+// do about it. It is also a code the email path has no use for — that path
+// never refuses, it PARKS the address in teams.invited and lets billing.ts's
+// upgradeTeamInvitesFor release it later. A link cannot park, so refusing is a
+// new outcome and gets a new code rather than a reused one.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -66,6 +74,7 @@ export type AccessCode =
   | 'RATE_LIMITED'
   | 'SCROLL_RATE_LIMITED'
   | 'INVITE_LINK_INVALID'
+  | 'TEAM_LIMIT_REACHED'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

@@ -33,7 +33,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'INVALID_MESSAGE' ||
     code === 'RATE_LIMITED' ||
     code === 'SCROLL_RATE_LIMITED' ||
-    code === 'INVITE_LINK_INVALID'
+    code === 'INVITE_LINK_INVALID' ||
+    code === 'TEAM_LIMIT_REACHED'
   ) {
     return code
   }
@@ -155,6 +156,16 @@ export function typedCodeMessage(code: AccessCode): string {
       // convex/access.ts), and copy that distinguished them would leak back
       // exactly what the single code exists to hide.
       return 'That invite link no longer works. Ask whoever shared it for a new one.'
+    case 'TEAM_LIMIT_REACHED':
+      // The one typed code whose copy names the UPGRADE, because upgrading is
+      // the only thing that resolves it. Thrown by consumeLinkFor
+      // (convex/inviteLinks.ts) when a non-pro joiner following a good link is
+      // already on FREE_TEAM_LIMIT teams. Deliberately NOT worded like the
+      // dead-link refusal above: the link works, the holder did nothing wrong,
+      // and there is an action here that helps. Says "free plan" rather than a
+      // number so the copy cannot drift out of step with FREE_TEAM_LIMIT — a
+      // literal in a switch, so every gate stays green while it lies.
+      return "You're on as many teams as the free plan allows. Upgrade to join another."
     default: {
       const _exhaustive: never = code
       return _exhaustive
