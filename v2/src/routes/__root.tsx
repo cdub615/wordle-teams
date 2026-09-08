@@ -239,17 +239,44 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           toaster.
         */}
         <Toaster />
-        <TanStackDevtools
-          config={{
-            position: 'bottom-right',
-          }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
+        {/*
+          NOT RENDERED UNDER PLAYWRIGHT, and this is a harness fix rather than a
+          product one. `position: 'bottom-right'` puts the launcher in the same
+          corner as the chat composer's Send button, and the launcher wins:
+          Chromium reports its <img> as intercepting pointer events, so
+          `Send.click()` never reaches the button. Playwright's default
+          actionTimeout is 0 — UNBOUNDED — so the click retries forever instead
+          of failing, and the spec dies on its own 120s test timeout with a
+          stack pointing at the finally block. That is what made
+          wordle-teams-zzo7 look like a chat defect: the symptom on screen is an
+          unsent draft still sitting in the textarea beside "No messages yet".
+
+          IT HAS NEVER SHIPPED TO ANYONE. @tanstack/react-devtools compiles the
+          UI out of a production build — `Open TanStack Devtools` appears
+          nowhere in dist/, and the only devtools strings that survive there are
+          React's own __REACT_DEVTOOLS_GLOBAL_HOOK__ — so no user has ever had a
+          launcher over their Send button. The obstruction exists only against
+          `vite dev`, which is precisely what the e2e suite drives.
+
+          SUPPRESSED RATHER THAN MOVED, because moving it to another corner only
+          chooses which specs it breaks next; and rather than `force: true` at
+          the call site, which would assert that a click lands where a real
+          click could not. The flag is set by playwright.config.ts's webServer
+          and by nothing else, so an ordinary `pnpm dev` still has devtools.
+        */}
+        {!import.meta.env.VITE_E2E && (
+          <TanStackDevtools
+            config={{
+              position: 'bottom-right',
+            }}
+            plugins={[
+              {
+                name: 'Tanstack Router',
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+            ]}
+          />
+        )}
         <Scripts />
       </body>
     </html>

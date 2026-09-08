@@ -71,6 +71,25 @@ export default defineConfig({
   use: { baseURL: 'http://localhost:3000', locale: 'en-US' },
   webServer: {
     command: 'pnpm dev',
+
+    /**
+     * THE DEV SERVER IS TOLD IT IS UNDER TEST, and the only thing that reads
+     * this today is the TanStack Devtools launcher in src/routes/__root.tsx,
+     * which is suppressed when it is set.
+     *
+     * WHY A FLAG RATHER THAN A TWEAK AT THE CALL SITE. The launcher is fixed to
+     * `bottom-right`, which is where the chat composer's Send button lives, and
+     * Chromium reports the launcher's <img> as intercepting pointer events. A
+     * click on Send therefore never lands — and because Playwright's default
+     * actionTimeout is 0, it RETRIES FOREVER rather than failing, so the spec
+     * burns its whole test timeout and reports a stack in whatever ran last.
+     * `wordle-teams-zzo7` cost a day reading that as a chat defect.
+     *
+     * The value is only ever set here, so `pnpm dev` by hand still has devtools
+     * — the affordance is not being removed from development, only from the
+     * browser Playwright drives.
+     */
+    env: { VITE_E2E: 'true' },
     // BACK ON `/` AS OF PHASE 7 TASK 4, which built the marketing landing there.
     //
     // WHAT THIS HAS TO SATISFY: Playwright treats a 404 as "not ready yet", so
