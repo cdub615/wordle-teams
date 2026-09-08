@@ -1,9 +1,11 @@
 import { ConvexError } from 'convex/values'
 import { authComponent } from './auth'
+import { insightsAccess } from './lib/insightsAccess.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { GenericDatabaseReader } from 'convex/server'
+import type { InsightsAccess } from './lib/insightsAccess.ts'
 import type { PuzzleDay } from './lib/puzzleDay.ts'
 
 /**
@@ -273,4 +275,30 @@ export async function isProFor(ctx: ReaderCtx, playerId: Id<'players'>): Promise
     .withIndex('by_player', (q) => q.eq('playerId', playerId))
     .first()
   return membership?.membershipStatus === 'pro'
+}
+
+/**
+ * Which insight layers this player may see, right now.
+ *
+ * THE WRAPPER ONLY SUPPLIES INPUTS. Every rule — what the trial grants, when it
+ * expires, what a free player still gets — lives in lib/insightsAccess.ts, which
+ * imports nothing and is therefore both testable without a session
+ * (wordle-teams-obw) and safe for the browser to import. This function reads two
+ * facts and hands them over.
+ *
+ * A MISSING PLAYER IS NOT AN ERROR HERE. Insights is a read surface; a caller
+ * that cannot resolve a player should render the free view, not throw. The
+ * callers that must refuse already do so through requirePlayer before reaching
+ * this.
+ */
+export async function insightsAccessFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+): Promise<InsightsAccess> {
+  const [isPro, player] = await Promise.all([isProFor(ctx, playerId), ctx.db.get(playerId)])
+  return insightsAccess({
+    isPro,
+    trialEndsAt: player?.insightsTrialEndsAt,
+    now: Date.now(),
+  })
 }

@@ -82,6 +82,24 @@ export default defineSchema({
     lastBoardEntryReminder: v.optional(v.number()),
     createdAt: v.optional(v.number()), // the ORIGINAL creation time; _creationTime is when we copied it
 
+    // WHEN THIS PLAYER'S INSIGHTS TRIAL RUNS OUT, absent if it never started.
+    //
+    // STAMPED FROM THE FIRST BOARD ENTERED AFTER LAUNCH, NOT FROM LAUNCH, and
+    // that distinction is the entire reason the field exists rather than a
+    // calendar window computed on read. A window anchored to launch expires while
+    // a dormant player is still dormant, and dormant returners are exactly who
+    // the launch email is aimed at. See lib/insightsAccess.ts, which holds the
+    // rule, the trial length and the LAUNCH_AT constant.
+    //
+    // WRITTEN ONCE. upsertBoardFor stamps it only when it is absent, so a second
+    // board cannot extend the trial — the check on absence is the only thing
+    // between a daily player and a permanent free tier.
+    //
+    // ABSENT MEANS TWO DIFFERENT THINGS and neither grants anything: the player
+    // has not entered a board since launch, or LAUNCH_AT is still its placeholder
+    // and nobody has. Both read as "no trial", which is the safe answer.
+    insightsTrialEndsAt: v.optional(v.number()),
+
     // WHEN THE PLAYER DISMISSED THE ONBOARDING CARD, absent if they never did.
     //
     // SERVER-SIDE, NOT localStorage, matching the monthly-winner dialog's

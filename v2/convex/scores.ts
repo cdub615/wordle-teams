@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, requirePlausibleToday, requirePlayer, requireTeamMemberFor } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
+import { LAUNCH_AT, shouldStartTrial, trialEndsAtFor } from './lib/insightsAccess.ts'
 import { monthOf, monthRange } from './lib/puzzleDay.ts'
 import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
 import { recomputePlayerMonth } from './winners.ts'
@@ -243,6 +244,40 @@ export type BoardInput = {
  * and updates. THE TESTS DO NOT PROVE THIS; they exercise the sequential path
  * only, inside a single transaction. convex-test does not simulate OCC retries.
  */
+/**
+ * Starts this player's insights trial if this board is the one that should.
+ *
+ * SEPARATE AND EXPORTED SO BOTH DIRECTIONS ARE TESTABLE AGAINST REAL DOCUMENTS.
+ * `launchAt` defaults to the real constant, and upsertBoardFor always takes the
+ * default — but that default is currently a 2099 placeholder, so inline code
+ * could only ever be tested in its negative direction. A test passing an explicit
+ * launchAt exercises the actual db read and patch in both, which is what
+ * wordle-teams-vhwh asks for and what a pure-function test alone cannot give:
+ * that the field is really written, once, to the right value.
+ *
+ * shouldStartTrial owns the write-once and after-launch rules; the ONE rule that
+ * lives here is that a DELETE is not an entry. It is here rather than at the call
+ * site so that it is inside the seam a test can reach — outside it, the only
+ * thing that could exercise it is a real launch date.
+ */
+export async function stampTrialIfDue(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  // ONE `enteredAt` for both the test and the stamp. Two Date.now() calls can
+  // straddle a millisecond, which would end the trial a tick early — harmless,
+  // and still drift with no reason to exist.
+  enteredAt: number,
+  action: 'create' | 'update' | 'delete',
+  launchAt: number = LAUNCH_AT,
+): Promise<void> {
+  // Clearing a board is not entering one. Stamping here would start a month-long
+  // trial for someone who just deleted their score.
+  if (action === 'delete') return
+  const player = await ctx.db.get(playerId)
+  if (!shouldStartTrial({ trialEndsAt: player?.insightsTrialEndsAt, enteredAt, launchAt })) return
+  await ctx.db.patch(playerId, { insightsTrialEndsAt: trialEndsAtFor(enteredAt) })
+}
+
 export async function upsertBoardFor(
   ctx: WriterCtx,
   playerId: Id<'players'>,
@@ -299,6 +334,22 @@ export async function upsertBoardFor(
     })
     action = 'create'
   }
+
+  // THE INSIGHTS TRIAL CLOCK, started by the first board entered after launch.
+  //
+  // HERE RATHER THAN AT SIGNUP, because the population that matters most already
+  // signed up: a window anchored to launch expires while a dormant player is
+  // still dormant, and dormant returners are who the launch email is for. One
+  // comparison covers them and every future signup.
+  //
+  // NOT ON A DELETE. `action` can be 'delete', and stamping there would start a
+  // month-long trial for someone who just cleared a board — the opposite of an
+  // entry. Only a create or an update is a board being entered.
+  //
+  // shouldStartTrial owns both conditions, including the write-once rule; this
+  // call site deliberately holds no part of the decision. While LAUNCH_AT is its
+  // 2099 placeholder this never fires, which is the intended inert state.
+  await stampTrialIfDue(ctx, playerId, Date.now(), action)
 
   await recomputePlayerMonth(ctx, playerId, monthOf(puzzleDay), today)
   return { action }
