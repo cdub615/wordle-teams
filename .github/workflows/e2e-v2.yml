@@ -132,6 +132,12 @@ jobs:
           echo "--- deployment env (names only) ---"
           pnpm exec convex env list | sed -E 's/=.*/=<set>/'
 
+      # RUN 34197357303 DIED HERE ON `Timed out waiting 60000ms from
+      # config.webServer`, having provisioned Convex perfectly and then never
+      # served `/`. That was not a hang and not the route: a cold `vite dev` SSR
+      # of `/` compiles several hundred modules on demand and a 2-core runner is
+      # far slower than the workstation this suite was tuned on. The fix is a
+      # raised ceiling in playwright.config.ts's webServer, not anything here.
       - name: Playwright
         env:
           CONVEX_AGENT_MODE: anonymous

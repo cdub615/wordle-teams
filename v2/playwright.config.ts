@@ -90,6 +90,28 @@ export default defineConfig({
      * browser Playwright drives.
      */
     env: { VITE_E2E: 'true' },
+
+    /**
+     * PLAYWRIGHT'S DEFAULT IS 60s AND IT IS NOT ENOUGH ON A CI RUNNER, which is
+     * where this was measured: the first run of the suite under
+     * .github/workflows/e2e-v2.yml died on `Timed out waiting 60000ms from
+     * config.webServer` having never served `/` (run 34197357303).
+     *
+     * NOT A HANG, AND NOT THE ROUTE. The probe below is `/`, which is finished
+     * and answers 200 — the same probe passes locally in about 8s. The
+     * difference is the machine: a cold `vite dev` SSR of `/` compiles several
+     * hundred modules on demand, and a 2-core GitHub runner is a long way from
+     * the 22-core workstation this suite was tuned on. Nothing is wrong; it is
+     * simply slower than the default allows.
+     *
+     * THREE MINUTES IS A CEILING, NOT A BUDGET. It is not waited on when the
+     * server is ready sooner, so it costs nothing locally; it only stops a slow
+     * cold start being reported as a dead dev server. That misreporting is the
+     * real cost being avoided — the message names config.webServer and reads
+     * like the server never came up, which is exactly the confusion the `url`
+     * comment below was already written to prevent.
+     */
+    timeout: 180_000,
     // BACK ON `/` AS OF PHASE 7 TASK 4, which built the marketing landing there.
     //
     // WHAT THIS HAS TO SATISFY: Playwright treats a 404 as "not ready yet", so
