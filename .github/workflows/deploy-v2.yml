@@ -264,6 +264,33 @@ jobs:
           fi
           echo "clean: no module-scope auth throw in dist/client"
 
+      # The insights corpus is ~79 KB and must stay a STATIC FILE the CDN serves,
+      # fetched only when the insights route renders. `import`ing it instead would
+      # inline it into a JS chunk and every visitor would download the corpus
+      # whether or not they ever open insights -- invisibly, with every gate green.
+      # insights-corpus.test.ts catches the cause (an import in the source); this
+      # catches the effect, which is the thing that actually ships.
+      - name: The insights corpus must not reach the client bundle
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          if [ ! -f dist/client/insights/benchmark-openers.json ]; then
+            echo "::error::dist/client/insights/benchmark-openers.json is missing."
+            echo "public/insights/ is checked in and copied by vite. Run"
+            echo "  node scripts/build-insights-corpus.mjs"
+            echo "and commit the result."
+            exit 1
+          fi
+          # The first three openers in rank order. Present in a JS asset means the
+          # artifact was inlined rather than fetched.
+          if grep -rl 'slantclastalist' dist/client/assets/ 2>/dev/null; then
+            echo "::error::A client chunk contains the packed opener corpus."
+            echo "Something imports public/insights/benchmark-openers.json instead"
+            echo "of fetching it. Use loadInsightsBenchmark() in src/lib/insights-benchmark.ts."
+            exit 1
+          fi
+          echo "clean: insights corpus is a static file, not a bundled chunk"
+
       # Publishes the Worker and keeps the beta.wordleteams.com custom domain
       # binding declared in v2/wrangler.jsonc. Uploads dist/ from the build above.
       - name: Deploy the Worker
