@@ -24,6 +24,7 @@ import {
 } from '#/lib/insights-personal.ts'
 import { formatMonthLabel } from '#/lib/format-day'
 import { formatDayHeaderParts } from '#/lib/format-day'
+import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
 import { TeamPanel } from '#/components/insights/team-panel.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
@@ -156,7 +157,7 @@ export function InsightsPanel({ benchmark, data }: { benchmark: InsightsBenchmar
         <PersonalHistory benchmark={benchmark} boards={data.boards} />
       )}
 
-      {data.access.layer3 === 'full' && <TeamSection />}
+      <TeamSection layer3={data.access.layer3} />
 
       {upsell && (
         <p className="text-muted-foreground text-sm" data-testid="insights-upsell">
@@ -304,10 +305,13 @@ function PersonalHistory({
  * is the same rule winners.ts states for the celebration dialog, and the reason
  * puzzleDay exists at all.
  */
-function TeamSection() {
+function TeamSection({ layer3 }: { layer3: 'none' | 'free' | 'full' }) {
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
   const teamId = teams?.[0]?.id
-  const month = monthOf(toPuzzleDay(new Date()))
+  // The viewer's own day and month, never the server's — Convex runs in UTC and
+  // "today" is a question about the viewer's calendar.
+  const today = toPuzzleDay(new Date())
+  const month = monthOf(today)
 
   const { data } = useQuery({
     ...convexQuery(api.insights.teamMonth, teamId ? { teamId, month } : 'skip'),
@@ -317,6 +321,16 @@ function TeamSection() {
   // A player on no team has no team analytics, which is a state rather than a
   // failure — and a common one, since a v1 migrant can have left every team.
   if (!teamId || !data) return null
+
+  /*
+    THE FREE SLICE IS A DIFFERENT COMPONENT, NOT A CUT-DOWN PANEL. The spec pins
+    the free tier to one daily fact rather than a reduced version of the paid
+    surface, so there is nothing here to "unlock" — the two render different
+    things from the same one aggregate read.
+  */
+  if (layer3 !== 'full') {
+    return <DailyTeamFact stats={data.stats} viewerId={data.viewerId} today={today} />
+  }
 
   return <TeamPanel data={data} />
 }

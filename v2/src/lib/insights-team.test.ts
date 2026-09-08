@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   bestAndWorstDays,
+  dailyTeamFact,
   headToHead,
   memberAverages,
   memberConsistency,
@@ -204,5 +205,67 @@ describe('mostImproved', () => {
 
   test('two empty months rank nobody rather than throwing', () => {
     expect(mostImproved(month(['a'], {}), month(['a'], {}))).toEqual([])
+  })
+})
+
+describe('dailyTeamFact', () => {
+  test('counts the teammates the viewer beat today', () => {
+    const stats = month(['me', 'a', 'b', 'c'], {
+      '2026-09-08': { me: 3, a: 4, b: 5, c: 2 },
+    })
+    expect(dailyTeamFact(stats, 'me', '2026-09-08')).toEqual({
+      kind: 'beat',
+      beaten: 2,
+      compared: 3,
+    })
+  })
+
+  test('a tie is not a win', () => {
+    const stats = month(['me', 'a'], { '2026-09-08': { me: 4, a: 4 } })
+    expect(dailyTeamFact(stats, 'me', '2026-09-08')).toEqual({
+      kind: 'beat',
+      beaten: 0,
+      compared: 1,
+    })
+  })
+
+  /**
+   * THE CASE MOST LIKELY TO LOOK BROKEN. On a small team early in the day this is
+   * the common state, and a bare count would render "you beat 0 of 0 teammates" —
+   * which reads as a loss and as a bug at once.
+   */
+  test('nobody else having entered yet is its own outcome, not a win over zero', () => {
+    const stats = month(['me', 'a', 'b'], { '2026-09-08': { me: 3 } })
+    expect(dailyTeamFact(stats, 'me', '2026-09-08')).toEqual({ kind: 'nobody-yet', teammates: 2 })
+  })
+
+  test('the denominator is teammates who ALSO played, not the roster', () => {
+    // Claiming a win over someone who has not played is the same error as
+    // counting a skipped day in head-to-head.
+    const stats = month(['me', 'a', 'b', 'c'], { '2026-09-08': { me: 3, a: 5 } })
+    expect(dailyTeamFact(stats, 'me', '2026-09-08')).toEqual({
+      kind: 'beat',
+      beaten: 1,
+      compared: 1,
+    })
+  })
+
+  test('a solo team is alone rather than a win over nobody', () => {
+    const stats = month(['me'], { '2026-09-08': { me: 3 } })
+    expect(dailyTeamFact(stats, 'me', '2026-09-08')).toEqual({ kind: 'alone' })
+  })
+
+  test('no board today is its own outcome, whoever else played', () => {
+    const stats = month(['me', 'a'], { '2026-09-08': { a: 4 } })
+    expect(dailyTeamFact(stats, 'me', '2026-09-08')).toEqual({ kind: 'no-board' })
+  })
+
+  test('a different day does not leak into today', () => {
+    const stats = month(['me', 'a'], { '2026-09-07': { me: 3, a: 5 } })
+    expect(dailyTeamFact(stats, 'me', '2026-09-08')).toEqual({ kind: 'no-board' })
+  })
+
+  test('a missing aggregate is no board rather than a throw', () => {
+    expect(dailyTeamFact(null, 'me', '2026-09-08')).toEqual({ kind: 'no-board' })
   })
 })

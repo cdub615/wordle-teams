@@ -222,3 +222,53 @@ export function mostImproved(previous: TeamMonth, current: TeamMonth): Improveme
     })
     .sort((a, b) => b.delta - a.delta || a.playerId.localeCompare(b.playerId))
 }
+
+export type DailyFact =
+  | { kind: 'no-board'; }
+  | { kind: 'alone'; }
+  | { kind: 'nobody-yet'; teammates: number }
+  | { kind: 'beat'; beaten: number; compared: number }
+
+/**
+ * THE ONE FREE TEAM FACT — "you beat three of four teammates today".
+ *
+ * PINNED TO ONE THING RATHER THAN LEFT OPEN, and the spec's arithmetic is why: the
+ * paid surface is roughly six view types multiplied by teammates and months —
+ * hundreds of cells for a five-person team over a year — so a free slice that
+ * moved around would still be a rounding error of the data while being impossible
+ * to describe. One daily fact recurs, is the most shareable thing in the product,
+ * and earns its "see the full month" honestly.
+ *
+ * FOUR OUTCOMES, NOT ONE WITH EDGE CASES, and the middle two are the whole reason
+ * this returns a union instead of a number. On a small team early in the day
+ * "nobody else has entered yet" is the COMMON case, and a bare count would render
+ * it as "you beat 0 of 0 teammates" — a sentence that reads as broken and as a
+ * loss at the same time. Making it a distinct outcome forces the caller to say
+ * something true instead.
+ *
+ * TIES ARE NOT WINS. Matching a teammate's score is not beating them, so `beaten`
+ * counts strictly fewer attempts. `compared` is the denominator the sentence
+ * needs — teammates who ALSO entered today, not the whole roster — because
+ * claiming a win over someone who has not played is the same error as counting a
+ * skipped day in head-to-head.
+ */
+export function dailyTeamFact(
+  stats: TeamMonth | null,
+  viewerId: PlayerId,
+  today: PuzzleDay,
+): DailyFact {
+  const day = stats?.days.find((entry) => entry.puzzleDay === today)
+  const mine = day?.entries.find((entry) => entry.playerId === viewerId)
+  if (day === undefined || mine === undefined) return { kind: 'no-board' }
+
+  const others = day.entries.filter((entry) => entry.playerId !== viewerId)
+  const teammates = (stats?.members.length ?? 1) - 1
+  if (teammates <= 0) return { kind: 'alone' }
+  if (others.length === 0) return { kind: 'nobody-yet', teammates }
+
+  return {
+    kind: 'beat',
+    beaten: others.filter((entry) => mine.attempts < entry.attempts).length,
+    compared: others.length,
+  }
+}
