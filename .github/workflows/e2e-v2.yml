@@ -132,12 +132,38 @@ jobs:
           echo "--- deployment env (names only) ---"
           pnpm exec convex env list | sed -E 's/=.*/=<set>/'
 
-      # RUN 34197357303 DIED HERE ON `Timed out waiting 60000ms from
-      # config.webServer`, having provisioned Convex perfectly and then never
-      # served `/`. That was not a hang and not the route: a cold `vite dev` SSR
-      # of `/` compiles several hundred modules on demand and a 2-core runner is
-      # far slower than the workstation this suite was tuned on. The fix is a
-      # raised ceiling in playwright.config.ts's webServer, not anything here.
+      # DIAGNOSTIC, AND IT EARNS ITS PLACE BECAUSE PLAYWRIGHT'S webServer HIDES
+      # THE ONE THING NEEDED. Runs 34197357303 (60s) and 34197644828 (180s) both
+      # died on `Timed out waiting ...ms from config.webServer` having printed
+      # NOTHING from vite but the command line — no `ready in`, no error. Raising
+      # the ceiling therefore fixed nothing, which rules out slowness: the server
+      # is alive (a dead one reports `was not able to start`) and `/` simply
+      # never answers 200. Playwright swallows the server's own output on the way
+      # to that message, so this starts the same command by hand and prints what
+      # it says.
+      #
+      # DELETE THIS STEP once the cause is known; it is not part of the finished
+      # job.
+      - name: Probe the dev server directly
+        run: |
+          set -uo pipefail
+          pnpm dev > /tmp/vite.log 2>&1 &
+          VITE_PID=$!
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /tmp/root.html -w '%{http_code}' --max-time 5 http://localhost:3000/ || echo 000)
+            echo "t=${i}s / -> $code"
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          echo "=================== vite output ==================="
+          cat /tmp/vite.log || true
+          echo "=================== body (first 40 lines) ========="
+          head -40 /tmp/root.html 2>/dev/null || echo "(no body captured)"
+          echo "=================== convex backend ================"
+          curl -s -o /dev/null -w 'backend 3210 -> %{http_code}\n' --max-time 5 http://127.0.0.1:3210/version || echo "backend unreachable"
+          kill $VITE_PID 2>/dev/null || true
+          sleep 3
+
       - name: Playwright
         env:
           CONVEX_AGENT_MODE: anonymous
