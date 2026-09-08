@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 import { openAppMenu } from './app-menu.ts'
 import { signIn } from './sign-in'
@@ -746,38 +747,31 @@ test.describe('document cache headers', () => {
  * copy nobody runs.
  */
 test.describe('crawler and social metadata', () => {
-  test('robots.txt is served as text and disallows the app', async ({ request }) => {
+  test('robots.txt is served as text, byte for byte as it is on disk', async ({ request }) => {
     const response = await request.get('/robots.txt')
     expect(response.status()).toBe(200)
     expect(response.headers()['content-type']).toContain('text/plain')
 
-    // PARSED, NOT `toContain`. A `toContain('Disallow: /app')` passes on a file
-    // that says `Allow: /app` two lines lower and on one where the rule is
-    // inside a comment. Comments go first, for the same reason.
-    const directives = (await response.text())
-      .split('\n')
-      .map((line) => line.replace(/#.*$/, '').trim())
-      .filter(Boolean)
-      .map((line) => [
-        line.slice(0, line.indexOf(':')).trim().toLowerCase(),
-        line.slice(line.indexOf(':') + 1).trim(),
-      ])
-
-    const valuesOf = (field: string) =>
-      directives.filter(([name]) => name === field).map(([, value]) => value)
-
-    // /team joined this list in wordle-teams-5jcn.29 — a sibling top-level
-    // route to /app (see routes/team.tsx's own comment for why it is not
-    // nested under it), gated by the identical beforeLoad redirect, so it
-    // needs its own entry rather than riding along on /app's.
-    expect(valuesOf('disallow').sort()).toEqual([
-      '/api',
-      '/app',
-      '/complete-profile',
-      '/me',
-      '/team',
-    ])
-    expect(valuesOf('sitemap')).toEqual(['https://wordleteams.com/sitemap.xml'])
+    // THE SERVED BYTES AGAINST THE FILE ON DISK, rather than a restated list of
+    // rules. This used to parse the response and assert the disallow values as
+    // a literal, and by the time /chat and /join had joined public/robots.txt it
+    // was asserting five of seven — red at HEAD, and contradicting this
+    // describe block's own header four lines above it (wordle-teams-f5l2).
+    //
+    // src/crawler-metadata.test.ts OWNS WHAT THE RULES ARE. It parses the same
+    // file, pins all seven exhaustively and sorted, checks /me carries no
+    // trailing slash, and cross-checks the set against the sitemap and the
+    // route tree — under `vitest run`, which CI runs and this file does not
+    // (wt-ksh.8.49). A second copy here is the copy nobody runs, which is
+    // exactly what happened.
+    //
+    // WHAT ONLY A REAL SERVER CAN ANSWER is that the assets layer serves THIS
+    // file. Equality gives that and cannot go stale when a rule is added, where
+    // status and content-type alone cannot: an empty body, a truncated one and
+    // a stale build's copy all answer 200 with text/plain.
+    expect(await response.text()).toBe(
+      readFileSync(new URL('../public/robots.txt', import.meta.url), 'utf8'),
+    )
   })
 
   test('/sitemap.xml is a real route serving XML', async ({ request }) => {
