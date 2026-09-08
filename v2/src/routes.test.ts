@@ -896,67 +896,45 @@ describe('/join/$token, the route shared invite links point at', () => {
     expect(branched).toBeGreaterThan(-1)
   })
 
-  test('the dashboard takes the token — clearing it — before it spends anything', () => {
-    // A REFUSAL MUST NOT RETRY. consumeLink rejects an expired, revoked or
-    // unknown token with INVITE_LINK_INVALID and a capped free joiner with
-    // TEAM_LIMIT_REACHED — and a token still in storage after a refusal is
-    // read again on the NEXT dashboard render, and the one after that: an
-    // error toast the holder cannot get rid of, and a mutation per render.
-    //
-    // `takePendingInvite` makes the clear structural rather than ordered, and
-    // its own test executes that. What is left for this file is that the
-    // dashboard actually CALLS it, unconditionally, and before the mutation —
-    // moving it inside a `if (!fromUrl)` would leave the stashed copy behind on
-    // every signed-in arrival, where BOTH carriers are filled.
-    const code = app()
-    const taken = code.indexOf('takePendingInvite()')
-    const consumed = code.indexOf('.mutateAsync(')
-    expect(taken, 'nothing reads the pending invite token').toBeGreaterThan(-1)
-    expect(consumed, 'nothing consumes the invite token').toBeGreaterThan(-1)
-    // ONE mutateAsync in the file, so `consumed` is this call and not another
-    // one that happens to sit later — the index comparison below is only
-    // meaningful while that is true.
-    expect(code.match(/\.mutateAsync\(/g) ?? []).toHaveLength(1)
-    expect(taken).toBeLessThan(consumed)
-  })
-
-  test('and empties the URL carrier too, synchronously, before it spends anything', () => {
+  test('the dashboard hands the invite to the hook, and spends what it hands back', () => {
     /**
-     * THE SECOND CARRIER NEEDED THE SAME DISCIPLINE, AND IT WAS MEASURED
-     * RATHER THAN ASSUMED. On the signed-in path the token arrives BOTH in
-     * `?join=` and in storage, and instrumenting the effect showed it running
-     * three times for one arrival — twice with `joinParam` still set, because
-     * the second run is a REMOUNT and React re-runs effects on a remount
-     * whatever the dependency array says. The storage carrier refused the
-     * second time; the URL carrier handed the token over again, because
-     * `navigate()` is asynchronous and the router still held the param.
-     * consumeLink ran twice and the holder got two toasts.
+     * WHAT THIS FILE CAN STILL SEE, AND DELIBERATELY NO MORE (wordle-teams-3jdu).
      *
-     * `window.history.replaceState` IS THE FIX AND A `navigate()` IS NOT.
-     * Synchronous, so the remount cannot beat it, and the same mechanism the
-     * funnel marker three effects up already uses for the identical reason —
-     * its comment says "so a refresh or a share cannot double-count". A
-     * `useRef` guard is the plausible wrong fix: a remount resets it too.
+     * Three source assertions used to live here: that `takePendingInvite()` is
+     * called before `.mutateAsync(`, that `?join=` is deleted and replaceState'd
+     * before it too, and that the token is read from `window.location` rather
+     * than the router. All three compared indexOf positions in this file's TEXT.
+     * They pinned the spelling, not the property — rename a local and they fail
+     * for nothing; restructure the effect and they pass while the property is
+     * gone.
+     *
+     * Those mechanics now live in lib/use-pending-invite.ts and are EXECUTED by
+     * lib/use-pending-invite.hook.test.ts, which drives the real hook through
+     * renderHook: which carrier wins, that both are emptied, that the address bar
+     * is already stripped at the moment the token is handed over, and that a
+     * blocked store does not stop a URL-carried invite.
+     *
+     * WHAT REMAINS IS WIRING, which is the one thing a hook test cannot see: that
+     * this route actually CALLS the hook, and that what the hook hands back is
+     * what gets spent. A perfectly-tested hook nobody calls is the failure mode
+     * this block exists for — the same argument the startUpgrade block above
+     * makes.
      */
     const code = app()
-    const deleted = code.indexOf("url.searchParams.delete('join')")
-    // SEARCHED FROM THE DELETE, not from the top of the file: the funnel
-    // effect three hooks up writes an identical replaceState for SIGNIN_PARAM,
-    // and an `indexOf` from zero finds THAT one — which would let this whole
-    // assertion pass with no replaceState in the invite effect at all.
-    const replaced = code.indexOf("window.history.replaceState({}, '', url.pathname", deleted)
-    const consumed = code.indexOf('.mutateAsync(')
-    expect(deleted, 'nothing removes ?join= from the URL').toBeGreaterThan(-1)
-    expect(replaced, 'the stripped URL is never written back to the address bar').toBeGreaterThan(
-      deleted,
+    expect(code, 'routes/app.tsx does not call usePendingInvite').toMatch(
+      /usePendingInvite\(joinParam,/,
     )
-    expect(replaced).toBeLessThan(consumed)
-    // AND THE TOKEN IS READ FROM `window.location`, NOT FROM THE ROUTER. The
-    // router's copy is what survived the remount; reading `joinParam` here and
-    // merely replaceState-ing the address bar would look identical in a diff
-    // and restore the double consume exactly.
-    expect(code).toMatch(/const fromUrl = url\.searchParams\.get\('join'\) \?\? undefined/)
-    expect(code).toMatch(/const token = fromUrl \?\? stashed/)
+    // The token the hook hands over is the one consumed, rather than some other
+    // value in scope. `joinParam` here would compile and would reinstate the
+    // exact double-consume the hook exists to prevent.
+    expect(code).toMatch(/\.mutateAsync\(\{ token \}\)/)
+    // ONE mutateAsync in the file, so the assertion above is about this call and
+    // not another that happens to match.
+    expect(code.match(/\.mutateAsync\(/g) ?? []).toHaveLength(1)
+    // AND THE EFFECT IS REALLY GONE, not merely joined by a hook call. A leftover
+    // copy would spend every token twice, and both would look correct in review.
+    expect(code).not.toMatch(/takePendingInvite/)
+    expect(code).not.toMatch(/searchParams\.delete\('join'\)/)
   })
 
   test('the key lives in lib/, and neither route file spells it', () => {
@@ -968,8 +946,11 @@ describe('/join/$token, the route shared invite links point at', () => {
     expect(source()).toMatch(
       /import \{ rememberPendingInvite \} from '#\/lib\/pending-invite\.ts'/,
     )
-    expect(app()).toMatch(/import \{ takePendingInvite \} from '#\/lib\/pending-invite\.ts'/)
-    for (const code of [source(), app()]) {
+    // app.tsx reaches the storage helpers only THROUGH the hook now
+    // (wordle-teams-3jdu), so it no longer imports pending-invite at all — but
+    // the invariant this test is about is unchanged, and now covers the hook too.
+    expect(app()).toMatch(/import \{ usePendingInvite \} from '#\/lib\/use-pending-invite\.ts'/)
+    for (const code of [source(), app(), codeOf(read('./lib/use-pending-invite.ts'))]) {
       expect(code).not.toMatch(/wt\.pendingInviteToken/)
       // NOR THE STORE ITSELF. A route reaching straight for sessionStorage is
       // how the wrapped, tested helpers get bypassed by something that reads
