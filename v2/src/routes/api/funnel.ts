@@ -1,5 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { toLogSnagPayload } from '#/lib/funnel-payload'
+import {
+  MAX_FUNNEL_BODY_BYTES,
+  declaresOversizedBody,
+  toLogSnagPayload,
+} from '#/lib/funnel-payload'
 import { sendToLogSnag } from '#/lib/logsnag'
 import { withErrorCapture } from '#/lib/server-handler'
 
@@ -31,10 +35,63 @@ import { withErrorCapture } from '#/lib/server-handler'
 const noContent = (state: 'sent' | 'skipped' | 'dropped') =>
   new Response(null, { status: 204, headers: { 'x-funnel': state } })
 
+/**
+ * The body, or null if it is absent or over the cap (wordle-teams-umeq).
+ *
+ * READS AT MOST THE CAP AND THEN STOPS, which is the half that actually holds.
+ * `request.json()` had no bound at all: a 60MB body cost 1321ms of Worker CPU,
+ * of which JSON.parse was 18ms — the cost is in RECEIVING the bytes, and this
+ * endpoint is public, unauthenticated, rate-limited nowhere, and exempt from the
+ * maintenance gate, so nothing else stands in front of it.
+ *
+ * THE Content-Length CHECK IS A FAST PATH, NOT THE GUARANTEE. It rejects the
+ * measured attack without reading anything, but the header comes from the
+ * caller and a chunked request omits it — so the loop below is what a
+ * determined caller actually meets. It cancels the stream rather than draining
+ * it, so an oversized body costs one chunk.
+ *
+ * NEVER THROWS. Everything here answers null and the caller answers 204, per
+ * this route's contract: wordle-teams-4ov is the v1 bug where a vendor call on
+ * the sign-in path was awaited without a catch and an outage blocked sign-in.
+ */
+async function readBoundedBody(request: Request): Promise<string | null> {
+  if (declaresOversizedBody(request.headers.get('content-length'))) return null
+  if (!request.body) return null
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > MAX_FUNNEL_BODY_BYTES) {
+        await reader.cancel()
+        return null
+      }
+      chunks.push(value)
+    }
+  } catch {
+    return null // a truncated or aborted upload is not worth a stack trace
+  }
+
+  const joined = new Uint8Array(size)
+  let at = 0
+  for (const chunk of chunks) {
+    joined.set(chunk, at)
+    at += chunk.byteLength
+  }
+  return new TextDecoder().decode(joined)
+}
+
 async function handle(request: Request): Promise<Response> {
+  const text = await readBoundedBody(request)
+  if (text === null) return noContent('dropped') // absent, oversized or unreadable
+
   let body: unknown
   try {
-    body = await request.json()
+    body = JSON.parse(text)
   } catch {
     return noContent('dropped') // malformed: it is a beacon, not an API
   }

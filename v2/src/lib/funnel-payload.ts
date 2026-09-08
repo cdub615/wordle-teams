@@ -83,3 +83,37 @@ export function toLogSnagPayload(body: unknown, env: string): LogSnagPayload | n
 
   return { event: spec.event, icon: spec.icon, tags }
 }
+
+/**
+ * THE LARGEST LEGITIMATE BODY THIS ENDPOINT EVER RECEIVES IS UNDER 100 BYTES.
+ * `{"name":"onboarding_view","tasks":"board,team,invite"}` is the biggest of the
+ * eight events, so 2KB is roughly 25x headroom and still refuses anything that
+ * could plausibly be an attack (wordle-teams-umeq).
+ *
+ * WHY A CAP AT ALL, given the payload builder above already discards junk: it
+ * discards it AFTER the body has been read and parsed. Measured on that issue, a
+ * 60MB body cost 1321ms of Worker CPU, of which JSON.parse was only 18ms — so
+ * the cost is in receiving the bytes, not in understanding them. Cloudflare
+ * bills per CPU-ms and the isolate cap is 128MB, and this endpoint is public,
+ * unauthenticated, rate-limited nowhere, and explicitly exempt from the
+ * maintenance gate (lib/maintenance.ts), so there is no kill switch either.
+ */
+export const MAX_FUNNEL_BODY_BYTES = 2048
+
+/**
+ * Whether a request DECLARES a body over the cap, from its Content-Length.
+ *
+ * THE CHEAP HALF, AND NOT THE TRUSTWORTHY ONE. This costs nothing and rejects
+ * the measured attack before a single byte is read — but the header is supplied
+ * by the caller, so a chunked request simply omits it. The route pairs this with
+ * a bounded read, which is what actually holds. Absent or unparseable means "do
+ * not decide here", never "allow": the reader is the backstop.
+ *
+ * Pure, and here rather than in the route, so it is unit-tested like the
+ * allowlists above rather than asserted over the route's source text.
+ */
+export function declaresOversizedBody(contentLength: string | null): boolean {
+  if (contentLength === null) return false
+  const declared = Number(contentLength)
+  return Number.isFinite(declared) && declared > MAX_FUNNEL_BODY_BYTES
+}

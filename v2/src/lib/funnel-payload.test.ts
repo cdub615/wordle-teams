@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { toLogSnagPayload } from './funnel-payload.ts'
+import {
+  MAX_FUNNEL_BODY_BYTES,
+  declaresOversizedBody,
+  toLogSnagPayload,
+} from './funnel-payload.ts'
 
 // /api/funnel is public and unauthenticated, so these allowlists are the only
 // thing stopping it being an open relay into the project's LogSnag.
@@ -132,5 +136,43 @@ describe('onboarding events', () => {
           .method,
       ).toBeUndefined()
     }
+  })
+})
+
+describe('declaresOversizedBody', () => {
+  // wordle-teams-umeq. /api/funnel had no size bound at all: a 60MB body cost
+  // 1321ms of Worker CPU, of which JSON.parse was 18ms — the cost is receiving
+  // the bytes, not parsing them. This is the cheap half of the fix; the route's
+  // bounded read is the half that holds when the header is absent.
+
+  test('the cap leaves generous room for the largest real event', () => {
+    // The biggest of the eight, with every task id present. If a future event
+    // ever approaches the cap this is the assertion that should be reconsidered
+    // rather than the cap quietly raised.
+    const largest = JSON.stringify({ name: 'onboarding_view', tasks: 'board,team,invite' })
+    expect(largest.length).toBeLessThan(MAX_FUNNEL_BODY_BYTES / 10)
+  })
+
+  test('rejects a declared body over the cap', () => {
+    expect(declaresOversizedBody(String(MAX_FUNNEL_BODY_BYTES + 1))).toBe(true)
+    expect(declaresOversizedBody('62914560')).toBe(true) // the measured 60MB attack
+  })
+
+  test('allows anything at or under the cap', () => {
+    expect(declaresOversizedBody(String(MAX_FUNNEL_BODY_BYTES))).toBe(false)
+    expect(declaresOversizedBody('0')).toBe(false)
+    expect(declaresOversizedBody('64')).toBe(false)
+  })
+
+  test('an absent or unparseable header does NOT decide, in either direction', () => {
+    // The polarity is the whole risk here. Returning true would drop every
+    // chunked request — including legitimate ones — and returning true on
+    // garbage would let a caller disable the endpoint with a bad header.
+    // Returning false hands the decision to the route's bounded read, which is
+    // the thing that cannot be lied to.
+    expect(declaresOversizedBody(null)).toBe(false)
+    expect(declaresOversizedBody('')).toBe(false)
+    expect(declaresOversizedBody('not-a-number')).toBe(false)
+    expect(declaresOversizedBody('Infinity')).toBe(false)
   })
 })
