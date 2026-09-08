@@ -11,10 +11,25 @@ name: e2e v2 (spike)
 # means a second `pnpm install` on a second runner and the owner's constraint on
 # this whole piece of work is GitHub Actions minutes.
 #
-# workflow_dispatch ONLY, deliberately. Iterating here must not deploy to beta
-# on every attempt and must not put a red X on the branch.
+# TRIGGERED BY ITS OWN PATH, WHICH IS NOT THE OBVIOUS CHOICE AND IS THE ONLY ONE
+# THAT WORKS HERE. workflow_dispatch was tried first and cannot be used: GitHub
+# resolves a dispatch against the DEFAULT branch, and this file is not on main
+# (`HTTP 404: workflow e2e-v2.yml not found on the default branch`). Putting it
+# on main to make a temporary spike runnable would be worse than the problem.
+#
+# So iteration is one push per attempt, and the paths filter is what keeps that
+# cheap: this runs ONLY when this file itself changes, never on an ordinary v2
+# push. It therefore does not double the cost of normal work, and it does not
+# deploy anything — deploy-v2.yml's own paths filter does not match this file.
+#
+# The consequence to know while iterating: a fix in v2/ will NOT re-run this on
+# its own. Touch this file in the same commit.
 
 on:
+  push:
+    branches: [feat/v2-replatform]
+    paths:
+      - '.github/workflows/e2e-v2.yml'
   workflow_dispatch:
 
 permissions:
