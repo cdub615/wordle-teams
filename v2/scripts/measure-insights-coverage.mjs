@@ -85,4 +85,20 @@ console.log(`  boards covered: ${sum(coveredOpeners)}/${withOpener}  ${pct(sum(c
 console.log(`  openers covered: ${coveredOpeners.length}/${openerEntries.length}`)
 console.log(`  unknown openers (word x boards): ${missedOpeners.sort((a, b) => b[1] - a[1]).map(([w, n]) => `${w}:${n}`).join(', ') || 'none'}`)
 
+// THE PAIR NUMBER'S CEILING, WHICH IS THE POINT OF MEASURING IT SEPARATELY.
+// Layer 1's second figure is a rank out of 500 evaluated OPENING PAIRS, and the
+// frontier is a list of optimal pairs rather than a census of played ones: it
+// draws on 133 distinct first words out of 14,855. A board can only carry a pair
+// rank if its FIRST guess is one of those 133 -- and that is necessary, not
+// sufficient, since the second guess has to match too. So this is an upper
+// bound, and a loose one.
+const pairFirsts = new Set(
+  column('opening-pair-frontier.csv', 'word_1').map((w) => w.toUpperCase()),
+)
+const eligible = openerEntries.filter(([w]) => pairFirsts.has(w))
+console.log(`\nOPENING-PAIR RANK (join on guesses[0..1] -> opening-pair-frontier)`)
+console.log(`  frontier first words: ${pairFirsts.size} of ${openers.size} openers`)
+console.log(`  boards whose opener could POSSIBLY carry a pair rank: ${sum(eligible)}/${withOpener}  ${pct(sum(eligible), withOpener)}`)
+console.log(`  (upper bound -- the second guess must match as well)`)
+
 console.log(`\ntop openers: ${openerEntries.sort((a, b) => b[1] - a[1]).slice(0, 10).map(([w, n]) => `${w}:${n}`).join(' ')}`)
