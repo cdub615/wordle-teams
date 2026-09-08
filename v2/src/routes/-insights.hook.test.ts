@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 //
+// THE LEADING DASH IS REQUIRED, not a style choice: TanStack Router treats every
+// file under src/routes/ as a route and warns on each build that this one exports
+// no Route. `routeFileIgnorePrefix` is "-", so the dash is the documented way to
+// keep a non-route file next to the route it tests.
+//
 // jsdom rather than the suite's default edge-runtime, because this file renders
 // the real panel. `.hook.test.ts` and createElement by hand, matching every
 // existing precedent — vitest.config.ts's glob is `src/**/*.test.ts`, so a .tsx

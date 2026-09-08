@@ -1,6 +1,7 @@
 import { mutation, query } from './_generated/server'
 import { v } from 'convex/values'
 import { e2eTeamLegacyId, isE2eTraffic } from './lib/e2e.ts'
+import { rollupTeamMonth } from './teamStats.ts'
 
 /**
  * Gives an e2e test account a team, so the dashboard clears its "not on a
@@ -337,3 +338,65 @@ function isoParts(day: string): [number, number, number] {
 function isoOf(utcMs: number): string {
   return new Date(utcMs).toISOString().slice(0, 10)
 }
+
+/**
+ * A board on one specific day for one e2e account, so the free team fact has
+ * something to say.
+ *
+ * SEPARATE FROM seedInsightsFor because the two answer different questions.
+ * That one gives a player a HISTORY — a run of consecutive boards ending on a
+ * chosen day — which is what Layers 1 and 2 need. This one places a SINGLE board
+ * on a single day at a chosen score, which is what a comparison between teammates
+ * needs: the fact under test is "you beat two of three teammates today", and
+ * producing it means controlling who played today and how well.
+ *
+ * IT ALSO ROLLS THE MONTH UP, because the fact reads B1's aggregate rather than
+ * dailyScores — a seeded board that never reached the aggregate would leave the
+ * panel correctly saying nothing, and the spec would pass while proving the
+ * opposite of what it claims. rollupTeamMonth is idempotent, so calling it once
+ * per seeded board is free beyond the first.
+ *
+ * Guarded exactly like the seeds above: E2E_TEST_MODE and an e2e+* address.
+ */
+export const seedTeamDayFor = mutation({
+  args: { email: v.string(), puzzleDay: v.string(), attempts: v.number() },
+  handler: async (ctx, { email, puzzleDay, attempts }) => {
+    if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
+      throw new Error('e2eSeed.seedTeamDayFor is only available in E2E test mode for e2e+* addresses')
+    }
+    const lower = email.toLowerCase()
+    const player = await ctx.db
+      .query('players')
+      .withIndex('by_email', (q) => q.eq('email', lower))
+      .first()
+    if (!player) throw new Error('seedTeamDayFor: call ensureTeamFor first')
+
+    // `attempts` guesses ending on the answer, so attemptsFor reports exactly it.
+    const guesses = ['CRANE', ...Array.from({ length: attempts - 2 }, () => 'MOIST'), 'SPEED'].slice(
+      0,
+      attempts,
+    )
+    const existing = await ctx.db
+      .query('dailyScores')
+      .withIndex('by_player_and_puzzleDay', (q) =>
+        q.eq('playerId', player._id).eq('puzzleDay', puzzleDay),
+      )
+      .first()
+    if (existing) await ctx.db.patch(existing._id, { guesses, answer: 'SPEED' })
+    else
+      await ctx.db.insert('dailyScores', {
+        playerId: player._id,
+        puzzleDay,
+        date: Date.now(),
+        answer: 'SPEED',
+        guesses,
+      })
+
+    const month = puzzleDay.slice(0, 7)
+    for (const team of await ctx.db.query('teams').collect()) {
+      if (team.playerIds.includes(player._id)) await rollupTeamMonth(ctx, team, month)
+    }
+
+    return { puzzleDay, attempts }
+  },
+})
