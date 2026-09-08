@@ -19,7 +19,7 @@ import crons from './crons.ts'
  * that.
  */
 describe('crons', () => {
-  test('schedules both sweeps hourly, on different minutes, with no captured `now`', () => {
+  test('schedules all three sweeps hourly, on different minutes, with no captured `now`', () => {
     // THE WHOLE OBJECT, not a per-job lookup. `toEqual` on the map is what
     // makes a THIRD registration — or a deleted one — a failure here rather
     // than something nobody notices until a job silently stops running.
@@ -40,6 +40,17 @@ describe('crons', () => {
         // else in the suite would notice.
         schedule: { type: 'hourly', minuteUTC: 30 },
         args: [{}],
+      },
+      'team month aggregates': {
+        name: 'teamStats:sweep',
+        // MINUTE 45, for the same reason 30 is asserted above: this is the
+        // heaviest of the three — it reads `teams` and every member's current
+        // month — so it gets a lane of its own rather than contending with the
+        // other two. See crons.ts, and note this sweep is a SAFETY NET: the
+        // aggregate is kept correct by the board-write path (winners.ts), which
+        // is what covers a backfilled month this cron never touches.
+        args: [{}],
+        schedule: { type: 'hourly', minuteUTC: 45 },
       },
     })
   })

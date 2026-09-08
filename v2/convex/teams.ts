@@ -295,6 +295,18 @@ export async function cascadeDeleteTeam(ctx: SchedulingCtx, team: Doc<'teams'>):
     .collect()
   for (const row of systems) await ctx.db.delete(row._id)
 
+  // LAYER 3'S AGGREGATE (wordle-teams-s7q2). Added to this cascade in the same
+  // commit as the table itself, which is the whole lesson of wordle-teams-2c1u —
+  // that bug's entire cause was a table added the day AFTER this function was
+  // written. Bounded by months rather than by traffic, so collected rather than
+  // paged: a team accrues one row a month and the oldest possible team has a few
+  // dozen. Purely derived data, so deleting it can never lose anything.
+  const monthStats = await ctx.db
+    .query('teamMonthStats')
+    .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id))
+    .collect()
+  for (const row of monthStats) await ctx.db.delete(row._id)
+
   // CHAT (wordle-teams-qix). Three tables, and the two month-keyed ones are
   // deliberately NOT among them: chatBudget is an app-wide monthly meter and
   // chatDegraded is the signal derived from it, so deleting a team must not

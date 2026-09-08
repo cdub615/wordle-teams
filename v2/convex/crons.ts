@@ -44,4 +44,23 @@ crons.hourly('board entry reminders', { minuteUTC: 0 }, internal.reminders.sweep
  */
 crons.hourly('chat notifications', { minuteUTC: 30 }, internal.chatNotify.sweep, {})
 
+/**
+ * Layer 3's per-team-per-month aggregate (wordle-teams-s7q2).
+ *
+ * AT QUARTER TO, for the reason the chat sweep is at half past: all three are
+ * mutations that walk a table, and stacking them on one minute means the whole
+ * deployment's table walks contend for the scheduler at once. This one reads
+ * `teams` and every member's boards for the current month, so it is the heaviest
+ * of the three and has the most to gain from a lane of its own.
+ *
+ * IT IS A SAFETY NET RATHER THAN THE MECHANISM, and reading it as the mechanism
+ * would be the misunderstanding worth preventing: the aggregate is kept correct
+ * by winners.ts's recomputeTeamMonth, which runs on every board write for that
+ * board's own month — including a backfilled month from last year, which this
+ * cron deliberately never touches. What this catches is a month boundary passing
+ * with nobody playing, and any future write path that forgets. See
+ * convex/teamStats.ts for the full statement of the two triggers.
+ */
+crons.hourly('team month aggregates', { minuteUTC: 45 }, internal.teamStats.sweep, {})
+
 export default crons

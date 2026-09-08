@@ -1,6 +1,7 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requirePlayer, requireTeamMemberFor } from './access'
+import { storeTeamMonthStats, type MonthScore } from './teamStats.ts'
 import { monthRange } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { systemFor } from './lib/scoringSystem.ts'
@@ -162,6 +163,9 @@ export async function recomputeTeamMonth(
   const system = await loadTeamMonthSystem(ctx, team, month)
 
   const totals = []
+  // Accumulated for Layer 3's aggregate, which is stored from THESE rows rather
+  // than reading them again — see storeTeamMonthStats below the loop.
+  const monthScores: MonthScore[] = []
   for (const memberId of team.playerIds) {
     const member = await ctx.db.get(memberId)
     // A ROSTER ENTRY WITH NO PLAYER ROW MUST NOT BE A CANDIDATE. Convex ids are
@@ -193,6 +197,8 @@ export async function recomputeTeamMonth(
       )
       .collect()
 
+    for (const score of scores) monthScores.push(score)
+
     totals.push({
       playerId: memberId,
       total: monthTotal({
@@ -207,6 +213,25 @@ export async function recomputeTeamMonth(
       }),
     })
   }
+
+  /*
+    LAYER 3'S AGGREGATE RIDES THIS PATH RATHER THAN GETTING ITS OWN TRIGGER, and
+    that is the decision wordle-teams-s7q2 asked to be stated. This function
+    already runs on exactly the event the aggregate cares about — a board changed
+    in this (team, month) — and it already runs for a BACKFILLED month rather than
+    only the current one. Backfill is a free feature, so a rollup that only ever
+    touched the current month would leave an edited past month's analytics
+    permanently and silently wrong. Inventing a second notion of "a board changed"
+    would be a second thing to keep in step with this one.
+
+    FROM THE ROWS ALREADY READ ABOVE, never re-read. scores.test.ts's write-path
+    bandwidth guard is what enforces that, and it failed the moment an earlier
+    version called the reading variant here.
+
+    BEFORE THE EARLY RETURN BELOW: a month with no winner is still a month with
+    statistics, and returning first would leave it permanently stale.
+  */
+  await storeTeamMonthStats(ctx, team, month, monthScores)
 
   const winnerId = winnerOf(totals) as Id<'players'> | null
   const existing = await winnerRow(ctx, team._id, month)

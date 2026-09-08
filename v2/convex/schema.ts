@@ -264,6 +264,46 @@ export default defineSchema({
     .index('by_team_year_month', ['teamId', 'year', 'month'])
     .index('by_player', ['playerId']),
 
+  /**
+   * ONE DOCUMENT PER TEAM PER MONTH — Layer 3's whole cost model.
+   *
+   * Team analytics is six view types multiplied by teammates and months, and
+   * bandwidth is the binding limit (wordle-teams-dcu). Reading a month of every
+   * member's boards once per view is the most read-heavy thing the product could
+   * do; reading one precomputed document is not. See lib/teamStats.ts for what it
+   * holds and why it keeps per-day detail rather than only totals.
+   *
+   * INDEXED EXACTLY LIKE monthlyWinners, because it is the same access pattern —
+   * a point lookup by (teamId, year, month) — and copying a shape that already
+   * works beats inventing a second one.
+   *
+   * DERIVED DATA, NEVER A SOURCE OF TRUTH. Every field is recomputable from
+   * dailyScores, so a lost or stale row costs a recompute and never data. That is
+   * what lets the rollup skip writing an unchanged month and lets the cascade
+   * delete these rows without ceremony.
+   */
+  teamMonthStats: defineTable({
+    teamId: v.id('teams'),
+    year: v.number(),
+    month: v.number(), // 1-12, matching monthlyWinners
+    members: v.array(
+      v.object({
+        playerId: v.id('players'),
+        boards: v.number(),
+        attempts: v.number(),
+        solved: v.number(),
+        failed: v.number(),
+      }),
+    ),
+    days: v.array(
+      v.object({
+        puzzleDay: v.string(),
+        entries: v.array(v.object({ playerId: v.id('players'), attempts: v.number() })),
+      }),
+    ),
+    computedAt: v.number(),
+  }).index('by_team_year_month', ['teamId', 'year', 'month']),
+
   // Was player_customer. SMALLER THAN THE 2026-07-16 DESIGN ASSUMED: the Lemon
   // Squeezy -> Polar migration dropped customer_id and membership_variant.
   // Polar identifies customers by external_customer_id — the player id — and
