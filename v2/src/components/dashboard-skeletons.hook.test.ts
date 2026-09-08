@@ -23,7 +23,7 @@ import {
   ScoringSystemCardSkeleton,
   TeamBoardsSkeleton,
 } from './dashboard-skeletons.tsx'
-import { codeOf, jsxPropsOf, parseSource } from '#/test-support/source-ast.ts'
+import { codeOf, jsxPropsOf, optionsPassedTo, parseSource } from '#/test-support/source-ast.ts'
 import { SYSTEM_FIELDS } from '../../convex/lib/scoringSystem.ts'
 
 afterEach(cleanup)
@@ -344,6 +344,80 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
       // a player WITH a team that they have none, so the card offers "Create a
       // team" forever and the invite task can never appear.
       expect(code).toContain('onboardingFactsFrom(teams,')
+    })
+  })
+
+  describe('the route loader warms every query the page suspends on', () => {
+    /**
+     * wordle-teams-y2km, AND THIS BLOCK'S OWN HEADER ALREADY ADMITTED THE GAP:
+     * "dropping the loader's warming all passed test, lint, typecheck and
+     * build". It also passes the full Playwright suite — measured, by planting
+     * exactly that mutant and running all 77 specs against a local backend
+     * (wordle-teams-he0f). So until this test existed the property was held by
+     * nothing whatsoever.
+     *
+     * WHAT THE MUTANT COSTS, and it is not a micro-optimisation. Every one of
+     * these four feeds a `useSuspenseQuery` in Dashboard, so the component
+     * suspends on it whether or not the loader warmed it. An UNWARMED one
+     * suspends AFTER the loader has resolved — a fourth round trip in series
+     * rather than in parallel — and that suspension has no boundary between it
+     * and the route, so `pendingComponent` (DashboardSkeleton) replaces the
+     * WHOLE page for its duration, on every single /app load, for everyone,
+     * including the activated players who never see the onboarding card at all.
+     *
+     * WHY e2e CANNOT DO THIS JOB. Every assertion in the suite waits for a
+     * settled page, so a skeleton that appears and then resolves is
+     * indistinguishable from a page that took slightly longer. It is a
+     * SEQUENCING property, and no assertion about final rendered state can
+     * reach one. A network-order assertion in Playwright could — see y2km — and
+     * this is deliberately the cheap first move, not the last word.
+     *
+     * SCOPED TO THE LOADER NODE, WHICH IS THE WHOLE TRICK. `api.onboarding.
+     * getStatus` appears TWICE in app.tsx: once here and once in the
+     * component's own useSuspenseQuery. So the obvious assertion — a
+     * `toContain` over the file — survives deleting the loader line and proves
+     * nothing at all. Parsing the route options and reading only the `loader`
+     * expression is what makes this able to fail.
+     *
+     * The raw source is parsed and comments are stripped from the extracted
+     * snippet afterwards, rather than parsing a comment-stripped file: `codeOf`
+     * is a regex, and feeding its output to the compiler is not something any
+     * other suite does.
+     */
+    const loaderCode = () => {
+      const loader = optionsPassedTo(
+        'app.tsx',
+        source,
+        "createFileRoute('/app')",
+      ).get('loader')
+      if (!loader) throw new Error('routes/app.tsx passes no `loader` to createFileRoute')
+      return codeOf(loader.getText())
+    }
+
+    test('it warms exactly the four queries Dashboard suspends on', () => {
+      // EXHAUSTIVE AND SORTED, not four toContain calls. The mutation those
+      // cannot see is the one that actually happened — a query DROPPED from the
+      // list — and an added fifth is a change worth failing on too: the comment
+      // above this loader records that its parallel-versus-series measurements
+      // were taken at three queries and never re-taken at four.
+      const warmed = [...loaderCode().matchAll(/api\.[A-Za-z0-9_.]+/g)].map((m) => m[0]).sort()
+      expect(warmed).toEqual([
+        'api.onboarding.getStatus',
+        'api.scores.getMyPlayerId',
+        'api.teams.amIPro',
+        'api.teams.getMyTeams',
+      ])
+    })
+
+    test('every one of them is warmed in the same Promise.all, not awaited in turn', () => {
+      // The point of the loader is PARALLEL. Four sequential awaits warm the
+      // same four queries and would satisfy the assertion above exactly, while
+      // costing four round trips in series — which is most of what the mutant
+      // this block exists for actually costs.
+      const code = loaderCode()
+      expect(code).toMatch(/Promise\.all\(\[/)
+      const inParallel = code.slice(code.indexOf('Promise.all(['))
+      expect((inParallel.match(/ensureQueryData\(/g) ?? []).length).toBe(4)
     })
   })
 
