@@ -1,4 +1,4 @@
-import { mutation } from './_generated/server'
+import { mutation, query } from './_generated/server'
 import { v } from 'convex/values'
 import { e2eTeamLegacyId, isE2eTraffic } from './lib/e2e.ts'
 
@@ -196,5 +196,45 @@ export const ensureSharedTeamFor = mutation({
       playWeekends: true,
       showLetters: true,
     })
+  },
+})
+
+/**
+ * The timeZone stored on an e2e account's `players` row, or null if it has none
+ * yet. A READ, and the only one in this file.
+ *
+ * WHY IT EXISTS (wordle-teams-h1rg). useLocalCapture writes the browser's zone
+ * after mount, and it is SILENT BY DESIGN — no toast, no spinner, no disabled
+ * control — so a test has nothing in the UI to wait on and must instead absorb
+ * the whole chain (auth handshake, mySettings resolving, the mutation, the
+ * invalidation, the re-render) inside one assertion's timeout. That assertion
+ * flaked about one CI run in four and, once e2e became a deploy gate, blocked
+ * deploys for changes that could not have caused it.
+ *
+ * This makes the precondition WAITABLE: poll until the row actually has a zone,
+ * then assert what the picker shows. The race is gone rather than padded, and
+ * the assertion it protects stays at the suite's strict default.
+ *
+ * IT DOES NOT WEAKEN THE TEST IT SERVES. The thing that test exists to catch is
+ * `useLocalCapture()` being deleted from Header.tsx — after which nothing ever
+ * writes a zone, this query returns null forever, and the poll fails instead of
+ * the assertion. The failure simply arrives with the right name on it.
+ *
+ * Guarded exactly like ensureTeamFor above and testOtps.takeFor: E2E_TEST_MODE
+ * must be 'true' AND the address must be e2e+*@wordleteams.com, so it can never
+ * read a real person's row — and on production, where the flag is not set, it is
+ * inert whatever it is called with.
+ */
+export const timeZoneFor = query({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
+      throw new Error('e2eSeed.timeZoneFor is only available in E2E test mode for e2e+* addresses')
+    }
+    const player = await ctx.db
+      .query('players')
+      .withIndex('by_email', (q) => q.eq('email', email.toLowerCase()))
+      .first()
+    return player?.timeZone ?? null
   },
 })

@@ -19,11 +19,15 @@ import type { Page } from '@playwright/test'
  * with reminderDeliveryMethods: [] and reminderDeliveryTime: '18:00:00',
  * which is what the persistence assertions below change away from.
  */
-async function signInWithPlayer(page: Page, timeZone?: string): Promise<void> {
+async function signInWithPlayer(page: Page, timeZone?: string): Promise<string> {
   const email = `e2e+${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
   const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
   await convex.mutation(api.e2eSeed.ensureTeamFor, { email, timeZone })
   await signIn(page, email)
+  // RETURNED SO A CALLER CAN WAIT ON THE BACKEND, which the zone-capture test
+  // below has to (wordle-teams-h1rg). Same shape as sign-in.ts, which returns
+  // the address it used for the same reason.
+  return email
 }
 
 test('the hamburger opens the menu, and each item opens the dialog on its own tab', async ({
@@ -184,7 +188,32 @@ test.describe('a brand-new signup with no stored zone', () => {
     // signInWithPlayer(page) with NO timeZone argument — e2eSeed.ensureTeamFor
     // omits the field entirely (convex/e2eSeed.ts), so this player's row
     // starts with no timeZone at all, exactly like a real v2 signup.
-    await signInWithPlayer(page)
+    const email = await signInWithPlayer(page)
+
+    // THE PRECONDITION, WAITED ON EXPLICITLY RATHER THAN ABSORBED BY THE
+    // ASSERTION BELOW (wordle-teams-h1rg). useLocalCapture fires after mount and
+    // is silent by design — no toast, no spinner, no disabled control — so
+    // there is nothing in the UI to wait on, and the assertion below used to
+    // have to cover the whole chain: the auth handshake, mySettings resolving,
+    // the mutation, the invalidation and the re-render. That flaked about one CI
+    // run in four, and once e2e became a deploy gate it blocked deploys for
+    // changes that could not have caused it. The convex log from run
+    // 34257817281 showed settings:updateTimeZone running two seconds AFTER the
+    // 20s assertion had already given up — late, not broken.
+    //
+    // 20s HERE IS GENEROUS ON PURPOSE and the assertion below is strict: this is
+    // the unbounded part, so the generosity belongs here, where a failure means
+    // the capture genuinely never happened.
+    //
+    // THIS DOES NOT WEAKEN WHAT THE TEST IS FOR. Delete `useLocalCapture()` from
+    // Header.tsx and nothing ever writes a zone, so this poll fails — the same
+    // defect, caught, just with the right name on the failure.
+    const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+    await expect
+      .poll(async () => await convex.query(api.e2eSeed.timeZoneFor, { email }), {
+        timeout: 20_000,
+      })
+      .toBe('America/Denver')
 
     await openAppMenu(page)
     await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
@@ -196,28 +225,16 @@ test.describe('a brand-new signup with no stored zone', () => {
     // instead — the same failure mode a deleted `useLocalCapture()` call
     // produces for every real signup.
     //
-    // 20s RATHER THAN THE 5s DEFAULT, AND IT IS NOT PADDING. This is the one
-    // assertion in the file waiting on a WRITE it did not itself trigger:
-    // useLocalCapture fires after mount, sends a mutation, and the value only
-    // appears once that has round-tripped and the query has refetched. There is
-    // no spinner and no toast to wait on instead — the hook is silent by
-    // design — so this assertion absorbs the whole round trip.
-    //
-    // IT WAS THE FIRST THING TO FAIL UNDER CI CONTENTION, which is what makes it
-    // worth a ceiling of its own: runs 34198662379 and 34199276767 failed here
-    // and nowhere else, 76 of 77. Raising this to 20s did NOT fix that on its
-    // own — the actual cause was two Playwright workers on a 2-core runner, and
-    // the fix is the CI worker count in playwright.config.ts. This stays because
-    // the ceiling is right for what it waits on regardless of the machine.
-    //
-    // THE ASSERTION IS NOT WEAKENED BY THIS. toHaveText polls, so a capture that
-    // never lands still fails — it just fails at 20s instead of 5s. The mutant
-    // this test exists for (deleting useLocalCapture() from Header.tsx) leaves
-    // the placeholder there forever and is still caught. Same trade, and the
-    // same reasoning, as the 20s ceilings in chat.spec.ts and sign-in.ts.
+    // BACK AT THE SUITE'S STRICT DEFAULT, and that is the point of the poll
+    // above. This assertion used to carry 20s because it was absorbing the whole
+    // capture chain; with the write already waited on, the only thing left is
+    // the Convex subscription pushing the new mySettings and React rendering it,
+    // which is fast and bounded. A failure here now means the picker did not
+    // DISPLAY a zone the row demonstrably has — a real defect in
+    // notifications-tab.tsx or in time-zones.ts's label lookup, and worth
+    // failing fast on rather than waiting 20s to report.
     await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText(
       'Mountain Standard Time (MST)',
-      { timeout: 20_000 },
     )
   })
 })
