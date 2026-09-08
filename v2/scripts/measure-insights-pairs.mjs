@@ -52,7 +52,7 @@ for (;;) {
   playersBelowMinimum += page.playersBelowMinimum
   boardsWithoutSecondGuess += page.boardsWithoutSecondGuess
   page.fixedPairShare.forEach((n, i) => (share[i] += n))
-  for (const [pair, n] of Object.entries(page.pairs)) pairs.set(pair, (pairs.get(pair) ?? 0) + n)
+  for (const { pair, n } of page.pairs) pairs.set(pair, (pairs.get(pair) ?? 0) + n)
   if (page.isDone) break
   cursor = page.cursor
 }

@@ -998,17 +998,23 @@ export const insightsCoverageProbe = internalQuery({
  * PAGINATED OVER PLAYERS RATHER THAN SCORES, which is the opposite of the probe
  * above and is forced: a player's boards have to be counted together, and paging
  * over dailyScores would split them across transactions. Each page then reads its
- * players' scores through by_player_and_puzzleDay. 25 players a page keeps the
- * scan far inside the 32,000 limit -- the largest holding is in the low thousands
- * and most players hold none at all. Same caveat as countTable: not a consistent
- * snapshot, which is fine for a measurement and not for a reconciliation.
+ * players' scores through by_player_and_puzzleDay. Same caveat as countTable: not
+ * a consistent snapshot, which is fine for a measurement and not for a
+ * reconciliation.
+ *
+ * `pairs` IS A LIST OF TUPLES RATHER THAN AN OBJECT, and the page is TEN players
+ * rather than the 25 the scan limit would allow. Both are the same bug, found by
+ * running it: a Convex object may hold at most 1,024 fields, and keying by pair
+ * put 4,531 of them in one page. Distinct pairs grow with BOARDS, not with
+ * players, so the field cap binds long before the 32,000-document scan limit does
+ * -- which is why the obvious page size is the wrong one here.
  */
 export const insightsPairProbe = internalQuery({
   args: { cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { cursor }) => {
-    const page = await ctx.db.query('players').paginate({ cursor, numItems: 25 })
+    const page = await ctx.db.query('players').paginate({ cursor, numItems: 10 })
 
-    const pairs: Record<string, number> = {}
+    const pairs = new Map<string, number>()
     const fixedPairShare: number[] = Array.from({ length: 10 }, () => 0)
     let playersWithBoards = 0
     let playersBelowMinimum = 0
@@ -1030,7 +1036,7 @@ export const insightsPairProbe = internalQuery({
           continue
         }
         const key = `${first.toUpperCase()}${second.toUpperCase()}`
-        pairs[key] = (pairs[key] ?? 0) + 1
+        pairs.set(key, (pairs.get(key) ?? 0) + 1)
         mine[key] = (mine[key] ?? 0) + 1
       }
 
@@ -1052,7 +1058,7 @@ export const insightsPairProbe = internalQuery({
       playersWithBoards,
       playersBelowMinimum,
       boardsWithoutSecondGuess,
-      pairs,
+      pairs: [...pairs].map(([pair, n]) => ({ pair, n })),
       fixedPairShare,
       cursor: page.continueCursor,
       isDone: page.isDone,
