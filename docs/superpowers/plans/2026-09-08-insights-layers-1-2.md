@@ -55,7 +55,8 @@ Consequences that are easy to miss and are therefore tasks below:
 
 ```
 v2/scripts/build-insights-corpus.mjs      A1/A2  reduce raw datasets -> artifact
-v2/public/insights/benchmark-*.json       A2     the emitted artifact(s)
+v2/public/insights/benchmark-openers.json    A2  14,855 words in rank order
+v2/public/insights/benchmark-difficulty.json A2  1,900 contiguous percentiles
 v2/src/lib/insights-benchmark.ts          A2     typed lazy loader + lookups
 v2/src/lib/insights-personal.ts           A5     pure stats over a player's rows
 v2/src/lib/insights-access.ts             A3     which layers a player may see
@@ -114,12 +115,83 @@ nobody has checked.
 the owner deciding — the spec's argument for benchmarking against computed
 optimality rests on this specific corpus being public, free and stable.
 
+### A1 RESULT — done 2026-09-08, `wordle-teams-0cmj` closed
+
+**It did not fail. Layers 1 and 2 stand.** Full measurements are on the issue;
+what the rest of this plan depends on:
+
+- **Licence permits the client bundle.** CC BY 4.0, per-dataset rather than
+  per-release — both files we ship are covered. Attribution and the release id go
+  on the surface.
+- **All three figures exact** — 14,855 / 500 / 1,900, and twelve datasets.
+- **No join-key risk at all.** `puzzle-difficulty` carries a native
+  `'YYYY-MM-DD'` `date` column, so we never touch puzzle numbering. Verified
+  contiguous, 2021-06-19 .. 2026-08-31, and `date == 2021-06-19 + puzzle_number`
+  on all 1,900 rows.
+- **Coverage is not the problem it was feared to be**: 99.6% of boards for
+  difficulty, 99.7% for opener rank, against 7,602 real boards. The 26 misses are
+  our own dirty data (`XXXXX`, `ASDFG`, `CTANE`), not a thin corpus.
+- **"Stable" is false for anything keyed on a date, and true for openers.** Opener
+  ranks moved on 0 of 14,855 across two releases; difficulty percentiles moved on
+  702 of 1,852 and 78 labels flipped band.
+- **The pair rank is dropped** — 0.3% real coverage, and no player plays a fixed
+  pair. `wordle-teams-ef54`, owner confirmed.
+
+Left in the repo: `internal.migrate.insightsCoverageProbe` and
+`insightsPairProbe` (counts only, both paginated), with
+`scripts/measure-insights-coverage.mjs` and `scripts/measure-insights-pairs.mjs`
+to re-run them. Raw datasets are deliberately **not** committed — A2 fetches
+them.
+
 ---
 
 ## Task A2 — Reduce it to a lazy-loaded build artifact
 
 `scripts/build-insights-corpus.mjs` turns the raw datasets into the smallest
-thing that answers Layer 1's three questions, emitted into `public/insights/`.
+thing that answers Layer 1's **two** questions, emitted into `public/insights/`.
+
+**TWO ARTIFACTS, NOT THREE.** A1 measured and the owner decided (2026-09-08): the
+opening-pair rank is dropped from Layer 1 entirely, so `benchmark-pairs.json` is
+not built and `opening-pair-frontier.csv` is not fetched. See `wordle-teams-ef54`
+— it fires on 0.3% of boards and describes a fixed-pair strategy that not one of
+our players uses.
+
+**A1 SETTLED THE SHAPE, so this task implements a decision rather than making
+one.** Both files are pinned to release `v2026-09-01`, and every rank is derived
+from ORDER rather than stored, which was verified against the files:
+
+```
+public/insights/benchmark-openers.json      72.6 KB raw / 37.8 KB brotli
+public/insights/benchmark-difficulty.json    5.5 KB raw /  2.0 KB brotli
+```
+
+- **openers** — one concatenated string of 14,855 lowercase five-letter words in
+  rank order. `rank = indexOf(word) / 5 + 1`. All words verified `/^[a-z]{5}$/`,
+  all unique, and the CSV is already in rank order with `rank === row index + 1`.
+- **difficulty** — `firstDay` plus a flat array of 1,900 integers 0..100.
+  `index = days since firstDay`. This is only legal because the dated rows are a
+  perfectly contiguous run with no gaps, which A1 verified; **assert contiguity in
+  the build script** rather than trusting it, because a future release with a hole
+  in it would silently shift every subsequent day.
+- **no label is stored.** `solver_pressure_label` is a pure function of the
+  percentile with non-overlapping bands — 0-34 "Easier for the solver", 35-64
+  "Middle of the pack", 65-89 "Tricky", 90-100 "Hard for the solver".
+
+Measured against the obvious alternative: openers as `[{word, rank}]` objects is
+424.4 KB raw / 53.9 KB brotli — 5.8x the bytes to parse for the same information.
+
+**UPPERCASE AT THE EDGE.** Our `guesses` are uppercase, the corpus is lowercase
+throughout. Normalise in the lookup, never in the artifact.
+
+**FETCH DIFFICULTY FROM `/data/current/`, OPENERS FROM THE PINNED RELEASE.** The
+immutable release's history stops at its cutoff, so aggregate coverage is 99.6%
+while coverage of the current week is 0% — and the free user's default view is
+"the most recent board they have entered", which for a daily player is the one day
+no release can cover. The rolling `/data/current/` feed is CC BY 4.0 with
+identical columns and runs through yesterday. Record its `snapshot_id`, which it
+exposes for exactly this. Today can never be covered by anything — the feed
+publishes only globally completed days — so **a board with no difficulty row is an
+ordinary outcome, not an error**, and the opener rank still renders for it.
 
 **NOT IN CONVEX, AND THIS IS A COST DECISION RATHER THAN A TIDINESS ONE.**
 `wordle-teams-dcu` establishes database bandwidth as the binding limit on the
@@ -140,11 +212,16 @@ so a player who never opens insights never pays for it.
   shape of `deploy-v2.yml`'s `dist/client` grep: the fault would live in the
   emitted bundle, so the emitted bundle is where it is looked for.
 - A stated size budget, asserted by a test, so growth is a deliberate decision.
-- `insights-benchmark.ts` exposes typed lookups — opener rank, pair rank, day
-  difficulty percentile — over a lazily-fetched artifact, with unit tests
-  including the **absent** cases from A1's coverage measurement: an opener not in
-  the set and a `puzzleDay` not in the dated set must render as "no benchmark",
-  never as rank 0 or percentile 0.
+- `insights-benchmark.ts` exposes typed lookups — opener rank and day difficulty
+  percentile — over a lazily-fetched artifact, with unit tests including the
+  **absent** cases from A1's coverage measurement: an opener not in the set and a
+  `puzzleDay` not in the dated set must render as "no benchmark", never as rank 0
+  or percentile 0. A1 supplies real absent cases rather than invented ones —
+  `XXXXX`, `ASDFG` and `CTANE` are openers our players actually entered that the
+  corpus does not hold, and any day after the artifact's cutoff is an absent date.
+- The **attribution** string and the release id are exported from the artifact
+  itself rather than hardcoded in the component, so they cannot drift from the
+  data they credit. CC BY 4.0 obliges us to show them on the surface.
 
 ---
 

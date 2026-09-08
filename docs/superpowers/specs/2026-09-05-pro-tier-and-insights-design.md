@@ -273,14 +273,49 @@ supply the real-world corpus over time.
 
 ### Layer 1 — Public benchmark
 
-Opener rank out of 14,855 scored openers, opening-*pair* rank out of 500
-evaluated pairs, and per-day difficulty percentile across 1,900 dated puzzles
-joined on `puzzleDay`.
+Opener rank out of 14,855 scored openers, and per-day difficulty percentile
+across 1,900 dated puzzles joined on `puzzleDay`. **Two numbers, not three.**
 
-Source: the FiveLetterWords research corpus, **CC BY 4.0**, twelve datasets.
-Word lists originate from the archived dracos and cfreshman sources.
+> **Corrected 2026-09-08 by `wordle-teams-0cmj` and `wordle-teams-ef54`, owner
+> decision recorded.** This paragraph promised a third number — an opening-*pair*
+> rank out of 500 evaluated pairs — and it is gone rather than deferred.
+>
+> The 500-pair frontier is a list of *optimal* pairs, not a census of played
+> ones. Measured against all 7,565 boards that have a first and second guess,
+> **21 carry a frontier rank. 0.3%.** Nine of our 4,958 distinct played pairs
+> appear in it.
+>
+> Coverage was not the reason it was dropped. A pair rank only describes a player
+> who plays a FIXED pair regardless of what the first guess showed, and **no such
+> player exists in our data**: of the 24 players holding five or more boards, 23
+> have a top pair covering under 10% of their boards and the 24th is under 20%.
+> The second guess is adaptive for every measured player, which is how Wordle is
+> played. The panel described a strategy nobody uses.
+
+All three figures above were confirmed against the real files; the ones that
+survive are the strong ones. Opener rank covers **99.7%** of our boards and did
+not move on a single one of 14,855 words across two releases seven weeks apart.
+Difficulty covers **99.6%**.
+
+Source: the FiveLetterWords research corpus, release **v2026-09-01**. Word lists
+originate from the archived dracos and cfreshman sources.
 **Attribution is an obligation, not a courtesy** — the insights surface needs a
 visible credit.
+
+**THE LICENCE IS PER-DATASET, NOT PER-RELEASE**, which the earlier "twelve
+datasets, CC BY 4.0" flattened. Eleven of the twelve are CC BY 4.0; the twelfth,
+`full-game-answer-pool`, is `upstream-source-terms` and is *not* relicensed. Both
+datasets we ship are CC BY 4.0, and we do not need the answer pool —
+`scripts/fetch-wordlists.mjs` already holds our word list from the same upstream
+gists.
+
+**THE DATED DATA IS REVISED BETWEEN RELEASES; THE OPENER RANKS ARE NOT.** Across
+two immutable, same-schema releases, opener ranks changed on 0 of 14,855 words
+while difficulty percentiles changed on 702 of 1,852 dates (max swing 59 points)
+and the difficulty *label* flipped on 78 — a puzzle moving from "Middle of the
+pack" to "Hard for the solver". So a past board's difficulty is not a fixed
+historical fact. Never persist a computed percentile beside a board without the
+release id that produced it.
 
 **Ships as a static build artifact, not in Convex.** It is identical for every
 user and never changes per player, and `wordle-teams-dcu` establishes that
