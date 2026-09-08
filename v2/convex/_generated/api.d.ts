@@ -27,6 +27,7 @@ import type * as lib_board from "../lib/board.js";
 import type * as lib_chat from "../lib/chat.js";
 import type * as lib_chatLimits from "../lib/chatLimits.js";
 import type * as lib_e2e from "../lib/e2e.js";
+import type * as lib_globalThreshold from "../lib/globalThreshold.js";
 import type * as lib_html from "../lib/html.js";
 import type * as lib_insightsAccess from "../lib/insightsAccess.js";
 import type * as lib_invite from "../lib/invite.js";
@@ -85,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   "lib/chat": typeof lib_chat;
   "lib/chatLimits": typeof lib_chatLimits;
   "lib/e2e": typeof lib_e2e;
+  "lib/globalThreshold": typeof lib_globalThreshold;
   "lib/html": typeof lib_html;
   "lib/insightsAccess": typeof lib_insightsAccess;
   "lib/invite": typeof lib_invite;

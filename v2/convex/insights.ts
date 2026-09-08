@@ -1,6 +1,8 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { currentPlayer, insightsAccessFor, requireTeamMemberFor } from './access'
+import { attemptsFor } from './lib/board.ts'
+import { visibleSlice } from './lib/globalThreshold.ts'
 
 /**
  * The boards Layer 1 benchmarks, and what this player is allowed to see of them.
@@ -157,3 +159,83 @@ export const teamMonth = query({
     }
   },
 })
+
+/**
+ * LAYER 4 — global comparison. Built, and dark by construction.
+ *
+ * "SWITCHED OFF" IS THE THRESHOLD ITSELF, NOT A SEPARATE FLAG. With 70 activated
+ * players and ten holding most of the 7,602 boards, essentially no slice reaches
+ * 30 distinct contributors — so every view below returns null today, and each one
+ * lights up on its own as the corpus grows. There is nothing to remember to turn
+ * on, and no flag that can be left in the wrong position.
+ *
+ * IF THE OWNER ALSO WANTS AN EXPLICIT KILL SWITCH THAT IS A SEPARATE DECISION and
+ * is deliberately not assumed here. The plan chose this reading; it is recorded
+ * rather than hidden so it can be overruled.
+ *
+ * THE LAYER WAS MIS-SPECIFIED, NOT BLOCKED, and that distinction is worth keeping
+ * because this reads like a deferral and is not one. Benchmarking against computed
+ * optimality — Layer 1 — is public, free, and just as true at 70 players as at
+ * 70,000. Benchmarking against other HUMANS needs a corpus only Wordle Teams has
+ * and which is not yet deep enough. The public alternative is thinner still: the
+ * Wordle Observatory holds 26 games across 22 puzzles, most rows suppressed for
+ * low sample size, and no source publishes per-player human guess data.
+ *
+ * NO VIEW CAN RENDER A PERCENTILE WITHOUT PASSING THROUGH visibleSlice, which
+ * does not even COMPUTE the number below the threshold. That is the property worth
+ * having: there is no percentile in memory for a caller to mishandle.
+ *
+ * PRO ONLY, WITH NO FREE SLICE — checked here rather than in the component, since
+ * a gate in a component is a gate a second caller can walk around.
+ */
+export const globalComparison = query({
+  args: { puzzleDay: v.string(), opener: v.optional(v.string()) },
+  handler: async (ctx, { puzzleDay, opener }) => {
+    const player = await currentPlayer(ctx)
+    if (!player) return null
+
+    const access = await insightsAccessFor(ctx, player._id)
+    if (access.layer4 !== 'full') return { access, day: null, opener: null }
+
+    // THE DAY SLICE. Every board entered on that puzzle day, by anyone. Indexed —
+    // by_puzzleDay exists for exactly this — and bounded by the number of players
+    // who played one day, which is the smallest cohort Layer 4 has.
+    const dayBoards = await ctx.db
+      .query('dailyScores')
+      .withIndex('by_puzzleDay', (q) => q.eq('puzzleDay', puzzleDay))
+      .collect()
+
+    const mine = dayBoards.find((board) => board.playerId === player._id)
+    const daySlice = visibleSlice(dayBoards, () =>
+      mine === undefined
+        ? null
+        : percentileOf(
+            attemptsFor(mine.guesses, mine.answer ?? ''),
+            dayBoards.map((board) => attemptsFor(board.guesses, board.answer ?? '')),
+          ),
+    )
+
+    return {
+      access,
+      day: { percentile: daySlice.value, contributors: daySlice.contributors },
+      // The opener slice is deliberately not implemented as a scan: there is no
+      // index on guesses[0], and the cohort is "everyone who ever used this word",
+      // which is the whole table. It waits for an aggregate of its own, on the
+      // shape teamMonthStats already demonstrates — and it is dark either way at
+      // today's data volumes, so nothing is lost by not building the scan first.
+      opener: opener === undefined ? null : { percentile: null, contributors: 0 },
+    }
+  },
+})
+
+/**
+ * What share of `population` this player did BETTER than, as a whole percent.
+ *
+ * FEWER ATTEMPTS IS BETTER, so this counts strictly higher attempt counts. Ties
+ * are not beaten — the same reasoning as head-to-head, and it keeps a player who
+ * matched the field from being told they led it.
+ */
+function percentileOf(mine: number, population: number[]): number {
+  if (population.length === 0) return 0
+  return Math.round((population.filter((n) => n > mine).length / population.length) * 100)
+}
