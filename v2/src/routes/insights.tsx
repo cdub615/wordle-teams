@@ -24,6 +24,8 @@ import {
 } from '#/lib/insights-personal.ts'
 import { formatMonthLabel } from '#/lib/format-day'
 import { formatDayHeaderParts } from '#/lib/format-day'
+import { TeamPanel } from '#/components/insights/team-panel.tsx'
+import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
 
@@ -122,7 +124,11 @@ function InsightsRoute() {
 }
 
 type Boards = {
-  access: { layer1: 'none' | 'free' | 'full'; layer2: 'none' | 'free' | 'full' }
+  access: {
+    layer1: 'none' | 'free' | 'full'
+    layer2: 'none' | 'free' | 'full'
+    layer3: 'none' | 'free' | 'full'
+  }
   boards: { puzzleDay: string; guesses: string[]; answer?: string }[]
 }
 
@@ -149,6 +155,8 @@ export function InsightsPanel({ benchmark, data }: { benchmark: InsightsBenchmar
       {data.access.layer2 === 'full' && (
         <PersonalHistory benchmark={benchmark} boards={data.boards} />
       )}
+
+      {data.access.layer3 === 'full' && <TeamSection />}
 
       {upsell && (
         <p className="text-muted-foreground text-sm" data-testid="insights-upsell">
@@ -279,6 +287,38 @@ function PersonalHistory({
       </CardContent>
     </Card>
   )
+}
+
+/**
+ * Layer 3, for the viewer's first team and the current month.
+ *
+ * ONE TEAM AND THIS MONTH, WHICH IS A SCOPE DECISION RATHER THAN AN OVERSIGHT.
+ * The spec's Layer 3 is "six view types multiplied by teammates and months", and
+ * a picker for both is a surface of its own — it belongs with the paywall
+ * placement work (wordle-teams-iht) that owns how this is navigated, not here.
+ * What this task owed was that every view reads the aggregate and that the empty
+ * cases are stated, and both hold for any (team, month) the picker later passes.
+ *
+ * THE MONTH IS RESOLVED IN THE VIEWER'S OWN ZONE, never on the server: "this
+ * month" is a question about the viewer's calendar and Convex runs in UTC. That
+ * is the same rule winners.ts states for the celebration dialog, and the reason
+ * puzzleDay exists at all.
+ */
+function TeamSection() {
+  const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
+  const teamId = teams?.[0]?.id
+  const month = monthOf(toPuzzleDay(new Date()))
+
+  const { data } = useQuery({
+    ...convexQuery(api.insights.teamMonth, teamId ? { teamId, month } : 'skip'),
+    enabled: teamId !== undefined,
+  })
+
+  // A player on no team has no team analytics, which is a state rather than a
+  // failure — and a common one, since a v1 migrant can have left every team.
+  if (!teamId || !data) return null
+
+  return <TeamPanel data={data} />
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

@@ -1,5 +1,6 @@
+import { v } from 'convex/values'
 import { query } from './_generated/server'
-import { currentPlayer, insightsAccessFor } from './access'
+import { currentPlayer, insightsAccessFor, requireTeamMemberFor } from './access'
 
 /**
  * The boards Layer 1 benchmarks, and what this player is allowed to see of them.
@@ -94,3 +95,65 @@ export const myBenchmarkBoards = query({
 function visible(board: { puzzleDay: string; guesses: string[]; answer?: string }) {
   return { puzzleDay: board.puzzleDay, guesses: board.guesses, answer: board.answer }
 }
+
+/**
+ * One team's month, for Layer 3.
+ *
+ * ONE DOCUMENT READ. That is the entire reason teamMonthStats exists — see its
+ * schema comment and lib/teamStats.ts. This query resolves access, reads the
+ * aggregate by its index, and returns it with just enough roster to label the
+ * rows. It never touches dailyScores.
+ *
+ * MEMBERSHIP IS CHECKED BEFORE ACCESS, and the order matters: requireTeamMemberFor
+ * throws NOT_A_MEMBER for a team that does not exist as well as for one that is
+ * not yours, so a probe cannot use this to discover which team ids are real.
+ *
+ * THE >=30 THRESHOLD DOES NOT APPLY HERE AND MUST NOT BE ADDED. It belongs to
+ * Layer 4. The spec establishes by measurement that getTeamMonth already returns
+ * every teammate's guesses and answer to every member, and team-boards.tsx renders
+ * them — so this summarises data the viewer can already read board by board.
+ * Applying a k-anonymity rule here would suppress a five-person team's own numbers
+ * from itself, which is both wrong and the opposite of the feature.
+ *
+ * A MISSING AGGREGATE IS AN EMPTY MONTH, NOT AN ERROR. The rollup writes on the
+ * first board of a month, so a month nobody has played has no row — which is a
+ * real and common state, not a failure, and the caller renders it as one.
+ */
+export const teamMonth = query({
+  args: { teamId: v.id('teams'), month: v.string() },
+  handler: async (ctx, { teamId, month }) => {
+    const player = await currentPlayer(ctx)
+    if (!player) return null
+
+    const team = await requireTeamMemberFor(ctx, player._id, teamId)
+    const access = await insightsAccessFor(ctx, player._id)
+
+    const [year, monthNum] = month.split('-').map(Number)
+    const stats = await ctx.db
+      .query('teamMonthStats')
+      .withIndex('by_team_year_month', (q) =>
+        q.eq('teamId', teamId).eq('year', year).eq('month', monthNum),
+      )
+      .unique()
+
+    // Names for the rows. Bounded by the roster, and it is the roster the viewer
+    // can already see on the dashboard.
+    const roster = []
+    for (const memberId of team.playerIds) {
+      const member = await ctx.db.get(memberId)
+      if (!member) continue
+      roster.push({
+        playerId: memberId,
+        firstName: member.firstName,
+        lastName: member.lastName,
+      })
+    }
+
+    return {
+      access,
+      viewerId: player._id,
+      roster,
+      stats: stats ? { members: stats.members, days: stats.days } : null,
+    }
+  },
+})
