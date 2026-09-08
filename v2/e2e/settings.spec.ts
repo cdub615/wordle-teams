@@ -199,12 +199,16 @@ test.describe('a brand-new signup with no stored zone', () => {
     // 20s RATHER THAN THE 5s DEFAULT, AND IT IS NOT PADDING. This is the one
     // assertion in the file waiting on a WRITE it did not itself trigger:
     // useLocalCapture fires after mount, sends a mutation, and the value only
-    // appears once that has round-tripped and the query has refetched. On a
-    // 2-core CI runner against a cold backend that does not fit in 5s — the
-    // suite's first CI run failed here and only here, 76 of 77, with the
-    // combobox still reading "" after fourteen polls (run 34198662379). It
-    // passes locally on a workstation, which is exactly the shape of a figure
-    // that encodes whose machine ran it.
+    // appears once that has round-tripped and the query has refetched. There is
+    // no spinner and no toast to wait on instead — the hook is silent by
+    // design — so this assertion absorbs the whole round trip.
+    //
+    // IT WAS THE FIRST THING TO FAIL UNDER CI CONTENTION, which is what makes it
+    // worth a ceiling of its own: runs 34198662379 and 34199276767 failed here
+    // and nowhere else, 76 of 77. Raising this to 20s did NOT fix that on its
+    // own — the actual cause was two Playwright workers on a 2-core runner, and
+    // the fix is the CI worker count in playwright.config.ts. This stays because
+    // the ceiling is right for what it waits on regardless of the machine.
     //
     // THE ASSERTION IS NOT WEAKENED BY THIS. toHaveText polls, so a capture that
     // never lands still fails — it just fails at 20s instead of 5s. The mutant

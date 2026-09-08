@@ -150,15 +150,14 @@ jobs:
           echo "--- deployment env (names only) ---"
           pnpm exec convex env list | sed -E 's/=.*/=<set>/'
 
-          # DIAGNOSTIC SHAPE, TEMPORARY. Narrowed to the one failing spec to keep
-          # the loop cheap (4.8m -> well under 2m), and the convex watcher log is
-          # printed either way. useLocalCapture SWALLOWS a failed write by
-          # design — "a failure is reported and otherwise ignored" — so a
-          # rejected updateTimeZone mutation looks identical from the browser to
-          # the effect never running. The server log is the only place the
-          # difference is visible.
+          # THE CONVEX LOG IS PRINTED EITHER WAY, and it earned its place:
+          # useLocalCapture SWALLOWS a failed write by design — "a failure is
+          # reported and otherwise ignored" — so a rejected mutation looks
+          # identical from the browser to the effect never running. The server
+          # log is the only place that difference is visible, and printing it is
+          # what ruled the environment out and pointed at worker contention.
           set +e
-          pnpm e2e settings.spec.ts
+          pnpm e2e
           E2E_STATUS=$?
           set -e
           echo "=================== convex dev log ==================="

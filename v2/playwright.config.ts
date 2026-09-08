@@ -57,7 +57,26 @@ export default defineConfig({
    * runner as on a 22-core workstation. `cpus/2` made the flake rate a property
    * of the machine, which is why this was so hard to pin down.
    */
-  workers: 2,
+  /**
+   * TWO ON A WORKSTATION, ONE IN CI, and the CI half was measured rather than
+   * assumed. Everything above is reasoning about a 22-core machine where these
+   * tests wait on I/O rather than CPU — which is true there and NOT true on a
+   * 2-core GitHub runner, where two Chromiums, a Vite dev server and the Convex
+   * local backend genuinely contend for two cores.
+   *
+   * WHAT IT COST TO FIND: settings.spec.ts:183 failed at two workers in CI and
+   * only there (runs 34198662379 and 34199276767, 76 of 77 both times), with the
+   * time-zone combobox still empty after 43 polls. It was NOT the environment —
+   * that same spec run alone on the same runner passes in 59.6s, and the convex
+   * log shows settings:updateTimeZone executing normally (run 34199977658). The
+   * assertion waits on a write the user never asked for, with no spinner to wait
+   * on, so contention shows up there first and silently.
+   *
+   * `process.env.CI` rather than a hardcoded 1: this is also Playwright's own
+   * default shape for the same reason, and it keeps the workstation figure and
+   * all the reasoning above intact.
+   */
+  workers: process.env.CI ? 1 : 2,
 
   /**
    * THE LOCALE IS PINNED, AND AS OF wordle-teams-8klr IT IS LOAD-BEARING RATHER
