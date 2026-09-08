@@ -113,13 +113,25 @@ export async function consumeLinkFor(
   }
 
   // THE FOURTH DEAD STATE, ANSWERED WITH THE SAME CODE rather than the
-  // INVALID_TEAM the plan named. Two reasons, and it is a deliberate departure.
-  // First, INVALID_TEAM's copy is "A team needs a name." — written for a
-  // rejected rename, and simply false here. Second, this state is REACHABLE:
-  // cascadeDeleteTeam (teams.ts) collects monthlyWinners, scoringSystems, chat
-  // history, chatMeta and chatReads, but NOT inviteLinks, so deleting a
-  // team leaves every link it ever issued dangling. Answering differently would
-  // tell a stranger holding an old link that the team once existed.
+  // INVALID_TEAM the plan named. First reason is unchanged: INVALID_TEAM's copy
+  // is "A team needs a name." — written for a rejected rename, and simply false
+  // here. Answering differently would also tell a stranger holding an old link
+  // that the team once existed.
+  //
+  // THE SECOND REASON USED TO BE THAT THIS STATE WAS REACHABLE, AND IT NO
+  // LONGER IS (wordle-teams-2c1u). cascadeDeleteTeam did not collect
+  // inviteLinks, so deleting a team left every link it had issued dangling and
+  // this branch was the thing catching them. It sweeps them now, and it is the
+  // only code path that deletes a `teams` document — so in ordinary operation
+  // nothing should arrive here at all.
+  //
+  // THE GUARD STAYS, and the change of status is the argument for keeping it
+  // rather than against. `link.teamId` is a stored reference this function must
+  // dereference regardless, and its integrity now depends on a sweep in another
+  // module continuing to be correct. This is the check that does not depend on
+  // that being true — a future deletion path that forgets, or a row predating
+  // the fix, lands here and is refused rather than reaching `team.playerIds` on
+  // a null.
   const team = await ctx.db.get(link.teamId)
   if (!team) throw accessError('INVITE_LINK_INVALID')
 

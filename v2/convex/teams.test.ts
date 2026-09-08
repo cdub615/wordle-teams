@@ -424,6 +424,45 @@ describe('deleteTeamFor', () => {
     })
   })
 
+  test('deletes the team and cascades to its invite links, leaving another team’s alone', async () => {
+    // wordle-teams-2c1u. inviteLinks was added (qt4.12) the day after
+    // cascadeDeleteTeam was written, so it was never in the sweep — and a
+    // deleted team left every link it ever issued in the table forever, with
+    // nothing able to reap them. Not a hole: consumeLinkFor loads the team after
+    // its dead-link check and refuses INVITE_LINK_INVALID once it is gone, and
+    // revokeLinkFor cannot resolve the team either. A growth problem, fixed
+    // where the other five tables are already swept.
+    //
+    // TWO TEAMS, because the by_team scoping is the half a bare `.collect()`
+    // would get wrong, and a single-team test cannot tell the two apart.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const doomed = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const kept = await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 311, playerIds: [ada], owner: ada }),
+      )
+      for (const [teamId, token] of [
+        [doomed, 'doomed-1'],
+        [doomed, 'doomed-2'],
+        [kept, 'kept-1'],
+      ] as const) {
+        await ctx.db.insert('inviteLinks', {
+          teamId,
+          token,
+          createdBy: ada,
+          expiresAt: Date.now() + 604_800_000,
+        })
+      }
+
+      await deleteTeamFor(ctx, ada, doomed)
+
+      const remaining = await ctx.db.query('inviteLinks').collect()
+      expect(remaining.map((row) => row.token)).toEqual(['kept-1'])
+    })
+  })
+
   test('deletes a team with no winners and no scoring versions — the two collect-and-loop cascades are no-ops', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

@@ -329,6 +329,31 @@ export async function cascadeDeleteTeam(ctx: SchedulingCtx, team: Doc<'teams'>):
     .collect()
   for (const row of cursors) await ctx.db.delete(row._id)
 
+  // INVITE LINKS (wordle-teams-2c1u), AND THE ONE THIS FUNCTION USED TO MISS.
+  // inviteLinks was added in qt4.12, the day after this cascade was written, so
+  // it was never in the sweep: deleting a team left every link it had ever
+  // issued in the table forever, with nothing anywhere able to reap them.
+  //
+  // NOT A HOLE, WHICH IS WHY IT WAS A P2 RATHER THAN A P1. consumeLinkFor loads
+  // the team AFTER its dead-link check and refuses INVITE_LINK_INVALID once the
+  // team is gone, and revokeLinkFor cannot resolve a missing team either — so a
+  // dangling row could never join anyone to anything. It was unbounded growth,
+  // not an access route.
+  //
+  // ONE FIX COVERS ALL FOUR DELETION PATHS, because this function is the only
+  // thing in the codebase that deletes a `teams` document: deleteTeamFor,
+  // leaveTeamFor's last-member branch, e2ePrune and billing's downgrade all
+  // come through here.
+  //
+  // Nothing reaps EXPIRED links yet — a link outlives its seven-day TTL as a
+  // row that can never be used again. That is wordle-teams-7udo, and it is a
+  // scheduled sweep rather than anything this function can do.
+  const links = await ctx.db
+    .query('inviteLinks')
+    .withIndex('by_team', (q) => q.eq('teamId', team._id))
+    .collect()
+  for (const row of links) await ctx.db.delete(row._id)
+
   // The team doc carries `invited`, so this is also what retires any invite
   // still parked on the team — see leaveTeamFor's empty-roster branch.
   await ctx.db.delete(team._id)

@@ -233,11 +233,18 @@ describe('consumeLinkFor', () => {
   })
 
   test('refuses a link whose team is gone', async () => {
-    // A FOURTH DEAD STATE, and it is reachable: cascadeDeleteTeam (teams.ts)
-    // does not collect inviteLinks rows, so deleting a team leaves every link
-    // it issued dangling. Folded into the same refusal as the other three — it
-    // gives the holder nothing different to do, and answering differently
-    // would tell a stranger that this team once existed.
+    // A FOURTH DEAD STATE, folded into the same refusal as the other three: it
+    // gives the holder nothing different to do, and answering differently would
+    // tell a stranger that this team once existed.
+    //
+    // IT IS NO LONGER REACHABLE THROUGH THE PRODUCT, and this test is written
+    // so that it does not care. It used to be: cascadeDeleteTeam did not
+    // collect inviteLinks, so deleting a team left every link dangling
+    // (wordle-teams-2c1u). It sweeps them now. The `ctx.db.delete(teamId)`
+    // below is therefore deliberately RAW rather than a call to deleteTeamFor —
+    // it manufactures the orphan directly, which is what keeps this a test of
+    // consumeLinkFor's guard rather than a second, weaker test of the cascade.
+    // teams.test.ts owns the cascade itself.
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
