@@ -238,3 +238,102 @@ export const timeZoneFor = query({
     return player?.timeZone ?? null
   },
 })
+
+/**
+ * Gives an e2e account the boards, tier and trial clock the insights specs need.
+ *
+ * WHY THIS EXISTS AT ALL: the four gates do not cross HTTP, and the insights
+ * paywall is precisely a boundary crossing (the spec's testing section says so).
+ * Proving it needs an account that is really pro, or really mid-trial, on a real
+ * deployment — and until now nothing here could make one. billing.spec.ts records
+ * the absence: "no comp-pro seed mutation convex/e2eSeed.ts does not have".
+ *
+ * Guarded identically to ensureTeamFor above: E2E_TEST_MODE must be 'true' and
+ * the address must match e2e+*@wordleteams.com, so it can never touch a real
+ * account. Read that function's comment for why that pair is sufficient.
+ *
+ * IT SETS THE TRIAL DIRECTLY RATHER THAN ENTERING BOARDS TO EARN ONE, and that
+ * is deliberate rather than a shortcut. LAUNCH_AT is a 2099 placeholder
+ * (lib/insightsAccess.ts), so no board a test could enter would ever start a
+ * trial — and a spec that reached through upsertBoardFor would silently assert
+ * nothing the day the owner sets the real date. The clock's own rules are proven
+ * against real documents in convex/insightsTrial.test.ts; what this exists to set
+ * up is the STATE, so the paywall can be crossed at HTTP.
+ *
+ * IDEMPOTENT, like every seed here: boards are keyed on (player, puzzleDay) and
+ * patched rather than inserted twice, so a re-run does not manufacture the
+ * duplicate pairs wordle-teams-rac describes.
+ */
+export const seedInsightsFor = mutation({
+  args: {
+    email: v.string(),
+    /** How many consecutive boards to seed, ending on `lastDay`. */
+    boards: v.number(),
+    /** The most recent puzzle day to seed, 'YYYY-MM-DD'. */
+    lastDay: v.string(),
+    pro: v.boolean(),
+    /** Epoch ms, or omitted for no trial. Past values make an EXPIRED trial. */
+    trialEndsAt: v.optional(v.number()),
+  },
+  handler: async (ctx, { email, boards, lastDay, pro, trialEndsAt }) => {
+    if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
+      throw new Error(
+        'e2eSeed.seedInsightsFor is only available in E2E test mode for e2e+* addresses',
+      )
+    }
+    const lower = email.toLowerCase()
+    const player = await ctx.db
+      .query('players')
+      .withIndex('by_email', (q) => q.eq('email', lower))
+      .first()
+    if (!player) throw new Error('seedInsightsFor: call ensureTeamFor first')
+
+    await ctx.db.patch(player._id, { insightsTrialEndsAt: trialEndsAt })
+
+    const membership = await ctx.db
+      .query('playerMembership')
+      .withIndex('by_player', (q) => q.eq('playerId', player._id))
+      .first()
+    const membershipStatus = pro ? 'pro' : 'new'
+    if (membership) await ctx.db.patch(membership._id, { membershipStatus })
+    else await ctx.db.insert('playerMembership', { playerId: player._id, membershipStatus })
+
+    const end = Date.UTC(...isoParts(lastDay))
+    for (let i = 0; i < boards; i++) {
+      const puzzleDay = isoOf(end - i * 86_400_000)
+      // Two openers, so the Layer 2 headline has something to compare against —
+      // headlineComparison returns null with one, by design.
+      const guesses = i % 3 === 0 ? ['ORATE', 'SPEED'] : ['CRANE', 'MOIST', 'SPEED']
+      const existing = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) =>
+          q.eq('playerId', player._id).eq('puzzleDay', puzzleDay),
+        )
+        .first()
+      // `date` ASCENDS WITH THE PUZZLE DAY so the newest board is also the most
+      // recently ENTERED one — which is what the free view selects on, and what
+      // these specs are asserting.
+      const date = end - i * 86_400_000
+      if (existing) await ctx.db.patch(existing._id, { guesses, answer: 'SPEED', date })
+      else
+        await ctx.db.insert('dailyScores', {
+          playerId: player._id,
+          puzzleDay,
+          date,
+          answer: 'SPEED',
+          guesses,
+        })
+    }
+
+    return { playerId: player._id, boards }
+  },
+})
+
+function isoParts(day: string): [number, number, number] {
+  const [year, month, date] = day.split('-').map(Number)
+  return [year, month - 1, date]
+}
+
+function isoOf(utcMs: number): string {
+  return new Date(utcMs).toISOString().slice(0, 10)
+}
