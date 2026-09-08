@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { insightsAccessFor, isProFor } from './access'
 import { aPlayer } from './fixtures.ts'
-import { INSIGHTS_TRIAL_DAYS, LAUNCH_AT } from './lib/insightsAccess.ts'
+import { INSIGHTS_TRIAL_DAYS, LAUNCH_AT, insightsAccess } from './lib/insightsAccess.ts'
 import { stampTrialIfDue, upsertBoardFor } from './scores'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
 
@@ -198,6 +198,37 @@ describe('myBenchmarkBoards board selection', () => {
       // is not passing by coincidence.
       expect(byPuzzleDay?.puzzleDay).toBe('2026-09-07')
     })
+  })
+})
+
+describe('how much history each tier is read', () => {
+  /**
+   * Layer 1 is 'full' only for pro, and the trial grants Layer 2 without it — so
+   * a read keyed on layer1 alone hands a trialist one board and a personal
+   * history computed from it. Asserted on the ACCESS SHAPE the query branches on,
+   * since the query itself needs a session (wordle-teams-obw).
+   */
+  test('a trial grants Layer 2 without Layer 1, which is why the read reads both', () => {
+    const trial = insightsAccess({
+      isPro: false,
+      trialEndsAt: Date.now() + DAY,
+      now: Date.now(),
+    })
+    expect(trial.layer1).toBe('free')
+    expect(trial.layer2).toBe('full')
+    // The predicate convex/insights.ts uses. Keyed on layer1 alone this is false,
+    // and the trialist gets one board.
+    expect(trial.layer1 === 'full' || trial.layer2 === 'full').toBe(true)
+  })
+
+  test('a free player with no trial still reads only their latest board', () => {
+    const free = insightsAccess({ isPro: false, trialEndsAt: undefined, now: Date.now() })
+    expect(free.layer1 === 'full' || free.layer2 === 'full').toBe(false)
+  })
+
+  test('and pro reads the full history', () => {
+    const pro = insightsAccess({ isPro: true, trialEndsAt: undefined, now: Date.now() })
+    expect(pro.layer1 === 'full' || pro.layer2 === 'full').toBe(true)
   })
 })
 

@@ -28,7 +28,19 @@ export const myBenchmarkBoards = query({
 
     const access = await insightsAccessFor(ctx, player._id)
 
-    if (access.layer1 === 'full') {
+    /**
+     * HISTORY IS WHAT LAYER 2 IS, so the size of the read is driven by BOTH
+     * layers rather than by Layer 1 alone.
+     *
+     * THIS IS A BUG A4 SHIPPED AND A5 FOUND. Layer 1 is 'full' only for pro,
+     * while the trial grants Layer 2 and not Layer 1 (see lib/insightsAccess.ts,
+     * which takes the spec's "one month of Layers 2 and 3" literally). Keyed on
+     * layer1 alone, a player mid-trial was handed their single most recent board
+     * and a personal-history panel computed from it — every statistic technically
+     * correct and the whole feature worthless, on exactly the month they are
+     * being asked to judge whether it is worth paying for.
+     */
+    if (access.layer1 === 'full' || access.layer2 === 'full') {
       /**
        * BOUNDED, AND THE BOUND IS DELIBERATE. dailyScores grows one row per
        * player per day forever, and the largest holding in production is already

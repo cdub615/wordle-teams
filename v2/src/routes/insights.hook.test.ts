@@ -50,7 +50,7 @@ const panel = (data: Parameters<typeof InsightsPanel>[0]['data']) =>
 
 describe('a free player on their first board', () => {
   const freeFirstBoard = {
-    access: { layer1: 'free' as const },
+    access: { layer1: 'free' as const, layer2: 'none' as const },
     boards: [{ puzzleDay: '2026-09-03', guesses: ['CRANE', 'SPEED'] }],
   }
 
@@ -92,7 +92,7 @@ describe('the absent states', () => {
    */
   test('an opener the corpus does not hold says so, and never shows a zero', () => {
     panel({
-      access: { layer1: 'free' },
+      access: { layer1: 'free', layer2: 'none' },
       boards: [{ puzzleDay: '2026-09-02', guesses: ['XXXXX'] }],
     })
     const board = screen.getByTestId('insights-board')
@@ -105,7 +105,7 @@ describe('the absent states', () => {
     // The most common case there is: today is never rated, because the source
     // aggregates only globally completed days.
     panel({
-      access: { layer1: 'free' },
+      access: { layer1: 'free', layer2: 'none' },
       boards: [{ puzzleDay: '2026-12-25', guesses: ['CRANE'] }],
     })
     const board = screen.getByTestId('insights-board')
@@ -119,7 +119,7 @@ describe('the absent states', () => {
 describe('a pro player', () => {
   test('sees every board and is not sold anything', () => {
     panel({
-      access: { layer1: 'full' },
+      access: { layer1: 'full', layer2: 'full' },
       boards: [
         { puzzleDay: '2026-09-03', guesses: ['CRANE'] },
         { puzzleDay: '2026-09-02', guesses: ['ORATE'] },
@@ -131,7 +131,65 @@ describe('a pro player', () => {
   })
 
   test('still sees the attribution, which is not a free-tier feature', () => {
-    panel({ access: { layer1: 'full' }, boards: [{ puzzleDay: '2026-09-01', guesses: ['SLANT'] }] })
+    panel({ access: { layer1: 'full', layer2: 'full' }, boards: [{ puzzleDay: '2026-09-01', guesses: ['SLANT'] }] })
     expect(screen.getByTestId('insights-attribution').textContent).toContain('CC BY 4.0')
+  })
+})
+
+describe('Layer 2 — personal history', () => {
+  const history = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      puzzleDay: `2026-09-${String(i + 1).padStart(2, '0')}`,
+      // Two openers so the headline has something to compare against.
+      guesses: i % 3 === 0 ? ['ORATE', 'SPEED'] : ['CRANE', 'MOIST', 'SPEED'],
+      answer: 'SPEED',
+    }))
+
+  test('is not rendered at all for a free player', () => {
+    // The paywall. Layer 2 is pro or trial; a free player must not see it, and
+    // must not see a locked shell of it either.
+    panel({ access: { layer1: 'free', layer2: 'none' }, boards: history(20) })
+    expect(screen.queryByTestId('insights-personal')).toBeNull()
+    expect(screen.queryByTestId('insights-personal-thin')).toBeNull()
+  })
+
+  test('leads with the join, which is the sentence worth paying for', () => {
+    panel({ access: { layer1: 'full', layer2: 'full' }, boards: history(12) })
+    const headline = screen.getByTestId('insights-headline').textContent ?? ''
+    expect(headline).toContain('You have opened with')
+    expect(headline).toContain('CRANE')
+    expect(headline).toContain('It ranks')
+    // The comparison half — the thing a rank column alone would not say.
+    expect(headline).toContain('ORATE')
+  })
+
+  test('shows the repertoire, the streaks and the months', () => {
+    panel({ access: { layer1: 'full', layer2: 'full' }, boards: history(12) })
+    expect(screen.getByTestId('insights-repertoire')).not.toBeNull()
+    expect(screen.getByTestId('insights-consistency')).not.toBeNull()
+    expect(screen.getByTestId('insights-months')).not.toBeNull()
+  })
+
+  test('an unranked opener reads as unranked, never as rank 0', () => {
+    panel({
+      access: { layer1: 'full', layer2: 'full' },
+      boards: Array.from({ length: 6 }, (_, i) => ({
+        puzzleDay: `2026-09-0${i + 1}`,
+        guesses: ['XXXXX', 'SPEED'],
+        answer: 'SPEED',
+      })),
+    })
+    const repertoire = screen.getByTestId('insights-repertoire').textContent ?? ''
+    expect(repertoire).toContain('unranked')
+    expect(repertoire).not.toContain('0th')
+  })
+
+  /** The designed state for 368 of 392 accounts, per the spec — not a bug. */
+  test('a thin history says so instead of showing a mean over two boards', () => {
+    panel({ access: { layer1: 'full', layer2: 'full' }, boards: history(2) })
+    expect(screen.getByTestId('insights-personal-thin').textContent).toContain(
+      'Enter a few more boards',
+    )
+    expect(screen.queryByTestId('insights-personal')).toBeNull()
   })
 })
