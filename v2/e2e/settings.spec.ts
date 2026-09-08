@@ -195,7 +195,26 @@ test.describe('a brand-new signup with no stored zone', () => {
     // this reads notifications-tab.tsx's placeholder, "Select a time zone",
     // instead — the same failure mode a deleted `useLocalCapture()` call
     // produces for every real signup.
-    await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText('Mountain Standard Time (MST)')
+    //
+    // 20s RATHER THAN THE 5s DEFAULT, AND IT IS NOT PADDING. This is the one
+    // assertion in the file waiting on a WRITE it did not itself trigger:
+    // useLocalCapture fires after mount, sends a mutation, and the value only
+    // appears once that has round-tripped and the query has refetched. On a
+    // 2-core CI runner against a cold backend that does not fit in 5s — the
+    // suite's first CI run failed here and only here, 76 of 77, with the
+    // combobox still reading "" after fourteen polls (run 34198662379). It
+    // passes locally on a workstation, which is exactly the shape of a figure
+    // that encodes whose machine ran it.
+    //
+    // THE ASSERTION IS NOT WEAKENED BY THIS. toHaveText polls, so a capture that
+    // never lands still fails — it just fails at 20s instead of 5s. The mutant
+    // this test exists for (deleting useLocalCapture() from Header.tsx) leaves
+    // the placeholder there forever and is still caught. Same trade, and the
+    // same reasoning, as the 20s ceilings in chat.spec.ts and sign-in.ts.
+    await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText(
+      'Mountain Standard Time (MST)',
+      { timeout: 20_000 },
+    )
   })
 })
 

@@ -152,6 +152,11 @@ jobs:
 
           pnpm e2e
 
+      # Run 34198662379 was 76 of 77 here, failing only settings.spec.ts:183 —
+      # the timezone capture, which waits on a mutation round trip it did not
+      # trigger and did not fit in Playwright's 5s default against a cold
+      # backend. Fixed by a 20s ceiling on that one assertion, in keeping with
+      # chat.spec.ts and sign-in.ts.
       - name: Keep the report when it fails
         if: failure()
         uses: actions/upload-artifact@v4
