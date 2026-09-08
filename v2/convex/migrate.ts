@@ -969,3 +969,93 @@ export const insightsCoverageProbe = internalQuery({
     }
   },
 })
+
+/**
+ * DOES A PAIR-BASED INSIGHT HAVE AN AUDIENCE? Two questions insightsCoverageProbe
+ * above cannot answer, because both need the SECOND guess and one needs boards
+ * grouped by the player who entered them.
+ *
+ * wordle-teams-ef54 measured that at most 24.2% of boards could carry a rank out
+ * of the 500-pair frontier, from first guesses alone. That is an UPPER BOUND and
+ * the owner is deciding on it, so the real figure is worth having rather than
+ * inferring: `pairs` here is keyed on the first TWO guesses, so intersecting it
+ * with the frontier gives the actual number.
+ *
+ * THE SECOND QUESTION IS THE ONE THAT DECIDES THE FEATURE, and it is not about
+ * coverage at all. A rank for an opening PAIR only describes a player who plays a
+ * FIXED pair -- the same two words regardless of what the first guess showed.
+ * Wordle's second guess is normally adaptive, so a pair rank could be perfectly
+ * covered and still describe nobody. `fixedPairShare` is that measurement: for
+ * each player, what fraction of their boards open with THEIR most-used pair.
+ *
+ * A HISTOGRAM, NOT A ROW PER PLAYER. Ten buckets of ten percent. Every other probe
+ * in this file returns counts because this repository is public; a per-player
+ * array would be a row per person even without a name on it, and the shape of the
+ * distribution is the whole of what the decision needs. Players holding fewer than
+ * five boards are counted separately rather than bucketed -- one board is
+ * trivially 100% consistent, and letting those in would manufacture the answer.
+ *
+ * PAGINATED OVER PLAYERS RATHER THAN SCORES, which is the opposite of the probe
+ * above and is forced: a player's boards have to be counted together, and paging
+ * over dailyScores would split them across transactions. Each page then reads its
+ * players' scores through by_player_and_puzzleDay. 25 players a page keeps the
+ * scan far inside the 32,000 limit -- the largest holding is in the low thousands
+ * and most players hold none at all. Same caveat as countTable: not a consistent
+ * snapshot, which is fine for a measurement and not for a reconciliation.
+ */
+export const insightsPairProbe = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query('players').paginate({ cursor, numItems: 25 })
+
+    const pairs: Record<string, number> = {}
+    const fixedPairShare: number[] = Array.from({ length: 10 }, () => 0)
+    let playersWithBoards = 0
+    let playersBelowMinimum = 0
+    let boardsWithoutSecondGuess = 0
+
+    for (const player of page.page) {
+      const scores = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', player._id))
+        .collect()
+      if (scores.length === 0) continue
+      playersWithBoards += 1
+
+      const mine: Record<string, number> = {}
+      for (const score of scores) {
+        const [first, second] = score.guesses
+        if (first === undefined || second === undefined) {
+          boardsWithoutSecondGuess += 1
+          continue
+        }
+        const key = `${first.toUpperCase()}${second.toUpperCase()}`
+        pairs[key] = (pairs[key] ?? 0) + 1
+        mine[key] = (mine[key] ?? 0) + 1
+      }
+
+      // Five boards, because one board is 100% consistent with itself and would
+      // report a devotion to a pair that the player has not demonstrated.
+      const counted = Object.values(mine).reduce((t, n) => t + n, 0)
+      if (counted < 5) {
+        playersBelowMinimum += 1
+        continue
+      }
+      const top = Math.max(...Object.values(mine))
+      // 100% lands in the last bucket rather than an eleventh.
+      const bucket = Math.min(9, Math.floor((top / counted) * 10))
+      fixedPairShare[bucket] += 1
+    }
+
+    return {
+      players: page.page.length,
+      playersWithBoards,
+      playersBelowMinimum,
+      boardsWithoutSecondGuess,
+      pairs,
+      fixedPairShare,
+      cursor: page.continueCursor,
+      isDone: page.isDone,
+    }
+  },
+})
