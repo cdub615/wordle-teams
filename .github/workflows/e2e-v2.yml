@@ -80,8 +80,8 @@ jobs:
       - name: Install the Chromium Playwright drives
         run: pnpm exec playwright install --with-deps chromium
 
-      # THE WHOLE POINT OF THE SPIKE, and every line of it was measured on a
-      # clean clone before being written here.
+      # THE WHOLE POINT OF THE SPIKE, and one step rather than three for a
+      # reason that cost two runs to learn.
       #
       # NO LOGIN, NO CLOUD, NO DEPLOY KEY. CONVEX_AGENT_MODE=anonymous is what
       # makes `convex` provision a local backend non-interactively; the CLI's own
@@ -90,84 +90,67 @@ jobs:
       # and no .env.local in a fresh checkout, which is precisely the pair that
       # makes a bare `convex dev` on the workstation target production instead.
       #
+      # THE BACKEND DOES NOT SURVIVE A STEP BOUNDARY, WHICH IS WHY EVERYTHING IS
+      # IN ONE STEP. Runs 34197357303 and 34197644828 provisioned Convex
+      # perfectly and then timed out waiting for `/`; run 34198035251 finally
+      # showed why, because it probed by hand: vite was up in 7.4s and serving
+      # 500s, the body was TanStack's error boundary reading `Network connection
+      # lost.`, and `http://127.0.0.1:3210/version` answered nothing at all.
+      #
+      # The backend the push started had died with its step. What disguised that
+      # was `convex env list` in the following step appearing to work — a convex
+      # CLI command STARTS the local backend on demand, so it silently revived
+      # one, reported the variables, and let it die again. `pnpm dev` starts no
+      # backend, so by the time Playwright ran there was none.
+      #
+      # HENCE A WATCHER HELD OPEN FOR THE WHOLE RUN, not `--once`. `convex dev`
+      # stays in the foreground of a background job for as long as this step
+      # lasts, which is exactly as long as the suite needs.
+      #
       # `convex init` WRITES A tsconfig THAT BREAKS THE PUSH, and deleting it is
       # not optional. It scaffolds v2/convex/tsconfig.json — a file this repo
       # does not have — with no allowImportingTsExtensions, and convex/ imports
       # with explicit .ts extensions throughout, so the push fails with dozens of
-      # TS5097 errors across access.ts, auth.ts, teams.ts and the rest. Measured:
-      # delete it and the identical push succeeds in 3s, and `convex dev` does
-      # not write it back.
+      # TS5097 errors across access.ts, auth.ts, teams.ts and the rest.
       #
-      # SITE_URL IS SET BEFORE THE PUSH, NOT AFTER, and the ordering is the whole
-      # reason these are separate steps. convex/auth.ts throws at MODULE SCOPE
-      # when it is falsy, and a push evaluates the module — so a push that
-      # precedes this fails as auth.ts loads. Same throw deploy-v2.yml greps
-      # dist/client for, met from the other end.
-      #
-      # E2E_TEST_MODE=true or every signIn() fails at testOtps.takeFor, which is
-      # the gate that makes the OTP readable at all.
-      - name: Start a local Convex backend and push the functions
+      # SITE_URL IS SET BEFORE THE FUNCTIONS ARE PUSHED. convex/auth.ts throws at
+      # MODULE SCOPE when it is falsy and a push evaluates the module, so the
+      # reverse order fails as auth.ts loads. Same throw deploy-v2.yml greps
+      # dist/client for, met from the other end. E2E_TEST_MODE=true or every
+      # signIn() fails at testOtps.takeFor.
+      - name: Run the suite against a local Convex backend
         env:
           CONVEX_AGENT_MODE: anonymous
         run: |
           set -euo pipefail
+
           pnpm exec convex init
           rm -f convex/tsconfig.json
           pnpm exec convex env set SITE_URL http://localhost:3000
           pnpm exec convex env set E2E_TEST_MODE true
-          pnpm exec convex dev --once
 
-      # Proves the sequence above actually targeted the local backend, and names
-      # what it produced. `convex init` writes .env.local itself, including
-      # VITE_CONVEX_URL and VITE_CONVEX_SITE_URL, which is what playwright's
-      # config dotenv-loads for the OTP-capture client and what vite reads.
-      # VITE_SITE_URL is NOT needed: it is referenced only by wrangler.jsonc.
-      - name: Show what was provisioned
-        env:
-          CONVEX_AGENT_MODE: anonymous
-        run: |
-          set -euo pipefail
+          pnpm exec convex dev > /tmp/convex-dev.log 2>&1 &
+
+          for i in $(seq 1 90); do
+            if grep -q 'Convex functions ready' /tmp/convex-dev.log 2>/dev/null; then
+              echo "backend ready and functions pushed after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          # ASSERTED, NOT ASSUMED. Without this a dead backend is reported as a
+          # webServer timeout three minutes later, which is the whole reason this
+          # took three runs to find.
+          curl -sf --max-time 10 http://127.0.0.1:3210/version > /dev/null
+          echo "backend answering on 3210"
+
           echo "--- .env.local written by convex init ---"
           cat .env.local
           echo "--- deployment env (names only) ---"
           pnpm exec convex env list | sed -E 's/=.*/=<set>/'
 
-      # DIAGNOSTIC, AND IT EARNS ITS PLACE BECAUSE PLAYWRIGHT'S webServer HIDES
-      # THE ONE THING NEEDED. Runs 34197357303 (60s) and 34197644828 (180s) both
-      # died on `Timed out waiting ...ms from config.webServer` having printed
-      # NOTHING from vite but the command line — no `ready in`, no error. Raising
-      # the ceiling therefore fixed nothing, which rules out slowness: the server
-      # is alive (a dead one reports `was not able to start`) and `/` simply
-      # never answers 200. Playwright swallows the server's own output on the way
-      # to that message, so this starts the same command by hand and prints what
-      # it says.
-      #
-      # DELETE THIS STEP once the cause is known; it is not part of the finished
-      # job.
-      - name: Probe the dev server directly
-        run: |
-          set -uo pipefail
-          pnpm dev > /tmp/vite.log 2>&1 &
-          VITE_PID=$!
-          for i in $(seq 1 60); do
-            code=$(curl -s -o /tmp/root.html -w '%{http_code}' --max-time 5 http://localhost:3000/ || echo 000)
-            echo "t=${i}s / -> $code"
-            [ "$code" = "200" ] && break
-            sleep 2
-          done
-          echo "=================== vite output ==================="
-          cat /tmp/vite.log || true
-          echo "=================== body (first 40 lines) ========="
-          head -40 /tmp/root.html 2>/dev/null || echo "(no body captured)"
-          echo "=================== convex backend ================"
-          curl -s -o /dev/null -w 'backend 3210 -> %{http_code}\n' --max-time 5 http://127.0.0.1:3210/version || echo "backend unreachable"
-          kill $VITE_PID 2>/dev/null || true
-          sleep 3
-
-      - name: Playwright
-        env:
-          CONVEX_AGENT_MODE: anonymous
-        run: pnpm e2e
+          pnpm e2e
 
       - name: Keep the report when it fails
         if: failure()
