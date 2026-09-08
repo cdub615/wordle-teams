@@ -149,6 +149,58 @@ describe('the stamp through upsertBoardFor', () => {
   })
 })
 
+describe('myBenchmarkBoards board selection', () => {
+  /**
+   * THE DISTINCTION THE FREE TIER TURNS ON. "Most recently entered" is not "latest
+   * puzzle day", and they diverge on exactly the path the free tier exists to
+   * advertise: backfill is free, so a player filling in last Tuesday must get the
+   * benchmark for last Tuesday rather than for a board they entered a week ago.
+   *
+   * Exercised through the same index the query uses rather than through the
+   * public query, which would need a Better Auth session (wordle-teams-obw).
+   */
+  test('the latest ENTERED board is not the latest puzzle day', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+
+      // Entered first, and it is the most recent PUZZLE.
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2026-09-07',
+        date: Date.UTC(2026, 8, 7),
+        answer: 'SPEED',
+        guesses: ['CRANE', 'SPEED'],
+      })
+      // Backfilled afterwards, for an EARLIER puzzle. This is the one the panel
+      // must show.
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2026-08-30',
+        date: Date.UTC(2026, 8, 8),
+        answer: 'MOIST',
+        guesses: ['ORATE', 'MOIST'],
+      })
+
+      const byEntry = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_date', (q) => q.eq('playerId', playerId))
+        .order('desc')
+        .first()
+      const byPuzzleDay = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', playerId))
+        .order('desc')
+        .first()
+
+      expect(byEntry?.puzzleDay).toBe('2026-08-30')
+      // Proves the two orderings really do disagree here, so the assertion above
+      // is not passing by coincidence.
+      expect(byPuzzleDay?.puzzleDay).toBe('2026-09-07')
+    })
+  })
+})
+
 describe('insightsAccessFor', () => {
   test('reads the stored clock back, rather than a default it agrees with', async () => {
     const t = convexTest(schema, modules)

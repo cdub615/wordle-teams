@@ -1,0 +1,137 @@
+// @vitest-environment jsdom
+//
+// jsdom rather than the suite's default edge-runtime, because this file renders
+// the real panel. `.hook.test.ts` and createElement by hand, matching every
+// existing precedent — vitest.config.ts's glob is `src/**/*.test.ts`, so a .tsx
+// file would simply not run.
+//
+// WHY THIS FILE EXISTS: ACCEPTANCE CRITERION 5. Layer 1 must render for a FREE
+// player on their first board, WITH VISIBLE CC BY 4.0 ATTRIBUTION. Attribution
+// is a licence obligation rather than a courtesy, so it gets its own assertion
+// here instead of riding along inside somebody's snapshot — a snapshot would go
+// on passing with the credit deleted as long as it was regenerated.
+import { cleanup, render, screen } from '@testing-library/react'
+import { createElement, type ReactNode } from 'react'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
+
+vi.mock('@tanstack/react-router', () => ({
+  createFileRoute: () => (options: unknown) => options,
+  redirect: () => undefined,
+  Link: ({ to, children, ...rest }: { to: string; children?: ReactNode }) =>
+    createElement('a', { href: to, ...rest }, children),
+}))
+
+const { InsightsPanel } = await import('./insights.tsx')
+
+afterEach(cleanup)
+
+const credit = {
+  attribution: 'FiveLetterWords.io, research release v2026-09-01',
+  licence: 'CC BY 4.0',
+  licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
+  citation: 'FiveLetterWords.io (2026-09-01). [Data set].',
+}
+
+const benchmark: InsightsBenchmark = {
+  openers: { ...credit, release: 'v2026-09-01', count: 14855, words: 'slantcraneorate' },
+  difficulty: {
+    ...credit,
+    release: 'current',
+    snapshotId: 'current-2026-09-07-abc',
+    firstDay: '2026-09-01',
+    count: 3,
+    percentiles: [10, 50, 95],
+  },
+}
+
+const panel = (data: Parameters<typeof InsightsPanel>[0]['data']) =>
+  render(createElement(InsightsPanel, { benchmark, data }))
+
+describe('a free player on their first board', () => {
+  const freeFirstBoard = {
+    access: { layer1: 'free' as const },
+    boards: [{ puzzleDay: '2026-09-03', guesses: ['CRANE', 'SPEED'] }],
+  }
+
+  test('sees the benchmark for it', () => {
+    panel(freeFirstBoard)
+    expect(screen.getAllByTestId('insights-board')).toHaveLength(1)
+    expect(screen.getByText('CRANE')).not.toBeNull()
+    expect(screen.getByText('2nd of 14,855')).not.toBeNull()
+    expect(screen.getByText('Hard for the solver')).not.toBeNull()
+  })
+
+  /** The criterion's own assertion, deliberately not folded into the one above. */
+  test('sees the CC BY 4.0 attribution', () => {
+    panel(freeFirstBoard)
+    const footer = screen.getByTestId('insights-attribution')
+    expect(footer.textContent).toContain('FiveLetterWords.io, research release v2026-09-01')
+    expect(footer.textContent).toContain('CC BY 4.0')
+  })
+
+  test('and the licence text links to the licence', () => {
+    panel(freeFirstBoard)
+    const link = screen
+      .getByTestId('insights-attribution')
+      .querySelector('a[href="https://creativecommons.org/licenses/by/4.0/"]')
+    expect(link?.textContent).toBe('CC BY 4.0')
+  })
+
+  test('is told what pro would add', () => {
+    panel(freeFirstBoard)
+    expect(screen.getByTestId('insights-upsell').textContent).toContain('every board')
+  })
+})
+
+describe('the absent states', () => {
+  /**
+   * The fault this whole panel is written to avoid. A missing benchmark rendering
+   * as 0 reads as a real and extreme result — "ranks 0th of 14,855" is a claim
+   * about the worst opener in the language.
+   */
+  test('an opener the corpus does not hold says so, and never shows a zero', () => {
+    panel({
+      access: { layer1: 'free' },
+      boards: [{ puzzleDay: '2026-09-02', guesses: ['XXXXX'] }],
+    })
+    const board = screen.getByTestId('insights-board')
+    expect(board.textContent).toContain('is not in the benchmark set')
+    expect(board.textContent).not.toContain('0th')
+    expect(board.textContent).not.toContain('0 of')
+  })
+
+  test('a day the corpus does not cover says so, and never shows 0%', () => {
+    // The most common case there is: today is never rated, because the source
+    // aggregates only globally completed days.
+    panel({
+      access: { layer1: 'free' },
+      boards: [{ puzzleDay: '2026-12-25', guesses: ['CRANE'] }],
+    })
+    const board = screen.getByTestId('insights-board')
+    expect(board.textContent).toContain('not rated yet')
+    expect(board.textContent).not.toContain('0%')
+    // The half that still works must survive the half that does not.
+    expect(board.textContent).toContain('2nd of 14,855')
+  })
+})
+
+describe('a pro player', () => {
+  test('sees every board and is not sold anything', () => {
+    panel({
+      access: { layer1: 'full' },
+      boards: [
+        { puzzleDay: '2026-09-03', guesses: ['CRANE'] },
+        { puzzleDay: '2026-09-02', guesses: ['ORATE'] },
+        { puzzleDay: '2026-09-01', guesses: ['SLANT'] },
+      ],
+    })
+    expect(screen.getAllByTestId('insights-board')).toHaveLength(3)
+    expect(screen.queryByTestId('insights-upsell')).toBeNull()
+  })
+
+  test('still sees the attribution, which is not a free-tier feature', () => {
+    panel({ access: { layer1: 'full' }, boards: [{ puzzleDay: '2026-09-01', guesses: ['SLANT'] }] })
+    expect(screen.getByTestId('insights-attribution').textContent).toContain('CC BY 4.0')
+  })
+})

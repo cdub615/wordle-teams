@@ -7,6 +7,7 @@ import {
 } from '@convex-dev/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ChartNoAxesColumn,
   CreditCard,
   Download,
   Home as HomeIcon,
@@ -293,6 +294,20 @@ export function AppMenu() {
                   <Link to="/app">
                     <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden="true" />
                     <span>Dashboard</span>
+                  </Link>
+                </DropdownMenuItem>
+                {/*
+                  IN THE MENU RATHER THAN THE /app HEADER ROW, deliberately.
+                  That row already runs close to the edge of a 390px viewport —
+                  billing.spec.ts measures the document's horizontal overflow
+                  there, and the "Team chat" comment records the 64px a third
+                  control once cost — so a fourth button is exactly the thing
+                  that comment warns against. The menu has no such constraint.
+                */}
+                <DropdownMenuItem asChild>
+                  <Link to="/insights">
+                    <ChartNoAxesColumn className="mr-2 h-4 w-4" aria-hidden="true" />
+                    <span>Insights</span>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openTab('notifications')}>

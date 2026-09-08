@@ -31,6 +31,16 @@
 #                     gets an error state and nothing worth indexing — same
 #                     reasoning as /app and /team, which this route will grow
 #                     to resemble.
+#   /insights         the Layer 1 benchmark surface. A SEPARATE RULE for the same
+#                     reason /team and /chat have one — it is a sibling
+#                     top-level route, not a child of /app, so /app's prefix
+#                     match does not reach it. Every board it renders comes from
+#                     a query behind requirePlayer, so a signed-out crawler gets
+#                     an empty panel and nothing worth indexing. The corpus it
+#                     loads is public and separately licensed, but it is a static
+#                     JSON file under /insights/ rather than a page, and this
+#                     rule covering it costs nothing: nobody discovers a
+#                     benchmark dataset through our search results.
 #   /complete-profile a step inside sign-up. Meaningless without a session.
 #   /join             invite links (/join/<token>). THE ONE RULE HERE THAT IS
 #                     NOT ABOUT WASTED CRAWLS: the path segment IS the
@@ -64,6 +74,7 @@ Disallow: /app
 Disallow: /team
 Disallow: /me
 Disallow: /chat
+Disallow: /insights
 Disallow: /complete-profile
 Disallow: /join
 Disallow: /api

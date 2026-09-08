@@ -17,6 +17,7 @@ import { Route as MeRouteImport } from './routes/me'
 import { Route as MaintenanceRouteImport } from './routes/maintenance'
 import { Route as LoginErrorRouteImport } from './routes/login-error'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as InsightsRouteImport } from './routes/insights'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as CompleteProfileRouteImport } from './routes/complete-profile'
 import { Route as ChatRouteImport } from './routes/chat'
@@ -65,6 +66,11 @@ const LoginErrorRoute = LoginErrorRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InsightsRoute = InsightsRouteImport.update({
+  id: '/insights',
+  path: '/insights',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HomeRoute = HomeRouteImport.update({
@@ -120,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/chat': typeof ChatRoute
   '/complete-profile': typeof CompleteProfileRoute
   '/home': typeof HomeRoute
+  '/insights': typeof InsightsRoute
   '/login': typeof LoginRoute
   '/login-error': typeof LoginErrorRoute
   '/maintenance': typeof MaintenanceRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/chat': typeof ChatRoute
   '/complete-profile': typeof CompleteProfileRoute
   '/home': typeof HomeRoute
+  '/insights': typeof InsightsRoute
   '/login': typeof LoginRoute
   '/login-error': typeof LoginErrorRoute
   '/maintenance': typeof MaintenanceRoute
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/chat': typeof ChatRoute
   '/complete-profile': typeof CompleteProfileRoute
   '/home': typeof HomeRoute
+  '/insights': typeof InsightsRoute
   '/login': typeof LoginRoute
   '/login-error': typeof LoginErrorRoute
   '/maintenance': typeof MaintenanceRoute
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/complete-profile'
     | '/home'
+    | '/insights'
     | '/login'
     | '/login-error'
     | '/maintenance'
@@ -199,6 +209,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/complete-profile'
     | '/home'
+    | '/insights'
     | '/login'
     | '/login-error'
     | '/maintenance'
@@ -218,6 +229,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/complete-profile'
     | '/home'
+    | '/insights'
     | '/login'
     | '/login-error'
     | '/maintenance'
@@ -238,6 +250,7 @@ export interface RootRouteChildren {
   ChatRoute: typeof ChatRoute
   CompleteProfileRoute: typeof CompleteProfileRoute
   HomeRoute: typeof HomeRoute
+  InsightsRoute: typeof InsightsRoute
   LoginRoute: typeof LoginRoute
   LoginErrorRoute: typeof LoginErrorRoute
   MaintenanceRoute: typeof MaintenanceRoute
@@ -307,6 +320,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/insights': {
+      id: '/insights'
+      path: '/insights'
+      fullPath: '/insights'
+      preLoaderRoute: typeof InsightsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/home': {
@@ -382,6 +402,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRoute,
   CompleteProfileRoute: CompleteProfileRoute,
   HomeRoute: HomeRoute,
+  InsightsRoute: InsightsRoute,
   LoginRoute: LoginRoute,
   LoginErrorRoute: LoginErrorRoute,
   MaintenanceRoute: MaintenanceRoute,

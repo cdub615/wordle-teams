@@ -110,8 +110,26 @@ export const MAINTENANCE_PATH = '/maintenance'
  * is durable — it is sitting in the chat message it arrived in — so the holder
  * clicks it again afterwards. A sessionStorage entry is not the artefact worth
  * keeping an outage page off a route for.
+ *
+ * `/insights` JOINED THE DAY IT WAS ADDED (wordle-teams-jcan), which is the
+ * third time that has happened and the reason this file reads the route list out
+ * of the generated tree rather than trusting anyone's memory. Its boards come
+ * from api.insights.myBenchmarkBoards on the same deployment as everything else
+ * here, so it is exactly as broken as the dashboard during an outage. The static
+ * corpus it also loads would survive — it is a CDN file — which makes leaving it
+ * ungated worse rather than better: the page would render a benchmark panel with
+ * no boards in it and no explanation, instead of the page that says what is
+ * happening.
  */
-const GATED_SUBTREES = ['/app', '/team', '/me', '/chat', '/complete-profile', '/join'] as const
+const GATED_SUBTREES = [
+  '/app',
+  '/team',
+  '/me',
+  '/chat',
+  '/insights',
+  '/complete-profile',
+  '/join',
+] as const
 
 /**
  * AN ALLOWLIST, NOT A FILTER — and the exclusions are the deliberate part.

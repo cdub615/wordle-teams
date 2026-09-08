@@ -316,6 +316,7 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
 
     expect(openMenu()).toEqual([
       'Dashboard',
+      'Insights',
       'Notifications',
       'Theme',
       'Billing',

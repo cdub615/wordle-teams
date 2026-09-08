@@ -167,7 +167,7 @@ describe('public/robots.txt', () => {
     expect(robots.groups[0].userAgents).toEqual(['*'])
   })
 
-  test('disallows exactly /app, /team, /me, /chat, /complete-profile, /join and /api', () => {
+  test('disallows exactly /app, /team, /me, /chat, /insights, /complete-profile, /join and /api', () => {
     // SORTED AND EXHAUSTIVE, not six toContain calls. The mutation a
     // `toContain('Disallow: /app')` cannot see is an ADDED rule — a
     // `Disallow: /privacy` slipped in beneath these would deindex the legal
@@ -186,11 +186,16 @@ describe('public/robots.txt', () => {
     // the path, so an indexed /join/<token> hands a stranger the invite. The
     // rule covers /join/$token by prefix, which is the only shape the route
     // has.
+    // /insights JOINED WITH LAYER 1 (wordle-teams-jcan), and for the /chat
+    // reason exactly: a sibling top-level route, not a child of /app, so /app's
+    // prefix match does not reach it. Its boards all come from a query behind
+    // requirePlayer, so a signed-out crawler sees an empty panel.
     expect([...robots.groups[0].disallow].sort()).toEqual([
       '/api',
       '/app',
       '/chat',
       '/complete-profile',
+      '/insights',
       '/join',
       '/me',
       '/team',
