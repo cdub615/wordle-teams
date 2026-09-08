@@ -898,3 +898,74 @@ export const countTable = internalQuery({
     return { count: page.page.length, cursor: page.continueCursor, isDone: page.isDone }
   },
 })
+
+/**
+ * WHAT FRACTION OF OUR BOARDS THE PUBLIC BENCHMARK CORPUS CAN ACTUALLY SPEAK TO.
+ *
+ * wordle-teams-0cmj (Insights A1) requires coverage to be MEASURED against real
+ * rows rather than assumed, for the reason that decides the product: a benchmark
+ * that covers a third of a player's history is a different feature from one that
+ * covers all of it, and the owner should learn that from this probe rather than
+ * from a half-empty panel after Layers 1 and 2 are built.
+ *
+ * COUNTS ONLY, LIKE EVERY OTHER PROBE HERE, and for the same reason — this
+ * repository is public. What comes back is two frequency maps over GAME data:
+ * puzzle days, and opening words. Neither carries a player, a team or an address,
+ * and neither can be narrowed to one person: an opener count is a total across
+ * every player who ever used it. `playerId` is deliberately never read.
+ *
+ * THE CORPUS IS NOT LOADED IN HERE, which is the whole architecture of Layer 1
+ * in miniature. The benchmark is a 14,855-row static artifact the CDN serves; it
+ * has no business inside a database transaction, and embedding it to answer
+ * "is this opener known" would spend the one resource wordle-teams-dcu names as
+ * binding. So this returns the DISTRIBUTION and the caller intersects it with the
+ * corpus locally — which also means re-running against a newer corpus release
+ * costs nothing here.
+ *
+ * OPENERS ARE UPPERCASED because that is how v1 stored them and how the copy
+ * carried them across, while the corpus is lowercase throughout. The join has to
+ * normalise somewhere and doing it at the edge keeps the artifact untouched.
+ *
+ * PAGINATED ACROSS TRANSACTIONS for the reason countTable above documents at
+ * length: dailyScores grows monotonically, and a single unbounded collect() is a
+ * dated bug rather than a live one. Same 2,000-row page, same caller-owned loop,
+ * and the same caveat — this is NOT a consistent snapshot, which is fine for a
+ * measurement against a quiescent deployment and would not be fine for anything
+ * that had to reconcile.
+ *
+ * A ROW WITH NO GUESSES IS COUNTED RATHER THAN SKIPPED. `guesses` is
+ * `v.array(v.string())` and the schema cannot express non-empty, so an empty
+ * board is representable; folding those into "opener not in corpus" would blame
+ * the corpus for our own data. They are their own number.
+ */
+export const insightsCoverageProbe = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query('dailyScores').paginate({ cursor, numItems: 2000 })
+
+    const byPuzzleDay: Record<string, number> = {}
+    const byOpener: Record<string, number> = {}
+    let withoutGuesses = 0
+
+    for (const score of page.page) {
+      byPuzzleDay[score.puzzleDay] = (byPuzzleDay[score.puzzleDay] ?? 0) + 1
+
+      const opener = score.guesses[0]
+      if (opener === undefined) {
+        withoutGuesses += 1
+        continue
+      }
+      const key = opener.toUpperCase()
+      byOpener[key] = (byOpener[key] ?? 0) + 1
+    }
+
+    return {
+      count: page.page.length,
+      byPuzzleDay,
+      byOpener,
+      withoutGuesses,
+      cursor: page.continueCursor,
+      isDone: page.isDone,
+    }
+  },
+})
