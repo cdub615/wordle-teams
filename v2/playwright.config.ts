@@ -64,13 +64,20 @@ export default defineConfig({
    * 2-core GitHub runner, where two Chromiums, a Vite dev server and the Convex
    * local backend genuinely contend for two cores.
    *
-   * WHAT IT COST TO FIND: settings.spec.ts:183 failed at two workers in CI and
-   * only there (runs 34198662379 and 34199276767, 76 of 77 both times), with the
-   * time-zone combobox still empty after 43 polls. It was NOT the environment —
-   * that same spec run alone on the same runner passes in 59.6s, and the convex
-   * log shows settings:updateTimeZone executing normally (run 34199977658). The
-   * assertion waits on a write the user never asked for, with no spinner to wait
-   * on, so contention shows up there first and silently.
+   * CORRECTED AFTER THIS WAS FIRST WRITTEN, AND THE CORRECTION IS THE POINT.
+   * This line was introduced as the fix for settings.spec.ts:183, which had
+   * failed at two workers in CI twice (runs 34198662379 and 34199276767, 76 of
+   * 77 both times). IT IS NOT ITS FIX: that spec failed again AT ONE WORKER in
+   * run 34257817281. Three green runs then a red one, so roughly one in four.
+   * Cutting workers plausibly lowered the rate; it did not remove the cause, and
+   * the claim that it had was falsified by the next failure. The live defect is
+   * wordle-teams-h1rg — do not read this line as covering it.
+   *
+   * ONE WORKER STILL EARNS ITS PLACE ON ITS OWN TERMS, which is why it stays
+   * rather than being reverted with the explanation: a 2-core runner cannot
+   * usefully run two Chromiums beside a Vite dev server and a Convex backend,
+   * and every measurement above was taken on a 22-core machine where the
+   * bottleneck is I/O rather than CPU.
    *
    * `process.env.CI` rather than a hardcoded 1: this is also Playwright's own
    * default shape for the same reason, and it keeps the workstation figure and
