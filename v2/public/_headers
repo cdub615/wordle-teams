@@ -55,6 +55,30 @@
 /opengraph-image.png
   Cache-Control: public, immutable, no-transform, max-age=31536000
 
+# THE iOS LAUNCH SCREENS (wordle-teams-c0f.8). A DAY, and deliberately NOT
+# immutable — which is the opposite call from /assets/* and /fonts/* above, so
+# the difference is worth stating plainly.
+#
+# Those two are safe to freeze because their FILENAMES ARE CONTENT-DERIVED: new
+# bytes mean a new URL, so a stale copy can never be requested. These are not.
+# scripts/build-splash-screens.mjs writes iphone-15-portrait-dark.png under that
+# exact name on every run, so an immutable copy could NEVER BE REPLACED and a
+# redraw would stay invisible for a year to everyone who had already fetched
+# one. That is wordle-teams-v917's argument for /manifest.json, and it applies
+# here for the same reason.
+#
+# Nor the Workers Assets default, though: there are 60 of these, and making an
+# install revalidate all of them buys nothing. iOS fetches a launch image when
+# it installs or refreshes the app, not on every launch, so a day is long enough
+# to make that cheap and short enough that a redraw propagates without anyone
+# having to remember this file exists.
+#
+# IF IMMUTABLE IS EVER WANTED HERE, the way to earn it is to content-hash the
+# filenames in the generator and derive the <link href> from the same manifest —
+# not to shorten this comment.
+/splash/*
+  Cache-Control: public, max-age=86400
+
 # A MIDDLE TTL, AND THE ONLY RULE HERE THAT DELIBERATELY MATCHES NEITHER
 # PRODUCTION NOR THE DEFAULT (wordle-teams-v917, the owner's call 2026-09-04).
 #

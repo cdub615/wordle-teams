@@ -105,6 +105,24 @@ describe('the files that must NOT be frozen are not covered', () => {
     expect(policyFor('/manifest.json')).not.toContain('immutable')
   })
 
+  test('the splash images get a day, and are deliberately NOT immutable', () => {
+    // THE OPPOSITE CALL FROM /assets/* AND /fonts/*, and the difference is the
+    // filename. Those are content-derived, so new bytes mean a new URL and a
+    // frozen copy can never be requested. SPLASH NAMES ARE STABLE ACROSS
+    // REDRAWS — scripts/build-splash-screens.mjs writes
+    // iphone-15-portrait-dark.png under that same name every run — so an
+    // immutable copy could never be replaced, and a redraw would be invisible
+    // for a year to everyone who had already fetched one. Same argument
+    // wordle-teams-v917 made for /manifest.json.
+    //
+    // Nor the Workers Assets default: 60 files revalidating at install is 60
+    // round trips buying nothing. A day is long enough to make an install
+    // cheap and short enough that a redraw propagates without anyone having to
+    // remember this file exists.
+    expect(policyFor('/splash/iphone-15-portrait-dark.png')).toBe('public, max-age=86400')
+    expect(policyFor('/splash/iphone-15-portrait-dark.png')).not.toContain('immutable')
+  })
+
   test('no rule is a bare catch-all', () => {
     // `/*` would cover every negative case above in one edit and is the single
     // change that makes this whole file dangerous.
