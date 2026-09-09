@@ -123,16 +123,49 @@ centred. Dark set on `#0a0a0a`, light set on `#fafafa` — the `--background`
 token for each theme in `src/styles.css`, read from there rather than hardcoded
 a second time, so a palette change cannot leave the splash behind.
 
-**Coverage.** Portrait iPhone sizes for devices running current iOS, light and
-dark — roughly 12 × 2 = ~24 files. Sizes that share CSS points but differ in
-pixel ratio (XR/11 at `414×896@2x` versus XS Max/11 Pro Max at `414×896@3x`)
-must be disambiguated with `-webkit-device-pixel-ratio` in the media query, or
-one will silently shadow the other.
+**Coverage.** iPhone portrait, plus iPad portrait **and** landscape, light and
+dark — roughly 60 files.
+
+iPad landscape is included rather than deferred because iPad-portrait-only would
+be half a feature: iPads are routinely used in landscape, so the orientation
+that device class most needs would still show the black hold, leaving exactly
+the kind of thing that has to be remembered later. iPhone landscape is *not*
+covered — this is a portrait word game, and an iPhone landscape launch degrades
+to today's behaviour.
+
+**Two ways the matrix can be got wrong, both real:**
+
+- Sizes that share CSS points but differ in pixel ratio — XR/11 at `414×896@2x`
+  versus XS Max/11 Pro Max at `414×896@3x` — must be disambiguated with
+  `-webkit-device-pixel-ratio`, or one silently shadows the other.
+- **A too-loose iPad query can match an iPhone** and hand it a wrong-sized
+  image. This is the only way the change makes anything *worse* rather than
+  merely not-better, and it is why the matrix test and the on-device iPhone
+  check in `c0f.5` both exist.
 
 **Graceful degradation is the coverage policy.** A device with no matching image
-falls back to today's behaviour — the black hold. So partial coverage is never a
-break, only a missed improvement. That is why iPad is out of scope rather than
-guessed at.
+falls back to today's behaviour — the black hold. Partial coverage is never a
+break, only a missed improvement.
+
+**Size, measured rather than estimated.** Ten probe images rendered at real
+device dimensions, then palette-quantised to 256 colours and compared at 1:1 on
+the gradient, where banding would show. It is visually lossless here:
+
+| | raw | 256-colour |
+|---|---|---|
+| iPhone 393×852 @3 | 46.6 kB | 13.8 kB |
+| iPad Pro 13" portrait | 94.9 kB | ~29 kB |
+| iPad Pro 13" landscape | 107.2 kB | 32.6 kB |
+
+So the full ~60-file matrix is **~1.1 MB committed quantised, ~3.7 MB raw** — in
+a repo that already ships a 196 kB OpenGraph PNG and eight `/about` screenshots.
+
+**Quantisation needs a dev dependency, and it has a constraint.** v2 has no image
+library today. The package chosen must be **pure JS or wasm with no native
+postinstall and no network at build**, so that generation is reproducible on any
+machine and `pnpm install` cannot fail on a native build. `sharp` is the obvious
+candidate and is disfavoured for exactly that reason — v1's clean install fails
+on it locally, which is a recorded, lived problem rather than a hypothetical.
 
 **Why Playwright and not `sharp`.** `sharp` is not a v2 dependency (the memory
 about it failing on clean install is v1's Next.js build). Playwright already is.
@@ -242,8 +275,16 @@ recorded here so it is not re-litigated:
   ones is a bad trade.
 
 Also out: push notification work (Phase 6 owns it), native app wrappers or app
-store submission, broad visual redesign, iPad splash coverage, landscape splash
-coverage (the app is portrait; a landscape launch degrades to today's behaviour).
+store submission, broad visual redesign, and **iPhone landscape** splash coverage
+— this is a portrait word game, and an iPhone landscape launch degrades to
+today's behaviour. iPad landscape *is* covered; see Part 1 for why the two are
+treated differently.
+
+**A stated limitation rather than an omission: the iPad set ships unverified.**
+There is no iPad available to test on, so those files go out on the strength of
+the matrix test alone. The floor is safe — an unmatched device falls back to the
+black hold — so the exposure is dead weight, not breakage. If an iPad ever
+becomes available, `c0f.5`'s protocol applies to it unchanged.
 
 ### Approaches ruled out
 
