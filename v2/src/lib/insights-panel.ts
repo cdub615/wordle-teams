@@ -101,3 +101,72 @@ export function upsellFor({
   if (boardCount === 0) return null
   return 'Free shows your most recent board. Pro shows every board you have ever entered.'
 }
+
+/**
+ * WHICH BOARDS LAYER 1 MAY SHOW, which is not the same as which boards the query
+ * returned.
+ *
+ * THE QUERY RETURNS HISTORY WHENEVER LAYER 2 IS UNLOCKED, because Layer 2's
+ * statistics need it — and the trial grants Layer 2 WITHOUT Layer 1. So a
+ * trialist's payload holds every board while their Layer 1 access is still
+ * 'free', and rendering the payload directly leaked the paid benchmark list into
+ * the trial. Reported by the owner as "miles of daily insights" and found there;
+ * `boards.length` is the wrong source for this and this function is the right one.
+ */
+export function boardsForLayer1<T>(boards: readonly T[], layer1: 'none' | 'free' | 'full'): T[] {
+  if (layer1 === 'full') return [...boards]
+  // Free sees the most recently ENTERED board, which the server has already put
+  // first — see convex/insights.ts for why that is not the latest puzzle day.
+  return boards.slice(0, 1)
+}
+
+export type BoardFilter = { month: string; opener: string }
+
+/** The sentinel both selects use for "no filter". Not a real month or word. */
+export const ALL = 'all'
+
+/** Months the player has boards in, most recent first. */
+export function monthOptionsFor(boards: readonly BoardInput[]): string[] {
+  return [...new Set(boards.map((board) => board.puzzleDay.slice(0, 7)))].sort((a, b) =>
+    b.localeCompare(a),
+  )
+}
+
+/**
+ * Openers the player has used, most used first.
+ *
+ * ORDERED BY THEIR OWN USE, not alphabetically, because the question this filter
+ * answers comes straight off Layer 2's repertoire — "show me my CRANE days" — and
+ * that list is ordered the same way. A select that reordered them would make the
+ * two panels disagree about the same set of words.
+ */
+export function openerOptionsFor(boards: readonly BoardInput[]): string[] {
+  const counts = new Map<string, number>()
+  for (const board of boards) {
+    const opener = board.guesses[0]
+    if (opener === undefined || opener.length === 0) continue
+    const word = opener.toUpperCase()
+    counts.set(word, (counts.get(word) ?? 0) + 1)
+  }
+  return [...counts]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([word]) => word)
+}
+
+/**
+ * The boards a filter selects.
+ *
+ * THE TWO FILTERS COMBINE rather than replacing each other, so "CRANE, in
+ * September" is reachable. Either alone is the common case and `ALL` on both is
+ * the default.
+ */
+export function filterBoards<T extends BoardInput>(
+  boards: readonly T[],
+  { month, opener }: BoardFilter,
+): T[] {
+  return boards.filter((board) => {
+    if (month !== ALL && board.puzzleDay.slice(0, 7) !== month) return false
+    if (opener !== ALL && (board.guesses[0] ?? '').toUpperCase() !== opener) return false
+    return true
+  })
+}

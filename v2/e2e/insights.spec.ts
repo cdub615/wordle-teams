@@ -94,7 +94,7 @@ test.describe('a free player', () => {
 })
 
 test.describe('a trial player', () => {
-  test('sees the benchmark for every board AND the personal history', async ({ page }) => {
+  test('sees the FULL personal history, but Layer 1 still at one board', async ({ page }) => {
     await signInWithInsights(page, {
       boards: 12,
       pro: false,
@@ -103,13 +103,21 @@ test.describe('a trial player', () => {
     await openInsights(page)
 
     /*
-      THE REGRESSION THIS TEST EXISTS FOR. The trial grants Layer 2 without
-      Layer 1, so a read keyed on Layer 1 alone hands a trialist ONE board and a
-      personal history computed from it — every number correct, the feature
-      worthless, during the exact month they are deciding whether to pay. A4
-      shipped that and A5 found it. Nothing but a crossing like this would have.
+      THE REGRESSION THIS TEST EXISTS FOR, AND THE ONE IT ORIGINALLY GOT WRONG.
+
+      The trial grants Layer 2 without Layer 1, so a read keyed on Layer 1 alone
+      hands a trialist ONE board and a personal history computed from it — every
+      number correct, the feature worthless, during the exact month they are
+      deciding whether to pay. That is what the payload having full history fixes,
+      and it is asserted by the personal history rendering below.
+
+      BUT THE PAYLOAD IS NOT THE PERMISSION. An earlier version of this test
+      asserted twelve BENCHMARK cards, which encoded the opposite bug: Layer 1 is
+      still 'free' during the trial, so its list must stay at the single most
+      recent board. The owner found the symptom — a page buried under hundreds of
+      daily cards — and the leak with it.
     */
-    await expect(page.getByTestId('insights-board')).toHaveCount(12)
+    await expect(page.getByTestId('insights-board')).toHaveCount(1)
     await expect(page.getByTestId('insights-personal')).toBeVisible()
     await expect(page.getByTestId('insights-headline')).toContainText('You have opened with')
   })
@@ -138,6 +146,9 @@ test.describe('a pro player', () => {
     await expect(page.getByTestId('insights-board')).toHaveCount(12)
     await expect(page.getByTestId('insights-personal')).toBeVisible()
     await expect(page.getByTestId('insights-upsell')).toHaveCount(0)
+    // And the list is bounded rather than a wall of cards above everything else.
+    await expect(page.getByTestId('insights-daily-scroll')).toBeVisible()
+    await expect(page.getByTestId('insights-daily-count')).toContainText('Showing 12 of 12')
   })
 })
 

@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import {
+  ALL,
   benchmarkFor,
+  boardsForLayer1,
+  filterBoards,
+  monthOptionsFor,
+  openerOptionsFor,
   difficultySentence,
   openerRankSentence,
   upsellFor,
@@ -108,5 +113,97 @@ describe('upsellFor', () => {
   test('a player with no boards gets an empty state, not a pitch', () => {
     // Selling history to someone who has none is the wrong first impression.
     expect(upsellFor({ layer1: 'free', boardCount: 0 })).toBeNull()
+  })
+})
+
+const day = (puzzleDay: string, opener: string) => ({ puzzleDay, guesses: [opener, 'SPEED'] })
+
+describe('boardsForLayer1', () => {
+  const boards = [day('2026-09-03', 'CRANE'), day('2026-09-02', 'ORATE'), day('2026-09-01', 'SLANT')]
+
+  test('pro sees every board', () => {
+    expect(boardsForLayer1(boards, 'full')).toHaveLength(3)
+  })
+
+  /**
+   * THE LEAK THIS FIXES. The query returns full history whenever Layer 2 is
+   * unlocked, and the TRIAL unlocks Layer 2 without Layer 1 — so a trialist's
+   * payload holds every board while their Layer 1 access is still 'free'.
+   * Rendering the payload directly showed them the paid benchmark list.
+   */
+  test('free sees only the most recent board, however many the payload holds', () => {
+    expect(boardsForLayer1(boards, 'free')).toEqual([day('2026-09-03', 'CRANE')])
+  })
+
+  test('and the server has already put the most recently ENTERED board first', () => {
+    // Not the latest puzzle day — see convex/insights.ts. Order is the server's.
+    const backfilled = [day('2026-08-30', 'ORATE'), day('2026-09-07', 'CRANE')]
+    expect(boardsForLayer1(backfilled, 'free')).toEqual([day('2026-08-30', 'ORATE')])
+  })
+
+  test('no boards stays no boards rather than throwing', () => {
+    expect(boardsForLayer1([], 'free')).toEqual([])
+  })
+})
+
+describe('monthOptionsFor', () => {
+  test('lists the months with boards, most recent first', () => {
+    expect(
+      monthOptionsFor([day('2026-08-31', 'CRANE'), day('2026-09-01', 'ORATE'), day('2026-09-30', 'CRANE')]),
+    ).toEqual(['2026-09', '2026-08'])
+  })
+
+  test('is empty with no boards', () => {
+    expect(monthOptionsFor([])).toEqual([])
+  })
+})
+
+describe('openerOptionsFor', () => {
+  test('orders by the player’s own use, matching the repertoire panel', () => {
+    const boards = [
+      day('2026-09-01', 'ORATE'),
+      day('2026-09-02', 'CRANE'),
+      day('2026-09-03', 'CRANE'),
+    ]
+    expect(openerOptionsFor(boards)).toEqual(['CRANE', 'ORATE'])
+  })
+
+  test('normalises case and skips a board with no guesses', () => {
+    const boards = [
+      { puzzleDay: '2026-09-01', guesses: ['crane', 'SPEED'] },
+      { puzzleDay: '2026-09-02', guesses: [] },
+    ]
+    expect(openerOptionsFor(boards)).toEqual(['CRANE'])
+  })
+})
+
+describe('filterBoards', () => {
+  const boards = [
+    day('2026-09-03', 'CRANE'),
+    day('2026-09-02', 'ORATE'),
+    day('2026-08-30', 'CRANE'),
+  ]
+
+  test('ALL on both is everything', () => {
+    expect(filterBoards(boards, { month: ALL, opener: ALL })).toHaveLength(3)
+  })
+
+  test('filters by month alone', () => {
+    expect(filterBoards(boards, { month: '2026-09', opener: ALL })).toHaveLength(2)
+  })
+
+  test('filters by opener alone', () => {
+    expect(filterBoards(boards, { month: ALL, opener: 'CRANE' })).toHaveLength(2)
+  })
+
+  test('and the two combine, so "CRANE in September" is reachable', () => {
+    expect(filterBoards(boards, { month: '2026-09', opener: 'CRANE' })).toEqual([
+      day('2026-09-03', 'CRANE'),
+    ])
+  })
+
+  test('a combination matching nothing is empty rather than everything', () => {
+    // The failure that would make a filter look broken: falling back to unfiltered.
+    expect(filterBoards(boards, { month: '2026-08', opener: 'ORATE' })).toEqual([])
   })
 })

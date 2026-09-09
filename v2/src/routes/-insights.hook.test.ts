@@ -15,7 +15,7 @@
 // is a licence obligation rather than a courtesy, so it gets its own assertion
 // here instead of riding along inside somebody's snapshot — a snapshot would go
 // on passing with the credit deleted as long as it was regenerated.
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
@@ -210,5 +210,116 @@ describe('Layer 2 — personal history', () => {
       'Enter a few more boards',
     )
     expect(screen.queryByTestId('insights-personal')).toBeNull()
+  })
+})
+
+describe('the layout, so nothing is buried', () => {
+  const history = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      puzzleDay: `2026-09-${String(n - i).padStart(2, '0')}`,
+      guesses: i % 2 === 0 ? ['CRANE', 'SPEED'] : ['ORATE', 'SPEED'],
+      answer: 'SPEED',
+    }))
+
+  /**
+   * THE REGRESSION THIS PAGE SHIPPED WITH. A pro player holds up to 400 boards, and
+   * rendering one card each ABOVE the summaries buried both paid panels under
+   * roughly four hundred screens of scroll — reported as "Your Team and Your
+   * History are buried below miles of daily insights".
+   */
+  test('the summaries come before the day-by-day list in the DOM', () => {
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(30) })
+
+    const personal = screen.getByTestId('insights-personal')
+    const daily = screen.getByTestId('insights-daily')
+    // Node.compareDocumentPosition: 4 means `daily` FOLLOWS `personal`.
+    expect(personal.compareDocumentPosition(daily) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test('the day-by-day list is a bounded scroll container, not a wall', () => {
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(30) })
+
+    const scroller = screen.getByTestId('insights-daily-scroll')
+    // overflow-y-auto does nothing without an explicit max height.
+    expect(scroller.className).toContain('overflow-y-auto')
+    expect(scroller.className).toContain('max-h-')
+    expect(screen.getAllByTestId('insights-board')).toHaveLength(30)
+  })
+
+  test('and says how many it is showing, since a touch device has no scrollbar', () => {
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(30) })
+    expect(screen.getByTestId('insights-daily-count').textContent).toBe('Showing 30 of 30 boards')
+  })
+})
+
+describe('the day-by-day filters', () => {
+  const boards = [
+    { puzzleDay: '2026-09-03', guesses: ['CRANE', 'SPEED'], answer: 'SPEED' },
+    { puzzleDay: '2026-09-02', guesses: ['ORATE', 'SPEED'], answer: 'SPEED' },
+    { puzzleDay: '2026-08-30', guesses: ['CRANE', 'SPEED'], answer: 'SPEED' },
+  ]
+  const pro = { access: { layer1: 'full' as const, layer2: 'full' as const, layer3: 'full' as const }, boards }
+
+  test('filtering by month narrows the list and the count', () => {
+    panel(pro)
+    fireEvent.change(screen.getByTestId('insights-filter-month'), { target: { value: '2026-08' } })
+
+    expect(screen.getAllByTestId('insights-board')).toHaveLength(1)
+    expect(screen.getByTestId('insights-daily-count').textContent).toBe('Showing 1 of 3 boards')
+  })
+
+  test('filtering by opener does too', () => {
+    panel(pro)
+    fireEvent.change(screen.getByTestId('insights-filter-opener'), { target: { value: 'ORATE' } })
+    expect(screen.getAllByTestId('insights-board')).toHaveLength(1)
+  })
+
+  test('and the two combine', () => {
+    panel(pro)
+    fireEvent.change(screen.getByTestId('insights-filter-month'), { target: { value: '2026-09' } })
+    fireEvent.change(screen.getByTestId('insights-filter-opener'), { target: { value: 'CRANE' } })
+    expect(screen.getAllByTestId('insights-board')).toHaveLength(1)
+  })
+
+  test('a combination matching nothing says so rather than showing everything', () => {
+    panel(pro)
+    fireEvent.change(screen.getByTestId('insights-filter-month'), { target: { value: '2026-08' } })
+    fireEvent.change(screen.getByTestId('insights-filter-opener'), { target: { value: 'ORATE' } })
+
+    expect(screen.getByTestId('insights-daily-none')).not.toBeNull()
+    expect(screen.queryAllByTestId('insights-board')).toHaveLength(0)
+  })
+
+  test('the opener select is ordered by the player’s own use', () => {
+    panel(pro)
+    const options = [...screen.getByTestId('insights-filter-opener').querySelectorAll('option')]
+    expect(options.map((o) => o.textContent)).toEqual(['All openers', 'CRANE', 'ORATE'])
+  })
+
+  test('no filters at all on a single board — furniture that explains nothing', () => {
+    panel({ access: { layer1: 'free', layer2: 'none', layer3: 'free' }, boards: [boards[0]] })
+    expect(screen.queryByTestId('insights-filter-month')).toBeNull()
+    expect(screen.queryByTestId('insights-daily-count')).toBeNull()
+  })
+})
+
+describe('the trial must not see Layer 1’s full history', () => {
+  /**
+   * The query returns full history whenever Layer 2 is unlocked, and the trial
+   * unlocks Layer 2 WITHOUT Layer 1. Rendering the payload directly showed a
+   * trialist every benchmark card — the paid Layer 1 slice, during the trial.
+   */
+  test('a trialist sees one benchmark board and the full personal history', () => {
+    panel({
+      access: { layer1: 'free', layer2: 'full', layer3: 'full' },
+      boards: Array.from({ length: 12 }, (_, i) => ({
+        puzzleDay: `2026-09-${String(12 - i).padStart(2, '0')}`,
+        guesses: ['CRANE', 'SPEED'],
+        answer: 'SPEED',
+      })),
+    })
+
+    expect(screen.getAllByTestId('insights-board')).toHaveLength(1)
+    expect(screen.getByTestId('insights-personal')).not.toBeNull()
   })
 })
