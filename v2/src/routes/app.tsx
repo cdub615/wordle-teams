@@ -64,17 +64,14 @@ export const Route = createFileRoute('/app')({
         : undefined,
     join: typeof search.join === 'string' ? search.join : undefined,
   }),
-  beforeLoad: async ({ context }) => {
+  /**
+   * ONLY THE FREE CHECK IS LEFT HERE. `isAuthenticated` reads root context and
+   * costs nothing; `needsProfile` moved into the loader below, because awaiting
+   * it here cost a whole Convex round trip in SERIES in front of the four.
+   * Sync rather than async now, since nothing in it awaits.
+   */
+  beforeLoad: ({ context }) => {
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
-    // Every dashboard query assumes a player exists. Before Phase 4 a cold
-    // signup reached this page anyway — getMyTeams returns [] rather than
-    // throwing — pressed the one call to action, and got NO_PLAYER, which until
-    // Task 4 rendered as "Your session expired": the wrong cause, and one
-    // signing in again could not fix. See wt-ksh.5.1.
-    const needsProfile = await context.queryClient.ensureQueryData(
-      convexQuery(api.players.needsProfile, {}),
-    )
-    if (needsProfile) throw redirect({ to: '/complete-profile' })
   },
   /**
    * ISSUED TOGETHER, NOT IN SEQUENCE (`wordle-teams-dpi`). They are
@@ -95,10 +92,52 @@ export const Route = createFileRoute('/app')({
    * and the win is proportionally larger wherever the backend is further away
    * than localhost — which is every real deployment.
    *
-   * NOT PREFETCHED IN `beforeLoad` INSTEAD. `needsProfile` has to be awaited
-   * alone up there, because its whole purpose is to decide whether this route
-   * renders at all — starting these three beside it would issue three queries
-   * for a page that is about to 307 to /complete-profile.
+   * `needsProfile` IS ONE OF THEM NOW, AND IT USED NOT TO BE. It was awaited
+   * ALONE in `beforeLoad`, on the argument that its whole purpose is to decide
+   * whether this route renders at all, so issuing the others beside it would
+   * query for a page about to 307 to /complete-profile. That argument was right
+   * and it had no price on it. wordle-teams-xizw put one there, measured on beta
+   * twice by differential timing:
+   *
+   *     one Convex round trip from the Worker    ~105 ms
+   *     needsProfile awaited alone (SERIAL)      ~110 ms
+   *     these four in Promise.all (PARALLEL)     ~102 ms   -- four, for one trip
+   *
+   * So the old shape made every authenticated dashboard load pay TWO serial
+   * round trips, ~214 ms, purely to avoid four discarded queries on the
+   * once-per-account event of not having a player row yet. 110 ms on every load
+   * forever against four wasted reads once: the trade is the other way round.
+   * See wordle-teams-16e3.
+   *
+   * IT IS SAFE ONLY BECAUSE ALL FIVE TOLERATE A MISSING PLAYER, and that was
+   * checked in convex/ rather than assumed — if any of them threw NO_PLAYER, the
+   * Promise.all would reject before the redirect below could be thrown, turning
+   * a clean 307 into an error boundary:
+   *
+   *     getMyTeams      currentPlayer -> if (!player) return []
+   *     amIPro          currentPlayer -> if (!player) return false
+   *     getMyPlayerId   player?._id ?? null
+   *     getStatus       currentPlayer -> if (!player) return null
+   *
+   * Those are deliberate (getStatus says so in its own comment: "this mounts on
+   * /app, which is also reachable in the moment before a player row exists").
+   * A future query added to this list MUST hold that property, or it must be
+   * awaited after the redirect rather than beside it.
+   *
+   * NEEDSPROFILE'S OWN SEMANTICS ARE UNCHANGED — same query, same key, same
+   * ensureQueryData, same redirect target, only a different await site. That is
+   * deliberate: wordle-teams-obw records that an INVERTED needsProfile is an
+   * infinite redirect loop and that no unit test can reach it, because
+   * convex-test cannot stand up a Better Auth session. The net is
+   * e2e/complete-profile.spec.ts, which drives a brand-new address through both
+   * directions. A change that altered the semantics would be betting against the
+   * one hole obw is open about.
+   *
+   * THE SKELETON CAN NOW FLASH FOR A PROFILELESS VISITOR, on a client-side
+   * navigation only: the loader runs where the guard used to be, so
+   * pendingComponent may paint before the redirect. On SSR the 307 happens on the
+   * server and nothing paints. Once per account, on the path to a form they are
+   * about to fill in.
    *
    * `__root.tsx` has a comment explaining why the Header's two queries are
    * deliberately NOT prefetched. That reasoning is about `useQuery` versus
@@ -111,7 +150,15 @@ export const Route = createFileRoute('/app')({
    * unchanged — still MAX rather than SUM — but the numbers were not re-taken.
    */
   loader: async ({ context }) => {
-    await Promise.all([
+    const [needsProfile] = await Promise.all([
+      // FIRST IN THE ARRAY because it is the one whose value is read; the
+      // destructure above and this position are a pair, so keep them together.
+      // Every dashboard query assumes a player exists. Before Phase 4 a cold
+      // signup reached this page anyway — getMyTeams returns [] rather than
+      // throwing — pressed the one call to action, and got NO_PLAYER, which
+      // until Task 4 rendered as "Your session expired": the wrong cause, and
+      // one signing in again could not fix. See wt-ksh.5.1.
+      context.queryClient.ensureQueryData(convexQuery(api.players.needsProfile, {})),
       context.queryClient.ensureQueryData(convexQuery(api.teams.getMyTeams, {})),
       context.queryClient.ensureQueryData(convexQuery(api.teams.amIPro, {})),
       context.queryClient.ensureQueryData(convexQuery(api.scores.getMyPlayerId, {})),
@@ -126,6 +173,9 @@ export const Route = createFileRoute('/app')({
       // players who will never see the card at all.
       context.queryClient.ensureQueryData(convexQuery(api.onboarding.getStatus, {})),
     ])
+    // AFTER the await, not before it — that is the whole point of the move. The
+    // four reads above are already in flight and are discarded on this path.
+    if (needsProfile) throw redirect({ to: '/complete-profile' })
   },
   errorComponent: DashboardError,
   /**

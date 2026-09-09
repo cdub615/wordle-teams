@@ -141,7 +141,9 @@ function CompleteProfilePage() {
       await complete.mutateAsync({ firstName, lastName, today: toPuzzleDay(new Date()) })
       // NOTHING PRIMES THE CACHE BEFORE THIS HOP, AND NOTHING HAS TO — but the
       // reason is subtle enough to be worth stating, because getting it wrong
-      // is the redirect loop wordle-teams-obw warns about. `/app`'s beforeLoad
+      // is the redirect loop wordle-teams-obw warns about. `/app`'s LOADER
+      // (its beforeLoad until wordle-teams-16e3 moved it, which changed the
+      // await site and nothing else about this)
       // asks ensureQueryData for this same needsProfile key, and ensureQueryData
       // returns cached data WITHOUT revalidating; a stale `true` left by this
       // route's own guard would bounce the user straight back here. It cannot

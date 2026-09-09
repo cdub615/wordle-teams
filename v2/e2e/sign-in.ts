@@ -68,10 +68,16 @@ export async function signIn(
   // and that assertion carries Playwright's 5s default. login.tsx's verifyCode
   // finishes with `window.location.href = '/app?signin=otp'`, a FULL DOCUMENT
   // LOAD, so the caller's first assertion had to absorb: the Better Auth verify
-  // round-trip, a fresh SSR of '/app' (its beforeLoad awaits
-  // players.needsProfile, then its loader awaits getMyTeams, amIPro and
-  // getMyPlayerId one after the other), several hundred module requests from
-  // the dev server, and hydration.
+  // round-trip, a fresh SSR of '/app' (its loader awaits players.needsProfile,
+  // getMyTeams, amIPro, getMyPlayerId and onboarding.getStatus TOGETHER in one
+  // Promise.all — five queries, one Convex round trip), several hundred module
+  // requests from the dev server, and hydration.
+  //
+  // The measurement below PREDATES that shape and was taken when the three were
+  // awaited one after another with needsProfile serial in front of them, so it
+  // is a ceiling rather than a current reading. wordle-teams-dpi collapsed the
+  // three and wordle-teams-16e3 removed the serial needsProfile (~110 ms on
+  // beta). Not re-taken; the timeout it justifies only got safer.
   //
   // MEASURED, 54 sign-ins over three full-suite runs: 0.76s to 3.96s, median
   // ~2.2s. Against a 5s ceiling that also had to cover the assertion itself,

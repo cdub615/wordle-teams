@@ -12,10 +12,18 @@ import { expect, type Page } from '@playwright/test'
  *
  * What has to happen inside those 5s: `complete-profile.tsx`'s handleSubmit
  * awaits the `completeProfile` mutation, then awaits `navigate({ to: '/app' })`;
- * `/app`'s beforeLoad calls ensureQueryData for `needsProfile` and its loader
- * then awaits `getMyTeams`, `amIPro` and `getMyPlayerId` SEQUENTIALLY. That is
- * the same shape of tail `1cd` measured at 0.76-3.96s for the sign-in hop, on a
- * dev server, under parallel workers.
+ * `/app`'s loader then awaits `needsProfile`, `getMyTeams`, `amIPro`,
+ * `getMyPlayerId` and `onboarding.getStatus` TOGETHER in one `Promise.all` —
+ * five queries, one Convex round trip. That is the same shape of tail `1cd`
+ * measured at 0.76-3.96s for the sign-in hop, on a dev server, under parallel
+ * workers.
+ *
+ * THAT DESCRIPTION HAS BEEN WRONG TWICE, so it is worth stating what it is now:
+ * the three were once awaited one after another (fixed by wordle-teams-dpi), and
+ * `needsProfile` was once awaited ALONE in `beforeLoad` ahead of them, which cost
+ * a second serial round trip (fixed by wordle-teams-16e3, ~110 ms measured).
+ * Neither timing note here was updated at the time. If this comment disagrees
+ * with `src/routes/app.tsx`, app.tsx is the truth.
  *
  * OBSERVED, not theorised. Full-suite run 2026-09-02, after the read-set fix in
  * `convex/e2eSeed.ts` removed the OptimisticConcurrency failures, two specs

@@ -394,15 +394,28 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
       return codeOf(loader.getText())
     }
 
-    test('it warms exactly the four queries Dashboard suspends on', () => {
-      // EXHAUSTIVE AND SORTED, not four toContain calls. The mutation those
+    test('it warms the four queries Dashboard suspends on, plus the profile guard', () => {
+      // EXHAUSTIVE AND SORTED, not five toContain calls. The mutation those
       // cannot see is the one that actually happened — a query DROPPED from the
-      // list — and an added fifth is a change worth failing on too: the comment
-      // above this loader records that its parallel-versus-series measurements
-      // were taken at three queries and never re-taken at four.
+      // list — and an added sixth is a change worth failing on too, so that
+      // whoever adds it has to come and read the two paragraphs below.
+      //
+      // FOUR OF THESE ARE SUSPENSE TARGETS AND ONE IS NOT. `api.players.
+      // needsProfile` feeds no `useSuspenseQuery`; it is the guard whose value
+      // decides whether this route renders at all, and it lives in the loader
+      // rather than in `beforeLoad` because awaiting it up there cost a whole
+      // Convex round trip IN SERIES in front of these four — ~110 ms, measured
+      // twice on beta (wordle-teams-xizw, wordle-teams-16e3). It is in this list
+      // for latency, not for warming.
+      //
+      // A SIXTH THAT IS A SUSPENSE TARGET belongs here. A sixth that is another
+      // GUARD needs the check below it: everything in this Promise.all must
+      // tolerate a missing player row, because a throw would reject the whole
+      // batch before the redirect could be thrown. See app.tsx's note.
       const warmed = [...loaderCode().matchAll(/api\.[A-Za-z0-9_.]+/g)].map((m) => m[0]).sort()
       expect(warmed).toEqual([
         'api.onboarding.getStatus',
+        'api.players.needsProfile',
         'api.scores.getMyPlayerId',
         'api.teams.amIPro',
         'api.teams.getMyTeams',
@@ -410,14 +423,40 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     })
 
     test('every one of them is warmed in the same Promise.all, not awaited in turn', () => {
-      // The point of the loader is PARALLEL. Four sequential awaits warm the
-      // same four queries and would satisfy the assertion above exactly, while
-      // costing four round trips in series — which is most of what the mutant
+      // The point of the loader is PARALLEL. Five sequential awaits warm the
+      // same five queries and would satisfy the assertion above exactly, while
+      // costing five round trips in series — which is most of what the mutant
       // this block exists for actually costs.
       const code = loaderCode()
       expect(code).toMatch(/Promise\.all\(\[/)
       const inParallel = code.slice(code.indexOf('Promise.all(['))
-      expect((inParallel.match(/ensureQueryData\(/g) ?? []).length).toBe(4)
+      expect((inParallel.match(/ensureQueryData\(/g) ?? []).length).toBe(5)
+    })
+
+    test('the profile redirect is thrown AFTER the Promise.all, never before it', () => {
+      // THE 110 ms LIVES IN THIS ORDERING AND NOTHING ELSE PROTECTS IT.
+      // wordle-teams-16e3 moved `needsProfile` out of `beforeLoad` and into the
+      // batch above precisely so its round trip stops being serial. Two
+      // refactors silently undo that while keeping every other assertion in this
+      // block green:
+      //
+      //   - awaiting needsProfile on its own line before the Promise.all;
+      //   - moving the guard back into `beforeLoad` entirely.
+      //
+      // The first still shows five ensureQueryData calls if the `api.` list is
+      // read loosely; the second empties the loader of it and would be caught by
+      // the exhaustive list above, but only that one. This pins the ORDER, which
+      // is the property that actually costs the milliseconds — and it is a
+      // SEQUENCING property, so per this block's own header e2e cannot reach it.
+      const code = loaderCode()
+      const batchEnds = code.indexOf('])', code.indexOf('Promise.all(['))
+      const redirect = code.search(/throw\s+redirect\(/)
+      expect(redirect, 'routes/app.tsx loader throws no redirect').toBeGreaterThan(-1)
+      expect(
+        redirect,
+        'the /complete-profile redirect is thrown before the Promise.all resolves, ' +
+          'which puts needsProfile back in series and gives back the ~110ms of wordle-teams-16e3',
+      ).toBeGreaterThan(batchEnds)
     })
   })
 
