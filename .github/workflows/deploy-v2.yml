@@ -224,11 +224,51 @@ jobs:
       # VITE_CONVEX_URL set to the deployment this key points at, so the bundle
       # can never be built against the wrong Convex. The other build-time values
       # come from the committed v2/.env.production.
+      # THE UPLOAD FAILS SILENTLY WITHOUT THIS, which is why it is a step and not
+      # a comment. The Sentry plugin warns and skips when it has no token, and it
+      # DELETES THE CLIENT MAPS ANYWAY -- deletion is not conditional on the
+      # upload succeeding. So the whole pipeline goes green, beta serves correctly,
+      # nothing leaks, and Sentry quietly has no maps. That is the worst shape of
+      # failure and it already happened once, on the commit that added the plugin.
+      #
+      # WHAT THIS DOES AND DOES NOT CATCH, stated so nobody trusts it further than
+      # it goes: it catches an ABSENT token -- secret deleted, renamed, or (the
+      # actual cause) never passed into the build step's env. It does NOT catch an
+      # INVALID or expired token, which would still warn-and-skip. Asserting that
+      # would mean querying Sentry with sentry-cli, which is present only as a
+      # transitive dependency with no bin link.
+      - name: The Sentry auth token must be present before the build
+        if: github.event_name == 'push'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "::error::SENTRY_AUTH_TOKEN is empty, so source maps will be built,"
+            echo "deleted, and never uploaded -- silently. Set the repository secret."
+            echo "See v2/vite.config.ts (sentryTanstackStart) and wordle-teams-p1as."
+            exit 1
+          fi
+          echo "present: SENTRY_AUTH_TOKEN is set (validity is not checked here)"
+
       - name: Deploy Convex and build the client
         if: github.event_name == 'push'
         run: pnpm exec convex deploy --cmd 'pnpm build' --cmd-url-env-var-name VITE_CONVEX_URL
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          # THE SOURCE MAP UPLOAD HAPPENS INSIDE THIS STEP, because it is a Vite
+          # plugin and this is where `pnpm build` runs. A repository secret is
+          # NOT automatically visible to a step, so without this line the plugin
+          # warns "No auth token provided", skips the upload -- AND STILL DELETES
+          # THE MAPS, because the deletion is not conditional on the upload
+          # succeeding. That combination is silent: every gate passes, beta is
+          # correct, no map leaks, and Sentry simply has nothing. It happened
+          # exactly once, on the commit that added the plugin (wordle-teams-p1as).
+          #
+          # The token is a REAL secret, unlike SENTRY_DSN which is public by
+          # design and lives in wrangler.jsonc. Org and project slugs are not
+          # secret and are inline in v2/vite.config.ts.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       # THE CHECK THAT WOULD HAVE CAUGHT THE 2026-09-06 BETA OUTAGE, and it sits
       # BEFORE the Worker deploy on purpose: a bundle carrying this fault never
