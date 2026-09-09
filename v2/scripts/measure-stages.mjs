@@ -61,7 +61,7 @@
  *   node scripts/measure-stages.mjs [--runs 20] [--origin https://...]
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { chromium } from '@playwright/test'
 
 const SESSION_FILE = new URL('../.beta-session.local', import.meta.url).pathname
@@ -97,8 +97,39 @@ function assertIgnored(file) {
   }
 }
 
+/**
+ * FINDS A DISPLAY FOR THE HEADED SIGN-IN, because the shell this is run from
+ * usually has none. A terminal started from a TTY under Hyprland reports
+ * XDG_SESSION_TYPE=tty and exports neither DISPLAY nor WAYLAND_DISPLAY, so a
+ * headed Chromium dies with "Missing X server or $DISPLAY" even though a
+ * perfectly good Xwayland is running on :0. Rather than make the caller know
+ * that, look for the socket Xwayland actually left behind.
+ *
+ * X11 RATHER THAN THE WAYLAND SOCKET on purpose: Xwayland needs only DISPLAY,
+ * where Wayland also needs --ozone-platform=wayland passed through to Chromium.
+ * One environment variable is the smaller dependency.
+ *
+ * Silent no-op anywhere that already has a display, and on macOS, where
+ * /tmp/.X11-unix does not exist and headed launch needs none of this.
+ */
+function ensureDisplay() {
+  if (process.env.DISPLAY || process.env.WAYLAND_DISPLAY) return
+  let sockets
+  try {
+    sockets = readdirSync('/tmp/.X11-unix')
+      .filter((name) => /^X\d+$/.test(name))
+      .sort()
+  } catch {
+    return // No X11 socket directory at all; let Playwright report it.
+  }
+  if (!sockets.length) return
+  process.env.DISPLAY = `:${sockets[0].slice(1)}`
+  console.log(`[measure-stages] No DISPLAY set; using ${process.env.DISPLAY} (found an X socket).`)
+}
+
 async function login() {
   assertIgnored(SESSION_FILE)
+  ensureDisplay()
   const browser = await chromium.launch({ headless: false })
   const context = await browser.newContext()
   const page = await context.newPage()
