@@ -103,12 +103,55 @@ async function handle(request: Request): Promise<Response> {
   return noContent(delivered ? 'sent' : 'skipped')
 }
 
+/**
+ * EVERY NON-POST METHOD, ANSWERED EXPLICITLY — wordle-teams-ao7j.
+ *
+ * WITHOUT THIS, GET /api/funnel WAS A SOFT 404. A method with no handler never
+ * reaches the route at all; it falls through to the SPA catch-all, which renders
+ * the app shell at 200 with the marketing landing page's own <title> and no
+ * noindex. Measured on beta 2026-09-04: 200, text/html, 9578 bytes. An unknown
+ * path like /definitely-not-a-route-xyz correctly 404s, so this one URL was the
+ * exception.
+ *
+ * WHY THAT IS A DEFECT RATHER THAN COSMETIC. Search engines treat a soft 404 as a
+ * real indexable page, so it was a duplicate of the landing page under a URL
+ * nobody would want ranked.
+ *
+ * ROBOTS.TXT WAS NOT ENOUGH, WHICH IS THE PART WORTH REMEMBERING. `Disallow: /api`
+ * stops a COMPLIANT crawler fetching it, but a Disallow does not prevent indexing
+ * a URL discovered by a link — and a page that is never fetched can never be seen
+ * to carry a noindex. Exclusion by robots is not the same as being unindexable.
+ *
+ * 405 RATHER THAN 404, because the route genuinely exists and it is the method
+ * that is wrong; `Allow: POST` says so precisely, and it is as unambiguous to a
+ * crawler as a 404 while remaining honest to a client. HEAD is included because
+ * it would otherwise fall through exactly as GET did, and OPTIONS because a
+ * fall-through there would answer HTML to a preflight.
+ *
+ * IT ALSO REPAIRS A WRITTEN JUSTIFICATION. public/robots.txt argues /api is
+ * excluded because "/api/auth/$ is Better Auth's proxy to Convex and /api/funnel
+ * takes analytics beacons. Neither speaks HTML." On a GET, this one did.
+ *
+ * NOTHING IN CI COULD HAVE SEEN IT: crawler-metadata.test.ts walks
+ * routeTree.gen.ts and asserts every route is in the sitemap, disallowed, or a
+ * named exclusion — /api/funnel is a named exclusion — and it asserts nothing
+ * about METHODS. Hence funnel-methods.test.ts, which asserts the status directly.
+ */
+const methodNotAllowed = () =>
+  new Response(null, { status: 405, headers: { allow: 'POST' } })
+
 export const Route = createFileRoute('/api/funnel')({
   server: {
     handlers: {
       POST: withErrorCapture('/api/funnel POST', ({ request }: { request: Request }) =>
         handle(request),
       ),
+      GET: methodNotAllowed,
+      HEAD: methodNotAllowed,
+      PUT: methodNotAllowed,
+      PATCH: methodNotAllowed,
+      DELETE: methodNotAllowed,
+      OPTIONS: methodNotAllowed,
     },
   },
 })
