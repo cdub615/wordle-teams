@@ -14,6 +14,8 @@
 		"build": "vite build && node scripts/build-sw.mjs",
 		"//build:splash": "GENERATE-ON-DEMAND, NOT PART OF `build`. Renders the 60 iOS launch images to public/splash/ and the output is COMMITTED, exactly like scripts/build-insights-corpus.mjs and scripts/fetch-wordlists.mjs. It needs a browser and the network (Inter comes from Google Fonts), which is precisely why it must not run in a build. Re-run it when the matrix in src/lib/splash-screens.ts changes, or when the brand tokens or wt-icon.svg do.",
 		"build:splash": "node scripts/build-splash-screens.mjs",
+		"//fetch:fonts": "GENERATE-ON-DEMAND, NOT PART OF `build`. Downloads Inter and Geist from Google ONCE into public/fonts/ and writes src/fonts.css with the URLs repointed; both are COMMITTED, like fetch-wordlists.mjs. Self-hosting is what took the fonts off the cold-start path (c0f.7): the Google @import was serial AND on a new origin. Re-run only to refresh the faces; src/fonts.test.ts fails if a third-party font host ever comes back.",
+		"fetch:fonts": "node scripts/fetch-fonts.mjs",
 		"preview": "pnpm run build && vite preview",
 		"lint": "eslint . --max-warnings 0",
 		"typecheck": "tsc --noEmit",

@@ -49,6 +49,22 @@ describe('the immutable rules cover exactly what is safe to freeze', () => {
     }
   })
 
+  test('the self-hosted fonts are immutable for a year', () => {
+    // SAME ARGUMENT AS /assets/*, and it holds for the same reason: the
+    // filenames come from Google and are content-derived, and
+    // scripts/fetch-fonts.mjs clears public/fonts/ before every run — so a
+    // refreshed face lands under a NEW name and the old one stops being
+    // referenced. A stale immutable copy can never be requested.
+    //
+    // These went same-origin in wordle-teams-c0f.7 specifically to get off the
+    // cold-start critical path; leaving them on the revalidate-always default
+    // would give back part of what that bought.
+    for (const font of ['/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7W0Q5n-wU.woff2']) {
+      expect(policyFor(font), font).toContain('immutable')
+      expect(policyFor(font), font).toContain('max-age=31536000')
+    }
+  })
+
   test('the OpenGraph image matches what production sends, byte for byte', () => {
     // Parity is the point of this rule — the apex inherits it at cutover.
     expect(policyFor('/opengraph-image.png')).toBe(

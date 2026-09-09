@@ -33,6 +33,20 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+# SELF-HOSTED FONTS (wordle-teams-c0f.7). Safe to freeze for exactly the reason
+# /assets/* is: the filenames come from Google and are content-derived, and
+# scripts/fetch-fonts.mjs clears public/fonts/ before each run, so a refreshed
+# face arrives under a NEW name and the old one stops being referenced. A stale
+# immutable copy can never be requested.
+#
+# THESE WENT SAME-ORIGIN TO GET OFF THE COLD-START PATH. The Google @import they
+# replaced was serial and landed on a new origin — measured at 70-90ms on
+# broadband and several hundred on cellular, on every cold launch of the
+# installed app. Leaving them on the revalidate-always default would hand part
+# of that back.
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
 # EXACTLY WHAT PRODUCTION SENDS, byte for byte, which is the parity this issue
 # asked for. Safe for the same reason lib/seo.ts already records: Facebook's and
 # LinkedIn's scrapers cache the card image BY URL, so redrawing it means
