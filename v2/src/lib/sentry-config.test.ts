@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import {
   DEFAULT_SENTRY_ENVIRONMENT,
+  SENTRY_RELEASE,
   TRACES_SAMPLE_RATE,
   sentryEnvironment,
 } from './sentry-config'
@@ -90,5 +92,44 @@ describe('the two SDKs agree on sampling', () => {
     // silently rather than erroring.
     expect(TRACES_SAMPLE_RATE).toBeGreaterThan(0)
     expect(TRACES_SAMPLE_RATE).toBeLessThanOrEqual(1)
+  })
+})
+
+/**
+ * THE RELEASE IS A BUILD-TIME CONTRACT BETWEEN TWO FILES, and this is the half
+ * that can be checked from here. `SENTRY_RELEASE` reads a constant that
+ * vite.config.ts substitutes with `define`; under vitest that constant is absent
+ * by design, so asserting its VALUE here would assert nothing about a real build.
+ * What is worth pinning is that vite.config.ts still supplies it — because
+ * sentry-config.ts guards the read with `typeof` (it has to, or no suite that
+ * imports it can even load), and that guard turns a deleted `define` into a
+ * SILENT loss of every release rather than a crash.
+ */
+describe('the Sentry release is wired at build time', () => {
+  const viteConfig = readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8')
+
+  test('vite.config.ts defines __SENTRY_RELEASE__', () => {
+    // The mutant this exists for: someone tidies the `define` away, every gate
+    // stays green, and client errors quietly stop carrying a release again.
+    expect(
+      viteConfig,
+      'vite.config.ts no longer defines __SENTRY_RELEASE__, so SENTRY_RELEASE is ' +
+        'silently undefined and wordle-teams-b7av has regressed',
+    ).toMatch(/define:\s*\{[^}]*__SENTRY_RELEASE__/)
+  })
+
+  test('it is derived from a commit SHA, not a hand-written string', () => {
+    // A literal would satisfy the assertion above while pinning every deploy to
+    // the same release, which is worse than none: Sentry would attribute a new
+    // regression to whatever that string names.
+    expect(viteConfig).toMatch(/GITHUB_SHA/)
+    expect(viteConfig).toMatch(/rev-parse/)
+  })
+
+  test('SENTRY_RELEASE is undefined under vitest, and that is the guard working', () => {
+    // Not a tautology: if the `typeof` guard were removed, importing this module
+    // would throw ReferenceError and this file could not run at all. That it
+    // loads AND reports undefined is the evidence.
+    expect(SENTRY_RELEASE).toBeUndefined()
   })
 })

@@ -92,3 +92,33 @@ export function sentryEnvironment(hostname: string): string {
   if (NON_PRODUCTION_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) return 'development'
   return DEFAULT_SENTRY_ENVIRONMENT
 }
+
+/**
+ * THE RELEASE, ONE VALUE FOR BOTH SDKS. Substituted by Vite's `define` from the
+ * commit SHA at build time — see the argument in vite.config.ts for why a SHA
+ * rather than the Cloudflare version id the worker was already getting for free.
+ *
+ * `undefined` RATHER THAN null WHEN ABSENT, because that is what Sentry's option
+ * expects: passing null would set a release literally named "null" on every
+ * event, which is worse than having none. A build with no git available gets no
+ * release, exactly as before wordle-teams-b7av.
+ *
+ * THE `typeof` GUARD IS NOT DEFENSIVE PADDING — without it this module cannot be
+ * IMPORTED under vitest. vitest.config.ts is a separate config and does not carry
+ * vite.config.ts's `define`, so the bare identifier throws ReferenceError at
+ * module scope and takes every suite that imports this file down with it
+ * (measured: sentry-config.test.ts and server.test.ts both died).
+ *
+ * `typeof` ALSO SURVIVES THE SUBSTITUTION, which is what makes this work in both
+ * places rather than only one: `define` is a raw text replacement, so in a real
+ * build this reads `typeof "<sha>"`, which is "string". Under vitest the
+ * identifier stays undeclared, and `typeof` on an undeclared name is legal
+ * JavaScript rather than a throw.
+ *
+ * IT DOES MEAN A DELETED `define` WOULD FAIL QUIETLY — release simply absent,
+ * which is the bug b7av was filed for. sentry-config.test.ts asserts against
+ * vite.config.ts's source for exactly that reason; that assertion is the only
+ * thing standing between this and a silent regression.
+ */
+export const SENTRY_RELEASE: string | undefined =
+  typeof __SENTRY_RELEASE__ === 'undefined' ? undefined : (__SENTRY_RELEASE__ ?? undefined)

@@ -4,7 +4,11 @@ import handler from '@tanstack/react-start/server-entry'
 import { NO_STORE, STATIC_CACHE, cachePolicyFor, hasSessionCookie } from './lib/cache-policy'
 import { MAINTENANCE_PATH, isMaintenanceGated, maintenanceEnabled } from './lib/maintenance'
 import { NOINDEX_VALUE, shouldNoindex } from './lib/robots-policy'
-import { DEFAULT_SENTRY_ENVIRONMENT, TRACES_SAMPLE_RATE } from './lib/sentry-config'
+import {
+  DEFAULT_SENTRY_ENVIRONMENT,
+  SENTRY_RELEASE,
+  TRACES_SAMPLE_RATE,
+} from './lib/sentry-config'
 
 // @ts-expect-error handler type mismatch between TanStack Start and the Sentry
 // SDK's ServerEntry (Start's fetch opts are typed, Sentry's are unknown) —
@@ -384,14 +388,31 @@ const withRobotsPolicy = {
  * unset var must not silently relabel real incidents into an environment the
  * alerts do not watch; noise is recoverable, an invisible outage is not.
  *
- * `release` is NOT set here and is not missing: getFinalOptions in
- * @sentry/cloudflare already fills it from CF_VERSION_METADATA.id, the same
- * binding the edge cache keys on.
+ * `release` IS SET HERE AND OVERRIDES WHAT THE SDK WOULD HAVE CHOSEN.
+ * getFinalOptions in @sentry/cloudflare fills it from CF_VERSION_METADATA.id, so
+ * the worker was never missing one — but the BROWSER cannot see that id, because
+ * Cloudflare assigns it at deploy time, after the client bundle is built. Only a
+ * build-time value can be shared by both halves, and a trace whose server span
+ * and client span disagree about the release is the untidiness wordle-teams-b7av
+ * was filed over. getFinalOptions returns `{ release, ...userOptions }`, so a
+ * `release` passed here wins — verified in its source, not assumed.
+ *
+ * THE CLOUDFLARE ID IS KEPT AS A TAG rather than dropped. Overriding `release`
+ * would otherwise lose the only handle that correlates a Sentry event with a
+ * Cloudflare deploy version — and with the edge cache, which keys on the same
+ * binding (see wrangler.jsonc). A tag costs nothing and keeps both directions
+ * reachable: SHA to the commit, cf_version to the deploy.
  */
 export default Sentry.withSentry(
-  (env: { SENTRY_DSN?: string; ENVIRONMENT?: string }) => ({
+  (env: {
+    SENTRY_DSN?: string
+    ENVIRONMENT?: string
+    CF_VERSION_METADATA?: { id?: string }
+  }) => ({
     dsn: env.SENTRY_DSN,
     environment: env.ENVIRONMENT ?? DEFAULT_SENTRY_ENVIRONMENT,
+    release: SENTRY_RELEASE,
+    initialScope: { tags: { cf_version: env.CF_VERSION_METADATA?.id } },
     tracesSampleRate: TRACES_SAMPLE_RATE,
   }),
   withRobotsPolicy,

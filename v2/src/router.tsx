@@ -4,7 +4,7 @@ import { QueryClient, notifyManager } from '@tanstack/react-query'
 import { ConvexQueryClient } from '@convex-dev/react-query'
 import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
 import { routeTree } from './routeTree.gen'
-import { TRACES_SAMPLE_RATE, sentryEnvironment } from './lib/sentry-config'
+import { SENTRY_RELEASE, TRACES_SAMPLE_RATE, sentryEnvironment } from './lib/sentry-config'
 import { captureError } from './lib/sentry-capture'
 
 export function getRouter() {
@@ -64,6 +64,11 @@ export function getRouter() {
       // sentryEnvironment. Safe to read window here: this branch is already
       // behind !router.isServer.
       environment: sentryEnvironment(window.location.hostname),
+      // The worker filled this in for itself from CF_VERSION_METADATA.id; the
+      // browser had nothing, so no client error or pageload trace could be tied
+      // to a deploy (wordle-teams-b7av). Same value on both halves now, so the
+      // two spans of one trace agree.
+      release: SENTRY_RELEASE,
       tracesSampleRate: TRACES_SAMPLE_RATE,
       // Without a browser-tracing integration nothing on the client ever starts
       // a span, so tracesSampleRate above would sample a population of zero.
