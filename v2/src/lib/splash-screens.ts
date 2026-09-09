@@ -160,3 +160,37 @@ export function splashTargets(): readonly SplashTarget[] {
     ),
   )
 }
+
+/**
+ * The iOS web-app meta tags, spread into routes/__root.tsx's head.
+ *
+ * ONE TAG, AND THE OMISSION IS AS DELIBERATE AS THE INCLUSION.
+ * `apple-mobile-web-app-capable` is what makes iOS honour
+ * apple-touch-startup-image at all. It is NOT
+ * `apple-mobile-web-app-status-bar-style: black-translucent`, which __root.tsx
+ * argues against on the grounds that it forces light status-bar text regardless
+ * of theme and this app has a light mode — accepting a top safe-area inset of 0
+ * in standalone as the cost.
+ *
+ * Those two tags have near-identical names and opposite verdicts, which is
+ * exactly how a reasoned decision gets reversed by someone completing the set
+ * in good faith. splash-screens.test.ts asserts the status-bar tag is ABSENT,
+ * so that reversal fails a gate rather than shipping.
+ */
+export const appleWebAppMetaTags: ReadonlyArray<{ name: string; content: string }> = [
+  { name: 'apple-mobile-web-app-capable', content: 'yes' },
+]
+
+/**
+ * One <link rel="apple-touch-startup-image"> per target.
+ *
+ * Shaped for TanStack's `head().links` and spread there, the same way
+ * lib/seo.ts's `socialMetaTags` is spread into `head().meta` — a data structure
+ * rather than inline JSX because that is the only shape `vitest run` can read.
+ */
+export const splashLinkTags: ReadonlyArray<{ rel: string; href: string; media: string }> =
+  splashTargets().map((target) => ({
+    rel: 'apple-touch-startup-image',
+    href: target.file,
+    media: target.media,
+  }))

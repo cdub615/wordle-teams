@@ -14,6 +14,7 @@ import type { ConvexQueryClient } from '@convex-dev/react-query'
 import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
 import { pageTitle, socialMetaTags } from '#/lib/seo'
+import { appleWebAppMetaTags, splashLinkTags } from '#/lib/splash-screens.ts'
 import { useServiceWorkerRegistration } from '#/lib/register-sw.ts'
 import { hidesSiteFooter } from '#/lib/site-chrome.ts'
 import Footer from '../components/Footer'
@@ -103,6 +104,20 @@ export const Route = createRootRouteWithContext<RouterContext>()({
           and this app has a light mode. Safari tabs and Android get the top
           inset from this meta alone; the padding below is correct either way,
           because it is 0 wherever the inset is 0.
+
+          THAT DECISION IS UNCHANGED BY THE LAUNCH SCREENS (wordle-teams-c0f),
+          AND THE TWO TAGS ARE SEPARABLE. `appleWebAppMetaTags` below adds
+          `apple-mobile-web-app-capable`, which is what makes iOS honour
+          apple-touch-startup-image at all. It is a DIFFERENT tag from
+          `status-bar-style`: it does not choose the status-bar text colour and
+          it does not make the top inset non-zero. The near-identical names are
+          the hazard — completing the set in good faith would silently reverse
+          the argument above — so lib/splash-screens.test.ts asserts the
+          status-bar tag is ABSENT. If it is ever wanted, deleting that test is
+          the visible act that says so.
+
+          Verified on the device rather than assumed: wordle-teams-c0f.5's
+          recording also confirms the status bar and the top inset did not move.
         */
         name: 'viewport',
         content: 'width=device-width, initial-scale=1, viewport-fit=cover',
@@ -138,6 +153,13 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         og:url note in lib/seo.ts.
       */
       ...socialMetaTags,
+      /*
+        THE ONE iOS WEB-APP META, AND ITS OMITTED SIBLING. See the viewport
+        comment above: this is `apple-mobile-web-app-capable`, the precondition
+        for iOS honouring the startup images below, and NOT
+        `status-bar-style: black-translucent`, which stays deliberately unset.
+      */
+      ...appleWebAppMetaTags,
     ],
     links: [
       {
@@ -152,6 +174,27 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         rel: 'manifest',
         href: '/manifest.json',
       },
+      /*
+        THE iOS LAUNCH SCREENS (wordle-teams-c0f). 60 links: 12 iPhones
+        portrait, 9 iPads portrait and landscape, light and dark.
+
+        WHY SO MANY, AND WHY THAT IS AFFORDABLE. iOS selects a startup image by
+        media query on the device's points and pixel ratio, and IGNORES any
+        image whose pixels do not match the screen exactly — so there is no
+        single "large" image that covers everything, and a missing match means
+        the unbranded black hold that this epic measured at ~1.9s, about 73% of
+        a cold launch. The markup is near-identical line to line, so all 60
+        compress to 0.5 kB brotli (14.1 kB raw) — measured, on a document that
+        is 15.4 kB. That is why they are emitted unconditionally rather than
+        gated on a sniffed user agent.
+
+        THE LIST IS DERIVED, NOT WRITTEN HERE. lib/splash-screens.ts is the
+        single source for both these links and the files
+        scripts/build-splash-screens.mjs renders, because a link whose file was
+        never generated is a query iOS matches and then finds nothing behind —
+        invisible in CI, and total on the affected device.
+      */
+      ...splashLinkTags,
     ],
   }),
   shellComponent: RootDocument,

@@ -1,5 +1,13 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { SPLASH_DEVICES, splashMedia, splashPixels, splashTargets } from './splash-screens.ts'
+import {
+  SPLASH_DEVICES,
+  appleWebAppMetaTags,
+  splashLinkTags,
+  splashMedia,
+  splashPixels,
+  splashTargets,
+} from './splash-screens.ts'
 
 describe('splashMedia', () => {
   test('a portrait query names the device points, the pixel ratio and the orientation', () => {
@@ -139,6 +147,57 @@ describe('splashTargets', () => {
 
       expect(t.media).toBe(splashMedia(device, t.orientation, t.theme))
       expect(t.pixels).toEqual(splashPixels(device, t.orientation))
+    }
+  })
+})
+
+describe('the tags routes/__root.tsx emits', () => {
+  test('declares the app web-app-capable, which is what makes iOS honour the images', () => {
+    expect(appleWebAppMetaTags).toContainEqual({
+      name: 'apple-mobile-web-app-capable',
+      content: 'yes',
+    })
+  })
+
+  /*
+    PINNING A DECISION, NOT A BEHAVIOUR, AND ON PURPOSE.
+
+    routes/__root.tsx records why `apple-mobile-web-app-status-bar-style:
+    black-translucent` is deliberately NOT set: it forces light status-bar text
+    regardless of theme, and this app has a light mode. The accepted cost is a
+    top safe-area inset of 0 in iOS standalone.
+
+    Adding `apple-mobile-web-app-capable` for the splash puts a tag with a very
+    similar name right next to that argument, which is exactly the situation in
+    which someone "completes the set" in good faith and silently reverses a
+    reasoned decision. This test makes that reversal fail loudly instead. If the
+    decision is ever revisited deliberately, this test is the thing to delete —
+    and deleting it is a visible act.
+  */
+  test('does NOT set a status-bar style — see the argument in __root.tsx', () => {
+    expect(appleWebAppMetaTags.map((t) => t.name)).not.toContain(
+      'apple-mobile-web-app-status-bar-style',
+    )
+  })
+
+  test('emits one startup-image link per target', () => {
+    expect(splashLinkTags).toHaveLength(splashTargets().length)
+    for (const tag of splashLinkTags) expect(tag.rel).toBe('apple-touch-startup-image')
+  })
+
+  /*
+    THE LOOP CLOSED IN CI RATHER THAN ONLY AT GENERATE TIME. The generator
+    asserts it wrote a file for every target, but nothing stopped someone
+    deleting one afterwards, or adding a device entry and committing before
+    re-running `pnpm build:splash`. A <link> whose file is missing is a query iOS
+    matches and then finds nothing behind — the blank hold, on one device, with
+    no error anywhere. readFileSync throwing IS the assertion, the same way
+    about-screenshots.test.ts proves its images are in public/.
+  */
+  test('every link points at a file that is actually in public/', () => {
+    for (const tag of splashLinkTags) {
+      const file = new URL(`../../public${tag.href}`, import.meta.url)
+      expect(() => readFileSync(file), `${tag.href} is not in public/`).not.toThrow()
     }
   })
 })
