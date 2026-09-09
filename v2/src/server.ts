@@ -4,7 +4,7 @@ import handler from '@tanstack/react-start/server-entry'
 import { NO_STORE, STATIC_CACHE, cachePolicyFor, hasSessionCookie } from './lib/cache-policy'
 import { MAINTENANCE_PATH, isMaintenanceGated, maintenanceEnabled } from './lib/maintenance'
 import { NOINDEX_VALUE, shouldNoindex } from './lib/robots-policy'
-import { TRACES_SAMPLE_RATE } from './lib/sentry-config'
+import { DEFAULT_SENTRY_ENVIRONMENT, TRACES_SAMPLE_RATE } from './lib/sentry-config'
 
 // @ts-expect-error handler type mismatch between TanStack Start and the Sentry
 // SDK's ServerEntry (Start's fetch opts are typed, Sentry's are unknown) —
@@ -361,9 +361,37 @@ const withRobotsPolicy = {
   },
 }
 
+/**
+ * `environment` FROM THE VAR, NOT THE HOSTNAME, AND THAT IS THE OPPOSITE OF
+ * withRobotsPolicy ABOVE ON PURPOSE.
+ *
+ * Without it both SDKs fell back to Sentry's default of "production" and beta
+ * was indistinguishable from a real incident (wordle-teams-9wpd). The browser
+ * half of the fix keys on the hostname; this one cannot, because
+ * `withSentry(optionsCallback, handler)` hands the callback `env` and never the
+ * Request — options are built before the request is wrapped. Nor is an
+ * event processor a substitute: the `sentry-environment` in the baggage meta,
+ * which is the symptom that was actually measured, comes from the Dynamic
+ * Sampling Context, and that is built from client OPTIONS rather than from
+ * events. See lib/sentry-config.ts for the whole argument.
+ *
+ * So this is wrong for beta during the cutover window, when one deployment
+ * answers on both names, and right again the moment dev and prod are separate
+ * deployments (wordle-teams-qjh3). The failure is beta traffic labelled
+ * production — noisy and obvious, never a hidden production incident.
+ *
+ * DEFAULTS TO production, unlike /api/funnel's `?? 'beta'` for LogSnag. An
+ * unset var must not silently relabel real incidents into an environment the
+ * alerts do not watch; noise is recoverable, an invisible outage is not.
+ *
+ * `release` is NOT set here and is not missing: getFinalOptions in
+ * @sentry/cloudflare already fills it from CF_VERSION_METADATA.id, the same
+ * binding the edge cache keys on.
+ */
 export default Sentry.withSentry(
-  (env: { SENTRY_DSN?: string }) => ({
+  (env: { SENTRY_DSN?: string; ENVIRONMENT?: string }) => ({
     dsn: env.SENTRY_DSN,
+    environment: env.ENVIRONMENT ?? DEFAULT_SENTRY_ENVIRONMENT,
     tracesSampleRate: TRACES_SAMPLE_RATE,
   }),
   withRobotsPolicy,

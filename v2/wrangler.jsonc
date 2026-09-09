@@ -70,6 +70,19 @@
 		 * secret — it is not sensitive, and the whole point is that it is visible
 		 * and obvious. CHANGE THIS TO "production" AT CUTOVER (Phase 8).
 		 *
+		 * IT NOW ALSO TAGS SENTRY, so flipping it moves two things at once. The
+		 * worker's Sentry init reads it in src/server.ts (wordle-teams-9wpd);
+		 * without it both SDKs defaulted to "production" and beta traces were
+		 * indistinguishable from real incidents. The BROWSER half deliberately
+		 * does not read this — one client bundle is served on every hostname the
+		 * deployment answers to, so it keys on the hostname instead. The argument
+		 * for the split is in src/lib/sentry-config.ts.
+		 *
+		 * The two readers disagree about an unset value on purpose: the funnel
+		 * falls back to "beta", Sentry to "production", because a missing var
+		 * must never relabel a real incident into an environment the alerts do
+		 * not watch.
+		 *
 		 * LOGSNAG_TOKEN is deliberately NOT here: that one is a real secret and is
 		 * pushed with `wrangler secret put LOGSNAG_TOKEN`. If it is unset the
 		 * funnel route degrades to a silent no-op rather than failing.

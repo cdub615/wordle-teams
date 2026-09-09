@@ -4,7 +4,7 @@ import { QueryClient, notifyManager } from '@tanstack/react-query'
 import { ConvexQueryClient } from '@convex-dev/react-query'
 import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
 import { routeTree } from './routeTree.gen'
-import { TRACES_SAMPLE_RATE } from './lib/sentry-config'
+import { TRACES_SAMPLE_RATE, sentryEnvironment } from './lib/sentry-config'
 import { captureError } from './lib/sentry-capture'
 
 export function getRouter() {
@@ -58,6 +58,12 @@ export function getRouter() {
   if (!router.isServer) {
     Sentry.init({
       dsn: import.meta.env.VITE_SENTRY_DSN,
+      // Derived from the hostname rather than a VITE_ var, because this bundle
+      // is one artifact served on every name its deployment answers to and
+      // import.meta.env is inlined at build time — see the argument on
+      // sentryEnvironment. Safe to read window here: this branch is already
+      // behind !router.isServer.
+      environment: sentryEnvironment(window.location.hostname),
       tracesSampleRate: TRACES_SAMPLE_RATE,
       // Without a browser-tracing integration nothing on the client ever starts
       // a span, so tracesSampleRate above would sample a population of zero.
