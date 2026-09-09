@@ -183,10 +183,20 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         image whose pixels do not match the screen exactly — so there is no
         single "large" image that covers everything, and a missing match means
         the unbranded black hold that this epic measured at ~1.9s, about 73% of
-        a cold launch. The markup is near-identical line to line, so all 60
-        compress to 0.5 kB brotli (14.1 kB raw) — measured, on a document that
-        is 15.4 kB. That is why they are emitted unconditionally rather than
-        gated on a sniffed user agent.
+        a cold launch.
+
+        THE COST, MEASURED ON BETA RATHER THAN REASONED ABOUT. The markup is
+        near-identical line to line, so it compresses about 28:1: 14.1 kB raw
+        becomes 0.5 kB brotli. GET /login went from 15.4 kB raw to 29.9 kB raw,
+        and 5.1 kB brotli on the wire — so these links are roughly a TENTH of
+        the compressed document, which at cellular speeds is on the order of
+        2ms against a 1900ms hold. Emitted unconditionally rather than gated on
+        a sniffed user agent for that reason.
+
+        (An earlier version of this comment said "roughly 3%", from comparing
+        the brotli figure against the UNCOMPRESSED document size. Same verdict,
+        wrong arithmetic; corrected here because a bad ratio in a performance
+        comment is how the next person reaches a different conclusion.)
 
         THE LIST IS DERIVED, NOT WRITTEN HERE. lib/splash-screens.ts is the
         single source for both these links and the files
