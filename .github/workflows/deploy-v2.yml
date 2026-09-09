@@ -270,6 +270,36 @@ jobs:
       # whether or not they ever open insights -- invisibly, with every gate green.
       # insights-corpus.test.ts catches the cause (an import in the source); this
       # catches the effect, which is the thing that actually ships.
+      # THE SOURCE MAPS ARE UPLOADED TO SENTRY AND THEN DELETED, and dist/client
+      # is the PUBLIC asset directory (dist/server/wrangler.json sets
+      # assets.directory to "../client"). So a .map surviving here is the entire
+      # source tree on a public URL — the one way wordle-teams-p1as could make
+      # things worse instead of better.
+      #
+      # The deletion is the Sentry plugin's `filesToDeleteAfterUpload`, and it
+      # runs even when the upload is skipped (verified locally with no auth
+      # token). This guards the case where that stops being true: a plugin
+      # upgrade, someone setting `sourcemaps.disable`, or the option being
+      # dropped while `build.sourcemap` stays on — which is exactly the
+      # combination that switches the automatic deletion off.
+      #
+      # dist/server maps are DELIBERATELY KEPT and are not checked here: that
+      # directory is worker code, served to nobody, and its maps are what
+      # wrangler's `upload_source_maps` finally has to upload.
+      - name: No source map may reach the client bundle
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          found=$(find dist/client -name '*.map' | head -20)
+          if [ -n "$found" ]; then
+            echo "::error::Source maps survived into the PUBLIC asset directory."
+            echo "$found"
+            echo "These would be served from beta/production and expose the source."
+            echo "See v2/vite.config.ts: sentryTanstackStart's filesToDeleteAfterUpload."
+            exit 1
+          fi
+          echo "clean: no .map in dist/client"
+
       - name: The insights corpus must not reach the client bundle
         if: github.event_name == 'push'
         run: |
