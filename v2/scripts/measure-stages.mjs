@@ -56,15 +56,25 @@
  * REFUSES to write unless `git check-ignore` says it is ignored. This repository
  * is public; that guard is not decoration.
  *
- * Usage:
- *   node scripts/measure-stages.mjs --login          # sign in once, by hand
- *   node scripts/measure-stages.mjs [--runs 20] [--origin https://...]
+ * Usage — run with an ABSOLUTE path from anywhere; do NOT prefix with `cd v2 &&`,
+ * which a zoxide-aliased `cd` can short-circuit so that nothing runs at all:
+ *
+ *   node <repo>/v2/scripts/measure-stages.mjs --login    # sign in once, by hand
+ *   node <repo>/v2/scripts/measure-stages.mjs [--runs 20] [--origin https://...]
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { chromium } from '@playwright/test'
 
 const SESSION_FILE = new URL('../.beta-session.local', import.meta.url).pathname
+/**
+ * Printed in every hint, as an ABSOLUTE path, because `cd v2 && node ...` is not
+ * safe to suggest: a zoxide-aliased `cd` that finds no new match exits non-zero
+ * and the `&&` silently swallows the rest of the line. Nothing runs and nothing
+ * says why. The script itself is cwd-independent — it resolves both this file
+ * and node_modules from import.meta.url — so the absolute form always works.
+ */
+const SELF = new URL(import.meta.url).pathname
 const ORIGIN = argValue('--origin') ?? 'https://beta.wordleteams.com'
 const RUNS = Number(argValue('--runs') ?? 20)
 const WARMUP = 3
@@ -127,23 +137,121 @@ function ensureDisplay() {
   console.log(`[measure-stages] No DISPLAY set; using ${process.env.DISPLAY} (found an X socket).`)
 }
 
+/**
+ * Duplicated from lib/cache-policy.ts, which cannot be imported here: that is
+ * TypeScript inside the app's bundle and this is a plain script run by node.
+ * `__Secure-` is optional for the same reason it is optional there — Better Auth
+ * adds the prefix over https and not over local http.
+ */
+const SESSION_COOKIE_NAMES = ['better-auth.session_token', 'better-auth.convex_jwt']
+const isSessionCookie = (name) =>
+  SESSION_COOKIE_NAMES.includes(name.replace(/^__Secure-/, ''))
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * WAITS ON THE COOKIE, NOT ON THE PAGE URL, and the difference is why the first
+ * attempt at this failed after ten minutes of a real person signing in.
+ *
+ * Watching `page.waitForURL` watches ONE TAB. Sign-in here can leave that tab
+ * behind entirely — an OAuth provider may open its consent in a new window, and
+ * an emailed link opens wherever the mail client sends it. The original page
+ * then sits on /login forever while the context is perfectly well authenticated.
+ * Cookies are a property of the CONTEXT, so polling them covers every tab, every
+ * provider, and every landing page without enumerating any of them.
+ *
+ * It is also the thing actually being collected. A URL was only ever a proxy for
+ * "is there a session yet", and a proxy that can be right when the answer is
+ * wrong is worse than reading the answer.
+ */
 async function login() {
   assertIgnored(SESSION_FILE)
   ensureDisplay()
   const browser = await chromium.launch({ headless: false })
+  // EVERY EXIT PATH CLOSES THE BROWSER, including the throwing ones. Without
+  // this the first attempt's timeout left an orphaned Chromium holding node's
+  // event loop open: the script had already given up and printed its error, but
+  // the process never exited and the window sat there looking live. A person
+  // signing in at that point is signing into a browser nothing is watching.
+  try {
+    await loginIn(browser)
+  } finally {
+    await browser.close().catch(() => {})
+  }
+}
+
+async function loginIn(browser) {
   const context = await browser.newContext()
+
+  // If the window is closed by hand, say so immediately rather than sitting out
+  // the full timeout — which is exactly how the first attempt wasted 10 minutes.
+  let closed = false
+  browser.on('disconnected', () => {
+    closed = true
+  })
+
   const page = await context.newPage()
   await page.goto(`${ORIGIN}/login`)
   console.log(`\n[measure-stages] Sign in in the browser window that just opened.`)
-  console.log(`[measure-stages] Waiting for a signed-in page (up to 10 minutes)...`)
-  // Any authenticated route will do; /app is where a successful sign-in lands.
-  await page.waitForURL((url) => /\/(app|complete-profile|me)\b/.test(url.pathname), {
-    timeout: 600_000,
-  })
-  await context.storageState({ path: SESSION_FILE })
-  await browser.close()
-  console.log(`[measure-stages] Session saved to ${SESSION_FILE} (gitignored).`)
-  console.log(`[measure-stages] Now run:  node scripts/measure-stages.mjs --runs ${RUNS}\n`)
+  console.log(`[measure-stages] Any tab, any provider — this watches the session cookie,`)
+  console.log(`[measure-stages] not the page. Waiting up to 30 minutes.\n`)
+
+  const deadline = Date.now() + 30 * 60_000
+  let waited = 0
+  while (Date.now() < deadline) {
+    if (closed) {
+      throw new Error('The browser was closed before a session appeared. Nothing was saved.')
+    }
+    const cookies = await context.cookies().catch(() => [])
+    if (cookies.some((c) => isSessionCookie(c.name))) {
+      // The session token can land a beat before the Convex JWT. Let the rest
+      // settle rather than saving half a session.
+      await sleep(3000)
+      await context.storageState({ path: SESSION_FILE })
+      const saved = (await context.cookies()).filter((c) => isSessionCookie(c.name))
+      console.log(
+        `\n[measure-stages] Signed in — saved ${saved.length} session cookie(s) to`,
+      )
+      console.log(`[measure-stages] ${SESSION_FILE} (gitignored).`)
+      await verifySession()
+      return
+    }
+    await sleep(2000)
+    waited += 2
+    if (waited % 30 === 0) {
+      process.stdout.write(`\r  still waiting… ${waited}s (sign in at your own pace)`)
+    }
+  }
+  throw new Error('Timed out after 30 minutes with no session cookie. Nothing was saved.')
+}
+
+/**
+ * Proves the saved session actually renders an authenticated route, HERE, rather
+ * than letting it be discovered as a wall of near-zero differentials later. The
+ * measure run has the same guard, but finding out at sign-in time is the
+ * difference between re-running one command and re-running the whole thing.
+ */
+async function verifySession() {
+  const browser = await chromium.launch()
+  try {
+    const context = await browser.newContext({
+      storageState: SESSION_FILE,
+      serviceWorkers: 'block',
+    })
+    const page = await context.newPage()
+    await page.goto(`${ORIGIN}/app`, { waitUntil: 'domcontentloaded' })
+    const landed = new URL(page.url()).pathname
+    if (landed === '/app') {
+      console.log(`[measure-stages] Verified: /app renders itself with this session.`)
+      console.log(`[measure-stages] Now run:  node ${SELF} --runs ${RUNS}\n`)
+    } else {
+      console.log(`[measure-stages] !! /app landed on ${landed} — the session is not usable.`)
+      console.log(`[measure-stages] !! Re-run --login and complete sign-in fully.\n`)
+      process.exitCode = 1
+    }
+  } finally {
+    await browser.close()
+  }
 }
 
 /** One document request in a fresh page, timed from the Navigation Timing API. */
@@ -173,7 +281,7 @@ const p25 = (v) => [...v].sort((a, b) => a - b)[Math.max(0, Math.ceil(0.25 * v.l
 
 async function measure() {
   if (!existsSync(SESSION_FILE)) {
-    throw new Error(`No session at ${SESSION_FILE}. Run:  node scripts/measure-stages.mjs --login`)
+    throw new Error(`No session at ${SESSION_FILE}.\n  Run:  node ${SELF} --login`)
   }
   const browser = await chromium.launch()
   const context = await browser.newContext({
@@ -191,16 +299,21 @@ async function measure() {
   const landings = new Map(TARGETS.map((t) => [t.path, new Set()]))
 
   console.log(`\n[measure-stages] ${ORIGIN} — ${WARMUP} warm-up + ${RUNS} interleaved rounds\n`)
-  for (let round = 0; round < WARMUP + RUNS; round++) {
-    for (const target of TARGETS) {
-      const s = await sample(context, target.path)
-      landings.get(target.path).add(`${s.status} ${s.landed}`)
-      if (round >= WARMUP) samples.get(target.path).push(s)
+  // Same reason as the sign-in path: a throw part-way through must not leave a
+  // Chromium holding the event loop open with no one watching it.
+  try {
+    for (let round = 0; round < WARMUP + RUNS; round++) {
+      for (const target of TARGETS) {
+        const s = await sample(context, target.path)
+        landings.get(target.path).add(`${s.status} ${s.landed}`)
+        if (round >= WARMUP) samples.get(target.path).push(s)
+      }
+      if (round === WARMUP - 1) console.log('  (warm-up discarded)')
+      else if (round >= WARMUP) process.stdout.write(`\r  round ${round - WARMUP + 1}/${RUNS}`)
     }
-    if (round === WARMUP - 1) console.log('  (warm-up discarded)')
-    else if (round >= WARMUP) process.stdout.write(`\r  round ${round - WARMUP + 1}/${RUNS}`)
+  } finally {
+    await browser.close().catch(() => {})
   }
-  await browser.close()
   console.log('\n')
 
   // THE SESSION CHECK COMES FIRST. If /app served /login, everything below is a
