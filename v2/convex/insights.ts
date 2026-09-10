@@ -3,6 +3,7 @@ import { query } from './_generated/server'
 import { currentPlayer, insightsAccessFor, requireTeamMemberFor } from './access'
 import { attemptsFor } from './lib/board.ts'
 import { visibleSlice } from './lib/globalThreshold.ts'
+import type { InsightsAccess } from './lib/insightsAccess.ts'
 
 /**
  * The boards Layer 1 benchmarks, and what this player is allowed to see of them.
@@ -19,6 +20,32 @@ import { visibleSlice } from './lib/globalThreshold.ts'
 
 /** A pro player's history is bounded rather than unbounded — see below. */
 const PRO_BOARD_LIMIT = 400
+
+/**
+ * The caller's own insights access, returned rather than merely applied.
+ *
+ * Every other query in this file computes access to gate its OWN payload and
+ * returns none of it, so before this the client had no way to know a trial had
+ * ended — only that Layer 2 had gone quiet. That is the difference between a
+ * player who upgrades and a player who assumes the feature broke.
+ *
+ * DELIBERATELY TRIVIAL. convex-test cannot authenticate (wordle-teams-obw), so
+ * anything decided in this body would be untestable by the unit suite. The one
+ * decision — what counts as an expired trial — lives in lib/insightsAccess.ts
+ * and is pinned there; this is a lookup and a forward, and e2e covers the wiring.
+ *
+ * NULL FOR A SIGNED-OUT CALLER, matching the rest of this file: an
+ * unauthenticated read is an expected state on a route that renders before auth
+ * resolves, not an error worth throwing over.
+ */
+export const myAccess = query({
+  args: {},
+  handler: async (ctx): Promise<InsightsAccess | null> => {
+    const player = await currentPlayer(ctx)
+    if (!player) return null
+    return await insightsAccessFor(ctx, player._id)
+  },
+})
 
 export const myBenchmarkBoards = query({
   args: {},
