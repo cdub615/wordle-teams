@@ -17,10 +17,16 @@ export const TRIAL_ENDED_TITLE = 'Your Insights trial has ended'
  * The positioning line, chosen in the Pro-tier spec and repeated in the pricing
  * spec: "free shows you today, Pro shows you everything you have done." The
  * pricing page, the launch email and this card must all say the same thing.
+ *
+ * Says MONTH, not season, and the distinction is load-bearing: Layer 3 is
+ * denominated in months (a per-team-per-month aggregate, and the free tier's own
+ * CTA is "see the full month"), while a season retrospective is a DEFERRED,
+ * unbuilt candidate. Copy shown at the moment someone decides whether to pay must
+ * not name a feature that does not exist.
  */
 export const TRIAL_ENDED_BODY =
   'You can still see today. Pro shows you everything you have done — your full ' +
-  'history, your team’s season, and every board you have ever entered.'
+  'history, your team’s full month, and every board you have ever entered.'
 
 /** A verb, so the button reads as an action rather than a label. */
 export const TRIAL_ENDED_CTA = 'See your history'
