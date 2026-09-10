@@ -31,6 +31,7 @@ import { formatMonthLabel } from '#/lib/format-day'
 import { formatDayHeaderParts } from '#/lib/format-day'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
 import { TeamPanel } from '#/components/insights/team-panel.tsx'
+import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
@@ -108,6 +109,16 @@ function InsightsRoute() {
         </Button>
         <h1 className="text-xl font-semibold">Insights</h1>
       </div>
+
+      {/*
+        FIRST THING IN THE MAIN CONTENT, ABOVE THE LOADING STATE AND THE PANELS
+        IT EXPLAINS. `myAccess` is its own query, independent of the benchmark
+        corpus and myBenchmarkBoards below — a player whose trial ended still
+        needs to see this whether or not the benchmark happens to be loading,
+        failed, or empty this render, so it does not live inside any of those
+        branches.
+      */}
+      <TrialEndedCard />
 
       {isPending || (!benchmark && !failed) ? (
         <div className="space-y-3" data-testid="insights-loading">
