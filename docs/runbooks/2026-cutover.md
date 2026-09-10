@@ -94,9 +94,16 @@ runbook whose evidence is an exit status is not evidence.
   secret *before* the `webhook-id` header at `:154`). Verified set on
   `fabulous-goldfish-949` on 2026-09-01.
 
-- [ ] **1.3 — One full dry run: copy + verify, no DNS flip.** §4.2–§4.4 exactly
-      as written, against beta, the week before. The cutover window is not where
-      you want to discover the copy's shape for the first time.
+- [ ] **1.3 — One full dry run: purge + copy + verify, no DNS flip.** §4.2–§4.5
+      exactly as written, against beta, the week before. The cutover window is not
+      where you want to discover the copy's shape for the first time.
+
+      **This now starts by emptying beta** (§4.2's purge step). That is fine and
+      is the point — everything in the beta deployment is testing data
+      permanently, per the owner's 2026-08-24 decision recorded in §4.2. It also
+      makes the dry run worth more than it used to be: it exercises the exact
+      sequence cutover day runs, and §4.5 coming back clean on beta is the
+      evidence that it will on production.
 
 - [ ] **1.4 — Resolve the paying customer by hand.**
 
@@ -312,6 +319,41 @@ property to know about, **not a step to run.**
 
 ### 4.2 — The final copy
 
+- [ ] **PURGE FIRST. This step is not optional and its ORDER is the whole point.**
+
+  ```
+  cd v2 && node --env-file=../.env.production.local --env-file=<convex env> \
+    scripts/purge-copied-data.mjs --confirm-deployment=$CONVEX_URL
+  ```
+
+  **Why this exists (`wordle-teams-z8wz`):** the copy below UPSERTS on
+  `byLegacyId`. It cannot remove anything. So without a purge, every row born in
+  v2 on this deployment survives the copy and shows up in §4.5 as a delta — 19
+  problems when last measured on beta (2026-09-05), growing. The operator reading
+  `PARITY FAILED` at 6am then has to decide, live, which deltas are expected.
+  Purging first means §4.5 can simply come back clean.
+
+  **`purgeCopiedData` does NOT filter on `legacyId`, despite its name.** It
+  empties `dailyScores`, `monthlyWinners`, `webhookEvents`, `playerMembership`,
+  `teams` and `players` completely — copied rows and v2-born rows alike. That is
+  what makes it the right tool here, and it is also the easiest thing in this
+  file to get backwards.
+
+  It **deletes ~800 rows per call and returns `remaining:true`** when there is
+  more. The script loops; running the mutation by hand once does not, and §4.4
+  GATE A exists because a half-purged deployment makes the next insert report
+  look like a resurrection. The script refuses unless `--confirm-deployment`
+  matches `CONVEX_URL` exactly — paste it, and read which deployment it names.
+
+  **It does not sign anyone out.** Better Auth's component tables are untouched,
+  and `players` is resolved by EMAIL (`players.by_email`), not document id, so a
+  re-copied row re-links to the same account.
+
+  **If the copy below fails after this runs, the deployment is empty.** That is
+  recoverable and not an emergency: v1 is frozen and still holds everything, and
+  DNS has not flipped. Fix the cause and re-run the copy. **Do not flip DNS until
+  §4.5 is clean.**
+
 - [ ] **Run it WITH `--with-reminders`. This flag is the whole restoration.**
 
   ```
@@ -392,9 +434,14 @@ wrong answer and sends you deleting rows the copy legitimately just wrote.
 - [ ] **GATE A — is this actually the same copy run again?** Not if: the previous
       copy died partway (whole tables at full size), the `--scope` or `ME_EMAIL`
       changed, this is the first copy into a deployment already holding v2-born
-      rows, or `purgeCopiedData` was run **but not looped** (it deletes ~800 per
-      call and returns `remaining:true`). In every one of these there is
-      **nothing to delete**.
+      rows, or the §4.2 purge **did not finish** — `purgeCopiedData` deletes ~800
+      per call and returns `remaining:true`, which is why §4.2 runs it through
+      `scripts/purge-copied-data.mjs` rather than by hand. In every one of these
+      there is **nothing to delete**.
+
+      Since §4.2 now purges before every copy, a deployment holding v2-born rows
+      at this point means that purge did not complete. Fix that and re-run the
+      copy; do not adjudicate individual rows.
 - [ ] **GATE B — did the skip filters' inputs move?** A nameless v1 player given
       a name, or a memberless team that gained a member, is a legitimate
       first-time insert of an OLD row. Compare both "Skipped" counts against the
@@ -417,6 +464,52 @@ and before the DNS flip**, then re-read the counts. There is no tombstone.
       **Counts come from `countTable`, which loops across transactions and is not
       a consistent snapshot.** If a count is off by one or two, **re-run before
       believing it.**
+
+**EXPECT THIS TO PASS.** With §4.2's purge run first, the deployment holds
+exactly what the copy just wrote, so parity is the normal outcome rather than a
+hopeful one. `verify-parity` is exact on purpose — its own header: *"a check that
+tolerated a delta could not tell a deliberate exclusion from a lost row."*
+
+#### If it reports PARITY FAILED — adjudicate, do not guess
+
+- [ ] **First: was the purge actually looped to completion?** By far the most
+      likely cause. `scripts/purge-copied-data.mjs` prints `N rows in M calls`
+      and only exits 0 when the mutation stopped reporting `remaining`. If it
+      threw, or was interrupted, or the mutation was run by hand instead — the
+      deployment is half-purged and holds copied rows the copy then re-upserted
+      plus v2-born rows it could not touch. **Re-run the purge, then re-run the
+      copy, then re-verify.** Do not start deleting rows.
+
+- [ ] **Second: decompose the delta by ORIGIN before interpreting it.**
+
+      ```
+      internal.migrate.parityProbe
+      ```
+      Returns `legacyId` per row for `players` / `teams` / `playerMembership`,
+      and `teamLegacyId` per `monthlyWinners` row. **`legacyId === undefined`
+      means the row was born in v2** — i.e. it survived a purge that did not
+      complete. Counts-only, so it is safe to paste in a public repo.
+
+      It does **not** cover `webhookEvents` or `dailyScores`. A `dailyScores`
+      delta has to be read against v1 directly, one player at a time, via
+      `playerScoreFingerprint`.
+
+- [ ] **Third: know which direction is actually dangerous.**
+
+      **A copied row MISSING from Convex is the only real failure.** That is data
+      loss and it stops the cutover. An EXTRA row in Convex is a purge that did
+      not finish — recoverable by re-running §4.2, and it has never once meant a
+      lost v1 row.
+
+      A `dailyScores` count that is LOW against Supabase for a specific player,
+      after a completed purge and a clean copy against a frozen v1, is the shape
+      that means stop.
+
+**Historical note, so the numbers in `wordle-teams-z8wz` are not misread as the
+expected state:** before this section had a purge step, beta measured 19 problems
+— `players +1`, `teams +3`, `playerMembership +1`, `monthlyWinners +3`,
+`webhookEvents +5`, `dailyScores +3 net`. Every one of those was a v2-born or
+beta-native row. They are what §4.2's purge now removes, not a delta to expect.
 
 ### 4.6 — Flip DNS, then switch the configuration
 
