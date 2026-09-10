@@ -60,7 +60,35 @@ crons.hourly('chat notifications', { minuteUTC: 30 }, internal.chatNotify.sweep,
  * cron deliberately never touches. What this catches is a month boundary passing
  * with nobody playing, and any future write path that forgets. See
  * convex/teamStats.ts for the full statement of the two triggers.
+ *
+ * DAILY, NOT HOURLY, AND THAT CHANGE PAID FOR ITSELF (wordle-teams-yhii).
+ * MEASURED 2026-09-10: the Convex deployment was using 460.26 MB of its 1 GB
+ * free-tier database I/O in 30 days — 45% — while Cloudflare recorded 8,910
+ * Worker invocations and 0 req/sec over the same window. Almost nobody was
+ * visiting, so almost none of that was users: modelling the user half from the
+ * reads pinned in dashboardBandwidth.test.ts gives roughly 33 MB. The rest was
+ * these three crons, and this one is the heavy one.
+ *
+ * THE COST WAS O(data) x 720 A MONTH. Every board written made all 720 of the
+ * next month's sweeps heavier, so the bill grew with the DATA rather than with
+ * the traffic — and the free-tier cap is HARD: mutations start failing rather
+ * than generating an invoice (wordle-teams-dcu). Hitting it means players cannot
+ * save boards, and the launch email is aimed at reactivating 322 dormant
+ * accounts, so the data was about to grow at exactly the wrong moment.
+ *
+ * 24x FEWER RUNS, AND THE PROPERTY IS UNCHANGED. What the sweep exists for is a
+ * month boundary passing unobserved; that happens twelve times a year, not 8,760.
+ * The exposure it adds is bounded and small: a team whose aggregate is stale can
+ * stay stale for up to a day rather than up to an hour — and only when NOBODY on
+ * that team writes a board, because any write repairs it through the real
+ * mechanism.
+ *
+ * HOUR 0 IS DELIBERATE. toPuzzleDay uses local date methods and the Convex
+ * runtime is UTC, so the month rolls over at 00:00 UTC. Running at 00:45 puts
+ * the one run that matters 45 minutes after the boundary it exists to catch,
+ * rather than up to 24 hours after it. Minute 45 is kept for the original
+ * reason: the other two sweeps hold :00 and :30, and this one keeps its lane.
  */
-crons.hourly('team month aggregates', { minuteUTC: 45 }, internal.teamStats.sweep, {})
+crons.daily('team month aggregates', { hourUTC: 0, minuteUTC: 45 }, internal.teamStats.sweep, {})
 
 export default crons

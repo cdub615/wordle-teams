@@ -19,7 +19,7 @@ import crons from './crons.ts'
  * that.
  */
 describe('crons', () => {
-  test('schedules all three sweeps hourly, on different minutes, with no captured `now`', () => {
+  test('schedules the three sweeps on their own minutes, with no captured `now`', () => {
     // THE WHOLE OBJECT, not a per-job lookup. `toEqual` on the map is what
     // makes a THIRD registration — or a deleted one — a failure here rather
     // than something nobody notices until a job silently stops running.
@@ -43,14 +43,23 @@ describe('crons', () => {
       },
       'team month aggregates': {
         name: 'teamStats:sweep',
-        // MINUTE 45, for the same reason 30 is asserted above: this is the
-        // heaviest of the three — it reads `teams` and every member's current
-        // month — so it gets a lane of its own rather than contending with the
-        // other two. See crons.ts, and note this sweep is a SAFETY NET: the
-        // aggregate is kept correct by the board-write path (winners.ts), which
-        // is what covers a backfilled month this cron never touches.
+        // DAILY, NOT HOURLY, AND THE CADENCE IS THE ASSERTION (wordle-teams-yhii).
+        // This sweep is the heaviest of the three — a full `teams` scan plus
+        // every member's current month — and at hourly it was the dominant
+        // consumer of a 1 GB free-tier database-I/O allowance that was measured
+        // 45% used while almost nobody was visiting. Its cost is O(data) x runs,
+        // so putting it back to hourly would quietly multiply the bill by 24 and
+        // nothing else in the suite would notice. The cap is hard: mutations
+        // fail rather than bill.
+        //
+        // HOUR 0 IS PART OF THE PROPERTY, not a free choice. The sweep exists to
+        // catch a month boundary passing with nobody playing, and the month rolls
+        // at 00:00 UTC (toPuzzleDay uses local date methods; Convex runs UTC).
+        // 00:45 puts the run that matters 45 minutes after the boundary rather
+        // than up to a day after it. Minute 45 keeps its lane clear of the other
+        // two sweeps at :00 and :30.
         args: [{}],
-        schedule: { type: 'hourly', minuteUTC: 45 },
+        schedule: { type: 'daily', hourUTC: 0, minuteUTC: 45 },
       },
     })
   })
