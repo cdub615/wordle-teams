@@ -146,6 +146,6 @@ export function insightsAccess({
     layer4: isPro ? 'full' : 'none',
     trialActive,
     trialEndsAt: trialActive ? (trialEndsAt ?? null) : null,
-    trialExpired: !isPro && trialEndsAt !== undefined && !trialActive,
+    trialExpired: trialEndsAt !== undefined && !trialActive && !isPro,
   }
 }

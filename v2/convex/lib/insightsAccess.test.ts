@@ -181,4 +181,9 @@ describe('trialExpired — the distinction a prompt cannot be written without', 
     const access = insightsAccess({ isPro: true, trialEndsAt: 1_000, now: 2_000 })
     expect(access.trialExpired).toBe(false)
   })
+
+  test('a pro player who never had a trial is not expired either', () => {
+    const access = insightsAccess({ isPro: true, trialEndsAt: undefined, now: 2_000 })
+    expect(access.trialExpired).toBe(false)
+  })
 })
