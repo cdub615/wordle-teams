@@ -194,12 +194,12 @@ you have done") and the checkout should match it.
 
 Deliberately small. This is a pricing change, not a billing rebuild.
 
-**Polar** — the two Pro products already exist (`efrc`'s constraint). Changing a
-displayed price generally means adding a new price to the existing product and
-archiving the old one rather than editing in place. **UNVERIFIED against Polar's
-current model** and it is the first thing to check when this is planned; if a new
-product is required, that is a materially bigger change and the plan should say so
-rather than absorbing it.
+**Polar** — the two Pro products already exist (`efrc`'s constraint), and
+**the price can be changed on an existing product in place** (confirmed by the
+owner, 2026-09-10). No new product, no archiving, no second product id to thread
+through checkout. `efrc`'s warning that a third Polar product would be "a
+materially bigger change" therefore does not apply to this work: it is a value
+edit on two products that already exist.
 
 **The codebase carries no dollar amount.** Verified 2026-09-10: no price literal
 exists anywhere under `src/` or `convex/`. The price lives in Polar and reaches
@@ -255,18 +255,22 @@ than in components, and pricing copy is a decision.
 Against `wordle-teams-iht`, which owns price, unit economics and the conversion
 funnel:
 
-1. **Confirm Polar's price-change mechanics** — new price vs new product. Blocks
-   everything else and may resize it.
-2. **Set the prices in Polar**, gated on `418.1`'s verdict: $49/$4.99 on GO,
-   $39/$3.99 on NO-GO.
-3. **Annual-default plan selection**, with the rule in a tested helper.
-4. **Trial-expiry upgrade prompt** defaulting to annual — depends on the trial
+1. **Set the prices in Polar**, gated on `418.1`'s verdict: $49/$4.99 on GO,
+   $39/$3.99 on NO-GO. An in-place edit on the two existing products, so this is
+   a dashboard change with no code and no deploy behind it.
+2. **Annual-default plan selection**, with the rule in a tested helper.
+3. **Trial-expiry upgrade prompt** defaulting to annual — depends on the trial
    from the Pro-tier spec existing.
-5. **Pricing-page and launch-email copy** carrying the positioning line already
+4. **Pricing-page and launch-email copy** carrying the positioning line already
    chosen: *free shows you today, Pro shows you everything you have done.*
 
-Items 1 and 2 are the whole pricing decision. Items 3–5 are what make it
-annual-led rather than merely annual-available.
+Item 1 is the whole pricing decision and is not blocked by any of the others.
+Items 2–4 are what make it annual-led rather than merely annual-available, and
+they are code — they can be built and shipped before the number is set, because
+nothing in them depends on what the number is.
+
+**That independence is the useful part of the sequencing:** the only thing
+waiting on `418.1` is a value typed into the Polar dashboard.
 
 ---
 
