@@ -96,6 +96,15 @@ export type InsightsAccess = {
   trialActive: boolean
   /** When the running trial ends, or null if none is running. */
   trialEndsAt: number | null
+  /**
+   * A trial ran and is over, and the player did not upgrade.
+   *
+   * NOT simply `!trialActive`: someone who never started a trial has no trial to
+   * be told about, and a Pro player who converted must not be nagged about the
+   * trial they converted from. This field is the difference between a prompt
+   * aimed at one person and a banner shown to everybody.
+   */
+  trialExpired: boolean
 }
 
 /**
@@ -137,5 +146,6 @@ export function insightsAccess({
     layer4: isPro ? 'full' : 'none',
     trialActive,
     trialEndsAt: trialActive ? (trialEndsAt ?? null) : null,
+    trialExpired: !isPro && trialEndsAt !== undefined && !trialActive,
   }
 }

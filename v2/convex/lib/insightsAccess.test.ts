@@ -142,3 +142,43 @@ describe('insightsAccess', () => {
     expect(access.trialActive).toBe(false)
   })
 })
+
+describe('trialExpired — the distinction a prompt cannot be written without', () => {
+  // THE WHOLE POINT OF THIS FIELD. Before it, a player whose trial ended and a
+  // player who never had one were indistinguishable: both got
+  // trialActive:false, trialEndsAt:null. A prompt built on that would either
+  // stay silent for the person it is for, or nag someone who never had a trial.
+  test('a trial that has ended reads as expired', () => {
+    const access = insightsAccess({ isPro: false, trialEndsAt: 1_000, now: 2_000 })
+    expect(access.trialActive).toBe(false)
+    expect(access.trialExpired).toBe(true)
+  })
+
+  test('never having had a trial is NOT expired', () => {
+    const access = insightsAccess({ isPro: false, trialEndsAt: undefined, now: 2_000 })
+    expect(access.trialActive).toBe(false)
+    expect(access.trialExpired).toBe(false)
+  })
+
+  test('a running trial is neither active-and-expired nor expired', () => {
+    const access = insightsAccess({ isPro: false, trialEndsAt: 3_000, now: 2_000 })
+    expect(access.trialActive).toBe(true)
+    expect(access.trialExpired).toBe(false)
+  })
+
+  // Strictly after, matching trialActive's own boundary rule, and tested on both
+  // sides because a threshold tested in one direction is vacuous.
+  test('the instant it ends, it is expired and not active', () => {
+    const access = insightsAccess({ isPro: false, trialEndsAt: 2_000, now: 2_000 })
+    expect(access.trialActive).toBe(false)
+    expect(access.trialExpired).toBe(true)
+  })
+
+  // A PRO PLAYER IS NOT SHOWN AN UPGRADE PROMPT, even though their trial did
+  // technically end. This is the field's one non-obvious rule and it is why the
+  // prompt can render straight from it without a second condition.
+  test('a pro player whose trial ended is not expired, because they upgraded', () => {
+    const access = insightsAccess({ isPro: true, trialEndsAt: 1_000, now: 2_000 })
+    expect(access.trialExpired).toBe(false)
+  })
+})
