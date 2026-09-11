@@ -487,6 +487,12 @@ describe('players reminder scheduling fields', () => {
     // So the guard is real, but it lives in the type checker, not in this
     // assertion. The test above it is the one with runtime teeth: the same
     // deletion fails it outright.
+    //
+    // THE REASON JUST GIVEN IS THE NARROWER ONE, though. The deeper reason is
+    // that this test shares the test above's `aPlayer()` insert, which supplies
+    // none of the three fields -- so any mutant that narrows one of them back to
+    // required breaks that same insert in the test above FIRST. This test
+    // catches no mutant the one above misses.
     const t = convexTest(schema, modules)
     const player = await t.run(async (ctx) => {
       const id = await ctx.db.insert('players', aPlayer())
@@ -495,5 +501,25 @@ describe('players reminder scheduling fields', () => {
     expect(player?.nextReminderAt).toBeUndefined()
     expect(player?.reminderJobId).toBeUndefined()
     expect(player?.playsWeekends).toBeUndefined()
+  })
+
+  // The same class of reversion the players-name tests above guard against
+  // ("narrowing firstName alone left lastName free to go back to v.optional()
+  // with every test still green") is possible here too, and less visible:
+  // v.optional(v.id('_scheduled_functions')) can widen to v.optional(v.string())
+  // with BOTH typecheck and the "all three are optional" test still green,
+  // because `Id<T>` is `string & { __tableName: T }` -- assignable to string --
+  // and the only value ever written already satisfies v.string(). convex-test
+  // does enforce the branded table at runtime, though, rejecting a wrong-table
+  // id. This test is what makes that enforcement load-bearing rather than
+  // incidental; without it, the referential typing v.id(...) buys is unpinned.
+  test('rejects a player id as a reminderJobId', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        const id = await ctx.db.insert('players', aPlayer())
+        await ctx.db.patch(id, { reminderJobId: id as never })
+      }),
+    ).rejects.toThrow()
   })
 })

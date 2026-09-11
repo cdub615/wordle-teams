@@ -112,12 +112,21 @@ export default defineSchema({
     // wrong in both numbers and omitted updateTeamFor -- the ONLY path that writes
     // playWeekends itself, and so the most relevant one to a cache derived from it.
     // Thirteen across seven if the non-production writers are included
-    // (migrate.ts's upsertTeams, e2eSeed x2, e2ePrune). Maintaining this
+    // (migrate.ts's upsertTeams, e2eSeed x2, e2ePrune) -- that figure counts
+    // FUNCTIONS, not call sites: upsertTeams itself writes in two places
+    // (migrate.ts:358 and 361), so a call-site census gives fourteen; the nine
+    // production paths are nine either way. Maintaining this
     // from all of them is the drift shape this schema keeps warning about, and
     // drift here is silent and permanent. A daily recompute cannot drift for
-    // more than a day and repairs itself; the cost of that staleness is one
-    // possibly-missed or one extra weekend reminder, which is the same trade
-    // teamStats.sweep took when it went daily.
+    // more than a day, and the bound is AT MOST ONE missed or one extra weekend
+    // day, not two, because `maintain` reschedules a player whose derived flag
+    // has changed rather than only when the chain is broken -- a flag flip
+    // invalidates the pending job the same way a settings change does. Without
+    // that reschedule, a player whose flag was false when Friday's delivery
+    // pointed nextReminderAt at Monday, and who then joins a weekend team on
+    // Saturday, would read as healthy on Monday and have missed both Saturday
+    // and Sunday. This is the same trade teamStats.sweep took when it went
+    // daily.
     //
     // WHY IT IS DENORMALISED AT ALL: the reminder is delivered by a per-player
     // scheduled job, and Convex cannot index array membership, so asking `teams`
