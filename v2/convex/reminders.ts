@@ -329,10 +329,16 @@ export async function scheduleNextFor(
   // IT DOES NOT THROW AND DOES NOT SKIP THE PLAYER. An hour early once a year
   // is a better failure than no reminder at all, which is what throwing here
   // would cause: `scheduleNextFor` reads a throw as "leave this player
-  // unscheduled and let `maintain` retry". Nor can the check itself throw —
-  // `nextOccurrence` has already resolved this zone through `localParts` in this
-  // same call, so an unresolvable one took the catch above, and `dueAt` is
-  // finite because `nextOccurrence` compared it against `from`.
+  // unscheduled and let `maintain` retry". Nor can the check throw for any
+  // REACHABLE input — an absolute would be overstating it. `nextOccurrence` has
+  // already resolved this zone through `localParts` in this same call, so an
+  // unresolvable one took the catch above, and a NaN instant can never be
+  // returned because `nextOccurrence` only returns one that compared `> from`.
+  // What is left is the range bound: on the four-round fallback path
+  // `instantForLocal` returns a `guess` it never formatted itself, so a `dueAt`
+  // outside `Date`'s ±8.64e15 ms would make `new Date(dueAt)` an Invalid Date
+  // and `formatToParts` throw. That needs a `from` near year ±275760, and every
+  // caller derives `from` from `Date.now()`.
   //
   // ONE SHAPE OF FALSE POSITIVE, worth naming so a warning is not read as proof
   // of an erased clock: a `reminderDeliveryTime` that parses but is not the
@@ -407,10 +413,15 @@ export async function reschedulePlayerReminderFor(
  * PLACEHOLDER, filled in at Task 5. It exists now only so that
  * `internal.reminders.deliver` in `scheduleNextFor` above type-resolves.
  *
- * NOTE, AGAINST THE PLAN'S STEP 4: `npx convex codegen` was run and changed
- * nothing under `_generated`. It did not need to. `api.d.ts` types each module
- * as `typeof reminders` — it does not enumerate exports — so adding one is
- * enough on its own, and the codegen step is not what makes typecheck pass.
+ * DO NOT RUN `npx convex codegen` TO ADD AN EXPORT HERE. It is both
+ * unnecessary and not local: `api.d.ts` types each module as
+ * `typeof reminders` rather than enumerating its exports, so adding one is
+ * enough on its own to make `internal.reminders.deliver` type-resolve — and
+ * the command DEPLOYS, because `CONVEX_DEPLOY_KEY` in `.env.local` outranks
+ * `CONVEX_DEPLOYMENT`. Run once during Task 3 it changed nothing under
+ * `_generated` and pushed this placeholder to beta. The plan's header now says
+ * the same in capitals; this note is here so the file alone is enough to know
+ * it.
  */
 export const deliver = internalMutation({
   args: { playerId: v.id('players'), dueAt: v.number() },

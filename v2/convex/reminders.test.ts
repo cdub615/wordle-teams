@@ -742,6 +742,9 @@ describe('reschedulePlayerReminderFor', () => {
     )
     const from = new Date('2026-09-11T14:00:01Z').getTime()
     await t.run((ctx) => scheduleNextFor(ctx, playerId, from))
+    // Captured BEFORE the reschedule: this is the id the failed cancel was for,
+    // and so the id the warning has to name.
+    const stale = await t.run((ctx) => ctx.db.get(playerId))
 
     await t.run(async (ctx) => {
       const hostile = {
@@ -761,6 +764,19 @@ describe('reschedulePlayerReminderFor', () => {
     // pending, and harmlessly so: it carries the old dueAt and will retire.
     expect(player?.nextReminderAt).toBe(new Date('2026-09-12T14:00:00Z').getTime())
     expect(player?.reminderJobId).toBeDefined()
+
+    // AND IT SAID SO. This warning is the ONLY observable trace a cancel ever
+    // failed in production — the job it could not cancel is left pending and
+    // retires silently, so nothing else would ever reveal that the best-effort
+    // cancel is failing. Asserted here rather than left to the spy above,
+    // because a spy that swallows the call also hides its removal: measured,
+    // replacing the console.warn with `void error` leaves every other test in
+    // this file green.
+    expect(spy).toHaveBeenCalledWith(
+      '[reminders] could not cancel a pending reminder job; it will retire on its own',
+      expect.objectContaining({ playerId, reminderJobId: stale!.reminderJobId }),
+      expect.anything(),
+    )
     spy.mockRestore()
   })
 })
