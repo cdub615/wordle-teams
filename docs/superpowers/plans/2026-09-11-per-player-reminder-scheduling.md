@@ -65,9 +65,17 @@ are tied to this branch, so work on the branch directly.)
 
 **Three `convex-test` harness hazards this plan works around. Do not "fix" them:**
 
-1. `finishAllScheduledFunctions` loops until nothing is pending, so it would **never
-   terminate** against a self-rescheduling chain. Eight existing call sites use it.
-   Every new test uses `finishInProgressScheduledFunctions` instead.
+1. `finishAllScheduledFunctions` drives a self-rescheduling chain until it gives up.
+   **CORRECTED: it does not hang** — the installed version is
+   `finishAllScheduledFunctions(advanceTimers, maxIterations = 100)` and throws
+   `"finishAllScheduledFunctions: too many iterations."`
+   (`convex-test/dist/index.js:1828` and `:1864`). So the failure is a thrown error
+   after 100 rounds, not an unkillable test. The instruction stands unchanged — do not
+   use it here, because a chain reschedules itself forever and 100 rounds of that is
+   noise, not a test — but expect a failure rather than a stall. Eight existing call
+   sites use it; do not copy them. Use `finishInProgressScheduledFunctions`, or
+   inspect `ctx.db.system.query('_scheduled_functions')` directly, which is what
+   Tasks 3-5 do.
 2. `convex-test`'s `1.0/cancel_job` patches state to `canceled` **unconditionally,
    from any state** (`node_modules/convex-test/dist/index.js:1166`). The real
    backend's cancel failure is unreachable by the unit suite, so it is tested by
@@ -1360,10 +1368,24 @@ describe('deliver', () => {
   })
 
   /** Puts a player on the schedule with `nextReminderAt === DUE`. */
+  // DO NOT DEFAULT `days` TO THIS FILE'S `recentScores`. It is
+  // ['2026-08-24','2026-08-25','2026-08-26'], anchored to the SWEEP tests' late-August
+  // instant. activityFloor('2026-09-11') is '2026-09-01', so all three fall outside the
+  // window and the happy-path test resolves 'inactive' rather than 'sent'. MEASURED
+  // during Task 5. Use days anchored to DUE instead, e.g.
+  // ['2026-09-08','2026-09-09','2026-09-10'].
+  //
+  // AND PIN THE CLOCK. `deliver` takes no `now` — its args are { playerId, dueAt } —
+  // so it reads the real Date.now(). Every expectation below depends on that instant,
+  // and the Saturday/Monday assertions hold only while the wall clock sits in a
+  // 24-hour window starting the day this was written. Use vi.useFakeTimers() and
+  // setSystemTime(DUE) in this block's beforeEach, matching the pattern the
+  // 'sweep: the cron clock default' test already uses in this file. Pinning to DUE
+  // exactly also exercises nextOccurrence's strictly-after property.
   async function scheduled(
     t: ReturnType<typeof convexTest>,
     over: Record<string, unknown> = {},
-    days: Array<string> = recentScores,
+    days: Array<string> = scoresBeforeDue,
   ) {
     const playerId = await seed(t, { playsWeekends: true, ...over }, days)
     await t.run((ctx) => ctx.db.patch(playerId, { nextReminderAt: DUE }))
@@ -1679,10 +1701,19 @@ export const deliver = internalMutation({
 
     // CLAIM BEFORE DELIVERING, UNCONDITIONALLY. The sweep needed this because
     // its hour window's inclusive bounds made double-matching the normal case.
-    // Exact scheduling removes that, but a duplicate job can still exist — a
+    // Exact scheduling removes that, but a duplicate JOB can still exist — a
     // repair racing a settings change — so the guard keeps its original job.
-    // Move this after a successful send, or condition it on one, and that race
-    // becomes a double email.
+    //
+    // CONDITIONING IT ON THE SEND WOULD BREAK IT; RELOCATING IT WOULD NOT.
+    // Measured during Task 5: conditioning the claim on whatever the send returns
+    // dies against the suppressed-send and push tests. RELOCATING it below both
+    // delivery blocks passes the whole suite — and is unobservable in principle
+    // rather than merely untested, because both writes commit in ONE mutation
+    // transaction and sendEmail reaches the Resend component through
+    // ctx.runMutation, which is transactional with the parent. So the order here
+    // states the rule; it is the UNCONDITIONALITY that the tests guard. An
+    // earlier draft claimed moving it "becomes a double email" — that half was
+    // false.
     await ctx.db.patch(playerId, { lastBoardEntryReminder: now })
 
     if (player.reminderDeliveryMethods.includes(EMAIL_METHOD)) {
