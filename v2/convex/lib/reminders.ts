@@ -5,7 +5,10 @@
  * (convex/reminders.ts) reads the clock once and passes instants — or strings
  * already resolved from them — in, which is what makes every rule here
  * directly testable, including the ones that only misbehave in a particular
- * timezone at a particular hour.
+ * timezone at a particular hour. The one piece of module state,
+ * `formatterCache` below, is a memo rather than a purity violation — every
+ * export here is still referentially transparent because of it, not despite
+ * it.
  *
  * THE RULES ARE v1's, MINUS TWO BUGS. `get_players_for_reminder`
  * (supabase/migrations/20250416172516_limit_daily_reminders.sql) resolves the
@@ -61,10 +64,15 @@ export const METHODS = ['email', 'push'] as const
  * reusing one across players and across calls cannot leak anything from one
  * player's read into another's.
  *
- * BOUNDED BY CONSTRUCTION. Only a zone that has already been constructed
- * successfully is ever inserted (see localParts below), so a garbage
- * `timeZone` from a copied Supabase row is rejected every time and can never
- * grow this map — there is no cache-poisoning path from bad input.
+ * NO CACHE-POISONING PATH FROM BAD INPUT. Only a zone that has already been
+ * constructed successfully is ever inserted (see localParts below), so a
+ * garbage `timeZone` from a copied Supabase row is rejected every time and
+ * never reaches this map. That is NOT the same as saying the map itself is
+ * small — the valid key space is bigger than the 418 IANA names ICU knows:
+ * `+05:30`, `+0530` and `-23:59` are all accepted and key separately, and
+ * `utc` and `UTC` occupy two entries. The actual bound is the number of
+ * distinct valid `players.timeZone` strings this isolate happens to observe
+ * — around 393 today — not the shape of the input space.
  *
  * MODULE-LEVEL AND CROSS-INVOCATION ON PURPOSE. `localParts` sits on the
  * per-player delivery path (see nextOccurrence's doc comment on the cost that
@@ -207,6 +215,12 @@ export function needsWeekendOptIn(localDay: PuzzleDay): boolean {
   return isWeekendDay(localDay)
 }
 
+const utcOf = (day: PuzzleDay, time: LocalTime): number => {
+  const [year, month, date] = day.split('-').map(Number)
+  const [hour, minute, second] = time.split(':').map(Number)
+  return Date.UTC(year, month - 1, date, hour, minute, second)
+}
+
 /**
  * The instant at which `day` + `time` is the wall clock in `timeZone`.
  *
@@ -231,7 +245,14 @@ export function needsWeekendOptIn(localDay: PuzzleDay): boolean {
  *
  * AMBIGUOUS AND NONEXISTENT TIMES. A fall-back makes a wall clock happen
  * twice; this returns the FIRST — verified at America/Chicago's 2026-11-01
- * 01:30, which resolves to the first occurrence, 06:30Z.
+ * 01:30, which resolves to the first occurrence, 06:30Z. THIS HALF IS ALSO
+ * REACHABLE IN PRODUCTION, not just the nonexistent one below: `Pacific/
+ * Easter`'s fall-back makes 21:00 local happen twice on its transition day
+ * (2026-04-04, 2027-04-03 and 2028-04-01), and `21:00:00` is one of the
+ * eighteen offered REMINDER_TIMES. The consequence: a Pacific/Easter player
+ * whose reminder is set for 21:00 gets the EARLIER of the two identical wall
+ * clocks — a choice this function makes deliberately, not an accident of
+ * which one the probe happened to land on.
  *
  * A spring-forward erases a wall clock entirely. With an EVEN round count
  * this converges to the instant just BEFORE the gap, one hour early — not
@@ -252,19 +273,21 @@ export function needsWeekendOptIn(localDay: PuzzleDay): boolean {
  *
  * PRECONDITION: `timeZone` must be a zone ICU accepts — see localParts, whose
  * RangeError this propagates unchanged. Callers skip the player rather than
- * letting one bad copied row abort anything.
+ * letting one bad copied row abort anything. `day` and `time` are not
+ * similarly guarded, but degrade the same way rather than silently: a
+ * malformed value — `('UTC', 'not-a-day', '09:00:00')`, `('UTC',
+ * '2026-09-11', 'oops')` — reaches `Date.UTC` as `NaN` and throws `RangeError:
+ * Invalid time value` from the same `formatToParts` call, the class callers
+ * already catch. Accidental rather than designed, but worth stating since a
+ * caller relies on it.
  */
 export function instantForLocal(timeZone: string, day: PuzzleDay, time: LocalTime): number {
-  const [year, month, date] = day.split('-').map(Number)
-  const [hour, minute, second] = time.split(':').map(Number)
-  const wanted = Date.UTC(year, month - 1, date, hour, minute, second)
+  const wanted = utcOf(day, time)
 
   let guess = wanted
   for (let round = 0; round < 4; round++) {
     const back = localParts(timeZone, new Date(guess))
-    const [by, bm, bd] = back.day.split('-').map(Number)
-    const [bh, bmi, bs] = back.time.split(':').map(Number)
-    const drift = wanted - Date.UTC(by, bm - 1, bd, bh, bmi, bs)
+    const drift = wanted - utcOf(back.day, back.time)
     if (drift === 0) return guess
     guess += drift
   }

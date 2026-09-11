@@ -91,6 +91,18 @@ describe('localParts', () => {
       time: '18:00:00',
     })
   })
+
+  test('an invalid zone throws every time, not just before it is cached', () => {
+    // The SECOND call is the point: the formatter cache must never absorb a
+    // construction failure into a fallback or a stale success. A negative
+    // cache, or a catch that quietly reused UTC, would only show up on a
+    // repeat call for the same bad zone — the one call this suite's other
+    // coverage (convex/reminders.test.ts) makes per run cannot catch that.
+    for (const bad of ['', 'GMT+5', '  UTC ']) {
+      expect(() => localParts(bad, utc2pm)).toThrow(RangeError)
+      expect(() => localParts(bad, utc2pm)).toThrow(RangeError) // the cache must not absorb it
+    }
+  })
 })
 
 describe('isDueThisHour', () => {
@@ -253,6 +265,17 @@ describe('instantForLocal', () => {
       time: '21:00:00',
     })
   })
+
+  test('an ambiguous wall clock resolves to the first of its two occurrences', () => {
+    // Pacific/Easter's fall-back makes 21:00:00 -- also one of the eighteen
+    // offered REMINDER_TIMES -- happen twice on its transition day.
+    expect(instantForLocal('Pacific/Easter', '2026-04-04', '21:00:00')).toBe(
+      new Date('2026-04-05T02:00:00Z').getTime(),
+    )
+    // The LATER occurrence is the same wall clock, which is what makes this a
+    // choice rather than an accident.
+    expect(localParts('Pacific/Easter', new Date('2026-04-05T03:00:00Z')).time).toBe('21:00:00')
+  })
 })
 
 describe('nextOccurrence', () => {
@@ -323,24 +346,35 @@ describe('nextOccurrence', () => {
 /**
  * THE SWEEP. Every case asserts three properties at once: the instant lands on
  * the requested wall clock in that zone, it is strictly in the future, and a
- * weekday-only player never lands on a weekend.
+ * weekday-only player never lands on a weekend. THIS COVERS EXISTING WALL
+ * CLOCKS ONLY. `ZONES` deliberately excludes `Pacific/Easter`, so no case here
+ * ever asks for a wall clock its own transition erased or doubled — those are
+ * pinned separately in instantForLocal's own tests, where the answer isn't
+ * "lands on the requested time" but "lands on the instant just before the
+ * gap" or "the earlier of the two". Widening `ZONES` alone stays safe. Also
+ * widening `DATES` to include a zone's own transition day is not: it would
+ * hit that zone's erased or doubled wall clock here too, and this test's
+ * `expect(local.time).toBe(time)` would fail on the pinned behaviour as if it
+ * were a regression.
  *
  * ZONE LIST IS CURATED, NOT `Intl.supportedValuesOf('timeZone')`. The full 418
- * zones is 167,200 cases and takes ~35s, which does not belong in a suite of
- * 152 files. These 28 were chosen to cover both DST directions, the southern
- * hemisphere, half-hour and 45-minute offsets, a 30-minute DST shift, the
- * aliased spellings copied rows carry, and the extremes of the offset range.
- * MEASURED: 13,440 cases in well under half a second, now that localParts
- * memoizes its formatter per zone (see the cache note on that function).
- * Before the cache, a comparable 11,200-case run took ~1.8s, because it built
- * a fresh `Intl.DateTimeFormat` on every one of the roughly 56,000 calls this
- * makes into localParts.
+ * zones is 200,640 cases (with the current twelve `DATES`) and takes ~3.5s,
+ * which does not belong in a suite of 152 files. These 28 were chosen to
+ * cover both DST directions, the southern hemisphere, half-hour and
+ * 45-minute offsets, a 30-minute DST shift, the aliased spellings copied rows
+ * carry, and the extremes of the offset range. MEASURED: 13,440 cases in well
+ * under half a second, now that localParts memoizes its formatter per zone
+ * (see the cache note on that function). Before the cache, a comparable
+ * 11,200-case run took ~1.8s, because it built a fresh `Intl.DateTimeFormat`
+ * on every one of the roughly 56,000 calls this makes into localParts.
  *
- * The full 418-zone sweep WAS run before this design was accepted — 167,200
- * cases, zero failures, gaps from 0.25h to 72.00h — and again under TZ=UTC,
- * America/Chicago and Asia/Kolkata with identical results, which is what rules
- * out a helper that only works on the host's timezone. Re-run it by widening
- * ZONES here if this function is ever reworked.
+ * The full 418-zone sweep WAS run before this design was accepted, against
+ * the original ten-date list — 167,200 cases, zero failures, gaps from 0.25h
+ * to 72.00h — under TZ=UTC, America/Chicago and Asia/Kolkata with identical
+ * results, which is what rules out a helper that only works on the host's
+ * timezone. It was run again after a spec review added the two dates below —
+ * 200,640 cases, zero failures, gaps still 0.25h to 72.00h — under TZ=UTC.
+ * Re-run it by widening ZONES here if this function is ever reworked.
  */
 describe('nextOccurrence across zones and DST transitions', () => {
   const ZONES = [
@@ -397,6 +431,10 @@ describe('nextOccurrence across zones and DST transitions', () => {
 describe('activityFloor', () => {
   test('is the tenth day back, inclusive', () => {
     expect(activityFloor('2026-09-11')).toBe('2026-09-01')
+  })
+
+  test('the window crosses a month boundary', () => {
+    expect(activityFloor('2026-03-05')).toBe('2026-02-23')
   })
 })
 
