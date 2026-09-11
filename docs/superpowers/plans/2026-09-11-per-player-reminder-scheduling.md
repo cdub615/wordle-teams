@@ -40,10 +40,23 @@ prod-scoped `CONVEX_DEPLOY_KEY`. That key also outranks `CONVEX_DEPLOYMENT`, so
 `convex env` and even `convex codegen` reach the BETA deployment rather than a local
 one. `convex env list` is read-only and safe.
 
-**Adding a new `convex/*.ts` needs `npx convex codegen --typecheck disable`** to
-regenerate `api.d.ts`, or typecheck fails. This plan adds no new Convex module — only
-new exports in existing ones — but `deliver` and `maintain` are new function
-references, so **run codegen after Task 5 and Task 6** before typechecking.
+**DO NOT RUN `npx convex codegen` FOR THIS PLAN. Corrected during Task 3.**
+
+This paragraph originally said to run `npx convex codegen --typecheck disable` after
+Tasks 5 and 6 because `deliver` and `maintain` are new function references. **That is
+wrong on both counts, and the command is actively harmful here.**
+
+- **It is unnecessary.** `api.d.ts` types each module as `typeof reminders` — it does
+  not enumerate exports. So a new EXPORT in an EXISTING module type-resolves with no
+  codegen at all; only a new MODULE needs it, and this plan adds none. Measured in
+  Task 3: the command produced zero changes under `convex/_generated`, which also makes
+  every `git add convex/_generated` in this plan's commit steps a no-op.
+- **It reaches a live deployment.** `CONVEX_DEPLOY_KEY` in `v2/.env.local` outranks
+  `CONVEX_DEPLOYMENT`, so the command printed "Uploading functions to Convex" and
+  pushed to **beta** (confirmed: that key's deployment has
+  `SITE_URL=https://beta.wordleteams.com`). Beta deploys are authorised, so this was
+  not an incident — but a step the plan presented as local codegen silently deployed
+  code, and that is worth never repeating by accident.
 
 **Branch:** `feat/v2-replatform`. Pushing it auto-deploys to beta when `v2/**`
 changes, which is authorised. Not prod, not main. (The writing-plans skill suggests a
@@ -1007,9 +1020,8 @@ export const deliver = internalMutation({
 })
 ```
 
-```
-npx convex codegen --typecheck disable
-```
+No codegen needed — see "Before you start". The placeholder `deliver` export alone is
+what makes `internal.reminders.deliver` type-resolve.
 
 - [ ] **Step 5: Run to verify the tests pass**
 
@@ -1629,11 +1641,11 @@ export const deliver = internalMutation({
 Update the import from `./lib/reminders.ts` to add `activityFloor` and drop nothing
 yet (Task 7 removes the dead names).
 
-- [ ] **Step 4: Regenerate the API types**
+- [ ] **Step 4: Do NOT regenerate the API types**
 
-```
-npx convex codegen --typecheck disable
-```
+No codegen is needed — see the corrected note in "Before you start". `api.d.ts` types
+the module as `typeof reminders` rather than enumerating exports, so a new export
+resolves without it, and running the command would deploy to beta.
 
 - [ ] **Step 5: Run to verify they pass**
 
@@ -1998,11 +2010,11 @@ export const maintain = internalMutation({
 })
 ```
 
-- [ ] **Step 4: Regenerate the API types**
+- [ ] **Step 4: Do NOT regenerate the API types**
 
-```
-npx convex codegen --typecheck disable
-```
+No codegen is needed — see the corrected note in "Before you start". `api.d.ts` types
+the module as `typeof reminders` rather than enumerating exports, so a new export
+resolves without it, and running the command would deploy to beta.
 
 - [ ] **Step 5: Run to verify they pass**
 
@@ -2213,10 +2225,11 @@ Delete every `describe('sweep', ...)` block from `convex/reminders.test.ts` and 
 `THURSDAY_3PM_UTC` / `SATURDAY_2PM_UTC` constants if now unused. The behaviours they
 covered are all re-asserted in Task 5's `deliver` tests.
 
-- [ ] **Step 6: Regenerate and verify**
+- [ ] **Step 6: Verify**
+
+No codegen — see "Before you start"; it is unnecessary and would deploy to beta.
 
 ```
-npx convex codegen --typecheck disable
 pnpm test:once convex/crons.test.ts convex/reminders.test.ts convex/lib/reminders.test.ts convex/settings.test.ts
 ```
 
@@ -2639,13 +2652,26 @@ already covers.
 
 The deploy is automatic for `v2/**` changes on this branch, and authorised.
 
-```
-npx convex env list
-```
+**DO NOT run `npx convex env list` to check this.** It is read-only, but it prints
+EVERY deployment secret in plaintext — API keys, client secrets, the VAPID private
+key, the auth secret. Read the two variables from the Convex dashboard instead.
 
-Confirm `REMINDERS_ENABLED` is still EMPTY on beta. It must stay that way — beta
-holds copied production rows, real people who do not know this beta exists and who
-already get real reminders from v1.
+**CORRECTED 2026-09-11: `REMINDERS_ENABLED` is already `true` on beta.** The issue
+recorded it as empty and this plan was written on that basis. It is not. So the
+premise that the ~82 MB/month is "deferred to a launch action" is wrong for beta: the
+gate passes, and the `players` collect (`reminders.ts:137`) sits ABOVE the per-player
+allowlist filter (`:164`), so the full-table scan has been running hourly on beta all
+along.
+
+What is actually protecting real people on beta is **Gate 2**: `REMINDERS_ALLOWLIST`
+holds a single address, so delivery is restricted to one mailbox even though the sweep
+runs. That is exactly the arrangement `reminders.ts`'s header describes for "beta live
+alongside real users", so it is deliberate configuration, not a slip.
+
+**What to confirm before cutover**, therefore, is not that the flag is empty but that
+the allowlist is still restrictive on beta while it remains populated with copied
+production rows — and that it is CLEARED for production, which is what that variable's
+doc comment says production wants.
 
 Then confirm the maintenance cron actually ran and scheduled, from the Convex
 dashboard's logs and scheduled-functions view: `reminders:maintain` should appear

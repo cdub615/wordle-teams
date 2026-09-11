@@ -71,8 +71,11 @@ export const METHODS = ['email', 'push'] as const
  * small — the valid key space is bigger than the 418 IANA names ICU knows:
  * `+05:30`, `+0530` and `-23:59` are all accepted and key separately, and
  * `utc` and `UTC` occupy two entries. The actual bound is the number of
- * distinct valid `players.timeZone` strings this isolate happens to observe
- * — around 393 today — not the shape of the input space.
+ * DISTINCT valid `players.timeZone` strings this isolate happens to observe —
+ * around 57 today, the figure this file's own header cites — not the shape of
+ * the input space, and not the 393-odd player COUNT. (Corrected: this first
+ * said 393, which confused rows with zones. Players share zones heavily, which
+ * is the whole reason a per-zone memo pays for itself.)
  *
  * MODULE-LEVEL AND CROSS-INVOCATION ON PURPOSE. `localParts` sits on the
  * per-player delivery path (see nextOccurrence's doc comment on the cost that
