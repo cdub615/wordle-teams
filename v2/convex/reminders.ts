@@ -790,12 +790,16 @@ export const deliver = internalMutation({
  *
  * IT IS NOT WHAT KEEPS THE UNIT SUITE UNDER THAT LIMIT, and an earlier draft of
  * this comment said it was. Measured: `convexTest(schema, modules)` — the
- * positional form every test in `reminders.test.ts` uses — passes
+ * positional form nearly every call site in `reminders.test.ts` uses, the one
+ * exception being the guard test that wants a throw — passes
  * `limitsConfig = false`, and the tracker's root layer is then built with
  * `enforce: false`. The limits are documented as opt-in (`transactionLimits`:
  * "`false` (default): limits are not enforced", `convex-test/dist/index.d.ts`).
- * So this budget is a real-backend protection, and the one test that reaches a
- * throw from it has to ask for enforcement explicitly.
+ * So this budget is a real-backend protection rather than a harness one.
+ *
+ * AND THE BUDGET ITSELF NEVER THROWS — it DEFERS. The only throw anywhere near
+ * it is convex-test's, which the budget exists to stay below, and the one test
+ * that exercises that throw has to ask convex-test for enforcement explicitly.
  *
  * EXCEEDING IT IS SAFE, WHICH IS THE POINT. A table with more players needing a
  * reschedule than the budget makes progress across successive runs rather than
@@ -825,8 +829,10 @@ const MAINTAIN_SCHEDULE_BUDGET = 800
  * At 30 runs it is ~11,800 of those, under 4 MB, and it buys back the
  * self-healing property for 1/24th of the cost. Putting this back on an hourly
  * cron would restore the original bug in full. Those figures are the `players`
- * collect ONLY; this pass also collects `teams` every run, which the comments
- * elsewhere in this file put at ~171 rows, so about 5,100 reads a month on top.
+ * collect ONLY; this pass also collects `teams` every run, which schema.ts's
+ * note on the `teams` table — the one explaining why there is no index for
+ * "teams containing player X" — puts at 171 rows in production, so roughly
+ * 5,100 reads a month on top.
  *
  * FOUR JOBS IN ONE PASS, deliberately, because they all need the same scan:
  *
@@ -886,6 +892,14 @@ const MAINTAIN_SCHEDULE_BUDGET = 800
  * schedule budget. Their weekend flag is still derived — the patch sits above
  * the zone check on purpose, since `updateTimeZoneFor` will one day schedule
  * them and `scheduleNextFor` reads this flag when it does.
+ *
+ * AN UNRESOLVABLE ZONE IS A DIFFERENT CASE AND IT IS NOT FREE, so do not carry
+ * the paragraph above across to it. A row whose `timeZone` is SET but rejected
+ * by ICU — `'GMT+5'` off a copied row — passes the check below, reaches
+ * `reschedulePlayerReminderFor`, logs, changes nothing, and still consumes a
+ * budget slot, because `scheduled` counts attempts (see the increment). It does
+ * that on every pass, forever. Harmless while the table is far below the budget,
+ * and the log is what gets such a row fixed — but a cost, not the absence of one.
  */
 export const maintain = internalMutation({
   // `budget` exists for the tests, the same way `sweep`'s `now` did, and for the
@@ -954,8 +968,13 @@ export const maintain = internalMutation({
         // seeing a flag that already agrees and a chain that still reads
         // healthy — so nothing would ever reschedule it, losing the
         // reschedule-on-flip fix for exactly the rows a bootstrap is too busy to
-        // reach. Leaving the flag stale is free: it is only read when something
-        // schedules, which is what we just declined to do.
+        // reach. Leaving the flag stale is CHEAP, NOT FREE, and the difference
+        // is a real path: `maintain` declined to schedule, but settings.ts's
+        // write paths reach `scheduleNextFor` independently, and that is where
+        // `playsWeekends` is read. So if this row's owner changes their reminder
+        // time before the next pass, their next occurrence is computed from the
+        // stale flag — one possibly-wrong weekend day, self-healing on the next
+        // run.
         if (needsSchedule && scheduled >= limit) {
           deferred += 1
           continue

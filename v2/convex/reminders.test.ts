@@ -1493,6 +1493,21 @@ describe('maintain', () => {
   // costs nothing (see its doc comment). Restubbing them in this block would
   // read as a dependency this function does not have.
 
+  // WHAT THESE FIXTURES DELIBERATELY VARY, AND WHY THAT IS WRITTEN DOWN. Three
+  // consecutive tasks in this change lost a mutant to a fixture-level constant
+  // rather than to a missing test: every `deliver` test at the same instant,
+  // then every local day equal to UTC's, then — here — every player's
+  // `reminderJobId` absent, which hid a dropped `cancel` through 2741 passing
+  // tests and four green gates. Each test below was individually non-vacuous in
+  // all three cases; what was missing was an input shape no fixture produced.
+  //
+  // So, on purpose: not every player has a zone, and one has a zone ICU
+  // REJECTS; not every player is on exactly one team; a chain is variously
+  // healthy, absent, long past due, and due at this exact instant; one run has
+  // something to defer; and one player carries a real pending job. IF YOU ADD A
+  // TEST HERE, ask what your fixture holds still that every other fixture also
+  // holds still — that is where the next survivor will be.
+
   const CHICAGO = 'America/Chicago'
 
   /** A player who CAN be scheduled: a resolvable zone and a 09:00 wall clock. */
@@ -1761,8 +1776,11 @@ describe('maintain', () => {
   })
 
   test('leaves an absent playsWeekends absent rather than writing false onto it', async () => {
-    // THE COERCED COMPARISON, and the only test that pins it. Absent and false
-    // are the SAME STATE to every reader of this field — scheduleNextFor
+    // THE COERCED COMPARISON. Four tests in this block kill the raw-comparison
+    // mutant, so this is not its only killer — it is the only one that asserts
+    // the ABSENCE directly, which is the property the coercion is actually
+    // about; the other three notice it through a knock-on count. Absent and
+    // false are the SAME STATE to every reader of this field — scheduleNextFor
     // coerces with `?? false` — so a player on no weekend-playing team must
     // read as "unchanged", not as a flip from `undefined` to `false`.
     //
@@ -1793,14 +1811,39 @@ describe('maintain', () => {
     // repaired only broken chains would flip the flag, read the chain as
     // healthy, and leave them to miss Saturday AND Sunday — and running this
     // pass more often could not help, because it cannot see the problem at all.
+    //
+    // THE ONLY TEST IN THIS BLOCK THAT SEEDS A REAL reminderJobId, and so the
+    // only one that can observe the CANCEL half of the chain. This is the right
+    // place for it because it is the one path where a live FUTURE job provably
+    // exists and must be retired — a repair or a bootstrap has nothing pending
+    // to cancel. MEASURED, and the reason it is here at all: with every fixture
+    // leaving the job side absent, replacing `reschedulePlayerReminderFor` with
+    // `scheduleNextFor` inside `maintain` — dropping the cancel outright —
+    // passed all 2741 tests in this repo and all four gates, leaving the
+    // superseded Monday job pending in `_scheduled_functions` forever.
     const t = convexTest(schema, modules)
-    const playerId = await t.run(async (ctx) => {
-      const id = await ctx.db.insert('players', zoned({ nextReminderAt: MONDAY_9AM }))
-      await ctx.db.insert('teams', aTeam({ playerIds: [id], playWeekends: true }))
-      return id
-    })
 
-    const result = await atInstant(SATURDAY_7AM, () => maintainFor(t))
+    // SEEDED INSIDE THE PINNED WINDOW, unlike the other tests in this block,
+    // and that is what keeps the Monday job from firing. convex-test schedules
+    // from `setTimeout(..., max(0, ts - Date.now()))`, so with the clock frozen
+    // the delay cannot elapse AT ALL rather than merely being long. Seeded
+    // against the real clock instead, this fixture would arm itself as a time
+    // bomb the day the real date passed 2026-09-14.
+    const { playerId, staleJobId, result } = await atInstant(SATURDAY_7AM, async () => {
+      const seeded = await t.run(async (ctx) => {
+        const id = await ctx.db.insert('players', zoned({ nextReminderAt: MONDAY_9AM }))
+        await ctx.db.insert('teams', aTeam({ playerIds: [id], playWeekends: true }))
+        // Exactly the state a Friday delivery leaves behind: a job pending at
+        // the instant the row names, carrying that instant in its args.
+        const jobId = await ctx.scheduler.runAt(MONDAY_9AM, internal.reminders.deliver, {
+          playerId: id,
+          dueAt: MONDAY_9AM,
+        })
+        await ctx.db.patch(id, { reminderJobId: jobId })
+        return { playerId: id, staleJobId: jobId }
+      })
+      return { ...seeded, result: await maintainFor(t) }
+    })
 
     expect(result.weekendFlagsChanged).toBe(1)
     expect(result.scheduled).toBe(1)
@@ -1808,9 +1851,25 @@ describe('maintain', () => {
     expect(player?.playsWeekends).toBe(true)
     // Saturday, TODAY, not Monday and not Sunday.
     expect(player?.nextReminderAt).toBe(SATURDAY_9AM)
+
+    // THE CANCEL HALF. The superseded Monday job is retired, and exactly one
+    // job is left pending — at Saturday, carrying Saturday, and named by the
+    // row. Delivery would still be correct without the cancel, because
+    // `deliver`'s staleness guard retires a job whose `dueAt` no longer matches
+    // the row; what the cancel buys is that `_scheduled_functions` does not
+    // accumulate jobs that will only ever no-op. See
+    // `reschedulePlayerReminderFor` for why that is tidiness rather than
+    // correctness — and note that tidiness with nothing asserting it is how
+    // this mutant survived.
     const jobs = await deliverJobs(t)
-    expect(jobs).toHaveLength(1)
-    expect(jobs[0].scheduledTime).toBe(SATURDAY_9AM)
+    expect(jobs).toHaveLength(2)
+    const byId = new Map(jobs.map((job) => [job._id, job]))
+    expect(byId.get(staleJobId)?.state.kind).toBe('canceled')
+    const pending = jobs.filter((job) => job.state.kind === 'pending')
+    expect(pending).toHaveLength(1)
+    expect(pending[0]._id).toBe(player?.reminderJobId)
+    expect(pending[0].scheduledTime).toBe(SATURDAY_9AM)
+    expect(pending[0].args[0]).toEqual({ playerId, dueAt: SATURDAY_9AM })
   })
 
   test('reschedules a healthy chain when the weekend flag flips off', async () => {
