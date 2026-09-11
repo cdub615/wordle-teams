@@ -105,8 +105,14 @@ export default defineSchema({
     // of it, recomputed by `maintain` daily and by nothing else.
     //
     // ONE WRITER, DELIBERATELY, AND THE ALTERNATIVE WAS MEASURED. teams.playerIds
-    // and teams.playWeekends have EIGHT write paths across six modules
-    // (teams.ts x4, players.ts, inviteLinks.ts, billing.ts x2). Maintaining this
+    // and teams.playWeekends have NINE write paths across four modules
+    // (teams.ts x5 -- createTeamFor, updateTeamFor, removeMemberFor, leaveTeamFor,
+    // invitePlayerFor -- plus players.ts, inviteLinks.ts and billing.ts x2).
+    // COUNTED, and corrected once: this first said eight across six, which was
+    // wrong in both numbers and omitted updateTeamFor -- the ONLY path that writes
+    // playWeekends itself, and so the most relevant one to a cache derived from it.
+    // Thirteen across seven if the non-production writers are included
+    // (migrate.ts's upsertTeams, e2eSeed x2, e2ePrune). Maintaining this
     // from all of them is the drift shape this schema keeps warning about, and
     // drift here is silent and permanent. A daily recompute cannot drift for
     // more than a day and repairs itself; the cost of that staleness is one

@@ -453,6 +453,8 @@ describe('players reminder scheduling fields', () => {
       // because it exists today and survives this plan, where reminders.deliver
       // does not exist until Task 5 and reminders.sweep is deleted at Task 7 — so
       // either of those would couple this test to another task's sequencing.
+      // convex/reminders.ts:246 already schedules this same function with these
+      // same args, so this follows an established call rather than inventing one.
       const jobId = await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, {
         playerId: id,
         attempt: 0,
@@ -472,8 +474,19 @@ describe('players reminder scheduling fields', () => {
   })
 
   test('all three are optional, so an unscheduled player is a valid row', async () => {
-    // Existing players have none of them. This is what makes Task 6's bootstrap
-    // the same case as a broken chain rather than a separate migration.
+    // Existing players have none of them. This is what makes the maintenance
+    // pass's bootstrap the same case as a broken chain rather than a separate
+    // migration.
+    //
+    // AT RUNTIME THIS TEST IS NEARLY VACUOUS, AND THAT IS WORTH KNOWING RATHER
+    // THAN DISCOVERING. Measured by deleting the three schema fields: this test
+    // still PASSED, because reading `player?.nextReminderAt` off a row that has no
+    // such field just yields undefined either way. What actually enforces the
+    // fields' existence is `tsc` — the same deletion produces TS2353 plus six
+    // TS2339s here — and CI runs typecheck (deploy-v2.yml:91) BEFORE the suite.
+    // So the guard is real, but it lives in the type checker, not in this
+    // assertion. The test above it is the one with runtime teeth: the same
+    // deletion fails it outright.
     const t = convexTest(schema, modules)
     const player = await t.run(async (ctx) => {
       const id = await ctx.db.insert('players', aPlayer())

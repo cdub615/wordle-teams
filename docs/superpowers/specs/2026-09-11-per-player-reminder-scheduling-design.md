@@ -76,7 +76,7 @@ Each is load-bearing for a specific design decision.
 
 ### Data model
 
-Three fields on `players`, one index, no join table:
+Three fields on `players`, **no index**, no join table:
 
 | field | meaning |
 |---|---|
@@ -84,7 +84,24 @@ Three fields on `players`, one index, no join table:
 | `nextReminderAt?: number` | when it is due — **the row is the source of truth** |
 | `playsWeekends?: boolean` | derived from `teams` by ONE writer (§4) |
 
-Plus `.index('by_nextReminderAt', ['nextReminderAt'])`.
+**CORRECTED at planning time.** This section originally specified
+`.index('by_nextReminderAt', ['nextReminderAt'])` so the repair pass could be an index
+range query returning zero rows in steady state, resting on `undefined` sorting before
+every number (which is true — `convex/values/compare.js:126`). **The index is not
+built, and should not be.** §4's `maintain` has to collect the whole `players` table
+regardless, because deriving `playsWeekends` needs every row — so the repair set is
+read from that same in-memory scan and the index would narrow a query nobody makes.
+Confirmed during the Task 2 review by tracing every `nextReminderAt` read: `maintain`
+scans, and `deliver` uses `ctx.db.get(playerId)`. Nothing does a range or filter on the
+field.
+
+It would also be a net *cost*, not merely neutral: an index adds write bandwidth to
+every one of the ~393 daily patches. It becomes worth revisiting only if
+`playsWeekends` derivation ever moves off the full scan onto a team-triggered writer —
+which is precisely the multi-writer design §4 rules out.
+
+The `undefined`-sorts-first property is therefore **not load-bearing**, and no test
+pins it. Pinning a property nothing depends on is its own trap.
 
 `lastBoardEntryReminder` stays exactly as it is. It is the sweep's own bookkeeping
 and remains the double-send guard.
@@ -216,14 +233,25 @@ and that player is dead silently, forever.
 So the daily pass is **load-bearing, not a mitigation to weigh**. It does four jobs
 at once:
 
-1. **Derives `playsWeekends`** — one `teams` collect, patch the players whose flag
-   differs.
-2. **Repairs broken chains** — `by_nextReminderAt` range query for absent-or-overdue.
+1. **Derives `playsWeekends`** — one `teams` collect, patch only the players whose
+   flag actually differs, so steady state is reads-only.
+2. **Repairs broken chains** — a player whose `nextReminderAt` is in the past has a
+   job that never fired.
 3. **Bootstraps** — existing players simply have no `nextReminderAt`, which is *the
-   same case a broken chain presents*, and the same query returns it because
-   `undefined` sorts before every number.
-4. Bounded with `.take(n)` so the transaction is finite forever regardless of
-   player count.
+   same case a broken chain presents*, so the one pass covers both and no migration
+   mutation exists.
+4. Bounded by a **schedule budget** (800, under the hard 1000-per-transaction cap),
+   deferring the remainder to the next run rather than throwing.
+
+**Corrected at planning time:** items 2 and 3 originally described a
+`by_nextReminderAt` range query returning absent-or-overdue rows. There is no index
+and no separate query — both sets come out of the same full `players` scan item 1
+already requires. See the correction under §Data model.
+
+**Corrected after the Task 2 review:** the bound is a schedule budget, not `.take(n)`.
+`.take(n)` would have limited the *scan*, which cannot help here because item 1 needs
+every row anyway; what actually needs bounding is the number of `runAt` calls in one
+transaction, since that is what the 1000 cap governs.
 
 Issue item 3 dissolves: **no migration mutation, no runbook step, no separate
 bootstrap path.** That matters more than convenience — a manual cutover step would
@@ -232,7 +260,11 @@ deployment on this machine.
 
 #### Why `playsWeekends` is derived daily rather than hooked
 
-`teams.playerIds` / `teams.playWeekends` have **8 write paths across 6 modules**:
+`teams.playerIds` / `teams.playWeekends` have **9 write paths across 4 modules**
+(corrected 2026-09-11 from "8 across 6", which was wrong in both numbers and omitted
+`updateTeamFor`, the only path that writes `playWeekends` itself and so the most
+relevant one to a cache derived from it; 13 across 7 including the non-production
+writers `migrate.ts`, `e2eSeed` x2 and `e2ePrune`):
 `teams.ts` (×4), `players.ts`, `inviteLinks.ts`, `billing.ts` (×2), plus `migrate.ts`
 and `e2eSeed.ts`. Maintaining a derived flag from all of them is a drift factory of
 exactly the kind `schema.ts` and `settings.ts` keep warning about, and drift there
