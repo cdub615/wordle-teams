@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { ImageDown, Loader2 } from 'lucide-react'
+import { ClipboardPaste, ImageDown, Loader2 } from 'lucide-react'
 import type { ChangeEvent, DragEvent } from 'react'
 import { Button } from '#/components/ui/button.tsx'
-import { bitmapFromBlob, imageFromDrop, imageFromFiles, imageFromPaste } from '#/lib/board-import/adapter.ts'
+import {
+  bitmapFromBlob,
+  canReadClipboard,
+  imageFromClipboard,
+  imageFromDrop,
+  imageFromFiles,
+  imageFromPaste,
+} from '#/lib/board-import/adapter.ts'
+import type { ClipboardImage } from '#/lib/board-import/adapter.ts'
 import { parseBoard } from '#/lib/board-import/parse.ts'
 import type { BoardParse } from '#/lib/board-import/parse.ts'
 import { cn } from '#/lib/utils.ts'
@@ -17,12 +25,34 @@ import { importSummary } from './import-prefill.ts'
  * whole safety argument for shipping a reader that is 93% right per glyph
  * rather than waiting for one that is never wrong.
  *
+ * THERE ARE TWO PASTE MECHANISMS HERE AND BOTH ARE NEEDED. The document
+ * listener catches a desktop Cmd-V. The BUTTON is the only thing that works on
+ * iOS at all: there is no Cmd-V there, and the only way to fire a paste event
+ * is a long-press "Paste" on an editable element — which board-input.tsx and
+ * the answer field both cancel on purpose. The button is listed first because
+ * on a phone it is the common case, not the fallback: a screenshot taken with
+ * "Copy and Delete" never reaches Photos, so the file picker finds nothing.
+ *
  * THE PASTE LISTENER IS ON THE DOCUMENT, and it has to be. A screenshot is
  * pasted with Cmd-V while the player is looking at the sheet, not while some
  * particular element has focus — and the board itself is a contentEditable that
  * cancels every paste that reaches it (board-input.tsx), so a listener bound
  * there would never fire. Capture phase, for the same reason.
  */
+/** Each clipboard outcome reads as help, because none of them is really an error. */
+function clipboardMessage(reason: Extract<ClipboardImage, { ok: false }>['reason']): string {
+  switch (reason) {
+    case 'refused':
+      return 'Your browser did not allow the paste. Tap Paste again and choose Allow.'
+    case 'no-image':
+      return 'There is no image on the clipboard. Copy a screenshot first, then tap Paste.'
+    case 'unsupported':
+      return 'This browser cannot paste images. Use Import screenshot instead.'
+    case 'failed':
+      return 'Could not read the clipboard. You can still use Import screenshot.'
+  }
+}
+
 export function ImportScreenshot({
   onParsed,
   answer,
@@ -90,6 +120,28 @@ export function ImportScreenshot({
     void run(imageFromDrop(event.nativeEvent))
   }
 
+  /**
+   * NOTHING IS AWAITED BEFORE imageFromClipboard(), and that is load-bearing
+   * rather than tidy. Safari drops the user gesture across an await, and the
+   * clipboard read then rejects with NotAllowedError however the person got
+   * here. setState is synchronous, so these two calls are safe; an await in
+   * front of them would silently break paste on every iPhone.
+   */
+  const onPasteClick = () => {
+    setBusy(true)
+    setMessage(null)
+    const reading = imageFromClipboard()
+
+    void reading.then(async (image) => {
+      if (!image.ok) {
+        setBusy(false)
+        setMessage(clipboardMessage(image.reason))
+        return
+      }
+      await run(image.blob)
+    })
+  }
+
   const onChoose = (event: ChangeEvent<HTMLInputElement>) => {
     void run(imageFromFiles(event.target.files))
     // So choosing the same file twice in a row fires change again.
@@ -110,7 +162,30 @@ export function ImportScreenshot({
         dragging && 'border-solid border-ring bg-accent/30',
       )}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* PASTE FIRST. On a phone the clipboard is where the screenshot is —
+            "Copy and Delete" never writes one to Photos — so this is the
+            common case and the picker is the fallback, not the other way
+            round. Hidden entirely where the browser cannot read images off
+            the clipboard, rather than offered and then apologised for. */}
+        {canReadClipboard() && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || busy}
+            aria-disabled={disabled || busy}
+            onClick={onPasteClick}
+            tabIndex={4}
+          >
+            {busy ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <ClipboardPaste className="mr-2 h-4 w-4" />
+            )}
+            Paste screenshot
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -123,7 +198,7 @@ export function ImportScreenshot({
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImageDown className="mr-2 h-4 w-4" />}
           Import screenshot
         </Button>
-        <span className="text-xs text-muted-foreground">or paste, or drop one here</span>
+        <span className="text-xs text-muted-foreground">or drop one here</span>
       </div>
       <input
         ref={fileInput}

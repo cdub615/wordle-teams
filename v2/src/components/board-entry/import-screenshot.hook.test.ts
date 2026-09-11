@@ -15,7 +15,7 @@
 // the decode is stood in for and the paste is dispatched as a plain Event with
 // clipboardData attached. adapter.ts types those structurally precisely so this
 // is possible; see its own test file.
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ImportScreenshot } from './import-screenshot.tsx'
@@ -63,11 +63,13 @@ describe('ImportScreenshot', () => {
   })
 
   test('offers all three ways in', () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
     render(createElement(ImportScreenshot, { onParsed: vi.fn(), answer: '' }))
 
+    expect(screen.getByRole('button', { name: /paste screenshot/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /import screenshot/i })).toBeTruthy()
     expect(screen.getByLabelText(/wordle screenshot/i)).toBeTruthy()
-    expect(screen.getByText(/paste, or drop one here/i)).toBeTruthy()
+    expect(screen.getByText(/drop one here/i)).toBeTruthy()
   })
 
   // THE PATH THE FEATURE IS NAMED AFTER, and the reason the listener is on the
@@ -145,5 +147,111 @@ describe('ImportScreenshot', () => {
 
     await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/could not read that image/i))
     expect(onParsed).not.toHaveBeenCalled()
+  })
+})
+
+describe('the Paste button', () => {
+  beforeEach(() => vi.stubGlobal('console', { ...console, error: vi.fn() }))
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const withClipboard = (read: () => Promise<Array<unknown>>) =>
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { read } })
+
+  const imageItem = () => ({
+    types: ['image/png'],
+    getType: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+  })
+
+  const paste = () => fireEvent.click(screen.getByRole('button', { name: /paste screenshot/i }))
+
+  // PASTE IS THE PRIMARY PATH ON A PHONE, not a convenience. A screenshot taken
+  // with iOS's "Copy and Delete" never reaches Photos, so the file picker finds
+  // nothing and the clipboard is the only place the image exists.
+  test('is offered before Import, where the browser can read the clipboard', () => {
+    withClipboard(async () => [])
+    stubCanvas()
+    render(createElement(ImportScreenshot, { onParsed: vi.fn(), answer: '' }))
+
+    const buttons = screen.getAllByRole('button').map((button) => button.textContent ?? '')
+    expect(buttons[0]).toMatch(/paste screenshot/i)
+    expect(buttons[1]).toMatch(/import screenshot/i)
+  })
+
+  // Hidden rather than offered-and-apologised-for. Firefox has a clipboard
+  // object with writeText and no read at all.
+  test('is absent where the browser cannot read images off the clipboard', () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: async () => {} } })
+    stubCanvas()
+    render(createElement(ImportScreenshot, { onParsed: vi.fn(), answer: '' }))
+
+    expect(screen.queryByRole('button', { name: /paste screenshot/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /import screenshot/i })).toBeTruthy()
+  })
+
+  test('reads the clipboard and parses what it finds', async () => {
+    withClipboard(async () => [imageItem()])
+    stubCanvas()
+    const onParsed = vi.fn()
+    render(createElement(ImportScreenshot, { onParsed, answer: '' }))
+
+    paste()
+
+    await waitFor(() => expect(onParsed).toHaveBeenCalledTimes(1))
+  })
+
+  // EACH OUTCOME READS AS HELP. None of them is really an error — they are all
+  // things a person does — and "could not read the clipboard" would be a lie
+  // about a clipboard that simply had no picture on it.
+  test('says what to do when the clipboard holds no image', async () => {
+    withClipboard(async () => [{ types: ['text/plain'], getType: async () => new Blob([]) }])
+    stubCanvas()
+    const onParsed = vi.fn()
+    render(createElement(ImportScreenshot, { onParsed, answer: '' }))
+
+    paste()
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/no image on the clipboard/i))
+    expect(onParsed).not.toHaveBeenCalled()
+  })
+
+  test('treats a declined paste prompt as a refusal, not a fault', async () => {
+    withClipboard(async () => {
+      const error = new Error('nope')
+      error.name = 'NotAllowedError'
+      throw error
+    })
+    stubCanvas()
+    render(createElement(ImportScreenshot, { onParsed: vi.fn(), answer: '' }))
+
+    paste()
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/did not allow the paste/i))
+  })
+
+  test('points at Import when the clipboard cannot be read at all', async () => {
+    withClipboard(async () => {
+      throw new Error('exploded')
+    })
+    stubCanvas()
+    render(createElement(ImportScreenshot, { onParsed: vi.fn(), answer: '' }))
+
+    paste()
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/still use Import screenshot/i))
+  })
+
+  test('stops offering to paste while it is busy', async () => {
+    withClipboard(async () => [imageItem()])
+    stubCanvas()
+    render(createElement(ImportScreenshot, { onParsed: vi.fn(), answer: '' }))
+
+    const button = screen.getByRole('button', { name: /paste screenshot/i })
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
   })
 })

@@ -94,6 +94,83 @@ export function imageFromFiles(files: ArrayLike<File> | null | undefined): File 
 }
 
 /**
+ * WHY THERE IS A CLIPBOARD READ AT ALL, WHEN THERE IS ALREADY A PASTE LISTENER.
+ *
+ * On iOS there is no route into the paste listener. There is no Cmd-V, and the
+ * only way to fire a paste event is a long-press "Paste" on an editable
+ * element — but board-input.tsx and the answer field both preventDefault every
+ * paste that reaches them, deliberately, to stop a native insertion corrupting
+ * the React-owned board. So the listener can never fire there.
+ *
+ * That is not an edge case. Screenshots taken with iOS's "Copy and Delete" go
+ * to the clipboard and are never written to Photos at all, so for that workflow
+ * the clipboard is the ONLY place the image exists and the file picker reaches
+ * nothing. This is the primary path on a phone, not a convenience.
+ */
+export type ClipboardImage =
+  | { readonly ok: true; readonly blob: Blob }
+  | {
+      readonly ok: false
+      /**
+       * Separated because each one wants a different sentence, and none of them
+       * is really an error — they are all things a person does.
+       */
+      readonly reason:
+        /** This browser cannot read images off the clipboard. Firefox, today. */
+        | 'unsupported'
+        /** Dismissed the system paste prompt, or the permission is denied. */
+        | 'refused'
+        /** The clipboard has something on it, but not an image. */
+        | 'no-image'
+        | 'failed'
+    }
+
+/** Whether to offer a Paste control at all. False on Firefox and on plain http. */
+export function canReadClipboard(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.clipboard?.read === 'function'
+}
+
+/**
+ * The image on the clipboard.
+ *
+ * MUST BE REACHED WITH THE USER GESTURE STILL LIVE, which is why this calls
+ * `navigator.clipboard.read()` before it awaits anything at all. Safari drops
+ * transient activation across an await and the call then rejects with
+ * NotAllowedError however the person got here. A caller must likewise not await
+ * anything between the click and this call — synchronous setState is fine, an
+ * await is not.
+ *
+ * Safari answers with its own native paste confirmation. That is expected, and
+ * dismissing it arrives here as 'refused'.
+ */
+export async function imageFromClipboard(): Promise<ClipboardImage> {
+  if (!canReadClipboard()) return { ok: false, reason: 'unsupported' }
+
+  let items: ReadonlyArray<ClipboardItem>
+  try {
+    items = await navigator.clipboard.read()
+  } catch (error) {
+    // By NAME rather than instanceof: a DOMException that crossed a realm —
+    // which is exactly what a browser throws here — fails an instanceof check.
+    const refused =
+      error instanceof Error && (error.name === 'NotAllowedError' || error.name === 'SecurityError')
+    return { ok: false, reason: refused ? 'refused' : 'failed' }
+  }
+
+  for (const item of items) {
+    const type = item.types.find((candidate) => candidate.startsWith('image/'))
+    if (type === undefined) continue
+    try {
+      return { ok: true, blob: await item.getType(type) }
+    } catch {
+      return { ok: false, reason: 'failed' }
+    }
+  }
+
+  return { ok: false, reason: 'no-image' }
+}
+
+/**
  * A phone screenshot is about three megapixels and parses in under 200ms, so
  * this passes one through untouched. It is there for the desktop screenshot of
  * a 5K display, where the cost is quadratic and the extra detail buys nothing:

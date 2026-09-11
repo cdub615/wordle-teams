@@ -18,6 +18,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_PIXELS,
   bitmapFromBlob,
+  canReadClipboard,
+  imageFromClipboard,
   bitmapFromPaste,
   imageFromDrop,
   imageFromFiles,
@@ -193,5 +195,106 @@ describe('bitmapFromBlob', () => {
 
   it('returns null for a paste with no image, rather than throwing at the user', async () => {
     expect(await bitmapFromPaste({ clipboardData: { items: [asItem(null, 'string')] } })).toBeNull()
+  })
+})
+
+describe('reading the clipboard', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  /** A ClipboardItem as the browser hands one over. */
+  const item = (types: Array<string>, blob: Blob | null = png()) => ({
+    types,
+    getType: async (type: string) => {
+      if (blob === null) throw new Error('gone')
+      return new Blob([blob], { type })
+    },
+  })
+
+  const withClipboard = (read: () => Promise<Array<unknown>>) =>
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { read } })
+
+  it('is not offered where the browser cannot do it', () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined })
+    expect(canReadClipboard()).toBe(false)
+
+    // Firefox has a clipboard object with writeText but no read.
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: async () => {} } })
+    expect(canReadClipboard()).toBe(false)
+  })
+
+  it('is offered where it can', () => {
+    withClipboard(async () => [])
+    expect(canReadClipboard()).toBe(true)
+  })
+
+  it('returns the image the clipboard is holding', async () => {
+    withClipboard(async () => [item(['text/plain', 'image/png'])])
+    const result = await imageFromClipboard()
+
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.blob.type).toBe('image/png')
+  })
+
+  // THE CASE THAT DECIDES THE COPY. "There is no image on the clipboard" is
+  // help; "could not read the clipboard" would be a lie about what happened.
+  it('tells a clipboard with no image apart from one it could not read', async () => {
+    withClipboard(async () => [item(['text/plain', 'text/html'])])
+    expect(await imageFromClipboard()).toEqual({ ok: false, reason: 'no-image' })
+
+    withClipboard(async () => [])
+    expect(await imageFromClipboard()).toEqual({ ok: false, reason: 'no-image' })
+  })
+
+  // Safari shows its own paste confirmation and a dismissal lands here. That
+  // is a person declining, not a fault, and it must not read like one.
+  it('reports a declined paste prompt as a refusal', async () => {
+    const refuse = (name: string) => async () => {
+      const error = new Error('nope')
+      error.name = name
+      throw error
+    }
+    withClipboard(refuse('NotAllowedError'))
+    expect(await imageFromClipboard()).toEqual({ ok: false, reason: 'refused' })
+
+    withClipboard(refuse('SecurityError'))
+    expect(await imageFromClipboard()).toEqual({ ok: false, reason: 'refused' })
+  })
+
+  it('reports anything else as a failure rather than a refusal', async () => {
+    withClipboard(async () => {
+      throw new Error('the clipboard exploded')
+    })
+    expect(await imageFromClipboard()).toEqual({ ok: false, reason: 'failed' })
+  })
+
+  it('reports an item that promises an image and then cannot produce one', async () => {
+    withClipboard(async () => [item(['image/png'], null)])
+    expect(await imageFromClipboard()).toEqual({ ok: false, reason: 'failed' })
+  })
+
+  it('says so plainly when the browser has no clipboard read at all', async () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined })
+    expect(await imageFromClipboard()).toEqual({ ok: false, reason: 'unsupported' })
+  })
+
+  // THE RULE THAT KEEPS PASTE WORKING ON iOS, pinned as far as jsdom can: the
+  // read is reached before anything is awaited. Safari drops the user gesture
+  // across an await and rejects the call however the person got there. jsdom
+  // has no transient activation to lose, so what is asserted is the ordering
+  // this depends on — read() is called synchronously, before the returned
+  // promise is ever awaited.
+  it('calls read() synchronously, before awaiting anything', () => {
+    let called = false
+    withClipboard(async () => {
+      called = true
+      return []
+    })
+
+    const pending = imageFromClipboard()
+    expect(called, 'read() must be reached while the gesture is still live').toBe(true)
+    return pending
   })
 })
