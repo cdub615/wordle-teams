@@ -889,6 +889,21 @@ describe('deliver', () => {
     vi.useRealTimers()
   })
 
+  // THREE TESTS IN THIS BLOCK ARE THE ONLY KILLER OF WHAT THEY TEST, measured
+  // by mutation rather than assumed, and Task 7 edits this same file to delete
+  // the sweep's suites. Removing or loosening any of these unguards a property
+  // with nothing else noticing:
+  //
+  //  - 'a job one second off the row is superseded' — the only thing separating
+  //    the exact `!==` from a tolerance.
+  //  - 'claims even when sendEmail reports every recipient was suppressed' —
+  //    the only email player put through a send that reports nothing delivered.
+  //  - the `toHaveBeenCalledTimes(1)` line in the unresolvable-timeZone test —
+  //    the only thing separating that branch from one that reschedules.
+  //
+  // That is inherent to what they pin, not a coverage gap: each is the single
+  // input shape its property is visible in.
+
   // NOT `recentScores`. That constant is anchored to the sweep's late-August
   // `now`; activityFloor('2026-09-11') is '2026-09-01', so all three of its
   // days fall outside the window DUE is in. MEASURED: seeding `recentScores`
@@ -931,6 +946,33 @@ describe('deliver', () => {
     expect(jobs).toHaveLength(1)
     expect(jobs[0].scheduledTime).toBe(SATURDAY)
     expect(jobs[0].args[0]).toEqual({ playerId, dueAt: SATURDAY })
+  })
+
+  test('a job that fires late stamps the instant it ran, not the one it was due', async () => {
+    // THE ONLY TEST THAT SEPARATES `Date.now()` FROM `dueAt`. Every other case
+    // in this block pins the clock to DUE exactly, which makes the two equal —
+    // so a `const now = dueAt` mutant survived all of them (measured), and that
+    // one substitution unpins the local day both `dailyScores` lookups ask
+    // about, the `from` the reschedule computes, and this stamp at once.
+    //
+    // Three hours, chosen to stay inside the player's local day: DUE is 09:00
+    // Chicago, so this runs at 12:00 the same Friday. The lag that crosses
+    // local midnight is a different question, and a deliberately open one —
+    // wordle-teams-2og8.11 owns the decision about resolving the day from
+    // `dueAt` instead, and pinning it here would prejudge it.
+    const LATE = DUE + 3 * 60 * 60 * 1000
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+    vi.setSystemTime(new Date(LATE))
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.delivered).toBe(true)
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.lastBoardEntryReminder).toBe(LATE)
+    // Still Saturday: the next occurrence is computed from the later instant,
+    // and 12:00 Friday is still before it.
+    expect(player?.nextReminderAt).toBe(SATURDAY)
   })
 
   // THE STALENESS GUARD. This is the property that makes a failed cancel
@@ -1020,6 +1062,41 @@ describe('deliver', () => {
   test('reschedules when the player has not played in ten days', async () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t, {}, ['2026-08-01'])
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('inactive')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+  })
+
+  // BOTH EDGES OF THE ACTIVITY WINDOW, PINNED THROUGH `deliver`. The test above
+  // seeds a board 41 days out, which any plausible off-by-one still calls
+  // inactive; lib/reminders.test.ts pins activityFloor itself, but nothing
+  // pinned the range this handler actually builds from it.
+  test('a board exactly on the activity floor still counts as active', async () => {
+    // activityFloor('2026-09-11') is '2026-09-01' — ten days back, inclusive of
+    // the tenth, which is v1's rule. A `gte` -> `gt` on that bound makes this
+    // player inactive.
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, {}, ['2026-09-01'])
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.delivered).toBe(true)
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('a board dated after the local day does not count as activity', async () => {
+    // THE UPPER BOUND IS NOT DECORATION. The sweep's range was
+    // [floor, localDay]; dropping the `lte` here would have been a silent
+    // widening, because a row dated in the player's future is reachable — a
+    // timeZone moved backwards after a board was entered produces one — and
+    // `.first()` on an open-ended range would find it and call this player
+    // active with nothing inside the window at all.
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, {}, ['2026-09-20'])
 
     const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
 

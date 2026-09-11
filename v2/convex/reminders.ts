@@ -562,26 +562,32 @@ export async function reschedulePlayerReminderFor(
  * to be reliable; see `reschedulePlayerReminderFor` for what Convex documents
  * about that.
  *
- * IT RESCHEDULES ON EVERY PATH THAT IS NOT "SUPERSEDED", including when the
- * kill switch is off and when the player turns out to be ineligible. Each of
- * those is a day this player is not reminded; none of them is a reason to end
- * their chain forever. Miss this and turning REMINDERS_ENABLED off would strand
- * every player, and turning it back on would need a full re-bootstrap — which
- * is exactly the coupling keeping the gate at delivery was meant to avoid.
+ * IT RESCHEDULES ON EVERY PATH THAT REACHES AN ELIGIBILITY DECISION, including
+ * when the kill switch is off and when the player turns out to be ineligible.
+ * Each of those is a day this player is not reminded; none of them is a reason
+ * to end their chain forever. Miss this and turning REMINDERS_ENABLED off would
+ * strand every player, and turning it back on would need a full re-bootstrap —
+ * which is exactly the coupling keeping the gate at delivery was meant to
+ * avoid.
  *
- * THE ONE EXCEPTION IS 'bad-time-zone', AND IT IS DELIBERATE. There is no zone
- * to compute an occurrence in, so `scheduleNextFor` would resolve the same
+ * TWO BRANCHES RETURN WITHOUT RESCHEDULING, AND BOTH ARE DELIBERATE.
+ * 'no-player': the row is gone, so there is nothing to schedule for and
+ * `scheduleNextFor` would return false anyway — the log ladder on that function
+ * explains why a missing player is silent. 'bad-time-zone': there is no zone to
+ * compute an occurrence in, so `scheduleNextFor` would resolve the same
  * unresolvable zone, log a second time and return false (measured, by mutating
- * this branch into a rescheduling one). The chain ends and `maintain` retries
- * the row daily — self-limiting and visible, which is the right failure for a
- * row nobody can schedule.
+ * this branch into a rescheduling one). In the second case the chain ends and
+ * `maintain` retries the row daily — self-limiting and visible, which is the
+ * right failure for a row nobody can schedule.
  *
- * 'no-time-zone' REACHES THE SAME END STATE BY A DIFFERENT ROUTE, which is why
- * the exception above is stated as one branch and not two: it does call
- * `scheduleNextFor`, but that function gates on `timeZone` and returns false
- * without touching the row, so nothing is scheduled there either. Both are left
- * to `maintain`; only the unresolvable one is logged, per the log ladder on
- * `scheduleNextFor`.
+ * A THIRD BRANCH REACHES THE SAME END STATE WITHOUT BEING ONE OF THOSE TWO, so
+ * "nothing gets scheduled here" is not the same set as "no reschedule is
+ * attempted". 'no-time-zone' does call `scheduleNextFor`, but that function
+ * gates on `timeZone` and returns false without touching the row, so nothing is
+ * scheduled there either. It is left to `maintain` like the other two, and it
+ * is silent like 'no-player' — the expected state of hundreds of copied rows,
+ * which is why only 'bad-time-zone' logs. See the log ladder on
+ * `scheduleNextFor` for that whole rule.
  *
  * ORDERING WITHIN THE HANDLER DOES NOT PROTECT THE CHAIN, so do not reorder it
  * hoping to. This is one transaction: `runAt` takes effect on commit, so if
@@ -636,12 +642,18 @@ export const deliver = internalMutation({
       return await withReschedule('not-allowlisted' as const)
     }
 
-    // RESOLVED BEFORE `alreadyRemindedToday`, WHICH ALSO CALLS `localParts`:
-    // doing it here is what puts both of this handler's zone resolutions inside
-    // one catch. `schema.ts` types timeZone as unvalidated
-    // `v.optional(v.string())` and a row copied from Supabase never passed
-    // through `updateTimeZoneFor`, so an ICU-rejected zone is reachable here —
-    // see lib/reminders.ts's localParts precondition for which values throw.
+    // RESOLVED BEFORE `alreadyRemindedToday`, WHICH ALSO CALLS `localParts`.
+    // The protection is the EARLY RETURN, not the try block: this handler
+    // resolves the zone twice and only the first call is inside the catch —
+    // `alreadyRemindedToday` makes its own call, below, outside it. What keeps
+    // that second call safe is that an ICU-rejected zone has already returned
+    // here before it can be reached. (An earlier version of this comment
+    // claimed the ordering "puts both resolutions inside one catch". It does
+    // not; the structure is one catch plus one guarded caller.) `schema.ts`
+    // types timeZone as unvalidated `v.optional(v.string())` and a row copied
+    // from Supabase never passed through `updateTimeZoneFor`, so an
+    // ICU-rejected zone is reachable here — see lib/reminders.ts's localParts
+    // precondition for which values throw.
     let local
     try {
       local = localParts(timeZone, new Date(now))
@@ -672,10 +684,22 @@ export const deliver = internalMutation({
       .first()
     if (enteredToday) return await withReschedule('already-entered' as const)
 
+    // BOTH BOUNDS, BECAUSE THIS IS A PORT. An open-ended `gte` would also
+    // count a board dated AFTER the player's current local day, which the
+    // sweep's `[floor, localDay]` range excluded. That is reachable — a
+    // timeZone moved backwards after a board was entered puts a row in the
+    // player's future — and it errs toward reminding, so the widening would be
+    // harmless. It is still a behaviour change the rest of this comment would
+    // have been claiming parity over, so the window matches the sweep's exactly
+    // and both edges are pinned by tests: a board on `activityFloor(local.day)`
+    // counts, a board after `local.day` does not.
     const recent = await ctx.db
       .query('dailyScores')
       .withIndex('by_player_and_puzzleDay', (q) =>
-        q.eq('playerId', playerId).gte('puzzleDay', activityFloor(local.day)),
+        q
+          .eq('playerId', playerId)
+          .gte('puzzleDay', activityFloor(local.day))
+          .lte('puzzleDay', local.day),
       )
       .first()
     if (!recent) return await withReschedule('inactive' as const)
