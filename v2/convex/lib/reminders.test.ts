@@ -2,8 +2,11 @@ import { describe, expect, test } from 'vitest'
 import { isWeekendDay } from './puzzleDay.ts'
 import {
   activityFloor,
+  allowlistFrom,
+  allowsAddress,
   alreadyRemindedToday,
   enteredOn,
+  hasKnownMethod,
   hasRecentActivity,
   instantForLocal,
   isDueThisHour,
@@ -450,5 +453,66 @@ describe('weekendPlayerIdsFrom', () => {
 
   test('is empty when no team plays weekends', () => {
     expect(weekendPlayerIdsFrom([{ playWeekends: false, playerIds: ['a'] }])).toEqual(new Set())
+  })
+})
+
+describe('hasKnownMethod', () => {
+  test('accepts either real method, and both together', () => {
+    expect(hasKnownMethod(['email'])).toBe(true)
+    expect(hasKnownMethod(['push'])).toBe(true)
+    expect(hasKnownMethod(['email', 'push'])).toBe(true)
+  })
+
+  test('rejects an empty list', () => {
+    expect(hasKnownMethod([])).toBe(false)
+  })
+
+  test('rejects a copied row whose only method does not exist', () => {
+    // A Supabase row never passed through the settings validator, so 'sms' is
+    // reachable. Claiming this player and then matching no delivery branch
+    // would burn their one reminder for the day in silence.
+    expect(hasKnownMethod(['sms'])).toBe(false)
+  })
+
+  test('accepts a list mixing a real method with an unknown one', () => {
+    expect(hasKnownMethod(['sms', 'email'])).toBe(true)
+  })
+
+  test('is case-sensitive, matching METHODS', () => {
+    expect(hasKnownMethod(['Email'])).toBe(false)
+  })
+})
+
+describe('allowlistFrom', () => {
+  test('trims surrounding whitespace and folds case', () => {
+    // The shape an operator actually types into a dashboard field. Comparing
+    // raw would match nobody, and `players.email` is always stored lowercase.
+    expect(allowlistFrom(' Listed@Example.com , other@example.com')).toEqual(
+      new Set(['listed@example.com', 'other@example.com']),
+    )
+  })
+
+  test('an absent or empty value yields an empty set, not a set holding one empty string', () => {
+    // This is what makes `allowsAddress`'s "empty means unrestricted" reading
+    // correct: a set containing '' would restrict delivery to nobody.
+    expect(allowlistFrom(undefined).size).toBe(0)
+    expect(allowlistFrom('').size).toBe(0)
+    expect(allowlistFrom('  ').size).toBe(0)
+  })
+
+  test('drops empty entries from a trailing or doubled comma', () => {
+    expect(allowlistFrom('a@example.com,,')).toEqual(new Set(['a@example.com']))
+  })
+})
+
+describe('allowsAddress', () => {
+  test('an empty allowlist is unrestricted — the production default', () => {
+    expect(allowsAddress(new Set(), 'anyone@example.com')).toBe(true)
+  })
+
+  test('a populated allowlist permits exactly its members', () => {
+    const list = new Set(['listed@example.com'])
+    expect(allowsAddress(list, 'listed@example.com')).toBe(true)
+    expect(allowsAddress(list, 'unlisted@example.com')).toBe(false)
   })
 })

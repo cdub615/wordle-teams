@@ -5,8 +5,11 @@ import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 import {
   activityFloor,
+  allowlistFrom,
+  allowsAddress,
   alreadyRemindedToday,
   enteredOn,
+  hasKnownMethod,
   hasRecentActivity,
   isDueThisHour,
   localParts,
@@ -22,9 +25,12 @@ import { sendEmail } from './email.ts'
 const HOUR_MS = 60 * 60 * 1000
 
 // Derived from METHODS (lib/reminders.ts) rather than re-typed as string
-// literals, so the two `.includes()` checks below and settings.ts's
-// membership guard cannot drift out of sync the way REMINDER_TIMES's own doc
-// comment warns isDueThisHour and the settings picker could.
+// literals, so the four `.includes()` checks below — two delivery branches
+// each in `sweep` and `deliver`, which a grep of this file confirms — and
+// settings.ts's membership guard cannot drift out of sync the way
+// REMINDER_TIMES's own doc comment warns isDueThisHour and the settings
+// picker could. The separate question "is any stored method known at all"
+// now lives in lib/reminders.ts's hasKnownMethod, which both functions call.
 const [EMAIL_METHOD, PUSH_METHOD] = METHODS
 
 /**
@@ -119,13 +125,11 @@ export const sweep = internalMutation({
       throw new Error('[reminders] SITE_URL is not set on this deployment')
     }
 
-    // GATE 2.
-    const allowlist = new Set(
-      (process.env.REMINDERS_ALLOWLIST ?? '')
-        .split(',')
-        .map((address) => address.trim().toLowerCase())
-        .filter((address) => address.length > 0),
-    )
+    // GATE 2. The parsing rules — trim, fold case, drop empties — live in
+    // lib/reminders.ts's allowlistFrom, with their own tests, because `deliver`
+    // needs the same ones and a second copy is how the errors in this plan
+    // have travelled between modules.
+    const allowlist = allowlistFrom(process.env.REMINDERS_ALLOWLIST)
 
     const now = nowArg ?? Date.now()
     const at = new Date(now)
@@ -161,9 +165,8 @@ export const sweep = internalMutation({
     const candidates = players.flatMap((player) => {
       const timeZone = player.timeZone
       if (!timeZone) return []
-      if (!player.reminderDeliveryMethods.some((m) => (METHODS as ReadonlyArray<string>).includes(m)))
-        return []
-      if (allowlist.size > 0 && !allowlist.has(player.email)) return []
+      if (!hasKnownMethod(player.reminderDeliveryMethods)) return []
+      if (!allowsAddress(allowlist, player.email)) return []
 
       let local, hourAgo
       try {
@@ -446,8 +449,9 @@ export async function scheduleNextFor(
  * this comment claiming that: `scheduleNextFor` gates only on `timeZone`
  * (below), so a methods write can never be what first schedules a player, and
  * `deliver` (Task 5) runs a chain with empty methods regardless, via
- * `withReschedule('no-method')`. It reschedules anyway so that "every write in
- * settings.ts reschedules" holds with NO EXCEPTION a reader has to re-derive.
+ * `skipAndReschedule('no-method')`. It reschedules anyway so that "every write
+ * in settings.ts reschedules" holds with NO EXCEPTION a reader has to
+ * re-derive.
  * THE ACCEPTED COST: a methods write still cancels the pending job and
  * reschedules from `Date.now()`, even though it cannot move the instant — so a
  * methods toggle landing in the scheduler-latency window between a due instant
@@ -534,7 +538,14 @@ export async function reschedulePlayerReminderFor(
  * reads a month; at the ~291 bytes/document wordle-teams-yhii estimates, that
  * is ~82 MB decimal (78.5 MiB), against a 1 GB cap whose failure mode is
  * mutations FAILING rather than a bill (wordle-teams-dcu) — so ~8% either way
- * you count the unit. This reads one player row instead.
+ * you count the unit.
+ *
+ * WHAT THIS READS INSTEAD, ON THE DELIVERED PATH: the player row TWICE — once
+ * here and once inside `scheduleNextFor`, which does its own `ctx.db.get` —
+ * plus at most one `dailyScores` row, over two index ranges. Three documents
+ * and two ranges. NOT "one player row": that phrasing was in an earlier
+ * version of this comment and it undercounted by forgetting the second get.
+ * Task 8's DELIVER_READS enumerates the same figures.
  *
  * IT IS NOT A FUTURE COST. An earlier version of this comment said the sweep
  * "cost nothing only because REMINDERS_ENABLED was empty", deferring the bill
@@ -570,21 +581,23 @@ export async function reschedulePlayerReminderFor(
  * which is exactly the coupling keeping the gate at delivery was meant to
  * avoid.
  *
- * TWO BRANCHES RETURN WITHOUT RESCHEDULING, AND BOTH ARE DELIBERATE.
+ * THREE BRANCHES RETURN WITHOUT RESCHEDULING, AND ALL THREE ARE DELIBERATE.
+ * 'superseded' is the one the paragraph above is about, and the only one of
+ * the three that is a correctness requirement rather than a tidiness choice.
  * 'no-player': the row is gone, so there is nothing to schedule for and
  * `scheduleNextFor` would return false anyway — the log ladder on that function
  * explains why a missing player is silent. 'bad-time-zone': there is no zone to
  * compute an occurrence in, so `scheduleNextFor` would resolve the same
  * unresolvable zone, log a second time and return false (measured, by mutating
- * this branch into a rescheduling one). In the second case the chain ends and
+ * this branch into a rescheduling one). In that last case the chain ends and
  * `maintain` retries the row daily — self-limiting and visible, which is the
  * right failure for a row nobody can schedule.
  *
- * A THIRD BRANCH REACHES THE SAME END STATE WITHOUT BEING ONE OF THOSE TWO, so
+ * A FOURTH BRANCH REACHES THE SAME END STATE WITHOUT BEING ONE OF THOSE, so
  * "nothing gets scheduled here" is not the same set as "no reschedule is
  * attempted". 'no-time-zone' does call `scheduleNextFor`, but that function
  * gates on `timeZone` and returns false without touching the row, so nothing is
- * scheduled there either. It is left to `maintain` like the other two, and it
+ * scheduled there either. It is left to `maintain` like the others, and it
  * is silent like 'no-player' — the expected state of hundreds of copied rows,
  * which is why only 'bad-time-zone' logs. See the log ladder on
  * `scheduleNextFor` for that whole rule.
@@ -615,41 +628,54 @@ export const deliver = internalMutation({
     }
 
     const now = Date.now()
-    // Every `return` below this point goes through here, so that no eligibility
-    // outcome can silently end the chain.
-    const withReschedule = async <R extends string>(reason: R) => {
+    // THE SKIP PATH. Every eligibility outcome below returns through here, so
+    // that none of them can silently end the chain — but "every return below
+    // this point" would be false, and the two exceptions are the ones a
+    // maintainer adding a branch most needs to know about:
+    //
+    //  - 'bad-time-zone' returns bare, on purpose: there is no zone to compute
+    //    an occurrence in, so calling this would only log a second time. The
+    //    doc comment above has the whole rule.
+    //  - the delivered path reschedules through its own call at the end,
+    //    because it is not a skip.
+    //
+    // NAMED FOR BOTH HALVES, because it reads like a value constructor and is
+    // not one: it performs a `runAt` and a `patch` (inside `scheduleNextFor`)
+    // at each of its seven call sites, which the earlier name
+    // `withReschedule` left to be discovered.
+    const skipAndReschedule = async <R extends string>(reason: R) => {
       await scheduleNextFor(ctx, playerId, now)
       return { delivered: false, reason }
     }
 
     if (process.env.REMINDERS_ENABLED !== 'true') {
-      return await withReschedule('disabled' as const)
+      return await skipAndReschedule('disabled' as const)
     }
 
     const timeZone = player.timeZone
-    if (!timeZone) return await withReschedule('no-time-zone' as const)
+    if (!timeZone) return await skipAndReschedule('no-time-zone' as const)
 
-    if (!player.reminderDeliveryMethods.some((m) => (METHODS as ReadonlyArray<string>).includes(m)))
-      return await withReschedule('no-method' as const)
+    if (!hasKnownMethod(player.reminderDeliveryMethods)) {
+      return await skipAndReschedule('no-method' as const)
+    }
 
-    const allowlist = new Set(
-      (process.env.REMINDERS_ALLOWLIST ?? '')
-        .split(',')
-        .map((address) => address.trim().toLowerCase())
-        .filter((address) => address.length > 0),
-    )
-    if (allowlist.size > 0 && !allowlist.has(player.email)) {
-      return await withReschedule('not-allowlisted' as const)
+    // Both gates delegate to lib/reminders.ts — see the note at `sweep`'s
+    // Gate 2 for why the parsing is not written out here a second time.
+    if (!allowsAddress(allowlistFrom(process.env.REMINDERS_ALLOWLIST), player.email)) {
+      return await skipAndReschedule('not-allowlisted' as const)
     }
 
     // RESOLVED BEFORE `alreadyRemindedToday`, WHICH ALSO CALLS `localParts`.
-    // The protection is the EARLY RETURN, not the try block: this handler
-    // resolves the zone twice and only the first call is inside the catch —
-    // `alreadyRemindedToday` makes its own call, below, outside it. What keeps
-    // that second call safe is that an ICU-rejected zone has already returned
-    // here before it can be reached. (An earlier version of this comment
-    // claimed the ordering "puts both resolutions inside one catch". It does
-    // not; the structure is one catch plus one guarded caller.) `schema.ts`
+    // The protection is the EARLY RETURN, not the try block: this is the only
+    // resolution inside the catch, and the zone is resolved AT LEAST ONCE MORE
+    // afterwards — conditionally by `alreadyRemindedToday`, which calls
+    // `localParts` only when a stamp exists, and again inside
+    // `scheduleNextFor` on every skip path. All of those are outside this
+    // catch. What keeps them safe is that an ICU-rejected zone has already
+    // returned here before any of them can be reached. (Two earlier versions
+    // of this comment got the structure wrong: first claiming the ordering
+    // "puts both resolutions inside one catch", then that there were exactly
+    // two.) `schema.ts`
     // types timeZone as unvalidated `v.optional(v.string())` and a row copied
     // from Supabase never passed through `updateTimeZoneFor`, so an
     // ICU-rejected zone is reachable here — see lib/reminders.ts's localParts
@@ -663,7 +689,7 @@ export const deliver = internalMutation({
     }
 
     if (alreadyRemindedToday(player.lastBoardEntryReminder, timeZone, local.day)) {
-      return await withReschedule('already-reminded' as const)
+      return await skipAndReschedule('already-reminded' as const)
     }
 
     // TWO INDEX LOOKUPS, NOT AN ELEVEN-DAY COLLECT. The sweep reads the whole
@@ -682,7 +708,7 @@ export const deliver = internalMutation({
         q.eq('playerId', playerId).eq('puzzleDay', local.day),
       )
       .first()
-    if (enteredToday) return await withReschedule('already-entered' as const)
+    if (enteredToday) return await skipAndReschedule('already-entered' as const)
 
     // BOTH BOUNDS, BECAUSE THIS IS A PORT. An open-ended `gte` would also
     // count a board dated AFTER the player's current local day, which the
@@ -702,7 +728,7 @@ export const deliver = internalMutation({
           .lte('puzzleDay', local.day),
       )
       .first()
-    if (!recent) return await withReschedule('inactive' as const)
+    if (!recent) return await skipAndReschedule('inactive' as const)
 
     // SITE_URL is read only once a player is genuinely about to be mailed, and
     // throwing here rolls the whole transaction back — no claim, no reschedule —

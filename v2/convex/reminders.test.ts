@@ -889,26 +889,74 @@ describe('deliver', () => {
     vi.useRealTimers()
   })
 
-  // THREE TESTS IN THIS BLOCK ARE THE ONLY KILLER OF WHAT THEY TEST, measured
-  // by mutation rather than assumed, and Task 7 edits this same file to delete
-  // the sweep's suites. Removing or loosening any of these unguards a property
-  // with nothing else noticing:
+  // MOST TESTS IN THIS BLOCK ARE THE ONLY KILLER OF WHAT THEY TEST, and Task 7
+  // edits this same file to delete the sweep's suites. Removing or loosening
+  // one of them unguards a property with nothing else noticing.
   //
-  //  - 'a job one second off the row is superseded' — the only thing separating
-  //    the exact `!==` from a tolerance.
-  //  - 'claims even when sendEmail reports every recipient was suppressed' —
-  //    the only email player put through a send that reports nothing delivered.
-  //  - the `toHaveBeenCalledTimes(1)` line in the unresolvable-timeZone test —
-  //    the only thing separating that branch from one that reschedules.
+  // MEASURED: of the twenty mutants run against `deliver` while it was built,
+  // NINE had exactly one killing test — the exact `!==` versus a tolerance,
+  // the unresolvable-zone log COUNT (one `toHaveBeenCalledTimes(1)` line), a
+  // late-fire instant, each of the two activity-window edges, the
+  // 'true'-not-truthy comparison, the player's local day versus UTC's, a
+  // yesterday stamp, and both delivery methods at once. Two more had two
+  // killers each, one of which was the structural guard below.
   //
-  // That is inherent to what they pin, not a coverage gap: each is the single
-  // input shape its property is visible in.
+  // An earlier version of this note said three, and then ten. Both were wrong,
+  // and a hand-kept list is the wrong instrument regardless — it goes stale the
+  // moment a test is added, which is the failure mode this whole change keeps
+  // running into. So: each test's OWN comment is authoritative about what only
+  // it catches, and the structural guard at the end of this block covers,
+  // automatically, the subset of those properties that maps to a distinct
+  // `reason`.
+  //
+  // None of this is a coverage gap. Each is the single input shape its property
+  // is visible in.
 
   // NOT `recentScores`. That constant is anchored to the sweep's late-August
   // `now`; activityFloor('2026-09-11') is '2026-09-01', so all three of its
   // days fall outside the window DUE is in. MEASURED: seeding `recentScores`
   // here puts the happy-path player on the `inactive` branch instead.
   const scoresBeforeDue = ['2026-09-08', '2026-09-09', '2026-09-10']
+
+  // EVERY OUTCOME `deliver` CAN RETURN, DECLARED ONCE. The last test in this
+  // block asserts that the tests between here and it observed all eleven, and
+  // it is the structural half of the Task 7 warning above: a comment cannot
+  // survive an edit by someone who does not read it, but this fails the build.
+  // It catches BOTH directions — a test deleted (which is what Task 7 does to
+  // this file) and a branch added without one. At the time it was written,
+  // three of the eleven had no test at all: 'no-player', 'no-time-zone' and
+  // 'no-method', and the handler's doc comment made specific claims about two
+  // of them that were therefore unmeasured.
+  const REASONS = [
+    'no-player',
+    'superseded',
+    'disabled',
+    'no-time-zone',
+    'no-method',
+    'not-allowlisted',
+    'bad-time-zone',
+    'already-reminded',
+    'already-entered',
+    'inactive',
+    'sent',
+  ] as const
+  const observed = new Set<string>()
+
+  /**
+   * Call `deliver` and record which outcome it reported.
+   *
+   * Every call in this block goes through here rather than `t.mutation`
+   * directly, so that the coverage assertion cannot be satisfied by a test
+   * that stopped exercising the branch it is named for.
+   */
+  async function deliverFor(
+    t: ReturnType<typeof convexTest>,
+    args: { playerId: Id<'players'>; dueAt: number },
+  ) {
+    const result = await t.mutation(internal.reminders.deliver, args)
+    observed.add(result.reason)
+    return result
+  }
 
   /** Puts a player on the schedule with `nextReminderAt === DUE`. */
   async function scheduled(
@@ -925,7 +973,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.delivered).toBe(true)
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
@@ -965,7 +1013,7 @@ describe('deliver', () => {
     const playerId = await scheduled(t)
     vi.setSystemTime(new Date(LATE))
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.delivered).toBe(true)
     const player = await t.run((ctx) => ctx.db.get(playerId))
@@ -984,7 +1032,7 @@ describe('deliver', () => {
     const moved = DUE + 60 * 60 * 1000
     await t.run((ctx) => ctx.db.patch(playerId, { nextReminderAt: moved }))
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.reason).toBe('superseded')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1004,10 +1052,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
 
-    const result = await t.mutation(internal.reminders.deliver, {
-      playerId,
-      dueAt: DUE - 1000,
-    })
+    const result = await deliverFor(t, { playerId, dueAt: DUE - 1000 })
 
     expect(result.reason).toBe('superseded')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1019,7 +1064,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await seed(t, { playsWeekends: true }, scoresBeforeDue)
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.reason).toBe('superseded')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1037,7 +1082,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.reason).toBe('disabled')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1051,7 +1096,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t, {}, [...scoresBeforeDue, '2026-09-11'])
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.reason).toBe('already-entered')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1063,7 +1108,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t, {}, ['2026-08-01'])
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.reason).toBe('inactive')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1082,7 +1127,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t, {}, ['2026-09-01'])
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.delivered).toBe(true)
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
@@ -1098,7 +1143,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t, {}, ['2026-09-20'])
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.reason).toBe('inactive')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1111,7 +1156,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.reason).toBe('not-allowlisted')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1127,12 +1172,12 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
 
-    await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    await deliverFor(t, { playerId, dueAt: DUE })
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
 
     // Replay the same job against the same instant.
     await t.run((ctx) => ctx.db.patch(playerId, { nextReminderAt: DUE }))
-    const replay = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const replay = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(replay.reason).toBe('already-reminded')
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
@@ -1147,15 +1192,17 @@ describe('deliver', () => {
     // empty after e2e filtering. Not in the plan's list; added because the
     // claim's own comment says conditioning it on the send result reopens the
     // double-send, and this is the only test here that puts an email player
-    // through a send that reports nothing delivered — so a `if (id)
-    // patch(...)` has nowhere else to be noticed. The sibling sweep test
+    // through a send reporting nothing delivered. (The mutant actually run also
+    // tripped the push test, because conditioning the claim moved it inside the
+    // email branch; a conditional that left the claim above the branches would
+    // have had only this test to answer to.) The sibling sweep test
     // 'claims a player even when sendEmail reports every recipient was
     // suppressed' pins the same rule for the code this replaces.
     sendEmailMock.mockResolvedValue(null)
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
 
-    await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    await deliverFor(t, { playerId, dueAt: DUE })
 
     const player = await t.run((ctx) => ctx.db.get(playerId))
     expect(player?.lastBoardEntryReminder).toBe(DUE)
@@ -1165,7 +1212,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t, { reminderDeliveryMethods: ['push'] })
 
-    await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(sendEmailMock).not.toHaveBeenCalled()
     const jobs = await scheduledPushJobs(t)
@@ -1180,10 +1227,19 @@ describe('deliver', () => {
   test('throws when SITE_URL is missing, so nobody is claimed', async () => {
     // Throwing rolls the whole transaction back — no claim, no reschedule — and
     // `maintain` puts the chain back once the deployment is fixed.
-    vi.stubEnv('SITE_URL', '')
+    //
+    // `undefined`, not `''` — vi.stubEnv deletes the key, which is the real
+    // unset case, and vitest.config.ts's global SITE_URL default makes this the
+    // only place the value has to be actively removed rather than overridden.
+    // Matched to the sweep's own SITE_URL test on purpose: after Task 7 deletes
+    // that one, nothing else exercises the absent shape.
+    vi.stubEnv('SITE_URL', undefined)
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
 
+    // Not routed through `deliverFor`: it throws, so there is no reason to
+    // record. That is why 'sent' is observed by the happy path rather than
+    // here.
     await expect(
       t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
     ).rejects.toThrow(/SITE_URL/)
@@ -1200,7 +1256,7 @@ describe('deliver', () => {
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t, { playsWeekends: false })
 
-    await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    await deliverFor(t, { playerId, dueAt: DUE })
 
     const player = await t.run((ctx) => ctx.db.get(playerId))
     // Friday delivery, so the next is Monday.
@@ -1224,7 +1280,7 @@ describe('deliver', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const playerId = await scheduled(t, { timeZone: 'GMT+5' })
 
-    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
 
     expect(result.reason).toBe('bad-time-zone')
     expect(sendEmailMock).not.toHaveBeenCalled()
@@ -1240,10 +1296,192 @@ describe('deliver', () => {
       expect.anything(),
     )
     // EXACTLY ONCE, which is the only thing that can tell this branch from one
-    // that reschedules. A `withReschedule('bad-time-zone')` mutant leaves
+    // that reschedules. A `skipAndReschedule('bad-time-zone')` mutant leaves
     // nextReminderAt at DUE anyway — scheduleNextFor resolves the same bad zone
     // and returns false without touching the row — so the assertion above it
     // cannot see the difference. The second log line can (measured).
     expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  // THE THREE GATE BEHAVIOURS THE SWEEP PINS AND `deliver` DID NOT. Task 7
+  // deletes the sweep suites from this file on the premise that these are
+  // re-asserted here; they were not, so they are now. Each has a live cutover
+  // consequence, which is why they are not merely symmetry.
+  describe('the two kill switches, ported', () => {
+    test('an allowlist with whitespace and mixed case still reaches the listed player', async () => {
+      // THE POSITIVE CASE, which the non-match test cannot cover: a mutant that
+      // drops the `allowsAddress` check — rejecting EVERYONE whenever a list is
+      // set — satisfies the negative test perfectly. So do mutants dropping
+      // `.trim()` or `.toLowerCase()`, because this is the shape an operator
+      // actually types into a dashboard field. The failure mode is not an
+      // error: it is every reminder silently not being sent, and beta runs with
+      // exactly one address on this list today.
+      //
+      // Addresses are RFC-reserved example.com throwaways, never a real
+      // person's — this repository is public.
+      vi.stubEnv('REMINDERS_ALLOWLIST', ' Listed@Example.com , ')
+      const t = convexTest(schema, modules)
+      const playerId = await scheduled(t, { email: 'listed@example.com' })
+
+      const result = await deliverFor(t, { playerId, dueAt: DUE })
+
+      expect(result.delivered).toBe(true)
+      expect(sendEmailMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ to: 'listed@example.com' }),
+      )
+    })
+
+    test("REMINDERS_ENABLED is compared to 'true' exactly, not for truthiness", async () => {
+      // '1' is the config slip most likely in a hurry — treating the variable
+      // like a boolean flag. The kill-switch test above stubs '', which a plain
+      // truthiness mutant also rejects, so nothing there pins the strictness of
+      // the comparison. This gate is what stands between a config slip and
+      // mailing real people on beta.
+      vi.stubEnv('REMINDERS_ENABLED', '1')
+      const t = convexTest(schema, modules)
+      const playerId = await scheduled(t)
+
+      const result = await deliverFor(t, { playerId, dueAt: DUE })
+
+      expect(result.reason).toBe('disabled')
+      expect(sendEmailMock).not.toHaveBeenCalled()
+      // Still rescheduled: an operator setting the flag wrongly must not also
+      // end every chain.
+      const player = await t.run((ctx) => ctx.db.get(playerId))
+      expect(player?.nextReminderAt).toBe(SATURDAY)
+    })
+  })
+
+  test('a player whose only delivery method is unknown is skipped, e.g. a copied "sms" row', async () => {
+    // `reminderDeliveryMethods` is an unvalidated `v.array(v.string())` and a
+    // copied Supabase row never passed through the settings validator. Claiming
+    // this player and then matching no delivery branch would burn their one
+    // reminder for the day in silence. The rule itself is tested in
+    // lib/reminders.test.ts's hasKnownMethod; this pins that `deliver` applies
+    // it, and reschedules anyway.
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, { reminderDeliveryMethods: ['sms'] })
+
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('no-method')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(await scheduledPushJobs(t)).toHaveLength(0)
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+  })
+
+  test('a job for a deleted player retires quietly', async () => {
+    // The normal outcome of a delete racing a pending job. Nothing is wrong, so
+    // nothing is logged — see the log ladder on scheduleNextFor — and there is
+    // no row to reschedule for either.
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+    await t.run((ctx) => ctx.db.delete(playerId))
+
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('no-player')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+  })
+
+  test('a player with no timeZone is skipped, and the skip schedules nothing', async () => {
+    // THE DOC COMMENT'S CLAIM, MEASURED. This path does call
+    // skipAndReschedule, but scheduleNextFor gates on timeZone and returns
+    // false without touching the row — so "it reschedules on every eligibility
+    // path" is true of the call and not of the effect, and this is the only
+    // test that shows the difference. The chain is left to `maintain`.
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, { timeZone: undefined })
+
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('no-time-zone')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(DUE)
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    expect(jobs).toHaveLength(0)
+  })
+
+  test("the local day is the player's, not UTC's", async () => {
+    // THE FIXTURE BLIND SPOT. Every other test in this block runs an
+    // America/Chicago player at an hour where their local day and the UTC day
+    // are the same string, so `local.day` — which feeds `eq('puzzleDay',
+    // local.day)` and `activityFloor(local.day)` — was never distinguished from
+    // a UTC-derived day, and a mutant resolving it in UTC survived all
+    // seventeen (measured). Same class as `const now = dueAt`.
+    //
+    // 05:00 Tokyo on Saturday 2026-09-12 is 20:00 UTC on FRIDAY 2026-09-11, so
+    // the two days differ. The board is seeded on the LOCAL day, and a
+    // '2026-09-10' board is seeded too so that the UTC reading does not merely
+    // report a different skip: it finds no board for '2026-09-11', finds the
+    // 10th inside its activity window, and DELIVERS.
+    const DUE_TOKYO = new Date('2026-09-11T20:00:00Z').getTime()
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(
+      t,
+      { timeZone: 'Asia/Tokyo', reminderDeliveryTime: '05:00:00' },
+      ['2026-09-10', '2026-09-12'],
+    )
+    await t.run((ctx) => ctx.db.patch(playerId, { nextReminderAt: DUE_TOKYO }))
+    vi.setSystemTime(new Date(DUE_TOKYO))
+
+    const result = await deliverFor(t, { playerId, dueAt: DUE_TOKYO })
+
+    expect(result.reason).toBe('already-entered')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    // And the reschedule resolved the local day too: 05:00 Tokyo on Sunday the
+    // 13th, which is 20:00 UTC on Saturday the 12th.
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(new Date('2026-09-12T20:00:00Z').getTime())
+  })
+
+  test('a player reminded yesterday is reminded again today', async () => {
+    // THE PRODUCTION STEADY STATE, and nothing else covered it: every other
+    // test here has an absent or same-day stamp, while in production every
+    // delivery after a player's FIRST carries yesterday's. Measured: replacing
+    // alreadyRemindedToday(...) with `lastBoardEntryReminder !== undefined`
+    // passes the rest of this block, and its live behaviour is "each player
+    // receives exactly one reminder, ever".
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+    // 09:00 Chicago on 2026-09-10 — a real instant on the previous local day,
+    // not an arbitrary number, because the comparison resolves it in the
+    // player's zone.
+    const yesterday = new Date('2026-09-10T14:00:00Z').getTime()
+    await t.run((ctx) => ctx.db.patch(playerId, { lastBoardEntryReminder: yesterday }))
+
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
+
+    expect(result.delivered).toBe(true)
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.lastBoardEntryReminder).toBe(DUE)
+  })
+
+  test('a player who chose both methods gets both', async () => {
+    // The two delivery blocks are independent `if`s, not a chain: no other test
+    // drives both methods at once, so an `if` -> `else if` between them
+    // survives (measured) and email-plus-push players silently lose their push.
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, { reminderDeliveryMethods: ['email', 'push'] })
+
+    await deliverFor(t, { playerId, dueAt: DUE })
+
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+    const jobs = await scheduledPushJobs(t)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].args[0]).toEqual({ playerId, attempt: 0 })
+  })
+
+  // THE STRUCTURAL GUARD. Deliberately a test rather than an `afterAll`: an
+  // afterAll runs on ANY subset of this file, so `pnpm test:once -t '<one
+  // test>'` would fail it spuriously, whereas a filtered run simply does not
+  // select this one. It still runs last on a full run, because Vitest executes
+  // a file's tests in declaration order and this config sets no `shuffle`.
+  test('every outcome `deliver` can return is exercised by a test above', () => {
+    expect([...observed].sort()).toEqual([...REASONS].sort())
   })
 })

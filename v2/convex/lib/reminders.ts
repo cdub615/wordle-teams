@@ -57,6 +57,66 @@ export const REMINDER_TIMES: ReadonlyArray<LocalTime> = Array.from(
 export const METHODS = ['email', 'push'] as const
 
 /**
+ * Whether a player's stored methods contain at least one method that exists.
+ *
+ * NOT THE SAME QUESTION AS "which methods do they want". `schema.ts` types
+ * `reminderDeliveryMethods` as an unvalidated `v.array(v.string())`, and a row
+ * copied from Supabase never passed through the settings validator, so it can
+ * carry a string like 'sms' that no delivery branch will ever match. A player
+ * whose ONLY method is unknown must be treated as having no delivery method at
+ * all rather than being claimed and then silently not mailed.
+ *
+ * Lifted out of `sweep` and `deliver` (convex/reminders.ts), which had the same
+ * `.some(...)` expression written twice — the duplication the plan's
+ * comment-discipline rule warns travels between copies. It also outlives
+ * `sweep`: this file is not touched when that function is deleted.
+ */
+export function hasKnownMethod(methods: ReadonlyArray<string>): boolean {
+  return methods.some((method) => (METHODS as ReadonlyArray<string>).includes(method))
+}
+
+/**
+ * Parse REMINDERS_ALLOWLIST into a comparable set of addresses.
+ *
+ * TRIMMED AND LOWERCASED, and both halves are load-bearing rather than
+ * defensive. An operator editing this variable in a dashboard field types
+ * ', ' between addresses and may capitalise their own; `players.email` is
+ * always stored lowercase, so comparing raw would silently match nobody. The
+ * failure mode of getting this wrong is not an error — it is every reminder
+ * quietly not being sent, which is exactly what the variable looks like when
+ * it is working.
+ *
+ * EMPTY ENTRIES ARE DROPPED so that a trailing comma, or the empty string
+ * itself, yields an EMPTY set rather than a set containing ''. That is what
+ * makes `allowsAddress` below read "empty means unrestricted" correctly; a set
+ * holding one empty string would restrict delivery to nobody.
+ *
+ * Takes the raw value rather than reading `process.env` itself, because this
+ * module is pure by construction — see the header.
+ */
+export function allowlistFrom(raw: string | undefined): Set<string> {
+  return new Set(
+    (raw ?? '')
+      .split(',')
+      .map((address) => address.trim().toLowerCase())
+      .filter((address) => address.length > 0),
+  )
+}
+
+/**
+ * Whether the allowlist permits delivery to this address.
+ *
+ * AN EMPTY ALLOWLIST IS UNRESTRICTED, which is what production wants at
+ * cutover; a populated one restricts delivery to exactly its members, which is
+ * what beta wants while it holds copied production rows. Expressed here rather
+ * than as `size > 0 && !has(...)` at each call site so the two callers cannot
+ * drift on which way round the empty case reads.
+ */
+export function allowsAddress(allowlist: ReadonlySet<string>, email: string): boolean {
+  return allowlist.size === 0 || allowlist.has(email)
+}
+
+/**
  * One `Intl.DateTimeFormat` per distinct `timeZone`, reused across every call.
  *
  * SAFE TO SHARE. A formatter is stateless for formatting — `formatToParts`
