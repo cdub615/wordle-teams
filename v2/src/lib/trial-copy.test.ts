@@ -11,8 +11,9 @@ describe('the trial-ended prompt', () => {
   })
 
   test('does not disparage the monthly plan', () => {
-    // The pricing spec is explicit: at $4.99 vs $49 monthly is worth MORE across
-    // a fully retained year, so calling it the worse deal would be inaccurate.
+    // The pricing spec is explicit: at $4.99/mo against $49.99/yr, monthly is
+    // worth MORE across a fully retained year ($59.88 vs $49.99), so calling it
+    // the worse deal would be inaccurate. Prices decided 2026-09-11.
     // Annual is led because it is certain, not because monthly is bad.
     const all = `${TRIAL_ENDED_TITLE} ${TRIAL_ENDED_BODY} ${TRIAL_ENDED_CTA}`.toLowerCase()
     for (const bad of ['only', 'just $', 'instead of monthly', 'better than monthly']) {
