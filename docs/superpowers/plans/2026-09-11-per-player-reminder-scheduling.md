@@ -2335,9 +2335,32 @@ Two comments in `src/components/settings/notifications-tab.test.ts:64` and
 
 - [ ] **Step 5: Rewrite the remaining sweep tests**
 
-Delete every `describe('sweep', ...)` block from `convex/reminders.test.ts` and the
-`THURSDAY_3PM_UTC` / `SATURDAY_2PM_UTC` constants if now unused. The behaviours they
-covered are all re-asserted in Task 5's `deliver` tests.
+**DO NOT DELETE BLINDLY — THE CLAIM THAT MOTIVATED THIS STEP WAS FALSE.** This step used
+to say "the behaviours they covered are all re-asserted in Task 5's `deliver` tests".
+The Task 5 code-quality review measured otherwise: three sweep behaviours had NO
+`deliver` counterpart, and deleting the sweep blocks would have silently unguarded them.
+
+They were re-homed during Task 5 — verify each is present in the `deliver` block or in
+`convex/lib/reminders.test.ts` BEFORE deleting anything:
+
+1. **Positive allowlist, with trimming and case-folding.** The sweep test stubs
+   `' Listed@Example.com , '` and asserts the listed player is mailed while an unlisted
+   one is not. Without it, a mutant that drops the `allowlist.has(...)` check — i.e.
+   rejects EVERYONE whenever a list is set — survives, and so does dropping `.trim()`
+   or `.toLowerCase()`. The cutover failure mode is "no reminders at all, silently".
+2. **`REMINDERS_ENABLED` strictness.** The sweep test pins that `'1'` is not `'true'`.
+   `deliver` only ever stubbed `''`, which a plain truthiness mutant also rejects. After
+   this deletion that gate — the one thing between a config slip and mailing real people
+   on beta — would be unpinned.
+3. **An unknown delivery method**, e.g. a copied `'sms'` row.
+
+Then delete the `describe('sweep', ...)` blocks and the `THURSDAY_3PM_UTC` /
+`SATURDAY_2PM_UTC` constants if now unused.
+
+**ALSO: the deliver block contains SIX sole-killer tests, not the three its own comment
+originally named.** A sole-killer test is the only thing in the whole suite that catches
+its mutant. Do not trim anything in that block on the assumption it is redundant; the
+block's header comment enumerates them.
 
 - [ ] **Step 6: Verify**
 
@@ -2466,24 +2489,37 @@ describe('reminder delivery bandwidth', () => {
   }
 
   /**
-   * PREDICTED 2, AND BISECT IT RATHER THAN TRUSTING THIS. An earlier draft said
-   * 3 — "the player row plus the two dailyScores index lookups" — and called it
-   * MEASURED when it was not. It is wrong, for a reason worth knowing:
-   * convex-test's `trackRead` fires PER DOCUMENT ACTUALLY YIELDED
-   * (convex-test/dist/index.js, around the trackIndexRange/trackRead pairs), not
-   * per query. In the due case the "entered today" lookup yields NOTHING — the
-   * player has not entered today, which is precisely why they are due — so it
-   * costs an index range but zero document reads.
+   * DO NOT TRUST ANY NUMBER IN THIS COMMENT'S HISTORY — BISECT IT. This constant
+   * has been predicted wrong TWICE, in both directions, which is why it is now
+   * written as an enumeration rather than a figure.
    *
-   * So: 1 (the player row) + 0 (entered-today, no match) + 1 (recent activity)
-   * = 2. Index RANGES are metered separately as `databaseQueries`, limit 4096,
-   * and there are two of them.
+   *   - First draft said 3, labelled MEASURED. It was not measured.
+   *   - I "corrected" it to 2, reasoning that convex-test's trackRead fires per
+   *     document YIELDED (true — convex-test/dist/index.js, the
+   *     trackIndexRange/trackRead pairs) and that the entered-today lookup yields
+   *     nothing in the due case (also true — the player has not entered today,
+   *     which is exactly why they are due). Both premises hold and the
+   *     conclusion was still wrong.
+   *   - Because I forgot a read: the HAPPY PATH reads the player row TWICE.
+   *     `deliver` gets it, and then `scheduleNextFor` gets it again for itself
+   *     (reminders.ts — two separate `ctx.db.get(playerId)` calls). Task 3 kept
+   *     that duplicate deliberately, to preserve the structural guarantee that
+   *     `scheduleNextFor` contains no cancel call.
    *
-   * Confirm by bisecting `documentsRead` until the call stops throwing. If you
-   * get a different number, the comment must name what the documents are — a
-   * figure that does not match a named list is not a measurement.
+   * SO THE READS TO EXPECT ON THE DELIVERED PATH, enumerated:
+   *     1. `deliver`'s own `ctx.db.get(playerId)`
+   *     2. entered-today: an index RANGE that yields NO document (metered as
+   *        `databaseQueries`, not `documentsRead`)
+   *     3. recent-activity: an index range yielding ONE document
+   *     4. `scheduleNextFor`'s `ctx.db.get(playerId)`
+   *   → 3 documents read, 2 index ranges.
+   *
+   * Bisect `documentsRead` to confirm, and assert from BOTH sides. If the number
+   * differs from 3, the comment must name which documents — a figure that does
+   * not match a named list is not a measurement, and this constant is the proof
+   * of that rule rather than an exception to it.
    */
-  const DELIVER_READS = 2
+  const DELIVER_READS = 3
 
   test(`delivering reads exactly ${DELIVER_READS} documents`, async () => {
     const t = convexTest(schema, modules)
@@ -2596,9 +2632,10 @@ describe('reminder maintenance bandwidth', () => {
 pnpm test:once convex/dashboardBandwidth.test.ts
 ```
 
-`DELIVER_READS = 2` is the predicted value — see the constant's own comment for why
-the earlier prediction of 3 was wrong (`trackRead` fires per document YIELDED, and the
-entered-today lookup yields none in the due case).
+`DELIVER_READS` is written as an ENUMERATION, not a prediction — see the constant's own
+comment. It has been predicted wrong twice, in both directions: first 3 (unmeasured),
+then "corrected" to 2 by forgetting that `scheduleNextFor` reads the player row a second
+time for itself. The enumerated answer is 3 documents and 2 index ranges.
 
 **Bisect it rather than trusting either number.** Lower `documentsRead` until the call
 throws, raise it until it passes, and set the constant where both assertions hold. Then
