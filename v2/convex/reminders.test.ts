@@ -19,6 +19,7 @@ const modules = import.meta.glob('./**/*.ts')
 vi.mock('./email.ts', () => ({ sendEmail: vi.fn() }))
 
 import { sendEmail } from './email.ts'
+import { reschedulePlayerReminderFor, scheduleNextFor } from './reminders.ts'
 
 const sendEmailMock = vi.mocked(sendEmail)
 
@@ -529,5 +530,229 @@ describe('sweep: the SITE_URL guard', () => {
 
     expect(await lastReminderOf(t, playerId)).toBeUndefined()
     expect(sendEmailMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('scheduleNextFor', () => {
+  test('schedules the next occurrence and records both the id and the instant', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', dueChicagoPlayer({ playsWeekends: true })),
+    )
+
+    const from = new Date('2026-09-11T14:00:01Z').getTime() // just after 09:00 Chicago
+    await t.run(async (ctx) => {
+      await scheduleNextFor(ctx, playerId, from)
+    })
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(new Date('2026-09-12T14:00:00Z').getTime())
+    expect(player?.reminderJobId).toBeDefined()
+
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].name).toBe('reminders:deliver')
+    // THE ARGS CARRY dueAt, AND IT MATCHES THE ROW. This is the whole staleness
+    // mechanism; a job scheduled without it could never tell it was superseded.
+    expect(jobs[0].args[0]).toEqual({ playerId, dueAt: player?.nextReminderAt })
+  })
+
+  test('does not schedule a player with no timeZone', async () => {
+    // A copied row can have none, and there is no zone to compute an occurrence
+    // in. updateTimeZoneFor schedules them the moment they get one.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', dueChicagoPlayer({ timeZone: undefined })),
+    )
+
+    await t.run((ctx) => scheduleNextFor(ctx, playerId, Date.now()))
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBeUndefined()
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    expect(jobs).toHaveLength(0)
+  })
+
+  test('does not schedule a player whose timeZone is unresolvable', async () => {
+    // updateTimeZoneFor rejects these, but a row copied from Supabase never
+    // passed through it. One bad row must not take a batch down, so this is
+    // swallowed and logged rather than thrown — the same rule the sweep had.
+    const t = convexTest(schema, modules)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', dueChicagoPlayer({ timeZone: 'GMT+5' })),
+    )
+
+    await t.run((ctx) => scheduleNextFor(ctx, playerId, Date.now()))
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBeUndefined()
+    spy.mockRestore()
+  })
+
+  test('treats an absent playsWeekends as false', async () => {
+    // Absent means "not yet derived". False is the safe reading: it suppresses a
+    // weekend reminder rather than sending one to a weekday-only team.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', dueChicagoPlayer({ playsWeekends: undefined })),
+    )
+
+    // 2026-09-11 is a Friday; 14:00:01Z is just after 09:00 Chicago.
+    await t.run((ctx) =>
+      scheduleNextFor(ctx, playerId, new Date('2026-09-11T14:00:01Z').getTime()),
+    )
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    // Monday, not Saturday.
+    expect(player?.nextReminderAt).toBe(new Date('2026-09-14T14:00:00Z').getTime())
+  })
+
+  test('leaves the previous job alone rather than cancelling it', async () => {
+    // THE MISSING CANCEL IS THE POINT, and this is the only thing that pins it.
+    // `deliver` (Task 5) calls scheduleNextFor to schedule tomorrow, and at that
+    // moment reminderJobId is the id of the job RUNNING RIGHT NOW — Convex
+    // documents cancel as able to fail once a job has committed, so cancelling
+    // yourself is pointless at best. Add a cancel here and every other test in
+    // this file still passes; only this one notices.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', dueChicagoPlayer({ playsWeekends: true })),
+    )
+
+    const from = new Date('2026-09-11T14:00:01Z').getTime()
+    await t.run((ctx) => scheduleNextFor(ctx, playerId, from))
+    const first = await t.run((ctx) => ctx.db.get(playerId))
+    await t.run((ctx) => scheduleNextFor(ctx, playerId, from))
+
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    const byId = new Map(jobs.map((j) => [j._id, j]))
+    expect(byId.get(first!.reminderJobId!)?.state.kind).toBe('pending')
+  })
+
+  // THE OBSERVABILITY CHECK (added from Task 1's code-quality review; not in
+  // the plan's text). instantForLocal returns its guess unverified after four
+  // probe rounds, and for a wall clock a spring-forward erased there is no
+  // correct answer — the round count's parity picks the instant just before
+  // the gap, an hour early. That is accepted; what was missing was NOTICING.
+  // These two tests are what stop the check being deleted as redundant.
+  describe('the wall-clock resolve-back warning', () => {
+    test('warns when the scheduled instant lands an hour early on an erased wall clock', async () => {
+      // Pacific/Easter's spring-forward erases 22:00-22:59 local on
+      // 2026-09-05, and '22:00:00' is one of the eighteen REMINDER_TIMES.
+      // MEASURED: instantForLocal('Pacific/Easter', '2026-09-05', '22:00:00')
+      // returns 2026-09-06T03:00:00Z, which resolves back to 21:00:00 local.
+      const t = convexTest(schema, modules)
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const playerId = await t.run(async (ctx) =>
+        ctx.db.insert(
+          'players',
+          // playsWeekends, because 2026-09-05 is a Saturday — without it the
+          // probe would skip straight to Monday and there would be nothing to
+          // notice.
+          dueChicagoPlayer({
+            timeZone: 'Pacific/Easter',
+            reminderDeliveryTime: '22:00:00',
+            playsWeekends: true,
+          }),
+        ),
+      )
+
+      // Just after 22:00 local on 2026-09-04, so the next occurrence is the
+      // erased one.
+      await t.run((ctx) =>
+        scheduleNextFor(ctx, playerId, new Date('2026-09-05T04:00:01Z').getTime()),
+      )
+
+      const player = await t.run((ctx) => ctx.db.get(playerId))
+      // STILL SCHEDULED. An hour early once a year beats no reminder that day,
+      // which is what making this check throw or skip would cause.
+      expect(player?.nextReminderAt).toBe(new Date('2026-09-06T03:00:00Z').getTime())
+      expect(spy).toHaveBeenCalledWith(
+        '[reminders] scheduled instant does not resolve back to the requested wall clock',
+        expect.objectContaining({
+          playerId,
+          timeZone: 'Pacific/Easter',
+          requested: '22:00:00',
+          resolved: '21:00:00',
+        }),
+      )
+      spy.mockRestore()
+    })
+
+    test('says nothing on an ordinary day', async () => {
+      const t = convexTest(schema, modules)
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const playerId = await t.run(async (ctx) =>
+        ctx.db.insert('players', dueChicagoPlayer({ playsWeekends: true })),
+      )
+
+      await t.run((ctx) =>
+        scheduleNextFor(ctx, playerId, new Date('2026-09-11T14:00:01Z').getTime()),
+      )
+
+      expect(spy).not.toHaveBeenCalled()
+      spy.mockRestore()
+    })
+  })
+})
+
+describe('reschedulePlayerReminderFor', () => {
+  test('cancels the previous job before scheduling the new one', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', dueChicagoPlayer({ playsWeekends: true })),
+    )
+
+    const from = new Date('2026-09-11T14:00:01Z').getTime()
+    await t.run((ctx) => scheduleNextFor(ctx, playerId, from))
+    const first = await t.run((ctx) => ctx.db.get(playerId))
+
+    await t.run((ctx) => reschedulePlayerReminderFor(ctx, playerId, from))
+    const second = await t.run((ctx) => ctx.db.get(playerId))
+
+    expect(second?.reminderJobId).not.toBe(first?.reminderJobId)
+
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    const byId = new Map(jobs.map((j) => [j._id, j]))
+    expect(byId.get(first!.reminderJobId!)?.state.kind).toBe('canceled')
+    expect(byId.get(second!.reminderJobId!)?.state.kind).toBe('pending')
+  })
+
+  test('still schedules when cancel throws', async () => {
+    // THIS IS UNREACHABLE THROUGH THE HARNESS. convex-test's cancel_job patches
+    // state to 'canceled' unconditionally from any state and never throws
+    // (node_modules/convex-test/dist/index.js:1166), while the real backend
+    // documents cancel as able to fail once a job has committed. So the only way
+    // to reach the catch is to inject a throwing scheduler — which is possible
+    // ONLY because this rule lives in a ...For helper taking MutationCtx rather
+    // than in a mutation body.
+    const t = convexTest(schema, modules)
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', dueChicagoPlayer({ playsWeekends: true })),
+    )
+    const from = new Date('2026-09-11T14:00:01Z').getTime()
+    await t.run((ctx) => scheduleNextFor(ctx, playerId, from))
+
+    await t.run(async (ctx) => {
+      const hostile = {
+        ...ctx,
+        db: ctx.db,
+        scheduler: {
+          runAt: ctx.scheduler.runAt.bind(ctx.scheduler),
+          runAfter: ctx.scheduler.runAfter.bind(ctx.scheduler),
+          cancel: () => Promise.reject(new Error('job already completed')),
+        },
+      } as unknown as Parameters<typeof reschedulePlayerReminderFor>[0]
+      await reschedulePlayerReminderFor(hostile, playerId, from)
+    })
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    // The new job exists despite the cancel failing. The old one is left
+    // pending, and harmlessly so: it carries the old dueAt and will retire.
+    expect(player?.nextReminderAt).toBe(new Date('2026-09-12T14:00:00Z').getTime())
+    expect(player?.reminderJobId).toBeDefined()
+    spy.mockRestore()
   })
 })
