@@ -77,6 +77,7 @@ vi.mock('@tanstack/react-query', () => ({
     if (name === getFunctionName(api.scores.getMyMonth)) return { data: myMonth }
     throw new Error(`Board entry asked for an unexpected query: ${name}`)
   },
+  useQuery: () => ({ data: false }),
   useMutation: () => ({ mutateAsync: vi.fn() }),
 }))
 

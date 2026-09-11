@@ -39,6 +39,8 @@ const GUESSES = ['SLATE', 'CRANE']
 let fired: Array<{ name: string; args: Record<string, unknown> }>
 /** Set by the one test that needs the correction log to fail. */
 let failingMutation: string | null
+/** What amIPro answers. `undefined` is the in-flight state, and it matters. */
+let proAnswer: boolean | undefined
 /** What BoardInput is currently showing, and how a test edits it. */
 let setGuessesFromTest: ((guesses: Array<string>) => void) | null
 
@@ -57,6 +59,8 @@ vi.mock('@tanstack/react-query', () => ({
     if (name === getFunctionName(api.scores.getMyMonth)) return { data: [] }
     throw new Error(`Board entry asked for an unexpected query: ${name}`)
   },
+  useQuery: ({ queryKey }: { queryKey: [string, unknown] }) =>
+    queryKey[0] === getFunctionName(api.teams.amIPro) ? { data: proAnswer } : { data: undefined },
   useMutation: ({ mutationFn }: { mutationFn: string }) => ({
     mutateAsync: async (args: Record<string, unknown>) => {
       fired.push({ name: mutationFn, args })
@@ -117,6 +121,7 @@ const board = () => screen.getByTestId('board').getAttribute('data-guesses')
 beforeEach(() => {
   fired = []
   failingMutation = null
+  proAnswer = true
   setGuessesFromTest = null
   vi.stubGlobal('console', { ...console, error: vi.fn() })
 })
@@ -251,5 +256,55 @@ describe('importing a screenshot into the entry form', () => {
 
     await waitFor(() => expect(fired.some((call) => call.name === UPSERT)).toBe(true))
     expect(fired.some((call) => call.name === LOG)).toBe(false)
+  })
+})
+
+describe('the Pro gate', () => {
+  // UI-ONLY BY DESIGN, per Phase 3's decision 1: "read it, gate the UI, enforce
+  // nothing". There is nothing to enforce server-side — the parse runs entirely
+  // in the browser, costs the backend nothing, and saves through the same
+  // upsertBoard any player may already call by typing a board in by hand.
+  test('hides import from a player who is not Pro', async () => {
+    proAnswer = false
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    expect(screen.queryByTestId('board-import')).toBeNull()
+    expect(screen.queryByRole('button', { name: /import screenshot/i })).toBeNull()
+  })
+
+  test('shows it to a player who is', () => {
+    proAnswer = true
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    expect(screen.getByTestId('board-import')).toBeTruthy()
+  })
+
+  // THE STATE THAT REGRESSES. amIPro answers `undefined` while it is in flight,
+  // so a `!isPro` gate would flash a paid-only control at every player on every
+  // cold load and then take it away. For a gate the in-flight default has to be
+  // "not yet" — the opposite of the default the Upgrade button wants, which is
+  // the bug Header.hook.test.ts carries its own note about.
+  test('shows nothing while amIPro is still in flight', () => {
+    proAnswer = undefined
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    expect(screen.queryByTestId('board-import')).toBeNull()
+  })
+
+  // The gate hides the control; it must also mean the document listener is not
+  // there. Otherwise a non-Pro player pasting a screenshot silently gets the
+  // whole feature with no button to show for it.
+  test('does not read a pasted screenshot for a non-Pro player', async () => {
+    proAnswer = false
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+    await waitFor(() => expect(screen.getByTestId('board')).toBeTruthy())
+    expect(board()).toBe(',,,,,')
+    expect(fired).toEqual([])
   })
 })

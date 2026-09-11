@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import type { FormEventHandler, KeyboardEvent, KeyboardEventHandler } from 'react'
 import { api } from '../../../convex/_generated/api'
 import { Button } from '#/components/ui/button.tsx'
@@ -68,6 +68,22 @@ function BoardEntryFields({
 }) {
   const upsert = useMutation({ mutationFn: useConvexMutation(api.scores.upsertBoard) })
   const logCorrections = useMutation({ mutationFn: useConvexMutation(api.boardImport.logCorrections) })
+
+  /**
+   * THE PRO GATE, and it is UI-ONLY BY DESIGN — Phase 3's decision 1, "read it,
+   * gate the UI, enforce nothing". Nothing is enforced on the server because
+   * there is nothing to enforce: the parse runs entirely in the browser, costs
+   * the backend nothing, and saves through the same upsertBoard any player may
+   * already call by typing. A server check here would guard a computation that
+   * never reaches the server. Phase 5 owns whether that pattern changes.
+   *
+   * `=== true`, NOT `!isPro`. amIPro answers `undefined` while it is in flight,
+   * so the loose spelling shows a paid-only control to everyone on every cold
+   * load and then snatches it away. For a GATE the in-flight default has to be
+   * "not yet", which is the opposite of the default the Upgrade button wants —
+   * see the note in Header.hook.test.ts about exactly that bug.
+   */
+  const { data: isPro } = useQuery(convexQuery(api.teams.amIPro, {}))
 
   const [day, setDay] = useState<string | undefined>(undefined)
   const [answer, setAnswer] = useState('')
@@ -249,9 +265,11 @@ function BoardEntryFields({
         </div>
       </div>
 
-      <div className="mt-3 shrink-0">
-        <ImportScreenshot onParsed={handleImport} answer={answer} disabled={submitting} />
-      </div>
+      {isPro === true && (
+        <div className="mt-3 shrink-0">
+          <ImportScreenshot onParsed={handleImport} answer={answer} disabled={submitting} />
+        </div>
+      )}
 
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
         <BoardInput
