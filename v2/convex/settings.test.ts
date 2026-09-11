@@ -10,6 +10,7 @@ import {
   updateTimeZoneFor,
   markPwaInstalledFor,
 } from './settings.ts'
+import type { Id } from './_generated/dataModel'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -247,5 +248,106 @@ describe('setReminderMethodFor', () => {
     await expect(
       t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'carrier-pigeon', enabled)),
     ).rejects.toThrow()
+  })
+})
+
+describe('reminder rescheduling on settings changes', () => {
+  const pendingFor = async (t: ReturnType<typeof convexTest>, playerId: Id<'players'>) => {
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    return player?.nextReminderAt
+  }
+
+  test('changing the reminder time reschedules', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
+    )
+    await t.run((ctx) => updateReminderTimeFor(ctx, playerId, '09:00:00'))
+    const first = await pendingFor(t, playerId)
+
+    await t.run((ctx) => updateReminderTimeFor(ctx, playerId, '18:00:00'))
+    const second = await pendingFor(t, playerId)
+
+    expect(first).toBeDefined()
+    expect(second).not.toBe(first)
+  })
+
+  test('changing the time zone reschedules', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
+    )
+    await t.run((ctx) => updateTimeZoneFor(ctx, playerId, 'America/Chicago'))
+    const first = await pendingFor(t, playerId)
+
+    await t.run((ctx) => updateTimeZoneFor(ctx, playerId, 'Asia/Tokyo'))
+    const second = await pendingFor(t, playerId)
+
+    expect(second).not.toBe(first)
+  })
+
+  test('a player with no time zone is scheduled the moment they get one', async () => {
+    // There is no natural trigger otherwise — use-local-capture writes the zone
+    // only when it is ABSENT, so this fires exactly once per player, on their
+    // first authenticated load.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer()))
+    expect(await pendingFor(t, playerId)).toBeUndefined()
+
+    await t.run((ctx) => updateTimeZoneFor(ctx, playerId, 'America/Chicago'))
+    expect(await pendingFor(t, playerId)).toBeDefined()
+  })
+
+  test('changing delivery methods reschedules', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
+    )
+    await t.run((ctx) => updateReminderMethodsFor(ctx, playerId, ['email']))
+    const first = await pendingFor(t, playerId)
+    expect(first).toBeDefined()
+
+    await t.run((ctx) => setReminderMethodFor(ctx, playerId, 'push', true))
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.reminderDeliveryMethods).toEqual(['email', 'push'])
+    expect(player?.reminderJobId).toBeDefined()
+  })
+
+  test('a rejected settings change schedules nothing', async () => {
+    // The reschedule must sit AFTER the validation, so a throw rolls back both
+    // the write and the job. A job scheduled for a change that was refused
+    // would fire against settings the player never chose.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' })),
+    )
+    await expect(
+      t.run((ctx) => updateReminderTimeFor(ctx, playerId, '23:30:00')),
+    ).rejects.toThrow()
+
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    expect(jobs).toHaveLength(0)
+  })
+
+  test('setReminderMethodFor reschedules once, not twice', async () => {
+    // setReminderMethodFor delegates to updateReminderMethodsFor and must NOT
+    // also call reschedulePlayerReminderFor itself — a second call there would
+    // double-reschedule. Asserting only that a job exists afterward can't tell
+    // one reschedule from two: each reschedule cancels the prior job rather
+    // than deleting its row, so `_scheduled_functions` accumulates one row per
+    // reschedule regardless of how many end up canceled. Starting from a player
+    // with an already-pending job (one row) isolates exactly how many MORE
+    // rows one setReminderMethodFor call adds.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
+    )
+    await t.run((ctx) => updateReminderMethodsFor(ctx, playerId, ['email']))
+    const before = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+
+    await t.run((ctx) => setReminderMethodFor(ctx, playerId, 'push', true))
+    const after = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+
+    expect(after.length - before.length).toBe(1)
   })
 })

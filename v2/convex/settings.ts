@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, requirePlayer } from './access'
 import { METHODS, REMINDER_TIMES } from './lib/reminders.ts'
+import { reschedulePlayerReminderFor } from './reminders.ts'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 import type { DataModel } from './_generated/dataModel'
@@ -24,6 +25,23 @@ import type { GenericDatabaseReader } from 'convex/server'
  * EVERY RULE IS IN A `...For` HELPER, never in the wrapper below it.
  * convex-test cannot stand up a Better Auth session (wordle-teams-obw), so a
  * rule written into a mutation body is a rule no test can reach.
+ *
+ * EVERY WRITE HERE RESCHEDULES, AND THE CALL GOES AFTER THE VALIDATION. Each of
+ * these three fields is an input to when the next reminder fires, so a write
+ * that did not reschedule would leave the player's pending job pointing at
+ * their old settings — the reminder would keep arriving at the time they just
+ * changed away from, with nothing logged. Placing the call after the guard
+ * matters too: a rejected change throws, which rolls back the patch AND the
+ * job, so nothing is ever scheduled for settings the player was refused.
+ *
+ * setReminderMethodFor is NOT hooked separately, deliberately — it delegates to
+ * updateReminderMethodsFor, so hooking the one place they meet is what stops
+ * the two from drifting.
+ *
+ * IT IS THE ONLY TRIGGER FOR A PLAYER WHO HAS NEVER HAD A ZONE. use-local-capture
+ * writes timeZone only when it is ABSENT (src/lib/use-local-capture.ts:88), so
+ * updateTimeZoneFor fires once per player, on their first authenticated load,
+ * and that is what puts a natively-signed-up player onto the schedule at all.
  */
 
 export async function updateReminderMethodsFor(
@@ -45,6 +63,7 @@ export async function updateReminderMethodsFor(
   if (hasUnknown) throw accessError('INVALID_REMINDER_METHOD')
   if (new Set(methods).size !== methods.length) throw accessError('INVALID_REMINDER_METHOD')
   await ctx.db.patch(playerId, { reminderDeliveryMethods: methods })
+  await reschedulePlayerReminderFor(ctx, playerId)
 }
 
 /**
@@ -110,6 +129,7 @@ export async function updateReminderTimeFor(
   // REMINDER_TIMES's doc comment.
   if (!REMINDER_TIMES.includes(time)) throw accessError('INVALID_REMINDER_TIME')
   await ctx.db.patch(playerId, { reminderDeliveryTime: time })
+  await reschedulePlayerReminderFor(ctx, playerId)
 }
 
 export async function updateTimeZoneFor(
@@ -126,6 +146,7 @@ export async function updateTimeZoneFor(
     throw accessError('INVALID_TIME_ZONE')
   }
   await ctx.db.patch(playerId, { timeZone })
+  await reschedulePlayerReminderFor(ctx, playerId)
 }
 
 /**
