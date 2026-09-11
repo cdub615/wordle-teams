@@ -58,6 +58,30 @@ export type UnresolvedRow = {
   readonly letters: string
 }
 
+/**
+ * Everything the IMAGE had to say, before the answer was taken into account.
+ *
+ * THE ANSWER IS NOT READ FROM THE IMAGE — it is a CONSTRAINT the image can only
+ * supply when the board was solved. Stages 1 to 3 are entirely
+ * answer-independent: the lattice, the colours and the glyphs come out
+ * identical whether or not anybody knows the word. Only Stage 4's second
+ * constraint uses it, which is why an answer arriving later needs no second
+ * look at the pixels — see resolveWithAnswer.
+ *
+ * A few kilobytes, so it costs nothing to carry. A decoded phone screenshot is
+ * twelve megabytes, and keeping one alive to re-read later would be the
+ * expensive way to obtain the same result.
+ */
+export type ParseEvidence = {
+  /** Lattice row indices that carried a submitted guess. */
+  readonly rows: ReadonlyArray<number>
+  /** Per played row, per tile: what the reader thought each letter was. */
+  readonly letters: ReadonlyArray<ReadonlyArray<LetterScores>>
+  /** The one or two candidate mark grids Stage 2 could not choose between. */
+  readonly readings: ReadonlyArray<MarkGrid>
+  readonly unreadable: ReadonlyArray<number>
+}
+
 export type BoardParse = {
   readonly outcome: ParseOutcome
   readonly answer: string | null
@@ -65,6 +89,8 @@ export type BoardParse = {
   readonly unresolved: ReadonlyArray<UnresolvedRow>
   /** Kept even on failure: the geometry is worth something to the caller. */
   readonly lattice: Lattice | null
+  /** Null when there was never a board to gather any. */
+  readonly evidence: ParseEvidence | null
 }
 
 export type ParseOptions = {
@@ -83,6 +109,7 @@ const nothing = (outcome: ParseOutcome, lattice: Lattice | null): BoardParse => 
   guesses: [],
   unresolved: [],
   lattice,
+  evidence: null,
 })
 
 /** The reader's first choice, or a dot where it had none. */
@@ -133,13 +160,67 @@ export function parseBoard(bitmap: Bitmap, options: ParseOptions = {}): BoardPar
   // for. The wrong mapping has to find words the reader never saw, and scores
   // far lower for it. That is the same evidence Stage 4 uses to break a tie
   // between words, applied one level up to break the tie between readings.
-  let best: { parse: BoardParse; score: number } | null = null
-  for (const reading of colours.readings) {
-    const attempt = attemptReading(reading, letters, colours, words, supplied, lattice)
+  const evidence: ParseEvidence = {
+    rows: colours.rows,
+    letters,
+    readings: colours.readings,
+    unreadable: colours.unreadable,
+  }
+
+  return resolveFrom(evidence, lattice, words, supplied)
+}
+
+/**
+ * Picks the best reading of the evidence under a given answer.
+ *
+ * Shared by the first parse and by resolveWithAnswer, so the two cannot drift:
+ * an answer arriving later has to be weighed exactly as one supplied up front.
+ */
+function resolveFrom(
+  evidence: ParseEvidence,
+  lattice: Lattice | null,
+  words: ReadonlyArray<string>,
+  supplied: string | null,
+): BoardParse {
+  let best: { parse: Omit<BoardParse, 'evidence'>; score: number } | null = null
+  for (const reading of evidence.readings) {
+    const attempt = attemptReading(reading, evidence.letters, evidence, words, supplied, lattice)
     if (best === null || attempt.score > best.score) best = attempt
   }
 
-  return best?.parse ?? nothing('no-consistent-word', lattice)
+  const parse: Omit<BoardParse, 'evidence'> = best?.parse ?? nothing('no-consistent-word', lattice)
+  return { ...parse, evidence }
+}
+
+/**
+ * The same board, resolved again now that the answer is known.
+ *
+ * WHY THERE IS NO SECOND PARSE HERE, which is the whole point of this function.
+ * Nothing about the image is read differently when the answer is known —
+ * lattice, colours and glyphs are all answer-independent — so re-reading the
+ * pixels would recompute identical intermediates and differ only in the last
+ * step. This runs only that last step, off evidence the first parse already
+ * built, in well under a millisecond and with no bitmap or blob kept alive.
+ *
+ * WHEN IT IS WORTH DOING. On a SOLVED board, never: the winning row IS the
+ * answer, so the first parse already derived it and used it everywhere, and
+ * across the real corpus it got 18 of 18 right that way. On an UNSOLVED board
+ * it is the opposite — there is no winning row, so Stage 4's second constraint
+ * was simply unavailable and every row leaned on the word list and the glyph
+ * reader alone. That is exactly where the corpus lost rows: one screenshot read
+ * DRYLY for WRYLY, and knowing the answer recovers it, because WRYLY colours
+ * .CCCC against DRYLY while DRYLY colours CCCCC.
+ *
+ * It cannot rescue everything and does not pretend to. SLATE and BLATE colour
+ * identically against DRYLY — both all-absent — so no answer can separate them.
+ */
+export function resolveWithAnswer(
+  parse: BoardParse,
+  answer: string,
+  words: ReadonlyArray<string> = acceptedGuesses(),
+): BoardParse {
+  if (parse.evidence === null) return parse
+  return resolveFrom(parse.evidence, parse.lattice, words, answer.toUpperCase())
 }
 
 /** How much of what the reader saw a candidate word actually accounts for. */
@@ -166,11 +247,11 @@ function confidenceIn(observation: RowObservation, word: string): number {
 function attemptReading(
   reading: MarkGrid,
   letters: ReadonlyArray<ReadonlyArray<LetterScores>>,
-  colours: { rows: ReadonlyArray<number>; unreadable: ReadonlyArray<number> },
+  colours: Pick<ParseEvidence, 'rows' | 'unreadable'>,
   words: ReadonlyArray<string>,
   supplied: string | null,
-  lattice: Lattice,
-): { parse: BoardParse; score: number } {
+  lattice: Lattice | null,
+): { parse: Omit<BoardParse, 'evidence'>; score: number } {
   const observations = toObservations(letters, reading)
   const guesses: Array<ParsedGuess> = []
   const unresolved: Array<UnresolvedRow> = [...unreadableRows(colours.unreadable)]

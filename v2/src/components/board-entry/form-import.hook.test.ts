@@ -483,3 +483,169 @@ describe('the import confirm step', () => {
     expect(note()).toMatch(/row 1 could not be read/i)
   })
 })
+
+describe('the answer, asked for only when the board did not carry one', () => {
+  const note = () => screen.getByRole('status').textContent ?? ''
+  const answerField = () => document.getElementById('answer')
+  const typeAnswer = (word: string) => {
+    const field = answerField()
+    if (field === null) throw new Error('no answer field')
+    for (const key of word) fireEvent.keyDown(field, { key })
+  }
+
+  // A SOLVED BOARD CARRIES ITS OWN ANSWER in the winning row, and the parser
+  // reads it there — 18 of 18 across the real corpus. Asking would be friction,
+  // and focusing the field would raise a keyboard over a board that is already
+  // correct.
+  test('never asks when the parse read the answer off the board', async () => {
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
+    expect(answerField()?.textContent).toBe('CRANE')
+    expect(note()).not.toMatch(/not solved/i)
+    expect(document.activeElement).not.toBe(answerField())
+  })
+
+  // AN UNSOLVED BOARD HAS NO WINNING ROW, so there is nothing to derive from —
+  // and Stage 4 lost its second constraint for every row along with it. Typing
+  // the answer is then the only thing left to do, which is the one confirm case
+  // where a keyboard is help rather than an interruption.
+  test('asks, and focuses, when the board was not solved', async () => {
+    screenshotOf('DRYLY', ['SLATE', 'BROIL', 'WRYLY'])
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    await waitFor(() => expect(note()).toMatch(/not solved/i))
+    expect(answerField()?.textContent).toBe('')
+    expect(document.activeElement).toBe(answerField())
+  })
+
+  // THE WIRING, NOT THE CONSTRAINT. The answer is a constraint rather than a
+  // field to fill in: once known, every row is resolved again against it, off
+  // the evidence the first parse gathered and with no second look at the
+  // pixels. What THIS pins is that the re-resolve fires and leaves a coherent
+  // board — it cannot show the constraint changing an answer, because glyphs
+  // painted from the template table are read perfectly and the reader is never
+  // torn. parse.test.ts builds torn evidence by hand to show that.
+  test('re-resolves the guesses against the answer once it is typed', async () => {
+    screenshotOf('DRYLY', ['SLATE', 'BROIL', 'WRYLY'])
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+    await waitFor(() => expect(note()).toMatch(/not solved/i))
+
+    typeAnswer('DRYLY')
+
+    // The prompt goes once the constraint is in, and the board is the board.
+    await waitFor(() => expect(note()).not.toMatch(/not solved/i))
+    expect(board()).toBe('SLATE,BROIL,WRYLY,,,')
+  })
+
+  // ONCE, AND ONLY ONCE. A player who fixes a letter on the board and then
+  // edits the answer must not have their correction thrown away by a fresh
+  // resolve of the original evidence.
+  test('does not overwrite a hand-corrected board when the answer is edited again', async () => {
+    screenshotOf('DRYLY', ['SLATE', 'BROIL', 'WRYLY'])
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+    await waitFor(() => expect(note()).toMatch(/not solved/i))
+    typeAnswer('DRYLY')
+    await waitFor(() => expect(board()).toBe('SLATE,BROIL,WRYLY,,,'))
+
+    setGuessesFromTest?.(['CRANE', 'BROIL', 'WRYLY', '', '', ''])
+    await waitFor(() => expect(board()).toBe('CRANE,BROIL,WRYLY,,,'))
+
+    // Retype the last letter of the answer: same answer, and the hand
+    // correction survives.
+    const field = answerField()
+    if (field !== null) {
+      fireEvent.keyDown(field, { key: 'Backspace' })
+      fireEvent.keyDown(field, { key: 'Y' })
+    }
+    await waitFor(() => expect(answerField()?.textContent).toBe('DRYLY'))
+    expect(board()).toBe('CRANE,BROIL,WRYLY,,,')
+  })
+})
+
+describe('what the correction log may and may not blame the parser for', () => {
+  const answerField = () => document.getElementById('answer')
+  const typeAnswer = (word: string) => {
+    const field = answerField()
+    if (field === null) throw new Error('no answer field')
+    for (const key of word) fireEvent.keyDown(field, { key })
+  }
+  const submit = () => fireEvent.click(screen.getByRole('button', { name: /^submit$/i }))
+
+  // THE LOG IS THE LABELLED CORPUS board import is measured against, so a false
+  // row in it is worse than a missing one. On an unsolved board the answer came
+  // from the PLAYER, not from Stage 3 — recording a correction against it would
+  // claim the parser misread an answer it never saw.
+  test('never blames the parser for an answer the player supplied', async () => {
+    // SIX guesses, none of them the answer: a board that was lost, which is the
+    // only kind that is both unsolved AND submittable — boardIsValid wants
+    // either a winning last row or all six rows used.
+    const lost = ['SLATE', 'BROIL', 'WRYLY', 'CHUNK', 'PLATE', 'SCORE']
+    screenshotOf('DRYLY', lost)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/not solved/i))
+
+    // Type it, then change your mind about the last letter.
+    typeAnswer('DRYLY')
+    await waitFor(() => expect(board()).toBe(lost.join(',')))
+    const field = answerField()
+    if (field !== null) {
+      fireEvent.keyDown(field, { key: 'Backspace' })
+      fireEvent.keyDown(field, { key: 'S' })
+    }
+    await waitFor(() => expect(answerField()?.textContent).toBe('DRYLS'))
+
+    submit()
+
+    await waitFor(() => expect(fired.some((call) => call.name === UPSERT)).toBe(true))
+    const log = fired.find((call) => call.name === LOG)
+    const corrections = (log?.args.corrections ?? []) as Array<{ target: string }>
+    expect(corrections.some((correction) => correction.target === 'answer')).toBe(false)
+  })
+
+  // The other half: an answer the parser DID read off a solved board, and then
+  // got wrong, is exactly the thing the log exists to capture.
+  test('does blame it for an answer it read off the board and got wrong', async () => {
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+    await waitFor(() => expect(answerField()?.textContent).toBe('CRANE'))
+
+    // The winning row and the answer are the SAME row on a solved board, so a
+    // misread there is a misread of both — correcting one without the other
+    // would leave a board Wordle could not have produced, and boardIsValid
+    // rightly refuses it.
+    const field = answerField()
+    if (field !== null) {
+      fireEvent.keyDown(field, { key: 'Backspace' })
+      fireEvent.keyDown(field, { key: 'K' })
+    }
+    await waitFor(() => expect(answerField()?.textContent).toBe('CRANK'))
+    setGuessesFromTest?.(['SLATE', 'CRANK', '', '', '', ''])
+    await waitFor(() => expect(board()).toBe('SLATE,CRANK,,,,'))
+
+    submit()
+
+    await waitFor(() => expect(fired.some((call) => call.name === LOG)).toBe(true))
+    const log = fired.find((call) => call.name === LOG)
+    expect(log?.args.corrections).toContainEqual({
+      target: 'answer',
+      row: 0,
+      column: 4,
+      read: 'E',
+      actual: 'K',
+    })
+  })
+})

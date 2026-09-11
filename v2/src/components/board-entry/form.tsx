@@ -16,6 +16,7 @@ import { boardErrorMessage } from '#/lib/convex-error.ts'
 import { cn } from '#/lib/utils.ts'
 import { boardIsValid, toRows } from '../../../convex/lib/board.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { resolveWithAnswer } from '#/lib/board-import/parse.ts'
 import type { BoardParse } from '#/lib/board-import/parse.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { FunctionReturnType } from 'convex/server'
@@ -120,6 +121,17 @@ function BoardEntryFields({
   const [importNote, setImportNote] = useState<string | null>(null)
   /** Rows the parse could not read. Shown, never guessed at. */
   const [missingRows, setMissingRows] = useState<ReadonlyArray<number>>([])
+  /**
+   * The answer THE IMAGE yielded, captured once and never re-written.
+   *
+   * `parsed.answer` is not the same thing after a re-resolve: on an unsolved
+   * board it holds the answer the PLAYER typed. Diffing against that would log
+   * a correction claiming Stage 3 misread an answer it never saw the moment
+   * they fixed a typo in it — and the correction log is the labelled corpus
+   * board import is measured against, so a false row there is worse than a
+   * missing one.
+   */
+  const [derivedAnswer, setDerivedAnswer] = useState<string | null>(null)
   /** Set when the player chose to TYPE, so the answer takes focus then and not before. */
   const [focusAnswer, setFocusAnswer] = useState(false)
   const answerRef = useRef<HTMLDivElement>(null)
@@ -150,6 +162,7 @@ function BoardEntryFields({
     // change would diff the new day's board against the old day's screenshot
     // and log corrections for tiles nobody ever saw.
     setParsed(null)
+    setDerivedAnswer(null)
     setImportNote(null)
     setMissingRows([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,6 +180,36 @@ function BoardEntryFields({
     answerRef.current?.focus()
     setFocusAnswer(false)
   }, [focusAnswer])
+
+  /**
+   * THE ANSWER AS A CONSTRAINT, THE MOMENT WE HAVE ONE.
+   *
+   * `parsed.answer === null` means the board on screen was NOT SOLVED, so the
+   * image never carried an answer to derive — and Stage 4's second constraint,
+   * that colouring a candidate word must reproduce the marks, was unavailable
+   * for every row. Each one leaned on the word list and the glyph reader alone,
+   * which is exactly where the real corpus lost rows.
+   *
+   * So the moment five letters are in, the same evidence is resolved again with
+   * them. NOT a second parse: nothing about the image is read differently, and
+   * resolveWithAnswer runs only the step that changes.
+   *
+   * IT RUNS ONCE, and the guard is the condition itself — the re-resolve sets
+   * `parsed.answer`, so this cannot fire again. That is deliberate rather than
+   * incidental: a player who fixes a letter on the board and then edits the
+   * answer must not have their correction overwritten by a fresh resolve.
+   */
+  useEffect(() => {
+    if (parsed === null || parsed.answer !== null || parsed.evidence === null) return
+    if (answer.length !== 5) return
+
+    const resolved = resolveWithAnswer(parsed, answer)
+    const prefill = prefillFrom(resolved)
+    setParsed(resolved)
+    setGuesses(prefill.guesses)
+    setImportNote(importSummary(resolved))
+    setMissingRows(prefill.missingRows)
+  }, [answer, parsed])
 
   const scrollActiveRowIntoView = () => {
     const active = guesses.findIndex((guess) => guess.length < 5)
@@ -206,6 +249,7 @@ function BoardEntryFields({
     if (answer.length !== 5 && prefill.answer.length === 5) setAnswer(prefill.answer)
     setGuesses(prefill.guesses)
     setParsed(parse)
+    setDerivedAnswer(parse.answer)
     setImportNote(importSummary(parse))
     setMissingRows(prefill.missingRows)
 
@@ -225,6 +269,11 @@ function BoardEntryFields({
      * explaining why the board is empty.
      */
     setStep(parse.guesses.length > 0 ? 'confirm' : 'entry')
+    // THE ONE CONFIRM CASE THAT WANTS A KEYBOARD. A board that was not solved
+    // carries no answer to derive, and typing five letters is then the only
+    // thing left to do before it can be saved — so asking for it and focusing
+    // it is help rather than the interruption it would be on a solved board.
+    if (parse.guesses.length > 0 && parse.answer === null) setFocusAnswer(true)
   }
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
@@ -253,7 +302,12 @@ function BoardEntryFields({
       // the user's work. A failure here must never surface as a failed board
       // submit, so it is awaited separately and swallowed with a log line.
       if (parsed !== null) {
-        const corrections = correctionsFrom(parsed, { answer, guesses })
+        // The GUESSES are diffed against what is on screen, because that is
+        // what the parser produced and what the player corrected. The ANSWER is
+        // diffed against what the IMAGE gave, which on an unsolved board is
+        // nothing at all — so typing one, or fixing a typo in one, is never
+        // recorded as the parser having misread it.
+        const corrections = correctionsFrom({ ...parsed, answer: derivedAnswer }, { answer, guesses })
         if (corrections.length > 0) {
           try {
             await logCorrections.mutateAsync({ puzzleDay: day, corrections })
@@ -375,6 +429,18 @@ function BoardEntryFields({
               letters: the board is positional, so a half-read row in the wrong
               place is worse than an empty one. Saying which rows they are is
               what keeps that honest rather than merely quiet. */}
+          {/* THE ONLY TIME THE ANSWER IS ASKED FOR. A solved board carries it in
+              its winning row and the parser reads it there — measured at 18 of
+              18 on the real corpus — so asking would be pure friction. An
+              UNSOLVED board has no such row, and the answer is then not just
+              missing from the form but missing from Stage 4, which loses its
+              second constraint for every row. Typing it fixes both. */}
+          {step === 'confirm' && parsed?.answer === null && answer.length !== 5 && (
+            <p className="mt-1">
+              This board was not solved, so the answer is not on it. Type it above and the guesses
+              will be checked against it.
+            </p>
+          )}
           {missingRows.length > 0 && (
             <p className="mt-1">
               {missingRows.length === 1

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createBitmap, fillRect } from './bitmap.ts'
 import { feedbackFor } from './feedback.ts'
-import { parseBoard } from './parse.ts'
+import { parseBoard, resolveWithAnswer } from './parse.ts'
+import type { BoardParse } from './parse.ts'
 import { renderPlayedBoard } from './testing/board-fixture.ts'
 import { renderBoard } from './testing/render.ts'
 import type { ThemeName } from './testing/render.ts'
@@ -204,5 +205,110 @@ describe('parseBoard failure paths', () => {
     const board = renderPlayedBoard({ answer, guesses: ['SLATE', 'TRACE', 'CRANE'], tileSize: 62 })
     const parsed = parseBoard(board.bitmap, { answer })
     expect(parsed.guesses.map((guess) => guess.row)).toEqual([0, 1, 2])
+  })
+})
+
+describe('resolveWithAnswer', () => {
+  /** A board with no winning row, so no answer can be derived from it. */
+  const unsolved = () =>
+    renderPlayedBoard({ answer: 'DRYLY', guesses: ['SLATE', 'BROIL', 'WRYLY'], tileSize: 62 })
+
+  // WHY THERE IS NO SECOND PARSE. Nothing about the image is read differently
+  // when the answer is known — lattice, colours and glyphs are all
+  // answer-independent — so only Stage 4's last step can change. This asserts
+  // the consequence: re-resolving the evidence gives the same board as parsing
+  // the pixels again with the answer supplied from the start.
+  //
+  // ON ITS OWN THIS DOES NOT SHOW THE CONSTRAINT DOING ANY WORK, and it cannot:
+  // the letters here are painted from the template table, so the reader is
+  // never torn and the answer never has a tie to break. Measured — blind and
+  // told agree on every synthesised board tried, smudged ones included. The
+  // test below constructs the torn evidence directly, which is the only honest
+  // way to show it.
+  it('reaches exactly what a fresh parse with the answer would have', () => {
+    const board = unsolved()
+    const blind = parseBoard(board.bitmap)
+    const told = parseBoard(board.bitmap, { answer: 'DRYLY' })
+    const reresolved = resolveWithAnswer(blind, 'DRYLY')
+
+    expect(reresolved.guesses.map((guess) => guess.word)).toEqual(told.guesses.map((guess) => guess.word))
+    expect(reresolved.answer).toBe(told.answer)
+    expect(reresolved.outcome).toBe(told.outcome)
+  })
+
+  it('carries the evidence forward, so it can be re-resolved again', () => {
+    const blind = parseBoard(unsolved().bitmap)
+    expect(blind.evidence).not.toBeNull()
+    expect(resolveWithAnswer(blind, 'DRYLY').evidence).toBe(blind.evidence)
+  })
+
+  // A SOLVED BOARD NEEDS NONE OF THIS. The winning row IS the answer, so the
+  // first parse already derived it and used it on every row — which is why the
+  // form never asks for one.
+  it('has nothing to add to a board that was already solved', () => {
+    const solved = renderPlayedBoard({ answer: 'CRANE', guesses: ['SLATE', 'CRANE'], tileSize: 62 })
+    const blind = parseBoard(solved.bitmap)
+
+    expect(blind.answer).toBe('CRANE')
+    expect(resolveWithAnswer(blind, 'CRANE').guesses.map((g) => g.word)).toEqual(
+      blind.guesses.map((g) => g.word),
+    )
+  })
+
+  it('is a no-op on a parse that never found a board to gather evidence from', () => {
+    const blank = parseBoard(createBitmap(400, 400, [255, 255, 255]))
+    expect(blank.evidence).toBeNull()
+    expect(resolveWithAnswer(blank, 'CRANE')).toBe(blank)
+  })
+
+  // It cannot rescue everything, and the test says so rather than pretending.
+  // Two words that colour identically against the answer are indistinguishable
+  // to every constraint Stage 4 has.
+  it('cannot separate two words the answer colours identically', () => {
+    expect(feedbackFor('SLATE', 'DRYLY')).toEqual(feedbackFor('BLATE', 'DRYLY'))
+  })
+})
+
+/**
+ * THE CONSTRAINT ITSELF, on evidence built by hand.
+ *
+ * It has to be built by hand. Glyphs painted from the template table are read
+ * perfectly, so a rendered board never puts the reader in the position this
+ * exists for — being torn between two letters that the ANSWER can separate.
+ * The real corpus does: one screenshot read DRYLY where the board said WRYLY,
+ * and that is the case reproduced here.
+ */
+describe('what knowing the answer is actually for', () => {
+  /** A reader that slightly prefers D, on a row whose colours say otherwise. */
+  const torn = (): BoardParse => ({
+    outcome: 'ok',
+    answer: null,
+    guesses: [],
+    unresolved: [],
+    lattice: null,
+    evidence: {
+      rows: [0],
+      letters: [[{ D: 0.55, W: 0.45 }, { R: 1 }, { Y: 1 }, { L: 1 }, { Y: 1 }]],
+      readings: [[['absent', 'correct', 'correct', 'correct', 'correct']]],
+      unreadable: [],
+    },
+  })
+
+  it('overrules the reader when the colours forbid its first choice', () => {
+    const told = resolveWithAnswer(torn(), 'DRYLY')
+
+    // DRYLY against DRYLY colours CCCCC, which is not the .CCCC on the board —
+    // so the reader's own first choice is inadmissible, and WRYLY wins despite
+    // scoring lower. This is the whole reason the answer is worth asking for.
+    expect(told.guesses.map((guess) => guess.word)).toEqual(['WRYLY'])
+    expect(feedbackFor('WRYLY', 'DRYLY')).toEqual(['absent', 'correct', 'correct', 'correct', 'correct'])
+    expect(feedbackFor('DRYLY', 'DRYLY')).not.toEqual(feedbackFor('WRYLY', 'DRYLY'))
+  })
+
+  it('keeps the reader when nothing forbids it', () => {
+    // SLATE and BLATE colour identically against DRYLY — both all-absent — so
+    // no answer can separate them and the reader is left to decide. The limit
+    // is stated rather than papered over.
+    expect(feedbackFor('SLATE', 'DRYLY')).toEqual(feedbackFor('BLATE', 'DRYLY'))
   })
 })

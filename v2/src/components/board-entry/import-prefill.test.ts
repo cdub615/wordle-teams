@@ -11,6 +11,7 @@ const parse = (over: Partial<BoardParse> = {}): BoardParse => ({
   ],
   unresolved: [],
   lattice: null,
+  evidence: null,
   ...over,
 })
 
