@@ -624,10 +624,18 @@ describe('scheduleNextFor', () => {
     await t.run((ctx) => scheduleNextFor(ctx, playerId, from))
     const first = await t.run((ctx) => ctx.db.get(playerId))
     await t.run((ctx) => scheduleNextFor(ctx, playerId, from))
+    const second = await t.run((ctx) => ctx.db.get(playerId))
 
     const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    // BOTH HALVES, or this passes vacuously: the second call really did
+    // schedule a second job (two jobs, a new id on the row) AND the first is
+    // still pending rather than canceled. Assert only the second half and a
+    // scheduleNextFor that had quietly become a no-op would satisfy it.
+    expect(jobs).toHaveLength(2)
+    expect(second?.reminderJobId).not.toBe(first?.reminderJobId)
     const byId = new Map(jobs.map((j) => [j._id, j]))
     expect(byId.get(first!.reminderJobId!)?.state.kind).toBe('pending')
+    expect(byId.get(second!.reminderJobId!)?.state.kind).toBe('pending')
   })
 
   // THE OBSERVABILITY CHECK (added from Task 1's code-quality review; not in
