@@ -16,6 +16,7 @@ import {
   METHODS,
   needsWeekendOptIn,
   nextOccurrence,
+  weekendPlayerIdsFrom,
 } from './lib/reminders.ts'
 import type { LocalTime } from './lib/reminders.ts'
 import { addDays } from './lib/puzzleDay.ts'
@@ -287,14 +288,16 @@ export const sweep = internalMutation({
  *
  * IT SWALLOWS ITS OWN ERRORS, AND THAT IS THE REASON IT IS A SEPARATE FUNCTION
  * RATHER THAN FOUR LINES INLINE. An observability check must never be able to
- * abort the write it observes. `maintain` (Task 6) calls
- * `reschedulePlayerReminderFor` bare inside `for (const player of players)`
- * with no per-player try/catch, so the whole "one bad row must not abort the
- * batch" property rests on `scheduleNextFor` swallowing everything internally —
- * a throw escaping from here would roll back the entire daily pass, including
- * every `playsWeekends` patch already made in it. Inline, this code sat outside
- * the catch that wraps `nextOccurrence` and was the one statement in
- * `scheduleNextFor` that could throw.
+ * abort the write it observes. Inline, this code sat OUTSIDE the catch that
+ * wraps `nextOccurrence`, and was the one statement in `scheduleNextFor` that
+ * could throw — so a throw from here would have rolled back `maintain`'s entire
+ * daily pass, including every `playsWeekends` patch already made in it. (An
+ * earlier version of this paragraph went on to say that `maintain` calls
+ * `reschedulePlayerReminderFor` bare with no per-player try/catch, so that the
+ * batch-tolerance property rested on this catch. It no longer does: `maintain`
+ * wraps its per-player body in its own guard. Both catches are still wanted —
+ * this one keeps an observability check from being able to fail a write at all,
+ * which is a stronger property than being caught one frame up.)
  *
  * It is unreachable today, and the catch is still not decoration. `localParts`
  * cannot reject the zone — `nextOccurrence` already resolved it in the same
@@ -770,5 +773,224 @@ export const deliver = internalMutation({
 
     await scheduleNextFor(ctx, playerId, now)
     return { delivered: true, reason: 'sent' as const }
+  },
+})
+
+/**
+ * The number of reminders one maintenance run will try to schedule.
+ *
+ * BELOW A PLATFORM LIMIT, not a tuning knob. `convex-test` 0.0.54 models
+ * Convex's per-transaction ceiling on scheduled functions at 1000 — the
+ * `functionsScheduled` entry of `DEFAULT_TRANSACTION_LIMITS` in
+ * `convex-test/dist/transactionMetrics.js`, whose own throw points at
+ * docs.convex.dev/production/state/limits — and that is the figure this is
+ * designed against. 800 leaves headroom for the pass's own reads and writes
+ * while comfortably covering a one-shot bootstrap of the ~393 players the
+ * Convex table holds after the copy's `isNamed` filter.
+ *
+ * IT IS NOT WHAT KEEPS THE UNIT SUITE UNDER THAT LIMIT, and an earlier draft of
+ * this comment said it was. Measured: `convexTest(schema, modules)` — the
+ * positional form every test in `reminders.test.ts` uses — passes
+ * `limitsConfig = false`, and the tracker's root layer is then built with
+ * `enforce: false`. The limits are documented as opt-in (`transactionLimits`:
+ * "`false` (default): limits are not enforced", `convex-test/dist/index.d.ts`).
+ * So this budget is a real-backend protection, and the one test that reaches a
+ * throw from it has to ask for enforcement explicitly.
+ *
+ * EXCEEDING IT IS SAFE, WHICH IS THE POINT. A table with more players needing a
+ * reschedule than the budget makes progress across successive runs rather than
+ * throwing and repairing nobody. The `deferred` count in the return value says
+ * when that is happening, so a bootstrap that needs several days is visible
+ * rather than mysterious.
+ */
+const MAINTAIN_SCHEDULE_BUDGET = 800
+
+/**
+ * The safety net for per-player scheduling, and the only thing standing between
+ * a broken chain and a player who is silently never reminded again.
+ *
+ * WHY THIS IS LOAD-BEARING RATHER THAN A NICE-TO-HAVE. A sweep is self-healing:
+ * it recomputes from scratch every run, so a lost job fixes itself. A chain has
+ * no such property. Scheduled mutations are exactly-once and auto-retried on
+ * TRANSIENT errors, so flakiness is not the risk — a PERMANENT throw is. The
+ * old sweep caught an unresolvable timeZone per player precisely because one bad
+ * row must not take a batch down; in a chain, that same row rolls back the whole
+ * transaction INCLUDING the reschedule, and that player is gone with nothing
+ * logged and nobody looking. This pass is what finds them.
+ *
+ * DAILY, NOT HOURLY, and the cadence is the whole economy of this design. It
+ * collects the entire `players` table, which is exactly the read the hourly
+ * sweep was killed for: at 720 runs a month that was ~283,000 player reads and
+ * about 82 MB, on the same 393-rows x ~291-bytes figures `deliver` above uses.
+ * At 30 runs it is ~11,800 of those, under 4 MB, and it buys back the
+ * self-healing property for 1/24th of the cost. Putting this back on an hourly
+ * cron would restore the original bug in full. Those figures are the `players`
+ * collect ONLY; this pass also collects `teams` every run, which the comments
+ * elsewhere in this file put at ~171 rows, so about 5,100 reads a month on top.
+ *
+ * FOUR JOBS IN ONE PASS, deliberately, because they all need the same scan:
+ *
+ *  1. DERIVE playsWeekends. `teams` is collected once — Convex cannot index
+ *     array membership — and the flag is written only where it actually differs,
+ *     so steady state is reads-only.
+ *  2. REPAIR a chain whose job never fired (nextReminderAt at or before now),
+ *     OR whose derived weekend flag just changed. The second half is a
+ *     correctness requirement, not a refinement — see THE FLAG IS AN INPUT
+ *     below.
+ *  3. BOOTSTRAP a player who never had one (nextReminderAt absent). This is the
+ *     SAME CASE as 2 from here, which is why the existing rows need no
+ *     migration mutation and no manual cutover step — and that matters beyond
+ *     convenience, because a manual step would have to be run against prod, and
+ *     `convex run --prod` silently hits the local deployment on at least one
+ *     machine.
+ *  4. STAY BOUNDED. See MAINTAIN_SCHEDULE_BUDGET.
+ *
+ * THE FLAG IS AN INPUT TO THE SCHEDULE, SO A FLIP INVALIDATES THE PENDING JOB
+ * exactly the way a settings change does — and settings.ts's writes already go
+ * through `reschedulePlayerReminderFor` for precisely that reason. Repairing
+ * only PAST-DUE chains leaves a hole that running this pass more often cannot
+ * close, because the pass cannot see it: a non-weekend player's Friday delivery
+ * points `nextReminderAt` at MONDAY, because `nextOccurrence` skipped the
+ * weekend; they join a weekend-playing team on Saturday; the flag flips, but
+ * Monday is still in the future, so the chain reads healthy and they miss
+ * Saturday AND Sunday. The other direction is milder and the same defect: a flag
+ * going true -> false leaves a Saturday job that still matches the row, so
+ * `deliver`'s staleness guard passes it and the weekend rule — which lives in
+ * `nextOccurrence`, not in the delivery job — never gets a say. One extra send.
+ * Rescheduling on the flip closes both, and tightens the staleness bound this
+ * field carries to at most one missed or one extra day.
+ *
+ * COMPARED AGAINST THE COERCED VALUE, `player.playsWeekends ?? false`, AND THAT
+ * IS WHAT KEEPS THE ABOVE FROM BEING A WHOLE-TABLE BURST. Absent and false are
+ * the same state to every reader of this field — `scheduleNextFor` coerces the
+ * same way — so treating them as equal is the correct equality for this domain,
+ * not a shortcut. Comparing the raw field would make `undefined !== false` true
+ * for every player not on a weekend-playing team, patching a few hundred rows
+ * on the first run after cutover, rescheduling every one of them, and making the
+ * reads-only claim above false on its face. A non-weekend player therefore stays
+ * absent forever; only a weekend player gets an explicit `true`, and only a
+ * player who LEAVES a weekend team gets an explicit `false`.
+ *
+ * NOT GATED ON REMINDERS_ENABLED, and that is intentional. The gate lives at
+ * delivery so that flipping it costs nothing; gating the schedule too would mean
+ * the flag had to cancel and recreate every pending job, which is the coupling
+ * the whole arrangement avoids.
+ *
+ * A PLAYER WITH NO timeZone IS SKIPPED AND COSTS NOTHING. They cannot be
+ * scheduled — there is no zone to compute an occurrence in — and on beta they
+ * are numerous, because scripts/lib/copy-reminder-policy.mjs WITHHOLDS timeZone
+ * on every copy but the cutover one. (An earlier draft blamed the 151 nameless
+ * production rows; those never reach Convex, since copy-filters.mjs drops them
+ * with players.filter(isNamed).) They are retried every run at no extra cost,
+ * because this pass is already reading every row, and they never consume the
+ * schedule budget. Their weekend flag is still derived — the patch sits above
+ * the zone check on purpose, since `updateTimeZoneFor` will one day schedule
+ * them and `scheduleNextFor` reads this flag when it does.
+ */
+export const maintain = internalMutation({
+  // `budget` exists for the tests, the same way `sweep`'s `now` did, and for the
+  // same reason it must NOT be passed from crons.ts: a cron's args are
+  // serialised when that module is EVALUATED, not when the job fires.
+  args: { budget: v.optional(v.number()) },
+  handler: async (ctx, { budget }) => {
+    const limit = budget ?? MAINTAIN_SCHEDULE_BUDGET
+    const now = Date.now()
+
+    // BOTH COLLECTS SIT OUTSIDE THE PER-PLAYER GUARD BELOW, and structurally
+    // so: that guard lives INSIDE the loop, which is the only place it belongs.
+    // A failure reading either table is not a per-row problem and has no
+    // per-row fallback, so it must abort the whole pass and let Convex retry
+    // the mutation.
+    const teams = await ctx.db.query('teams').collect()
+    const weekendPlayerIds = weekendPlayerIdsFrom(teams)
+
+    const players = await ctx.db.query('players').collect()
+
+    let weekendFlagsChanged = 0
+    let scheduled = 0
+    let deferred = 0
+    let failed = 0
+
+    for (const player of players) {
+      // ONE GUARD PER PLAYER, AROUND THE PER-PLAYER WORK ONLY. This pass's "one
+      // bad row must not abort the batch" property is the same one the old
+      // sweep had explicitly, and for the same measured reason: a row copied
+      // from Supabase never passed through `updateTimeZoneFor`, so one bad row
+      // exists. Do NOT delete this on the grounds that `scheduleNextFor`
+      // catches everything internally — relying on a called function never
+      // throwing is the wrong shape for a batch loop, and that assumption was
+      // already false once (the wall-clock probe originally sat outside the try
+      // that wraps `nextOccurrence`, so a throw there would have rolled back
+      // this whole pass including every flag patch already made in it).
+      //
+      // DO NOT BROADEN IT. The distinction that matters is a per-row failure
+      // (log, continue, retried by tomorrow's run) against a failure of the
+      // pass itself, and an OCC write conflict is the second kind: Convex
+      // resolves one by re-running the whole handler, which has committed
+      // nothing (see `deliver`'s doc comment), and that is the correct outcome.
+      // No `instanceof` clause is needed to let one through, because a conflict
+      // is not reported as an exception from a `ctx.db.patch` inside the
+      // handler. That last clause is a property of how Convex reports
+      // conflicts rather than anything this file enforces, so it is the part to
+      // re-check if this guard ever has to widen.
+      try {
+        const playsWeekends = weekendPlayerIds.has(player._id)
+        // `?? false`, NOT the raw field. See COMPARED AGAINST THE COERCED VALUE
+        // on this function's doc comment — this one coercion is what stops the
+        // first run after cutover patching and rescheduling a few hundred rows.
+        const flipped = (player.playsWeekends ?? false) !== playsWeekends
+
+        // TypeScript requires the `!== undefined` narrowing before the
+        // comparison, so it is not a redundant clause: `undefined > now` is a
+        // type error, not a `false`.
+        const healthy = player.nextReminderAt !== undefined && player.nextReminderAt > now
+        // A zone is the one thing `scheduleNextFor` gates on, so checking it
+        // here is what keeps an unschedulable row from consuming the budget.
+        const schedulable = Boolean(player.timeZone)
+        const needsSchedule = schedulable && (!healthy || flipped)
+
+        // DEFER THE WHOLE ROW, FLAG INCLUDED, and that ordering is load-bearing.
+        // Patching the flag first and then deferring would leave the next run
+        // seeing a flag that already agrees and a chain that still reads
+        // healthy — so nothing would ever reschedule it, losing the
+        // reschedule-on-flip fix for exactly the rows a bootstrap is too busy to
+        // reach. Leaving the flag stale is free: it is only read when something
+        // schedules, which is what we just declined to do.
+        if (needsSchedule && scheduled >= limit) {
+          deferred += 1
+          continue
+        }
+
+        if (flipped) {
+          await ctx.db.patch(player._id, { playsWeekends })
+          weekendFlagsChanged += 1
+        }
+
+        if (!needsSchedule) continue
+
+        // COUNTS ATTEMPTS, NOT SUCCESSES, because
+        // `reschedulePlayerReminderFor` returns void — an unresolvable zone
+        // logs, leaves the row alone and still lands here. That is the figure
+        // the budget needs to bound anyway: work done, not jobs created.
+        await reschedulePlayerReminderFor(ctx, player._id, now)
+        scheduled += 1
+      } catch (error) {
+        failed += 1
+        console.error(
+          '[reminders] maintenance failed for one player; it will be retried tomorrow',
+          { playerId: player._id },
+          error,
+        )
+      }
+    }
+
+    return {
+      players: players.length,
+      teams: teams.length,
+      weekendFlagsChanged,
+      scheduled,
+      deferred,
+      failed,
+    }
   },
 })

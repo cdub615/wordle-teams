@@ -1485,3 +1485,567 @@ describe('deliver', () => {
     expect([...observed].sort()).toEqual([...REASONS].sort())
   })
 })
+
+describe('maintain', () => {
+  // NEITHER KILL SWITCH IS STUBBED HERE, and that is not an omission. The
+  // file-level `beforeEach` sets REMINDERS_ENABLED and SITE_URL already, and
+  // `maintain` reads neither: the gate lives at delivery so that flipping it
+  // costs nothing (see its doc comment). Restubbing them in this block would
+  // read as a dependency this function does not have.
+
+  const CHICAGO = 'America/Chicago'
+
+  /** A player who CAN be scheduled: a resolvable zone and a 09:00 wall clock. */
+  const zoned = (over: Record<string, unknown> = {}) =>
+    aPlayer({ timeZone: CHICAGO, reminderDeliveryTime: '09:00:00', ...over })
+
+  // 2026-09-11T14:00:00Z is 09:00 Chicago on a FRIDAY — pinned the same way in
+  // the `deliver` block above — so these are the Saturday and Monday that
+  // follow it, each at 09:00 Chicago (CDT, UTC-5).
+  const SATURDAY_9AM = new Date('2026-09-12T14:00:00Z').getTime()
+  const MONDAY_9AM = new Date('2026-09-14T14:00:00Z').getTime()
+  // Saturday 07:00 Chicago, BEFORE that day's 09:00. That is what makes the
+  // flag-flip tests able to recover Saturday ITSELF rather than only Sunday,
+  // which is the whole point of the scenario they encode.
+  const SATURDAY_7AM = new Date('2026-09-12T12:00:00Z').getTime()
+
+  /**
+   * Run `body` with the clock frozen at `at`.
+   *
+   * A HELPER RATHER THAN A NESTED `describe` WITH fake timers in its
+   * `beforeEach`, on purpose: the structural guard at the end of this block has
+   * to run LAST, and a flat list of tests makes that a property of declaration
+   * order alone rather than of how Vitest interleaves a suite's own tests with
+   * its child suites'.
+   *
+   * The `finally` matters: this file's `afterEach` calls `vi.restoreAllMocks()`
+   * but never `vi.useRealTimers()`, so a test that pinned the clock and threw
+   * would leak frozen time into every test after it.
+   */
+  async function atInstant<T>(at: number, body: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(at))
+    try {
+      return await body()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  /**
+   * Reads the WHOLE player document out of `t.run`, then picks fields off it
+   * outside that call — for the reason `lastReminderOf` above spells out: a
+   * bare `undefined` returned from `t.run` crosses the Convex-value boundary as
+   * `null`, and several assertions below turn on `playsWeekends` being genuinely
+   * ABSENT rather than `false`.
+   */
+  const playerDoc = (t: ReturnType<typeof convexTest>, playerId: Id<'players'>) =>
+    t.run((ctx) => ctx.db.get(playerId))
+
+  const deliverJobs = (t: ReturnType<typeof convexTest>) =>
+    t.run((ctx) =>
+      ctx.db.system
+        .query('_scheduled_functions')
+        .collect()
+        .then((rows) => rows.filter((row) => row.name === 'reminders:deliver')),
+    )
+
+  // THE STRUCTURAL GUARD'S BOOKKEEPING, the same idea as the `deliver` block's
+  // REASONS set and for the same reason: `maintain` reports what it did in four
+  // counters, and a counter no test ever drives above zero is a path with no
+  // test. Task 7 edits this file and Task 8 adds metered assertions against
+  // this function, so "a test was deleted" needs to fail the build rather than
+  // rely on somebody reading a comment.
+  const COUNTERS = ['weekendFlagsChanged', 'scheduled', 'deferred', 'failed'] as const
+  const drivenAboveZero = new Set<string>()
+
+  /**
+   * Call `maintain` and record which of its counters this call moved.
+   *
+   * Every call in this block goes through here rather than `t.mutation`
+   * directly, so the coverage assertion cannot be satisfied by a test that
+   * stopped exercising the path it is named for.
+   */
+  async function maintainFor(
+    t: ReturnType<typeof convexTest>,
+    args: { budget?: number } = {},
+  ) {
+    const result = await t.mutation(internal.reminders.maintain, args)
+    for (const counter of COUNTERS) if (result[counter] > 0) drivenAboveZero.add(counter)
+    return result
+  }
+
+  test('bootstraps a player who has never been scheduled', async () => {
+    // THE ENTIRE BOOTSTRAP STORY. Existing players have no nextReminderAt, which
+    // is the same state a broken chain leaves behind, so no migration mutation
+    // and no manual cutover step is needed for the rows already in the table.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) => ctx.db.insert('players', zoned()))
+
+    const result = await maintainFor(t)
+
+    expect(result.scheduled).toBe(1)
+    const player = await playerDoc(t, playerId)
+    expect(player?.nextReminderAt).toBeGreaterThan(Date.now())
+    // AND A JOB ACTUALLY EXISTS FOR IT, carrying that instant — the row
+    // agreeing with itself is not the chain; the job is.
+    const jobs = await deliverJobs(t)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].args[0]).toEqual({ playerId, dueAt: player?.nextReminderAt })
+  })
+
+  test('repairs a chain whose job never fired', async () => {
+    // The silent failure this pass exists for: a permanent throw inside deliver
+    // rolls back its own reschedule, so the player simply stops being reminded
+    // and nothing notices.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', zoned({ nextReminderAt: Date.now() - 48 * 3600 * 1000 })),
+    )
+
+    const result = await maintainFor(t)
+
+    expect(result.scheduled).toBe(1)
+    const player = await playerDoc(t, playerId)
+    expect(player?.nextReminderAt).toBeGreaterThan(Date.now())
+  })
+
+  test('leaves a healthy chain alone', async () => {
+    // The assertion that this pass is nearly free in steady state: it must not
+    // churn every row a day rescheduling jobs that are perfectly fine.
+    const t = convexTest(schema, modules)
+    const future = Date.now() + 6 * 3600 * 1000
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', zoned({ nextReminderAt: future })),
+    )
+
+    const result = await maintainFor(t)
+
+    expect(result.scheduled).toBe(0)
+    expect(result.weekendFlagsChanged).toBe(0)
+    const player = await playerDoc(t, playerId)
+    expect(player?.nextReminderAt).toBe(future)
+    // Nothing was scheduled, not merely nothing recorded.
+    expect(await deliverJobs(t)).toHaveLength(0)
+  })
+
+  test('a chain due at exactly this instant is repaired, not read as healthy', async () => {
+    // THE HEALTH PREDICATE'S BOUNDARY, and the only test that separates
+    // `nextReminderAt > now` from `>= now`. A job whose instant has arrived but
+    // which has not run is indistinguishable from one that never will; the
+    // predicate has to treat it as due, because `nextOccurrence` is strictly
+    // after `from` and so cannot return this same instant and spin.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', zoned({ nextReminderAt: SATURDAY_7AM })),
+    )
+
+    const result = await atInstant(SATURDAY_7AM, () => maintainFor(t))
+
+    expect(result.scheduled).toBe(1)
+    // Monday, not Saturday: this player is on no team at all, so the derived
+    // flag is false and the weekend is skipped.
+    expect((await playerDoc(t, playerId))?.nextReminderAt).toBe(MONDAY_9AM)
+  })
+
+  test('a chain due one millisecond from now is healthy', async () => {
+    // The other side of the same boundary, so that the predicate cannot be
+    // satisfied by "always repair".
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', zoned({ nextReminderAt: SATURDAY_7AM + 1 })),
+    )
+
+    const result = await atInstant(SATURDAY_7AM, () => maintainFor(t))
+
+    expect(result.scheduled).toBe(0)
+    expect((await playerDoc(t, playerId))?.nextReminderAt).toBe(SATURDAY_7AM + 1)
+  })
+
+  test('derives playsWeekends from weekend-playing teams', async () => {
+    const t = convexTest(schema, modules)
+    const { weekend, weekday } = await t.run(async (ctx) => {
+      const weekend = await ctx.db.insert(
+        'players',
+        zoned({ email: 'weekend@example.com', playsWeekends: false }),
+      )
+      const weekday = await ctx.db.insert(
+        'players',
+        zoned({ email: 'weekday@example.com', playsWeekends: true }),
+      )
+      await ctx.db.insert('teams', aTeam({ legacyId: 1, playerIds: [weekend], playWeekends: true }))
+      await ctx.db.insert('teams', aTeam({ legacyId: 2, playerIds: [weekday], playWeekends: false }))
+      return { weekend, weekday }
+    })
+
+    // SEEDED WITH THE WRONG FLAG ON PURPOSE, both directions at once. Seeding
+    // them absent would let a mutant that simply never writes `false` pass the
+    // `weekday` half, because absent reads as false to every reader of this
+    // field.
+    const result = await maintainFor(t)
+
+    expect((await playerDoc(t, weekend))?.playsWeekends).toBe(true)
+    expect((await playerDoc(t, weekday))?.playsWeekends).toBe(false)
+    expect(result.weekendFlagsChanged).toBe(2)
+    // The return value reports the scan it actually did, which is what Task 8
+    // meters.
+    expect(result.players).toBe(2)
+    expect(result.teams).toBe(2)
+  })
+
+  test('a player on two teams plays weekends if either of them does', async () => {
+    // A FIXTURE BLIND SPOT, NOT AN EDGE CASE. Every other test in this block
+    // puts each player on at most one team, so without this one the whole
+    // suite would still pass if the derivation read only the FIRST team a
+    // player appears on.
+    const t = convexTest(schema, modules)
+    const { mixed, neither } = await t.run(async (ctx) => {
+      const mixed = await ctx.db.insert('players', zoned({ email: 'mixed@example.com' }))
+      const neither = await ctx.db.insert('players', zoned({ email: 'neither@example.com' }))
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 1, playerIds: [mixed, neither], playWeekends: false }),
+      )
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 2, playerIds: [mixed, neither], playWeekends: false }),
+      )
+      await ctx.db.insert('teams', aTeam({ legacyId: 3, playerIds: [mixed], playWeekends: true }))
+      return { mixed, neither }
+    })
+
+    await maintainFor(t)
+
+    expect((await playerDoc(t, mixed))?.playsWeekends).toBe(true)
+    // Two non-weekend teams is still not a weekend team.
+    expect((await playerDoc(t, neither))?.playsWeekends).toBeUndefined()
+  })
+
+  test('clears playsWeekends when the player leaves the weekend team', async () => {
+    const t = convexTest(schema, modules)
+    const { playerId, teamId } = await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', zoned({ playsWeekends: true }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [playerId], playWeekends: true }),
+      )
+      return { playerId, teamId }
+    })
+
+    await t.run((ctx) => ctx.db.patch(teamId, { playerIds: [] }))
+    await maintainFor(t)
+
+    // EXPLICITLY false, not absent. A player who LEAVES a weekend team is the
+    // only way this field is ever written false — see the coerced-comparison
+    // test below for why a player who was never on one stays absent forever.
+    expect((await playerDoc(t, playerId))?.playsWeekends).toBe(false)
+  })
+
+  test('does not patch playsWeekends when it already agrees', async () => {
+    // Writes cost bandwidth too. In steady state this pass must be reads only.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert(
+        'players',
+        zoned({ playsWeekends: true, nextReminderAt: Date.now() + 6 * 3600 * 1000 }),
+      )
+      await ctx.db.insert('teams', aTeam({ playerIds: [id], playWeekends: true }))
+      return id
+    })
+
+    const result = await maintainFor(t)
+
+    expect(result.weekendFlagsChanged).toBe(0)
+    expect(result.scheduled).toBe(0)
+    expect(playerId).toBeDefined()
+  })
+
+  test('leaves an absent playsWeekends absent rather than writing false onto it', async () => {
+    // THE COERCED COMPARISON, and the only test that pins it. Absent and false
+    // are the SAME STATE to every reader of this field — scheduleNextFor
+    // coerces with `?? false` — so a player on no weekend-playing team must
+    // read as "unchanged", not as a flip from `undefined` to `false`.
+    //
+    // WITH THE RAW COMPARISON THIS TEST FAILS THREE TIMES OVER, which is what
+    // makes it worth its length. `undefined !== false` is true, so the first
+    // run after cutover would (a) patch `false` onto every player not on a
+    // weekend team, (b) report them all in weekendFlagsChanged, and (c) —
+    // because a flipped flag now also reschedules — reschedule every one of
+    // them, turning the steady-state claim in this function's doc comment and
+    // Task 8's metered assertion into something the first run violates.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', zoned({ nextReminderAt: Date.now() + 6 * 3600 * 1000 })),
+    )
+
+    const result = await maintainFor(t)
+
+    expect(result.weekendFlagsChanged).toBe(0)
+    expect(result.scheduled).toBe(0)
+    expect((await playerDoc(t, playerId))?.playsWeekends).toBeUndefined()
+  })
+
+  test('reschedules a healthy chain when the weekend flag flips on', async () => {
+    // THE MISSED-WEEKEND BUG, encoded exactly as it happens. Friday's delivery
+    // reschedules a non-weekend player, so nextOccurrence skips Saturday and
+    // Sunday and nextReminderAt points at MONDAY. On Saturday morning they join
+    // a team that plays weekends. Monday is still in the FUTURE, so a pass that
+    // repaired only broken chains would flip the flag, read the chain as
+    // healthy, and leave them to miss Saturday AND Sunday — and running this
+    // pass more often could not help, because it cannot see the problem at all.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', zoned({ nextReminderAt: MONDAY_9AM }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [id], playWeekends: true }))
+      return id
+    })
+
+    const result = await atInstant(SATURDAY_7AM, () => maintainFor(t))
+
+    expect(result.weekendFlagsChanged).toBe(1)
+    expect(result.scheduled).toBe(1)
+    const player = await playerDoc(t, playerId)
+    expect(player?.playsWeekends).toBe(true)
+    // Saturday, TODAY, not Monday and not Sunday.
+    expect(player?.nextReminderAt).toBe(SATURDAY_9AM)
+    const jobs = await deliverJobs(t)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].scheduledTime).toBe(SATURDAY_9AM)
+  })
+
+  test('reschedules a healthy chain when the weekend flag flips off', async () => {
+    // THE OTHER DIRECTION, milder but the same defect. A Saturday job already
+    // exists and passes deliver's staleness guard, and the weekend rule lives
+    // in nextOccurrence rather than in the delivery job, so it would deliver —
+    // one extra send. Rescheduling on the flip moves it to Monday instead.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', zoned({ playsWeekends: true, nextReminderAt: SATURDAY_9AM })),
+    )
+
+    const result = await atInstant(SATURDAY_7AM, () => maintainFor(t))
+
+    expect(result.weekendFlagsChanged).toBe(1)
+    expect(result.scheduled).toBe(1)
+    const player = await playerDoc(t, playerId)
+    expect(player?.playsWeekends).toBe(false)
+    expect(player?.nextReminderAt).toBe(MONDAY_9AM)
+  })
+
+  test('skips a player with no time zone without wedging on them', async () => {
+    // These can never be scheduled, and on beta there are MANY. Not for the
+    // reason an earlier draft gave: it said "151 of production's 533 rows are
+    // nameless leftovers", which conflates two populations — the nameless rows
+    // never reach Convex at all, because the copy filters them out
+    // (scripts/lib/copy-filters.mjs, players.filter(isNamed)).
+    //
+    // The real sources are three: copy-reminder-policy WITHHOLDS timeZone on
+    // every copy except the cutover one, so most copied beta rows have none; a
+    // Supabase row may have had no time_zone to begin with (the copy writes
+    // opt(p.time_zone)); and a natively-signed-up player has none until their
+    // first authenticated load writes it. They must not consume the schedule
+    // budget or stop the pass reaching anyone else.
+    const t = convexTest(schema, modules)
+    const { zoneless, schedulable } = await t.run(async (ctx) => ({
+      zoneless: await ctx.db.insert('players', aPlayer({ email: 'z@example.com' })),
+      schedulable: await ctx.db.insert('players', zoned({ email: 's@example.com' })),
+    }))
+
+    const result = await maintainFor(t)
+
+    expect(result.scheduled).toBe(1)
+    expect((await playerDoc(t, zoneless))?.nextReminderAt).toBeUndefined()
+    expect((await playerDoc(t, schedulable))?.nextReminderAt).toBeDefined()
+  })
+
+  test('derives the weekend flag for a zoneless player, who cannot be scheduled', async () => {
+    // THE FLAG PATCH SITS ABOVE THE ZONE CHECK, and that order is correct
+    // rather than incidental. A zoneless player can still be on a weekend team,
+    // and when updateTimeZoneFor later schedules them, scheduleNextFor reads
+    // this flag — so deriving it now is what stops their first scheduled
+    // reminder being computed from a stale one. It costs nothing, because the
+    // coerced comparison above means a zoneless NON-weekend player is never
+    // written at all.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', aPlayer({ email: 'z@example.com' }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [id], playWeekends: true }))
+      return id
+    })
+
+    const result = await maintainFor(t)
+
+    expect(result.weekendFlagsChanged).toBe(1)
+    expect(result.scheduled).toBe(0)
+    const player = await playerDoc(t, playerId)
+    expect(player?.playsWeekends).toBe(true)
+    expect(player?.nextReminderAt).toBeUndefined()
+  })
+
+  test('an unresolvable time zone is logged and does not abort the batch', async () => {
+    // THE BAD ROW THIS WHOLE PASS IS TOLERANT FOR. schema.ts types timeZone as
+    // unvalidated v.optional(v.string()) and a row copied from Supabase never
+    // passed through updateTimeZoneFor, so one of these exists.
+    //
+    // IT IS SWALLOWED INSIDE scheduleNextFor, NOT BY THIS PASS'S OWN GUARD,
+    // which is why `failed` stays 0 here and the test below has to force a
+    // throw a different way. `scheduled` counts it all the same: the counter is
+    // reschedule ATTEMPTS, which is what the budget bounds.
+    const t = convexTest(schema, modules)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { bad, good } = await t.run(async (ctx) => ({
+      bad: await ctx.db.insert('players', zoned({ email: 'bad@example.com', timeZone: 'GMT+5' })),
+      good: await ctx.db.insert('players', zoned({ email: 'good@example.com' })),
+    }))
+
+    const result = await maintainFor(t)
+
+    expect(result.failed).toBe(0)
+    expect(result.scheduled).toBe(2)
+    expect((await playerDoc(t, bad))?.nextReminderAt).toBeUndefined()
+    expect((await playerDoc(t, good))?.nextReminderAt).toBeGreaterThan(Date.now())
+    expect(spy).toHaveBeenCalledWith(
+      '[reminders] cannot compute a next occurrence for a player',
+      expect.objectContaining({ playerId: bad, timeZone: 'GMT+5' }),
+      expect.anything(),
+    )
+  })
+
+  test('a throw on one player is logged and the batch carries on', async () => {
+    // THE PER-PLAYER GUARD, and the only test that reaches it. Every throw
+    // scheduleNextFor can currently produce is caught inside it, so this forces
+    // one from the layer BELOW: convex-test enforces its transaction limits
+    // when `transactionLimits` is passed to convexTest, and a functionsScheduled
+    // cap of 1 makes the SECOND ctx.scheduler.runAt of the pass throw. That
+    // call sits outside every try in scheduleNextFor.
+    //
+    // WITHOUT THE GUARD THIS TEST DOES NOT MERELY REPORT A DIFFERENT COUNT — the
+    // mutation rejects, and every playsWeekends patch the pass had already made
+    // is rolled back with it. That is the property the guard exists for, and it
+    // is why the assertion on `first`'s flag below is not decoration.
+    const t = convexTest({ schema, modules, transactionLimits: { functionsScheduled: 1 } })
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { first, second } = await t.run(async (ctx) => {
+      const first = await ctx.db.insert('players', zoned({ email: 'first@example.com' }))
+      const second = await ctx.db.insert('players', zoned({ email: 'second@example.com' }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [first, second], playWeekends: true }))
+      return { first, second }
+    })
+
+    const result = await maintainFor(t)
+
+    expect(result.scheduled).toBe(1)
+    expect(result.failed).toBe(1)
+    // Both flag patches committed, including the one made on the row that then
+    // threw. Nothing was rolled back.
+    expect(result.weekendFlagsChanged).toBe(2)
+    expect((await playerDoc(t, first))?.playsWeekends).toBe(true)
+    expect((await playerDoc(t, second))?.playsWeekends).toBe(true)
+    // The reachable player is scheduled; the unreachable one is left for
+    // tomorrow's run, which is the correct outcome for a row that failed once.
+    expect((await playerDoc(t, first))?.nextReminderAt).toBeGreaterThan(Date.now())
+    expect((await playerDoc(t, second))?.nextReminderAt).toBeUndefined()
+    // THE CAUSE IS FORWARDED, not just the row id. A guard that logged only
+    // "something failed" would make this pass's own failures as invisible as
+    // the ones it exists to find.
+    expect(spy).toHaveBeenCalledWith(
+      '[reminders] maintenance failed for one player; it will be retried tomorrow',
+      expect.objectContaining({ playerId: second }),
+      expect.objectContaining({ message: expect.stringContaining('Scheduled too many functions') }),
+    )
+  })
+
+  test('stops at the schedule budget and reports that it did', async () => {
+    // A bootstrap over a table larger than the budget must make progress across
+    // runs rather than throwing. See MAINTAIN_SCHEDULE_BUDGET for where the
+    // figure comes from.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 5; i++) {
+        await ctx.db.insert('players', zoned({ email: `p${i}@example.com` }))
+      }
+    })
+
+    const result = await maintainFor(t, { budget: 3 })
+
+    expect(result.scheduled).toBe(3)
+    expect(result.deferred).toBe(2)
+
+    // The next run finishes the job.
+    const second = await maintainFor(t, { budget: 3 })
+    expect(second.scheduled).toBe(2)
+    expect(second.deferred).toBe(0)
+  })
+
+  test('a player with no time zone does not consume the schedule budget', async () => {
+    // The zoneless population is large and permanent, so if it drew from the
+    // budget a bootstrap could stall behind rows that can never be scheduled.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await ctx.db.insert('players', aPlayer({ email: 'z@example.com' }))
+      await ctx.db.insert('players', zoned({ email: 'a@example.com' }))
+      await ctx.db.insert('players', zoned({ email: 'b@example.com' }))
+    })
+
+    const result = await maintainFor(t, { budget: 1 })
+
+    expect(result.scheduled).toBe(1)
+    // Two schedulable players, one of them deferred. Three would mean the
+    // zoneless row had been counted.
+    expect(result.deferred).toBe(1)
+  })
+
+  test('a deferred player keeps their stale flag, so the next run still sees the flip', async () => {
+    // THE BUDGET AND THE FLAG FLIP INTERACT, and getting the order wrong
+    // reintroduces the missed-weekend bug in a narrower window. If the flag
+    // were patched before the budget check, a flipped-but-deferred player would
+    // come back on the next run with the flag already agreeing and a chain that
+    // still reads healthy — so nothing would ever reschedule them, and the
+    // reschedule-on-flip fix would be silently lost for exactly the rows a
+    // bootstrap is too busy to reach.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', zoned({ nextReminderAt: MONDAY_9AM }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [id], playWeekends: true }))
+      return id
+    })
+
+    const first = await atInstant(SATURDAY_7AM, () => maintainFor(t, { budget: 0 }))
+
+    expect(first.deferred).toBe(1)
+    expect(first.weekendFlagsChanged).toBe(0)
+    const deferredPlayer = await playerDoc(t, playerId)
+    expect(deferredPlayer?.playsWeekends).toBeUndefined()
+    expect(deferredPlayer?.nextReminderAt).toBe(MONDAY_9AM)
+
+    const second = await atInstant(SATURDAY_7AM, () => maintainFor(t, { budget: 1 }))
+
+    expect(second.weekendFlagsChanged).toBe(1)
+    expect(second.scheduled).toBe(1)
+    const repaired = await playerDoc(t, playerId)
+    expect(repaired?.playsWeekends).toBe(true)
+    expect(repaired?.nextReminderAt).toBe(SATURDAY_9AM)
+  })
+
+  test('an empty table is a no-op rather than an error', async () => {
+    const t = convexTest(schema, modules)
+
+    const result = await maintainFor(t)
+
+    expect(result).toEqual({
+      players: 0,
+      teams: 0,
+      weekendFlagsChanged: 0,
+      scheduled: 0,
+      deferred: 0,
+      failed: 0,
+    })
+  })
+
+  // THE STRUCTURAL GUARD. A test rather than an `afterAll`, for the reason the
+  // `deliver` block's own guard gives: an afterAll runs on ANY subset of this
+  // file, so a filtered single-test run would fail it spuriously.
+  test('every counter `maintain` reports is driven above zero by a test above', () => {
+    expect([...drivenAboveZero].sort()).toEqual([...COUNTERS].sort())
+  })
+})
