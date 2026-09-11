@@ -80,6 +80,49 @@ export default defineSchema({
     reminderDeliveryMethods: v.array(v.string()),
     reminderDeliveryTime: v.string(), // wall-clock 'HH:MM:SS' in the player's own zone
     lastBoardEntryReminder: v.optional(v.number()),
+
+    // THE PENDING REMINDER JOB, and the instant it is due. Absent means this
+    // player has no reminder scheduled — which is the state every existing row
+    // is in, and is exactly why `maintain` needs no migration to bootstrap
+    // them: "never scheduled" and "chain broke" are the same case to it.
+    //
+    // nextReminderAt IS THE SOURCE OF TRUTH, NOT reminderJobId. Every scheduled
+    // job carries the instant it was scheduled for as an argument, and refuses
+    // to act if it does not match this field. That is what makes
+    // `ctx.scheduler.cancel` best-effort rather than load-bearing: Convex
+    // documents cancel as able to FAIL once a job has committed, and a stale
+    // job that cannot be cancelled would otherwise deliver at the old time.
+    // Here it reads this field, sees it has been superseded, and retires.
+    //
+    // DO NOT ADD AN INDEX ON nextReminderAt. It would narrow a query nothing
+    // makes: `maintain` already collects the whole table to derive
+    // playsWeekends below, and reads the repair set from that same scan.
+    reminderJobId: v.optional(v.id('_scheduled_functions')),
+    nextReminderAt: v.optional(v.number()),
+
+    // WHETHER THIS PLAYER IS ON ANY TEAM WITH playWeekends, DERIVED — never set
+    // by a user and never authoritative. `teams` is the truth; this is a cache
+    // of it, recomputed by `maintain` daily and by nothing else.
+    //
+    // ONE WRITER, DELIBERATELY, AND THE ALTERNATIVE WAS MEASURED. teams.playerIds
+    // and teams.playWeekends have EIGHT write paths across six modules
+    // (teams.ts x4, players.ts, inviteLinks.ts, billing.ts x2). Maintaining this
+    // from all of them is the drift shape this schema keeps warning about, and
+    // drift here is silent and permanent. A daily recompute cannot drift for
+    // more than a day and repairs itself; the cost of that staleness is one
+    // possibly-missed or one extra weekend reminder, which is the same trade
+    // teamStats.sweep took when it went daily.
+    //
+    // WHY IT IS DENORMALISED AT ALL: the reminder is delivered by a per-player
+    // scheduled job, and Convex cannot index array membership, so asking `teams`
+    // the question at delivery time costs a 171-row scan PER PLAYER. That scales
+    // with ACTIVE users — roughly 200 MB/month at 500 active players, larger
+    // than the hourly sweep this replaced. See lib/reminders.ts's nextOccurrence.
+    //
+    // ABSENT MEANS "not yet derived", which `maintain` treats as false. False is
+    // the safe answer: it suppresses a weekend reminder rather than sending one
+    // to somebody whose team does not play weekends.
+    playsWeekends: v.optional(v.boolean()),
     createdAt: v.optional(v.number()), // the ORIGINAL creation time; _creationTime is when we copied it
 
     // WHEN THIS PLAYER'S INSIGHTS TRIAL RUNS OUT, absent if it never started.

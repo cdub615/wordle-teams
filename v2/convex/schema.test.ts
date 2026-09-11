@@ -1,5 +1,6 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
+import { internal } from './_generated/api'
 import schema from './schema'
 
 const modules = import.meta.glob('./**/*.ts')
@@ -439,5 +440,47 @@ describe('players name requirement', () => {
       })
       expect((await ctx.db.get(id))!.legacyId).toBeUndefined()
     })
+  })
+})
+
+describe('players reminder scheduling fields', () => {
+  test('accepts a scheduled job id, its due instant, and a weekend flag', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', aPlayer())
+      // This test is about whether the schema accepts an Id<'_scheduled_functions'>;
+      // WHICH function was scheduled is incidental. pushSend.deliverTo is used
+      // because it exists today and survives this plan, where reminders.deliver
+      // does not exist until Task 5 and reminders.sweep is deleted at Task 7 — so
+      // either of those would couple this test to another task's sequencing.
+      const jobId = await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, {
+        playerId: id,
+        attempt: 0,
+      })
+      await ctx.db.patch(id, {
+        reminderJobId: jobId,
+        nextReminderAt: 1_760_000_000_000,
+        playsWeekends: true,
+      })
+      return id
+    })
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(1_760_000_000_000)
+    expect(player?.playsWeekends).toBe(true)
+    expect(player?.reminderJobId).toBeDefined()
+  })
+
+  test('all three are optional, so an unscheduled player is a valid row', async () => {
+    // Existing players have none of them. This is what makes Task 6's bootstrap
+    // the same case as a broken chain rather than a separate migration.
+    const t = convexTest(schema, modules)
+    const player = await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', aPlayer())
+      return await ctx.db.get(id)
+    })
+    expect(player?.nextReminderAt).toBeUndefined()
+    expect(player?.reminderJobId).toBeUndefined()
+    expect(player?.playsWeekends).toBeUndefined()
   })
 })
