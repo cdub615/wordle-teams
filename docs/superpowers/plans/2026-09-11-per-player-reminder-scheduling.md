@@ -78,6 +78,40 @@ are tied to this branch, so work on the branch directly.)
 
 ---
 
+## Comment discipline — read this before copying any comment below
+
+**Seven factual errors have now been found in comment text this plan mandated**, two of
+them by mutation testing rather than by reading. They are listed in the epic
+(`wordle-teams-2og8`). The failure mode has been identical every time: **a mechanism
+claim asserted at a confidence the code does not support.** Three examples, all mine:
+
+- "Neither ambiguous nor nonexistent wall clocks is reachable through `REMINDER_TIMES`."
+  Both are, via `Pacific/Easter`.
+- "Placing the reschedule after the guard is what stops a refused change scheduling a
+  job." The transaction does that, regardless of order.
+- Then, correcting that: "so the ordering is merely defensive habit." It is load-bearing
+  today — the reschedule re-reads the row, so above the patch it schedules the OLD value.
+
+Two rules follow, and they apply to every remaining task:
+
+1. **Write only what you measured.** If a comment asserts a mechanism, a count, a line
+   reference, or what another module does, either verify it in this session or write the
+   weaker claim you can actually support. "Unreachable" needs a sweep; "cannot throw"
+   needs the input space; "N call sites" needs a grep you ran. A hedge that is true beats
+   an absolute that is nearly true — the nearly-true ones are what cost four of these
+   seven.
+2. **Cite rather than copy.** The `reminderDeliveryMethods`-is-an-input slip was fixed in
+   `convex/reminders.ts` during Task 3 and then reintroduced *verbatim* in
+   `convex/settings.ts` during Task 4, because the plan carried both copies. Duplication
+   is how these errors travel between modules. Point at the one authoritative note
+   instead — and prefer a symbol name to a `file:line`, because line numbers in this plan
+   have already gone stale twice as earlier tasks added comment lines above them.
+
+**If a comment in a task below states something you cannot verify, stop and report it.**
+Do not silently correct it (the reasoning may be load-bearing in a way you cannot see)
+and do not copy it knowing it is false. Both of those have happened; reporting is what
+caught five of the seven.
+
 ## File Structure
 
 | File | Responsibility | Change |
@@ -967,8 +1001,10 @@ export async function scheduleNextFor(
 /**
  * Cancel this player's pending reminder, if any, and schedule the next one.
  *
- * Called from every path that changes an input to the schedule — `timeZone`,
- * `reminderDeliveryTime`, `reminderDeliveryMethods` (settings.ts) — and from
+ * Called from every settings write path — `timeZone`, `reminderDeliveryTime`
+ * and `reminderDeliveryMethods` (settings.ts), the last of which is NOT an
+ * input to the instant and is hooked only to keep the rule exceptionless — and
+ * from
  * `maintain` when it finds a chain that needs repairing or has never existed.
  *
  * THE CANCEL IS BEST-EFFORT AND ITS FAILURE IS HARMLESS, which is a stronger
@@ -1158,8 +1194,13 @@ describe('reminder rescheduling on settings changes', () => {
     // mutation rolls the whole transaction back regardless of order. So what
     // this test actually pins is the TRANSACTIONAL guarantee, which is worth
     // pinning; it cannot detect the reordering it was described as guarding
-    // against. Keep the ordering as defensive habit — it becomes load-bearing
-    // only if validation and the write ever stop sharing one transaction.
+    // against. CORRECTED AGAIN: an earlier fix called the ordering "defensive
+    // habit". It is load-bearing TODAY, for a third reason neither claim named —
+    // reschedulePlayerReminderFor does a fresh ctx.db.get, so above the patch it
+    // reads the PRE-write row and schedules the player's OLD time. Measured:
+    // reordering yields 2026-09-12 07:00 local where 2026-09-11 18:00 was stored.
+    // Note this test cannot see that either; the strengthened "reschedules" tests
+    // are what pin it, by resolving nextReminderAt back through localParts.
     const t = convexTest(schema, modules)
     const playerId = await t.run((ctx) =>
       ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' })),
@@ -1214,18 +1255,27 @@ about `lastBoardEntryReminder`:
 
 ```
  * EVERY WRITE HERE RESCHEDULES, AND THE CALL GOES AFTER THE VALIDATION. Each of
- * these three fields is an input to when the next reminder fires, so a write
- * that did not reschedule would leave the player's pending job pointing at
- * their old settings — the reminder would keep arriving at the time they just
+ * these fields can leave a pending job pointing at settings the player has
+ * changed away from. NOTE reminderDeliveryMethods is NOT an input to the
+ * instant — nextOccurrence takes only zone, time, `from` and playsWeekends —
+ * so it is hooked to keep "every write in this file reschedules" true with no
+ * exception a reader has to re-derive, not because it can move the schedule.
+ * A write that did not reschedule would leave the pending job pointing at — the reminder would keep arriving at the time they just
  * changed away from, with nothing logged.
  *
  * WHAT ACTUALLY GUARANTEES NOTHING IS SCHEDULED FOR A REFUSED CHANGE IS THE
  * TRANSACTION, NOT THE STATEMENT ORDER. Corrected during execution: mutation
  * testing showed that reordering the reschedule ABOVE the guard leaves every
  * test green, because a throw anywhere in a Convex mutation rolls the whole
- * transaction back. The ordering is defensive habit, not a guarantee, and it
- * becomes load-bearing only if validation and the write ever stop sharing one
- * transaction — an action that validated then called a mutation, say.
+ * transaction back.
+ *
+ * BUT THE ORDERING IS STILL LOAD-BEARING, for a third reason neither earlier
+ * claim named: reschedulePlayerReminderFor does a fresh ctx.db.get, so placed
+ * above the patch it reads the PRE-write row and schedules the player's OLD
+ * value. Measured: a stored 18:00:00 in America/Chicago schedules
+ * 2026-09-12 07:00 local when reordered, against 2026-09-11 18:00 correct.
+ * So: the transaction covers the REFUSED case regardless of order, and the
+ * order covers the ACCEPTED case because the reschedule reads the patched row.
  *
  * setReminderMethodFor is NOT hooked separately, deliberately — it delegates to
  * updateReminderMethodsFor, so hooking the one place they meet is what stops
@@ -1500,11 +1550,18 @@ Replace the placeholder in `convex/reminders.ts`:
  *
  * REPLACES THE HOURLY SWEEP. That sweep opened with
  * `ctx.db.query('players').collect()` — a full table scan, unconditionally,
- * 720 times a month. It cost nothing only because REMINDERS_ENABLED was empty
- * and the gate sat above the collect; setting that one variable on cutover day
- * would have added ~283,000 document reads a month, roughly 82 MB, about 8% of
- * a 1 GB cap whose failure mode is mutations FAILING rather than a bill
- * (wordle-teams-dcu). This reads one player row instead.
+ * 720 times a month. MEASURED: 393 players x 720 runs = 282,960 document reads
+ * a month. At the ~291 bytes/document wordle-teams-yhii estimates that is
+ * ~82 MB decimal (78.5 MiB), against a 1 GB cap whose failure mode is mutations
+ * FAILING rather than a bill (wordle-teams-dcu) — so ~8% either way you count
+ * the unit. This reads one player row instead.
+ *
+ * IT IS NOT A FUTURE COST. An earlier version of this comment said the sweep
+ * "cost nothing only because REMINDERS_ENABLED was empty", deferring the bill to
+ * cutover day. That was wrong: the variable is already 'true' on beta, and the
+ * players collect sits ABOVE the per-player allowlist filter, so the scan has
+ * been running hourly there all along. What keeps real people from being mailed
+ * is the allowlist (Gate 2), not the enable flag (Gate 1).
  *
  * STILL A MUTATION, NOT AN ACTION, for every reason the sweep was one:
  * eligibility has to be decided against one consistent snapshot, the claim has
@@ -1592,8 +1649,10 @@ export const deliver = internalMutation({
     // TWO INDEX LOOKUPS, NOT AN ELEVEN-ROW COLLECT. The sweep read the whole
     // trailing eleven days and inspected the list; these ask the index the two
     // questions directly and stop at the first row, so the cost is at most two
-    // documents instead of six to eleven. With the players scan gone, this was
-    // the dominant remaining read.
+    // documents instead of up to eleven. ("Up to", not "six to eleven": the
+    // window is 11 days inclusive, but the rows returned are the boards actually
+    // entered in it, so the count is 0..11 and its distribution was never
+    // measured.) With the players scan gone, this was the dominant remaining read.
     const enteredToday = await ctx.db
       .query('dailyScores')
       .withIndex('by_player_and_puzzleDay', (q) =>
@@ -1853,8 +1912,17 @@ describe('maintain', () => {
   })
 
   test('skips a player with no time zone without wedging on them', async () => {
-    // These can never be scheduled, and there may be many: 151 of production's
-    // 533 rows are nameless leftovers. They must not consume the schedule
+    // These can never be scheduled, and on beta there are MANY. Not for the
+    // reason an earlier draft gave: it said "151 of production's 533 rows are
+    // nameless leftovers", which conflates two populations — the nameless rows
+    // never reach Convex at all, because the copy filters them out
+    // (scripts/lib/copy-filters.mjs, players.filter(isNamed)).
+    //
+    // The real sources are three: copy-reminder-policy WITHHOLDS timeZone on
+    // every copy except the cutover one, so most copied beta rows have none; a
+    // Supabase row may have had no time_zone to begin with (the copy writes
+    // opt(p.time_zone)); and a natively-signed-up player has none until their
+    // first authenticated load writes it. They must not consume the schedule
     // budget or stop the pass reaching anyone else.
     const t = convexTest(schema, modules)
     const { zoneless, schedulable } = await t.run(async (ctx) => ({
@@ -1971,10 +2039,13 @@ const MAINTAIN_SCHEDULE_BUDGET = 800
  * arrangement avoids.
  *
  * A PLAYER WITH NO timeZone IS SKIPPED AND COSTS NOTHING. They cannot be
- * scheduled — there is no zone to compute an occurrence in — and they are
- * numerous: 151 of production's 533 rows are nameless leftovers. They are
- * retried every run at no extra cost, because this pass is already reading
- * every row, and they never consume the schedule budget.
+ * scheduled — there is no zone to compute an occurrence in — and on beta they
+ * are numerous, because scripts/lib/copy-reminder-policy.mjs WITHHOLDS timeZone
+ * on every copy but the cutover one. (An earlier draft blamed the 151 nameless
+ * production rows; those never reach Convex, since copy-filters.mjs drops them
+ * with players.filter(isNamed).) They are retried every run at no extra cost,
+ * because this pass is already reading every row, and they never consume the
+ * schedule budget.
  */
 export const maintain = internalMutation({
   // `budget` exists for the tests, the same way `sweep`'s `now` did, and for the
@@ -2090,11 +2161,11 @@ One atomic change: `crons.ts` cannot reference `internal.reminders.sweep` after 
 deleted, so the swap and the deletion land together.
 
 **Files:**
-- Modify: `convex/crons.ts:20-22`, `convex/crons.test.ts:26-64`
+- Modify: `convex/crons.ts` (the `crons.hourly('board entry reminders', …)` call — line 22 at time of writing, but locate it by name, not by number), `convex/crons.test.ts` (the `'board entry reminders'` entry in the asserted map)
 - Modify: `convex/reminders.ts` (delete `sweep`), `convex/lib/reminders.ts` (delete
   `isDueThisHour`, `enteredOn`, `hasRecentActivity`)
 - Modify: `convex/lib/reminders.test.ts`, `convex/reminders.test.ts`,
-  `convex/settings.ts:106-110`
+  `convex/settings.ts:146-150` (moved down by Task 4's added comment lines; verify before editing)
 
 - [ ] **Step 1: Update the cron test first**
 
@@ -2216,7 +2287,7 @@ exist. Replace that paragraph with:
  * the 23:xx-00:xx band unmatchable. That function is gone.
 ```
 
-Also update `convex/settings.ts:106-110`'s comment on `updateReminderTimeFor`, which
+Also update `convex/settings.ts:146-150` (moved down by Task 4's added comment lines; verify before editing)'s comment on `updateReminderTimeFor`, which
 names `isDueThisHour`:
 
 ```ts
@@ -2363,8 +2434,25 @@ describe('reminder delivery bandwidth', () => {
     })
   }
 
-  /** MEASURED: the player row, plus the two `dailyScores` index lookups. */
-  const DELIVER_READS = 3
+  /**
+   * PREDICTED 2, AND BISECT IT RATHER THAN TRUSTING THIS. An earlier draft said
+   * 3 — "the player row plus the two dailyScores index lookups" — and called it
+   * MEASURED when it was not. It is wrong, for a reason worth knowing:
+   * convex-test's `trackRead` fires PER DOCUMENT ACTUALLY YIELDED
+   * (convex-test/dist/index.js, around the trackIndexRange/trackRead pairs), not
+   * per query. In the due case the "entered today" lookup yields NOTHING — the
+   * player has not entered today, which is precisely why they are due — so it
+   * costs an index range but zero document reads.
+   *
+   * So: 1 (the player row) + 0 (entered-today, no match) + 1 (recent activity)
+   * = 2. Index RANGES are metered separately as `databaseQueries`, limit 4096,
+   * and there are two of them.
+   *
+   * Confirm by bisecting `documentsRead` until the call stops throwing. If you
+   * get a different number, the comment must name what the documents are — a
+   * figure that does not match a named list is not a measurement.
+   */
+  const DELIVER_READS = 2
 
   test(`delivering reads exactly ${DELIVER_READS} documents`, async () => {
     const t = convexTest(schema, modules)
@@ -2477,11 +2565,19 @@ describe('reminder maintenance bandwidth', () => {
 pnpm test:once convex/dashboardBandwidth.test.ts
 ```
 
-`DELIVER_READS = 3` is the predicted value: the player row plus two index lookups.
-**If it is wrong, bisect rather than widen it** — lower the limit until the call
-throws, raise it until it passes, and set the constant to the value where both
-assertions hold. Then update the comment to state what the documents actually are. A
-number that does not match a named list of documents is not a measurement.
+`DELIVER_READS = 2` is the predicted value — see the constant's own comment for why
+the earlier prediction of 3 was wrong (`trackRead` fires per document YIELDED, and the
+entered-today lookup yields none in the due case).
+
+**Bisect it rather than trusting either number.** Lower `documentsRead` until the call
+throws, raise it until it passes, and set the constant where both assertions hold. Then
+make the comment name what the documents actually are. A figure that does not match a
+named list is not a measurement — and this plan has already shipped one such figure
+calling itself MEASURED.
+
+Consider also pinning `databaseQueries: 2` (the two index ranges), which is a separate
+meter from `documentsRead` and would catch a regression that re-introduced a collect
+while still touching few documents.
 
 - [ ] **Step 3: Run all four gates**
 
