@@ -26,34 +26,43 @@ import type { GenericDatabaseReader } from 'convex/server'
  * convex-test cannot stand up a Better Auth session (wordle-teams-obw), so a
  * rule written into a mutation body is a rule no test can reach.
  *
- * EVERY WRITE HERE RESCHEDULES, AND THE CALL GOES AFTER THE VALIDATION. Each of
- * these three fields is an input to when the next reminder fires, so a write
- * that did not reschedule would leave the player's pending job pointing at
- * their old settings — the reminder would keep arriving at the time they just
- * changed away from, with nothing logged.
+ * EVERY WRITE HERE RESCHEDULES, AND THE CALL GOES AFTER THE PATCH.
+ * `timeZone` and `reminderDeliveryTime` are genuine inputs to `nextOccurrence`
+ * (lib/reminders.ts) — a write to either that did not reschedule would leave
+ * the player's pending job pointing at their old settings, so the reminder
+ * would keep arriving at the time they just changed away from, with nothing
+ * logged. `reminderDeliveryMethods` is NOT an input to the schedule — nothing
+ * in `nextOccurrence` reads it — but `updateReminderMethodsFor` reschedules
+ * anyway because it is the path by which a player with no usable reminder
+ * config first acquires one; see the matching note on
+ * `reschedulePlayerReminderFor` in convex/reminders.ts.
  *
- * WHAT ACTUALLY GUARANTEES NOTHING IS SCHEDULED FOR A REFUSED CHANGE IS THE
- * TRANSACTION, NOT THE STATEMENT ORDER. This comment used to claim the ordering
- * was what protected that, and mutation testing disproved it: reordering the
- * reschedule ABOVE the guard leaves every test green, because a throw anywhere
- * in a Convex mutation rolls the whole transaction back — the patch and the
- * scheduled job together — regardless of where the call sat. So the ordering is
- * defensive habit, not a load-bearing guarantee, and no test can distinguish it.
- *
- * KEEP THE ORDERING ANYWAY, and know why it is cheap insurance rather than
- * theatre: it stops being redundant the moment validation and the write stop
- * sharing one transaction. An action that validated and then called a mutation,
- * or a future guard that awaited anything non-transactional, would make the
- * order the only thing standing between a refused change and a live job.
+ * THE ORDER IS LOAD-BEARING BECAUSE THE RESCHEDULE READS THE ROW IT RUNS
+ * AGAINST — not, as this comment claimed twice before, because it protects
+ * the refused-change case. A throw anywhere in a Convex mutation rolls the
+ * WHOLE transaction back, patch and scheduled job together, regardless of
+ * where the reschedule call sits, so a rejected change schedules nothing
+ * either way; no test can tell the two orders apart on that axis. What the
+ * order actually protects is the ACCEPTED case: `reschedulePlayerReminderFor`
+ * does a fresh `ctx.db.get`, so placed above the patch it reads and schedules
+ * against the value the player is changing FROM, not the one they just set —
+ * a live, silent bug, confirmed by mutation testing and pinned in
+ * settings.test.ts's 'reschedules' tests by asserting the scheduled instant
+ * against the value just written, not merely that it changed.
  *
  * setReminderMethodFor is NOT hooked separately, deliberately — it delegates to
  * updateReminderMethodsFor, so hooking the one place they meet is what stops
  * the two from drifting.
  *
- * IT IS THE ONLY TRIGGER FOR A PLAYER WHO HAS NEVER HAD A ZONE. use-local-capture
- * writes timeZone only when it is ABSENT (src/lib/use-local-capture.ts:88), so
- * updateTimeZoneFor fires once per player, on their first authenticated load,
- * and that is what puts a natively-signed-up player onto the schedule at all.
+ * updateTimeZoneFor IS THE ONLY AUTOMATIC TRIGGER FOR A PLAYER WHO HAS NEVER
+ * HAD A ZONE: use-local-capture writes timeZone only when it is ABSENT
+ * (src/lib/use-local-capture.ts:88), and that is what puts a natively-signed-up
+ * player onto the schedule at all, with no per-sign-in churn since that write
+ * only ever fires the one time. It is not the player's ONLY trigger overall,
+ * though: the explicit time-zone `<Select>` in the settings UI
+ * (src/components/settings/notifications-tab.tsx:322, calling the mutation at
+ * :214) invokes this same path on every manual change, so in practice
+ * updateTimeZoneFor fires as often as a player changes zone.
  */
 
 export async function updateReminderMethodsFor(

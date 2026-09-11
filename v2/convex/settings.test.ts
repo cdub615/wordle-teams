@@ -10,6 +10,7 @@ import {
   updateTimeZoneFor,
   markPwaInstalledFor,
 } from './settings.ts'
+import { localParts } from './lib/reminders.ts'
 import type { Id } from './_generated/dataModel'
 
 const modules = import.meta.glob('./**/*.ts')
@@ -258,6 +259,13 @@ describe('reminder rescheduling on settings changes', () => {
   }
 
   test('changing the reminder time reschedules', async () => {
+    // Asserts the ACTUAL wall-clock instant, not just that two numbers differ.
+    // `second !== first` alone is satisfied by scheduling against either the
+    // OLD reminderDeliveryTime or the new one, as long as they land at
+    // different instants — which is exactly the reordering bug (reschedule
+    // reading the row before the patch lands) that this test exists to catch.
+    // Resolving nextReminderAt back through localParts pins which value was
+    // actually used.
     const t = convexTest(schema, modules)
     const playerId = await t.run((ctx) =>
       ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
@@ -270,9 +278,17 @@ describe('reminder rescheduling on settings changes', () => {
 
     expect(first).toBeDefined()
     expect(second).not.toBe(first)
+    expect(localParts('America/Chicago', new Date(first!)).time).toBe('09:00:00')
+    expect(localParts('America/Chicago', new Date(second!)).time).toBe('18:00:00')
   })
 
   test('changing the time zone reschedules', async () => {
+    // Same reasoning as the reminder-time test above: assert the instant
+    // resolves back to reminderDeliveryTime (aPlayer()'s default '18:00:00',
+    // unchanged throughout) in the NEW zone specifically. A reschedule reading
+    // the row before the zone patch lands would compute `second` against the
+    // OLD zone, America/Chicago -- resolving THAT instant in Asia/Tokyo would
+    // not generally land back on '18:00:00', which is what catches it.
     const t = convexTest(schema, modules)
     const playerId = await t.run((ctx) =>
       ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
@@ -284,6 +300,8 @@ describe('reminder rescheduling on settings changes', () => {
     const second = await pendingFor(t, playerId)
 
     expect(second).not.toBe(first)
+    expect(localParts('America/Chicago', new Date(first!)).time).toBe('18:00:00')
+    expect(localParts('Asia/Tokyo', new Date(second!)).time).toBe('18:00:00')
   })
 
   test('a player with no time zone is scheduled the moment they get one', async () => {
@@ -299,6 +317,12 @@ describe('reminder rescheduling on settings changes', () => {
   })
 
   test('changing delivery methods reschedules', async () => {
+    // reminderJobId.toBeDefined() below is already true from the FIRST call,
+    // so on its own it would hold even if setReminderMethodFor's delegation
+    // rescheduled nothing at all -- it is not what actually pins the
+    // delegation. 'setReminderMethodFor reschedules once, not twice' below is
+    // the test that does that, by counting how many scheduled-function rows
+    // one call adds.
     const t = convexTest(schema, modules)
     const playerId = await t.run((ctx) =>
       ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
@@ -314,9 +338,13 @@ describe('reminder rescheduling on settings changes', () => {
   })
 
   test('a rejected settings change schedules nothing', async () => {
-    // The reschedule must sit AFTER the validation, so a throw rolls back both
-    // the write and the job. A job scheduled for a change that was refused
-    // would fire against settings the player never chose.
+    // NOT evidence of the ordering: a throw anywhere in a Convex mutation
+    // rolls the WHOLE transaction back regardless of where the reschedule
+    // call sits, so `jobs` is empty here simply because the guard throws
+    // before the reschedule is ever reached under the shipped code -- there
+    // was never a job to roll back. This test pins the transactional
+    // guarantee itself, not the statement order (see the module doc comment
+    // on settings.ts for what the order actually protects).
     const t = convexTest(schema, modules)
     const playerId = await t.run((ctx) =>
       ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' })),
