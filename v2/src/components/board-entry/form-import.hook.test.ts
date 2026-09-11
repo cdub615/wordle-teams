@@ -117,6 +117,8 @@ function paste() {
 }
 
 const board = () => screen.getByTestId('board').getAttribute('data-guesses')
+/** Board entry now opens on the step that asks which day and how. */
+const goToEntry = () => fireEvent.click(screen.getByRole('button', { name: /enter manually/i }))
 
 beforeEach(() => {
   fired = []
@@ -246,6 +248,7 @@ describe('importing a screenshot into the entry form', () => {
     screenshotOf(ANSWER, GUESSES)
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
+    goToEntry()
     setGuessesFromTest?.(['SLATE', 'CRANE', '', '', '', ''])
     const answerField = document.getElementById('answer')
     if (answerField !== null) {
@@ -303,8 +306,80 @@ describe('the Pro gate', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
-    await waitFor(() => expect(screen.getByTestId('board')).toBeTruthy())
-    expect(board()).toBe(',,,,,')
+
+    // Still on step one, because nothing was listening. A parse would have
+    // moved us to the entry step with the board filled in.
+    await waitFor(() => expect(screen.getByTestId('board-entry-choose')).toBeTruthy())
+    expect(screen.queryByTestId('board')).toBeNull()
     expect(fired).toEqual([])
+  })
+})
+
+describe('the two-step flow', () => {
+  // THE BUG THAT STARTED THE EPIC. Board entry used to focus the answer field
+  // on mount, so the software keyboard opened with the panel and covered 55%
+  // of an iPhone screen — the 6x5 board was cropped after two rows. Step one
+  // has nothing focusable that raises a keyboard, and that is the fix.
+  test('opens on the choice step with nothing focused', () => {
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
+    expect(screen.queryByTestId('board')).toBeNull()
+    expect(document.getElementById('answer')).toBeNull()
+    // Nothing in the panel has taken focus off the body.
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  test('offers the day and all three ways to enter a board', () => {
+    // The Paste button is feature-detected, so a browser with no clipboard read
+    // hides it — which is why it has to be stubbed here to be seen at all.
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    expect(screen.getByTestId('date-picker').getAttribute('data-day')).toBe(today)
+    expect(screen.getByRole('button', { name: /paste screenshot/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /import screenshot/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /enter manually/i })).toBeTruthy()
+  })
+
+  // Typing is what the player asked for here, so the keyboard is now correct.
+  test('focuses the answer when the player chooses to type, and not before', () => {
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    goToEntry()
+
+    expect(screen.getByTestId('board')).toBeTruthy()
+    expect(document.activeElement).toBe(document.getElementById('answer'))
+  })
+
+  // Arriving from an import must NOT focus: the board is already filled in, and
+  // raising a keyboard over it to confirm it would be the original bug with an
+  // extra step in front of it.
+  test('does not focus the answer when the board arrived from a screenshot', async () => {
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
+    expect(document.activeElement).not.toBe(document.getElementById('answer'))
+  })
+
+  // Going back is free because `answer` and `guesses` are the form's own state,
+  // not the step's. A player who mistyped the date must not lose the board.
+  test('keeps a part-typed board when the player goes back to change the day', () => {
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    goToEntry()
+    setGuessesFromTest?.(['SLATE', '', '', '', '', ''])
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(today) }))
+
+    expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
+    goToEntry()
+    expect(board()).toBe('SLATE,,,,,')
   })
 })

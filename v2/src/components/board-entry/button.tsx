@@ -74,7 +74,7 @@ export function BoardEntrySurface({
         <DialogContent>
           <DialogHeader className="pb-4">
             <DialogTitle>Add or Update Board</DialogTitle>
-            <DialogDescription>Enter the day&apos;s answer and then your guesses</DialogDescription>
+            <DialogDescription>Pick the day, then import a screenshot or type the board in</DialogDescription>
           </DialogHeader>
           <BoardEntryForm teamId={teamId} month={month} onSuccess={() => onOpenChange(false)} />
         </DialogContent>
@@ -105,7 +105,7 @@ export function BoardEntrySurface({
           <VisuallyHidden.Root>
             <SheetTitle>Add or Update Board</SheetTitle>
           </VisuallyHidden.Root>
-          <SheetDescription>Enter the day&apos;s answer and then your guesses</SheetDescription>
+          <SheetDescription>Pick the day, then import a screenshot or type the board in</SheetDescription>
         </SheetHeader>
         <BoardEntryForm teamId={teamId} month={month} onSuccess={() => onOpenChange(false)} />
       </SheetContent>

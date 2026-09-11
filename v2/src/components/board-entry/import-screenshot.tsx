@@ -158,11 +158,14 @@ export function ImportScreenshot({
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
       className={cn(
-        'mx-2 flex flex-col gap-1 rounded-md border border-dashed border-input px-3 py-2 md:mx-4',
+        'mx-2 flex flex-col gap-2 rounded-md border border-dashed border-input p-3 md:mx-0',
         dragging && 'border-solid border-ring bg-accent/30',
       )}
     >
-      <div className="flex flex-wrap items-center gap-2">
+      {/* STACKED AND FULL WIDTH, because this is step one's list of choices
+          rather than a control tucked beside a form. Two side-by-side buttons
+          wrap awkwardly at an iPhone SE's width and read as secondary. */}
+      <div className="flex flex-col gap-2">
         {/* PASTE FIRST. On a phone the clipboard is where the screenshot is —
             "Copy and Delete" never writes one to Photos — so this is the
             common case and the picker is the fallback, not the other way
@@ -172,11 +175,11 @@ export function ImportScreenshot({
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            className="justify-start"
             disabled={disabled || busy}
             aria-disabled={disabled || busy}
             onClick={onPasteClick}
-            tabIndex={4}
+            tabIndex={2}
           >
             {busy ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -189,17 +192,17 @@ export function ImportScreenshot({
         <Button
           type="button"
           variant="outline"
-          size="sm"
+          className="justify-start"
           disabled={disabled || busy}
           aria-disabled={disabled || busy}
           onClick={() => fileInput.current?.click()}
-          tabIndex={4}
+          tabIndex={3}
         >
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImageDown className="mr-2 h-4 w-4" />}
           Import screenshot
         </Button>
-        <span className="text-xs text-muted-foreground">or drop one here</span>
       </div>
+      <span className="text-xs text-muted-foreground">or drop a screenshot here</span>
       <input
         ref={fileInput}
         type="file"

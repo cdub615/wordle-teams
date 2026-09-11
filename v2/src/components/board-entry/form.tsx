@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { ChevronLeft, Keyboard, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
@@ -97,6 +97,27 @@ function BoardEntryFields({
    * rather than by a check somebody could forget.
    */
   const [parsed, setParsed] = useState<BoardParse | null>(null)
+
+  /**
+   * TWO STEPS, AND THE FIRST ONE HAS NOTHING FOCUSABLE IN IT.
+   *
+   * Board entry used to open straight onto the answer field and focus it, so
+   * the software keyboard opened with the panel and covered 55% of an iPhone
+   * screen — the 6x5 board was cropped after two rows and the import control,
+   * the date, the answer and the board all fought for what was left. Splitting
+   * the choice of DAY AND METHOD out from the entry itself is what fixes that,
+   * and it fixes it by removing the keyboard rather than by rearranging around
+   * it.
+   *
+   * The step lives here rather than in BoardEntrySurface because the surface
+   * has no opinion about what is inside it — it only picks Dialog or Sheet.
+   * Keeping the step here is also what makes going back free: `answer` and
+   * `guesses` are this component's state, so a part-typed board survives a
+   * return to step one without anything being stashed.
+   */
+  const [step, setStep] = useState<'choose' | 'entry'>('choose')
+  /** Set when the player chose to TYPE, so the answer takes focus then and not before. */
+  const [focusAnswer, setFocusAnswer] = useState(false)
   const answerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -128,9 +149,18 @@ function BoardEntryFields({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day, existing?.id])
 
+  /**
+   * FOCUS ONLY WHEN THE PLAYER ASKED TO TYPE. This effect used to run on mount,
+   * which is what opened the keyboard with the panel. Arriving at the entry
+   * step from an IMPORT must not focus anything: the board is already filled
+   * in, and raising a keyboard over it to confirm it would be the original bug
+   * with an extra step in front of it.
+   */
   useEffect(() => {
+    if (!focusAnswer) return
     answerRef.current?.focus()
-  }, [])
+    setFocusAnswer(false)
+  }, [focusAnswer])
 
   const scrollActiveRowIntoView = () => {
     const active = guesses.findIndex((guess) => guess.length < 5)
@@ -170,6 +200,9 @@ function BoardEntryFields({
     if (answer.length !== 5 && prefill.answer.length === 5) setAnswer(prefill.answer)
     setGuesses(prefill.guesses)
     setParsed(parse)
+    // Deliberately WITHOUT focusAnswer: the board is filled in, and raising a
+    // keyboard over it to confirm it would undo the point of the split.
+    setStep('entry')
   }
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
@@ -224,6 +257,41 @@ function BoardEntryFields({
     }
   }
 
+  /**
+   * STEP ONE — which day, and how.
+   *
+   * Nothing here raises a keyboard, which is the whole reason it exists. The
+   * date is already filled in by pickDefaultDay, so for most players this is
+   * one tap.
+   */
+  if (step === 'choose') {
+    return (
+      <div data-testid="board-entry-choose" className="flex min-h-0 flex-1 flex-col gap-4 md:px-4">
+        <div className="ml-2 flex flex-col md:ml-0">
+          <Label htmlFor="wordle-board-date" className="mb-2 text-xs sm:text-sm">
+            Wordle Date
+          </Label>
+          <DatePicker day={day} onSelect={setDay} playWeekends={playWeekends} tabIndex={1} />
+        </div>
+
+        {isPro === true && <ImportScreenshot onParsed={handleImport} answer={answer} />}
+
+        <Button
+          type="button"
+          variant="outline"
+          className="mx-2 justify-start md:mx-0"
+          onClick={() => {
+            setStep('entry')
+            setFocusAnswer(true)
+          }}
+        >
+          <Keyboard className="mr-2 h-4 w-4" />
+          Enter manually
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -231,15 +299,16 @@ function BoardEntryFields({
     >
       <div className="ml-2 flex w-full shrink-0 items-center space-x-4 md:px-4">
         <div className="flex w-[54%] flex-col md:w-full">
-          <Label htmlFor="wordle-board-date" className="mb-2 text-xs sm:text-sm">
-            Wordle Date
-          </Label>
-          <DatePicker
-            day={day}
-            onSelect={setDay}
-            playWeekends={playWeekends}
-            tabIndex={1}
-          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="-ml-2 mb-1 w-fit px-2 text-xs text-muted-foreground"
+            onClick={() => setStep('choose')}
+          >
+            <ChevronLeft className="mr-1 h-4 w-4" />
+            {day ?? 'Pick a day'}
+          </Button>
         </div>
         <div className="flex w-[30%] flex-col space-y-2 md:w-full">
           <Label htmlFor="answer" className="text-xs sm:text-sm">
@@ -264,12 +333,6 @@ function BoardEntryFields({
           </div>
         </div>
       </div>
-
-      {isPro === true && (
-        <div className="mt-3 shrink-0">
-          <ImportScreenshot onParsed={handleImport} answer={answer} disabled={submitting} />
-        </div>
-      )}
 
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
         <BoardInput

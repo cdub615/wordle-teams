@@ -29,7 +29,7 @@
 // ("weekends are withheld from a team that does not play them") already owns
 // what the picker DOES with the flag. What is unowned, and what this file
 // pins, is which value each branch hands it.
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { getFunctionName, type FunctionReference } from 'convex/server'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -108,6 +108,13 @@ afterEach(cleanup)
 const answerText = () => document.getElementById('answer')?.textContent ?? null
 const picker = () => screen.getByTestId('date-picker')
 
+/**
+ * Board entry now opens on a step that asks which day and how, and the answer
+ * field lives on the step after it. What these tests pin — which QUERY feeds
+ * the prefill — is unchanged; reaching the field it prefills takes one click.
+ */
+const goToEntry = () => fireEvent.click(screen.getByRole('button', { name: /enter manually/i }))
+
 describe('the team branch prefills from the CALLER, never a teammate', () => {
   test("a teammate's board on the selected day does not become the caller's prefill", () => {
     // A two-member team is the whole point: this is exactly the shape e2e never
@@ -129,6 +136,7 @@ describe('the team branch prefills from the CALLER, never a teammate', () => {
     // teammate's row — which is what makes the empty answer meaningful rather
     // than vacuous.
     expect(picker().getAttribute('data-day')).toBe(today)
+    goToEntry()
     expect(answerText()).toBe('')
   })
 
@@ -148,6 +156,7 @@ describe('the team branch prefills from the CALLER, never a teammate', () => {
 
     render(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
 
+    goToEntry()
     expect(answerText()).toBe('SPEED')
   })
 })
@@ -202,6 +211,7 @@ describe('the dispatcher picks its query by whether there is a team', () => {
 
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
+    goToEntry()
     expect(answerText()).toBe('TOAST')
   })
 })

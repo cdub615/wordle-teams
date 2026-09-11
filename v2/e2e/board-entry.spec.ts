@@ -34,10 +34,17 @@ test('enter a board and see the score land', async ({ page }) => {
   const day = toPuzzleDay(new Date())
 
   await page.getByRole('button', { name: 'Board Entry' }).click()
+
+  // Board entry opens on a step that asks WHICH DAY AND HOW, with nothing
+  // focusable in it — that is what stopped the software keyboard opening with
+  // the panel and cropping the board to two rows on a phone. Typing is one of
+  // the three ways on, and choosing it is what focuses the answer.
+  await page.getByRole('button', { name: 'Enter manually' }).click()
+
   const board = page.getByRole('region', { name: 'Wordle Board' })
   await board.waitFor()
 
-  // The answer field takes focus on open; type the answer, then the guesses.
+  // Choosing to type focuses the answer field; type the answer, then the guesses.
   await page.keyboard.type('SPEED')
   await board.click()
   await page.keyboard.type('CRANESPEED')
@@ -77,6 +84,7 @@ test('native input paths cannot corrupt the board, but typing still can', async 
   // test exists so removing either line fails CI instead of nothing at all.
   await signInWithTeam(page)
   await page.getByRole('button', { name: 'Board Entry' }).click()
+  await page.getByRole('button', { name: 'Enter manually' }).click()
 
   const answer = page.locator('#answer')
   const board = page.getByRole('region', { name: 'Wordle Board' })

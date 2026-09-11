@@ -171,6 +171,9 @@ test('a board entered by one player updates a teammate’s table with no reload'
     // page could not have painted from nothing, and a value the seeded team
     // gives no player any other way to reach.
     await pageA.getByRole('button', { name: 'Board Entry' }).click()
+    // Board entry opens on the which-day-and-how step; typing is one of the
+    // three ways on. See board-entry.spec.ts.
+    await pageA.getByRole('button', { name: 'Enter manually' }).click()
     const board = pageA.getByRole('region', { name: 'Wordle Board' })
     await board.waitFor()
     await pageA.keyboard.type('SPEED')

@@ -69,7 +69,7 @@ describe('ImportScreenshot', () => {
     expect(screen.getByRole('button', { name: /paste screenshot/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /import screenshot/i })).toBeTruthy()
     expect(screen.getByLabelText(/wordle screenshot/i)).toBeTruthy()
-    expect(screen.getByText(/drop one here/i)).toBeTruthy()
+    expect(screen.getByText(/drop a screenshot here/i)).toBeTruthy()
   })
 
   // THE PATH THE FEATURE IS NAMED AFTER, and the reason the listener is on the

@@ -64,6 +64,9 @@ test("today's boards are concealed until you enter your own, and the console sta
   await expect(panel.locator('[data-slot="wordle-board"]')).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Board Entry' }).click()
+  // Board entry opens on the which-day-and-how step; typing is one of the
+  // three ways on. See board-entry.spec.ts.
+  await page.getByRole('button', { name: 'Enter manually' }).click()
   const entry = page.getByRole('region', { name: 'Wordle Board' })
   await entry.waitFor()
   await page.keyboard.type('SPEED')
