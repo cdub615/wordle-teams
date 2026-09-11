@@ -530,9 +530,15 @@ describe('players reminder scheduling fields', () => {
     const t = convexTest(schema, modules)
     const playerId = await t.run(async (ctx) => {
       const id = await ctx.db.insert('players', aPlayer())
-      const jobId = await ctx.scheduler.runAfter(60_000, internal.reminders.deliver, {
+      // WHICH function is scheduled is incidental — this asserts only that the
+      // schema accepts an Id<'_scheduled_functions'>. pushSend.deliverTo is used
+      // because it exists today and no task in this plan deletes it;
+      // reminders.deliver does not exist until Task 5 and reminders.sweep is
+      // deleted at Task 7, so either would couple this test to another task's
+      // sequencing. convex/reminders.ts:246 already schedules this same function.
+      const jobId = await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, {
         playerId: id,
-        dueAt: 1,
+        attempt: 0,
       })
       await ctx.db.patch(id, {
         reminderJobId: jobId,
@@ -563,10 +569,36 @@ describe('players reminder scheduling fields', () => {
 })
 ```
 
-This test references `internal.reminders.deliver`, which does not exist until
-Task 5. **Write this test now but expect it to fail on that reference**; it turns
-green at Task 5. If you prefer a green gate at every task, schedule
-`internal.reminders.sweep` here and change it to `deliver` in Task 5.
+> **CORRECTED DURING EXECUTION, 2026-09-11.** This paragraph originally said the
+> test references `internal.reminders.deliver`, that it would FAIL until Task 5
+> added that function, and that pointing it at `internal.reminders.sweep` was the
+> way to keep the gate green. **All three parts were wrong.**
+>
+> **The failure lands at `typecheck`, not at `test:once`.** `convex-test`'s
+> scheduler only records the job and arms a timer — it never dereferences the
+> function reference — and `internal` is an `anyApi` Proxy that manufactures a
+> reference for any path without validating it exists. So the test PASSES at
+> runtime. `tsc --noEmit` does include test files, and `api.d.ts` is generated
+> from real exports, so it fails there with `TS2339`.
+>
+> **That is not cosmetic.** `.github/workflows/deploy-v2.yml` runs `pnpm typecheck`
+> at line 91, BEFORE `pnpm test:once` at line 94, so a red typecheck fails the
+> workflow and blocks the deploy. Leaving it red across Tasks 2-4 would also
+> destroy the gates' ability to distinguish "expected red" from "newly broken".
+>
+> **And the suggested fallback was the worse fix.** Task 7 deletes `sweep`, so a
+> test pointing at it would depend on Task 5 remembering to swap it, and a
+> forgotten swap would surface as a baffling Task 7 failure.
+>
+> **What was actually done:** the test schedules `internal.pushSend.deliverTo`
+> (`convex/pushSend.ts:90`), which exists today and which no task in this plan
+> deletes — the same function `convex/reminders.ts:246` already schedules this
+> way. Which function is scheduled is incidental; the test only asserts the schema
+> accepts an `Id<'_scheduled_functions'>`. A comment in the test says so, because
+> a reminders schema test scheduling a push job otherwise looks like a mistake.
+>
+> **So all four gates are green at this task**, and Steps 2 and 4 below should be
+> read with that in mind rather than expecting a failure.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -633,8 +665,8 @@ In `convex/schema.ts`, inside `players: defineTable({ ... })`, immediately after
 pnpm test:once convex/schema.test.ts
 ```
 
-Expected: the "all three are optional" test PASSES. The first test still fails on
-`internal.reminders.deliver` until Task 5 — that is expected and noted in Step 1.
+Expected: BOTH tests pass. See the correction note in Step 1 — the original
+expectation of a lingering failure here was wrong.
 
 - [ ] **Step 5: Run all four gates**
 
@@ -645,8 +677,8 @@ pnpm test:once
 pnpm build
 ```
 
-Expected: lint, typecheck and build pass. `test:once` has the one known failure
-above.
+Expected: ALL FOUR green, including typecheck. CI runs typecheck before the test
+suite, so a red one here would block the deploy — see Step 1's correction.
 
 - [ ] **Step 6: Commit**
 
