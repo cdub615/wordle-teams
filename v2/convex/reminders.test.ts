@@ -95,7 +95,13 @@ beforeEach(() => {
   // dependency on that config default.
   vi.stubEnv('SITE_URL', 'https://example.com')
 })
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => {
+  vi.unstubAllEnvs()
+  // The console spies below restore themselves on the happy path only, and
+  // vitest.config.ts does not set `restoreMocks`. Without this, one failing
+  // assertion leaks a stubbed `console` into every test after it in the file.
+  vi.restoreAllMocks()
+})
 
 describe('sweep: eligibility', () => {
   test('claims and enqueues a due player who has not entered today', async () => {
@@ -555,6 +561,14 @@ describe('scheduleNextFor', () => {
     // THE ARGS CARRY dueAt, AND IT MATCHES THE ROW. This is the whole staleness
     // mechanism; a job scheduled without it could never tell it was superseded.
     expect(jobs[0].args[0]).toEqual({ playerId, dueAt: player?.nextReminderAt })
+    // AND IT ACTUALLY FIRES THEN, which is the one thing this whole epic is
+    // about and the one thing every other assertion here misses. Mutate the
+    // `runAt` instant alone and the row, the args and deliver's equality check
+    // all still agree with each other — the reminder simply arrives at the
+    // wrong time, silently. convex-test stores `scheduledTime` as
+    // `tsInSecs * 1000` (dist/index.js:1085), so this is exact for the
+    // whole-second instants REMINDER_TIMES can produce.
+    expect(jobs[0].scheduledTime).toBe(player?.nextReminderAt)
   })
 
   test('does not schedule a player with no timeZone', async () => {
@@ -587,7 +601,20 @@ describe('scheduleNextFor', () => {
 
     const player = await t.run((ctx) => ctx.db.get(playerId))
     expect(player?.nextReminderAt).toBeUndefined()
-    spy.mockRestore()
+    // BOTH, or a version that schedules the job and then fails to patch the row
+    // passes too — the sibling no-timeZone test above makes the same pair.
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    expect(jobs).toHaveLength(0)
+    // AND IT SAID SO. This is the only signal that a copied row carries a zone
+    // ICU rejects, and `maintain` will hit it once a day per bad row forever.
+    // Asserted rather than left to the spy, because the spy that keeps this
+    // test quiet also hides the log's removal: measured, deleting the
+    // console.error and keeping the early return left the whole suite green.
+    expect(spy).toHaveBeenCalledWith(
+      '[reminders] cannot compute a next occurrence for a player',
+      expect.objectContaining({ playerId, timeZone: 'GMT+5' }),
+      expect.anything(),
+    )
   })
 
   test('treats an absent playsWeekends as false', async () => {
@@ -725,6 +752,52 @@ describe('reschedulePlayerReminderFor', () => {
     const byId = new Map(jobs.map((j) => [j._id, j]))
     expect(byId.get(first!.reminderJobId!)?.state.kind).toBe('canceled')
     expect(byId.get(second!.reminderJobId!)?.state.kind).toBe('pending')
+  })
+
+  test('leaves the old job and the row alone when it cannot reschedule', async () => {
+    // CANCEL-THEN-BAIL WAS A REAL DEFECT, and this is what pins the fix. The
+    // old shape cancelled first and then delegated, so when scheduleNextFor
+    // returned without touching the row, reminderJobId named a CANCELED job
+    // while nextReminderAt still held a future instant. Task 6's health
+    // predicate is `nextReminderAt !== undefined && nextReminderAt > now`, so
+    // maintain read that row as HEALTHY and skipped it until the stale instant
+    // passed. The row lied, and the row being the source of truth is the
+    // invariant the whole design rests on.
+    const t = convexTest(schema, modules)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', dueChicagoPlayer({ playsWeekends: true })),
+    )
+    const from = new Date('2026-09-11T14:00:01Z').getTime()
+    await t.run((ctx) => scheduleNextFor(ctx, playerId, from))
+    const before = await t.run((ctx) => ctx.db.get(playerId))
+
+    // The zone becomes unusable AFTER a chain exists — the cutover copy
+    // overwriting timeZone is the plausible route to this in production.
+    await t.run((ctx) => ctx.db.patch(playerId, { timeZone: 'GMT+5' }))
+    await t.run((ctx) => reschedulePlayerReminderFor(ctx, playerId, from))
+
+    const after = await t.run((ctx) => ctx.db.get(playerId))
+    // The row is untouched: same job id, same instant. It is not lying.
+    expect(after?.reminderJobId).toBe(before?.reminderJobId)
+    expect(after?.nextReminderAt).toBe(before?.nextReminderAt)
+
+    // And the old job is still PENDING, so the existing chain keeps running and
+    // self-repairs. Cancelling it would have left this player with no reminder
+    // at all AND a row claiming one was pending.
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].state.kind).toBe('pending')
+    expect(jobs[0]._id).toBe(before?.reminderJobId)
+
+    // The bad zone is still reported, exactly as it is on the scheduleNextFor
+    // path — bailing out quietly here would hide the one thing a human has to
+    // look at.
+    expect(spy).toHaveBeenCalledWith(
+      '[reminders] cannot compute a next occurrence for a player',
+      expect.objectContaining({ playerId, timeZone: 'GMT+5' }),
+      expect.anything(),
+    )
   })
 
   test('still schedules when cancel throws', async () => {

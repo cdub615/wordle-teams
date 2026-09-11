@@ -13,6 +13,7 @@ import {
   needsWeekendOptIn,
   nextOccurrence,
 } from './lib/reminders.ts'
+import type { LocalTime } from './lib/reminders.ts'
 import { addDays } from './lib/puzzleDay.ts'
 import { boardEntryReminderEmail } from './reminderEmails.ts'
 import { sendEmail } from './email.ts'
@@ -258,6 +259,86 @@ export const sweep = internalMutation({
 })
 
 /**
+ * OBSERVABILITY ONLY. Warn when the instant just computed does not resolve back
+ * to the wall clock it was computed FOR. Never throws, never changes what is
+ * scheduled.
+ *
+ * NOT A REDUNDANT ASSERTION OF WHAT nextOccurrence ALREADY GUARANTEES.
+ * `instantForLocal` (lib/reminders.ts) returns its guess UNVERIFIED after four
+ * probe rounds. For every wall clock that exists it has converged by the third
+ * — measured across all 418 zones x 18 REMINDER_TIMES x 2026-2028, 8,246,304
+ * cases, the round histogram is {1: 412632, 2: 7832373, 3: 1296, 4: 3}. Those
+ * three are the whole story: the unverified return is reached only for a wall
+ * clock a DST spring-forward erased, where there is no correct answer and the
+ * round count's parity picks the instant just before the gap — an hour early.
+ * Today that is `Pacific/Easter` at 22:00, on three days across 2026-2028, and
+ * the same sweep found zero false positives.
+ *
+ * WHAT WAS MISSING IS NOTICING. Nothing anywhere observed that exit, so if ICU
+ * data shifts and a zone nobody checked starts erasing one of the eighteen
+ * REMINDER_TIMES hours, the first signal would be a player reporting a reminder
+ * an hour early. Resolving `dueAt` BACK through `localParts` in the player's own
+ * zone costs one Intl call against a memoized formatter on the per-player path,
+ * and turns that into a log line.
+ *
+ * IT SWALLOWS ITS OWN ERRORS, AND THAT IS THE REASON IT IS A SEPARATE FUNCTION
+ * RATHER THAN FOUR LINES INLINE. An observability check must never be able to
+ * abort the write it observes. `maintain` (Task 6) calls
+ * `reschedulePlayerReminderFor` bare inside `for (const player of players)`
+ * with no per-player try/catch, so the whole "one bad row must not abort the
+ * batch" property rests on `scheduleNextFor` swallowing everything internally —
+ * a throw escaping from here would roll back the entire daily pass, including
+ * every `playsWeekends` patch already made in it. Inline, this code sat outside
+ * the catch that wraps `nextOccurrence` and was the one statement in
+ * `scheduleNextFor` that could throw.
+ *
+ * It is unreachable today, and the catch is still not decoration. `localParts`
+ * cannot reject the zone — `nextOccurrence` already resolved it in the same
+ * call, so an unresolvable one never gets here — and a NaN instant cannot
+ * arrive, because `nextOccurrence` only returns one that compared `> from`.
+ * What is left is the range bound: on the four-round fallback path
+ * `instantForLocal` returns a `guess` it never formatted itself, so a `dueAt`
+ * outside `Date`'s +/-8.64e15 ms would make `new Date(dueAt)` an Invalid Date
+ * and `formatToParts` throw `RangeError: Invalid time value`. That needs a
+ * `from` near year +/-275760 and every caller derives `from` from `Date.now()`,
+ * so it is unreachable rather than tolerated — but "unreachable" is a property
+ * of today's callers, and the catch is what stops a future one from paying for
+ * it with a rolled-back daily pass.
+ *
+ * ONE SHAPE OF FALSE POSITIVE, worth naming so a warning is not read as proof
+ * of an erased clock: a `requested` time that parses but is not the padded
+ * 'HH:MM:SS' `localParts` returns — '9:00:00', say — schedules at the right
+ * instant and still warns. settings.ts checks membership in REMINDER_TIMES so
+ * no live write can produce one, and a copied Postgres `time` always pads.
+ *
+ * IT LIVES HERE RATHER THAN IN lib/reminders.ts because `console.warn` is I/O,
+ * and that module's header sells itself as pure — no Convex, no I/O, no env, no
+ * clock. Purity there is what makes this time arithmetic testable at all in a
+ * repo where convex-test cannot authenticate.
+ */
+function warnIfWallClockDrifted(
+  playerId: Id<'players'>,
+  timeZone: string,
+  requested: LocalTime,
+  dueAt: number,
+): void {
+  try {
+    const resolved = localParts(timeZone, new Date(dueAt)).time
+    if (resolved === requested) return
+    console.warn(
+      '[reminders] scheduled instant does not resolve back to the requested wall clock',
+      { playerId, timeZone, requested, resolved, dueAt },
+    )
+  } catch (error) {
+    console.warn(
+      '[reminders] could not verify the scheduled instant against the requested wall clock',
+      { playerId, timeZone, requested, dueAt },
+      error,
+    )
+  }
+}
+
+/**
  * Schedule this player's next reminder WITHOUT cancelling their current one.
  *
  * THE MISSING CANCEL IS THE POINT, not an omission. `deliver` calls this to
@@ -280,18 +361,35 @@ export const sweep = internalMutation({
  * swallowed for the reason the sweep did the same: `schema.ts` types timeZone
  * as unvalidated `v.optional(v.string())`, a copied Supabase row never passed
  * through `updateTimeZoneFor`, and one bad row must not abort a batch that
- * `maintain` runs over all 393 players.
+ * `maintain` runs over every player row — ~393 of them, which is what the
+ * Convex table holds after the copy's `isNamed` filter drops the 151 nameless
+ * rows; `sweep` above says 533 because that is the Supabase source count.
+ *
+ * RETURNS WHETHER IT SCHEDULED, and the boolean is load-bearing rather than
+ * informational: `reschedulePlayerReminderFor` below cancels ONLY on true, so
+ * that a player it cannot reschedule keeps the chain they already had. Every
+ * `false` path has either logged or is a deliberate silence — see the three-way
+ * ladder below.
+ *
+ * THE THREE-WAY LOG LADDER IS DESIGNED, NOT ACCIDENTAL. A missing player is
+ * SILENT: the row is gone, which is the normal outcome of a delete racing a
+ * scheduled job, and nothing is wrong. A missing `timeZone` is also silent —
+ * it is the expected state of a copied row, true of hundreds of them, and
+ * logging it would mean ~393 lines a day from `maintain` saying "as expected".
+ * An UNRESOLVABLE zone is `console.error`: the field is set but ICU rejects it,
+ * so a human has to look. A failed `cancel` is `console.warn`: harmless by
+ * design, but the only trace it happened.
  */
 export async function scheduleNextFor(
   ctx: MutationCtx,
   playerId: Id<'players'>,
   from: number,
-): Promise<void> {
+): Promise<boolean> {
   const player = await ctx.db.get(playerId)
-  if (!player) return
+  if (!player) return false
 
   const timeZone = player.timeZone
-  if (!timeZone) return
+  if (!timeZone) return false
 
   let dueAt: number
   try {
@@ -307,71 +405,58 @@ export async function scheduleNextFor(
       { playerId, timeZone, reminderDeliveryTime: player.reminderDeliveryTime },
       error,
     )
-    return
+    return false
   }
 
-  // OBSERVABILITY, NOT A REDUNDANT ASSERTION OF WHAT nextOccurrence ALREADY
-  // GUARANTEES. `instantForLocal` (lib/reminders.ts) returns its guess
-  // UNVERIFIED after four probe rounds. For every wall clock that exists it has
-  // converged by the third; the unverified return is reached only for a wall
-  // clock a DST spring-forward erased, where there is no correct answer and the
-  // round count's parity picks the instant just before the gap — an hour early.
-  // That is measured, accepted and pinned: today it is `Pacific/Easter` at
-  // 22:00, on three days across 2026-2028.
-  //
-  // WHAT WAS MISSING IS NOTICING. Nothing anywhere observed that exit, so if
-  // ICU data shifts and a zone nobody checked starts erasing one of the
-  // eighteen REMINDER_TIMES hours, the first signal would be a player reporting
-  // a reminder an hour early. Resolving `dueAt` BACK through `localParts` in the
-  // player's own zone costs one Intl call against a memoized formatter on the
-  // per-player path, and turns that into a log line.
-  //
-  // IT DOES NOT THROW AND DOES NOT SKIP THE PLAYER. An hour early once a year
-  // is a better failure than no reminder at all, which is what throwing here
-  // would cause: `scheduleNextFor` reads a throw as "leave this player
-  // unscheduled and let `maintain` retry". Nor can the check throw for any
-  // REACHABLE input — an absolute would be overstating it. `nextOccurrence` has
-  // already resolved this zone through `localParts` in this same call, so an
-  // unresolvable one took the catch above, and a NaN instant can never be
-  // returned because `nextOccurrence` only returns one that compared `> from`.
-  // What is left is the range bound: on the four-round fallback path
-  // `instantForLocal` returns a `guess` it never formatted itself, so a `dueAt`
-  // outside `Date`'s ±8.64e15 ms would make `new Date(dueAt)` an Invalid Date
-  // and `formatToParts` throw. That needs a `from` near year ±275760, and every
-  // caller derives `from` from `Date.now()`.
-  //
-  // ONE SHAPE OF FALSE POSITIVE, worth naming so a warning is not read as proof
-  // of an erased clock: a `reminderDeliveryTime` that parses but is not the
-  // padded 'HH:MM:SS' `localParts` returns — '9:00:00', say — schedules at the
-  // right instant and still warns. settings.ts checks membership in
-  // REMINDER_TIMES so no live write can produce one, and a copied Postgres
-  // `time` always pads, so this is unreachable rather than tolerated.
-  //
-  // IT LIVES HERE RATHER THAN IN lib/reminders.ts because `console.warn` is I/O,
-  // and that module's header sells itself as pure — no Convex, no I/O, no env,
-  // no clock. Purity there is what makes this time arithmetic testable at all in
-  // a repo where convex-test cannot authenticate.
-  const resolved = localParts(timeZone, new Date(dueAt)).time
-  if (resolved !== player.reminderDeliveryTime) {
-    console.warn(
-      '[reminders] scheduled instant does not resolve back to the requested wall clock',
-      { playerId, timeZone, requested: player.reminderDeliveryTime, resolved, dueAt },
-    )
-  }
+  warnIfWallClockDrifted(playerId, timeZone, player.reminderDeliveryTime, dueAt)
 
   const reminderJobId = await ctx.scheduler.runAt(dueAt, internal.reminders.deliver, {
     playerId,
     dueAt,
   })
   await ctx.db.patch(playerId, { reminderJobId, nextReminderAt: dueAt })
+  return true
 }
 
 /**
- * Cancel this player's pending reminder, if any, and schedule the next one.
+ * Schedule this player's next reminder, and cancel the one it replaces.
  *
- * Called from every path that changes an input to the schedule — `timeZone`,
- * `reminderDeliveryTime`, `reminderDeliveryMethods` (settings.ts) — and from
- * `maintain` when it finds a chain that needs repairing or has never existed.
+ * Called from every path that changes an input to the schedule — `timeZone` and
+ * `reminderDeliveryTime` (settings.ts) — and from `maintain` when it finds a
+ * chain that needs repairing or has never existed.
+ *
+ * `reminderDeliveryMethods` CALLS THIS TOO, BUT IS NOT AN INPUT TO THE
+ * SCHEDULE, and the distinction is worth stating so nobody hunts for a
+ * dependency that does not exist — or "restores" a methods gate here.
+ * `nextOccurrence` takes the zone, the time, `from` and `playsWeekends`;
+ * nothing in this file reads methods, so changing them cannot move the instant.
+ * It reschedules because it is the path by which a player who had NO usable
+ * reminder config acquires one, and so the trigger that bootstraps their chain.
+ *
+ * `from` DEFAULTS TO `Date.now()`, WHICH IS SAFE HERE AND IS NOT THE
+ * `crons.hourly` HAZARD `sweep` SPENDS TWELVE LINES ON ABOVE. That hazard is
+ * serialisation at MODULE EVALUATION: `Crons.schedule` freezes its args when
+ * the module defining the cron is evaluated, so a `now` passed from crons.ts
+ * would be stamped at deploy time forever. A default parameter is evaluated per
+ * call, inside the mutation, so it reads the transaction timestamp — the same
+ * thing `sweep`'s own `nowArg ?? Date.now()` does. The asymmetry with
+ * `scheduleNextFor`, whose `from` is REQUIRED, is deliberate: its callers
+ * (`deliver`, and this function) always have a meaningful instant already —
+ * `deliver`'s is the instant it was itself due — and defaulting there would let
+ * one be forgotten silently.
+ *
+ * SCHEDULE FIRST, CANCEL ONLY ON SUCCESS. Cancelling first looks tidier and is
+ * wrong: `scheduleNextFor` returns false for a player with no usable zone
+ * without touching the row, so a cancel-then-bail would leave `reminderJobId`
+ * naming a CANCELED job and `nextReminderAt` holding a future instant. Task 6's
+ * health predicate is exactly `nextReminderAt !== undefined && nextReminderAt >
+ * now`, so `maintain` would read that row as healthy and skip it until the
+ * stale instant passed — the row would be lying, and the row being the source
+ * of truth is the invariant this whole design rests on. Reachable, not
+ * hypothetical: it needs a zone that became unusable after a chain existed, and
+ * the cutover copy overwriting `timeZone` is the plausible route. On failure
+ * this leaves the row and the old job entirely alone, so the existing chain
+ * keeps running and self-repairs.
  *
  * THE CANCEL IS BEST-EFFORT AND ITS FAILURE IS HARMLESS, which is a stronger
  * property than tolerating a throw. Convex documents `cancel` as throwing for a
@@ -385,28 +470,33 @@ export async function scheduleNextFor(
  * SO DO NOT "FIX" THIS BY LETTING THE ERROR PROPAGATE. Throwing here would roll
  * back the whole transaction, which means the settings change the player just
  * made would be discarded because a cleanup step failed.
+ *
+ * The missing player is silent, as in `scheduleNextFor` — see the log ladder on
+ * its doc comment.
  */
 export async function reschedulePlayerReminderFor(
   ctx: MutationCtx,
   playerId: Id<'players'>,
   from: number = Date.now(),
 ): Promise<void> {
+  // Captured BEFORE delegating, because `scheduleNextFor` overwrites
+  // `reminderJobId` with the replacement's id.
   const player = await ctx.db.get(playerId)
   if (!player) return
+  const supersededJobId = player.reminderJobId
 
-  if (player.reminderJobId) {
-    try {
-      await ctx.scheduler.cancel(player.reminderJobId)
-    } catch (error) {
-      console.warn(
-        '[reminders] could not cancel a pending reminder job; it will retire on its own',
-        { playerId, reminderJobId: player.reminderJobId },
-        error,
-      )
-    }
+  const scheduled = await scheduleNextFor(ctx, playerId, from)
+  if (!scheduled || !supersededJobId) return
+
+  try {
+    await ctx.scheduler.cancel(supersededJobId)
+  } catch (error) {
+    console.warn(
+      '[reminders] could not cancel a pending reminder job; it will retire on its own',
+      { playerId, reminderJobId: supersededJobId },
+      error,
+    )
   }
-
-  await scheduleNextFor(ctx, playerId, from)
 }
 
 /**
@@ -425,5 +515,15 @@ export async function reschedulePlayerReminderFor(
  */
 export const deliver = internalMutation({
   args: { playerId: v.id('players'), dueAt: v.number() },
-  handler: async () => ({ delivered: false, reason: 'not-implemented' as const }),
+  // THROWS RATHER THAN RETURNING A BENIGN SHAPE, deliberately. This placeholder
+  // is already live on beta (the Task 3 codegen run deployed it) and Task 4
+  // wires settings.ts to schedule jobs that point AT it. A handler returning
+  // `{ delivered: false }` would fire once, reschedule nothing, and end that
+  // player's chain with no trace anywhere. Throwing puts it in the failed-jobs
+  // view instead. Safe for the suite: no test in this repo executes a scheduled
+  // function — there is no `finishInProgressScheduledFunctions` call in
+  // reminders.test.ts — so nothing invokes this until Task 5 replaces it.
+  handler: async () => {
+    throw new Error('[reminders] deliver is not implemented yet (Task 5)')
+  },
 })
