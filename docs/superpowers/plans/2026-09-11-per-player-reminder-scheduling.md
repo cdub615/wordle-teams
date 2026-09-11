@@ -2651,15 +2651,24 @@ precede setting `REMINDERS_ENABLED=true`.** A copied player with no
 `nextReminderAt` has no pending job, and would get no reminder until that cron
 next fires.
 
-**Verify before flipping the flag** — this is a read, so it is safe:
+**Verify before flipping the flag. `budget: 0` IS NOT READ-ONLY — do not treat it as
+a dry run.** An earlier draft of this step said "this is a read, so it is safe". That
+was wrong, and wrong in the direction that matters for a production runbook:
+`maintain` derives `playsWeekends` and patches every player whose flag differs
+**before** it reaches the schedule budget, so `budget: 0` suppresses scheduling but
+still writes. The writes are idempotent and the daily cron makes them anyway, so this
+is harmless — but it is a mutation against production, not an inspection, and it must
+be run deliberately rather than casually.
 
-```
-npx convex run --prod reminders:maintain '{"budget": 0}'
-```
+**The read-only check is the dashboard.** In the Convex dashboard, confirm that
+`players` rows carry a populated `nextReminderAt`. That answers the only question this
+step asks — has the maintenance pass reached the copied players yet — with no write at
+all.
 
-`budget: 0` schedules nothing and reports what it WOULD do. Expect
-`deferred` to equal the number of copied players still unscheduled. If it is
-non-zero, wait for the cron or re-run without the budget.
+If you do choose to run `maintain` deliberately (to bootstrap immediately rather than
+waiting for 01:15 UTC), run it **without** a budget so it actually schedules, and read
+`deferred` in the result: non-zero means the table is larger than one run's budget and
+another run is needed.
 
 **Note the `--prod` hazard:** `CONVEX_DEPLOY_KEY` in `v2/.env.local` outranks
 `CONVEX_DEPLOYMENT`, and `convex run --prod` has been observed silently hitting
@@ -2680,11 +2689,16 @@ authenticated load, or the daily 01:15 UTC maintenance cron. So the final copy
 has to precede a maintenance run, and that run has to precede
 REMINDERS_ENABLED=true.
 
-The verification is a read (`budget: 0` schedules nothing and reports what it
-would do), but it carries the known --prod hazard: CONVEX_DEPLOY_KEY in
-.env.local outranks CONVEX_DEPLOYMENT and `convex run --prod` has been seen
-silently hitting the local deployment, so the dashboard is the confirmation,
-not the CLI output.
+The verification is the DASHBOARD, not a command. `budget: 0` is NOT a dry run:
+maintain patches playsWeekends for every player whose flag differs BEFORE it
+reaches the schedule budget, so it suppresses scheduling and still writes.
+Idempotent and harmless -- the daily cron makes the same writes -- but a
+mutation against production, not an inspection.
+
+Two --prod hazards compound that, and either alone is a reason to prefer the
+dashboard: CONVEX_DEPLOY_KEY in .env.local outranks CONVEX_DEPLOYMENT, and
+`convex run --prod` has been seen silently hitting the LOCAL deployment. So a
+CLI run can write to the wrong place and report success for it.
 
 Refs: wordle-teams-spcu
 
