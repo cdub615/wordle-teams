@@ -538,6 +538,48 @@ export default defineSchema({
 
   // --- Phase 0 scaffolding, still in use ---
 
+  /**
+   * EVERY TILE BOARD IMPORT GOT WRONG, as the player corrected it.
+   *
+   * NOT ANALYTICS. wordle-teams-418 asks for a labelled corpus of real
+   * screenshots to measure the parse against, and there is no way to collect
+   * one from seventy players of whom ten are most of the activity. This table
+   * IS that corpus: every confirm-before-save that changed something writes the
+   * tile, what Stage 3 read and what was actually there, which is exactly the
+   * label a template reader can be scored on.
+   *
+   * PER TILE, NOT PER ROW. A wrong row is usually one wrong glyph — FLUNX for
+   * FLUNK — and a row-level record would say "one row wrong" and lose the only
+   * part that could ever be learned from.
+   *
+   * NO IMAGE IS STORED, and none ever should be. The parse runs entirely in the
+   * browser, nothing is uploaded, and the whole privacy argument for the
+   * feature rests on that staying true. A letter and a tile position carry
+   * everything the measurement needs.
+   */
+  boardImportCorrections: defineTable({
+    playerId: v.id('players'),
+    puzzleDay: v.string(),
+
+    // 'guess' for a tile on the board; 'answer' for the answer field, which the
+    // parse also fills in and the player can also correct.
+    target: v.union(v.literal('guess'), v.literal('answer')),
+    // Guess row, 0-5. Always 0 when target is 'answer'.
+    row: v.number(),
+    column: v.number(),
+
+    // A single letter, or '' where the reader had nothing for that tile / the
+    // player cleared it. Both directions are meaningful.
+    read: v.string(),
+    actual: v.string(),
+
+    createdAt: v.number(),
+  })
+    // By day, because that is how a measurement run wants to fetch them: all
+    // the corrections for the boards people entered on a given puzzle.
+    .index('by_puzzleDay', ['puzzleDay'])
+    .index('by_player_and_puzzleDay', ['playerId', 'puzzleDay']),
+
   statusMessages: defineTable({
     message: v.string(),
   }),

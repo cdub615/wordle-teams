@@ -12,6 +12,7 @@ import type * as access from "../access.js";
 import type * as auth from "../auth.js";
 import type * as authEmails from "../authEmails.js";
 import type * as billing from "../billing.js";
+import type * as boardImport from "../boardImport.js";
 import type * as chat from "../chat.js";
 import type * as chatNotify from "../chatNotify.js";
 import type * as crons from "../crons.js";
@@ -71,6 +72,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authEmails: typeof authEmails;
   billing: typeof billing;
+  boardImport: typeof boardImport;
   chat: typeof chat;
   chatNotify: typeof chatNotify;
   crons: typeof crons;

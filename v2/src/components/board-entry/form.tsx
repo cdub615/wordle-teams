@@ -9,11 +9,14 @@ import { Button } from '#/components/ui/button.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { DatePicker } from '#/components/date-picker.tsx'
 import { BoardInput } from './board-input.tsx'
+import { ImportScreenshot } from './import-screenshot.tsx'
+import { correctionsFrom, prefillFrom } from './import-prefill.ts'
 import { pickDefaultDay } from './pick-default-day.ts'
 import { boardErrorMessage } from '#/lib/convex-error.ts'
 import { cn } from '#/lib/utils.ts'
 import { boardIsValid, toRows } from '../../../convex/lib/board.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import type { BoardParse } from '#/lib/board-import/parse.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { FunctionReturnType } from 'convex/server'
 
@@ -64,11 +67,20 @@ function BoardEntryFields({
   onSuccess: () => void
 }) {
   const upsert = useMutation({ mutationFn: useConvexMutation(api.scores.upsertBoard) })
+  const logCorrections = useMutation({ mutationFn: useConvexMutation(api.boardImport.logCorrections) })
 
   const [day, setDay] = useState<string | undefined>(undefined)
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState<Array<string>>(EMPTY_ROWS)
   const [submitting, setSubmitting] = useState(false)
+  /**
+   * The last screenshot parse, kept ONLY so the confirmed board can be diffed
+   * against it. It pre-fills the fields and then has no further say: what gets
+   * saved is whatever is in `answer` and `guesses` when Submit is pressed,
+   * which is how "never write a parse silently" is enforced structurally
+   * rather than by a check somebody could forget.
+   */
+  const [parsed, setParsed] = useState<BoardParse | null>(null)
   const answerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -93,6 +105,10 @@ function BoardEntryFields({
   useEffect(() => {
     setAnswer(existing?.answer ?? '')
     setGuesses(toRows(existing?.guesses ?? []))
+    // A parse belongs to the day it was read for. Carrying it across a date
+    // change would diff the new day's board against the old day's screenshot
+    // and log corrections for tiles nobody ever saw.
+    setParsed(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day, existing?.id])
 
@@ -131,6 +147,15 @@ function BoardEntryFields({
     if (isLetter) setAnswer((current) => (current.length < 5 ? current + key.toUpperCase() : current))
   }
 
+  const handleImport = (parse: BoardParse) => {
+    const prefill = prefillFrom(parse)
+    // The player's own typed answer wins: they were asked for it, and a parse
+    // that disagrees is the thing being checked, not the authority.
+    if (answer.length !== 5 && prefill.answer.length === 5) setAnswer(prefill.answer)
+    setGuesses(prefill.guesses)
+    setParsed(parse)
+  }
+
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
     event.preventDefault()
     if (!day) return
@@ -150,6 +175,23 @@ function BoardEntryFields({
         today: toPuzzleDay(new Date()),
       })
       toast.success('Successfully saved board')
+
+      // THE CORRECTION LOG, AND ONLY AFTER THE BOARD IS SAFE. These rows are
+      // the labelled corpus wordle-teams-418 asks for — every tile the parse
+      // got wrong, as the player corrected it — but they are a measurement, not
+      // the user's work. A failure here must never surface as a failed board
+      // submit, so it is awaited separately and swallowed with a log line.
+      if (parsed !== null) {
+        const corrections = correctionsFrom(parsed, { answer, guesses })
+        if (corrections.length > 0) {
+          try {
+            await logCorrections.mutateAsync({ puzzleDay: day, corrections })
+          } catch (error) {
+            console.error('Board import corrections could not be logged', error)
+          }
+        }
+      }
+
       // ONLY on success. A failed submit used to close the sheet too, throwing
       // away everything the user had typed.
       onSuccess()
@@ -205,6 +247,10 @@ function BoardEntryFields({
             {answer}
           </div>
         </div>
+      </div>
+
+      <div className="mt-3 shrink-0">
+        <ImportScreenshot onParsed={handleImport} answer={answer} disabled={submitting} />
       </div>
 
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
