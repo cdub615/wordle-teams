@@ -2313,6 +2313,25 @@ moved into `nextOccurrence`); delete it too.
 
 Delete the corresponding `describe` blocks from `convex/lib/reminders.test.ts`.
 
+**A MEASUREMENT THAT MUST NOT BE RELOCATED VERBATIM — its justification changed.**
+`isDueThisHour`'s doc comment carries a real measurement: 7,182 duplicate matches per
+zone over 399 days in each of four whole-hour-offset zones, 28,728 across the four.
+That is genuine and it justified the unconditional `lastBoardEntryReminder` claim —
+**under the sweep.** Exact scheduling removes the double match entirely, so copying the
+figure across would preserve a justification that no longer applies, and imply a hazard
+that no longer exists.
+
+The claim is still unconditional, for a DIFFERENT and now-measured reason, already
+written into `deliver` during Task 5: a duplicate JOB can still exist (a repair racing a
+settings change), and conditioning the claim on the send result dies against the
+suppressed-send and push tests. So:
+
+- Do NOT move 7,182/28,728 onto `deliver`'s claim comment.
+- DO keep the measurement as history where it explains why v1's window behaved as it
+  did — the spec's §"One deletion" already holds it, so citing the spec is enough.
+- Leave `deliver`'s existing claim comment alone. It states the current reason and is
+  backed by mutants; overwriting it with the sweep's reason would be a regression.
+
 **Relocate the reasoning that still governs.** `REMINDER_TIMES`'s doc comment
 currently justifies itself by pointing at `isDueThisHour`, which will no longer
 exist. Replace that paragraph with:
