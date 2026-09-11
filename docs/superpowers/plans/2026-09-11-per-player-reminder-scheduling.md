@@ -80,9 +80,15 @@ are tied to this branch, so work on the branch directly.)
    from any state** (`node_modules/convex-test/dist/index.js:1166`). The real
    backend's cancel failure is unreachable by the unit suite, so it is tested by
    injecting a throwing `scheduler.cancel` into the `...For` helper.
-3. `convex-test` enforces a hard **1000 `functionsScheduled` per transaction**
-   (`node_modules/convex-test/dist/transactionMetrics.js:16`). That is the figure to
-   design against; Task 6's cap exists because of it.
+3. **1000 `functionsScheduled` per transaction is the figure to design against — but
+   `convex-test` does NOT enforce it by default. CORRECTED during Task 6.** This plan
+   stated the enforcement as fact three times. It is OPT-IN: `convexTest(schema,
+   modules)` builds its root metrics layer with `enforce: false`
+   (`convex-test/dist/transactionMetrics.js:202`), and `index.d.ts:113` says plainly
+   "`false` (default): limits are not enforced". The 1000 is convex-test's MODEL of the
+   platform limit, and Task 6's budget is a real-backend protection — it is NOT what
+   keeps the suite from throwing. To make a limit actually bite in a test, pass
+   `transactionLimits` explicitly, as Task 8 does.
 
 ---
 
@@ -1877,6 +1883,18 @@ describe('maintain', () => {
     expect(player?.nextReminderAt).toBe(future)
   })
 
+  // CORRECTED DURING EXECUTION: as first written this test asserted the weekday
+  // player's `playsWeekends` is `false` — which FAILS against the coerced comparison
+  // the design requires, because `(player.playsWeekends ?? false) !== playsWeekends`
+  // leaves an already-false-by-absence field ABSENT rather than writing `false` into
+  // it. Seed both players with the WRONG flag instead, so the derivation genuinely
+  // writes in both directions; that is also the stronger test, since seeding them
+  // absent lets a mutant that never writes `false` pass.
+  //
+  // Worth noting the shape of this defect: the plan's test set was internally
+  // consistent with the NAIVE implementation, so it would have ratified it. Seven of
+  // fifteen mutants survived the plan's own eight tests, including all three of the
+  // corrections filed against this task.
   test('derives playsWeekends from weekend-playing teams', async () => {
     const t = convexTest(schema, modules)
     const { weekend, weekday } = await t.run(async (ctx) => {
