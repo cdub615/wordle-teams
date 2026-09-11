@@ -2347,12 +2347,21 @@ exist. Replace that paragraph with:
  * validation gap either way. settings.ts's updateReminderTimeFor is where it is
  * closed.
  *
- * WIDENING THIS LIST IS NOW SAFE IN A WAY IT WAS NOT BEFORE, and that is worth
- * recording: nextOccurrence resolves any wall-clock time in any zone, including
- * ones that are ambiguous or nonexistent across a DST transition (it takes the
- * first occurrence and the instant after the gap respectively). The old
- * isDueThisHour could not — its midnight wrap, ported from v1, made any time in
- * the 23:xx-00:xx band unmatchable. That function is gone.
+ * WIDENING THIS LIST IS NOW SAFE IN A WAY IT WAS NOT BEFORE, and two claims in
+ * an earlier draft of this paragraph were wrong — BOTH corrected during Task 7:
+ *
+ *  - nextOccurrence resolves any wall clock in any zone, including ones a DST
+ *    transition makes ambiguous or nonexistent: the FIRST occurrence, and the
+ *    instant BEFORE the gap. Not "after". That is the third writing of this same
+ *    error; instantForLocal's own doc carries the measurement and records that
+ *    "after the gap" had already been written and corrected once.
+ *  - isDueThisHour's midnight wrap did NOT make "the whole 23:xx-00:xx band
+ *    unmatchable". That is true only for WHOLE-HOUR-offset zones. Measured by
+ *    replaying the comparison across a full 24-tick day per offset shape: a
+ *    whole-hour zone lost everything after 23:00:00, but a HALF-HOUR zone
+ *    matched '23:30:00' perfectly well and lost [00:00:00, 00:30:00) instead,
+ *    and +05:45 lost everything before 00:45:00. Asia/Calcutta and Asia/Rangoon
+ *    are in this repo's own copied-row test set, so that population is real.
 ```
 
 Also update `convex/settings.ts:146-150` (moved down by Task 4's added comment lines; verify before editing)'s comment on `updateReminderTimeFor`, which
