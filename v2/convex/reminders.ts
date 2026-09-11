@@ -4,6 +4,7 @@ import { internal } from './_generated/api'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 import {
+  activityFloor,
   alreadyRemindedToday,
   enteredOn,
   hasRecentActivity,
@@ -525,30 +526,199 @@ export async function reschedulePlayerReminderFor(
 }
 
 /**
- * PLACEHOLDER, filled in at Task 5. It exists now only so that
- * `internal.reminders.deliver` in `scheduleNextFor` above type-resolves.
+ * Deliver one player's board-entry reminder, then schedule their next one.
  *
- * DO NOT RUN `npx convex codegen` TO ADD AN EXPORT HERE. It is both
- * unnecessary and not local: `api.d.ts` types each module as
- * `typeof reminders` rather than enumerating its exports, so adding one is
- * enough on its own to make `internal.reminders.deliver` type-resolve — and
- * the command DEPLOYS, because `CONVEX_DEPLOY_KEY` in `.env.local` outranks
- * `CONVEX_DEPLOYMENT`. Run once during Task 3 it changed nothing under
- * `_generated` and pushed this placeholder to beta. The plan's header now says
- * the same in capitals; this note is here so the file alone is enough to know
- * it.
+ * REPLACES THE HOURLY SWEEP. That sweep opens with
+ * `ctx.db.query('players').collect()` — a full table scan, unconditionally,
+ * 720 times a month. ARITHMETIC: 393 players x 720 runs = 282,960 document
+ * reads a month; at the ~291 bytes/document wordle-teams-yhii estimates, that
+ * is ~82 MB decimal (78.5 MiB), against a 1 GB cap whose failure mode is
+ * mutations FAILING rather than a bill (wordle-teams-dcu) — so ~8% either way
+ * you count the unit. This reads one player row instead.
+ *
+ * IT IS NOT A FUTURE COST. An earlier version of this comment said the sweep
+ * "cost nothing only because REMINDERS_ENABLED was empty", deferring the bill
+ * to cutover day. That was wrong: REMINDERS_ENABLED was read as 'true' on beta
+ * from the Convex dashboard on 2026-09-11 (recorded in this change's plan;
+ * `convex env list` is not the way to re-check it, because it prints every
+ * deployment secret in plaintext). The `players` collect sits ABOVE the
+ * per-player allowlist filter in `sweep`, so the scan has been running hourly
+ * there all along. What keeps real people from being mailed is the allowlist
+ * (Gate 2), not the enable flag (Gate 1).
+ *
+ * STILL A MUTATION, NOT AN ACTION, for every reason `sweep` above is one, and
+ * restated rather than cited because Task 7 deletes that function: eligibility
+ * has to be decided against one consistent snapshot, the claim has to commit in
+ * the same transaction as that decision, `sendEmail` enqueues into the Resend
+ * component's tables via `ctx.runMutation`, and an OCC retry simply re-runs the
+ * whole handler having committed nothing.
+ *
+ * THE STALENESS GUARD IS FIRST, AND IT IS WHAT MAKES THE DESIGN SAFE. `dueAt`
+ * is the instant this job was created for; `player.nextReminderAt` is the
+ * instant the row currently expects. If they disagree, this job has been
+ * superseded by a settings change or a repair, and it retires — delivering
+ * nothing and, crucially, rescheduling nothing, because the job that replaced
+ * it already owns the schedule. Without this, `ctx.scheduler.cancel` would have
+ * to be reliable; see `reschedulePlayerReminderFor` for what Convex documents
+ * about that.
+ *
+ * IT RESCHEDULES ON EVERY PATH THAT IS NOT "SUPERSEDED", including when the
+ * kill switch is off and when the player turns out to be ineligible. Each of
+ * those is a day this player is not reminded; none of them is a reason to end
+ * their chain forever. Miss this and turning REMINDERS_ENABLED off would strand
+ * every player, and turning it back on would need a full re-bootstrap — which
+ * is exactly the coupling keeping the gate at delivery was meant to avoid.
+ *
+ * THE ONE EXCEPTION IS 'bad-time-zone', AND IT IS DELIBERATE. There is no zone
+ * to compute an occurrence in, so `scheduleNextFor` would resolve the same
+ * unresolvable zone, log a second time and return false (measured, by mutating
+ * this branch into a rescheduling one). The chain ends and `maintain` retries
+ * the row daily — self-limiting and visible, which is the right failure for a
+ * row nobody can schedule.
+ *
+ * 'no-time-zone' REACHES THE SAME END STATE BY A DIFFERENT ROUTE, which is why
+ * the exception above is stated as one branch and not two: it does call
+ * `scheduleNextFor`, but that function gates on `timeZone` and returns false
+ * without touching the row, so nothing is scheduled there either. Both are left
+ * to `maintain`; only the unresolvable one is logged, per the log ladder on
+ * `scheduleNextFor`.
+ *
+ * ORDERING WITHIN THE HANDLER DOES NOT PROTECT THE CHAIN, so do not reorder it
+ * hoping to. This is one transaction: `runAt` takes effect on commit, so if
+ * anything throws, the reschedule is rolled back with everything else no matter
+ * where it sat. A throw ends this player's chain until `maintain` repairs it,
+ * and `maintain` is the only thing that protects against that.
+ *
+ * NO `teams` READ. The weekend rule is applied when the next occurrence is
+ * computed, from the derived `playsWeekends` on the row — see
+ * lib/reminders.ts's nextOccurrence for why asking `teams` here would cost more
+ * than the sweep this replaces.
  */
 export const deliver = internalMutation({
   args: { playerId: v.id('players'), dueAt: v.number() },
-  // THROWS RATHER THAN RETURNING A BENIGN SHAPE, deliberately. This placeholder
-  // is already live on beta (the Task 3 codegen run deployed it) and Task 4
-  // wires settings.ts to schedule jobs that point AT it. A handler returning
-  // `{ delivered: false }` would fire once, reschedule nothing, and end that
-  // player's chain with no trace anywhere. Throwing puts it in the failed-jobs
-  // view instead. Safe for the suite: no test in this repo executes a scheduled
-  // function — there is no `finishInProgressScheduledFunctions` call in
-  // reminders.test.ts — so nothing invokes this until Task 5 replaces it.
-  handler: async () => {
-    throw new Error('[reminders] deliver is not implemented yet (Task 5)')
+  handler: async (ctx, { playerId, dueAt }) => {
+    const player = await ctx.db.get(playerId)
+    if (!player) return { delivered: false, reason: 'no-player' as const }
+
+    // EXACT, NOT A TOLERANCE. Both sides come from `instantForLocal`, so they
+    // agree to the millisecond or this job belongs to a schedule the row has
+    // already replaced. An absent `nextReminderAt` is a mismatch too, which is
+    // what retires a job whose row has no pending schedule at all.
+    if (player.nextReminderAt !== dueAt) {
+      return { delivered: false, reason: 'superseded' as const }
+    }
+
+    const now = Date.now()
+    // Every `return` below this point goes through here, so that no eligibility
+    // outcome can silently end the chain.
+    const withReschedule = async <R extends string>(reason: R) => {
+      await scheduleNextFor(ctx, playerId, now)
+      return { delivered: false, reason }
+    }
+
+    if (process.env.REMINDERS_ENABLED !== 'true') {
+      return await withReschedule('disabled' as const)
+    }
+
+    const timeZone = player.timeZone
+    if (!timeZone) return await withReschedule('no-time-zone' as const)
+
+    if (!player.reminderDeliveryMethods.some((m) => (METHODS as ReadonlyArray<string>).includes(m)))
+      return await withReschedule('no-method' as const)
+
+    const allowlist = new Set(
+      (process.env.REMINDERS_ALLOWLIST ?? '')
+        .split(',')
+        .map((address) => address.trim().toLowerCase())
+        .filter((address) => address.length > 0),
+    )
+    if (allowlist.size > 0 && !allowlist.has(player.email)) {
+      return await withReschedule('not-allowlisted' as const)
+    }
+
+    // RESOLVED BEFORE `alreadyRemindedToday`, WHICH ALSO CALLS `localParts`:
+    // doing it here is what puts both of this handler's zone resolutions inside
+    // one catch. `schema.ts` types timeZone as unvalidated
+    // `v.optional(v.string())` and a row copied from Supabase never passed
+    // through `updateTimeZoneFor`, so an ICU-rejected zone is reachable here —
+    // see lib/reminders.ts's localParts precondition for which values throw.
+    let local
+    try {
+      local = localParts(timeZone, new Date(now))
+    } catch (error) {
+      console.error('[reminders] unresolvable timeZone on a player', { playerId, timeZone }, error)
+      return { delivered: false, reason: 'bad-time-zone' as const }
+    }
+
+    if (alreadyRemindedToday(player.lastBoardEntryReminder, timeZone, local.day)) {
+      return await withReschedule('already-reminded' as const)
+    }
+
+    // TWO INDEX LOOKUPS, NOT AN ELEVEN-DAY COLLECT. The sweep reads the whole
+    // trailing eleven days — its one range query runs `gte(addDays(localDay,
+    // -10))` through `lte(localDay)`, both bounds inclusive, which is the same
+    // window `activityFloor` now names — and inspects the list; these ask the
+    // index the two questions directly and stop at the first row, so the cost
+    // is at most two documents instead of up to eleven. ("Up to", not "six to
+    // eleven": the window is 11 days, but the rows returned are the boards
+    // actually entered in it, so the count is 0..11 and its distribution was
+    // never measured.)
+    // With the players scan gone, this was the dominant remaining read.
+    const enteredToday = await ctx.db
+      .query('dailyScores')
+      .withIndex('by_player_and_puzzleDay', (q) =>
+        q.eq('playerId', playerId).eq('puzzleDay', local.day),
+      )
+      .first()
+    if (enteredToday) return await withReschedule('already-entered' as const)
+
+    const recent = await ctx.db
+      .query('dailyScores')
+      .withIndex('by_player_and_puzzleDay', (q) =>
+        q.eq('playerId', playerId).gte('puzzleDay', activityFloor(local.day)),
+      )
+      .first()
+    if (!recent) return await withReschedule('inactive' as const)
+
+    // SITE_URL is read only once a player is genuinely about to be mailed, and
+    // throwing here rolls the whole transaction back — no claim, no reschedule —
+    // so `maintain` restores the chain once the deployment is fixed. It also
+    // gates push, which does not itself need the value; that is an accepted,
+    // live consequence, unchanged from the sweep.
+    const siteUrl = process.env.SITE_URL
+    if (!siteUrl) throw new Error('[reminders] SITE_URL is not set on this deployment')
+
+    // CLAIM BEFORE DELIVERING, UNCONDITIONALLY. The sweep needed this because
+    // its hour window's inclusive bounds made double-matching the normal case.
+    // Exact scheduling removes that, but a duplicate job can still exist — a
+    // repair racing a settings change — so the guard keeps its original job.
+    // CONDITION IT ON WHAT DELIVERY REPORTS and that race becomes a double
+    // email: `sendEmail` returns null, not a throw, when every recipient is
+    // filtered out. Simply MOVING it below the two delivery blocks is a subtler
+    // matter — both writes commit in this one transaction, so no test in this
+    // repo can tell the difference (measured) — which is exactly why it is
+    // written in the order the rule is stated rather than left to luck.
+    await ctx.db.patch(playerId, { lastBoardEntryReminder: now })
+
+    if (player.reminderDeliveryMethods.includes(EMAIL_METHOD)) {
+      const { subject, html, text } = boardEntryReminderEmail({
+        firstName: player.firstName,
+        siteUrl,
+      })
+      await sendEmail(ctx, {
+        from: 'Wordle Teams <reminders@wordleteams.com>',
+        to: player.email,
+        subject,
+        html,
+        text,
+      })
+    }
+
+    if (player.reminderDeliveryMethods.includes(PUSH_METHOD)) {
+      await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, { playerId, attempt: 0 })
+    }
+
+    await scheduleNextFor(ctx, playerId, now)
+    return { delivered: true, reason: 'sent' as const }
   },
 })

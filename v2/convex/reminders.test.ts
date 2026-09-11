@@ -853,3 +853,320 @@ describe('reschedulePlayerReminderFor', () => {
     spy.mockRestore()
   })
 })
+
+describe('deliver', () => {
+  // 2026-09-11T14:00:00Z is 09:00 Chicago (CDT, UTC-5) on a Friday, so it is
+  // the instant a 09:00:00 reminder is due for dueChicagoPlayer.
+  const DUE = new Date('2026-09-11T14:00:00Z').getTime()
+  // The same wall clock on the next Saturday and the next Monday.
+  const SATURDAY = new Date('2026-09-12T14:00:00Z').getTime()
+  const MONDAY = new Date('2026-09-14T14:00:00Z').getTime()
+
+  // THE CLOCK IS PINNED, and this block cannot be made deterministic without
+  // it. `deliver` takes no `now` argument the way `sweep` does — it reads
+  // `Date.now()`, which in production is the instant the scheduler fired it —
+  // and every assertion below depends on that instant: the local day the two
+  // `dailyScores` lookups are asked about, and the `from` the reschedule
+  // computes the next occurrence after. Pinned to DUE exactly, rather than a
+  // moment after it, because that is nextOccurrence's strictly-after case: the
+  // job runs at the instant it was due, so the occurrence it computes must be
+  // the NEXT one and not the one it is currently serving.
+  //
+  // They also make it impossible for the job this handler schedules to run.
+  // convex-test fires a scheduled function from `setTimeout(..., max(0, ts -
+  // Date.now()))` (its `1.0/schedule` syscall), so the next reminder's ~24h
+  // delay would not elapse mid-test under real timers either — but with the
+  // clock frozen it cannot elapse at all, which is the difference between "did
+  // not happen" and "cannot". Nothing here advances timers, and nothing here
+  // calls `finishAllScheduledFunctions`: it pumps timers up to `maxIterations`
+  // (100, convex-test 0.0.54) and then throws "too many iterations", so against
+  // a self-rescheduling chain it fails rather than settles.
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(DUE))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // NOT `recentScores`. That constant is anchored to the sweep's late-August
+  // `now`; activityFloor('2026-09-11') is '2026-09-01', so all three of its
+  // days fall outside the window DUE is in. MEASURED: seeding `recentScores`
+  // here puts the happy-path player on the `inactive` branch instead.
+  const scoresBeforeDue = ['2026-09-08', '2026-09-09', '2026-09-10']
+
+  /** Puts a player on the schedule with `nextReminderAt === DUE`. */
+  async function scheduled(
+    t: ReturnType<typeof convexTest>,
+    over: Record<string, unknown> = {},
+    days: Array<string> = scoresBeforeDue,
+  ) {
+    const playerId = await seed(t, { playsWeekends: true, ...over }, days)
+    await t.run((ctx) => ctx.db.patch(playerId, { nextReminderAt: DUE }))
+    return playerId
+  }
+
+  test('delivers to a player whose job matches the row, and reschedules', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.delivered).toBe(true)
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.lastBoardEntryReminder).toBe(DUE)
+    // Rescheduled to Saturday: this player plays weekends.
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+    // AND A JOB ACTUALLY EXISTS FOR IT, at that instant, carrying that instant
+    // in its args — the row agreeing with itself is not enough, because the
+    // whole chain is the job.
+    const jobs = await t.run((ctx) =>
+      ctx.db.system
+        .query('_scheduled_functions')
+        .collect()
+        .then((rows) => rows.filter((row) => row.name === 'reminders:deliver')),
+    )
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].scheduledTime).toBe(SATURDAY)
+    expect(jobs[0].args[0]).toEqual({ playerId, dueAt: SATURDAY })
+  })
+
+  // THE STALENESS GUARD. This is the property that makes a failed cancel
+  // harmless, so it is asserted from both directions.
+  test('a superseded job delivers nothing and reschedules nothing', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+    // The player moved their reminder after this job was created.
+    const moved = DUE + 60 * 60 * 1000
+    await t.run((ctx) => ctx.db.patch(playerId, { nextReminderAt: moved }))
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('superseded')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    // Untouched: no claim stamp, and the newer schedule still stands.
+    expect(player?.lastBoardEntryReminder).toBeUndefined()
+    expect(player?.nextReminderAt).toBe(moved)
+  })
+
+  test('a job one second off the row is superseded, not close enough', async () => {
+    // THE COMPARISON IS EXACT, and a tolerance would be indistinguishable from
+    // it under the hour-sized move above. Not in the plan's list; added because
+    // a `Math.abs(...) > 60_000` mutant survived every other test in this
+    // block. Every instant on either side comes from instantForLocal, so the
+    // two agree to the millisecond or the job is not this row's job.
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+
+    const result = await t.mutation(internal.reminders.deliver, {
+      playerId,
+      dueAt: DUE - 1000,
+    })
+
+    expect(result.reason).toBe('superseded')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(DUE)
+  })
+
+  test('a job for a player with no pending schedule at all is superseded', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await seed(t, { playsWeekends: true }, scoresBeforeDue)
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('superseded')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+  })
+
+  // RESCHEDULES EVEN WHEN IT DELIVERS NOTHING. Every one of these cases would
+  // otherwise end that player's chain permanently.
+  test('reschedules when the kill switch is off', async () => {
+    // Keeping REMINDERS_ENABLED at DELIVERY rather than at scheduling is what
+    // makes the launch-day env change free. But it means the flag being off
+    // must not break the chain: if this did not reschedule, turning reminders
+    // off would strand all 393 players and turning them back on would need a
+    // full re-bootstrap.
+    vi.stubEnv('REMINDERS_ENABLED', '')
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('disabled')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+    // NOT claimed: the stamp means "reminded today", and nobody was.
+    expect(player?.lastBoardEntryReminder).toBeUndefined()
+  })
+
+  test('reschedules when today is already entered', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, {}, [...scoresBeforeDue, '2026-09-11'])
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('already-entered')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+  })
+
+  test('reschedules when the player has not played in ten days', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, {}, ['2026-08-01'])
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('inactive')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+  })
+
+  test('reschedules when the player is not on the allowlist', async () => {
+    vi.stubEnv('REMINDERS_ALLOWLIST', 'someone@else.test')
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('not-allowlisted')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+  })
+
+  test('claims before delivering, so a duplicate job cannot double-send', async () => {
+    // The sweep claimed unconditionally because both bounds of its hour window
+    // were inclusive, which made double-matching the NORMAL case. Exact
+    // scheduling removes that — but a duplicate job can still exist (a repair
+    // racing a settings change), so the guard keeps its original job.
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+
+    await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+
+    // Replay the same job against the same instant.
+    await t.run((ctx) => ctx.db.patch(playerId, { nextReminderAt: DUE }))
+    const replay = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(replay.reason).toBe('already-reminded')
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+    // And the replay still put the chain back, as every non-superseded path
+    // must.
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+  })
+
+  test('claims even when sendEmail reports every recipient was suppressed', async () => {
+    // sendEmail returns null (not a throw) when its recipient list ends up
+    // empty after e2e filtering. Not in the plan's list; added because the
+    // claim's own comment says conditioning it on the send result reopens the
+    // double-send, and this is the only test here that puts an email player
+    // through a send that reports nothing delivered — so a `if (id)
+    // patch(...)` has nowhere else to be noticed. The sibling sweep test
+    // 'claims a player even when sendEmail reports every recipient was
+    // suppressed' pins the same rule for the code this replaces.
+    sendEmailMock.mockResolvedValue(null)
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+
+    await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.lastBoardEntryReminder).toBe(DUE)
+  })
+
+  test('enqueues a push when push is a chosen method', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, { reminderDeliveryMethods: ['push'] })
+
+    await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const jobs = await scheduledPushJobs(t)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].args[0]).toEqual({ playerId, attempt: 0 })
+    // A push-only player is claimed too — the claim sits above both delivery
+    // branches, not inside the email one.
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.lastBoardEntryReminder).toBe(DUE)
+  })
+
+  test('throws when SITE_URL is missing, so nobody is claimed', async () => {
+    // Throwing rolls the whole transaction back — no claim, no reschedule — and
+    // `maintain` puts the chain back once the deployment is fixed.
+    vi.stubEnv('SITE_URL', '')
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t)
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).rejects.toThrow(/SITE_URL/)
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.lastBoardEntryReminder).toBeUndefined()
+    // The reschedule went back with it: the row still expects the instant this
+    // job was for, which is what leaves the chain to `maintain` rather than to
+    // a half-applied transaction.
+    expect(player?.nextReminderAt).toBe(DUE)
+  })
+
+  test('does not schedule a weekend reminder for a weekday-only player', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, { playsWeekends: false })
+
+    await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    // Friday delivery, so the next is Monday.
+    expect(player?.nextReminderAt).toBe(MONDAY)
+  })
+
+  test('an unresolvable timeZone retires the job without rescheduling, and says so', async () => {
+    // NOT IN THE PLAN — added from wordle-teams-2og8.5's notes. 'GMT+5', not
+    // '': an empty string is falsy and never reaches localParts, while 'GMT+5'
+    // is truthy, passes that check, and is one of the values lib/reminders.ts's
+    // documented precondition names as rejected by Intl's constructor. That is
+    // the shape a row copied from Supabase carries.
+    //
+    // NOT RESCHEDULING IS THE CORRECT OUTCOME HERE, and the assertion on
+    // nextReminderAt is what stops a future edit turning it into a loop:
+    // nextOccurrence resolves the same zone, so scheduleNextFor could only log
+    // a second time and return false. The chain ends and the daily maintenance
+    // pass retries this row every day — self-limiting and visible, which is the
+    // right failure for a row nobody can schedule.
+    const t = convexTest(schema, modules)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const playerId = await scheduled(t, { timeZone: 'GMT+5' })
+
+    const result = await t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('bad-time-zone')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.lastBoardEntryReminder).toBeUndefined()
+    expect(player?.nextReminderAt).toBe(DUE)
+    // Asserted rather than left to the spy, for the reason the sibling
+    // scheduleNextFor test gives: the spy that keeps this test quiet would also
+    // hide the log's removal.
+    expect(spy).toHaveBeenCalledWith(
+      '[reminders] unresolvable timeZone on a player',
+      expect.objectContaining({ playerId, timeZone: 'GMT+5' }),
+      expect.anything(),
+    )
+    // EXACTLY ONCE, which is the only thing that can tell this branch from one
+    // that reschedules. A `withReschedule('bad-time-zone')` mutant leaves
+    // nextReminderAt at DUE anyway — scheduleNextFor resolves the same bad zone
+    // and returns false without touching the row — so the assertion above it
+    // cannot see the difference. The second log line can (measured).
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+})
