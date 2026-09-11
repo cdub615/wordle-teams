@@ -10,6 +10,7 @@ import { Label } from '#/components/ui/label.tsx'
 import { DatePicker } from '#/components/date-picker.tsx'
 import { BoardInput } from './board-input.tsx'
 import { ImportScreenshot } from './import-screenshot.tsx'
+import { ImportUpsell } from './import-upsell.tsx'
 import { correctionsFrom, importSummary, prefillFrom } from './import-prefill.ts'
 import { pickDefaultDay } from './pick-default-day.ts'
 import { boardErrorMessage } from '#/lib/convex-error.ts'
@@ -350,7 +351,13 @@ function BoardEntryFields({
           <DatePicker day={day} onSelect={setDay} playWeekends={playWeekends} tabIndex={1} />
         </div>
 
+        {/* `=== true` and `=== false`, NEVER `!isPro`. amIPro answers undefined
+            while it is in flight, and the loose spelling is wrong in BOTH
+            directions here: it would show a paid-only control to everyone on
+            every cold load, and it would flash an upgrade offer at somebody who
+            already pays. In flight, neither appears. */}
         {isPro === true && <ImportScreenshot onParsed={handleImport} answer={answer} />}
+        {isPro === false && <ImportUpsell />}
 
         <Button
           type="button"

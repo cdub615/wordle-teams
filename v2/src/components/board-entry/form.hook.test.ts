@@ -66,6 +66,10 @@ vi.mock('@convex-dev/react-query', () => ({
     queryKey: [getFunctionName(ref), args],
   }),
   useConvexMutation: () => vi.fn(),
+  // isPro is false in this file's mock, so step one renders the upgrade offer,
+  // and useStartUpgrade behind it reaches createProCheckout through an action.
+  // Nothing here exercises it; it only has to exist.
+  useConvexAction: () => vi.fn(),
 }))
 
 vi.mock('@tanstack/react-query', () => ({

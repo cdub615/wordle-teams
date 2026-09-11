@@ -52,6 +52,11 @@ vi.mock('@convex-dev/react-query', () => ({
   // The NAME, not a spy: it is what lets useMutation below tell the board
   // submit and the correction log apart.
   useConvexMutation: (ref: FunctionReference<'mutation'>) => getFunctionName(ref),
+  // The upsell reaches checkout through useStartUpgrade, which uses an ACTION.
+  useConvexAction: (ref: FunctionReference<'action'>) => async () => {
+    fired.push({ name: getFunctionName(ref), args: {} })
+    return { url: null, reason: 'not-configured' }
+  },
 }))
 
 vi.mock('@tanstack/react-query', () => ({
@@ -260,59 +265,6 @@ describe('importing a screenshot into the entry form', () => {
 
     await waitFor(() => expect(fired.some((call) => call.name === UPSERT)).toBe(true))
     expect(fired.some((call) => call.name === LOG)).toBe(false)
-  })
-})
-
-describe('the Pro gate', () => {
-  // UI-ONLY BY DESIGN, per Phase 3's decision 1: "read it, gate the UI, enforce
-  // nothing". There is nothing to enforce server-side — the parse runs entirely
-  // in the browser, costs the backend nothing, and saves through the same
-  // upsertBoard any player may already call by typing a board in by hand.
-  test('hides import from a player who is not Pro', async () => {
-    proAnswer = false
-    screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
-
-    expect(screen.queryByTestId('board-import')).toBeNull()
-    expect(screen.queryByRole('button', { name: /import screenshot/i })).toBeNull()
-  })
-
-  test('shows it to a player who is', () => {
-    proAnswer = true
-    screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
-
-    expect(screen.getByTestId('board-import')).toBeTruthy()
-  })
-
-  // THE STATE THAT REGRESSES. amIPro answers `undefined` while it is in flight,
-  // so a `!isPro` gate would flash a paid-only control at every player on every
-  // cold load and then take it away. For a gate the in-flight default has to be
-  // "not yet" — the opposite of the default the Upgrade button wants, which is
-  // the bug Header.hook.test.ts carries its own note about.
-  test('shows nothing while amIPro is still in flight', () => {
-    proAnswer = undefined
-    screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
-
-    expect(screen.queryByTestId('board-import')).toBeNull()
-  })
-
-  // The gate hides the control; it must also mean the document listener is not
-  // there. Otherwise a non-Pro player pasting a screenshot silently gets the
-  // whole feature with no button to show for it.
-  test('does not read a pasted screenshot for a non-Pro player', async () => {
-    proAnswer = false
-    screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
-
-    paste()
-
-    // Still on step one, because nothing was listening. A parse would have
-    // moved us to the entry step with the board filled in.
-    await waitFor(() => expect(screen.getByTestId('board-entry-choose')).toBeTruthy())
-    expect(screen.queryByTestId('board')).toBeNull()
-    expect(fired).toEqual([])
   })
 })
 
@@ -647,5 +599,79 @@ describe('what the correction log may and may not blame the parser for', () => {
       read: 'E',
       actual: 'K',
     })
+  })
+})
+
+describe('the Pro gate on step one', () => {
+  // THE UPSELL IS HERE BECAUSE THIS IS WHERE IT MEANS SOMETHING: the player has
+  // opened board entry and is being asked HOW they want to enter a board, which
+  // is the one moment "you could paste a screenshot instead" answers the
+  // question actually in front of them. It also earns step one for a non-Pro
+  // player, who would otherwise see a date and one button.
+  test('offers a non-Pro player the upgrade where the import controls would be', () => {
+    proAnswer = false
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    expect(screen.getByTestId('board-import-upsell')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /upgrade to pro/i })).toBeTruthy()
+    // And none of the real controls.
+    expect(screen.queryByRole('button', { name: /paste screenshot/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /import screenshot/i })).toBeNull()
+    // Still a way to enter a board by hand, which is the point of the step.
+    expect(screen.getByRole('button', { name: /enter manually/i })).toBeTruthy()
+  })
+
+  test('reaches checkout through the existing upgrade path', async () => {
+    proAnswer = false
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    fireEvent.click(screen.getByRole('button', { name: /upgrade to pro/i }))
+
+    await waitFor(() =>
+      expect(fired.some((call) => call.name === getFunctionName(api.polar.createProCheckout))).toBe(true),
+    )
+  })
+
+  test('gives a Pro player the real controls and no upgrade offer', () => {
+    proAnswer = true
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    expect(screen.getByRole('button', { name: /paste screenshot/i })).toBeTruthy()
+    expect(screen.queryByTestId('board-import-upsell')).toBeNull()
+  })
+
+  // THE LOOSE SPELLING IS WRONG IN BOTH DIRECTIONS HERE. `!isPro` is true while
+  // amIPro is in flight, so it would show a paid-only control to everyone on
+  // every cold load — and `isPro === false` alone would flash an upgrade offer
+  // at somebody who already pays. In flight, neither appears.
+  test('shows neither the controls nor the offer while amIPro is in flight', () => {
+    proAnswer = undefined
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    expect(screen.queryByTestId('board-import-upsell')).toBeNull()
+    expect(screen.queryByRole('button', { name: /paste screenshot/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /enter manually/i })).toBeTruthy()
+  })
+
+  // HIDING THE BUTTONS IS NOT ENOUGH. The document paste listener lives inside
+  // ImportScreenshot, so a gate that only hid the controls would hand a non-Pro
+  // player the whole feature with no button to show for it.
+  test('is not listening to the clipboard for a non-Pro player', async () => {
+    proAnswer = false
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    await waitFor(() => expect(screen.getByTestId('board-entry-choose')).toBeTruthy())
+    expect(screen.queryByTestId('board')).toBeNull()
+    expect(fired).toEqual([])
   })
 })
