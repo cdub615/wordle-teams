@@ -1151,9 +1151,15 @@ describe('reminder rescheduling on settings changes', () => {
   })
 
   test('a rejected settings change schedules nothing', async () => {
-    // The reschedule must sit AFTER the validation, so a throw rolls back both
-    // the write and the job. A job scheduled for a change that was refused
-    // would fire against settings the player never chose.
+    // CORRECTED DURING EXECUTION: this comment used to say the reschedule "must
+    // sit AFTER the validation, so a throw rolls back both the write and the
+    // job". Mutation testing disproved the implication — moving the call ABOVE
+    // the guard leaves this test green, because a throw anywhere in a Convex
+    // mutation rolls the whole transaction back regardless of order. So what
+    // this test actually pins is the TRANSACTIONAL guarantee, which is worth
+    // pinning; it cannot detect the reordering it was described as guarding
+    // against. Keep the ordering as defensive habit — it becomes load-bearing
+    // only if validation and the write ever stop sharing one transaction.
     const t = convexTest(schema, modules)
     const playerId = await t.run((ctx) =>
       ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' })),
@@ -1211,9 +1217,15 @@ about `lastBoardEntryReminder`:
  * these three fields is an input to when the next reminder fires, so a write
  * that did not reschedule would leave the player's pending job pointing at
  * their old settings — the reminder would keep arriving at the time they just
- * changed away from, with nothing logged. Placing the call after the guard
- * matters too: a rejected change throws, which rolls back the patch AND the
- * job, so nothing is ever scheduled for settings the player was refused.
+ * changed away from, with nothing logged.
+ *
+ * WHAT ACTUALLY GUARANTEES NOTHING IS SCHEDULED FOR A REFUSED CHANGE IS THE
+ * TRANSACTION, NOT THE STATEMENT ORDER. Corrected during execution: mutation
+ * testing showed that reordering the reschedule ABOVE the guard leaves every
+ * test green, because a throw anywhere in a Convex mutation rolls the whole
+ * transaction back. The ordering is defensive habit, not a guarantee, and it
+ * becomes load-bearing only if validation and the write ever stop sharing one
+ * transaction — an action that validated then called a mutation, say.
  *
  * setReminderMethodFor is NOT hooked separately, deliberately — it delegates to
  * updateReminderMethodsFor, so hooking the one place they meet is what stops

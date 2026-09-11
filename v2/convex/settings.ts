@@ -30,9 +30,21 @@ import type { GenericDatabaseReader } from 'convex/server'
  * these three fields is an input to when the next reminder fires, so a write
  * that did not reschedule would leave the player's pending job pointing at
  * their old settings — the reminder would keep arriving at the time they just
- * changed away from, with nothing logged. Placing the call after the guard
- * matters too: a rejected change throws, which rolls back the patch AND the
- * job, so nothing is ever scheduled for settings the player was refused.
+ * changed away from, with nothing logged.
+ *
+ * WHAT ACTUALLY GUARANTEES NOTHING IS SCHEDULED FOR A REFUSED CHANGE IS THE
+ * TRANSACTION, NOT THE STATEMENT ORDER. This comment used to claim the ordering
+ * was what protected that, and mutation testing disproved it: reordering the
+ * reschedule ABOVE the guard leaves every test green, because a throw anywhere
+ * in a Convex mutation rolls the whole transaction back — the patch and the
+ * scheduled job together — regardless of where the call sat. So the ordering is
+ * defensive habit, not a load-bearing guarantee, and no test can distinguish it.
+ *
+ * KEEP THE ORDERING ANYWAY, and know why it is cheap insurance rather than
+ * theatre: it stops being redundant the moment validation and the write stop
+ * sharing one transaction. An action that validated and then called a mutation,
+ * or a future guard that awaited anything non-transactional, would make the
+ * order the only thing standing between a refused change and a live job.
  *
  * setReminderMethodFor is NOT hooked separately, deliberately — it delegates to
  * updateReminderMethodsFor, so hooking the one place they meet is what stops
