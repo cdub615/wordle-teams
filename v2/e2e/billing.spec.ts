@@ -349,3 +349,75 @@ test('a signed-out visitor is offered no billing link and no badge', async ({ pa
   await expect(upgradeButton(page)).toHaveCount(0)
   await expect(page.getByText(/Invites? Pending/)).toHaveCount(0)
 })
+
+/**
+ * THE ONLY COVER api.insights.myAccess WILL EVER GET.
+ *
+ * wordle-teams-obw: convex-test cannot stand up a Better Auth session, so that
+ * query's handler body is unreachable by the unit suite BY CONSTRUCTION — not
+ * for want of a test somebody could write. This is also the only place the
+ * card's condition is checked across all three of its parts at once: the Convex
+ * query, the pure `trialExpired` helper, and the component that reads them.
+ *
+ * The distinction being proved is the one the whole task existed for. Before
+ * `trialExpired`, a player whose trial had ENDED and one who never had a trial
+ * both read `trialActive: false, trialEndsAt: null` — so no UI could say "your
+ * trial is over" without either staying silent for the person it is for or
+ * nagging someone who never had one. A PAST `trialEndsAt` is what makes the
+ * trial expired rather than absent; seedInsightsFor's own arg comment says so.
+ */
+test('a player whose trial has ended is told, and offered the upgrade', async ({ page }) => {
+  // `e2e+…@wordleteams.com`, and the domain is not cosmetic: seedInsightsFor
+  // throws unless isE2eTraffic passes, and convex/lib/e2e.test.ts uses
+  // `ada@example.test` as its example of a REAL address that must be rejected.
+  const email = `e2e+trial-ended-${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
+  const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+
+  await convex.mutation(api.e2eSeed.ensureTeamFor, { email })
+  await convex.mutation(api.e2eSeed.seedInsightsFor, {
+    email,
+    boards: 3,
+    lastDay: new Date().toISOString().slice(0, 10),
+    pro: false,
+    trialEndsAt: Date.now() - 24 * 60 * 60 * 1000,
+  })
+
+  await signIn(page, email)
+  await page.goto('/insights')
+
+  // Wait on the panel the way insights.spec.ts does: the corpus is fetched
+  // lazily, so the route renders before there is anything on it.
+  await expect(page.getByTestId('insights-attribution')).toBeVisible()
+
+  await expect(page.getByTestId('trial-ended')).toBeVisible()
+  await expect(page.getByText('Your Insights trial has ended')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'See your history' })).toBeVisible()
+})
+
+/**
+ * The other half of the distinction, and the half that regresses.
+ *
+ * `trialExpired = !trialActive` is the obvious wrong implementation, and it is
+ * wrong for a player who NEVER trialed — the commonest free account there is.
+ * The test above passes under that mutant; only this one fails, which is why
+ * both are here.
+ */
+test('a player who never trialed is not told their trial ended', async ({ page }) => {
+  const email = `e2e+never-trialed-${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
+  const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+
+  await convex.mutation(api.e2eSeed.ensureTeamFor, { email })
+  await convex.mutation(api.e2eSeed.seedInsightsFor, {
+    email,
+    boards: 3,
+    lastDay: new Date().toISOString().slice(0, 10),
+    pro: false,
+    // No trialEndsAt at all: never started one, rather than started and over.
+  })
+
+  await signIn(page, email)
+  await page.goto('/insights')
+
+  await expect(page.getByTestId('insights-attribution')).toBeVisible()
+  await expect(page.getByTestId('trial-ended')).toBeHidden()
+})
