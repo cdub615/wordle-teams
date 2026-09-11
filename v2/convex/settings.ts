@@ -33,9 +33,11 @@ import type { GenericDatabaseReader } from 'convex/server'
  * would keep arriving at the time they just changed away from, with nothing
  * logged. `reminderDeliveryMethods` is NOT an input to the schedule — nothing
  * in `nextOccurrence` reads it — but `updateReminderMethodsFor` reschedules
- * anyway because it is the path by which a player with no usable reminder
- * config first acquires one; see the matching note on
- * `reschedulePlayerReminderFor` in convex/reminders.ts.
+ * anyway so that "every write reschedules" holds with no exception a reader
+ * has to re-derive. See `reschedulePlayerReminderFor`'s doc comment in
+ * convex/reminders.ts for why (it is NOT a bootstrap trigger — an earlier
+ * version of this paragraph said that, and it is false the same way in both
+ * files), and for the accepted cost of hooking a non-input field.
  *
  * THE ORDER IS LOAD-BEARING BECAUSE THE RESCHEDULE READS THE ROW IT RUNS
  * AGAINST — not, as this comment claimed twice before, because it protects
@@ -46,9 +48,10 @@ import type { GenericDatabaseReader } from 'convex/server'
  * order actually protects is the ACCEPTED case: `reschedulePlayerReminderFor`
  * does a fresh `ctx.db.get`, so placed above the patch it reads and schedules
  * against the value the player is changing FROM, not the one they just set —
- * a live, silent bug, confirmed by mutation testing and pinned in
- * settings.test.ts's 'reschedules' tests by asserting the scheduled instant
- * against the value just written, not merely that it changed.
+ * a live, silent bug, confirmed by mutation testing and pinned by
+ * settings.test.ts's 'changing the reminder time reschedules' and 'changing
+ * the time zone reschedules', which assert the scheduled instant against the
+ * value just written, not merely that it changed.
  *
  * setReminderMethodFor is NOT hooked separately, deliberately — it delegates to
  * updateReminderMethodsFor, so hooking the one place they meet is what stops
@@ -59,10 +62,10 @@ import type { GenericDatabaseReader } from 'convex/server'
  * (src/lib/use-local-capture.ts:88), and that is what puts a natively-signed-up
  * player onto the schedule at all, with no per-sign-in churn since that write
  * only ever fires the one time. It is not the player's ONLY trigger overall,
- * though: the explicit time-zone `<Select>` in the settings UI
- * (src/components/settings/notifications-tab.tsx:322, calling the mutation at
- * :214) invokes this same path on every manual change, so in practice
- * updateTimeZoneFor fires as often as a player changes zone.
+ * though: the settings UI's time-zone `<Select>` opens at
+ * notifications-tab.tsx:321, and its `onValueChange` at :322 calls the same
+ * mutation (`updateTimeZone`, invoked at :214) on every manual change — so in
+ * practice updateTimeZoneFor fires as often as a player changes zone.
  */
 
 export async function updateReminderMethodsFor(

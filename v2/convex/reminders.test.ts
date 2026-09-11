@@ -733,7 +733,7 @@ describe('scheduleNextFor', () => {
 })
 
 describe('reschedulePlayerReminderFor', () => {
-  test('cancels the previous job before scheduling the new one', async () => {
+  test('schedules the new job and cancels the previous one on success', async () => {
     const t = convexTest(schema, modules)
     const playerId = await t.run(async (ctx) =>
       ctx.db.insert('players', dueChicagoPlayer({ playsWeekends: true })),

@@ -425,13 +425,38 @@ export async function scheduleNextFor(
  * `reminderDeliveryTime` (settings.ts) — and from `maintain` when it finds a
  * chain that needs repairing or has never existed.
  *
+ * READS THE ROW LIVE, AS COMMITTED AT CALL TIME — this does its own
+ * `ctx.db.get` (inside `scheduleNextFor`), so a caller changing a value
+ * `nextOccurrence` reads (`timeZone`, `reminderDeliveryTime`, `playsWeekends`)
+ * MUST patch that field BEFORE calling this, not after: calling it first would
+ * compute the next occurrence from the OLD value and schedule the wrong
+ * instant, silently, with no error and nothing logged. settings.ts's three
+ * call sites all patch first — mutation testing confirmed a reordering there
+ * produces exactly this bug (see settings.ts's module doc comment) — but nowhere
+ * pins it on THIS side, so a fourth caller (a future settings field, or Task
+ * 5/6) gets no warning at the place it would actually look.
+ *
  * `reminderDeliveryMethods` CALLS THIS TOO, BUT IS NOT AN INPUT TO THE
  * SCHEDULE, and the distinction is worth stating so nobody hunts for a
  * dependency that does not exist — or "restores" a methods gate here.
  * `nextOccurrence` takes the zone, the time, `from` and `playsWeekends`;
- * nothing in this file reads methods, so changing them cannot move the instant.
- * It reschedules because it is the path by which a player who had NO usable
- * reminder config acquires one, and so the trigger that bootstraps their chain.
+ * nothing in this file reads methods, so changing them cannot move the
+ * instant. IT IS NOT A BOOTSTRAP TRIGGER EITHER, despite an earlier version of
+ * this comment claiming that: `scheduleNextFor` gates only on `timeZone`
+ * (below), so a methods write can never be what first schedules a player, and
+ * `deliver` (Task 5) runs a chain with empty methods regardless, via
+ * `withReschedule('no-method')`. It reschedules anyway so that "every write in
+ * settings.ts reschedules" holds with NO EXCEPTION a reader has to re-derive.
+ * THE ACCEPTED COST: a methods write still cancels the pending job and
+ * reschedules from `Date.now()`, even though it cannot move the instant — so a
+ * methods toggle landing in the scheduler-latency window between a due instant
+ * and that job's execution cancels the about-to-fire job and reschedules for
+ * the NEXT occurrence — the following day, or later if a skipped weekend
+ * intervenes — eating that day's reminder, which the player never asked to
+ * move.
+ * `maintain` cannot detect this: the row is self-consistent afterward, just a
+ * day later than the player would have chosen. Accepted as the cost of the
+ * exceptionless rule, not a defect of it.
  *
  * `from` DEFAULTS TO `Date.now()`, WHICH IS SAFE HERE AND IS NOT THE
  * `crons.hourly` HAZARD `sweep` SPENDS TWELVE LINES ON ABOVE. That hazard is

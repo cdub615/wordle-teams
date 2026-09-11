@@ -316,35 +316,41 @@ describe('reminder rescheduling on settings changes', () => {
     expect(await pendingFor(t, playerId)).toBeDefined()
   })
 
-  test('changing delivery methods reschedules', async () => {
-    // reminderJobId.toBeDefined() below is already true from the FIRST call,
-    // so on its own it would hold even if setReminderMethodFor's delegation
-    // rescheduled nothing at all -- it is not what actually pins the
-    // delegation. 'setReminderMethodFor reschedules once, not twice' below is
-    // the test that does that, by counting how many scheduled-function rows
-    // one call adds.
+  test('updateReminderMethodsFor reschedules', async () => {
+    // The only test pinning the updateReminderMethodsFor call site itself --
+    // the setReminderMethodFor block elsewhere in this file composes through
+    // it, but starts from aPlayer({timeZone}) with no chain yet, so it never
+    // exercises this reschedule. Starts from an EMPTY methods array so the
+    // write is a real change, not a no-op over aPlayer()'s ['email'] default
+    // (an earlier draft used ['email'] over ['email'] and asserted nothing
+    // about the change itself).
+    //
+    // This used to carry a second half calling setReminderMethodFor and
+    // re-asserting reminderDeliveryMethods/reminderJobId, which duplicated
+    // the existing setReminderMethodFor block below and 'reschedules once,
+    // not twice' -- deleted rather than kept as prose defending duplicate
+    // coverage.
     const t = convexTest(schema, modules)
     const playerId = await t.run((ctx) =>
-      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
+      ctx.db.insert(
+        'players',
+        aPlayer({ timeZone: 'America/Chicago', playsWeekends: true, reminderDeliveryMethods: [] }),
+      ),
     )
     await t.run((ctx) => updateReminderMethodsFor(ctx, playerId, ['email']))
-    const first = await pendingFor(t, playerId)
-    expect(first).toBeDefined()
-
-    await t.run((ctx) => setReminderMethodFor(ctx, playerId, 'push', true))
-    const player = await t.run((ctx) => ctx.db.get(playerId))
-    expect(player?.reminderDeliveryMethods).toEqual(['email', 'push'])
-    expect(player?.reminderJobId).toBeDefined()
+    expect(await pendingFor(t, playerId)).toBeDefined()
   })
 
   test('a rejected settings change schedules nothing', async () => {
-    // NOT evidence of the ordering: a throw anywhere in a Convex mutation
-    // rolls the WHOLE transaction back regardless of where the reschedule
-    // call sits, so `jobs` is empty here simply because the guard throws
-    // before the reschedule is ever reached under the shipped code -- there
-    // was never a job to roll back. This test pins the transactional
-    // guarantee itself, not the statement order (see the module doc comment
-    // on settings.ts for what the order actually protects).
+    // NOT evidence of the ordering, and — an earlier draft of this comment
+    // overstated it — NOT proof of a transactional guarantee either. Under
+    // the shipped order the guard throws before the reschedule is ever
+    // reached, so `jobs` being empty is ENTAILED by that throw: there was
+    // never a job to roll back, and `rejects.toThrow()` alone already
+    // duplicates 'rejects a well-formed time the picker does not offer'
+    // above. This test earns its keep only as a forward guard: if validation
+    // and the write ever split across transactions, this is what would catch
+    // a job getting scheduled for a change that was refused.
     const t = convexTest(schema, modules)
     const playerId = await t.run((ctx) =>
       ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' })),
