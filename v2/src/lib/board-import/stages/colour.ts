@@ -1,5 +1,5 @@
-import { contains, pixelAt } from '../bitmap.ts'
-import type { Bitmap, Rect, Rgb } from '../bitmap.ts'
+import { contains, insetRect, medianColour, pixelAt } from '../bitmap.ts'
+import type { Bitmap, Rgb } from '../bitmap.ts'
 import type { Mark } from '../types.ts'
 import type { Lattice } from './lattice.ts'
 
@@ -73,50 +73,6 @@ function chromaOf(colour: Rgb): number {
 
 function distance(a: Rgb, b: Rgb): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
-}
-
-/**
- * The median colour of a rectangle, clipped to the image.
- *
- * MEDIAN, NOT MEAN, because of the letter. A glyph is a fifth or so of the
- * sampled area and is at maximum contrast with the tile, so a mean drags every
- * channel towards it and a dark tile with a white letter reads as a lighter
- * colour than it is. The median simply ignores it.
- */
-function medianColour(bitmap: Bitmap, rect: Rect): Rgb | null {
-  const left = Math.max(0, Math.round(rect.x))
-  const top = Math.max(0, Math.round(rect.y))
-  const right = Math.min(bitmap.width, Math.round(rect.x + rect.width))
-  const bottom = Math.min(bitmap.height, Math.round(rect.y + rect.height))
-  if (right <= left || bottom <= top) return null
-
-  // A stride keeps a 200px tile from costing 40,000 reads without changing the
-  // median in any way that matters on a flat fill.
-  const stride = Math.max(1, Math.floor(Math.min(right - left, bottom - top) / 16))
-  const reds: Array<number> = []
-  const greens: Array<number> = []
-  const blues: Array<number> = []
-  for (let y = top; y < bottom; y += stride) {
-    for (let x = left; x < right; x += stride) {
-      const [r, g, b] = pixelAt(bitmap, x, y)
-      reds.push(r)
-      greens.push(g)
-      blues.push(b)
-    }
-  }
-  if (reds.length === 0) return null
-
-  const middle = (values: Array<number>) => {
-    values.sort((a, b) => a - b)
-    return values[Math.floor(values.length / 2)]
-  }
-  return [middle(reds), middle(greens), middle(blues)]
-}
-
-function insetRect(rect: Rect, inset: number): Rect {
-  const dx = rect.width * inset
-  const dy = rect.height * inset
-  return { x: rect.x + dx, y: rect.y + dy, width: rect.width - 2 * dx, height: rect.height - 2 * dy }
 }
 
 /**

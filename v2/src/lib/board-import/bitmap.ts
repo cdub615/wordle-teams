@@ -126,3 +126,48 @@ export function cropBitmap(bitmap: Bitmap, rect: Rect): Bitmap {
   }
   return out
 }
+
+/** Shrinks a rect towards its centre by `inset` of each dimension. */
+export function insetRect(rect: Rect, inset: number): Rect {
+  const dx = rect.width * inset
+  const dy = rect.height * inset
+  return { x: rect.x + dx, y: rect.y + dy, width: rect.width - 2 * dx, height: rect.height - 2 * dy }
+}
+
+/**
+ * The median colour of a rectangle, clipped to the image, or null if none of it
+ * is on screen.
+ *
+ * MEDIAN, NOT MEAN, because of the letter. A glyph is a fifth or so of a tile
+ * at maximum contrast with it, so a mean drags every channel towards the glyph
+ * and a dark tile with a white letter reads as lighter than it is. The median
+ * simply ignores it. A stride keeps a 200px tile from costing 40,000 reads
+ * without changing the median in any way that matters on a flat fill.
+ */
+export function medianColour(bitmap: Bitmap, rect: Rect): Rgb | null {
+  const left = Math.max(0, Math.round(rect.x))
+  const top = Math.max(0, Math.round(rect.y))
+  const right = Math.min(bitmap.width, Math.round(rect.x + rect.width))
+  const bottom = Math.min(bitmap.height, Math.round(rect.y + rect.height))
+  if (right <= left || bottom <= top) return null
+
+  const stride = Math.max(1, Math.floor(Math.min(right - left, bottom - top) / 16))
+  const reds: Array<number> = []
+  const greens: Array<number> = []
+  const blues: Array<number> = []
+  for (let y = top; y < bottom; y += stride) {
+    for (let x = left; x < right; x += stride) {
+      const at = offsetOf(bitmap, x, y)
+      reds.push(bitmap.data[at])
+      greens.push(bitmap.data[at + 1])
+      blues.push(bitmap.data[at + 2])
+    }
+  }
+  if (reds.length === 0) return null
+
+  const middle = (values: Array<number>) => {
+    values.sort((a, b) => a - b)
+    return values[Math.floor(values.length / 2)]
+  }
+  return [middle(reds), middle(greens), middle(blues)]
+}
