@@ -428,6 +428,10 @@ function BoardEntryFields({
       {importNote !== null && (
         <div
           role="status"
+          // A testid as well as the role: sonner's toaster is also a live
+          // region, so getByRole('status') is ambiguous in a real browser the
+          // moment any toast is on screen.
+          data-testid="board-import-note"
           className="mx-2 mt-3 shrink-0 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground md:mx-4"
         >
           <p>{importNote}</p>
