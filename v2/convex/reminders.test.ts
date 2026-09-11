@@ -1503,10 +1503,25 @@ describe('maintain', () => {
   //
   // So, on purpose: not every player has a zone, and one has a zone ICU
   // REJECTS; not every player is on exactly one team; a chain is variously
-  // healthy, absent, long past due, and due at this exact instant; one run has
-  // something to defer; and one player carries a real pending job. IF YOU ADD A
-  // TEST HERE, ask what your fixture holds still that every other fixture also
-  // holds still — that is where the next survivor will be.
+  // healthy, absent, long past due, and due at this exact instant; `players`
+  // and `teams` differ in size in at least one run; one run has something to
+  // defer; one run throws on a player that is NOT the last; and one player
+  // carries a real pending job.
+  //
+  // WHAT THESE FIXTURES STILL HOLD CONSTANT, handed over rather than left to be
+  // rediscovered. None of these is known to hide a mutant — but that was true of
+  // the three above until somebody looked:
+  //
+  //   - every schedulable player is `America/Chicago` at `09:00:00`, so every
+  //     local day here equals the UTC day. That is the SECOND of the three
+  //     losses this paragraph records, recreated in this very block.
+  //   - at most five players and three teams in a run, so nothing here
+  //     exercises a scan at production scale.
+  //   - only `players` and `teams` are ever written; no `dailyScores`, and so
+  //     nothing downstream of the chain this pass repairs.
+  //
+  // IF YOU ADD A TEST HERE, ask what your fixture holds still that every other
+  // fixture also holds still — that is where the next survivor will be.
 
   const CHICAGO = 'America/Chicago'
 
@@ -1571,8 +1586,20 @@ describe('maintain', () => {
   // test. Task 7 edits this file and Task 8 adds metered assertions against
   // this function, so "a test was deleted" needs to fail the build rather than
   // rely on somebody reading a comment.
-  const COUNTERS = ['weekendFlagsChanged', 'scheduled', 'deferred', 'failed'] as const
+  const COUNTERS = ['weekendFlagsChanged', 'scheduled', 'deferred', 'zoneless', 'failed'] as const
   const drivenAboveZero = new Set<string>()
+  // SEPARATE FROM THE COUNTERS, because what needs guarding here is not a
+  // non-zero value but an UNEQUAL pair. `players` and `teams` were transposable
+  // in the return object without a single test noticing, because every fixture
+  // that asserted the scan sizes had them equal — 2 and 2, then 0 and 0. Task 8
+  // meters exactly these two fields, so the fixture that tells them apart has
+  // to be impossible to delete quietly.
+  //
+  // WHAT IT PROVES IS WEAKER THAN AN ASSERTION, and worth being honest about:
+  // it records that some test RAN against an unequal fixture, not that any test
+  // asserted the values. The two-teams test does assert them; this is what
+  // fails the build if that fixture is ever flattened.
+  let sawUnequalScanSizes = false
 
   /**
    * Call `maintain` and record which of its counters this call moved.
@@ -1587,6 +1614,7 @@ describe('maintain', () => {
   ) {
     const result = await t.mutation(internal.reminders.maintain, args)
     for (const counter of COUNTERS) if (result[counter] > 0) drivenAboveZero.add(counter)
+    if (result.players !== result.teams) sawUnequalScanSizes = true
     return result
   }
 
@@ -1729,11 +1757,20 @@ describe('maintain', () => {
       return { mixed, neither }
     })
 
-    await maintainFor(t)
+    const result = await maintainFor(t)
 
     expect((await playerDoc(t, mixed))?.playsWeekends).toBe(true)
     // Two non-weekend teams is still not a weekend team.
     expect((await playerDoc(t, neither))?.playsWeekends).toBeUndefined()
+
+    // THE ONLY UNEQUAL SCAN SIZES IN THIS BLOCK, and the only thing that tells
+    // `players` from `teams` in the return. MEASURED: transposing those two
+    // fields in the return object passed all 2741 tests in this repo, because
+    // every other fixture asserting them has them equal — 2 and 2, then 0 and
+    // 0. Task 8 meters exactly these two, so do not flatten this fixture to
+    // three players on three teams for tidiness.
+    expect(result.players).toBe(2)
+    expect(result.teams).toBe(3)
   })
 
   test('clears playsWeekends when the player leaves the weekend team', async () => {
@@ -1777,9 +1814,12 @@ describe('maintain', () => {
 
   test('leaves an absent playsWeekends absent rather than writing false onto it', async () => {
     // THE COERCED COMPARISON. Four tests in this block kill the raw-comparison
-    // mutant, so this is not its only killer — it is the only one that asserts
-    // the ABSENCE directly, which is the property the coercion is actually
-    // about; the other three notice it through a knock-on count. Absent and
+    // mutant, so this is not its only killer. TWO of the four assert the
+    // ABSENCE directly — this one and the two-teams test, which checks
+    // `neither`'s flag the same way; the other two notice it through a knock-on
+    // count. (An earlier version of this line claimed to be the only test that
+    // asserts the absence, which was the same uniqueness overclaim this file
+    // has now produced twice.) Absent and
     // false are the SAME STATE to every reader of this field — scheduleNextFor
     // coerces with `?? false` — so a player on no weekend-playing team must
     // read as "unchanged", not as a flip from `undefined` to `false`.
@@ -1982,28 +2022,44 @@ describe('maintain', () => {
     // mutation rejects, and every playsWeekends patch the pass had already made
     // is rolled back with it. That is the property the guard exists for, and it
     // is why the assertion on `first`'s flag below is not decoration.
+    //
+    // THREE PLAYERS, NOT TWO, AND THE THIRD IS THE WHOLE POINT. With the throw
+    // on `second` as the LAST row, nothing observed the loop CONTINUING — so
+    // the test named "and the batch carries on" could not see the thing it is
+    // named for. MEASURED: adding `break` after the `console.error` in the
+    // catch passed all 2741 tests in this repo and all four gates. `third`
+    // re-trips the same limit (convex-test increments `functionsScheduled`
+    // before checking it, so every later `runAt` throws too), which is what
+    // makes the guard's continue observable at all.
     const t = convexTest({ schema, modules, transactionLimits: { functionsScheduled: 1 } })
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { first, second } = await t.run(async (ctx) => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { first, second, third } = await t.run(async (ctx) => {
       const first = await ctx.db.insert('players', zoned({ email: 'first@example.com' }))
       const second = await ctx.db.insert('players', zoned({ email: 'second@example.com' }))
-      await ctx.db.insert('teams', aTeam({ playerIds: [first, second], playWeekends: true }))
-      return { first, second }
+      const third = await ctx.db.insert('players', zoned({ email: 'third@example.com' }))
+      await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [first, second, third], playWeekends: true }),
+      )
+      return { first, second, third }
     })
 
     const result = await maintainFor(t)
 
     expect(result.scheduled).toBe(1)
-    expect(result.failed).toBe(1)
-    // Both flag patches committed, including the one made on the row that then
-    // threw. Nothing was rolled back.
-    expect(result.weekendFlagsChanged).toBe(2)
+    expect(result.failed).toBe(2)
+    // ALL THREE flag patches committed, including the two made on rows that
+    // then threw. Nothing was rolled back, and the loop reached the last row.
+    expect(result.weekendFlagsChanged).toBe(3)
     expect((await playerDoc(t, first))?.playsWeekends).toBe(true)
     expect((await playerDoc(t, second))?.playsWeekends).toBe(true)
-    // The reachable player is scheduled; the unreachable one is left for
+    expect((await playerDoc(t, third))?.playsWeekends).toBe(true)
+    // The reachable player is scheduled; the unreachable ones are left for
     // tomorrow's run, which is the correct outcome for a row that failed once.
     expect((await playerDoc(t, first))?.nextReminderAt).toBeGreaterThan(Date.now())
     expect((await playerDoc(t, second))?.nextReminderAt).toBeUndefined()
+    expect((await playerDoc(t, third))?.nextReminderAt).toBeUndefined()
     // THE CAUSE IS FORWARDED, not just the row id. A guard that logged only
     // "something failed" would make this pass's own failures as invisible as
     // the ones it exists to find.
@@ -2012,6 +2068,16 @@ describe('maintain', () => {
       expect.objectContaining({ playerId: second }),
       expect.objectContaining({ message: expect.stringContaining('Scheduled too many functions') }),
     )
+    // AND IT REACHED `third`. This is the assertion that kills `break`: the
+    // count above would survive a guard that stopped, if `failed` were the only
+    // thing checked and the fixture ended at the failing row.
+    expect(spy).toHaveBeenCalledWith(
+      '[reminders] maintenance failed for one player; it will be retried tomorrow',
+      expect.objectContaining({ playerId: third }),
+      expect.anything(),
+    )
+    expect(spy).toHaveBeenCalledTimes(2)
+    logSpy.mockRestore()
   })
 
   test('stops at the schedule budget and reports that it did', async () => {
@@ -2019,6 +2085,7 @@ describe('maintain', () => {
     // runs rather than throwing. See MAINTAIN_SCHEDULE_BUDGET for where the
     // figure comes from.
     const t = convexTest(schema, modules)
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     await t.run(async (ctx) => {
       for (let i = 0; i < 5; i++) {
         await ctx.db.insert('players', zoned({ email: `p${i}@example.com` }))
@@ -2030,16 +2097,32 @@ describe('maintain', () => {
     expect(result.scheduled).toBe(3)
     expect(result.deferred).toBe(2)
 
-    // The next run finishes the job.
+    // AND IT SAID SO OUT LOUD. Every counter this pass reports otherwise exists
+    // only in the return value, and after Task 7 the sole caller is a cron — so
+    // "a bootstrap that needs several days is visible rather than mysterious"
+    // is a claim about a log line, not about a returned object nobody reads.
+    // This is the only test that pins the line's existence.
+    expect(logSpy).toHaveBeenCalledWith(
+      '[reminders] maintenance pass did not finish',
+      expect.objectContaining({ deferred: 2, scheduled: 3, failed: 0 }),
+    )
+
+    // The next run finishes the job — and says nothing, because there is
+    // nothing left to report.
+    logSpy.mockClear()
     const second = await maintainFor(t, { budget: 3 })
     expect(second.scheduled).toBe(2)
     expect(second.deferred).toBe(0)
+    expect(logSpy).not.toHaveBeenCalled()
+    logSpy.mockRestore()
   })
 
   test('a player with no time zone does not consume the schedule budget', async () => {
     // The zoneless population is large and permanent, so if it drew from the
     // budget a bootstrap could stall behind rows that can never be scheduled.
     const t = convexTest(schema, modules)
+    // Deferral trips the summary line; asserted in the budget test above.
+    vi.spyOn(console, 'log').mockImplementation(() => {})
     await t.run(async (ctx) => {
       await ctx.db.insert('players', aPlayer({ email: 'z@example.com' }))
       await ctx.db.insert('players', zoned({ email: 'a@example.com' }))
@@ -2063,6 +2146,8 @@ describe('maintain', () => {
     // reschedule-on-flip fix would be silently lost for exactly the rows a
     // bootstrap is too busy to reach.
     const t = convexTest(schema, modules)
+    // Deferral trips the summary line; asserted in the budget test above.
+    vi.spyOn(console, 'log').mockImplementation(() => {})
     const playerId = await t.run(async (ctx) => {
       const id = await ctx.db.insert('players', zoned({ nextReminderAt: MONDAY_9AM }))
       await ctx.db.insert('teams', aTeam({ playerIds: [id], playWeekends: true }))
@@ -2086,6 +2171,42 @@ describe('maintain', () => {
     expect(repaired?.nextReminderAt).toBe(SATURDAY_9AM)
   })
 
+  test('a table that has lost every time zone is distinguishable from a healthy one', async () => {
+    // THE LARGEST SILENT POPULATION, and until `zoneless` existed it was the
+    // one thing this pass could not report. MEASURED on the code before that
+    // counter: a table where every row has lost its timeZone returned
+    // weekendFlagsChanged 0, scheduled 0, deferred 0, failed 0 —
+    // BYTE-IDENTICAL to healthy steady state, and equally acceptable to Task
+    // 8's "writes and schedules nothing when every chain is healthy"
+    // assertion. For the one pass whose entire purpose is finding silent
+    // failures, that was the wrong thing to be blind to; the cutover copy
+    // overwriting timeZone is the plausible route to it.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 3; i++) {
+        await ctx.db.insert('players', aPlayer({ email: `z${i}@example.com` }))
+      }
+    })
+
+    const result = await maintainFor(t)
+
+    expect(result.zoneless).toBe(3)
+    expect(result.scheduled).toBe(0)
+    expect(result.deferred).toBe(0)
+    expect(result.failed).toBe(0)
+
+    // AND A HEALTHY TABLE REPORTS ZERO OF THEM, which is the half that makes
+    // the counter worth having — a count that were always non-zero would
+    // distinguish nothing.
+    const healthy = convexTest(schema, modules)
+    await healthy.run((ctx) =>
+      ctx.db.insert('players', zoned({ nextReminderAt: Date.now() + 6 * 3600 * 1000 })),
+    )
+    const fine = await maintainFor(healthy)
+    expect(fine.zoneless).toBe(0)
+    expect(fine.scheduled).toBe(0)
+  })
+
   test('an empty table is a no-op rather than an error', async () => {
     const t = convexTest(schema, modules)
 
@@ -2097,6 +2218,7 @@ describe('maintain', () => {
       weekendFlagsChanged: 0,
       scheduled: 0,
       deferred: 0,
+      zoneless: 0,
       failed: 0,
     })
   })
@@ -2106,5 +2228,9 @@ describe('maintain', () => {
   // file, so a filtered single-test run would fail it spuriously.
   test('every counter `maintain` reports is driven above zero by a test above', () => {
     expect([...drivenAboveZero].sort()).toEqual([...COUNTERS].sort())
+  })
+
+  test('some fixture above reports unequal `players` and `teams`', () => {
+    expect(sawUnequalScanSizes).toBe(true)
   })
 })

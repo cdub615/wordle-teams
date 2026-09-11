@@ -777,34 +777,32 @@ export const deliver = internalMutation({
 })
 
 /**
- * The number of reminders one maintenance run will try to schedule.
+ * The number of reschedules one maintenance run will attempt.
  *
- * BELOW A PLATFORM LIMIT, not a tuning knob. `convex-test` 0.0.54 models
- * Convex's per-transaction ceiling on scheduled functions at 1000 — the
- * `functionsScheduled` entry of `DEFAULT_TRANSACTION_LIMITS` in
- * `convex-test/dist/transactionMetrics.js`, whose own throw points at
- * docs.convex.dev/production/state/limits — and that is the figure this is
- * designed against. 800 leaves headroom for the pass's own reads and writes
- * while comfortably covering a one-shot bootstrap of the ~393 players the
- * Convex table holds after the copy's `isNamed` filter.
+ * BELOW A PLATFORM LIMIT, not a tuning knob. Convex caps the functions one
+ * transaction may schedule; `convex-test` 0.0.54 models that cap at 1000, as
+ * the `functionsScheduled` entry of `DEFAULT_TRANSACTION_LIMITS` in
+ * `convex-test/dist/transactionMetrics.js`, and 1000 is the figure this is
+ * designed against.
  *
- * IT IS NOT WHAT KEEPS THE UNIT SUITE UNDER THAT LIMIT, and an earlier draft of
- * this comment said it was. Measured: `convexTest(schema, modules)` — the
- * positional form nearly every call site in `reminders.test.ts` uses, the one
- * exception being the guard test that wants a throw — passes
- * `limitsConfig = false`, and the tracker's root layer is then built with
- * `enforce: false`. The limits are documented as opt-in (`transactionLimits`:
- * "`false` (default): limits are not enforced", `convex-test/dist/index.d.ts`).
- * So this budget is a real-backend protection rather than a harness one.
+ * 800 IS A 20% MARGIN AGAINST ANYTHING ELSE THE TRANSACTION MIGHT SCHEDULE,
+ * which today is nothing — `deliver` is the only thing this pass enqueues. It
+ * is NOT headroom for the pass's own reads and writes, as an earlier draft of
+ * this said: those count against entirely different limits (`documentsRead`,
+ * `bytesWritten`) and cannot consume `functionsScheduled` at all.
  *
- * AND THE BUDGET ITSELF NEVER THROWS — it DEFERS. The only throw anywhere near
- * it is convex-test's, which the budget exists to stay below, and the one test
- * that exercises that throw has to ask convex-test for enforcement explicitly.
+ * THE BUDGET NEVER THROWS — IT DEFERS, and that is the point. A table with more
+ * players needing a reschedule than the budget makes progress across successive
+ * runs rather than throwing and repairing nobody. The throw it exists to stay
+ * below is the PLATFORM's. convex-test's is merely the only one this repo's
+ * tests can reach, and only when asked for explicitly — see reminders.test.ts's
+ * "a throw on one player is logged and the batch carries on", which carries the
+ * whole harness story, because that test is the only place a reader needs it.
  *
- * EXCEEDING IT IS SAFE, WHICH IS THE POINT. A table with more players needing a
- * reschedule than the budget makes progress across successive runs rather than
- * throwing and repairing nobody. The `deferred` count in the return value says
- * when that is happening, so a bootstrap that needs several days is visible
+ * 800 ALSO COVERS A ONE-SHOT BOOTSTRAP of the ~393 players the Convex table
+ * holds after the copy's `isNamed` filter, so deferral is a safety net rather
+ * than the expected case. `deferred` in the return value and the summary line
+ * this pass logs when it moves are what make a multi-day bootstrap visible
  * rather than mysterious.
  */
 const MAINTAIN_SCHEDULE_BUDGET = 800
@@ -889,9 +887,13 @@ const MAINTAIN_SCHEDULE_BUDGET = 800
  * production rows; those never reach Convex, since copy-filters.mjs drops them
  * with players.filter(isNamed).) They are retried every run at no extra cost,
  * because this pass is already reading every row, and they never consume the
- * schedule budget. Their weekend flag is still derived — the patch sits above
- * the zone check on purpose, since `updateTimeZoneFor` will one day schedule
- * them and `scheduleNextFor` reads this flag when it does.
+ * schedule budget. They ARE counted, in `zoneless`: before that counter existed
+ * a table that had lost every zone returned byte-identically to a perfectly
+ * healthy one, which for the pass whose whole purpose is finding silent
+ * failures made the largest silent population the one thing it could not
+ * report. Their weekend flag is still derived — the patch sits above the zone
+ * check on purpose, since `updateTimeZoneFor` will one day schedule them and
+ * `scheduleNextFor` reads this flag when it does.
  *
  * AN UNRESOLVABLE ZONE IS A DIFFERENT CASE AND IT IS NOT FREE, so do not carry
  * the paragraph above across to it. A row whose `timeZone` is SET but rejected
@@ -923,6 +925,7 @@ export const maintain = internalMutation({
     let weekendFlagsChanged = 0
     let scheduled = 0
     let deferred = 0
+    let zoneless = 0
     let failed = 0
 
     for (const player of players) {
@@ -954,13 +957,29 @@ export const maintain = internalMutation({
         // first run after cutover patching and rescheduling a few hundred rows.
         const flipped = (player.playsWeekends ?? false) !== playsWeekends
 
+        // THE ROW ONLY, NEVER `_scheduled_functions`, and this is the place a
+        // reader asks why. The predicate deliberately does not check that
+        // `reminderJobId` still names a live job: the row is the source of
+        // truth by design (schema.ts's note on `nextReminderAt`), a job that
+        // outlives its row retires itself on `deliver`'s staleness guard, and
+        // a `ctx.db.system.get` per player would put a read back on the
+        // per-row path this whole change exists to remove. The cost of not
+        // checking is bounded at one day: a job lost or cancelled WITHOUT the
+        // row being patched reads as healthy until its instant passes, and the
+        // next run repairs it. `reschedulePlayerReminderFor` is careful never
+        // to create that state on purpose — see its SCHEDULE FIRST, CANCEL
+        // ONLY ON SUCCESS paragraph.
+        //
         // TypeScript requires the `!== undefined` narrowing before the
         // comparison, so it is not a redundant clause: `undefined > now` is a
         // type error, not a `false`.
         const healthy = player.nextReminderAt !== undefined && player.nextReminderAt > now
         // A zone is the one thing `scheduleNextFor` gates on, so checking it
         // here is what keeps an unschedulable row from consuming the budget.
+        // Counted rather than merely skipped — see `zoneless` in the returned
+        // shape below for what was invisible without it.
         const schedulable = Boolean(player.timeZone)
+        if (!schedulable) zoneless += 1
         const needsSchedule = schedulable && (!healthy || flipped)
 
         // DEFER THE WHOLE ROW, FLAG INCLUDED, and that ordering is load-bearing.
@@ -1003,12 +1022,59 @@ export const maintain = internalMutation({
       }
     }
 
+    // ONE LINE PER RUN, AND ONLY WHEN THIS PASS DID NOT FINISH ITS JOB. Without
+    // it, every counter here exists only in the return value, and after Task 7
+    // the sole caller is a cron — whether Convex surfaces a cron mutation's
+    // return value anywhere a human looks is not something this repo has
+    // verified, so the budget's claim that `deferred` makes a multi-day
+    // bootstrap "visible" would have been an assertion rather than a fact. This
+    // is what makes it true, and it puts bootstrap progress where the per-row
+    // errors already land.
+    //
+    // `zoneless` IS IN THE PAYLOAD BUT NOT THE TRIGGER, deliberately. On beta
+    // it is the normal state of most rows, so triggering on it would log every
+    // single run to report the expected — which is the same "~393 lines a day
+    // saying as expected" that `scheduleNextFor`'s log ladder refuses. Steady
+    // state stays silent, and the count is there whenever the line does fire.
+    if (deferred > 0 || failed > 0) {
+      console.log('[reminders] maintenance pass did not finish', {
+        players: players.length,
+        teams: teams.length,
+        weekendFlagsChanged,
+        scheduled,
+        deferred,
+        zoneless,
+        failed,
+      })
+    }
+
+    // THE RETURNED SHAPE, spelled out because Task 8 asserts against these
+    // names and one of them does not mean what it says:
+    //
+    //   players, teams       the two collects' sizes — this pass's whole read
+    //                        cost, and the only two fields that are not counts
+    //                        of something that happened
+    //   weekendFlagsChanged  rows whose derived flag differed and was patched
+    //   scheduled            reschedule ATTEMPTS, NOT JOBS CREATED. A row with
+    //                        an unresolvable zone logs, changes nothing, and
+    //                        still counts here (see the increment above). It is
+    //                        the figure the budget bounds, so attempts is the
+    //                        right thing to count — but the name reads as jobs,
+    //                        and a reader of Task 8's assertion deserves to
+    //                        know the difference.
+    //   deferred             rows that needed a reschedule and hit the budget
+    //   zoneless             rows with no `timeZone` at all, which can never be
+    //                        scheduled. Separates "nobody needed scheduling"
+    //                        from "nobody could be" — two states whose returns
+    //                        were byte-identical before this counter.
+    //   failed               rows whose per-player work threw and was caught
     return {
       players: players.length,
       teams: teams.length,
       weekendFlagsChanged,
       scheduled,
       deferred,
+      zoneless,
       failed,
     }
   },
