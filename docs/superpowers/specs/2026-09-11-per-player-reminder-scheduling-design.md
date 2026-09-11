@@ -165,10 +165,36 @@ sweep is DST-safe: nothing time-dependent is ever stored.
 `Asia/Calcutta` and `Asia/Kolkata` both resolve, which is load-bearing — copied rows
 carry v1's Postgres spellings.
 
-Ambiguous times (fall-back) resolve to the **first** occurrence; nonexistent times
-(spring-forward) resolve to the instant just after the gap. Neither is reachable
-through `REMINDER_TIMES` (05:00–22:00) today, and both are pinned so that widening
-the picker fails loudly rather than quietly.
+Ambiguous times (fall-back) resolve to the **first** occurrence — verified:
+`America/Chicago` 2026-11-01 01:30 resolves to 06:30Z, the earlier of the two.
+
+**CORRECTED 2026-09-11, after the spec review measured it.** This paragraph
+originally claimed nonexistent times resolve to "the instant just after the gap" and
+that "neither is reachable through `REMINDER_TIMES` (05:00–22:00) today". **Both
+claims were false**, and the second one mattered:
+
+- The behaviour is the instant just **before** the gap.
+  `instantForLocal('America/Chicago','2026-03-08','02:30:00')` gives 07:30Z, which is
+  01:30 local — an hour early, not an hour late.
+- **The parity of the probe's round bound decides which side**, which makes four
+  rounds load-bearing rather than the belt-and-braces the comment called it. Measured
+  directly: bounds of 1, 3 and 5 converge post-gap; 2 and 4 converge pre-gap. A future
+  "tidy" from 4 to 5 would silently flip it, so the bound is now documented as
+  load-bearing and the behaviour is pinned by a test.
+- **It IS reachable in production.** `Pacific/Easter` transitions at 22:00 local, and
+  `22:00:00` is one of the eighteen offered reminder times. Confirmed by binary-search
+  on the transition instant: 2026-09-06T04:00:00Z, where local time jumps from
+  2026-09-05 21:59:59 to 23:00:00, so 22:00:00 genuinely does not exist that day.
+  Reproduced for 2027-09-04 and 2028-09-02 as well.
+
+**The accepted consequence, stated rather than discovered later:** a `Pacific/Easter`
+player with a 22:00 reminder gets it at 21:00 local, one day a year. Walked across the
+transition, the chain's gaps run 24h, 23h, 24h, 24h — **no spin and no drift**, and the
+wall clock self-corrects the next day. That is small enough to accept and too specific
+to leave undocumented.
+
+Both paths are pinned by tests so that widening the picker fails loudly rather than
+quietly.
 
 **The weekend rule moves into this function.** A player with `playsWeekends === false`
 skips Saturday and Sunday when scheduling. The delivery job therefore never asks

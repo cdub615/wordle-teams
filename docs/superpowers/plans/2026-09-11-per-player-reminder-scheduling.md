@@ -85,6 +85,29 @@ are tied to this branch, so work on the branch directly.)
 
 ## Task 1: Pure time and weekend helpers
 
+> **AMENDED AFTER IMPLEMENTATION, 2026-09-11. The committed code is correct and this
+> section's original text was not.** Three changes were made during execution, all
+> approved, and the code in `convex/lib/reminders.ts` is now the source of truth over
+> the snippets below:
+>
+> 1. **`localParts` memoizes its `Intl.DateTimeFormat` per timezone.** It was
+>    constructing a new formatter on every call — roughly 56,000 constructions in the
+>    sweep test, which made that test 7.2s under full-suite contention and prompted a
+>    20s timeout override. Memoizing measured **13.2x faster** (768ms → 58ms per
+>    20,000 calls), the sweep dropped to ~450ms, and the override was removed. It also
+>    cuts CPU on the per-player delivery path. The cache is populated only after a
+>    successful construction, so an invalid zone still throws `RangeError` from the
+>    constructor — verified empirically that `localParts('GMT+5')` throws on the second
+>    and third calls, not just the first.
+> 2. **The nonexistent-time claim below is FALSE and has been corrected in the code.**
+>    See the correction in the spec's §3, and note that four probe rounds are
+>    **load-bearing** (parity decides which side of a DST gap you land on), not the
+>    belt-and-braces the original comment called them.
+> 3. **The sweep's `DATES` gained `2026-09-27` and `2026-10-04`** to straddle the
+>    southern-hemisphere and New Zealand spring-forward, which the original ten dates
+>    missed (they covered the northern transitions both ways and the southern
+>    fall-back only). **The pinned case count is therefore 13,440, not 11,200.**
+
 All four are pure, so they are directly testable — which matters here because
 `convex-test` cannot authenticate (wordle-teams-obw), making anything inside a
 query/mutation wrapper unreachable by the unit suite.
@@ -199,7 +222,8 @@ describe('nextOccurrence', () => {
  * 152 files. These 28 were chosen to cover both DST directions, the southern
  * hemisphere, half-hour and 45-minute offsets, a 30-minute DST shift, the
  * aliased spellings copied rows carry, and the extremes of the offset range.
- * MEASURED: 11,200 cases in ~1.8s.
+ * MEASURED: 13,440 cases in ~450ms (was 11,200 in ~1.8s before localParts
+ * memoized its formatter; see the amendment note at the top of this task).
  *
  * The full 418-zone sweep WAS run before this design was accepted — 167,200
  * cases, zero failures, gaps from 0.25h to 72.00h — and again under TZ=UTC,
@@ -235,7 +259,7 @@ describe('nextOccurrence across zones and DST transitions', () => {
               const from = new Date(`${date}T${String(hour).padStart(2, '0')}:00:01Z`).getTime()
               const next = nextOccurrence(timeZone, time, from, playsWeekends)
               const local = localParts(timeZone, new Date(next))
-              // Asserted with a message because a bare failure among 11,200
+              // Asserted with a message because a bare failure among 13,440
               // cases is not diagnosable.
               const where = `${timeZone} ${time} from ${date}T${hour} pw=${playsWeekends}`
               expect(local.time, where).toBe(time)
@@ -249,7 +273,7 @@ describe('nextOccurrence across zones and DST transitions', () => {
     }
     // Pinned so that silently emptying a loop bound cannot make this pass
     // vacuously — 28 zones x 5 times x 10 dates x 4 hours x 2.
-    expect(checked).toBe(11200)
+    expect(checked).toBe(13440)
   })
 })
 
@@ -309,9 +333,15 @@ imported at the top of that file; add nothing to the import.
  *
  * AMBIGUOUS AND NONEXISTENT TIMES. A fall-back makes a wall clock happen twice;
  * this returns the FIRST. A spring-forward erases one entirely; this returns
- * the instant just after the gap, so the reminder still fires that day. Neither
- * is reachable through REMINDER_TIMES (05:00-22:00) in any zone today, and both
- * are pinned in the tests so that widening the picker fails loudly rather than
+ * the instant just BEFORE the gap. CORRECTED DURING EXECUTION: this originally
+ * read "just after the gap", and claimed neither case was reachable through
+ * REMINDER_TIMES in any zone today. BOTH WERE FALSE. Pacific/Easter transitions
+ * at 22:00 local and 22:00:00 is one of the eighteen offered times, so a player
+ * there gets a 22:00 reminder at 21:00 local, one day a year -- measured across
+ * 2026-2028, and walked across the transition to confirm no spin and no drift.
+ * The FOUR-ROUND BOUND IS LOAD-BEARING, not belt-and-braces: its parity decides
+ * which side of a gap you land on (1/3/5 post-gap, 2/4 pre-gap). Both paths are
+ * pinned in the tests so that widening the picker fails loudly rather than
  * quietly.
  *
  * PRECONDITION: `timeZone` must be a zone ICU accepts — see localParts, whose
@@ -470,7 +500,7 @@ Convex cannot index array membership.
 Swept over all 418 IANA zones x 5 times x 40 instants straddling the world's
 DST transitions before landing: 167,200 cases, zero failures, and identical
 under TZ=UTC, America/Chicago and Asia/Kolkata. The committed test keeps a
-curated 28 zones -- 11,200 cases in ~1.8s -- because the full sweep takes 35s.
+curated 28 zones -- 13,440 cases in ~450ms -- because the full sweep takes 35s.
 
 Refs: wordle-teams-spcu
 
