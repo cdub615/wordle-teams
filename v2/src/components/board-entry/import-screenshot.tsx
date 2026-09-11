@@ -14,7 +14,6 @@ import type { ClipboardImage } from '#/lib/board-import/adapter.ts'
 import { parseBoard } from '#/lib/board-import/parse.ts'
 import type { BoardParse } from '#/lib/board-import/parse.ts'
 import { cn } from '#/lib/utils.ts'
-import { importSummary } from './import-prefill.ts'
 
 /**
  * Stage 5's front door: paste, drop or choose a screenshot.
@@ -84,9 +83,13 @@ export function ImportScreenshot({
     try {
       const bitmap = await bitmapFromBlob(blob)
       const typed = answerRef.current.trim()
-      const parse = parseBoard(bitmap, { answer: typed.length === 5 ? typed.toUpperCase() : null })
-      setMessage(importSummary(parse))
-      onParsed(parse)
+      // WHAT THE PARSE MEANS IS THE CALLER'S TO SAY, not this component's. A
+      // parse always moves the panel to another step — to confirm what was
+      // read, or to manual entry carrying the reason there was nothing — and a
+      // message set here would be unmounted before anyone could read it.
+      // Everything below still reports HERE, because an image that never
+      // became a parse leaves the player exactly where they are.
+      onParsed(parseBoard(bitmap, { answer: typed.length === 5 ? typed.toUpperCase() : null }))
     } catch (error) {
       // A decode that fails is a real possibility — an unsupported format, a
       // truncated file, a browser with no canvas — and it must not take the

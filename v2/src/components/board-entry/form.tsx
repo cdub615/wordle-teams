@@ -10,7 +10,7 @@ import { Label } from '#/components/ui/label.tsx'
 import { DatePicker } from '#/components/date-picker.tsx'
 import { BoardInput } from './board-input.tsx'
 import { ImportScreenshot } from './import-screenshot.tsx'
-import { correctionsFrom, prefillFrom } from './import-prefill.ts'
+import { correctionsFrom, importSummary, prefillFrom } from './import-prefill.ts'
 import { pickDefaultDay } from './pick-default-day.ts'
 import { boardErrorMessage } from '#/lib/convex-error.ts'
 import { cn } from '#/lib/utils.ts'
@@ -115,7 +115,11 @@ function BoardEntryFields({
    * `guesses` are this component's state, so a part-typed board survives a
    * return to step one without anything being stashed.
    */
-  const [step, setStep] = useState<'choose' | 'entry'>('choose')
+  const [step, setStep] = useState<'choose' | 'entry' | 'confirm'>('choose')
+  /** What the import did, in words, carried across the step change that follows it. */
+  const [importNote, setImportNote] = useState<string | null>(null)
+  /** Rows the parse could not read. Shown, never guessed at. */
+  const [missingRows, setMissingRows] = useState<ReadonlyArray<number>>([])
   /** Set when the player chose to TYPE, so the answer takes focus then and not before. */
   const [focusAnswer, setFocusAnswer] = useState(false)
   const answerRef = useRef<HTMLDivElement>(null)
@@ -146,6 +150,8 @@ function BoardEntryFields({
     // change would diff the new day's board against the old day's screenshot
     // and log corrections for tiles nobody ever saw.
     setParsed(null)
+    setImportNote(null)
+    setMissingRows([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day, existing?.id])
 
@@ -200,9 +206,25 @@ function BoardEntryFields({
     if (answer.length !== 5 && prefill.answer.length === 5) setAnswer(prefill.answer)
     setGuesses(prefill.guesses)
     setParsed(parse)
-    // Deliberately WITHOUT focusAnswer: the board is filled in, and raising a
-    // keyboard over it to confirm it would undo the point of the split.
-    setStep('entry')
+    setImportNote(importSummary(parse))
+    setMissingRows(prefill.missingRows)
+
+    /**
+     * ANYTHING RECOVERED GETS CONFIRMED; NOTHING RECOVERED FALLS BACK TO
+     * TYPING, carrying the reason with it.
+     *
+     * parse.guesses is the whole test, and it is the right one because
+     * parseBoard never returns nothing: every one of its seven outcomes comes
+     * back with whatever it managed, so 'four of six rows' lands on the confirm
+     * step with four rows already filled in, and only a parse that recovered
+     * NO row at all — no board in the image, a share card, an untouched board —
+     * drops through to manual entry.
+     *
+     * Neither branch focuses anything. On confirm the board is already there;
+     * on the fallback a keyboard would rise straight over the sentence
+     * explaining why the board is empty.
+     */
+    setStep(parse.guesses.length > 0 ? 'confirm' : 'entry')
   }
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
@@ -333,6 +355,35 @@ function BoardEntryFields({
           </div>
         </div>
       </div>
+
+      {/* WHAT THE IMPORT DID, in the place the result of it is being looked at.
+          It rides both steps: on confirm it says what was read, and on the
+          fallback it says why there was nothing to read — which is the only
+          thing that makes an empty board after tapping Import comprehensible.
+
+          A share card keeps its own sentence. "That is the shared emoji grid,
+          paste the board itself" is actionable; "could not read that" is not,
+          and the two failures look identical to a player. */}
+      {importNote !== null && (
+        <div
+          role="status"
+          className="mx-2 mt-3 shrink-0 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground md:mx-4"
+        >
+          <p>{importNote}</p>
+          {/* NAMED, NEVER GUESSED AT. prefillFrom leaves a row it could not
+              read BLANK rather than filling it with the reader's first-choice
+              letters: the board is positional, so a half-read row in the wrong
+              place is worse than an empty one. Saying which rows they are is
+              what keeps that honest rather than merely quiet. */}
+          {missingRows.length > 0 && (
+            <p className="mt-1">
+              {missingRows.length === 1
+                ? `Row ${missingRows[0] + 1} could not be read — type it in.`
+                : `Rows ${missingRows.map((row) => row + 1).join(', ')} could not be read — type them in.`}
+            </p>
+          )}
+        </div>
+      )}
 
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
         <BoardInput

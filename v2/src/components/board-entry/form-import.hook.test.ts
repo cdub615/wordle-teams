@@ -25,6 +25,7 @@ import { getFunctionName, type FunctionReference } from 'convex/server'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
+import { fillRect } from '#/lib/board-import/bitmap.ts'
 import { renderPlayedBoard } from '#/lib/board-import/testing/board-fixture.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import { BoardEntryForm } from './form.tsx'
@@ -90,8 +91,8 @@ const UPSERT = getFunctionName(api.scores.upsertBoard)
 const LOG = getFunctionName(api.boardImport.logCorrections)
 
 /** A rendered Wordle board, standing in for a pasted screenshot. */
-function screenshotOf(answer: string, guesses: Array<string>) {
-  const board = renderPlayedBoard({ answer, guesses, tileSize: 62 })
+function screenshotOf(answer: string, guesses: Array<string>, options: { withoutLetters?: boolean } = {}) {
+  const board = renderPlayedBoard({ answer, guesses, tileSize: 62, ...options })
   vi.stubGlobal('createImageBitmap', async () => ({
     width: board.bitmap.width,
     height: board.bitmap.height,
@@ -381,5 +382,104 @@ describe('the two-step flow', () => {
     expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
     goToEntry()
     expect(board()).toBe('SLATE,,,,,')
+  })
+})
+
+describe('the import confirm step', () => {
+  const note = () => screen.getByRole('status').textContent ?? ''
+
+  test('confirms what it read, with the board filled in and a Submit', async () => {
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
+    expect(note()).toMatch(/read 2 guesses/i)
+    expect(screen.getByRole('button', { name: /^submit$/i })).toBeTruthy()
+    // And still nothing written, which is the promise the whole feature rests on.
+    expect(fired).toEqual([])
+  })
+
+  test('goes back to the choice step without losing what it read', async () => {
+    screenshotOf(ANSWER, GUESSES)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+    await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(today) }))
+    expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
+
+    goToEntry()
+    expect(board()).toBe('SLATE,CRANE,,,,')
+  })
+
+  // A SHARE CARD DESERVES ITS OWN SENTENCE. "That is the emoji grid, paste the
+  // board itself" is actionable; "we could not read that" is not, and the two
+  // failures look identical to whoever pasted it.
+  test('names a share card and drops into manual entry', async () => {
+    screenshotOf(ANSWER, GUESSES, { withoutLetters: true })
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    await waitFor(() => expect(note()).toMatch(/emoji grid/i))
+    // Manual entry, with an empty board to type into — not a dead end.
+    expect(board()).toBe(',,,,,')
+    expect(screen.getByRole('button', { name: /^submit$/i })).toBeTruthy()
+  })
+
+  test('says there is no board in an image that has none, and still lets them type', async () => {
+    vi.stubGlobal('createImageBitmap', async () => ({ width: 300, height: 300, close: () => {} }))
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
+      if (tag !== 'canvas') return Object.getPrototypeOf(document).createElement.call(document, tag)
+      return {
+        width: 0,
+        height: 0,
+        getContext: () => ({
+          drawImage: () => {},
+          getImageData: () => ({ width: 300, height: 300, data: new Uint8ClampedArray(300 * 300 * 4).fill(255) }),
+        }),
+      } as unknown as HTMLElement
+    }) as typeof document.createElement)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    await waitFor(() => expect(note()).toMatch(/no wordle board/i))
+    expect(board()).toBe(',,,,,')
+  })
+
+  // A ROW THE PARSE COULD NOT READ STAYS BLANK AND IS NAMED. prefillFrom
+  // refuses to fill it with the reader's first-choice letters, because the
+  // board is positional and a half-read row in the wrong place is worse than an
+  // empty one — so the only honest thing left is to say which row it was.
+  test('names the rows it could not read rather than guessing at them', async () => {
+    const board6 = renderPlayedBoard({ answer: ANSWER, guesses: GUESSES, tileSize: 62 })
+    // Flatten the first row's tiles to a single grey: colours intact, letters gone,
+    // which is what an unreadable row looks like to Stage 2.
+    for (let column = 0; column < 5; column++) {
+      fillRect(board6.bitmap, board6.tiles[0][column], [90, 90, 90])
+    }
+    vi.stubGlobal('createImageBitmap', async () => ({
+      width: board6.bitmap.width,
+      height: board6.bitmap.height,
+      close: () => {},
+    }))
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
+      if (tag !== 'canvas') return Object.getPrototypeOf(document).createElement.call(document, tag)
+      return {
+        width: 0,
+        height: 0,
+        getContext: () => ({ drawImage: () => {}, getImageData: () => board6.bitmap }),
+      } as unknown as HTMLElement
+    }) as typeof document.createElement)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    await waitFor(() => expect(board()).toBe(',CRANE,,,,'))
+    expect(note()).toMatch(/row 1 could not be read/i)
   })
 })

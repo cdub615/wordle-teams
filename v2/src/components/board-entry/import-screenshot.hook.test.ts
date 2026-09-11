@@ -124,12 +124,21 @@ describe('ImportScreenshot', () => {
     expect(onParsed).not.toHaveBeenCalled()
   })
 
-  test('says what happened, in words a player can act on', async () => {
+  // WHAT A PARSE MEANS IS THE CALLER'S TO SAY. A parse always moves the panel
+  // to another step — confirm what was read, or manual entry carrying the
+  // reason — so a message set here would be unmounted before it could be read.
+  // What DOES report here is an image that never became a parse at all, because
+  // that leaves the player exactly where they are. See form-import.hook.test.ts
+  // for the other half.
+  test('hands a parse to the caller and says nothing about it itself', async () => {
     stubCanvas()
-    render(createElement(ImportScreenshot, { onParsed: vi.fn(), answer: '' }))
+    const onParsed = vi.fn()
+    render(createElement(ImportScreenshot, { onParsed, answer: '' }))
 
     document.dispatchEvent(pasteOf(shot()))
-    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/no wordle board/i))
+
+    await waitFor(() => expect(onParsed).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   // A DECODE THAT FAILS MUST NOT TAKE THE FORM WITH IT. An unsupported format
