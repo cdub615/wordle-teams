@@ -13,25 +13,16 @@ const modules = import.meta.glob('./**/*.ts')
 // directly rather than the wrapped mutation for the same reason), and
 // email.ts's `sendEmail` throws "API key is not set" the moment it is
 // actually called without RESEND_API_KEY. Mocking the module is the same
-// move pushSend.test.ts makes for `web-push`: what `sweep` decides — who
-// gets claimed, who gets mailed, in what order — has nothing to do with
-// real delivery, and mocking `sendEmail` is enough to observe all of it.
+// move pushSend.test.ts makes for `web-push`: what `deliver` decides — who
+// gets claimed, who gets mailed, whether a push is enqueued — has nothing to
+// do with real delivery, and mocking `sendEmail` is enough to observe all of
+// it.
 vi.mock('./email.ts', () => ({ sendEmail: vi.fn() }))
 
 import { sendEmail } from './email.ts'
 import { reschedulePlayerReminderFor, scheduleNextFor } from './reminders.ts'
 
 const sendEmailMock = vi.mocked(sendEmail)
-
-// 2026-08-27T14:00:00Z is 09:00 in Chicago (CDT, UTC-5) — pinned the same
-// way in lib/reminders.test.ts — so a 09:00:00 reminder is due (the upper
-// bound of isDueThisHour's window).
-const THURSDAY_2PM_UTC = new Date('2026-08-27T14:00:00Z').getTime()
-// One hour later: still due, as the LOWER bound of the next tick's window —
-// this is the "double match" isDueThisHour's doc comment describes.
-const THURSDAY_3PM_UTC = new Date('2026-08-27T15:00:00Z').getTime()
-// 2026-08-29T14:00:00Z is 09:00 Chicago on a Saturday.
-const SATURDAY_2PM_UTC = new Date('2026-08-29T14:00:00Z').getTime()
 
 const dueChicagoPlayer = (over: Record<string, unknown> = {}) =>
   aPlayer({
@@ -40,9 +31,6 @@ const dueChicagoPlayer = (over: Record<string, unknown> = {}) =>
     reminderDeliveryMethods: ['email'],
     ...over,
   })
-
-/** A score history that satisfies the ten-day activity gate. */
-const recentScores = ['2026-08-24', '2026-08-25', '2026-08-26']
 
 async function seed(
   t: ReturnType<typeof convexTest>,
@@ -58,19 +46,6 @@ async function seed(
     await ctx.db.insert('teams', aTeam({ playerIds: [playerId], ...teamOver }))
     return playerId
   })
-}
-
-async function lastReminderOf(t: ReturnType<typeof convexTest>, playerId: Id<'players'>) {
-  // Reads the WHOLE document from `t.run`, then picks the field off it
-  // outside that call, deliberately. `t.run`'s return value crosses the same
-  // Convex-value wire boundary a query's return does, and Convex has no
-  // `undefined` value — a bare `undefined` returned from `t.run` comes back
-  // as `null`, even though the field is genuinely absent on the stored
-  // document (confirmed against a raw `ctx.db.get` result). Returning the
-  // whole doc sidesteps the coercion: only the field access happens in plain
-  // JS, after the boundary, where an absent key really is `undefined`.
-  const doc = await t.run(async (ctx) => ctx.db.get(playerId))
-  return doc?.lastBoardEntryReminder
 }
 
 async function scheduledPushJobs(t: ReturnType<typeof convexTest>) {
@@ -91,8 +66,8 @@ beforeEach(() => {
   vi.stubEnv('REMINDERS_ENABLED', 'true')
   vi.stubEnv('REMINDERS_ALLOWLIST', '')
   // vitest.config.ts already sets SITE_URL globally; restated here so the
-  // gate tests' `vi.stubEnv('SITE_URL', '')` reads as an override, not a
-  // dependency on that config default.
+  // SITE_URL test's `vi.stubEnv('SITE_URL', undefined)` reads as an override,
+  // not a dependency on that config default.
   vi.stubEnv('SITE_URL', 'https://example.com')
 })
 afterEach(() => {
@@ -101,442 +76,6 @@ afterEach(() => {
   // vitest.config.ts does not set `restoreMocks`. Without this, one failing
   // assertion leaks a stubbed `console` into every test after it in the file.
   vi.restoreAllMocks()
-})
-
-describe('sweep: eligibility', () => {
-  test('claims and enqueues a due player who has not entered today', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, recentScores)
-
-    const result = await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(result).toEqual({ claimed: 1 })
-    expect(await lastReminderOf(t, playerId)).toBe(THURSDAY_2PM_UTC)
-    expect(sendEmailMock).toHaveBeenCalledTimes(1)
-    expect(sendEmailMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        from: 'Wordle Teams <reminders@wordleteams.com>',
-        to: 'member@example.com',
-        // Pins the template wiring at reminders.ts's sendEmail call: the
-        // right player's firstName (aPlayer()'s default is 'Ada', not
-        // 'Lovelace') reaches boardEntryReminderEmail, and SITE_URL reaches
-        // it too — the image URL is built from siteUrl, so this only passes
-        // if the stubbed 'https://example.com' actually made it through.
-        text: expect.stringContaining('Hello Ada,'),
-        html: expect.stringContaining('https://example.com/wordle-teams-title.png'),
-      }),
-    )
-  })
-
-  test('skips a player who already entered today', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, [...recentScores, '2026-08-27'])
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-    expect(sendEmailMock).not.toHaveBeenCalled()
-  })
-
-  test('skips a player already reminded earlier in their local day', async () => {
-    const t = convexTest(schema, modules)
-    const earlierStamp = new Date('2026-08-27T13:00:00Z').getTime()
-    const playerId = await seed(t, { lastBoardEntryReminder: earlierStamp }, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBe(earlierStamp)
-    expect(sendEmailMock).not.toHaveBeenCalled()
-  })
-
-  test('skips a player dormant for more than ten days', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, ['2026-08-10'])
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-  })
-
-  test('on a Saturday, skips a player whose only team does not play weekends', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, ['2026-08-26', '2026-08-27'], { playWeekends: false })
-
-    await t.mutation(internal.reminders.sweep, { now: SATURDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-  })
-
-  test('on a Saturday, reminds a player on a team that does play weekends', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, ['2026-08-26', '2026-08-27'], { playWeekends: true })
-
-    await t.mutation(internal.reminders.sweep, { now: SATURDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBe(SATURDAY_2PM_UTC)
-  })
-
-  test('skips players with no timeZone, regardless of which zone the test host defaults to', async () => {
-    // `Intl.DateTimeFormat` with `timeZone: undefined` does NOT throw — it
-    // silently falls back to the HOST's own default zone, not the player's
-    // (confirmed: `new Intl.DateTimeFormat('en-US', { timeZone: undefined,
-    // ... }).formatToParts(new Date('2026-08-27T14:00:00Z'))` resolves to
-    // 09:00 on a host defaulting to America/Chicago and to 14:00 on a host
-    // defaulting to UTC). So a single seeded reminderDeliveryTime can only
-    // ever prove the `!timeZone` guard matters on WHICHEVER zone the test
-    // happens to run under — deleting the guard and running this file both
-    // as `pnpm exec vitest run` (host TZ) and `TZ=UTC pnpm exec vitest run`
-    // showed exactly that: a seed of '09:00:00' caught the guard's removal
-    // on a Chicago host and missed it under TZ=UTC (CI's actual
-    // environment), the opposite of what a regression test needs. Seeding
-    // BOTH the Chicago-matching and the UTC-matching hour makes this test
-    // fail under either host: on a Chicago host the first player would
-    // wrongly become due, on a UTC host the second would.
-    const t = convexTest(schema, modules)
-    const chicagoHostId = await seed(
-      t,
-      { email: 'notz-chicago-host@example.com', timeZone: undefined, reminderDeliveryTime: '09:00:00' },
-      recentScores,
-    )
-    const utcHostId = await seed(
-      t,
-      { email: 'notz-utc-host@example.com', timeZone: undefined, reminderDeliveryTime: '14:00:00' },
-      recentScores,
-    )
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, chicagoHostId)).toBeUndefined()
-    expect(await lastReminderOf(t, utcHostId)).toBeUndefined()
-  })
-
-  test('skips a player with no delivery methods', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, { reminderDeliveryMethods: [] }, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-  })
-
-  test('skips a player whose only delivery method is unknown, e.g. a copied "sms" row', async () => {
-    // schema.ts types reminderDeliveryMethods v.array(v.string()) with no
-    // membership check, and the Supabase copy passes the column straight
-    // through (scripts/copy-from-supabase.mjs), so a row can carry a method
-    // that never went through settings.ts's validation. The guard is "has at
-    // least one KNOWN method", not "has at least one method" — a nonzero-length
-    // array of only unknown methods must be skipped exactly like an empty one,
-    // or this player is claimed and nothing is ever sent, silently burning
-    // their reminder for the day and inflating `claimed` past the operator's
-    // actual delivery count.
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, { reminderDeliveryMethods: ['sms'] }, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-    expect(sendEmailMock).not.toHaveBeenCalled()
-  })
-
-  test('skips a player who is not due this hour', async () => {
-    // Nothing in this file seeds a player whose reminderDeliveryTime simply
-    // does not match the swept hour — every other case is either due or
-    // filtered by an earlier, cheaper predicate. Deleting the
-    // isDueThisHour check entirely (reminders.ts) leaves every eligible
-    // player reminded at the first hourly tick of their local day instead of
-    // their chosen time, and — because that only happens ONCE a day —
-    // alreadyRemindedToday hides it from the double-send tests above
-    // entirely. This is the case that actually exercises the check.
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, { reminderDeliveryTime: '17:00:00' }, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-    expect(sendEmailMock).not.toHaveBeenCalled()
-  })
-
-  test('claims exactly the players who are actually due, one at a time', async () => {
-    // No test up to here has asserted the RETURN VALUE of a successful
-    // sweep, or claimed more than one player in a single call — so
-    // `claimed += 1` silently becoming `claimed += 0`, or the loop stopping
-    // after the first candidate, would leave every other assertion in this
-    // file green.
-    const t = convexTest(schema, modules)
-    const firstId = await seed(t, { email: 'first@example.com' }, recentScores)
-    const secondId = await seed(t, { email: 'second@example.com' }, recentScores)
-
-    const result = await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(result).toEqual({ claimed: 2 })
-    expect(await lastReminderOf(t, firstId)).toBe(THURSDAY_2PM_UTC)
-    expect(await lastReminderOf(t, secondId)).toBe(THURSDAY_2PM_UTC)
-  })
-})
-
-describe('sweep: the ten-day activity window boundary', () => {
-  // THURSDAY_2PM_UTC's Chicago local day is 2026-08-27; ten days back is
-  // 2026-08-17, inclusive. reminders.ts's `dailyScores` index range and
-  // hasRecentActivity's own floor both use `addDays(localDay, -10)` — two
-  // independent call sites that have to agree, and no earlier test in this
-  // file seeds a score at either edge to prove they do.
-  test('a score exactly ten days old still counts as recent activity', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, ['2026-08-17'])
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBe(THURSDAY_2PM_UTC)
-  })
-
-  test('a score eleven days old is too old to count', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, ['2026-08-16'])
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-  })
-})
-
-describe('sweep: an unresolvable timeZone does not abort the batch', () => {
-  test('a due player is still claimed even though another player has an unresolvable timeZone', async () => {
-    // 'GMT+5', not '', deliberately — an empty string is caught earlier by
-    // the `!timeZone` check (the "no timeZone" test above) and never reaches
-    // localParts at all. 'GMT+5' is TRUTHY, so it passes that check and
-    // actually exercises the try/catch: localParts's own doc comment
-    // (lib/reminders.ts) names 'GMT+5' as one of the values Intl's
-    // constructor rejects with a RangeError, which is exactly the shape a
-    // row copied from Supabase — never validated by updateTimeZoneFor — can
-    // carry. Without the try/catch, that RangeError propagates out of the
-    // `flatMap` callback uncaught, `t.mutation` below rejects, and the good
-    // player is never reached either — that failure mode is what this test
-    // pins.
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const t = convexTest(schema, modules)
-    const goodId = await seed(t, {}, recentScores)
-    const badId = await seed(t, { email: 'badzone@example.com', timeZone: 'GMT+5' }, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, goodId)).toBe(THURSDAY_2PM_UTC)
-    expect(await lastReminderOf(t, badId)).toBeUndefined()
-    expect(spy).toHaveBeenCalledWith(
-      '[reminders] unresolvable timeZone on a player',
-      expect.objectContaining({ timeZone: 'GMT+5' }),
-      expect.anything(),
-    )
-
-    spy.mockRestore()
-  })
-})
-
-describe('sweep: claim ordering', () => {
-  test('a player matching twice in one day — the normal case, not an edge case — is reminded only once', async () => {
-    // isDueThisHour's bounds are both inclusive, and the cron ticks on the
-    // hour, so a whole-hour-offset player like this one satisfies the upper
-    // bound of one tick's window AND the lower bound of the next. Nothing
-    // but the stamp `sweep` writes on the first match stops a second email
-    // on the second.
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_3PM_UTC })
-
-    expect(sendEmailMock).toHaveBeenCalledTimes(1)
-    expect(await lastReminderOf(t, playerId)).toBe(THURSDAY_2PM_UTC)
-  })
-
-  test('claims a player even when sendEmail reports every recipient was suppressed', async () => {
-    // sendEmail returns null (not a throw) when its recipient list ends up
-    // empty after e2e filtering — a real, non-exceptional outcome. The claim
-    // must not be conditioned on that result: it is written unconditionally,
-    // before delivery is attempted, precisely so the double-match above
-    // stays suppressed regardless of what delivery reports back.
-    sendEmailMock.mockResolvedValue(null)
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBe(THURSDAY_2PM_UTC)
-  })
-})
-
-describe('sweep: the cron clock default', () => {
-  test('a sweep called with no `now` still claims a due player, using the current instant', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(THURSDAY_2PM_UTC))
-    try {
-      const t = convexTest(schema, modules)
-      const playerId = await seed(t, {}, recentScores)
-
-      await t.mutation(internal.reminders.sweep, {})
-
-      expect(await lastReminderOf(t, playerId)).toBe(THURSDAY_2PM_UTC)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-})
-
-describe('sweep: push scheduling', () => {
-  test('schedules a push delivery for a due player using push, with the right args', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, { reminderDeliveryMethods: ['push'] }, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBe(THURSDAY_2PM_UTC)
-    expect(sendEmailMock).not.toHaveBeenCalled()
-    const jobs = await scheduledPushJobs(t)
-    expect(jobs).toHaveLength(1)
-    // The full args, not just the job count: deliverTo bounds its own
-    // self-rescheduling retry on `attempt`, so a wrong value here (e.g. an
-    // `attempt: 7` typo) would silently disable the one retry the design
-    // relies on, and nothing checking only job COUNT would ever notice.
-    expect(jobs[0]!.args).toEqual([{ playerId, attempt: 0 }])
-  })
-
-  test('schedules a push delivery for each of two push-eligible players, to the right player', async () => {
-    // No earlier test seeds two push-eligible players, so nothing would
-    // catch a bug that scheduled the wrong playerId, or collapsed two
-    // players' jobs into one.
-    const t = convexTest(schema, modules)
-    const firstId = await seed(
-      t,
-      { email: 'push-first@example.com', reminderDeliveryMethods: ['push'] },
-      recentScores,
-    )
-    const secondId = await seed(
-      t,
-      { email: 'push-second@example.com', reminderDeliveryMethods: ['push'] },
-      recentScores,
-    )
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    const jobs = await scheduledPushJobs(t)
-    expect(jobs).toHaveLength(2)
-    const scheduledFor = jobs.map((job) => job.args[0] as { playerId: string; attempt: number })
-    expect(scheduledFor).toEqual(
-      expect.arrayContaining([
-        { playerId: firstId, attempt: 0 },
-        { playerId: secondId, attempt: 0 },
-      ]),
-    )
-  })
-
-  test('schedules no push delivery for an email-only player', async () => {
-    const t = convexTest(schema, modules)
-    await seed(t, { reminderDeliveryMethods: ['email'] }, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    const jobs = await scheduledPushJobs(t)
-    expect(jobs).toHaveLength(0)
-  })
-})
-
-describe('sweep: the two kill switches', () => {
-  test('claims nobody when REMINDERS_ENABLED is unset', async () => {
-    // `undefined`, not `''` — this stubs the variable ABSENT, matching every
-    // real deployment that has never set it (vi.stubEnv deletes the key when
-    // given `undefined`). An empty string is a different, also-off state,
-    // covered separately below.
-    vi.stubEnv('REMINDERS_ENABLED', undefined)
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, recentScores)
-
-    const result = await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(result).toEqual({ claimed: 0, gated: 'disabled' })
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-    expect(sendEmailMock).not.toHaveBeenCalled()
-  })
-
-  test('claims nobody when REMINDERS_ENABLED is a truthy value that is not exactly \'true\'', async () => {
-    // The gate is `!== 'true'`, not a general truthiness check — '1' is the
-    // config slip most likely in a hurry (treating the var like a boolean
-    // flag), and nothing else pins that the comparison is this strict.
-    vi.stubEnv('REMINDERS_ENABLED', '1')
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, recentScores)
-
-    const result = await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(result).toEqual({ claimed: 0, gated: 'disabled' })
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-    expect(sendEmailMock).not.toHaveBeenCalled()
-  })
-
-  test('an unrestricted allowlist (the production default) reminds a due player', async () => {
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    expect(await lastReminderOf(t, playerId)).toBe(THURSDAY_2PM_UTC)
-  })
-
-  test('an allowlisted sweep claims and mails only the listed player, not their due teammate', async () => {
-    // Addresses are RFC-reserved example.com throwaways, never a real
-    // person's — this repository is public.
-    vi.stubEnv('REMINDERS_ALLOWLIST', ' Listed@Example.com , ')
-    const t = convexTest(schema, modules)
-    const listedId = await seed(t, { email: 'listed@example.com' }, recentScores)
-    const unlistedId = await seed(t, { email: 'unlisted@example.com' }, recentScores)
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    // A non-allowlisted player must not be claimed at all — claiming without
-    // delivering would burn that player's one reminder for the day silently.
-    expect(await lastReminderOf(t, listedId)).toBe(THURSDAY_2PM_UTC)
-    expect(await lastReminderOf(t, unlistedId)).toBeUndefined()
-    expect(sendEmailMock).toHaveBeenCalledTimes(1)
-    expect(sendEmailMock).toHaveBeenCalledWith(
-      expect.anything(),
-      // The listed player's own mail, not a generic call — the deeper
-      // template-wiring pin (firstName, siteUrl) lives on the eligibility
-      // test above; this just confirms it is THIS player's content.
-      expect.objectContaining({ to: 'listed@example.com', text: expect.stringContaining('Hello Ada,') }),
-    )
-  })
-
-  test('the allowlist gates push scheduling exactly like it gates email', async () => {
-    vi.stubEnv('REMINDERS_ALLOWLIST', 'listed@example.com')
-    const t = convexTest(schema, modules)
-    await seed(
-      t,
-      { email: 'unlisted@example.com', reminderDeliveryMethods: ['push'] },
-      recentScores,
-    )
-
-    await t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })
-
-    const jobs = await scheduledPushJobs(t)
-    expect(jobs).toHaveLength(0)
-  })
-})
-
-describe('sweep: the SITE_URL guard', () => {
-  test('a due player is not claimed when SITE_URL is unset', async () => {
-    // `undefined`, not `''` — deletes the key, matching the real unset case.
-    // vitest.config.ts's global SITE_URL default means this test is the only
-    // place that value has to be actively removed rather than overridden.
-    vi.stubEnv('SITE_URL', undefined)
-    const t = convexTest(schema, modules)
-    const playerId = await seed(t, {}, recentScores)
-
-    await expect(t.mutation(internal.reminders.sweep, { now: THURSDAY_2PM_UTC })).rejects.toThrow(
-      /SITE_URL/,
-    )
-
-    expect(await lastReminderOf(t, playerId)).toBeUndefined()
-    expect(sendEmailMock).not.toHaveBeenCalled()
-  })
 })
 
 describe('scheduleNextFor', () => {
@@ -863,8 +402,9 @@ describe('deliver', () => {
   const MONDAY = new Date('2026-09-14T14:00:00Z').getTime()
 
   // THE CLOCK IS PINNED, and this block cannot be made deterministic without
-  // it. `deliver` takes no `now` argument the way `sweep` does — it reads
-  // `Date.now()`, which in production is the instant the scheduler fired it —
+  // it. `deliver` takes no `now` argument the way the deleted `sweep` did — it
+  // reads `Date.now()`, which in production is the instant the scheduler fired
+  // it —
   // and every assertion below depends on that instant: the local day the two
   // `dailyScores` lookups are asked about, and the `from` the reschedule
   // computes the next occurrence after. Pinned to DUE exactly, rather than a
@@ -890,8 +430,9 @@ describe('deliver', () => {
   })
 
   // MOST TESTS IN THIS BLOCK ARE THE ONLY KILLER OF WHAT THEY TEST, and Task 7
-  // edits this same file to delete the sweep's suites. Removing or loosening
-  // one of them unguards a property with nothing else noticing.
+  // has now deleted the sweep's suites from this same file, so this block is
+  // what is left. Removing or loosening one of these unguards a property with
+  // nothing else noticing.
   //
   // MEASURED: of the twenty mutants run against `deliver` while it was built,
   // NINE had exactly one killing test — the exact `!==` versus a tolerance,
@@ -912,10 +453,12 @@ describe('deliver', () => {
   // None of this is a coverage gap. Each is the single input shape its property
   // is visible in.
 
-  // NOT `recentScores`. That constant is anchored to the sweep's late-August
-  // `now`; activityFloor('2026-09-11') is '2026-09-01', so all three of its
-  // days fall outside the window DUE is in. MEASURED: seeding `recentScores`
-  // here puts the happy-path player on the `inactive` branch instead.
+  // ANCHORED TO `DUE`, AND THAT IS NOT INTERCHANGEABLE WITH ANY OTHER SCORE
+  // FIXTURE IN THIS FILE. activityFloor('2026-09-11') is '2026-09-01', so days
+  // chosen for a different `now` fall outside the window `DUE` is in. MEASURED
+  // against the sweep's late-August fixture, deleted with it at Task 7: seeding
+  // those three days here put the happy-path player on the `inactive` branch
+  // instead.
   const scoresBeforeDue = ['2026-09-08', '2026-09-09', '2026-09-10']
 
   // EVERY OUTCOME `deliver` CAN RETURN, DECLARED ONCE. The last test in this
@@ -1195,9 +738,10 @@ describe('deliver', () => {
     // through a send reporting nothing delivered. (The mutant actually run also
     // tripped the push test, because conditioning the claim moved it inside the
     // email branch; a conditional that left the claim above the branches would
-    // have had only this test to answer to.) The sibling sweep test
-    // 'claims a player even when sendEmail reports every recipient was
-    // suppressed' pins the same rule for the code this replaces.
+    // have had only this test to answer to.) It had a sibling in the sweep
+    // suites — 'claims a player even when sendEmail reports every recipient was
+    // suppressed' — which Task 7 deleted with them, so this is now the only
+    // test in the repo covering the suppressed-send shape of the rule.
     sendEmailMock.mockResolvedValue(null)
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
@@ -1231,8 +775,8 @@ describe('deliver', () => {
     // `undefined`, not `''` — vi.stubEnv deletes the key, which is the real
     // unset case, and vitest.config.ts's global SITE_URL default makes this the
     // only place the value has to be actively removed rather than overridden.
-    // Matched to the sweep's own SITE_URL test on purpose: after Task 7 deletes
-    // that one, nothing else exercises the absent shape.
+    // Matched to the sweep's own SITE_URL test on purpose, and now that Task 7
+    // has deleted that one, nothing else exercises the absent shape.
     vi.stubEnv('SITE_URL', undefined)
     const t = convexTest(schema, modules)
     const playerId = await scheduled(t)
@@ -1303,9 +847,10 @@ describe('deliver', () => {
     expect(spy).toHaveBeenCalledTimes(1)
   })
 
-  // THE THREE GATE BEHAVIOURS THE SWEEP PINS AND `deliver` DID NOT. Task 7
-  // deletes the sweep suites from this file on the premise that these are
-  // re-asserted here; they were not, so they are now. Each has a live cutover
+  // THE THREE GATE BEHAVIOURS THE SWEEP PINNED AND `deliver` DID NOT. Task 7
+  // deleted the sweep suites from this file on the premise that these were
+  // re-asserted here; they were not, so they were re-homed here first, and each
+  // was confirmed present before anything was cut. Each has a live cutover
   // consequence, which is why they are not merely symmetry.
   describe('the two kill switches, ported', () => {
     test('an allowlist with whitespace and mixed case still reaches the listed player', async () => {
@@ -1564,10 +1109,18 @@ describe('maintain', () => {
 
   /**
    * Reads the WHOLE player document out of `t.run`, then picks fields off it
-   * outside that call — for the reason `lastReminderOf` above spells out: a
-   * bare `undefined` returned from `t.run` crosses the Convex-value boundary as
-   * `null`, and several assertions below turn on `playsWeekends` being genuinely
-   * ABSENT rather than `false`.
+   * outside that call, deliberately. `t.run`'s return value crosses the same
+   * Convex-value wire boundary a query's return does, and Convex has no
+   * `undefined` value — a bare `undefined` returned from `t.run` comes back as
+   * `null`, even though the field is genuinely absent on the stored document
+   * (confirmed against a raw `ctx.db.get` result). Returning the whole doc
+   * sidesteps the coercion: only the field access happens in plain JS, after the
+   * boundary, where an absent key really is `undefined`. Several assertions
+   * below turn on `playsWeekends` being genuinely ABSENT rather than `false`.
+   *
+   * A file-scope `lastReminderOf` helper carried this same explanation. Its only
+   * callers were the sweep suites, so it went with them at Task 7 and the
+   * reasoning lives here now.
    */
   const playerDoc = (t: ReturnType<typeof convexTest>, playerId: Id<'players'>) =>
     t.run((ctx) => ctx.db.get(playerId))
@@ -1583,7 +1136,7 @@ describe('maintain', () => {
   // THE STRUCTURAL GUARD'S BOOKKEEPING, the same idea as the `deliver` block's
   // REASONS set and for the same reason: `maintain` reports what it did in four
   // counters, and a counter no test ever drives above zero is a path with no
-  // test. Task 7 edits this file and Task 8 adds metered assertions against
+  // test. Task 7 edited this file and Task 8 adds metered assertions against
   // this function, so "a test was deleted" needs to fail the build rather than
   // rely on somebody reading a comment.
   const COUNTERS = ['weekendFlagsChanged', 'scheduled', 'deferred', 'zoneless', 'failed'] as const

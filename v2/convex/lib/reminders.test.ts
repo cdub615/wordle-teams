@@ -5,13 +5,9 @@ import {
   allowlistFrom,
   allowsAddress,
   alreadyRemindedToday,
-  enteredOn,
   hasKnownMethod,
-  hasRecentActivity,
   instantForLocal,
-  isDueThisHour,
   localParts,
-  needsWeekendOptIn,
   nextOccurrence,
   weekendPlayerIdsFrom,
 } from './reminders.ts'
@@ -108,58 +104,6 @@ describe('localParts', () => {
   })
 })
 
-describe('isDueThisHour', () => {
-  test('fires on the hour', () => {
-    expect(isDueThisHour('09:00:00', '09:00:00', '08:00:00')).toBe(true)
-  })
-
-  test('the lower bound is inclusive', () => {
-    expect(isDueThisHour('08:00:00', '09:00:00', '08:00:00')).toBe(true)
-  })
-
-  test('a time that has aged out does not fire', () => {
-    expect(isDueThisHour('07:00:00', '09:00:00', '08:00:00')).toBe(false)
-  })
-
-  test('a time still ahead does not fire', () => {
-    expect(isDueThisHour('10:00:00', '09:00:00', '08:00:00')).toBe(false)
-  })
-
-  test('a half-hour zone still catches an on-the-hour reminder', () => {
-    // The cron ticks at :00 UTC, which is :30 local in Kolkata, so the window is
-    // [18:30, 19:30] and a 19:00 reminder lands inside it.
-    expect(isDueThisHour('19:00:00', '19:30:00', '18:30:00')).toBe(true)
-  })
-
-  test('every one of the eighteen offered times is reachable', () => {
-    const offered = Array.from(
-      { length: 18 },
-      (_, i) => `${String(i + 5).padStart(2, '0')}:00:00`,
-    )
-    for (const time of offered) {
-      const hour = Number(time.slice(0, 2))
-      const now = `${String(hour).padStart(2, '0')}:30:00`
-      const hourAgo = `${String(hour - 1).padStart(2, '0')}:30:00`
-      expect(isDueThisHour(time, now, hourAgo)).toBe(true)
-    }
-  })
-
-  test('an on-the-hour reminder matches two consecutive ticks in a whole-hour zone', () => {
-    // Why alreadyRemindedToday must be the guard, and why the stamp is written
-    // before delivery rather than after it.
-    expect(isDueThisHour('09:00:00', '09:00:00', '08:00:00')).toBe(true)
-    expect(isDueThisHour('09:00:00', '10:00:00', '09:00:00')).toBe(true)
-  })
-
-  test("v1's midnight wrap is unsatisfiable, and is ported that way on purpose", () => {
-    // At 00:30 local the lower bound wraps to 23:30, so no string can satisfy
-    // both bounds. Unreachable behind the 05:00-22:00 picker. Pinned so that
-    // widening the picker fails here rather than in silence.
-    expect(isDueThisHour('00:00:00', '00:30:00', '23:30:00')).toBe(false)
-    expect(isDueThisHour('23:45:00', '00:30:00', '23:30:00')).toBe(false)
-  })
-})
-
 describe('alreadyRemindedToday', () => {
   test('never reminded is not today', () => {
     expect(alreadyRemindedToday(undefined, 'America/Chicago', '2026-08-27')).toBe(false)
@@ -185,50 +129,6 @@ describe('alreadyRemindedToday', () => {
   test('a stamp that has skewed into tomorrow still suppresses', () => {
     const tomorrow = new Date('2026-08-29T02:00:00Z').getTime() // 2026-08-28 in Chicago
     expect(alreadyRemindedToday(tomorrow, 'America/Chicago', '2026-08-27')).toBe(true)
-  })
-})
-
-describe('hasRecentActivity', () => {
-  test('exactly ten days back is inside the window', () => {
-    expect(hasRecentActivity(['2026-08-17'], '2026-08-27')).toBe(true)
-  })
-
-  test('eleven days back is outside it', () => {
-    expect(hasRecentActivity(['2026-08-16'], '2026-08-27')).toBe(false)
-  })
-
-  test('no scores at all is outside it', () => {
-    expect(hasRecentActivity([], '2026-08-27')).toBe(false)
-  })
-
-  test('the window crosses a month boundary', () => {
-    expect(hasRecentActivity(['2026-07-30'], '2026-08-05')).toBe(true)
-    expect(hasRecentActivity(['2026-07-25'], '2026-08-05')).toBe(false)
-  })
-})
-
-describe('enteredOn', () => {
-  test('finds the day, or does not', () => {
-    expect(enteredOn(['2026-08-26', '2026-08-27'], '2026-08-27')).toBe(true)
-    expect(enteredOn(['2026-08-26'], '2026-08-27')).toBe(false)
-  })
-})
-
-describe('needsWeekendOptIn', () => {
-  test('Saturday and Sunday need it; Friday does not', () => {
-    expect(needsWeekendOptIn('2026-08-29')).toBe(true) // Saturday
-    expect(needsWeekendOptIn('2026-08-30')).toBe(true) // Sunday
-    expect(needsWeekendOptIn('2026-08-28')).toBe(false) // Friday
-  })
-
-  test('the case v1 gets wrong', () => {
-    // Sydney is UTC+10 in August (AEST — no DST in the southern winter), so
-    // 2026-08-28T20:00Z is still Friday in UTC and 06:00 Saturday in Sydney.
-    // v1 asks EXTRACT(DOW FROM CURRENT_DATE), which reads the UTC day, and so
-    // applies the weekday rule to a player whose weekend has already started.
-    const at = new Date('2026-08-28T20:00:00Z')
-    expect(needsWeekendOptIn(localParts('Australia/Sydney', at).day)).toBe(true)
-    expect(needsWeekendOptIn(localParts('UTC', at).day)).toBe(false)
   })
 })
 

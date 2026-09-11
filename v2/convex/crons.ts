@@ -1,46 +1,82 @@
 import { cronJobs } from 'convex/server'
 import { internal } from './_generated/api'
 
-/**
- * Phase 6's replacement for v1's board-entry reminders (two Next.js API
- * routes plus Novu and QStash): one hourly Convex cron.
- *
- * NO VALUE FOR `now` IS PASSED — the trailing `{}` is an empty args object,
- * required because TypeScript's `OptionalRestArgs` only lets the whole args
- * parameter itself be omitted when a function's args type is exactly empty;
- * `sweep`'s (`{ now?: number }`) has a property, even though that property
- * is optional, so the object has to be supplied, just with nothing in it.
- * See the doc comment on `sweep`'s `now` argument (convex/reminders.ts) for
- * why it must stay empty: a cron's args are serialised to JSON when THIS
- * MODULE is evaluated, not when the job fires, so `{ now: Date.now() }` here
- * would freeze `now` at deploy time forever. `sweep` defaults to
- * `Date.now()` internally instead, which — read inside the mutation — is the
- * transaction timestamp at the moment each hourly run actually executes.
- */
 const crons = cronJobs()
 
-crons.hourly('board entry reminders', { minuteUTC: 0 }, internal.reminders.sweep, {})
+/**
+ * Phase 6's board-entry reminders. NO LONGER THE MECHANISM — it is the net.
+ *
+ * WHAT THIS REPLACED, AND WHY (wordle-teams-spcu). This was
+ * `crons.hourly('board entry reminders', { minuteUTC: 0 }, internal.reminders.sweep, {})`,
+ * and that sweep opened with a full `players` collect on every one of its 720
+ * monthly runs: ~283,000 document reads, about 82 MB, roughly 8% of a 1 GB
+ * free-tier database-I/O cap whose failure mode is mutations FAILING rather
+ * than generating a bill (wordle-teams-dcu). THAT COST WAS NOT A FUTURE ONE.
+ * The plan's text for this comment said the scan cost nothing while
+ * REMINDERS_ENABLED was empty, deferring the whole bill to whoever set that
+ * variable on cutover day; Task 5 had already measured the flag as 'true' on
+ * beta and the collect as sitting above the allowlist filter, so the scan had
+ * been running there all along. See the "IT IS NOT A FUTURE COST" paragraph on
+ * `internal.reminders.deliver`, which is the one authoritative statement of it
+ * and says so.
+ *
+ * HOURLY WAS NOT THE WASTE, which is worth knowing before "optimising" the
+ * cadence again. Reminder times are local, and with 57 distinct player timezones
+ * somebody is due in nearly every UTC hour — measured: America/Chicago alone
+ * covers 18 of the 24, and Europe/London covers exactly the six it misses. So a
+ * sweep that only ran in hours where somebody was due would still run 24 times a
+ * day. The waste was reading all 393 players to find the handful owed.
+ *
+ * THE MECHANISM IS NOW ONE SCHEDULED JOB PER PLAYER, each rescheduling the next
+ * as its last act (internal.reminders.deliver). What remains here derives
+ * `playsWeekends`, repairs a chain whose job never fired, and bootstraps a player
+ * who never had one — see the doc comment on `maintain` for why that is
+ * load-bearing rather than optional, and why it must stay DAILY.
+ *
+ * 01:15 KEEPS ITS OWN LANE. The chat sweep holds :30 hourly and teamStats holds
+ * 00:45 daily; all three walk a table, and stacking them on one minute means the
+ * whole deployment's table walks contend at once.
+ *
+ * `{}` AND NOTHING ELSE, for the reason the other two say: a cron's args are
+ * serialised to JSON when THIS MODULE is evaluated, not when the job fires.
+ * `maintain` takes an optional `budget` for its tests, and passing one here
+ * would freeze it at deploy time — harmless for a constant, but the habit is
+ * what froze v1's email subject at server-boot time.
+ *
+ * THE EMPTY OBJECT ITSELF IS NOT OPTIONAL, which is the other half of what the
+ * deleted `sweep`'s entry said here and is unchanged for `maintain`.
+ * TypeScript's `OptionalRestArgs` only lets the whole args parameter be omitted
+ * when a function's args type is exactly empty; `{ budget?: number }` has a
+ * property, even though that property is optional, so the object has to be
+ * supplied, just with nothing in it. MEASURED: dropping the `{}` fails
+ * typecheck with "Expected 4 arguments, but got 3".
+ */
+crons.daily('reminder maintenance', { hourUTC: 1, minuteUTC: 15 }, internal.reminders.maintain, {})
 
 /**
  * Team chat's batched push sweep (Phase 7.5, design §5).
  *
  * AT HALF PAST, NOT ON THE HOUR, AND THAT IS THE DECISION RATHER THAN A
- * DEFAULT. Both sweeps are mutations that walk a table and schedule
- * `pushSend.deliverTo` jobs, so stacking them on the same minute means one
- * deployment-wide burst of push traffic every hour and two table walks
- * contending for the scheduler at once. They also share a writer: the chat
- * sweep patches `chatReads`, which the reminder sweep does not touch, but both
- * read `players` and both enqueue into `_scheduled_functions`. Separating them
- * by thirty minutes costs nothing — chat notifications are already an hour
- * coarse by design — and it keeps a slow run of one from being tangled up with
- * the other when something needs diagnosing.
+ * DEFAULT — though WHAT it is kept apart from has changed. It was written
+ * against the hourly board-entry reminder sweep at :00: both were mutations
+ * that walked a table and scheduled `pushSend.deliverTo` jobs, so sharing a
+ * minute meant one deployment-wide burst of push traffic every hour and two
+ * table walks contending for the scheduler at once. That sweep is gone, and
+ * this is now the only hourly cron in the deployment; the two it stays clear
+ * of are `reminder maintenance` at 01:15 and `team month aggregates` at 00:45.
+ * Reminder push traffic is no longer bursty at all — `reminders.deliver` fires
+ * one job per player at that player's own local time. Half past still costs
+ * nothing — chat notifications are already an hour coarse by design — and it
+ * keeps a slow run of one cron from being tangled up with another when
+ * something needs diagnosing.
  *
  * `{}` AND NOTHING ELSE, for the same reason spelled out above: a cron's args
  * are serialised to JSON when THIS MODULE is evaluated, not when the job fires.
- * `sweep` takes no arguments at all, so there is nothing here that COULD be
- * frozen today — but the empty object is still the only correct value, and the
- * reason it stays empty is worth knowing before somebody adds a `now` to make
- * this testable the way reminders.sweep's is.
+ * `sweep` takes no arguments at all (`args: {}`), so there is nothing here that
+ * COULD be frozen today — but the empty object is still the only correct value,
+ * and the reason it stays empty is worth knowing before somebody adds an
+ * argument to make this testable the way `reminders.maintain`'s `budget` makes
+ * that pass testable.
  */
 crons.hourly('chat notifications', { minuteUTC: 30 }, internal.chatNotify.sweep, {})
 

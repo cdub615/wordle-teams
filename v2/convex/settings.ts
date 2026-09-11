@@ -15,12 +15,14 @@ import type { GenericDatabaseReader } from 'convex/server'
  * reminderDeliveryMethods, hasPwa — are in the schema and populated by the
  * Supabase copy, and until now nothing in v2 read or wrote one of them. A
  * player who signed up in v2 therefore had no timeZone, which is the one field
- * the reminder sweep cannot proceed without.
+ * per-player reminder scheduling cannot proceed without: `scheduleNextFor`
+ * (convex/reminders.ts) returns without scheduling anyone who has none.
  *
  * A FIFTH REMINDER FIELD IS DELIBERATELY NOT HERE: players.lastBoardEntryReminder.
- * That one is the sweep's own bookkeeping — the stamp alreadyRemindedToday reads
- * to avoid reminding someone twice in a day — and never something the player
- * sets, so it has no place in a settings surface. The sweep owns writing it.
+ * That one is the reminder mechanism's own bookkeeping — the stamp
+ * alreadyRemindedToday reads to avoid reminding someone twice in a day — and
+ * never something the player sets, so it has no place in a settings surface.
+ * `deliver` owns writing it.
  *
  * EVERY RULE IS IN A `...For` HELPER, never in the wrapper below it.
  * convex-test cannot stand up a Better Auth session (wordle-teams-obw), so a
@@ -146,11 +148,11 @@ export async function updateReminderTimeFor(
   playerId: Id<'players'>,
   time: string,
 ): Promise<void> {
-  // MEMBERSHIP, NOT SHAPE. A shape-only check ('HH:MM:SS' in range) accepts
-  // '23:30:00', which lib/reminders.ts's isDueThisHour can never match, because
-  // the cron ticks on the hour — the row stores fine, the UI looks right, and
-  // that player is silently never reminded, forever, with nothing logged. See
-  // REMINDER_TIMES's doc comment.
+  // MEMBERSHIP, NOT SHAPE. v1 enforced nothing server-side, and a shape-only
+  // check ('HH:MM:SS' in range) accepts any string the picker never offered.
+  // This is the only place the eighteen offered times are actually required.
+  // See REMINDER_TIMES's doc comment for what this used to protect against
+  // under the hourly sweep, and why widening the list is now safe.
   if (!REMINDER_TIMES.includes(time)) throw accessError('INVALID_REMINDER_TIME')
   await ctx.db.patch(playerId, { reminderDeliveryTime: time })
   await reschedulePlayerReminderFor(ctx, playerId)
@@ -161,9 +163,14 @@ export async function updateTimeZoneFor(
   playerId: Id<'players'>,
   timeZone: string,
 ): Promise<void> {
-  // Validated by asking Intl, which is the same thing the sweep will ask every
-  // hour. An unresolvable zone stored here does not fail now — it throws inside
-  // sweep at 06:00 on a future morning and takes the whole batch with it.
+  // Validated by asking Intl, which is the same thing `nextOccurrence` asks
+  // every time this player is scheduled. An unresolvable zone stored here does
+  // not fail now; it fails later and QUIETLY, which is why it is refused at the
+  // door. `deliver` retires that player's job as 'bad-time-zone' without
+  // rescheduling, so their chain ends, and `maintain` re-logs the row on every
+  // daily pass without ever being able to fix it. (The deleted hourly sweep
+  // caught the same bad row per-player, for the reason a batch loop always
+  // must: one bad row cannot be allowed to abort the rest.)
   try {
     new Intl.DateTimeFormat('en-US', { timeZone })
   } catch {
@@ -175,7 +182,7 @@ export async function updateTimeZoneFor(
 
 /**
  * SET-ONLY. Nothing ever clears hasPwa, so a player who uninstalls the PWA
- * keeps it `true` and the sweep will go on believing push is deliverable to
+ * keeps it `true` and `deliver` will go on believing push is deliverable to
  * them. That is v1's behaviour too (there is no uninstall hook to clear it
  * from either), and it is stated here rather than left implicit.
  */

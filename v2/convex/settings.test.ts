@@ -80,11 +80,13 @@ describe('updateReminderTimeFor', () => {
 
   test('rejects a well-formed time the picker does not offer', async () => {
     // The gap a shape-only check misses: '23:30:00' is a perfectly valid
-    // 'HH:MM:SS' string, but lib/reminders.ts's isDueThisHour can only ever
-    // match an on-the-hour value, because the cron ticks on the hour. A
-    // shape-only validator would have stored this and silently never reminded
-    // that player again. '04:00:00' pins the other boundary — one hour before
-    // the earliest offered time, 05:00:00.
+    // 'HH:MM:SS' string, and nothing about its shape says the picker never
+    // offered it. REMINDER_TIMES (lib/reminders.ts) is the only list that does,
+    // and its doc comment records both what this used to protect against under
+    // the hourly sweep and why the guard still earns its place now that the
+    // sweep is gone. A shape-only validator would have stored this. '04:00:00'
+    // pins the other boundary — one hour before the earliest offered time,
+    // 05:00:00.
     const t = convexTest(schema, modules)
     const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
     for (const bad of ['23:30:00', '24:00:00', '23:60:00', '04:00:00']) {
@@ -105,9 +107,10 @@ describe('updateTimeZoneFor', () => {
   })
 
   test('rejects a zone Intl cannot resolve', async () => {
-    // An unresolvable zone would throw inside the reminder sweep, at 06:00 on
-    // some future morning, taking the whole batch down with it. Refuse it at
-    // the door. See the PRECONDITION note on localParts in lib/reminders.ts.
+    // An unresolvable zone cannot be scheduled: `deliver` retires the job as
+    // 'bad-time-zone' and `maintain` can only re-log the row, daily, forever.
+    // Refuse it at the door. See the PRECONDITION note on localParts in
+    // lib/reminders.ts.
     const t = convexTest(schema, modules)
     const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
     for (const bad of ['Mars/Olympus_Mons', '', 'GMT+5', '  UTC ']) {
@@ -160,8 +163,8 @@ describe('mySettingsFor', () => {
   test('reads back a stored timeZone verbatim, never a default', async () => {
     // Pins against a mutant that defaults an absent/odd timeZone to 'UTC'
     // instead of null — a silent wrong-zone guess is worse than an honest null,
-    // because the reminder sweep would schedule against it as if the player
-    // had actually said so.
+    // because `scheduleNextFor` would compute an occurrence against it as if
+    // the player had actually said so.
     const t = convexTest(schema, modules)
     const playerId = await t.run(async (ctx) =>
       ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' })),

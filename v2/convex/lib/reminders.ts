@@ -1,11 +1,11 @@
 /**
  * Eligibility arithmetic for the daily board-entry reminder.
  *
- * Pure by construction — no Convex, no I/O, no env, no clock. `sweep`
- * (convex/reminders.ts) reads the clock once and passes instants — or strings
- * already resolved from them — in, which is what makes every rule here
- * directly testable, including the ones that only misbehave in a particular
- * timezone at a particular hour. The one piece of module state,
+ * Pure by construction — no Convex, no I/O, no env, no clock. `deliver` and
+ * `maintain` (convex/reminders.ts) each read the clock once and pass instants
+ * — or strings already resolved from them — in, which is what makes every rule
+ * here directly testable, including the ones that only misbehave in a
+ * particular timezone at a particular hour. The one piece of module state,
  * `formatterCache` below, is a memo rather than a purity violation — every
  * export here is still referentially transparent because of it, not despite
  * it.
@@ -19,8 +19,11 @@
  * timezones. Here every rule resolves in the player's own zone. See
  * divergences 14 and 15.
  *
- * The one v1 bug that is ported UNCHANGED is the midnight window — see
- * isDueThisHour.
+ * THE ONE v1 BUG THIS FILE USED TO PORT UNCHANGED IS GONE WITH ITS FUNCTION.
+ * That was `isDueThisHour`'s midnight window, deleted along with the hourly
+ * sweep that was its only caller. What the window cost, and why the picker's
+ * eighteen times are still required server-side, is recorded on REMINDER_TIMES
+ * below.
  */
 import { addDays, isWeekendDay, type PuzzleDay } from './puzzleDay.ts'
 
@@ -30,11 +33,50 @@ export type LocalTime = string
 /**
  * The reminder times the app offers, and the ONLY ones the server accepts.
  *
- * v1's picker offers exactly these eighteen (board-entry-reminders.tsx:86-103)
- * and nothing enforced it server-side. That gap is real, not theoretical: a
- * shape-only check accepts '23:30:00', which isDueThisHour can never match,
- * because the cron ticks on the hour. The row stores fine, the UI looks right,
- * and the player is silently never reminded.
+ * MEMBERSHIP IS ENFORCED SERVER-SIDE, AND THE REASON OUTLIVED THE FUNCTION THAT
+ * MOTIVATED IT. v1's picker offered exactly these eighteen
+ * (board-entry-reminders.tsx:86-103) and nothing checked them; a shape-only
+ * check accepts '23:30:00'. Under the old hourly sweep that value could never
+ * match for a player in a whole-hour-offset zone — see the measurement below,
+ * which is narrower than the claim the deleted function made — and that player
+ * was silently never reminded. Per-player scheduling would now honour
+ * '23:30:00' perfectly well, so the hazard is no longer "never matches" but
+ * "the UI offers eighteen options and the server would accept any string",
+ * which is a validation gap either way. settings.ts's updateReminderTimeFor is
+ * where it is closed.
+ *
+ * TWO THINGS STILL REST ON THIS GUARD, neither of which needs the deleted
+ * function. `warnIfWallClockDrifted` (convex/reminders.ts) resolves each
+ * scheduled instant back into the player's zone and compares it against the
+ * stored `reminderDeliveryTime`, so an unpadded or off-grid value — '9:00:00' —
+ * would schedule correctly and still warn; that function's "ONE SHAPE OF FALSE
+ * POSITIVE" paragraph names this check as the thing that keeps a warning from
+ * it trustworthy. And refusing any value outside the eighteen still rules out
+ * the v1 midnight-wrap class of bug by construction.
+ *
+ * WIDENING THIS LIST IS NOW SAFE IN A WAY IT WAS NOT BEFORE, and that is worth
+ * recording: nextOccurrence resolves any wall-clock time in any zone, including
+ * ones that are ambiguous or nonexistent across a DST transition — it takes the
+ * first of the two occurrences, and the instant just BEFORE the gap,
+ * respectively. (NOT after the gap. That version of the sentence has now been
+ * written twice and measured wrong twice; instantForLocal's own doc comment
+ * carries the measurement, `America/Chicago` 2026-03-08 02:30 resolving to
+ * 01:30 local.)
+ *
+ * THE OLD isDueThisHour COULD NOT, AND WHICH TIMES IT LOST DEPENDED ON THE
+ * PLAYER'S ZONE. Measured rather than reasoned, by replaying its comparison
+ * over a full 24-tick day for each offset shape: the cron fired at UTC :00 and
+ * both bounds were resolved in the player's zone, so the window's minutes were
+ * that zone's own offset minutes, and the one window spanning local midnight
+ * had its lower bound sorting ABOVE its upper as a string. A whole-hour-offset
+ * zone therefore lost every time after 23:00:00, which is where '23:30:00'
+ * being unmatchable comes from. (How many production players sat in such a zone
+ * is not something this session measured; the table holds 57 distinct zones.)
+ * A half-hour zone lost [00:00:00, 00:30:00) instead, and matched '23:30:00'
+ * perfectly well; at +05:45 it lost everything before 00:45:00. BOTH the
+ * deleted function's own comment and the first draft of this paragraph stated
+ * the whole-hour case as though it were universal. That function is gone; the
+ * guard is what keeps the whole class out by construction.
  *
  * Exported so the settings UI renders FROM this list rather than keeping a
  * second copy in sync with it.
@@ -47,7 +89,7 @@ export const REMINDER_TIMES: ReadonlyArray<LocalTime> = Array.from(
 /**
  * The only two delivery methods that exist. Case-sensitive: 'Email' is
  * rejected. Lives here rather than in settings.ts, and settings.ts imports it
- * from here — same reason REMINDER_TIMES does: `sweep` (convex/reminders.ts)
+ * from here — same reason REMINDER_TIMES does: `deliver` (convex/reminders.ts)
  * needs the same list to decide who gets claimed and which literal to
  * `.includes()` against, and a second copy in each module risks the exact
  * shape of drift REMINDER_TIMES's own doc comment above warns about — a
@@ -68,8 +110,9 @@ export const METHODS = ['email', 'push'] as const
  *
  * Lifted out of `sweep` and `deliver` (convex/reminders.ts), which had the same
  * `.some(...)` expression written twice — the duplication the plan's
- * comment-discipline rule warns travels between copies. It also outlives
- * `sweep`: this file is not touched when that function is deleted.
+ * comment-discipline rule warns travels between copies. `sweep` has since been
+ * deleted; `deliver` is the one caller left, and the rule outlived the move
+ * because it was extracted before the deletion rather than during it.
  */
 export function hasKnownMethod(methods: ReadonlyArray<string>): boolean {
   return methods.some((method) => (METHODS as ReadonlyArray<string>).includes(method))
@@ -202,41 +245,6 @@ export function localParts(
 }
 
 /**
- * v1's one-hour window, ported exactly: the reminder time must fall in
- * [an hour ago, now], both bounds inclusive, both resolved in the player's
- * zone.
- *
- * BOTH BOUNDS ARE PASSED IN rather than derived here, because deriving "an hour
- * ago" from a wall-clock string means doing timezone arithmetic on a string. The
- * caller has the instant and can format it twice.
- *
- * THE MIDNIGHT WRAP IS A v1 BUG AND IS PORTED. When the hour spans midnight the
- * lower bound wraps to 23:xx while the upper stays at 00:xx, so no value can
- * satisfy both and nobody is reminded. It is unreachable today: the picker
- * offers exactly eighteen times, 05:00:00 through 22:00:00
- * (board-entry-reminders.tsx:86-103). It is left alone rather than fixed so the
- * ported rule stays comparable with production, and pinned in the tests so that
- * widening the picker fails loudly instead of quietly dropping reminders.
- *
- * BOTH BOUNDS INCLUSIVE MEANS DOUBLE-MATCHING IS THE NORMAL CASE, not an edge
- * case. The cron ticks at :00 UTC. In any whole-hour-offset zone (measured:
- * America/Chicago, Australia/Sydney, Europe/London, Pacific/Honolulu — 7182
- * duplicate matches PER ZONE over 399 days, i.e. 18 reminder times x 399 days
- * exactly; 28,728 across the four) an on-the-hour reminder satisfies the upper
- * bound on one tick and the lower bound on the next. Half-hour zones like
- * Asia/Kolkata don't hit this. It is safe only because `alreadyRemindedToday`
- * absorbs it — which means the stamp MUST be written unconditionally, before
- * delivery is attempted, or a majority-zone player gets reminded twice a day.
- */
-export function isDueThisHour(
-  reminderTime: LocalTime,
-  nowLocalTime: LocalTime,
-  hourAgoLocalTime: LocalTime,
-): boolean {
-  return reminderTime <= nowLocalTime && reminderTime >= hourAgoLocalTime
-}
-
-/**
  * The once-per-day guard, resolved in the player's zone.
  *
  * v1: `last_board_entry_reminder IS NULL OR last < DATE_TRUNC('day', now AT
@@ -251,31 +259,6 @@ export function alreadyRemindedToday(
 ): boolean {
   if (lastReminder === undefined) return false
   return localParts(timeZone, new Date(lastReminder)).day >= localDay
-}
-
-/**
- * v1's "has played recently" gate: at least one board in the trailing ten days,
- * inclusive of the tenth. Stops the reminder chasing people who have already
- * left.
- *
- * `days` is the puzzleDay list from ONE index range query — see sweep.
- */
-export function hasRecentActivity(days: Array<PuzzleDay>, localDay: PuzzleDay): boolean {
-  const floor = addDays(localDay, -10)
-  return days.some((day) => day >= floor)
-}
-
-/** Whether today's board is already in. */
-export function enteredOn(days: Array<PuzzleDay>, localDay: PuzzleDay): boolean {
-  return days.includes(localDay)
-}
-
-/**
- * Whether the weekend opt-in rule applies at all — i.e. whether it is the
- * weekend WHERE THE PLAYER IS. v1 asks the server. See divergence 14.
- */
-export function needsWeekendOptIn(localDay: PuzzleDay): boolean {
-  return isWeekendDay(localDay)
 }
 
 const utcOf = (day: PuzzleDay, time: LocalTime): number => {
@@ -303,8 +286,9 @@ const utcOf = (day: PuzzleDay, time: LocalTime): number => {
  * tidy-up.
  *
  * NOTHING TIME-DEPENDENT IS STORED OR ASSUMED. The zone's offset is asked for
- * at the moment of asking, which is the same reason the sweep this replaces
- * was DST-safe.
+ * at the moment of asking, which is the same reason the deleted hourly sweep
+ * was DST-safe — it resolved every bound in the player's zone on every run
+ * rather than caching an offset.
  *
  * AMBIGUOUS AND NONEXISTENT TIMES. A fall-back makes a wall clock happen
  * twice; this returns the FIRST — verified at America/Chicago's 2026-11-01

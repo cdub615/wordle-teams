@@ -52,7 +52,7 @@ import type { SubscribeFailureReason } from '#/lib/push-subscribe.ts'
  * since nothing this UI writes can produce one — is returned RAW rather than
  * formatted: '23:30:00' run through the old on-the-hour arithmetic printed
  * '11 PM', a plausible-looking, on-the-hour string that is neither what is
- * stored nor a time the sweep (isDueThisHour) can ever match. Showing the raw
+ * stored nor one of the eighteen times REMINDER_TIMES offers. Showing the raw
  * string is honest about that; a confident-looking wrong answer is worse than
  * an odd-looking right one.
  */

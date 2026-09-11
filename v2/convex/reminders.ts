@@ -8,260 +8,27 @@ import {
   allowlistFrom,
   allowsAddress,
   alreadyRemindedToday,
-  enteredOn,
   hasKnownMethod,
-  hasRecentActivity,
-  isDueThisHour,
   localParts,
   METHODS,
-  needsWeekendOptIn,
   nextOccurrence,
   weekendPlayerIdsFrom,
 } from './lib/reminders.ts'
 import type { LocalTime } from './lib/reminders.ts'
-import { addDays } from './lib/puzzleDay.ts'
 import { boardEntryReminderEmail } from './reminderEmails.ts'
 import { sendEmail } from './email.ts'
 
-const HOUR_MS = 60 * 60 * 1000
-
 // Derived from METHODS (lib/reminders.ts) rather than re-typed as string
-// literals, so the four `.includes()` checks below — two delivery branches
-// each in `sweep` and `deliver`, which a grep of this file confirms — and
-// settings.ts's membership guard cannot drift out of sync the way
-// REMINDER_TIMES's own doc comment warns isDueThisHour and the settings
-// picker could. The separate question "is any stored method known at all"
-// now lives in lib/reminders.ts's hasKnownMethod, which both functions call.
+// literals, so the two `.includes()` checks below — `deliver`'s email branch
+// and its push branch, which a grep of this file confirms are now the only
+// two, the other pair having gone with `sweep` — and settings.ts's membership
+// guard cannot drift out of sync with each other. The drift shape being
+// guarded against is the one REMINDER_TIMES's own doc comment describes for
+// times: a value that stores fine and looks right in the UI but that no
+// branch on the server side ever matches. The separate question "is any
+// stored method known at all" lives in lib/reminders.ts's hasKnownMethod,
+// which `deliver` calls.
 const [EMAIL_METHOD, PUSH_METHOD] = METHODS
-
-/**
- * The hourly board-entry reminder sweep. Scheduled by crons.ts with no
- * arguments; `now` exists so tests can choose the instant instead of racing
- * the real clock — see the note on `now` below.
- *
- * WHY A MUTATION, NOT AN ACTION: eligibility has to be decided against one
- * consistent snapshot, the claim (`lastBoardEntryReminder`) has to commit in
- * the same transaction as that decision, and `sendEmail` enqueues into the
- * Resend component's own tables via `ctx.runMutation` — which only works
- * inside a mutation or another action, and here needs to be transactional
- * with the claim. Doing this as an action calling out to mutations would
- * split "decide" from "claim" across two non-atomic steps, and a partial
- * failure between them is exactly the double-send this design avoids. A
- * single mutation means an OCC retry (a write conflict, not an app-level
- * failure) simply re-runs the whole handler from scratch, having committed
- * nothing on the failed attempt — so the retry is clean by construction.
- *
- * TWO KILL SWITCHES, both checked before any player is claimed (owner
- * decision, 2026-08-28). Beta holds copied production rows — real people who
- * do not know this beta exists and who already get real reminders from v1. A
- * second reminder from an app they've never heard of is not something an
- * apology fixes, so this ships off by default:
- *
- *  - REMINDERS_ENABLED must be exactly 'true'. Unset (the default on every
- *    deployment, including beta) means no player is ever claimed. Nothing
- *    else in this codebase — not a copy, not a schema change, not a
- *    settings-UI bug — can turn reminders on; only an operator flipping this
- *    var can.
- *  - REMINDERS_ALLOWLIST, a comma-separated list of addresses, restricts
- *    delivery to exactly those players while beta is live alongside real
- *    users. Empty (the default) means unrestricted, which is what production
- *    wants at cutover. `players.email` is always stored lowercase, so the
- *    list is lowercased on read rather than trusting every future caller to
- *    compare case-insensitively.
- *
- * TREAT THIS ENV GATE AS THE ONLY PROTECTION HERE, even though it is no longer
- * literally the only one. E2E_TEST_MODE is not set on beta, so sendEmail's
- * throwaway-address suppression does not apply there, and this gate is what
- * stands between a config slip and mailing real people.
- *
- * WHAT CHANGED, AND WHY IT DOES NOT RELAX ANYTHING (wt-ksh.7.32, 2026-09-02):
- * this comment used to say the copy script "does carry reminderDeliveryMethods
- * and timeZone for every copied player". It no longer does.
- * scripts/lib/copy-reminder-policy.mjs withholds both fields that decide
- * eligibility, and restores them on one flag (--with-reminders) that only the
- * cutover copy passes. That is a genuine second layer, and it is worth having
- * precisely because it holds on its own — but it is NOT a reason to lean on this
- * one less. Note also that the restoration is asymmetric: the policy sends
- * reminderDeliveryMethods explicitly empty (so a re-run CLEARS it) but merely
- * OMITS timeZone, so a zone an earlier copy or a beta sign-in wrote survives
- * every subsequent copy. docs/runbooks/2026-cutover.md §5.4 measures that at
- * cutover; wordle-teams-k501 has the reasoning.
- */
-export const sweep = internalMutation({
-  // OPTIONAL, NOT A BUG TO "FIX" BACK TO REQUIRED. Convex's Crons.schedule
-  // serialises a cron's args to JSON when the module defining the cron is
-  // evaluated (convex/server/cron.js: `args: [convexToJson(cronArgs)]`,
-  // called from `crons.hourly(...)` at module scope) — NOT when the job
-  // fires. Passing `{ now: Date.now() }` from crons.ts would freeze `now` at
-  // deploy time forever, exactly reproducing v1's email-subject bug (a Zod
-  // default evaluated once at module load, stamping every reminder with the
-  // date the server happened to boot). So crons.ts passes no args at all,
-  // and the handler defaults to `Date.now()` — which, read here inside a
-  // mutation, is the transaction timestamp, not a frozen value. Tests keep
-  // passing `now` explicitly so they can choose the instant.
-  args: { now: v.optional(v.number()) },
-  handler: async (ctx, { now: nowArg }) => {
-    // GATE 1.
-    if (process.env.REMINDERS_ENABLED !== 'true') {
-      return { claimed: 0, gated: 'disabled' as const }
-    }
-
-    // Read once, before anyone is claimed, rather than per-player after the
-    // claim (the plan's original shape, which would have patched
-    // `lastBoardEntryReminder` on every eligible player and then silently
-    // skipped every send). Throwing rolls the whole transaction back —
-    // nobody is claimed, and every eligible player matches again on the next
-    // tick once the deployment is fixed.
-    //
-    // ALSO GATES PUSH, which does not itself need SITE_URL — pushSend.deliverTo's
-    // payload is a relative `url: '/app'`. SITE_URL must be set for `convex
-    // deploy` to succeed (auth.ts:16-17 throws at module scope) but NOT to
-    // keep running: an operator can remove it from a live deployment
-    // afterward, and reminders.ts never imports auth.ts, so nothing forces
-    // the var to still be present when the cron fires. This branch is
-    // reachable, and a push-only player losing delivery because of it is an
-    // accepted, live consequence of hoisting the check here.
-    const siteUrl = process.env.SITE_URL
-    if (!siteUrl) {
-      throw new Error('[reminders] SITE_URL is not set on this deployment')
-    }
-
-    // GATE 2. The parsing rules — trim, fold case, drop empties — live in
-    // lib/reminders.ts's allowlistFrom, with their own tests, because `deliver`
-    // needs the same ones and a second copy is how the errors in this plan
-    // have travelled between modules.
-    const allowlist = allowlistFrom(process.env.REMINDERS_ALLOWLIST)
-
-    const now = nowArg ?? Date.now()
-    const at = new Date(now)
-    const anHourAgo = new Date(now - HOUR_MS)
-
-    // No index narrows "every player who might be due this hour" ahead of
-    // the per-player checks below, and production holds only 533 rows, so a
-    // bounded collect is the right shape here on its own terms — unlike the
-    // `teams` collect further down, this one has nothing to do with array
-    // membership.
-    const players = await ctx.db.query('players').collect()
-
-    // Cheapest predicates first (a field check, a known-method check, a Set
-    // lookup) so that a player who cannot possibly be due — no timeZone, no
-    // KNOWN delivery method (a copied row can carry an unvalidated string
-    // like 'sms' — see METHODS above), not on the allowlist — never reaches
-    // localParts at all. Everyone else still runs it below regardless of
-    // this ordering: isDueThisHour needs BOTH bounds resolved in the
-    // player's own zone before it can say anything, so no cheaper predicate
-    // could gate the timezone math itself, and reordering these three checks
-    // to run AFTER localParts would not change which players reach the
-    // `dailyScores` query later in the loop — only which players pay for a
-    // localParts call first. THAT is what this ordering actually saves:
-    // `sweep` makes two or three localParts calls per player (`local`,
-    // `hourAgo`, and a third inside alreadyRemindedToday when a stamp
-    // already exists) — each one Intl call — which is cheap either way at
-    // 533 players. The `dailyScores` query is gated by isDueThisHour and
-    // alreadyRemindedToday, not by this ordering: those two are what actually
-    // shrink the candidate set, to one of eighteen reminder hours in a
-    // half-hour-offset zone, or two in a whole-hour-offset one
-    // (isDueThisHour's inclusive bounds — see its own doc comment on the
-    // double-match property).
-    const candidates = players.flatMap((player) => {
-      const timeZone = player.timeZone
-      if (!timeZone) return []
-      if (!hasKnownMethod(player.reminderDeliveryMethods)) return []
-      if (!allowsAddress(allowlist, player.email)) return []
-
-      let local, hourAgo
-      try {
-        local = localParts(timeZone, at)
-        hourAgo = localParts(timeZone, anHourAgo)
-      } catch (error) {
-        // updateTimeZoneFor rejects an unresolvable zone, but a row copied
-        // from Supabase never passed through it. One bad row must not take
-        // the batch down with it.
-        console.error(
-          '[reminders] unresolvable timeZone on a player',
-          { playerId: player._id, timeZone },
-          error,
-        )
-        return []
-      }
-
-      if (!isDueThisHour(player.reminderDeliveryTime, local.time, hourAgo.time)) return []
-      if (alreadyRemindedToday(player.lastBoardEntryReminder, timeZone, local.day)) return []
-      return [{ player, localDay: local.day }]
-    })
-
-    if (candidates.length === 0) return { claimed: 0 }
-
-    // Collected once, and only when somebody's LOCAL day is a weekend — five
-    // days a week this read never happens. Convex cannot index array
-    // membership, so this is the sanctioned shape (see schema.ts's note on
-    // the `teams` table).
-    const anyWeekendCandidate = candidates.some((c) => needsWeekendOptIn(c.localDay))
-    const teams = anyWeekendCandidate ? await ctx.db.query('teams').collect() : []
-
-    let claimed = 0
-    for (const { player, localDay } of candidates) {
-      // ONE range query answers both remaining questions: has today's board
-      // already been entered, and has this player played recently enough to
-      // still be worth reminding.
-      const scores = await ctx.db
-        .query('dailyScores')
-        .withIndex('by_player_and_puzzleDay', (q) =>
-          q
-            .eq('playerId', player._id)
-            .gte('puzzleDay', addDays(localDay, -10))
-            .lte('puzzleDay', localDay),
-        )
-        .collect()
-      const days = scores.map((score) => score.puzzleDay)
-
-      if (enteredOn(days, localDay)) continue
-      if (!hasRecentActivity(days, localDay)) continue
-
-      if (needsWeekendOptIn(localDay)) {
-        const playsWeekends = teams.some(
-          (team) => team.playWeekends && team.playerIds.includes(player._id),
-        )
-        if (!playsWeekends) continue
-      }
-
-      // CLAIM BEFORE DELIVERING, UNCONDITIONALLY — not behind an `if` on
-      // whatever sendEmail/scheduling below returns or does. isDueThisHour's
-      // doc comment measures that most players (any whole-hour-offset zone)
-      // match TWICE a day: once as the upper bound of one hourly tick, once
-      // as the lower bound of the next. Nobody is ever missed, but the only
-      // thing standing between that and two emails a day is
-      // alreadyRemindedToday reading a stamp that was already written. Move
-      // this write after a successful send, or condition it on one, and the
-      // common case — not an edge case — starts double-sending.
-      await ctx.db.patch(player._id, { lastBoardEntryReminder: now })
-      claimed += 1
-
-      if (player.reminderDeliveryMethods.includes(EMAIL_METHOD)) {
-        const { subject, html, text } = boardEntryReminderEmail({
-          firstName: player.firstName,
-          siteUrl,
-        })
-        await sendEmail(ctx, {
-          from: 'Wordle Teams <reminders@wordleteams.com>',
-          to: player.email,
-          subject,
-          html,
-          text,
-        })
-      }
-
-      if (player.reminderDeliveryMethods.includes(PUSH_METHOD)) {
-        await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, {
-          playerId: player._id,
-          attempt: 0,
-        })
-      }
-    }
-
-    return { claimed }
-  },
-})
 
 /**
  * OBSERVABILITY ONLY. Warn when the instant just computed does not resolve back
@@ -365,12 +132,21 @@ function warnIfWallClockDrifted(
  * no zone to compute an occurrence in. `updateTimeZoneFor` schedules them the
  * moment they get one, and `maintain` retries them daily at no extra cost,
  * since it is already reading every row. An unresolvable zone is logged and
- * swallowed for the reason the sweep did the same: `schema.ts` types timeZone
- * as unvalidated `v.optional(v.string())`, a copied Supabase row never passed
- * through `updateTimeZoneFor`, and one bad row must not abort a batch that
- * `maintain` runs over every player row — ~393 of them, which is what the
- * Convex table holds after the copy's `isNamed` filter drops the 151 nameless
- * rows; `sweep` above says 533 because that is the Supabase source count.
+ * swallowed for the reason the deleted sweep did the same: `schema.ts` types
+ * timeZone as unvalidated `v.optional(v.string())`, a copied Supabase row never
+ * passed through `updateTimeZoneFor`, and one bad row must not abort a batch
+ * that `maintain` runs over every player row — ~393 of them, the figure this
+ * change's spec measures for the Convex `players` table and the one every other
+ * comment here uses.
+ *
+ * DO NOT DERIVE THAT FIGURE FROM SUPABASE'S. The deleted `sweep` said 533, and
+ * a note reconciling the two claimed 393 was 533 minus the 151 nameless rows the
+ * copy's `isNamed` filter drops. It is not: that subtraction gives 382. The
+ * Supabase count has moved between measurements — 533 on 2026-08-20
+ * (scripts/lib/copy-filters.mjs), 535 on 2026-08-24, and "151 of 543" in that
+ * same file's explainTeamMemberDrops note — and the Convex table also gains
+ * natively-signed-up players the copy never saw. The two are separate
+ * measurements and neither one implies the other.
  *
  * RETURNS WHETHER IT SCHEDULED, and the boolean is load-bearing rather than
  * informational: `reschedulePlayerReminderFor` below cancels ONLY on true, so
@@ -467,13 +243,13 @@ export async function scheduleNextFor(
  * exceptionless rule, not a defect of it.
  *
  * `from` DEFAULTS TO `Date.now()`, WHICH IS SAFE HERE AND IS NOT THE
- * `crons.hourly` HAZARD `sweep` SPENDS TWELVE LINES ON ABOVE. That hazard is
+ * `crons.hourly` HAZARD crons.ts SPENDS A PARAGRAPH ON. That hazard is
  * serialisation at MODULE EVALUATION: `Crons.schedule` freezes its args when
- * the module defining the cron is evaluated, so a `now` passed from crons.ts
+ * the module defining the cron is evaluated, so an instant passed from crons.ts
  * would be stamped at deploy time forever. A default parameter is evaluated per
- * call, inside the mutation, so it reads the transaction timestamp — the same
- * thing `sweep`'s own `nowArg ?? Date.now()` does. The asymmetry with
- * `scheduleNextFor`, whose `from` is REQUIRED, is deliberate: its callers
+ * call, inside the mutation, so it reads the transaction timestamp — which is
+ * the same thing the deleted `sweep` did with its own `nowArg ?? Date.now()`.
+ * The asymmetry with `scheduleNextFor`, whose `from` is REQUIRED, is deliberate: its callers
  * (`deliver`, and this function) always have a meaningful instant already —
  * `deliver`'s is the instant it was itself due — and defaulting there would let
  * one be forgotten silently.
@@ -535,7 +311,7 @@ export async function reschedulePlayerReminderFor(
 /**
  * Deliver one player's board-entry reminder, then schedule their next one.
  *
- * REPLACES THE HOURLY SWEEP. That sweep opens with
+ * REPLACES THE HOURLY SWEEP. That sweep opened with
  * `ctx.db.query('players').collect()` — a full table scan, unconditionally,
  * 720 times a month. ARITHMETIC: 393 players x 720 runs = 282,960 document
  * reads a month; at the ~291 bytes/document wordle-teams-yhii estimates, that
@@ -555,13 +331,17 @@ export async function reschedulePlayerReminderFor(
  * to cutover day. That was wrong: REMINDERS_ENABLED was read as 'true' on beta
  * from the Convex dashboard on 2026-09-11 (recorded in this change's plan;
  * `convex env list` is not the way to re-check it, because it prints every
- * deployment secret in plaintext). The `players` collect sits ABOVE the
- * per-player allowlist filter in `sweep`, so the scan has been running hourly
- * there all along. What keeps real people from being mailed is the allowlist
- * (Gate 2), not the enable flag (Gate 1).
+ * deployment secret in plaintext). The `players` collect sat ABOVE the
+ * per-player allowlist filter in `sweep`, so the scan had been running hourly
+ * there all along, right up to the deletion. What keeps real people from being
+ * mailed is the allowlist (Gate 2), not the enable flag (Gate 1).
  *
- * STILL A MUTATION, NOT AN ACTION, for every reason `sweep` above is one, and
- * restated rather than cited because Task 7 deletes that function: eligibility
+ * THIS PARAGRAPH IS THE ONE AUTHORITATIVE STATEMENT OF THAT, and crons.ts cites
+ * it rather than restating it — the wrong version has now been written twice,
+ * once here and once in the text Task 7 was handed for crons.ts.
+ *
+ * STILL A MUTATION, NOT AN ACTION, for every reason the deleted `sweep` was
+ * one, and restated rather than cited because that function is gone: eligibility
  * has to be decided against one consistent snapshot, the claim has to commit in
  * the same transaction as that decision, `sendEmail` enqueues into the Resend
  * component's tables via `ctx.runMutation`, and an OCC retry simply re-runs the
@@ -662,8 +442,10 @@ export const deliver = internalMutation({
       return await skipAndReschedule('no-method' as const)
     }
 
-    // Both gates delegate to lib/reminders.ts — see the note at `sweep`'s
-    // Gate 2 for why the parsing is not written out here a second time.
+    // Both gates delegate to lib/reminders.ts — see `allowlistFrom`'s own doc
+    // comment there for why the trim/fold/drop-empties rules are not written
+    // out a second time here. They were duplicated in the deleted `sweep`'s
+    // Gate 2 first, which is how they came to live in one place.
     if (!allowsAddress(allowlistFrom(process.env.REMINDERS_ALLOWLIST), player.email)) {
       return await skipAndReschedule('not-allowlisted' as const)
     }
@@ -695,10 +477,10 @@ export const deliver = internalMutation({
       return await skipAndReschedule('already-reminded' as const)
     }
 
-    // TWO INDEX LOOKUPS, NOT AN ELEVEN-DAY COLLECT. The sweep reads the whole
-    // trailing eleven days — its one range query runs `gte(addDays(localDay,
+    // TWO INDEX LOOKUPS, NOT AN ELEVEN-DAY COLLECT. The sweep read the whole
+    // trailing eleven days — its one range query ran `gte(addDays(localDay,
     // -10))` through `lte(localDay)`, both bounds inclusive, which is the same
-    // window `activityFloor` now names — and inspects the list; these ask the
+    // window `activityFloor` now names — and inspected the list; these ask the
     // index the two questions directly and stop at the first row, so the cost
     // is at most two documents instead of up to eleven. ("Up to", not "six to
     // eleven": the window is 11 days, but the rows returned are the boards

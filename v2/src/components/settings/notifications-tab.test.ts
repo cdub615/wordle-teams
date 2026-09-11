@@ -61,8 +61,9 @@ describe('label', () => {
   // updateReminderTimeFor's validation (convex/settings.ts) — nothing this
   // UI writes can produce one. Sliced and rounded, '23:30:00' used to print
   // '11 PM': a plausible, on-the-hour-looking string that is neither what is
-  // stored nor a time convex/lib/reminders.ts's isDueThisHour can ever match.
-  // The raw value, odd-looking as it is, is the honest answer.
+  // stored nor one of the eighteen times convex/lib/reminders.ts's
+  // REMINDER_TIMES offers. The raw value, odd-looking as it is, is the honest
+  // answer.
   test('a time the picker never offers is shown raw, not rounded to a false hour', () => {
     expect(label('23:30:00', 'en-US')).toBe('23:30:00')
   })
