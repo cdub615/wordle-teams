@@ -532,7 +532,7 @@ git commit -m "feat(avatar): mirror the social profile image onto the player row
 - Modify: `v2/convex/players.ts`
 - Test: `v2/convex/players.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `v2/convex/players.test.ts`, adding `MAX_AVATAR_BYTES` to its imports from
 `./lib/avatar.ts` and `setAvatarFor`/`removeAvatarFor` to its imports from `./players.ts`:
@@ -614,12 +614,12 @@ describe('removeAvatarFor', () => {
 })
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd v2 && pnpm exec vitest run convex/players.test.ts -t Avatar`
 Expected: FAIL — `setAvatarFor` and `removeAvatarFor` are not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `v2/convex/players.ts`, importing `MAX_AVATAR_BYTES` and `isAllowedAvatarType` from `./lib/avatar.ts`:
 
@@ -701,12 +701,12 @@ export const removeAvatar = mutation({
 
 Add `requirePlayer` to the existing `./access` import. Add `'INVALID_AVATAR'` to whatever union `accessError` accepts — follow the existing codes in `convex/access.ts`, and give it a user-facing message in the same place the other codes get theirs.
 
-- [ ] **Step 4: Run the tests and watch them pass**
+- [x] **Step 4: Run the tests and watch them pass**
 
 Run: `cd v2 && pnpm exec vitest run convex/players.test.ts`
 Expected: PASS, including the six new tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd v2 && git add convex/players.ts convex/players.test.ts convex/access.ts
