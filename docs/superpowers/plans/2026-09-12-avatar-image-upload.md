@@ -415,7 +415,7 @@ git commit -m "feat(avatar): resolve a member's avatar onto the team roster"
 - Modify: `v2/convex/players.ts`
 - Test: `v2/convex/players.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `v2/convex/players.test.ts`:
 
@@ -455,12 +455,12 @@ describe('applySocialImageSync', () => {
 })
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd v2 && pnpm exec vitest run convex/players.test.ts -t applySocialImageSync`
 Expected: FAIL — `applySocialImageSync` is not exported.
 
-- [ ] **Step 3: Implement the helper and its mutation**
+- [x] **Step 3: Implement the helper and its mutation**
 
 Add to `v2/convex/players.ts`, importing `shouldSyncSocialImage` from `./lib/avatar.ts`:
 
@@ -512,12 +512,12 @@ export const syncSocialImage = mutation({
 })
 ```
 
-- [ ] **Step 4: Run the tests and watch them pass**
+- [x] **Step 4: Run the tests and watch them pass**
 
 Run: `cd v2 && pnpm exec vitest run convex/players.test.ts`
 Expected: PASS, including the three new tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd v2 && git add convex/players.ts convex/players.test.ts
