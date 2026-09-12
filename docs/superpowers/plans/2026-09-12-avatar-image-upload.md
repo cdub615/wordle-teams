@@ -77,7 +77,7 @@ Why: `message-list.tsx` renders each row as `flex flex-col` with the separator, 
 - Create: `v2/convex/lib/avatar.ts`
 - Test: `v2/convex/lib/avatar.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import { describe, expect, test } from 'vitest'
@@ -131,12 +131,12 @@ test('the byte cap is well clear of a 256px WebP and well under a phone photo', 
 })
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd v2 && pnpm exec vitest run convex/lib/avatar.test.ts`
 Expected: FAIL — `Failed to resolve import "./avatar.ts"`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 /**
@@ -198,12 +198,12 @@ export function shouldSyncSocialImage(
 }
 ```
 
-- [ ] **Step 4: Run it and watch it pass**
+- [x] **Step 4: Run it and watch it pass**
 
 Run: `cd v2 && pnpm exec vitest run convex/lib/avatar.test.ts`
 Expected: PASS, 11 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd v2 && git add convex/lib/avatar.ts convex/lib/avatar.test.ts
