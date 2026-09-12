@@ -721,7 +721,7 @@ git commit -m "feat(avatar): upload, replace and remove, validated server-side"
 - Modify: `v2/convex/players.ts`
 - Test: `v2/convex/players.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `v2/convex/players.test.ts`:
 
@@ -768,12 +768,12 @@ describe('updateNameFor', () => {
 })
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd v2 && pnpm exec vitest run convex/players.test.ts -t updateNameFor`
 Expected: FAIL — `updateNameFor` is not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 /**
@@ -808,7 +808,7 @@ export const updateName = mutation({
 
 Reuse the existing error code `completeProfileFor` throws for an incomplete name rather than inventing `INCOMPLETE_NAME` if one already exists — check `convex/players.ts:146` and match it.
 
-- [ ] **Step 4: Extend `myName` with the caller's own avatar**
+- [x] **Step 4: Extend `myName` with the caller's own avatar**
 
 Replace the `myName` handler's return:
 
@@ -841,12 +841,12 @@ Replace the `myName` handler's return:
     }
 ```
 
-- [ ] **Step 5: Run the full convex suite**
+- [x] **Step 5: Run the full convex suite**
 
 Run: `cd v2 && pnpm exec vitest run convex/`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd v2 && git add convex/players.ts convex/players.test.ts
