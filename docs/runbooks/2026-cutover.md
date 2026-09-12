@@ -140,7 +140,7 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
 | --- | --- | --- |
 | `SITE_URL` | the production origin | `wordle-teams-cd8` |
 | `E2E_TEST_MODE` | **not set** | `wordle-teams-7az` — see below |
-| `REMINDERS_ENABLED` | `true` | the only thing that starts reminders |
+| `REMINDERS_ENABLED` | `true` | gates delivery, not scheduling -- see §2.3, §5.5 before setting |
 | `REMINDERS_ALLOWLIST` | **unset/empty** | unrestricted IS the production setting |
 | `POLAR_ACCESS_TOKEN` | production | move as a SET — see below |
 | `POLAR_WEBHOOK_SECRET` | production | |
@@ -376,6 +376,12 @@ property to know about, **not a step to run.**
   (which *suppresses* a same-day send — withholding it would have made an
   unwanted reminder more likely), `reminderDeliveryTime` and `hasPwa`.
 
+  **This copy does not itself put anyone on the reminder schedule — that is a
+  separate pass, and it can take up to ~24 hours if you let it happen on its
+  own.** §5.5 covers the ordering and the read-only check; know that timeline
+  exists before you get there, since it lands inside cutover day, not after
+  it.
+
   **Prerequisite:** `supabase.co` must resolve. It was blocked by network DNS
   filtering on the dev box on 2026-09-01 — `supabase.com` and everything else
   resolved, only `supabase.co` was dropped. The error names a **different table
@@ -576,7 +582,8 @@ beta-native row. They are what §4.2's purge now removes, not a delta to expect.
   stops being inert at cutover**, when the copy brings production's methods
   across: a player who has methods in v1 but **no `time_zone`** gets nothing from
   v1 — `get_players_for_reminder()` is `WHERE time_zone IS NOT NULL` — yet in v2
-  the beta-captured zone completes the pair and the sweep claims them. That is a
+  the beta-captured zone completes the pair and the next `reminder
+  maintenance` pass schedules them. That is a
   reminder **v1 has never sent**, to a real person, on the one switch §2.3 calls
   irreversible in effect.
 
@@ -586,10 +593,12 @@ beta-native row. They are what §4.2's purge now removes, not a delta to expect.
   ```
 
   **Its pass condition INVERTS at cutover and the script does not know that.** It
-  exits non-zero if a copied player could be swept, which is correct every day
-  until this one and wrong today — after the final copy, a non-zero
-  `sweepEligible` on copied rows is the entire point. **Read the number, not the
-  exit code.** Compare it against v1:
+  exits non-zero if a copied player is eligible to be scheduled (holds both a
+  `timeZone` and a known delivery method), which is correct every day until
+  this one and wrong today — after the final copy, a non-zero `sweepEligible`
+  on copied rows is the entire point (the field name predates the per-player
+  scheduler and is now just what the script calls "eligible"). **Read the
+  number, not the exit code.** Compare it against v1:
 
   ```
   select count(*) from players
@@ -599,27 +608,49 @@ beta-native row. They are what §4.2's purge now removes, not a delta to expect.
   ```
 
   - **v2 `sweepEligible` ≤ v1's count** is expected and fine. It can be lower
-    because v2 filters to methods the sweep acts on while v1 counts any
-    non-empty array.
+    because v2 filters to the delivery methods `deliver` recognizes
+    (`hasKnownMethod`/`METHODS` in `convex/lib/reminders.ts`) while v1 counts
+    any non-empty array.
   - **v2 higher than v1 is the alarm, and the excess is exactly this
-    population.** Clear `timeZone` by hand on those players before flipping
-    `REMINDERS_ENABLED`, and know that a later sign-in re-adds it — which is why
-    this is a measurement at cutover rather than a cleanup beforehand.
+    population.** Clear `timeZone` by hand on those players before §5.5's
+    maintenance run reaches them — that is the scheduling boundary now, not
+    `REMINDERS_ENABLED`. (If the 01:15 UTC cron beats you to it, it is not a
+    safety hole — `deliver` re-reads `timeZone` and skips as `'no-time-zone'`
+    before any send — but the row will carry a stray scheduled job until a
+    later pass corrects it, which is avoidable cleanup.) And know that a later
+    sign-in re-adds a cleared zone — which is why this is a measurement at
+    cutover rather than a cleanup beforehand.
 
 - [ ] **5.5 — A player is not on the schedule until something puts them
       there. Confirm the maintenance pass has reached the copied players
       before §5.6 flips `REMINDERS_ENABLED`.**
 
   There is no hourly sweep any more (`wordle-teams-spcu`). Each player holds
-  one scheduled job, and exactly two things create it: `updateTimeZoneFor` on
-  their first authenticated load, or the `reminder maintenance` cron, daily at
-  **01:15 UTC**. `maintain` is not gated on `REMINDERS_ENABLED` by design, so
-  it runs regardless of the flag — which is exactly why it can and must run
-  first.
+  one scheduled job, and **for a COPIED player, the `reminder maintenance`
+  cron — daily at 01:15 UTC — is the only automatic path onto it.** `maintain`
+  is not gated on `REMINDERS_ENABLED` by design, so it runs regardless of the
+  flag — which is exactly why it can and must run first.
+
+  **Do not read this the way a natively-signed-up v2 player would work.**
+  `updateTimeZoneFor` does fire automatically on first authenticated load, but
+  only for a player who has never had a zone (`convex/settings.ts`'s doc
+  comment on it) — `use-local-capture.ts` writes `timeZone` only when it is
+  absent. `--with-reminders` (§4.2) is what carries `timeZone` across for
+  exactly the players this step is about, so a copied player signing in
+  triggers **no** automatic reschedule: the row already has a zone.
+  (`updateReminderTimeFor`, `updateReminderMethodsFor` and
+  `setReminderMethodFor` also reschedule, but only if the player goes and
+  changes a setting — that needs the player to act, not merely sign in, so it
+  is not something to rely on here.) The cron is the only automatic path for
+  the population this step exists to protect.
 
   **So the final copy (§4.2) has to precede a `reminder maintenance` run, and
   that run has to precede §5.6.** A copied player with no `nextReminderAt` has
   no pending job, and gets nothing until the cron next reaches them.
+
+  **If you don't run the pass deliberately, budget the wait: up to ~24
+  hours**, depending on how the final copy lands relative to 01:15 UTC. Then
+  re-check the dashboard (below) before §5.6.
 
   **The read-only check is the Convex dashboard: confirm `players` rows carry
   a populated `nextReminderAt`.** That answers the only question this step
@@ -628,23 +659,30 @@ beta-native row. They are what §4.2's purge now removes, not a delta to expect.
 
   **`budget: 0` is NOT that read-only check, and do not treat it as a dry
   run.** It suppresses scheduling for any row that would otherwise be
-  scheduled — but a player with no `timeZone` is never schedulable, so their
-  derived `playsWeekends` flag is still patched even at `budget: 0`; that row
-  never reaches the budget check at all (`convex/reminders.ts`'s `maintain`,
-  the `schedulable` guard). So it writes nothing for any schedulable row, but
-  it is a mutation, not an inspection — and beta currently holds a large
-  zoneless population it would touch: `copy-reminder-policy.mjs` withholds
-  `timeZone` on every copy but the one passing `--with-reminders` (§7.7).
+  scheduled — but a player with no `timeZone` whose derived `playsWeekends`
+  flag has FLIPPED is still patched even at `budget: 0`; that row is never
+  schedulable, so it never reaches the budget check at all
+  (`convex/reminders.ts`'s `maintain`: the `schedulable` guard, and the
+  `if (flipped)` patch above it). So it writes nothing for any schedulable
+  row, but it is a mutation, not an inspection — and beta currently holds a
+  large zoneless population, some share of which this flipped-flag write
+  touches: `copy-reminder-policy.mjs` withholds `timeZone` on every copy but
+  the one passing `--with-reminders` (§7.7).
 
-  If you need the pass to run now rather than waiting for 01:15 UTC, run
-  `maintain` deliberately and WITHOUT a budget, then read `deferred` in the
-  result — non-zero means the table is larger than one run's budget and
-  another run is needed. Two `--prod` hazards compound here, and either alone
-  is reason to prefer the dashboard over trusting CLI output:
-  `CONVEX_DEPLOY_KEY` in `v2/.env.local` outranks `CONVEX_DEPLOYMENT` (§0),
-  and `convex run --prod` has separately been observed silently hitting the
-  LOCAL deployment. A CLI run can therefore write to the wrong deployment and
-  still report success.
+  **There is no copy-pasteable command here, on purpose.** If you need the
+  pass to run now rather than waiting for 01:15 UTC, the safer way is the
+  Convex dashboard's function runner, invoking `maintain` against the
+  deployment you're already looking at for the check above — not the CLI,
+  which resolves its own idea of "prod" and can get it wrong silently (below).
+  Run it WITHOUT a budget so it actually schedules, and read `deferred` in the
+  result: non-zero means the table is larger than one run's budget and
+  another run is needed.
+
+  Two `--prod` hazards compound, and either alone is reason to prefer the
+  dashboard over trusting CLI output: `CONVEX_DEPLOY_KEY` in `v2/.env.local`
+  outranks `CONVEX_DEPLOYMENT` (§0), and `convex run --prod` has separately
+  been observed silently hitting the LOCAL deployment. A CLI run can
+  therefore write to the wrong deployment and still report success.
 
 - [ ] **5.6 — Only now, `REMINDERS_ENABLED=true`** (§2.3, §5.5).
 - [ ] **5.7 — Watch the deploy's EFFECT, not its green.** For a Convex change
@@ -734,13 +772,13 @@ sign-in **survives every later copy, including the cutover one.** That is what
 
 **7.8 — "`REMINDERS_ENABLED` is OFF on beta and that is its designed resting
 state — the cron fires hourly and returns having done nothing."** Both halves
-are now false. It has been `true` on beta since before this cutover work
-started, verified from the dashboard on 2026-09-11. The cron that sentence
-describes is gone: the hourly sweep was replaced by the daily `reminder
-maintenance` pass at 01:15 UTC (`wordle-teams-spcu`), which is not even gated
-on this flag. See §2.3 and §5.5 for what actually protects beta's copied rows
-(the allowlist, not the enable flag) and for the ordering this now requires at
-cutover.
+are now false. It was read `true` on beta from the dashboard on 2026-09-11
+(a reading, not a history — when it was first set is not established here).
+The cron that sentence describes is gone: the hourly sweep was replaced by the
+daily `reminder maintenance` pass at 01:15 UTC (`wordle-teams-spcu`), which is
+not even gated on this flag. See §2.3 and §5.5 for what actually protects
+beta's copied rows (the allowlist, not the enable flag) and for the ordering
+this now requires at cutover.
 
 ---
 
