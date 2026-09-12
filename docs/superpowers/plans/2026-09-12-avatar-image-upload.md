@@ -266,7 +266,7 @@ git commit -m "feat(avatar): socialImage and imageId on players"
 - Modify: `v2/convex/teams.ts` (`ReaderCtx`, `getMyTeamsFor`)
 - Test: `v2/convex/teams.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `v2/convex/teams.test.ts`:
 
@@ -311,12 +311,12 @@ Do not assert the resolved URL *contains* the storage id — its shape is Convex
 change, and a test that pins it is testing their URL format rather than this
 precedence rule.
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd v2 && pnpm exec vitest run convex/teams.test.ts -t avatars`
 Expected: FAIL — `image` is not a property of the member objects, and `ctx` has no `storage` on the `getMyTeamsFor` signature.
 
-- [ ] **Step 3: Widen the ctx type**
+- [x] **Step 3: Widen the ctx type**
 
 In `v2/convex/teams.ts`, replace:
 
@@ -338,7 +338,7 @@ type ReaderCtx = { db: GenericDatabaseReader<DataModel>; storage: StorageReader 
 
 Add `StorageReader` to the existing `convex/server` type import.
 
-- [ ] **Step 4: Resolve the image per member**
+- [x] **Step 4: Resolve the image per member**
 
 In `getMyTeamsFor`, replace the member mapping's return with:
 
@@ -366,12 +366,12 @@ In `getMyTeamsFor`, replace the member mapping's return with:
           }
 ```
 
-- [ ] **Step 5: Run the tests and watch them pass**
+- [x] **Step 5: Run the tests and watch them pass**
 
 Run: `cd v2 && pnpm exec vitest run convex/teams.test.ts`
 Expected: PASS, including the three new tests and all pre-existing ones.
 
-- [ ] **Step 6: Pin the bandwidth guarantee**
+- [x] **Step 6: Pin the bandwidth guarantee**
 
 Append to `v2/convex/dashboardBandwidth.test.ts`, inside the existing
 `describe('getMyTeamsFor — the enumeration every authenticated session holds', ...)`:
@@ -395,12 +395,12 @@ Append to `v2/convex/dashboardBandwidth.test.ts`, inside the existing
   })
 ```
 
-- [ ] **Step 7: Run the bandwidth suite**
+- [x] **Step 7: Run the bandwidth suite**
 
 Run: `cd v2 && pnpm exec vitest run convex/dashboardBandwidth.test.ts`
 Expected: PASS. If the new test fails at 54, the conditional in Step 4 is wrong — fix the conditional, do not raise the constant.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 cd v2 && git add convex/teams.ts convex/teams.test.ts convex/dashboardBandwidth.test.ts
