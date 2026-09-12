@@ -147,6 +147,41 @@ describe('getMyTeamsFor', () => {
   })
 })
 
+describe('getMyTeamsFor avatars', () => {
+  test('a member with neither image resolves to null', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      const [team] = await getMyTeamsFor(ctx, ada)
+      expect(team.members[0].image).toBeNull()
+    })
+  })
+
+  test('a member with only a social image resolves to that URL', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer({ socialImage: 'https://lh3/a' }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      const [team] = await getMyTeamsFor(ctx, ada)
+      expect(team.members[0].image).toBe('https://lh3/a')
+    })
+  })
+
+  // The precedence that makes the two-field design worth having.
+  test('an uploaded image WINS over a social image', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const imageId = await ctx.storage.store(new Blob(['x'], { type: 'image/webp' }))
+      const ada = await ctx.db.insert('players', aPlayer({ socialImage: 'https://lh3/a', imageId }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      const [team] = await getMyTeamsFor(ctx, ada)
+      expect(team.members[0].image).not.toBe('https://lh3/a')
+      expect(typeof team.members[0].image).toBe('string')
+    })
+  })
+})
+
 describe('getMyTeamsFor hasPendingInvite', () => {
   test('is true when an address is parked, false when not', async () => {
     const t = convexTest(schema, modules)

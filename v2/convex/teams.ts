@@ -18,7 +18,7 @@ import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
-import type { GenericDatabaseReader } from 'convex/server'
+import type { GenericDatabaseReader, StorageReader } from 'convex/server'
 import type { SchedulingCtx, WriterCtx } from './winners.ts'
 import type { PuzzleDay } from './lib/puzzleDay.ts'
 
@@ -55,7 +55,13 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
  * table grows.
  */
 
-type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
+/**
+ * `storage` JOINED `db` HERE FOR THE AVATARS (wordle-teams-wty4.1.1). Resolving
+ * an uploaded image to a URL is a storage read, so the roster cannot be built
+ * from `db` alone any more. Every caller is a Convex query or mutation ctx,
+ * both of which carry it.
+ */
+type ReaderCtx = { db: GenericDatabaseReader<DataModel>; storage: StorageReader }
 
 export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
   const allTeams = await ctx.db.query('teams').collect()
@@ -96,7 +102,26 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
           // scoped copy — do not read the deletion of the name filter as
           // evidence this null check is dead too.
           if (!member) return null
-          return { id: member._id, firstName: member.firstName, lastName: member.lastName }
+          return {
+            id: member._id,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            /**
+             * ONLY A STORAGE READ WHEN THERE IS SOMETHING TO READ, and that
+             * conditional is the whole bandwidth story of this feature.
+             *
+             * This function is the hot one — dashboardBandwidth.test.ts pins it
+             * at 54 documents at the six-by-eight ceiling, and wordle-teams-dcu
+             * is about exactly this query. An unconditional getUrl would add up
+             * to 54 system reads to every dashboard load. `socialImage` is a
+             * plain string already on the document we just read, so the common
+             * case — and every case for a player who has never uploaded —
+             * costs nothing at all.
+             */
+            image: member.imageId
+              ? await ctx.storage.getUrl(member.imageId)
+              : (member.socialImage ?? null),
+          }
         }),
       )
 

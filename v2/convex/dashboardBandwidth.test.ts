@@ -162,6 +162,23 @@ describe('getMyTeamsFor — the enumeration every authenticated session holds', 
       }),
     ).rejects.toThrow()
   })
+
+  /**
+   * AVATARS ADD NOTHING FOR A PLAYER WHO HAS NOT UPLOADED ONE, which is the
+   * guarantee wordle-teams-wty4.1.1 was allowed to ship on. `socialImage` rides
+   * along on a player document this query already reads; only `imageId` costs a
+   * storage read, and the resolution in teams.ts is conditional on it.
+   *
+   * If this number ever moves, the conditional has been removed and every
+   * dashboard load is paying up to 54 extra reads.
+   */
+  test(`still costs exactly ${ENUMERATION_READS} documents once avatars resolve`, async () => {
+    await withReadLimit(ENUMERATION_READS).run(async (ctx) => {
+      const { me } = await seedTeams(ctx, CEILING_TEAMS, CEILING_MEMBERS)
+      const teams = await getMyTeamsFor(ctx, me)
+      expect(teams[0].members[0]).toHaveProperty('image', null)
+    })
+  })
 })
 
 describe('unreadBadgeFor — the live subscription /app holds open', () => {
