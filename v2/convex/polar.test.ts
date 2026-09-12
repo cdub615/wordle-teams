@@ -3,12 +3,15 @@ import { convexTest } from 'convex-test'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { api } from './_generated/api'
+import { SDK_METADATA } from '@polar-sh/sdk/lib/config.js'
 import {
+  POLAR_API_VERSION,
   assertPolarEnv,
   classifyPortalError,
   ensurePortal,
   externalIdsFor,
   lookupPortal,
+  pinApiVersion,
   polarEnvProblem,
   polarServer,
   proProductIds,
@@ -665,5 +668,93 @@ describe('ensurePortal only creates after an exhausted no-customer sweep', () =>
     const misconfigured = { found: false, result: { url: null, reason: 'not-configured' } } as const
 
     expect(await ensurePortal(misconfigured, PLAYER, forbidden, noAttempt)).toEqual(misconfigured)
+  })
+})
+
+/**
+ * wordle-teams-rpc0. The API version pin.
+ *
+ * WHY THIS IS TESTABLE WHEN THE SDK CALLS AROUND IT ARE NOT. Everything this
+ * file's header rules out is "stub the SDK, assert the stub was called". The
+ * hook is the opposite: it is a pure `Request -> Request` function that the
+ * production client is built from, so driving it directly exercises the real
+ * thing and asserts on a real answer. A regression that dropped the header, set
+ * the wrong one, or mutated the caller's request would fail here.
+ *
+ * What is NOT covered, deliberately: that `new Polar({ httpClient })` actually
+ * invokes the hook. That is the SDK's contract with itself, it needs a network
+ * or a fetch stub to observe, and stubbing it would land squarely in the
+ * assert-called trap above. Task 13's sandbox pass is where the header meets a
+ * real Polar.
+ */
+describe('POLAR_API_VERSION', () => {
+  // THE TEST THAT EARNS ITS KEEP AT UPGRADE TIME, NOT TODAY.
+  //
+  // The constant is not a preference — it has to name the contract the SDK's
+  // GENERATED MODELS describe, because those models are the types polar.ts
+  // compiles against. `SDK_METADATA.openapiDocVersion` is the installed SDK's
+  // own statement of which contract that is.
+  //
+  // So this fails on exactly one event: a dependency bump that moves the SDK to
+  // a new API version while the pin stays put. That combination would otherwise
+  // typecheck, build, and ship a request whose header contradicts the types
+  // handling the response. Migrating the pin is wordle-teams-4etd; this is what
+  // makes the migration impossible to forget.
+  test('names the API version the installed SDK was generated from', () => {
+    expect(POLAR_API_VERSION).toBe(SDK_METADATA.openapiDocVersion)
+  })
+
+  // Pinned as a literal too, so the assertion above cannot be satisfied by BOTH
+  // sides moving together — which is precisely what a careless upgrade would do
+  // if someone "fixed" the failure by reading the new value off the SDK.
+  test('is 2026-04', () => {
+    expect(POLAR_API_VERSION).toBe('2026-04')
+  })
+})
+
+describe('pinApiVersion', () => {
+  test('puts the pinned version on the wire', () => {
+    const pinned = pinApiVersion(new Request('https://sandbox-api.polar.sh/v1/checkouts/'))
+
+    expect(pinned.headers.get('Polar-Version')).toBe('2026-04')
+  })
+
+  // An unpinned request is not versionless — Polar resolves it to Current, and
+  // Current changes quarterly. This is the whole point of the hook.
+  test('the request it was given had no such header', () => {
+    const original = new Request('https://sandbox-api.polar.sh/v1/checkouts/')
+
+    pinApiVersion(original)
+
+    expect(original.headers.get('Polar-Version')).toBeNull()
+  })
+
+  // The hook is handed the SDK's own fully-formed request — method, url, body,
+  // auth header, content type. Cloning has to carry all of it across, because
+  // anything dropped here is dropped from every Polar call this app makes.
+  test('carries the rest of the request across the clone', async () => {
+    const original = new Request('https://sandbox-api.polar.sh/v1/checkouts/', {
+      method: 'POST',
+      headers: { authorization: 'Bearer polar_oat_test', 'content-type': 'application/json' },
+      body: JSON.stringify({ products: ['prod_annual', 'prod_monthly'] }),
+    })
+
+    const pinned = pinApiVersion(original)
+
+    expect(pinned.method).toBe('POST')
+    expect(pinned.url).toBe('https://sandbox-api.polar.sh/v1/checkouts/')
+    expect(pinned.headers.get('authorization')).toBe('Bearer polar_oat_test')
+    expect(pinned.headers.get('content-type')).toBe('application/json')
+    expect(await pinned.json()).toEqual({ products: ['prod_annual', 'prod_monthly'] })
+  })
+
+  // A header Polar itself sets on the response, and one an earlier hook could
+  // conceivably set: the pin must win rather than append a second value.
+  test('replaces a version already on the request rather than appending one', () => {
+    const stale = new Request('https://sandbox-api.polar.sh/v1/checkouts/', {
+      headers: { 'Polar-Version': '2025-10' },
+    })
+
+    expect(pinApiVersion(stale).headers.get('Polar-Version')).toBe('2026-04')
   })
 })

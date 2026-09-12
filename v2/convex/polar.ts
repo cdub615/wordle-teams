@@ -1,4 +1,5 @@
 import { Polar } from '@polar-sh/sdk'
+import { HTTPClient } from '@polar-sh/sdk/lib/http.js'
 import { v } from 'convex/values'
 import { action, internalAction, internalQuery } from './_generated/server'
 import { internal } from './_generated/api'
@@ -206,6 +207,73 @@ export function polarServer(): 'production' | 'sandbox' {
 }
 
 /**
+ * The Polar API version every request from this app is pinned to.
+ *
+ * wordle-teams-rpc0 / wordle-teams-jn7m.
+ *
+ * POLAR VERSIONS THE CONTRACT BY DATE, AND AN UNPINNED REQUEST IS NOT
+ * VERSIONLESS — it resolves to whatever is Current, and Current CHANGES at each
+ * quarterly release (January, April, July, October). On 2026-10-01, 2026-10
+ * becomes Current, so leaving this unset would have changed the shape of every
+ * response this module reads with no code change, no build failure and no test
+ * failure. 2026-04 becomes Deprecated on that date and keeps its stable
+ * contract until it is REMOVED at the January 2027 release; migrating off it is
+ * wordle-teams-4etd, and it is a hard deadline because Polar answers an unknown
+ * or removed version with 404 rather than a fallback.
+ *
+ * 2026-04 IS NOT A PREFERENCE, IT IS WHAT THE INSTALLED SDK ALREADY IS.
+ * `@polar-sh/sdk@0.49.0` reports `SDK_METADATA.openapiDocVersion === '2026-04'`:
+ * its generated models — the types the calls below compile against — describe
+ * that contract and no other. Pinning the wire to it makes the request agree
+ * with the types. `polar.test.ts` asserts that equality rather than trusting
+ * it, so an SDK upgrade that moves the generated contract fails the suite
+ * instead of drifting silently past this constant.
+ *
+ * A CONSTANT, NOT AN ENV VAR, and the reasoning is `polarServer`'s inverted.
+ * That value is checked rather than coerced because a deployment genuinely has
+ * to change it and a typo must not resolve to something plausible. This one a
+ * deployment must NOT change: a version the SDK's models do not describe is
+ * broken code, not a configuration choice, and making it settable would let an
+ * operator turn every Polar call into a 404 from a dashboard.
+ *
+ * IT DOES NOT PIN THE WEBHOOK. Webhook payloads are versioned per ENDPOINT, by
+ * an `api_version` set where the endpoint is configured, and the request header
+ * below has no bearing on them. convex/http.ts warns when the two disagree;
+ * docs/runbooks/2026-cutover.md carries the dashboard step.
+ */
+export const POLAR_API_VERSION = '2026-04'
+
+/**
+ * The `beforeRequest` hook that stamps {@link POLAR_API_VERSION} on the wire.
+ *
+ * A HOOK BECAUSE 0.49.0'S `SDKOptions` HAS NO `headers` FIELD. It has
+ * `accessToken`, `httpClient`, `server`, `serverURL`, `userAgent`,
+ * `retryConfig`, `timeoutMs` and `debugLogger` — and nothing else — so the
+ * documented seam for an extra header is `HTTPClient.addHook('beforeRequest')`,
+ * which is what the SDK's own README uses for exactly this. The alternative
+ * was `@polar-sh/sdk@next` and its `createPolar` versioned import, which sets
+ * the header itself; that line is a public preview, and adopting it would also
+ * invalidate the no-`'use node'` measurement in this module's header, which was
+ * run against 0.49.0's published ESM build and would have to be redone against
+ * a different package.
+ *
+ * CLONES RATHER THAN MUTATES. A `Request` built by the SDK carries the
+ * immutable "request" header guard for some fields, and the hook is handed the
+ * SDK's own object; `new Request(req)` produces one whose headers accept a set,
+ * and every other property — method, url, body, signal — comes across. This is
+ * the README's pattern verbatim, minus its timeout.
+ *
+ * Exported so `polar.test.ts` can drive it over a real `Request` without a
+ * network, which is the only way to prove the header is actually on the wire —
+ * the SDK calls it internally and nothing else here can observe it.
+ */
+export function pinApiVersion(request: Request): Request {
+  const pinned = new Request(request)
+  pinned.headers.set('Polar-Version', POLAR_API_VERSION)
+  return pinned
+}
+
+/**
  * The SDK client: built on first use and then reused.
  *
  * LAZY RATHER THAN AT MODULE SCOPE. v1 is lazy too, but for a reason that does
@@ -232,6 +300,11 @@ export function polar(): Polar {
   client ??= new Polar({
     accessToken: process.env.POLAR_ACCESS_TOKEN,
     server: polarServer(),
+    // Configuration, not a new failure path: the hook runs per request, sets
+    // one header and returns. It cannot throw on a value this module does not
+    // control, so `polar()`'s contract — assert the environment, then hand back
+    // a client — is unchanged.
+    httpClient: new HTTPClient().addHook('beforeRequest', pinApiVersion),
   })
 
   return client
