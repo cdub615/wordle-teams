@@ -1230,7 +1230,7 @@ git commit -m "feat(avatar): Profile tab in the settings dialog and the menu"
 - Modify: `v2/src/components/chat/message-list.tsx`, `v2/docs/../docs/superpowers/specs/2026-09-12-avatar-image-upload-design.md`
 - Test: `v2/src/components/chat/message-list.hook.test.ts`
 
-- [ ] **Step 1: Thread the image through**
+- [x] **Step 1: Thread the image through**
 
 `message-list.tsx` already resolves author names via a `nameFor(playerId)` helper built
 from `team.members` (`chat.tsx:312` finds the member; a `playerId` absent from that list
@@ -1260,7 +1260,7 @@ both returning `null` for a departed author:
 Import `initialsFor` from `#/lib/initials.ts`, and `Avatar`, `AvatarFallback`,
 `AvatarImage` from `#/components/ui/avatar.tsx`.
 
-- [ ] **Step 2: Render it beside the author name**
+- [x] **Step 2: Render it beside the author name**
 
 Replace the `row.showsName` block:
 
@@ -1302,7 +1302,7 @@ Replace the `row.showsName` block:
 
 `alt=""` and `aria-hidden` because the name is right beside it — an alt text here would make a screen reader announce the author twice.
 
-- [ ] **Step 3: Write the failing test**
+- [x] **Step 3: Write the failing test**
 
 `v2/src/components/chat/message-list.hook.test.ts` (create it if it does not exist, with the `// @vitest-environment jsdom` header and its rationale). Assert:
 
@@ -1314,16 +1314,16 @@ Replace the `row.showsName` block:
 - an author with no image renders their initials and no <img>
 ```
 
-- [ ] **Step 4: Run it**
+- [x] **Step 4: Run it**
 
 Run: `cd v2 && pnpm exec vitest run src/components/chat/`
 Expected: PASS.
 
-- [ ] **Step 5: Correct the spec**
+- [x] **Step 5: Correct the spec**
 
 Edit `docs/superpowers/specs/2026-09-12-avatar-image-upload-design.md` §5: replace "A 24px avatar in a left gutter, on the first message of each author's group only" with the name-row placement and the reason, so the spec matches what shipped.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd v2 && git add src/components/chat/
@@ -1374,7 +1374,7 @@ git commit -m "feat(avatar): mirror the social image on dashboard load"
 
 ## Task 12: Gates, deploy, close
 
-- [ ] **Step 1: Run all four gates, separately**
+- [x] **Step 1: Run all four gates, separately**
 
 ```bash
 cd v2
