@@ -176,18 +176,23 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
   `customer_sessions:write` (`:658`), `checkouts:read` (`:740`),
   `customers:write` (`:799`).
 
-- [ ] **2.3 — `REMINDERS_ENABLED=true` is the last switch you throw, and it is
-      irreversible in effect.**
+- [ ] **2.3 — `REMINDERS_ENABLED=true` is the last switch you throw ON
+      PRODUCTION, and it is irreversible in effect.**
 
   It is the only thing between a config slip and mailing every copied production
-  row. It is **OFF on beta and that is its designed resting state** — the cron
-  fires hourly and returns having done nothing. Turn it on only after §5's smoke
-  test passes.
+  row. Turn it on only after §5's smoke test passes **and** §5.5 confirms the
+  maintenance pass has reached the copied players — the flag alone does not mail
+  anyone who has no scheduled job yet.
 
-  **On BETA the opposite rule holds and must keep holding:** if beta is ever
-  given `REMINDERS_ENABLED`, `REMINDERS_ALLOWLIST` goes in **first, in the same
-  sitting**, because beta holds copied production rows and `E2E_TEST_MODE` is not
-  set there, so `sendEmail`'s throwaway-address filter suppresses nothing.
+  **It is already `true` on beta, and that is deliberate — see §7.8 for the
+  stale claim this replaced.** Beta holds copied production rows and
+  `E2E_TEST_MODE` is not set there, so what actually protects them is
+  `REMINDERS_ALLOWLIST` holding a single address (Gate 2), not this flag
+  (Gate 1) — see `convex/reminders.ts`'s `deliver` for which gate does the
+  work. **The rule that must keep holding:** beta's allowlist stays populated
+  for as long as beta holds copied production rows, and production's is
+  cleared — an empty allowlist is unrestricted, which is what production wants
+  (`allowsAddress` in `convex/lib/reminders.ts`).
 
 ---
 
@@ -601,8 +606,48 @@ beta-native row. They are what §4.2's purge now removes, not a delta to expect.
     `REMINDERS_ENABLED`, and know that a later sign-in re-adds it — which is why
     this is a measurement at cutover rather than a cleanup beforehand.
 
-- [ ] **5.5 — Only now, `REMINDERS_ENABLED=true`** (§2.3).
-- [ ] **5.6 — Watch the deploy's EFFECT, not its green.** For a Convex change
+- [ ] **5.5 — A player is not on the schedule until something puts them
+      there. Confirm the maintenance pass has reached the copied players
+      before §5.6 flips `REMINDERS_ENABLED`.**
+
+  There is no hourly sweep any more (`wordle-teams-spcu`). Each player holds
+  one scheduled job, and exactly two things create it: `updateTimeZoneFor` on
+  their first authenticated load, or the `reminder maintenance` cron, daily at
+  **01:15 UTC**. `maintain` is not gated on `REMINDERS_ENABLED` by design, so
+  it runs regardless of the flag — which is exactly why it can and must run
+  first.
+
+  **So the final copy (§4.2) has to precede a `reminder maintenance` run, and
+  that run has to precede §5.6.** A copied player with no `nextReminderAt` has
+  no pending job, and gets nothing until the cron next reaches them.
+
+  **The read-only check is the Convex dashboard: confirm `players` rows carry
+  a populated `nextReminderAt`.** That answers the only question this step
+  asks, with no write at all. **Do not use `npx convex env list` for this** —
+  it is read-only too, but it prints every deployment secret in plaintext.
+
+  **`budget: 0` is NOT that read-only check, and do not treat it as a dry
+  run.** It suppresses scheduling for any row that would otherwise be
+  scheduled — but a player with no `timeZone` is never schedulable, so their
+  derived `playsWeekends` flag is still patched even at `budget: 0`; that row
+  never reaches the budget check at all (`convex/reminders.ts`'s `maintain`,
+  the `schedulable` guard). So it writes nothing for any schedulable row, but
+  it is a mutation, not an inspection — and beta currently holds a large
+  zoneless population it would touch: `copy-reminder-policy.mjs` withholds
+  `timeZone` on every copy but the one passing `--with-reminders` (§7.7).
+
+  If you need the pass to run now rather than waiting for 01:15 UTC, run
+  `maintain` deliberately and WITHOUT a budget, then read `deferred` in the
+  result — non-zero means the table is larger than one run's budget and
+  another run is needed. Two `--prod` hazards compound here, and either alone
+  is reason to prefer the dashboard over trusting CLI output:
+  `CONVEX_DEPLOY_KEY` in `v2/.env.local` outranks `CONVEX_DEPLOYMENT` (§0),
+  and `convex run --prod` has separately been observed silently hitting the
+  LOCAL deployment. A CLI run can therefore write to the wrong deployment and
+  still report success.
+
+- [ ] **5.6 — Only now, `REMINDERS_ENABLED=true`** (§2.3, §5.5).
+- [ ] **5.7 — Watch the deploy's EFFECT, not its green.** For a Convex change
       that is the "Deploy Convex and build the client" step. And **`gh run list
       --limit 1` right after a push returns the PREVIOUS run** — select by SHA.
 
@@ -686,6 +731,16 @@ is asymmetric. Methods are sent explicitly empty and so are cleared by a re-run;
 `timeZone` is merely OMITTED, so a zone written by an early copy or a beta
 sign-in **survives every later copy, including the cutover one.** That is what
 §5.4 measures.
+
+**7.8 — "`REMINDERS_ENABLED` is OFF on beta and that is its designed resting
+state — the cron fires hourly and returns having done nothing."** Both halves
+are now false. It has been `true` on beta since before this cutover work
+started, verified from the dashboard on 2026-09-11. The cron that sentence
+describes is gone: the hourly sweep was replaced by the daily `reminder
+maintenance` pass at 01:15 UTC (`wordle-teams-spcu`), which is not even gated
+on this flag. See §2.3 and §5.5 for what actually protects beta's copied rows
+(the allowlist, not the enable flag) and for the ordering this now requires at
+cutover.
 
 ---
 
