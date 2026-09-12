@@ -633,10 +633,12 @@ describe('reminder maintenance bandwidth', () => {
 
   /**
    * ONE DOCUMENT PER ROW AND NOTHING ELSE — the two collects, and no per-player
-   * read on top. This is the ceiling that would catch the `ctx.db.system.get`
-   * per player that `maintain`'s THE ROW ONLY, NEVER `_scheduled_functions`
-   * paragraph explains the absence of, and (because a patch is charged a read)
-   * any unconditional write the counters would not report.
+   * read on top. This is the ceiling that guards the absence `maintain`'s THE
+   * ROW ONLY, NEVER `_scheduled_functions` paragraph argues for: a per-player
+   * lookup of any kind breaches it. Mutation-tested with a `ctx.db.get` per
+   * player, which is the shape that paragraph's rejected alternative takes; and
+   * because a patch is charged a read, the same ceiling catches an
+   * unconditional write the counters would not report.
    *
    * PLAYERS AND TEAMS ARE VARIED INDEPENDENTLY, which is the whole point of the
    * table. Every fixture here used to hold one team per player, and `players +
