@@ -32,18 +32,32 @@ const dueChicagoPlayer = (over: Record<string, unknown> = {}) =>
     ...over,
   })
 
+/**
+ * NO TEAM IS SEEDED, AND THAT IS THE POINT. This used to insert one, plus a
+ * `teamOver` parameter to vary its `playWeekends` — both only ever used by the
+ * sweep suites, which read `teams` per player and were deleted at Task 7.
+ * Neither `scheduleNextFor` nor `deliver` reads that table: `deliver`'s own doc
+ * comment says "NO `teams` READ", and the weekend rule reaches it as the
+ * derived `playsWeekends` flag on the player row instead.
+ *
+ * Leaving the insert in place would have left every test in both blocks
+ * silently carrying a team with `aTeam`'s `playWeekends: true` default,
+ * contradicting that claim and sending the next person debugging a weekend case
+ * after a dependency the design removed on purpose. `noUnusedParameters` cannot
+ * see a defaulted parameter whose body still uses it, so nothing would have
+ * flagged it. `maintain`'s tests build their teams inline, where the read is
+ * real.
+ */
 async function seed(
   t: ReturnType<typeof convexTest>,
   playerOver: Record<string, unknown>,
   days: Array<string>,
-  teamOver: Record<string, unknown> = {},
 ): Promise<Id<'players'>> {
   return await t.run(async (ctx) => {
     const playerId = await ctx.db.insert('players', dueChicagoPlayer(playerOver))
     for (const puzzleDay of days) {
       await ctx.db.insert('dailyScores', { playerId, puzzleDay, date: 0, guesses: ['xxxxx'] })
     }
-    await ctx.db.insert('teams', aTeam({ playerIds: [playerId], ...teamOver }))
     return playerId
   })
 }

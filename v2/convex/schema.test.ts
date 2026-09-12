@@ -450,11 +450,14 @@ describe('players reminder scheduling fields', () => {
       const id = await ctx.db.insert('players', aPlayer())
       // This test is about whether the schema accepts an Id<'_scheduled_functions'>;
       // WHICH function was scheduled is incidental. pushSend.deliverTo is used
-      // because it exists today and survives this plan, where reminders.deliver
-      // does not exist until Task 5 and reminders.sweep is deleted at Task 7 — so
-      // either of those would couple this test to another task's sequencing.
-      // convex/reminders.ts:246 already schedules this same function with these
-      // same args, so this follows an established call rather than inventing one.
+      // because it is the stable choice: it predates the per-player reminder
+      // work and outlived it, whereas reminders.deliver was added partway
+      // through and reminders.sweep was deleted by it, so either would have
+      // coupled this test to another task's sequencing. `deliver`'s own push
+      // branch in convex/reminders.ts schedules this same function with these
+      // same args, so this follows an established call rather than inventing
+      // one. Named by symbol rather than by line: this cited a line number and
+      // the deletion moved it.
       const jobId = await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, {
         playerId: id,
         attempt: 0,

@@ -58,13 +58,10 @@ const [EMAIL_METHOD, PUSH_METHOD] = METHODS
  * abort the write it observes. Inline, this code sat OUTSIDE the catch that
  * wraps `nextOccurrence`, and was the one statement in `scheduleNextFor` that
  * could throw — so a throw from here would have rolled back `maintain`'s entire
- * daily pass, including every `playsWeekends` patch already made in it. (An
- * earlier version of this paragraph went on to say that `maintain` calls
- * `reschedulePlayerReminderFor` bare with no per-player try/catch, so that the
- * batch-tolerance property rested on this catch. It no longer does: `maintain`
- * wraps its per-player body in its own guard. Both catches are still wanted —
- * this one keeps an observability check from being able to fail a write at all,
- * which is a stronger property than being caught one frame up.)
+ * daily pass, including every `playsWeekends` patch already made in it.
+ * `maintain` wraps its per-player body in its own guard as well, and both
+ * catches are wanted: this one keeps an observability check from being able to
+ * fail a write AT ALL, which is stronger than being caught one frame up.
  *
  * It is unreachable today, and the catch is still not decoration. `localParts`
  * cannot reject the zone — `nextOccurrence` already resolved it in the same
@@ -135,18 +132,9 @@ function warnIfWallClockDrifted(
  * swallowed for the reason the deleted sweep did the same: `schema.ts` types
  * timeZone as unvalidated `v.optional(v.string())`, a copied Supabase row never
  * passed through `updateTimeZoneFor`, and one bad row must not abort a batch
- * that `maintain` runs over every player row — ~393 of them, the figure this
- * change's spec measures for the Convex `players` table and the one every other
- * comment here uses.
- *
- * DO NOT DERIVE THAT FIGURE FROM SUPABASE'S. The deleted `sweep` said 533, and
- * a note reconciling the two claimed 393 was 533 minus the 151 nameless rows the
- * copy's `isNamed` filter drops. It is not: that subtraction gives 382. The
- * Supabase count has moved between measurements — 533 on 2026-08-20
- * (scripts/lib/copy-filters.mjs), 535 on 2026-08-24, and "151 of 543" in that
- * same file's explainTeamMemberDrops note — and the Convex table also gains
- * natively-signed-up players the copy never saw. The two are separate
- * measurements and neither one implies the other.
+ * that `maintain` runs over every player row — ~393 of them; schema.ts's note
+ * on `players` has that figure's provenance, including why it is not 533 minus
+ * 151.
  *
  * RETURNS WHETHER IT SCHEDULED, and the boolean is load-bearing rather than
  * informational: `reschedulePlayerReminderFor` below cancels ONLY on true, so
@@ -337,8 +325,8 @@ export async function reschedulePlayerReminderFor(
  * mailed is the allowlist (Gate 2), not the enable flag (Gate 1).
  *
  * THIS PARAGRAPH IS THE ONE AUTHORITATIVE STATEMENT OF THAT, and crons.ts cites
- * it rather than restating it — the wrong version has now been written twice,
- * once here and once in the text Task 7 was handed for crons.ts.
+ * it rather than restating it — the wrong version has already been written
+ * twice, once here and once in crons.ts.
  *
  * STILL A MUTATION, NOT AN ACTION, for every reason the deleted `sweep` was
  * one, and restated rather than cited because that function is gone: eligibility
@@ -457,10 +445,7 @@ export const deliver = internalMutation({
     // `localParts` only when a stamp exists, and again inside
     // `scheduleNextFor` on every skip path. All of those are outside this
     // catch. What keeps them safe is that an ICU-rejected zone has already
-    // returned here before any of them can be reached. (Two earlier versions
-    // of this comment got the structure wrong: first claiming the ordering
-    // "puts both resolutions inside one catch", then that there were exactly
-    // two.) `schema.ts`
+    // returned here before any of them can be reached. `schema.ts`
     // types timeZone as unvalidated `v.optional(v.string())` and a row copied
     // from Supabase never passed through `updateTimeZoneFor`, so an
     // ICU-rejected zone is reachable here — see lib/reminders.ts's localParts
@@ -686,9 +671,9 @@ const MAINTAIN_SCHEDULE_BUDGET = 800
  * and the log is what gets such a row fixed — but a cost, not the absence of one.
  */
 export const maintain = internalMutation({
-  // `budget` exists for the tests, the same way `sweep`'s `now` did, and for the
-  // same reason it must NOT be passed from crons.ts: a cron's args are
-  // serialised when that module is EVALUATED, not when the job fires.
+  // `budget` exists for the tests, and must NOT be passed from crons.ts: a
+  // cron's args are serialised when that module is EVALUATED, not when the job
+  // fires.
   args: { budget: v.optional(v.number()) },
   handler: async (ctx, { budget }) => {
     const limit = budget ?? MAINTAIN_SCHEDULE_BUDGET
@@ -805,8 +790,8 @@ export const maintain = internalMutation({
     }
 
     // ONE LINE PER RUN, AND ONLY WHEN THIS PASS DID NOT FINISH ITS JOB. Without
-    // it, every counter here exists only in the return value, and after Task 7
-    // the sole caller is a cron — whether Convex surfaces a cron mutation's
+    // it, every counter here exists only in the return value, and the sole
+    // caller is a cron — whether Convex surfaces a cron mutation's
     // return value anywhere a human looks is not something this repo has
     // verified, so the budget's claim that `deferred` makes a multi-day
     // bootstrap "visible" would have been an assertion rather than a fact. This

@@ -65,6 +65,16 @@ export default defineSchema({
     // (scripts/lib/copy-filters.mjs) is what stops the next copy putting such
     // rows back, and is the durable half of that pair.
     //
+    // HOW MANY ROWS THIS TABLE ACTUALLY HOLDS: ~393, the figure the per-player
+    // reminder design measures and the one every I/O estimate in convex/
+    // reminders.ts uses. DO NOT DERIVE IT FROM THE 533 ABOVE. A note once
+    // claimed 393 was 533 minus the 151 nameless rows; that subtraction gives
+    // 382. The Supabase count has moved between measurements — 533 on
+    // 2026-08-20, 535 on 2026-08-24, and "151 of 543" in copy-filters.mjs's own
+    // explainTeamMemberDrops note — and this table also gains natively-signed-up
+    // players the copy never saw. The two are separate measurements and neither
+    // implies the other.
+    //
     // This is also what retired lib/player.ts's hasCompleteProfile predicate.
     // Its three call sites — the scoreboard (scores.ts), the team card
     // (teams.ts) and the winner computation (winners.ts) — had to agree or the

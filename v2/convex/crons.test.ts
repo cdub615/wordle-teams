@@ -53,14 +53,16 @@ describe('crons', () => {
         name: 'chatNotify:sweep',
         // MINUTE 30, ASSERTED RATHER THAN INCIDENTAL — but NOT for the reason
         // this comment used to give. It said moving this to 0 would put "both
-        // sweeps' table walks and both bursts of push traffic" on one minute.
-        // That was the hourly reminder sweep at :00, which is deleted: this is
-        // now the only hourly cron, and reminder push is no longer bursty at all
-        // because `reminders.deliver` fires one job per player at that player's
-        // own local time. What the assertion still protects is the lane itself —
-        // :30 never coincides with `reminder maintenance` at 01:15 or with
-        // `team month aggregates` at 00:45, and nothing else in the suite would
-        // notice it moving. See crons.ts, which now says the same thing.
+        // sweeps' table walks and both bursts of push traffic" on one minute;
+        // the hourly reminder sweep that held :00 is deleted, so this is now
+        // the only hourly cron. Reminder push is STILL bursty — eighteen
+        // `HH:00:00` local times, so same-zone players sharing a delivery time
+        // land in the same millisecond; see crons.ts — it is just no longer
+        // pinned to a cron minute, which is what makes this lane hold by
+        // construction now. What the assertion protects is that lane: :30 never
+        // coincides with `reminder maintenance` at 01:15 or `team month
+        // aggregates` at 00:45, and nothing else in the suite would notice it
+        // moving.
         schedule: { type: 'hourly', minuteUTC: 30 },
         args: [{}],
       },

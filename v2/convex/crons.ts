@@ -11,14 +11,10 @@ const crons = cronJobs()
  * and that sweep opened with a full `players` collect on every one of its 720
  * monthly runs: ~283,000 document reads, about 82 MB, roughly 8% of a 1 GB
  * free-tier database-I/O cap whose failure mode is mutations FAILING rather
- * than generating a bill (wordle-teams-dcu). THAT COST WAS NOT A FUTURE ONE.
- * The plan's text for this comment said the scan cost nothing while
- * REMINDERS_ENABLED was empty, deferring the whole bill to whoever set that
- * variable on cutover day; Task 5 had already measured the flag as 'true' on
- * beta and the collect as sitting above the allowlist filter, so the scan had
- * been running there all along. See the "IT IS NOT A FUTURE COST" paragraph on
- * `internal.reminders.deliver`, which is the one authoritative statement of it
- * and says so.
+ * than generating a bill (wordle-teams-dcu). THAT COST WAS NOT A FUTURE ONE
+ * deferred to cutover day — see the "IT IS NOT A FUTURE COST" paragraph on
+ * `internal.reminders.deliver`, which holds the measurement and is the one
+ * place it is stated.
  *
  * HOURLY WAS NOT THE WASTE, which is worth knowing before "optimising" the
  * cadence again. Reminder times are local, and with 57 distinct player timezones
@@ -64,11 +60,21 @@ crons.daily('reminder maintenance', { hourUTC: 1, minuteUTC: 15 }, internal.remi
  * table walks contending for the scheduler at once. That sweep is gone, and
  * this is now the only hourly cron in the deployment; the two it stays clear
  * of are `reminder maintenance` at 01:15 and `team month aggregates` at 00:45.
- * Reminder push traffic is no longer bursty at all — `reminders.deliver` fires
- * one job per player at that player's own local time. Half past still costs
- * nothing — chat notifications are already an hour coarse by design — and it
- * keeps a slow run of one cron from being tangled up with another when
- * something needs diagnosing.
+ *
+ * REMINDER PUSH IS STILL BURSTY; it is only no longer synchronised to a CRON
+ * MINUTE. REMINDER_TIMES offers eighteen `HH:00:00` values, so two players in
+ * one zone sharing a `reminderDeliveryTime` resolve to a byte-identical `dueAt`
+ * through `instantForLocal` and their `runAfter(0, ...)` calls land in the same
+ * millisecond — at most eighteen buckets per zone, with a heavy mode
+ * (fixtures.ts defaults to '18:00:00'), over a population concentrated in few
+ * zones. So burstiness is a reason THIS LANE STILL MATTERS, not a reason it
+ * matters less. What the deletion bought is that the reminder peak no longer
+ * coincides with this sweep's BY CONSTRUCTION rather than by a thirty-minute
+ * offset.
+ *
+ * Half past still costs nothing — chat notifications are already an hour coarse
+ * by design — and it keeps a slow run of one cron from being tangled up with
+ * another when something needs diagnosing.
  *
  * `{}` AND NOTHING ELSE, for the same reason spelled out above: a cron's args
  * are serialised to JSON when THIS MODULE is evaluated, not when the job fires.

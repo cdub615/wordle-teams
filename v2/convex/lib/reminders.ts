@@ -37,9 +37,8 @@ export type LocalTime = string
  * MOTIVATED IT. v1's picker offered exactly these eighteen
  * (board-entry-reminders.tsx:86-103) and nothing checked them; a shape-only
  * check accepts '23:30:00'. Under the old hourly sweep that value could never
- * match for a player in a whole-hour-offset zone — see the measurement below,
- * which is narrower than the claim the deleted function made — and that player
- * was silently never reminded. Per-player scheduling would now honour
+ * match for a player in a whole-hour-offset zone (see the band below), and that
+ * player was silently never reminded. Per-player scheduling would now honour
  * '23:30:00' perfectly well, so the hazard is no longer "never matches" but
  * "the UI offers eighteen options and the server would accept any string",
  * which is a validation gap either way. settings.ts's updateReminderTimeFor is
@@ -58,40 +57,34 @@ export type LocalTime = string
  * recording: nextOccurrence resolves any wall-clock time in any zone, including
  * ones that are ambiguous or nonexistent across a DST transition — it takes the
  * first of the two occurrences, and the instant just BEFORE the gap,
- * respectively. (NOT after the gap. That version of the sentence has now been
- * written twice and measured wrong twice; instantForLocal's own doc comment
- * carries the measurement, `America/Chicago` 2026-03-08 02:30 resolving to
- * 01:30 local.)
+ * respectively (instantForLocal carries the measurement).
  *
  * THE OLD isDueThisHour COULD NOT, AND WHAT IT LOST WAS ONE HOUR-WIDE BAND
- * STRADDLING LOCAL MIDNIGHT — the same width in every zone. MEASURED over all
- * 1440 minute-of-day values against all 24 ticks, for each offset shape: the
- * cron fired at UTC :00 and both bounds were resolved in the player's zone, so
- * the window's minutes were that zone's own offset minutes, and the one window
- * spanning local midnight had its lower bound sorting ABOVE its upper as a
- * string. The band lost is (23:MM, 24:00) union [00:00, 00:MM) where MM is the
- * offset's minutes — exactly 59 values every time:
+ * STRADDLING LOCAL MIDNIGHT — the same width in every zone. The cron fired at
+ * UTC :00 and both bounds resolved in the player's zone, so a window's minutes
+ * were that zone's offset minutes, and the one window spanning local midnight
+ * had its lower bound sorting ABOVE its upper as a string. MEASURED over all
+ * 1440 minute-of-day values x 24 ticks per offset shape, the band lost is
+ * (23:MM, 24:00) union [00:00, 00:MM) — exactly 59 values every time:
  *
  *     +00   23:01..23:59
  *     +30   23:31..23:59  and  00:00..00:29
  *     +45   23:46..23:59  and  00:00..00:44
  *
- * So '23:30:00' was unmatchable at +00 and fine at +30 — but '23:45:00' is lost
- * at +30 too, and a reader widening this list must check the band rather than
- * the example. TWO EARLIER VERSIONS GOT THIS WRONG IN OPPOSITE DIRECTIONS: the
- * deleted function's own comment stated the +00 case as universal, and the
- * first draft of this paragraph said a half-hour zone lost [00:00, 00:30)
- * "instead", omitting the 23:31..23:59 half and implying 23:45 was safe there.
- * The uniform rule above is both simpler and correct.
+ * '23:30:00' was unmatchable at +00 and fine at +30; '23:45:00' is lost at +30.
+ * Check the band, not the example.
  *
- * THESE ARE NOT HYPOTHETICAL OFFSETS. Three of the five Postgres spellings
- * v1's own timeZoneMapping produced, and which lib/reminders.test.ts pins as
- * ICU aliases on the copied-row path, are non-whole-hour: Asia/Calcutta
- * (+05:30), Asia/Rangoon (+06:30) and Asia/Katmandu (+05:45) — offsets read
- * back from Intl here, not recalled. So both shapes above were reachable from
- * v1's picker. (How many production players sat in one is not something this
- * session measured; the table holds 57 distinct zones.) That function is gone;
- * the guard is what keeps the whole class out by construction.
+ * THESE OFFSETS ARE NOT HYPOTHETICAL. Three of the five Postgres spellings v1's
+ * timeZoneMapping produced, which lib/reminders.test.ts pins as ICU aliases on
+ * the copied-row path, are non-whole-hour: Asia/Calcutta (+05:30), Asia/Rangoon
+ * (+06:30), Asia/Katmandu (+05:45) — offsets read back from Intl, not recalled.
+ * So both shapes were reachable in STORED DATA; only +30 was also reachable
+ * from the TIMEZONE picker, since of those five aliased pairs only
+ * Asia/Calcutta lands in TIME_ZONE_GROUPS and src/lib/time-zones.ts records
+ * that the other four had no option to select (wordle-teams-54s). Note the two
+ * different pickers in this one comment: the reminder-time list above, the
+ * timezone list here. How many production players sat in such a zone was not
+ * measured; the table holds 57 distinct zones.
  *
  * Exported so the settings UI renders FROM this list rather than keeping a
  * second copy in sync with it.
