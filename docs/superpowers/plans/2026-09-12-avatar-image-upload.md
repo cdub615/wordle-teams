@@ -1404,7 +1404,7 @@ Expected: a `Cache-Control` permitting browser caching. **If there is none**, fi
 - a name change appears on the scoreboard
 - chat shows no avatar on your own messages, none on a run's second message, and none for "Former member"
 
-- [ ] **Step 4: Push**
+- [x] **Step 4: Push**
 
 ```bash
 cd /home/cdub/projects/wordle-teams
