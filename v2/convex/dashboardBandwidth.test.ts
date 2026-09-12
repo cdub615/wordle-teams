@@ -91,6 +91,24 @@ async function seedTeams(
  * top-level `t.run` / `t.mutation` gets a fresh counter against the same
  * ceiling, seeds included.
  */
+/**
+ * THE THREE METERS THIS FILE CAN USE — AND THE TWO IT CANNOT, WHICH IS THE MORE
+ * INTERESTING HALF. `convex-test` also enforces `documentsWritten` and
+ * `bytesWritten` (its `trackWrite` increments both), so "the seeds cost nothing
+ * measured", asserted in each block below, is precise only about these three: an
+ * insert charges the write meters, by definition.
+ *
+ * SO WHY DOES A FILE ASSERTING "THIS PASS WRITES NOTHING" NEVER PASS
+ * `documentsWritten`? NOT LAZINESS — IT IS UNREACHABLE. Limits are per-`t`, and
+ * every `t.run` starts its own root layer against that same config, so an
+ * instance strict enough to prove the mutation wrote nothing cannot seed the
+ * rows it needs in the first place. The writing half is pinned two other ways
+ * instead: by the counters (`weekendFlagsChanged` and `scheduled` are
+ * `maintain`'s only two write paths, both asserted at 0 under an exhaustive
+ * `toEqual`), and by the read ceilings, since a patch is charged a document
+ * read. Adding `documentsWritten` here would not tighten anything; it would
+ * break the seeds.
+ */
 type Limits = {
   documentsRead?: number
   databaseQueries?: number
@@ -99,7 +117,8 @@ type Limits = {
 const withLimits = (transactionLimits: Limits) =>
   convexTest({ schema, modules, transactionLimits })
 
-const withLimit = (documentsRead: number) => withLimits({ documentsRead })
+/** Read-only shorthand for the read-path guards below, which meter one thing. */
+const withReadLimit = (documentsRead: number) => withLimits({ documentsRead })
 
 describe('getMyTeamsFor — the enumeration every authenticated session holds', () => {
   /**
@@ -111,7 +130,7 @@ describe('getMyTeamsFor — the enumeration every authenticated session holds', 
    * history" with no other gate noticing.
    */
   test(`costs ${ENUMERATION_READS} documents at the six-by-eight ceiling`, async () => {
-    await withLimit(ENUMERATION_READS).run(async (ctx) => {
+    await withReadLimit(ENUMERATION_READS).run(async (ctx) => {
       const { me } = await seedTeams(ctx, CEILING_TEAMS, CEILING_MEMBERS)
       expect(await getMyTeamsFor(ctx, me)).toHaveLength(CEILING_TEAMS)
     })
@@ -119,7 +138,7 @@ describe('getMyTeamsFor — the enumeration every authenticated session holds', 
 
   test('and one fewer read is not enough, so the number is measured not guessed', async () => {
     await expect(
-      withLimit(ENUMERATION_READS - 1).run(async (ctx) => {
+      withReadLimit(ENUMERATION_READS - 1).run(async (ctx) => {
         const { me } = await seedTeams(ctx, CEILING_TEAMS, CEILING_MEMBERS)
         await getMyTeamsFor(ctx, me)
       }),
@@ -132,12 +151,12 @@ describe('getMyTeamsFor — the enumeration every authenticated session holds', 
    * rosters triples the reads: 6 + 144.
    */
   test('scales with total roster size', async () => {
-    await withLimit(150).run(async (ctx) => {
+    await withReadLimit(150).run(async (ctx) => {
       const { me } = await seedTeams(ctx, CEILING_TEAMS, 24)
       await getMyTeamsFor(ctx, me)
     })
     await expect(
-      withLimit(149).run(async (ctx) => {
+      withReadLimit(149).run(async (ctx) => {
         const { me } = await seedTeams(ctx, CEILING_TEAMS, 24)
         await getMyTeamsFor(ctx, me)
       }),
@@ -160,7 +179,7 @@ describe('unreadBadgeFor — the live subscription /app holds open', () => {
    */
   test('costs exactly one document per team', async () => {
     for (const teams of [1, 6, 12]) {
-      await withLimit(teams * BADGE_READS_PER_TEAM).run(async (ctx) => {
+      await withReadLimit(teams * BADGE_READS_PER_TEAM).run(async (ctx) => {
         const { me, teamIds } = await seedTeams(ctx, teams, CEILING_MEMBERS)
         const badge = await unreadBadgeFor(ctx, me, teamIds)
         expect(badge.unread).toEqual([])
@@ -172,7 +191,7 @@ describe('unreadBadgeFor — the live subscription /app holds open', () => {
   test('and one fewer is not enough at each of those sizes', async () => {
     for (const teams of [6, 12]) {
       await expect(
-        withLimit(teams * BADGE_READS_PER_TEAM - 1).run(async (ctx) => {
+        withReadLimit(teams * BADGE_READS_PER_TEAM - 1).run(async (ctx) => {
           const { me, teamIds } = await seedTeams(ctx, teams, CEILING_MEMBERS)
           await unreadBadgeFor(ctx, me, teamIds)
         }),
@@ -186,7 +205,7 @@ describe('unreadBadgeFor — the live subscription /app holds open', () => {
    * times larger, identical budget.
    */
   test('does not grow with team SIZE, only with team COUNT', async () => {
-    await withLimit(CEILING_TEAMS * BADGE_READS_PER_TEAM).run(async (ctx) => {
+    await withReadLimit(CEILING_TEAMS * BADGE_READS_PER_TEAM).run(async (ctx) => {
       const { me, teamIds } = await seedTeams(ctx, CEILING_TEAMS, 24)
       expect(await unreadBadgeFor(ctx, me, teamIds)).toMatchObject({ unread: [] })
     })
@@ -247,6 +266,21 @@ describe('reminder delivery bandwidth', () => {
     vi.unstubAllEnvs()
   })
 
+  /**
+   * MORE THAN ONE ROW, AND THAT IS A REQUIREMENT RATHER THAN A DETAIL. The
+   * recent-activity lookup is a `.first()`, so it yields one document whatever
+   * this holds — which means with a SINGLE board `.collect()` would also yield
+   * one, and a widened lookup would stop being caught while every ceiling in
+   * this block stayed green. Measured, not reasoned: reduced to one day, the
+   * `.first()` -> `.collect()` mutant survives all 42 tests, and the reduction
+   * itself is silent.
+   *
+   * The days are inside `activityFloor(DUE's local day)`..`DUE's local day` and
+   * none of them IS that day, which is what keeps this fixture on the delivered
+   * path rather than the already-entered one.
+   */
+  const ACTIVITY_BOARDS = ['2026-09-08', '2026-09-09', '2026-09-10']
+
   async function aScheduledPlayer(t: ReturnType<typeof convexTest>, over = {}) {
     return await t.run(async (ctx) => {
       const playerId = await ctx.db.insert(
@@ -260,7 +294,7 @@ describe('reminder delivery bandwidth', () => {
           ...over,
         }),
       )
-      for (const puzzleDay of ['2026-09-08', '2026-09-09', '2026-09-10']) {
+      for (const puzzleDay of ACTIVITY_BOARDS) {
         await ctx.db.insert('dailyScores', { playerId, puzzleDay, date: 0, guesses: ['xxxxx'] })
       }
       return playerId
@@ -268,26 +302,28 @@ describe('reminder delivery bandwidth', () => {
   }
 
   /**
-   * The same player, with today's board already in. `2026-09-11` has to be
+   * The same player, with today's board already in. `ENTERED_TODAY` has to be
    * `DUE`'s local day in Chicago or the row lands outside the lookup this
    * fixture exists to make match.
    *
-   * TWO ROWS FOR THAT ONE DAY, AND THE SECOND IS DEGENERATE ON PURPOSE. The
-   * entered-today lookup is a `.first()`, so its yield is one either way — and
-   * with a single matching row `.collect()` would yield one too, leaving the
-   * per-document charge of THAT lookup unmeasurable. The duplicate is the
-   * mirror of the three boards the delivered fixture keeps in the
-   * recent-activity window, and it is the only thing that makes a widened
-   * entered-today lookup visible. Nothing asserts the row count itself, so the
-   * pair is a measuring instrument rather than a claim about real data.
+   * TWO ROWS FOR THAT ONE DAY, AND THE SECOND IS DEGENERATE ON PURPOSE — the
+   * same requirement `ACTIVITY_BOARDS` carries, for the other lookup. With a
+   * single matching row `.collect()` would yield one too, leaving the
+   * per-document charge of THAT lookup unmeasurable. Real data would not hold a
+   * pair, so this is a measuring instrument and nothing asserts what the rows
+   * mean — only, in the fixture-freeness test below, that there is more than
+   * one of them.
    */
+  const ENTERED_TODAY = '2026-09-11' // DUE's local day in Chicago
+  const ENTERED_TODAY_BOARDS = [['xxxxx'], ['yyyyy']]
+
   async function anEnteredPlayer(t: ReturnType<typeof convexTest>) {
     const playerId = await aScheduledPlayer(t)
     await t.run(async (ctx) => {
-      for (const guesses of [['xxxxx'], ['yyyyy']]) {
+      for (const guesses of ENTERED_TODAY_BOARDS) {
         await ctx.db.insert('dailyScores', {
           playerId,
-          puzzleDay: '2026-09-11',
+          puzzleDay: ENTERED_TODAY,
           date: 0,
           guesses,
         })
@@ -309,6 +345,18 @@ describe('reminder delivery bandwidth', () => {
     const free = { documentsRead: 0, databaseQueries: 0, functionsScheduled: 0 }
     await expect(aScheduledPlayer(withLimits(free))).resolves.toBeDefined()
     await expect(anEnteredPlayer(withLimits(free))).resolves.toBeDefined()
+  })
+
+  /**
+   * FREE, AND THE ONLY THING STOPPING EITHER LIST BEING QUIETLY REDUCED. Both
+   * ceilings that depend on a `.first()` yielding fewer documents than the
+   * matching rows are only measurements while more than one row matches — see
+   * each list's own comment. This costs no meter and no fixture.
+   */
+  test('both row-count requirements the ceilings rest on still hold', () => {
+    expect(ACTIVITY_BOARDS.length).toBeGreaterThan(1)
+    expect(ENTERED_TODAY_BOARDS.length).toBeGreaterThan(1)
+    expect(ACTIVITY_BOARDS).not.toContain(ENTERED_TODAY)
   })
 
   /**
@@ -365,7 +413,7 @@ describe('reminder delivery bandwidth', () => {
 
     await expect(
       t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
-    ).resolves.toMatchObject({ delivered: true })
+    ).resolves.toMatchObject({ delivered: true, reason: 'sent' })
   })
 
   test(`and ${DELIVER_QUERIES - 1} index ranges is not enough`, async () => {
@@ -387,7 +435,7 @@ describe('reminder delivery bandwidth', () => {
 
     await expect(
       t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
-    ).resolves.toMatchObject({ delivered: true })
+    ).resolves.toMatchObject({ delivered: true, reason: 'sent' })
   })
 
   test('and it does schedule one — zero is not enough', async () => {
@@ -412,7 +460,7 @@ describe('reminder delivery bandwidth', () => {
 
     await expect(
       t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
-    ).resolves.toMatchObject({ delivered: true })
+    ).resolves.toMatchObject({ delivered: true, reason: 'sent' })
   })
 
   test('and one is not enough once push is on', async () => {
@@ -576,10 +624,11 @@ describe('reminder maintenance bandwidth', () => {
    *
    * `reminderDeliveryMethods` IS LEFT AT THE FIXTURE DEFAULT even though the
    * real non-cutover copy also blanks it (scripts/lib/copy-reminder-policy.mjs
-   * sends `[]`). `maintain` never reads that field — every
-   * `reminderDeliveryMethods` reference in reminders.ts is inside `deliver` —
-   * so varying it would add a difference between the fixtures that changes
-   * nothing.
+   * sends `[]`). `maintain` never reads that field — every READ of it in
+   * reminders.ts is inside `deliver`; the grep also returns a line of
+   * `scheduleNextFor`'s prose, which is why the claim is about reads and not
+   * about matches — so varying it would add a difference between the fixtures
+   * that changes nothing.
    */
   async function seedTable(
     t: ReturnType<typeof convexTest>,
@@ -600,20 +649,27 @@ describe('reminder maintenance bandwidth', () => {
     },
   ) {
     await t.run(async (ctx) => {
+      // A `reminderJobId` CANNOT BE FABRICATED — it is `v.id` of a system table
+      // — so the only way to seed one is to schedule a real job. This is the one
+      // fixture option that is NOT free, which is why the tests passing
+      // `functionsScheduled: 0` leave it off.
+      //
+      // ONE JOB FOR THE WHOLE TABLE, NOT ONE PER ROW, and every part of that is
+      // deliberate. Nothing enforces uniqueness on the field; the per-player
+      // lookup this fixture exists to expose still fires for every row, since
+      // every row has an id to look up; the seed's cost becomes a CONSTANT 1
+      // rather than growing with the table, so a future test combining `jobbed`
+      // with a `functionsScheduled` ceiling cannot silently fold `players` seed
+      // jobs into its number; and the target can be an argument-free function,
+      // which retires a `'' as Id<'players'>` cast that named a player row that
+      // did not exist. `maintain` is that function — nothing here ever runs it,
+      // and the instant is far enough out that the pinned clock cannot reach it.
+      const reminderJobId = jobbed
+        ? await ctx.scheduler.runAt(NOW + 10 * 3600_000, internal.reminders.maintain, {})
+        : undefined
+
       const playerIds: Id<'players'>[] = []
       for (let i = 0; i < players; i++) {
-        // A `reminderJobId` CANNOT BE FABRICATED — it is `v.id` of a system
-        // table — so the only way to seed one is to schedule a real job. That
-        // is the one fixture option that is NOT free: it charges the seed one
-        // `functionsScheduled`, which is why the tests that pass
-        // `functionsScheduled: 0` leave it off. The instant is far enough out
-        // that the pinned clock can never reach it.
-        const reminderJobId = jobbed
-          ? await ctx.scheduler.runAt(NOW + 10 * 3600_000, internal.reminders.deliver, {
-              playerId: playerIds[0] ?? ('' as Id<'players'>),
-              dueAt: NOW + 10 * 3600_000,
-            })
-          : undefined
         playerIds.push(
           await ctx.db.insert(
             'players',
@@ -648,43 +704,69 @@ describe('reminder maintenance bandwidth', () => {
   test('no fixture in this block reads a document or asks an index range', async () => {
     for (const shape of FIXTURES) {
       const t = withLimits({ documentsRead: 0, databaseQueries: 0 })
-      await expect(seedTable(t, { players: 3, teams: 2, ...shape })).resolves.toBeUndefined()
+      await expect(
+        seedTable(t, { players: 3, teams: 2, ...shape }),
+        JSON.stringify(shape),
+      ).resolves.toBeUndefined()
     }
   })
 
   /**
-   * THE ONE EXCEPTION, MEASURED RATHER THAN DISCLOSED. `jobbed` has to schedule
-   * a real job per player, because `reminderJobId` is a `v.id` of a system
-   * table and cannot be fabricated. So that fixture alone charges the seed one
-   * `functionsScheduled` per player — asserted from both sides here, and it is
-   * why the tests that pass `functionsScheduled: 0` never ask for it.
+   * THE ONE EXCEPTION, MEASURED RATHER THAN DISCLOSED — AND SIZE-INDEPENDENT,
+   * which is what makes it safe to combine with a `functionsScheduled` ceiling.
+   * `jobbed` schedules ONE job for the whole table however many rows it holds,
+   * so a test that uses it pays a constant 1 rather than a number that moves
+   * with the fixture. Asserted at two sizes and from both sides.
    */
-  test('only the jobbed fixture schedules, and exactly once per player', async () => {
+  test('only the jobbed fixture schedules, and exactly once whatever the size', async () => {
     for (const shape of FIXTURES.filter((f) => !f.jobbed)) {
       const t = withLimits({ functionsScheduled: 0 })
-      await expect(seedTable(t, { players: 3, teams: 2, ...shape })).resolves.toBeUndefined()
+      await expect(
+        seedTable(t, { players: 3, teams: 2, ...shape }),
+        `${JSON.stringify(shape)} must schedule nothing`,
+      ).resolves.toBeUndefined()
     }
 
-    await expect(
-      seedTable(withLimits({ functionsScheduled: 3 }), {
-        players: 3,
-        teams: 2,
-        zoned: true,
-        chained: true,
-        jobbed: true,
-      }),
-    ).resolves.toBeUndefined()
+    for (const players of [3, 6]) {
+      await expect(
+        seedTable(withLimits({ functionsScheduled: 1 }), {
+          players,
+          teams: 2,
+          zoned: true,
+          chained: true,
+          jobbed: true,
+        }),
+        `${players} players, one shared job`,
+      ).resolves.toBeUndefined()
 
-    await expect(
-      seedTable(withLimits({ functionsScheduled: 2 }), {
-        players: 3,
-        teams: 2,
-        zoned: true,
-        chained: true,
-        jobbed: true,
-      }),
-    ).rejects.toThrow(/Scheduled too many functions/)
+      await expect(
+        seedTable(withLimits({ functionsScheduled: 0 }), {
+          players,
+          teams: 2,
+          zoned: true,
+          chained: true,
+          jobbed: true,
+        }),
+        `${players} players, and that one job is really scheduled`,
+      ).rejects.toThrow(/Scheduled too many functions/)
+    }
   })
+
+  /**
+   * THE COST MODEL THIS WHOLE BLOCK ARGUES, NAMED ONCE: every maintenance
+   * ceiling below is SCAN + WORK. The scan is the two collects — one document
+   * per row and one index range each — and it is the only part that is paid
+   * unconditionally. Everything after it is per-player work, and in steady
+   * state there is none, which is the claim the pass exists to support.
+   *
+   * The `REPAIR_*` and `FLIP_*` constants further down are the work terms.
+   * Before these existed the scan appeared in four spellings across the block
+   * and one of them, `players + 1`, sat next to repair tests that went through
+   * a helper — the same number, written three ways, in tests whose entire
+   * subject is that the number is exact.
+   */
+  const SCAN_READS = (players: number, teams: number) => players + teams
+  const SCAN_QUERIES = 2
 
   /**
    * THE EXHAUSTIVE RETURN OF A HEALTHY PASS, and `toEqual` rather than
@@ -772,7 +854,7 @@ describe('reminder maintenance bandwidth', () => {
    * without reading the field.
    */
   test('a pass in which every row threw is not a quiet pass', async () => {
-    const t = withLimits({ documentsRead: 3 + 2 })
+    const t = withLimits({ documentsRead: SCAN_READS(3, 2) })
     await seedTable(t, { players: 3, teams: 2, zoned: true, chained: false })
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -809,7 +891,7 @@ describe('reminder maintenance bandwidth', () => {
 
   test('a healthy pass reads exactly one document per row', async () => {
     for (const { players, teams } of SHAPES) {
-      const t = withLimits({ documentsRead: players + teams })
+      const t = withLimits({ documentsRead: SCAN_READS(players, teams) })
       await seedTable(t, { players, teams, zoned: true, chained: true, jobbed: true })
 
       await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
@@ -823,16 +905,17 @@ describe('reminder maintenance bandwidth', () => {
 
   test('and one document fewer is not enough at any shape', async () => {
     for (const { players, teams } of SHAPES) {
-      const t = withLimits({ documentsRead: players + teams - 1 })
+      const t = withLimits({ documentsRead: SCAN_READS(players, teams) - 1 })
       await seedTable(t, { players, teams, zoned: true, chained: true, jobbed: true })
 
       // THROWS RATHER THAN REPORTING `failed`, and that is structural: both
       // collects sit OUTSIDE the per-player `try`, so a breach reading them
       // aborts the whole pass. See `maintain`'s BOTH COLLECTS SIT OUTSIDE
       // paragraph.
-      await expect(t.mutation(internal.reminders.maintain, {})).rejects.toThrow(
-        /Scanned too many documents/,
-      )
+      await expect(
+        t.mutation(internal.reminders.maintain, {}),
+        `${players} players, ${teams} teams`,
+      ).rejects.toThrow(/Scanned too many documents/)
     }
   })
 
@@ -846,7 +929,7 @@ describe('reminder maintenance bandwidth', () => {
    */
   test('a healthy pass runs exactly two index ranges at any size', async () => {
     for (const players of [1, 6]) {
-      const t = withLimits({ databaseQueries: 2 })
+      const t = withLimits({ databaseQueries: SCAN_QUERIES })
       await seedTable(t, { players, teams: 2, zoned: true, chained: true, jobbed: true })
 
       await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
@@ -857,7 +940,7 @@ describe('reminder maintenance bandwidth', () => {
   })
 
   test('and one index range is not enough', async () => {
-    const t = withLimits({ databaseQueries: 1 })
+    const t = withLimits({ databaseQueries: SCAN_QUERIES - 1 })
     await seedTable(t, { players: 3, teams: 2, zoned: true, chained: true, jobbed: true })
 
     await expect(t.mutation(internal.reminders.maintain, {})).rejects.toThrow(
@@ -887,8 +970,9 @@ describe('reminder maintenance bandwidth', () => {
   const REPAIR_QUERIES_PER_PLAYER = 2
   const REPAIR_JOBS_PER_PLAYER = 1
   const bootstrapReads = (players: number, teams: number) =>
-    players + teams + REPAIR_READS_PER_PLAYER * players
-  const bootstrapQueries = (players: number) => 2 + REPAIR_QUERIES_PER_PLAYER * players
+    SCAN_READS(players, teams) + REPAIR_READS_PER_PLAYER * players
+  const bootstrapQueries = (players: number) =>
+    SCAN_QUERIES + REPAIR_QUERIES_PER_PLAYER * players
 
   test(`repairing a chain costs ${REPAIR_READS_PER_PLAYER} documents per player`, async () => {
     for (const players of [2, 3]) {
@@ -998,7 +1082,7 @@ describe('reminder maintenance bandwidth', () => {
 
   test(`a flipped weekend flag costs ${FLIP_READS_PER_PLAYER} documents per player`, async () => {
     const players = 3
-    const t = withLimits({ documentsRead: players + 1 + FLIP_READS_PER_PLAYER * players })
+    const t = withLimits({ documentsRead: SCAN_READS(players, 1) + FLIP_READS_PER_PLAYER * players })
     await seedTable(t, { players, teams: 1, zoned: true, chained: true, flagDerived: false })
 
     await expect(t.mutation(internal.reminders.maintain, {})).resolves.toEqual({
@@ -1014,7 +1098,9 @@ describe('reminder maintenance bandwidth', () => {
 
   test('and one document fewer strands the last flipped player', async () => {
     const players = 3
-    const t = withLimits({ documentsRead: players + 1 + FLIP_READS_PER_PLAYER * players - 1 })
+    const t = withLimits({
+      documentsRead: SCAN_READS(players, 1) + FLIP_READS_PER_PLAYER * players - 1,
+    })
     await seedTable(t, { players, teams: 1, zoned: true, chained: true, flagDerived: false })
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
