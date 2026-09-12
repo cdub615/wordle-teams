@@ -12,7 +12,7 @@ import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { resizeToSquare } from '#/lib/avatar.ts'
-import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { mutationErrorMessage, typedCodeMessage } from '#/lib/convex-error.ts'
 import { initialsFor } from '#/lib/initials.ts'
 
 /**
@@ -40,10 +40,6 @@ export default function ProfileTab() {
 
   const [firstName, setFirstName] = useState<string | null>(null)
   const [lastName, setLastName] = useState<string | null>(null)
-  // `?? me` rather than seeding state in an effect: the query resolves after
-  // first paint, and an effect-seeded field flickers empty on a cold load.
-  const first = firstName ?? me?.firstName ?? ''
-  const last = lastName ?? me?.lastName ?? ''
 
   /**
    * Resize, upload, attach. THREE STEPS AND THE MIDDLE ONE IS A PLAIN `fetch` —
@@ -94,14 +90,55 @@ export default function ProfileTab() {
     }
   }
 
+  // LOADING vs LOADED-AND-EMPTY ARE DIFFERENT STATES, and only the second one
+  // is NO_PLAYER. `useQuery` answers `undefined` before the round trip
+  // resolves and `null` once it has, for a signed-in session with no player
+  // row yet — myName's own doc comment covers why it returns null instead of
+  // throwing (the header mounts globally, including on /complete-profile,
+  // where that is expected). Collapsing the two here would flash the
+  // "finish setting up your profile" message at every cold load, for
+  // everyone, before their own data has even had a chance to arrive.
+  if (me === undefined) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+        <span className="sr-only">Loading your profile…</span>
+      </div>
+    )
+  }
+
+  // THE STATE THIS GUARDS: Task 9 wires this tab into the settings dialog
+  // with no needsProfile gate around it (app-menu.tsx renders SettingsDialog
+  // for any authenticated user), so a signed-in visitor who has not yet
+  // finished onboarding CAN reach this tab. Without this branch they would
+  // see a blank avatar, two empty inputs, a Save button correctly disabled by
+  // isCompleteName('', '') — and an ENABLED "Change picture" button whose
+  // upload flow ends in setAvatar throwing NO_PLAYER, which only then tells
+  // them to finish their profile. Refusing the whole form up front says the
+  // same thing before they have tried anything, using the exact copy
+  // completeProfileFor's own rejection already uses (typedCodeMessage's
+  // NO_PLAYER case), rather than a second opinion invented for this tab.
+  if (me === null) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-sm text-muted-foreground">
+        {typedCodeMessage('NO_PLAYER')}
+      </div>
+    )
+  }
+
+  // `?? me` rather than seeding state in an effect: the query resolves after
+  // first paint, and an effect-seeded field flickers empty on a cold load.
+  const first = firstName ?? me.firstName
+  const last = lastName ?? me.lastName
+
   return (
     <div className="flex flex-col gap-4 pt-2">
       <h3 className="text-sm font-medium">Picture</h3>
       <div className="flex items-center gap-4">
         <Avatar className="h-16 w-16">
-          {me?.image ? <AvatarImage src={me.image} alt="" aria-hidden="true" /> : null}
+          {me.image ? <AvatarImage src={me.image} alt="" aria-hidden="true" /> : null}
           <AvatarFallback className="text-lg font-medium">
-            {initialsFor(me?.firstName ?? '', me?.lastName ?? '')}
+            {initialsFor(me.firstName, me.lastName)}
           </AvatarFallback>
         </Avatar>
         <div className="flex flex-col gap-2">
@@ -132,7 +169,7 @@ export default function ProfileTab() {
             to a player who never uploaded anything would be a button that does
             nothing.
           */}
-          {me?.hasUpload ? (
+          {me.hasUpload ? (
             <Button
               type="button"
               variant="ghost"
