@@ -470,6 +470,14 @@ describe('deliver', () => {
   // three of the eleven had no test at all: 'no-player', 'no-time-zone' and
   // 'no-method', and the handler's doc comment made specific claims about two
   // of them that were therefore unmeasured.
+  //
+  // WHAT IT CANNOT SEE: SIDE EFFECTS WITHIN A BRANCH. It protects the branch
+  // SET — every `reason` is reached by some test — and nothing more. Two holes
+  // of exactly that kind survived Task 7's deletion and all 2702 remaining
+  // tests: the allowlist failing to gate PUSH (still `not-allowlisted`), and
+  // pushing every delivered player (still 'sent'). Neither changes a `reason`,
+  // so this guard was green through both. A deleted test whose property maps to
+  // no distinct outcome has to be re-homed by reading, not by relying on this.
   const REASONS = [
     'no-player',
     'superseded',
@@ -537,6 +545,14 @@ describe('deliver', () => {
     expect(jobs).toHaveLength(1)
     expect(jobs[0].scheduledTime).toBe(SATURDAY)
     expect(jobs[0].args[0]).toEqual({ playerId, dueAt: SATURDAY })
+    // AND NO PUSH, because this fixture chose email only. MEASURED: without
+    // this line `if (true || player.reminderDeliveryMethods.includes(
+    // PUSH_METHOD))` — push every delivered player — passed all 2702 tests.
+    // The 'sms' test's zero-push assertion cannot cover it: that player returns
+    // at `hasKnownMethod`, ABOVE the push block, so it never reaches the branch.
+    // This is the only test in the block that both delivers and chose one
+    // method, which is what makes the assertion possible here and nowhere else.
+    expect(await scheduledPushJobs(t)).toHaveLength(0)
   })
 
   test('a job that fires late stamps the instant it ran, not the one it was due', async () => {
@@ -704,6 +720,39 @@ describe('deliver', () => {
     expect(result.reason).toBe('not-allowlisted')
     expect(sendEmailMock).not.toHaveBeenCalled()
     const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(SATURDAY)
+  })
+
+  test('the allowlist gates push exactly as it gates email', async () => {
+    // NOTHING ELSE IN THE REPO PUTS A PUSH PLAYER THROUGH A RESTRICTIVE
+    // ALLOWLIST. The sibling test above uses the email-only fixture and never
+    // looks at `_scheduled_functions`, so the gate's push half was unguarded.
+    // MEASURED: two mutants passed all 2702 tests before this test existed and
+    // each now dies here, with this as their ONLY killer — enqueueing the push
+    // inside the `not-allowlisted` branch, and moving the push block above the
+    // gate entirely. (A third, `if (true || ...)` on the push branch, also
+    // survived 2702; its killer is the happy-path test's zero-push assertion,
+    // not this one.) The deleted sweep pinned this as 'the allowlist gates push
+    // scheduling exactly like it gates email' and `deliver` did not inherit
+    // it.
+    //
+    // THE CUTOVER FAILURE MODE IS THE ONE THE GATE EXISTS FOR: a push reminder
+    // delivered to a real person copied from production who has never heard of
+    // beta. Beta runs with a single address on this list today, so every other
+    // copied row depends on this branch.
+    vi.stubEnv('REMINDERS_ALLOWLIST', 'someone@else.test')
+    const t = convexTest(schema, modules)
+    const playerId = await scheduled(t, { reminderDeliveryMethods: ['push'] })
+
+    const result = await deliverFor(t, { playerId, dueAt: DUE })
+
+    expect(result.reason).toBe('not-allowlisted')
+    expect(await scheduledPushJobs(t)).toHaveLength(0)
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    // Not claimed, and still rescheduled: being off the list must not burn the
+    // day's reminder or end the chain.
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.lastBoardEntryReminder).toBeUndefined()
     expect(player?.nextReminderAt).toBe(SATURDAY)
   })
 

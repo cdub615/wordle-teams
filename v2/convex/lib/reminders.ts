@@ -63,20 +63,35 @@ export type LocalTime = string
  * carries the measurement, `America/Chicago` 2026-03-08 02:30 resolving to
  * 01:30 local.)
  *
- * THE OLD isDueThisHour COULD NOT, AND WHICH TIMES IT LOST DEPENDED ON THE
- * PLAYER'S ZONE. Measured rather than reasoned, by replaying its comparison
- * over a full 24-tick day for each offset shape: the cron fired at UTC :00 and
- * both bounds were resolved in the player's zone, so the window's minutes were
- * that zone's own offset minutes, and the one window spanning local midnight
- * had its lower bound sorting ABOVE its upper as a string. A whole-hour-offset
- * zone therefore lost every time after 23:00:00, which is where '23:30:00'
- * being unmatchable comes from. (How many production players sat in such a zone
- * is not something this session measured; the table holds 57 distinct zones.)
- * A half-hour zone lost [00:00:00, 00:30:00) instead, and matched '23:30:00'
- * perfectly well; at +05:45 it lost everything before 00:45:00. BOTH the
- * deleted function's own comment and the first draft of this paragraph stated
- * the whole-hour case as though it were universal. That function is gone; the
- * guard is what keeps the whole class out by construction.
+ * THE OLD isDueThisHour COULD NOT, AND WHAT IT LOST WAS ONE HOUR-WIDE BAND
+ * STRADDLING LOCAL MIDNIGHT — the same width in every zone. MEASURED over all
+ * 1440 minute-of-day values against all 24 ticks, for each offset shape: the
+ * cron fired at UTC :00 and both bounds were resolved in the player's zone, so
+ * the window's minutes were that zone's own offset minutes, and the one window
+ * spanning local midnight had its lower bound sorting ABOVE its upper as a
+ * string. The band lost is (23:MM, 24:00) union [00:00, 00:MM) where MM is the
+ * offset's minutes — exactly 59 values every time:
+ *
+ *     +00   23:01..23:59
+ *     +30   23:31..23:59  and  00:00..00:29
+ *     +45   23:46..23:59  and  00:00..00:44
+ *
+ * So '23:30:00' was unmatchable at +00 and fine at +30 — but '23:45:00' is lost
+ * at +30 too, and a reader widening this list must check the band rather than
+ * the example. TWO EARLIER VERSIONS GOT THIS WRONG IN OPPOSITE DIRECTIONS: the
+ * deleted function's own comment stated the +00 case as universal, and the
+ * first draft of this paragraph said a half-hour zone lost [00:00, 00:30)
+ * "instead", omitting the 23:31..23:59 half and implying 23:45 was safe there.
+ * The uniform rule above is both simpler and correct.
+ *
+ * THESE ARE NOT HYPOTHETICAL OFFSETS. Three of the five Postgres spellings
+ * v1's own timeZoneMapping produced, and which lib/reminders.test.ts pins as
+ * ICU aliases on the copied-row path, are non-whole-hour: Asia/Calcutta
+ * (+05:30), Asia/Rangoon (+06:30) and Asia/Katmandu (+05:45) — offsets read
+ * back from Intl here, not recalled. So both shapes above were reachable from
+ * v1's picker. (How many production players sat in one is not something this
+ * session measured; the table holds 57 distinct zones.) That function is gone;
+ * the guard is what keeps the whole class out by construction.
  *
  * Exported so the settings UI renders FROM this list rather than keeping a
  * second copy in sync with it.

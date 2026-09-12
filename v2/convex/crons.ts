@@ -123,7 +123,9 @@ crons.hourly('chat notifications', { minuteUTC: 30 }, internal.chatNotify.sweep,
  * runtime is UTC, so the month rolls over at 00:00 UTC. Running at 00:45 puts
  * the one run that matters 45 minutes after the boundary it exists to catch,
  * rather than up to 24 hours after it. Minute 45 is kept for the original
- * reason: the other two sweeps hold :00 and :30, and this one keeps its lane.
+ * reason, though the neighbours have changed: :00 is now free — the hourly
+ * reminder sweep that held it is deleted — and what this keeps its lane clear
+ * of is the chat sweep at :30 hourly and `reminder maintenance` at 01:15 daily.
  */
 crons.daily('team month aggregates', { hourUTC: 0, minuteUTC: 45 }, internal.teamStats.sweep, {})
 

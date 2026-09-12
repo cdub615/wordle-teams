@@ -51,10 +51,16 @@ describe('crons', () => {
       },
       'chat notifications': {
         name: 'chatNotify:sweep',
-        // MINUTE 30, ASSERTED RATHER THAN INCIDENTAL. Moving this to 0 would
-        // put both sweeps' table walks and both bursts of push traffic on the
-        // same minute — see crons.ts for why they are kept apart — and nothing
-        // else in the suite would notice.
+        // MINUTE 30, ASSERTED RATHER THAN INCIDENTAL — but NOT for the reason
+        // this comment used to give. It said moving this to 0 would put "both
+        // sweeps' table walks and both bursts of push traffic" on one minute.
+        // That was the hourly reminder sweep at :00, which is deleted: this is
+        // now the only hourly cron, and reminder push is no longer bursty at all
+        // because `reminders.deliver` fires one job per player at that player's
+        // own local time. What the assertion still protects is the lane itself —
+        // :30 never coincides with `reminder maintenance` at 01:15 or with
+        // `team month aggregates` at 00:45, and nothing else in the suite would
+        // notice it moving. See crons.ts, which now says the same thing.
         schedule: { type: 'hourly', minuteUTC: 30 },
         args: [{}],
       },
@@ -73,8 +79,9 @@ describe('crons', () => {
         // catch a month boundary passing with nobody playing, and the month rolls
         // at 00:00 UTC (toPuzzleDay uses local date methods; Convex runs UTC).
         // 00:45 puts the run that matters 45 minutes after the boundary rather
-        // than up to a day after it. Minute 45 keeps its lane clear of the other
-        // two sweeps at :00 and :30.
+        // than up to a day after it. Minute 45 keeps its lane clear of the chat
+        // sweep at :30 and of `reminder maintenance` at 01:15; :00, which the
+        // deleted reminder sweep held, is free now.
         args: [{}],
         schedule: { type: 'daily', hourUTC: 0, minuteUTC: 45 },
       },
