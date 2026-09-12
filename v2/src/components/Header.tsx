@@ -7,6 +7,7 @@ import { Badge } from '#/components/ui/badge.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import { pendingInviteLabel } from '#/lib/billing-copy.ts'
 import { useLocalCapture } from '#/lib/use-local-capture.ts'
+import { useSocialImageSync } from '#/lib/use-social-image-sync.ts'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { AppMenu } from './app-menu.tsx'
 
@@ -64,6 +65,10 @@ export default function Header() {
   // because of the ConvexBetterAuthProvider positioning documented above: it
   // is itself a Convex hook, no different from useConvexAuth below it.
   useLocalCapture()
+  // Mirrors the provider photo onto the player row for TEAMMATES to see. Here
+  // rather than in a route because the header reads the result everywhere, so
+  // the write has to happen everywhere too — see the hook's own note.
+  useSocialImageSync()
 
   const { isAuthenticated } = useConvexAuth()
   // Shared with routes/app.tsx's "Upgrade for more" — one copy of the outcome

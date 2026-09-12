@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { MAX_AVATAR_BYTES, isAllowedAvatarType, shouldSyncSocialImage } from './avatar.ts'
+import { MAX_AVATAR_BYTES, isAllowedAvatarType, resolveAvatar, shouldSyncSocialImage } from './avatar.ts'
 
 describe('shouldSyncSocialImage', () => {
   test('syncs when the provider has an image and the player row has none', () => {
@@ -54,4 +54,45 @@ describe('isAllowedAvatarType', () => {
 
 test('the byte cap is well clear of a 256px WebP and well under a phone photo', () => {
   expect(MAX_AVATAR_BYTES).toBe(100_000)
+})
+
+/**
+ * THE FALLBACK EXISTS BECAUSE THE MIRROR IS NOT THE CALLER'S OWN SOURCE OF
+ * TRUTH, and treating it as one is what made a GitHub user's avatar vanish
+ * from their own header (2026-09-12, beta).
+ *
+ * `socialImage` is written by one mutation triggered from one route. A teammate
+ * has no other way to see your provider photo, so for THEM the mirror is all
+ * there is. But your own session can read Better Auth's `user.image` directly —
+ * it is where the mirror's value came from — so routing your own avatar through
+ * a database row written by an effect on a page you might not have opened adds
+ * a coverage gap, a timing window and a silent-failure mode for nothing.
+ */
+describe('resolveAvatar fallback', () => {
+  const noStorage = { storage: { getUrl: async () => null } }
+
+  test('falls back when the mirror has not been written', async () => {
+    expect(await resolveAvatar(noStorage, {}, 'https://github/a')).toBe('https://github/a')
+  })
+
+  test('prefers the mirrored value over the fallback when it IS written', async () => {
+    expect(
+      await resolveAvatar(noStorage, { socialImage: 'https://mirrored' }, 'https://github/a'),
+    ).toBe('https://mirrored')
+  })
+
+  // A teammate passes no fallback, because they cannot read your Better Auth
+  // record. Absent mirror plus absent fallback is initials, as before.
+  test('is null with neither, so a teammate still gets initials', async () => {
+    expect(await resolveAvatar(noStorage, {})).toBeNull()
+  })
+
+  // An upload outranks both. This is the precedence the whole two-field design
+  // exists to protect and the fallback must not disturb it.
+  test('an UPLOAD still wins over the fallback', async () => {
+    const stored = { storage: { getUrl: async () => 'https://convex/stored' } }
+    expect(
+      await resolveAvatar(stored, { imageId: 'k1' as never, socialImage: 'https://mirrored' }, 'https://github/a'),
+    ).toBe('https://convex/stored')
+  })
 })

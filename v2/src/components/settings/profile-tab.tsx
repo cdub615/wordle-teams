@@ -11,7 +11,7 @@ import { Button } from '#/components/ui/button.tsx'
 import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
-import { resizeToSquare } from '#/lib/avatar.ts'
+import { AvatarEncodingError, resizeToSquare } from '#/lib/avatar.ts'
 import { mutationErrorMessage, typedCodeMessage } from '#/lib/convex-error.ts'
 import { initialsFor } from '#/lib/initials.ts'
 
@@ -64,7 +64,21 @@ export default function ProfileTab() {
       await setAvatar.mutateAsync({ storageId })
       toast.success('Picture updated')
     } catch (error) {
-      toast.error(mutationErrorMessage(error, 'Could not update your picture.'))
+      /**
+       * AvatarEncodingError CARRIES ITS OWN MESSAGE AND MUST KEEP IT.
+       * `mutationErrorMessage` returns its fallback for anything that is not a
+       * ConvexError, so routing this through it would replace "that picture
+       * could not be made small enough" with the generic line — and a generic
+       * line is exactly what left a player staring at "that image could not be
+       * used" for an ordinary iPhone photo (2026-09-12, beta). This is the
+       * player's own file and they are the one who has to act, so the specific
+       * reason is the useful thing to say.
+       */
+      toast.error(
+        error instanceof AvatarEncodingError
+          ? error.message
+          : mutationErrorMessage(error, 'Could not update your picture.'),
+      )
     } finally {
       setUploading(false)
       // So picking the SAME file twice fires `change` the second time.

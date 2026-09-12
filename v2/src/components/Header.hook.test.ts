@@ -117,6 +117,10 @@ vi.mock('sonner', () => ({ toast: { info: toastInfo, error: toastError } }))
 // Silent by design and tested on its own (lib/use-local-capture.hook.test.ts);
 // left in the tree it would open two more subscriptions through the mock above.
 vi.mock('#/lib/use-local-capture.ts', () => ({ useLocalCapture: () => {} }))
+// Same reason as the line above: a background hook Header mounts, with nothing
+// to say about the bar this file is testing. Its own behaviour is pinned in
+// lib/use-social-image-sync.hook.test.ts.
+vi.mock('#/lib/use-social-image-sync.ts', () => ({ useSocialImageSync: () => {} }))
 
 // STUBBED SO THE BUTTON LIST BELOW IS EXACTLY THE UPGRADE SLOT. AppMenu owns
 // three Convex queries of its own and reads window.matchMedia, which jsdom does

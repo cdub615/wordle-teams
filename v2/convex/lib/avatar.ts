@@ -114,11 +114,24 @@ export function shouldSyncSocialImage(
  * sites happen to carry a Convex query ctx today, but importing either shared
  * type here would be a needless coupling for what this function actually uses,
  * which is the one method below.
+ *
+ * THE `fallback` IS FOR THE CALLER'S OWN VIEW ONLY, and it exists because a
+ * regression proved the mirror cannot be the caller's source of truth
+ * (2026-09-12, beta: a GitHub user's avatar vanished from their own header).
+ * `socialImage` is written by one mutation; your own session can read Better
+ * Auth's `user.image` directly, which is where that value came from in the
+ * first place. So `myName` passes it here and your avatar is right on first
+ * paint regardless of whether the mirror has run.
+ *
+ * A TEAMMATE PASSES NOTHING, because they genuinely cannot read your Better
+ * Auth record — for them the mirror IS the only source, which is the whole
+ * reason it exists. Absent mirror plus absent fallback is initials, unchanged.
  */
 export async function resolveAvatar(
   ctx: { storage: { getUrl: (id: Id<'_storage'>) => Promise<string | null> } },
   player: Pick<Doc<'players'>, 'imageId' | 'socialImage'>,
+  fallback: string | null = null,
 ): Promise<string | null> {
-  if (!player.imageId) return player.socialImage ?? null
+  if (!player.imageId) return player.socialImage ?? fallback
   return await ctx.storage.getUrl(player.imageId)
 }

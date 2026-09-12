@@ -1,7 +1,7 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { accessError, currentPlayer, isProFor, playerForEmail, requirePlayer } from './access'
+import { accessError, isProFor, playerForEmail, requirePlayer } from './access'
 import { resetChatCursorFor } from './chat.ts'
 import {
   MAX_AVATAR_BYTES,
@@ -433,7 +433,16 @@ export const updateName = mutation({
 export const myName = query({
   args: {},
   handler: async (ctx) => {
-    const player = await currentPlayer(ctx)
+    /**
+     * READS THE AUTH USER ITSELF RATHER THAN GOING THROUGH currentPlayer, for
+     * the same reason syncSocialImage does: it needs BOTH halves, and
+     * currentPlayer would resolve the auth user and then throw it away, costing
+     * a second round trip to the component to get `image` back.
+     */
+    const user = await authComponent.getAuthUser(ctx)
+    if (!user?.email) return null
+    // playerForEmail lowercases for itself.
+    const player = await playerForEmail(ctx, user.email)
     if (!player) return null
     return {
       firstName: player.firstName,
@@ -451,8 +460,18 @@ export const myName = query({
        * authenticated page load to paint one more thing in the same corner would
        * cost more than the field does. The doc comment above about "deliberately
        * just these two fields" is superseded by this.
+       *
+       * THE THIRD ARGUMENT IS THE FIX FOR A REGRESSION THIS QUERY CAUSED.
+       * Sourcing the header from the player row made your own avatar depend on
+       * `socialImage`, which only players.syncSocialImage writes — and on beta a
+       * GitHub user's picture simply vanished, because the mirror had not run
+       * for them. Your own session can read `user.image` directly, so it is
+       * passed as the last resort and your avatar is correct on first paint
+       * whether or not the mirror has ever fired. getMyTeamsFor passes no
+       * fallback: a teammate has no access to your Better Auth record, which is
+       * exactly why the mirror exists for them.
        */
-      image: await resolveAvatar(ctx, player),
+      image: await resolveAvatar(ctx, player, user.image ?? null),
       /**
        * WHETHER THERE IS AN UPLOAD TO REMOVE, which is NOT the same question as
        * whether there is an image. The Profile tab's "Remove picture" must not

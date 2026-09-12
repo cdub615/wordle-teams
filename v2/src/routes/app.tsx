@@ -310,19 +310,6 @@ function Dashboard() {
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
   }, [])
 
-  /**
-   * MIRRORS THE PROVIDER'S PROFILE IMAGE ONTO THE PLAYER ROW so teammates can
-   * see it — their session cannot read your Better Auth record, only yours can.
-   *
-   * FIRE AND FORGET, AND NOT AWAITED ANYWHERE. The mutation decides for itself
-   * whether anything needs writing (shouldSyncSocialImage), so the steady state
-   * is a no-op; a failure costs initials until the next load and must never
-   * block or toast over a dashboard.
-   */
-  const syncSocialImage = useConvexMutation(api.players.syncSocialImage)
-  useEffect(() => {
-    void syncSocialImage({}).catch(() => {})
-  }, [syncSocialImage])
 
   /**
    * THE OTHER END OF routes/join.$token.tsx, AND THE ONLY PLACE A LINK TOKEN

@@ -28,6 +28,7 @@ import { getFunctionName, type FunctionReference } from 'convex/server'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
+import { AvatarEncodingError } from '#/lib/avatar.ts'
 import { typedCodeMessage } from '#/lib/convex-error.ts'
 import ProfileTab from './profile-tab.tsx'
 
@@ -86,7 +87,15 @@ vi.mock('sonner', () => ({ toast: { success: toastSuccess, error: toastError } }
 // arithmetic is covered directly in src/lib/avatar.test.ts; this file's job is
 // only to prove `onPick` calls this and does the right thing with what it
 // returns.
-vi.mock('#/lib/avatar.ts', () => ({ resizeToSquare: resizeToSquareMock }))
+// The REAL AvatarEncodingError alongside the mocked resize, because the
+// component narrows on it with `instanceof` — a stubbed-out class would make
+// that check throw inside its own catch block and swallow every upload error.
+// Importing the genuine class is also what lets the test below prove the
+// encoder's own message survives instead of being replaced by the fallback.
+vi.mock('#/lib/avatar.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#/lib/avatar.ts')>()),
+  resizeToSquare: resizeToSquareMock,
+}))
 
 beforeEach(() => {
   me = { firstName: 'Ada', lastName: 'Lovelace', image: null, hasUpload: false }
@@ -146,6 +155,48 @@ describe('Remove picture is gated on hasUpload, not on image', () => {
     render(createElement(ProfileTab))
 
     expect(screen.queryByRole('button', { name: 'Remove picture' })).not.toBeNull()
+  })
+})
+
+describe('an encoder failure reports WHY, not the generic line', () => {
+  /**
+   * THE REGRESSION THIS PINS. An iPhone upload failed on beta with "that image
+   * could not be used. Try a different one." — the server's deliberately
+   * reason-free INVALID_AVATAR copy — because canvas.toBlob had silently
+   * fallen back to PNG and a 256px PNG of a photo blew the 100 KB cap. The
+   * player had no way to know that.
+   *
+   * resizeToSquare now refuses to upload something the server will reject and
+   * throws AvatarEncodingError with the actual reason. That message must reach
+   * the toast: mutationErrorMessage returns its FALLBACK for anything that is
+   * not a ConvexError, so without the instanceof narrowing in the component
+   * this test fails and the player is back to a generic line about their own
+   * photo.
+   */
+  test('surfaces the encoder message rather than the fallback copy', async () => {
+    resizeToSquareMock.mockRejectedValue(
+      new AvatarEncodingError('too-large', 'That picture could not be made small enough. Try a different one.'),
+    )
+    render(createElement(ProfileTab))
+    pickFile()
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(toastError).toHaveBeenCalledWith(
+      'That picture could not be made small enough. Try a different one.',
+    )
+    // It never reached the network, which is the other half of the fix — the
+    // client stops sending what it already knows will be refused.
+    expect(generateUploadUrlMock).not.toHaveBeenCalled()
+    expect(setAvatarMock).not.toHaveBeenCalled()
+  })
+
+  test('still uses the fallback for anything that is NOT an encoder failure', async () => {
+    resizeToSquareMock.mockRejectedValue(new Error('something else entirely'))
+    render(createElement(ProfileTab))
+    pickFile()
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(toastError).toHaveBeenCalledWith('Could not update your picture.')
   })
 })
 
