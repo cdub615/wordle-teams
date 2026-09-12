@@ -90,9 +90,13 @@ runbook whose evidence is an exit status is not evidence.
   | `POST`, bogus signature | **403**, body `Invalid signature` |
 
   A **500** means `POLAR_WEBHOOK_SECRET` is missing on the deployment — the 400
-  is the proof it is set and reaching the code (`convex/http.ts:130` reads the
-  secret *before* the `webhook-id` header at `:154`). Verified set on
+  is the proof it is set and reaching the code: `convex/http.ts` reads the secret
+  *before* it reads the `webhook-id` header, and that order is what makes the two
+  codes tell you different things. Verified set on
   `fabulous-goldfish-949` on 2026-09-01.
+
+  While you are in that endpoint's settings, **set its `api_version`** — §1.6.
+  Same screen, different field, and that one has a deadline of its own.
 
 - [ ] **1.3 — One full dry run: purge + copy + verify, no DNS flip.** §4.2–§4.5
       exactly as written, against beta, the week before. The cutover window is not
@@ -129,6 +133,61 @@ runbook whose evidence is an exit status is not evidence.
   Note it answers **307**, not a permanent redirect, despite the route file and
   the phase docs calling it permanent (`wordle-teams-cog5`). It works either way;
   decide before the flip whether you want 301.
+
+- [ ] **1.6 — Set `api_version` to `2026-04` on BOTH Polar webhook endpoints.**
+      **Deadline 2026-10-01, whatever cutover does.**
+
+  Polar versions its contract by date. Since the April 2026 rollout, a webhook
+  endpoint that names **no** `api_version` renders its payloads at whatever is
+  **Current** — and on **2026-10-01** Current becomes `2026-10`. An endpoint left
+  unset therefore changes payload shape on that date on its own, with nothing in
+  this repo having changed.
+
+  **This is not covered by the SDK pin.** `v2/convex/polar.ts` sends
+  `Polar-Version: 2026-04` on every OUTBOUND request (`pinApiVersion`), and that
+  header has **no bearing on webhook payloads** — inbound is versioned *per
+  endpoint*, in the dashboard, on each Polar instance. Two different mechanisms;
+  pinning one does nothing for the other.
+
+  **TWO endpoints, because sandbox and production are wholly separate instances**
+  (§2.2). Both need it:
+
+  | Instance | Endpoint | Easy to miss? |
+  | --- | --- | --- |
+  | sandbox | the one beta has been exercising | no — you are in it constantly |
+  | production | the one cutover flips to | **yes** — nobody has been using it |
+
+  The production one is the miss. It is configured on an instance that has
+  received no traffic, so nothing has ever forced anyone to open its settings.
+
+  **The deadline is a date, not a position in this runbook.** Every other step
+  here is ordered relative to the DNS flip; this one is not. If cutover slips
+  past October 1, this step does not slip with it.
+
+  **If it was missed, the app says so rather than breaking.** `convex/http.ts`
+  logs, on every drifting delivery:
+
+  ```
+  [polar] webhook delivered at an unexpected API version
+    { webhookId, eventName, delivered: '2026-10', expected: '2026-04' }
+  ```
+
+  Convex dashboard → the deployment → Logs, filtered to `[polar]`. The delivery
+  is still processed and still answered exactly as it would have been — the
+  warning is deliberately **not** a rejection, because a stale dashboard field is
+  an operator error and a 4xx would turn it into a Polar retry loop against a
+  body the app can still read (`wordle-teams-swmt`).
+
+  **The silent failure this replaces is the one that matters.** The handler runs
+  no per-event schema, so a version flip does not fail a parse — it moves a field
+  under `extractIdentityCandidates`, which answers "nobody", and the delivery is
+  **202'd with no audit row and no error**. A subscriber is simply never
+  upgraded. That is how v1 lost an upgrade on 2026-08-03.
+
+  **Migrating off 2026-04 is `wordle-teams-4etd`, and it is also a hard
+  deadline.** 2026-04 goes Deprecated on 2026-10-01 and is **removed** at the
+  January 2027 release; Polar answers a removed version with **404**, not a
+  fallback.
 
 ---
 
@@ -171,10 +230,25 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
   `sandbox`; `assertPolarEnv` validates all five together and names every missing
   one, so the first checkout after cutover is a complete test that fails loudly.
 
-  **Scopes are a different thing from variables.** The token needs four, one per
-  SDK call site in `convex/polar.ts`: `checkouts:write` (`:426`),
-  `customer_sessions:write` (`:658`), `checkouts:read` (`:740`),
-  `customers:write` (`:799`).
+  **Scopes are a different thing from variables.** The token needs **four**,
+  across **five** SDK call sites in `convex/polar.ts` — `customers:write` covers
+  two of them. Named by their enclosing action, because line numbers in this
+  table have gone stale twice:
+
+  | Scope | Call | Enclosing action |
+  | --- | --- | --- |
+  | `checkouts:write` | `checkouts.create` | `createProCheckout` |
+  | `customer_sessions:write` | `customerSessions.create` | `getCustomerPortalUrl` |
+  | `customers:write` | `customers.create` | `getCustomerPortalUrl` |
+  | `checkouts:read` | `checkouts.get` | `fetchCheckoutExternalId` |
+  | `customers:write` | `customers.update` | `repairCustomerExternalId` |
+
+  **The API version is a third thing again, and no variable covers it.** Outbound
+  requests are pinned in code (`POLAR_API_VERSION` in
+  `convex/lib/polarVersion.ts`) and deliberately **not** settable per deployment:
+  a version the SDK's models do not describe is broken code, not configuration,
+  and Polar answers an unknown one with 404. The webhook side is a dashboard
+  field on each instance — §1.6.
 
 - [ ] **2.3 — `REMINDERS_ENABLED=true` is the last switch you throw ON
       PRODUCTION, and it is irreversible in effect.**
