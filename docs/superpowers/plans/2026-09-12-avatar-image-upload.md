@@ -217,7 +217,7 @@ git commit -m "feat(avatar): the pure avatar rules — source precedence, sync a
 **Files:**
 - Modify: `v2/convex/schema.ts` (the `players` table)
 
-- [ ] **Step 1: Add the fields**
+- [x] **Step 1: Add the fields**
 
 Add immediately after `email` in the `players` table:
 
@@ -246,12 +246,12 @@ Add immediately after `email` in the `players` table:
     imageId: v.optional(v.id('_storage')),
 ```
 
-- [ ] **Step 2: Verify the schema still typechecks**
+- [x] **Step 2: Verify the schema still typechecks**
 
 Run: `cd v2 && pnpm run typecheck`
 Expected: PASS. Both fields are optional, so the push validates against every existing document — the narrowing hazard `schema.ts` documents for `firstName` does not apply here.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd v2 && git add convex/schema.ts
