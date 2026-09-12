@@ -3,11 +3,17 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { addDays, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
-import { applySocialImageSync, completeProfileFor } from './players.ts'
+import {
+  applySocialImageSync,
+  completeProfileFor,
+  removeAvatarFor,
+  setAvatarFor,
+} from './players.ts'
 import { upgradeTeamInvitesFor } from './billing.ts'
+import { MAX_AVATAR_BYTES } from './lib/avatar.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
-import type { GenericMutationCtx } from 'convex/server'
-import type { DataModel } from './_generated/dataModel'
+import type { GenericActionCtx, GenericMutationCtx } from 'convex/server'
+import type { DataModel, Id } from './_generated/dataModel'
 
 const modules = import.meta.glob('./**/*.ts')
 const today = toPuzzleDay(new Date())
@@ -30,6 +36,43 @@ const aScore = (playerId: string, puzzleDay: string, guesses: Array<string>) => 
   answer: 'SPEED',
   guesses,
 })
+
+/**
+ * Stores a blob AND back-fills `_storage.contentType`, for the setAvatarFor
+ * tests below.
+ *
+ * WHY THE BACK-FILL IS NECESSARY: real Convex records `contentType` from the
+ * `Content-Type` header of the HTTP POST a client makes to a
+ * `generateUploadUrl()` URL — that is the ONLY path that sets it.
+ * `StorageActionWriter.store()` (what `ctx.storage.store` is) takes just an
+ * optional `sha256`, never a content type, and convex-test's simulation of it
+ * (confirmed against the installed 0.0.54 and the latest published 0.0.58)
+ * writes only `{ size, sha256 }` into the `_storage` row — `new Blob([...],
+ * { type })`'s `type` is never read. Left unpatched, every stored blob in this
+ * suite would have `contentType: undefined` regardless of what `type` its Blob
+ * declared, so `isAllowedAvatarType` would reject it and EVERY setAvatarFor
+ * test below would fail (or "pass") on that alone — the byte-cap test would
+ * never actually exercise the size check, and the non-image-type test would
+ * "pass" whether or not that check exists.
+ *
+ * `ctx.db.patch` on a `_storage` id is not something real application code can
+ * do — `_storage` is a system table, and `GenericDatabaseWriter<DataModel>`'s
+ * `patch` is only typed over this project's own tables — so both casts below
+ * are test-only stand-ins for the upload request's header, not a change to
+ * setAvatarFor's contract.
+ */
+async function storeAvatarBlob(
+  ctx: GenericMutationCtx<DataModel> & Pick<GenericActionCtx<DataModel>, 'storage'>,
+  bytes: BlobPart,
+  contentType: string,
+) {
+  const storageId = await ctx.storage.store(new Blob([bytes], { type: contentType }))
+  const patchStorage = ctx.db as unknown as {
+    patch: (id: Id<'_storage'>, value: { contentType: string }) => Promise<void>
+  }
+  await patchStorage.patch(storageId, { contentType })
+  return storageId
+}
 
 describe('completeProfileFor', () => {
   test('creates a player with no legacyId and v1s column defaults', async () => {
@@ -712,6 +755,79 @@ describe('applySocialImageSync', () => {
       const row = await ctx.db.get(ada)
       expect(row?.imageId).toBe(imageId)
       expect(row?.socialImage).toBe('https://lh3/a')
+    })
+  })
+})
+
+describe('setAvatarFor', () => {
+  test('stores the image on the player row', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const imageId = await storeAvatarBlob(ctx, 'tiny', 'image/webp')
+      await setAvatarFor(ctx, ada, imageId)
+      expect((await ctx.db.get(ada))?.imageId).toBe(imageId)
+    })
+  })
+
+  // Orphans are the reason this is a mutation and not a patch:
+  // wordle-teams-31a is already about storage that grows without bound.
+  test('DELETES THE SUPERSEDED IMAGE when replacing one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const first = await storeAvatarBlob(ctx, 'one', 'image/webp')
+      const second = await storeAvatarBlob(ctx, 'two', 'image/webp')
+      await setAvatarFor(ctx, ada, first)
+      await setAvatarFor(ctx, ada, second)
+      expect((await ctx.db.get(ada))?.imageId).toBe(second)
+      expect(await ctx.db.system.get('_storage', first)).toBeNull()
+    })
+  })
+
+  // The client resizes, but a Convex upload URL accepts whatever is POSTed.
+  test('REFUSES an image over the byte cap, and leaves no orphan behind', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const huge = await storeAvatarBlob(ctx, new Uint8Array(MAX_AVATAR_BYTES + 1), 'image/webp')
+      await expect(setAvatarFor(ctx, ada, huge)).rejects.toThrow()
+      expect((await ctx.db.get(ada))?.imageId).toBeUndefined()
+      expect(await ctx.db.system.get('_storage', huge)).toBeNull()
+    })
+  })
+
+  test('REFUSES a non-image type, and leaves no orphan behind', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const html = await storeAvatarBlob(ctx, '<script>', 'text/html')
+      await expect(setAvatarFor(ctx, ada, html)).rejects.toThrow()
+      expect((await ctx.db.get(ada))?.imageId).toBeUndefined()
+      expect(await ctx.db.system.get('_storage', html)).toBeNull()
+    })
+  })
+})
+
+describe('removeAvatarFor', () => {
+  test('deletes the file and falls back to the social image', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const imageId = await ctx.storage.store(new Blob(['x'], { type: 'image/webp' }))
+      const ada = await ctx.db.insert('players', aPlayer({ socialImage: 'https://lh3/a', imageId }))
+      await removeAvatarFor(ctx, ada)
+      const row = await ctx.db.get(ada)
+      expect(row?.imageId).toBeUndefined()
+      expect(row?.socialImage).toBe('https://lh3/a')
+      expect(await ctx.db.system.get('_storage', imageId)).toBeNull()
+    })
+  })
+
+  test('is a no-op for a player who never uploaded one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await expect(removeAvatarFor(ctx, ada)).resolves.toBeUndefined()
     })
   })
 })

@@ -1,14 +1,15 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { accessError, currentPlayer, isProFor, playerForEmail } from './access'
+import { accessError, currentPlayer, isProFor, playerForEmail, requirePlayer } from './access'
 import { resetChatCursorFor } from './chat.ts'
-import { shouldSyncSocialImage } from './lib/avatar.ts'
+import { MAX_AVATAR_BYTES, isAllowedAvatarType, shouldSyncSocialImage } from './lib/avatar.ts'
 import { isCompleteName } from './lib/invite.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
-import type { Id } from './_generated/dataModel'
+import type { Id, DataModel } from './_generated/dataModel'
+import type { GenericDatabaseWriter, StorageWriter } from 'convex/server'
 import type { WriterCtx } from './winners.ts'
 import type { PuzzleDay } from './lib/puzzleDay.ts'
 
@@ -429,13 +430,113 @@ export async function applySocialImageSync(
  *
  * SILENT ON FAILURE at the call site: this is a convenience, and a failed sync
  * costs initials until the next load.
+ *
+ * READS THE AUTH USER EXACTLY ONCE. This runs on EVERY app load, so the two
+ * auth-component round trips the previous shape made — one indirectly via
+ * currentPlayer, one directly for `user.image` — cost double what one buys.
+ * Resolving the player from the SAME user object via playerForEmail, rather
+ * than through currentPlayer, is what removes the second round trip; it is not
+ * a change to who this can act on, since currentPlayer itself is defined as
+ * exactly this same authComponent.getAuthUser -> playerForEmail lookup.
  */
 export const syncSocialImage = mutation({
   args: {},
   handler: async (ctx) => {
-    const player = await currentPlayer(ctx)
-    if (!player) return
     const user = await authComponent.getAuthUser(ctx)
-    await applySocialImageSync(ctx, player._id, user?.image ?? null)
+    if (!user?.email) return
+    // playerForEmail lowercases for itself.
+    const player = await playerForEmail(ctx, user.email)
+    if (!player) return
+    await applySocialImageSync(ctx, player._id, user.image ?? null)
+  },
+})
+
+/**
+ * `storage` JOINED `db` HERE FOR THE AVATAR UPLOAD PATH, mirroring teams.ts's
+ * own ReaderCtx (added there for the identical reason, on the read side).
+ * WriterCtx (winners.ts) is `{ db }` only, and setAvatarFor/removeAvatarFor
+ * both need to delete files, so a plain WriterCtx cannot satisfy them.
+ *
+ * LOCAL TO THIS MODULE RATHER THAN WIDENING THE SHARED WriterCtx EXPORT.
+ * WriterCtx is imported by chat.ts, teams.ts, billing.ts, inviteLinks.ts,
+ * scoringSystems.ts and chatNotify.ts, none of which touch storage — adding
+ * `storage` to the shared type would claim a capability every one of those
+ * call sites does not use and does not need satisfied. Every real mutation
+ * ctx, and convex-test's `t.run` callback ctx, structurally satisfy this with
+ * no cast, the same property WriterCtx's own doc comment relies on.
+ */
+type AvatarCtx = { db: GenericDatabaseWriter<DataModel>; storage: StorageWriter }
+
+/**
+ * Attaches an uploaded file to a player as their avatar.
+ *
+ * VALIDATES SERVER-SIDE, WHICH IS THE POINT OF THIS FUNCTION. The client
+ * resizes to a 256px WebP before it uploads, but `generateAvatarUploadUrl`
+ * hands out a URL that accepts whatever is POSTed to it — so the resize is a
+ * courtesy to the player's connection, not a constraint on what lands in
+ * storage. Without the two checks below, one broken client puts a 12MP original
+ * in the bucket and on every teammate's wire.
+ *
+ * REJECTION DELETES THE FILE. A refused upload that stayed in storage would be
+ * an orphan nothing references and nothing will ever clean up — and a free way
+ * for anybody with an account to fill the bucket.
+ *
+ * `ctx.db.system.get('_storage', id)` rather than `ctx.storage.getMetadata`,
+ * which is deprecated in convex@1.42.
+ */
+export async function setAvatarFor(ctx: AvatarCtx, playerId: Id<'players'>, storageId: Id<'_storage'>) {
+  const metadata = await ctx.db.system.get('_storage', storageId)
+  if (!metadata || !isAllowedAvatarType(metadata.contentType) || metadata.size > MAX_AVATAR_BYTES) {
+    await ctx.storage.delete(storageId)
+    throw accessError('INVALID_AVATAR')
+  }
+
+  const player = await ctx.db.get(playerId)
+  if (!player) throw accessError('NO_PLAYER')
+
+  await ctx.db.patch(playerId, { imageId: storageId })
+  // AFTER the patch, so a failure here cannot leave the row pointing at a file
+  // that no longer exists.
+  if (player.imageId) await ctx.storage.delete(player.imageId)
+}
+
+/**
+ * Drops the uploaded avatar. `socialImage` is deliberately untouched, so
+ * removing an upload reveals the provider's image again rather than falling all
+ * the way to initials — which is what "remove" means to someone who never chose
+ * the social one in the first place.
+ */
+export async function removeAvatarFor(ctx: AvatarCtx, playerId: Id<'players'>) {
+  const player = await ctx.db.get(playerId)
+  if (!player?.imageId) return
+  await ctx.db.patch(playerId, { imageId: undefined })
+  await ctx.storage.delete(player.imageId)
+}
+
+/**
+ * A one-shot URL the client POSTs the resized blob to. Authenticated, so an
+ * anonymous visitor cannot obtain one and use this deployment's storage.
+ */
+export const generateAvatarUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requirePlayer(ctx)
+    return await ctx.storage.generateUploadUrl()
+  },
+})
+
+export const setAvatar = mutation({
+  args: { storageId: v.id('_storage') },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    await setAvatarFor(ctx, player._id, args.storageId)
+  },
+})
+
+export const removeAvatar = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const player = await requirePlayer(ctx)
+    await removeAvatarFor(ctx, player._id)
   },
 })

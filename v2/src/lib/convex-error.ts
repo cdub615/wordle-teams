@@ -34,7 +34,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'RATE_LIMITED' ||
     code === 'SCROLL_RATE_LIMITED' ||
     code === 'INVITE_LINK_INVALID' ||
-    code === 'TEAM_LIMIT_REACHED'
+    code === 'TEAM_LIMIT_REACHED' ||
+    code === 'INVALID_AVATAR'
   ) {
     return code
   }
@@ -166,6 +167,14 @@ export function typedCodeMessage(code: AccessCode): string {
       // number so the copy cannot drift out of step with FREE_TEAM_LIMIT — a
       // literal in a switch, so every gate stays green while it lies.
       return "You're on as many teams as the free plan allows. Upgrade to join another."
+    case 'INVALID_AVATAR':
+      // Thrown by setAvatarFor (convex/players.ts) when an uploaded file fails
+      // the server-side type or size check. Deliberately does not say WHY —
+      // too big, wrong type, or something else entirely — because the upload
+      // flow always resizes and re-encodes client-side first, so a rejection
+      // here means something upstream of that resize went wrong, and the
+      // useful next step is the same regardless: pick a different image.
+      return 'That image could not be used. Try a different one.'
     default: {
       const _exhaustive: never = code
       return _exhaustive

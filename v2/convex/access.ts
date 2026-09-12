@@ -56,6 +56,9 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // never refuses, it PARKS the address in teams.invited and lets billing.ts's
 // upgradeTeamInvitesFor release it later. A link cannot park, so refusing is a
 // new outcome and gets a new code rather than a reused one.
+// INVALID_AVATAR is thrown in players.ts, by setAvatarFor, when an uploaded
+// file fails the server-side type or size check — the same function deletes
+// the file before throwing, so a rejection never leaves an orphan in storage.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -77,6 +80,7 @@ export type AccessCode =
   | 'SCROLL_RATE_LIMITED'
   | 'INVITE_LINK_INVALID'
   | 'TEAM_LIMIT_REACHED'
+  | 'INVALID_AVATAR'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
