@@ -1,6 +1,7 @@
 import { Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ConfirmPopover } from '#/components/confirm-popover.tsx'
+import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar.tsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +31,16 @@ import type { Id } from '../../../convex/_generated/dataModel'
 type Props = {
   messages: Array<ChatMessage>
   nameFor: (playerId: Id<'players'>) => string
+  // THE AVATAR'S OWN ANSWER, ONE PROP RATHER THAN TWO (an image getter and an
+  // initials getter). Two closures would each decide independently who counts
+  // as a current member, and the one way they could disagree is a FACE
+  // rendered beside "Former member" — the identity that label exists to
+  // withhold. routes/chat.tsx builds this from the same lookup `nameFor`
+  // uses, so the two cannot disagree. `null` is a departed author (or the
+  // roster not loaded yet); a present member with no uploaded picture still
+  // gets a record back with `image: null`, which is the distinction between
+  // "on the roster, no photo" and "not on this roster at all".
+  authorFor: (playerId: Id<'players'>) => { image: string | null; initials: string | null } | null
   // WHOSE MESSAGES GO ON THE RIGHT, IN GREEN. `undefined` is "getMyPlayerId has
   // not answered yet" and `null` is its real "no player" answer; both mean no
   // message is claimed as yours, which is a first-paint flicker rather than a
@@ -130,6 +141,7 @@ type Props = {
 export function MessageList({
   messages,
   nameFor,
+  authorFor,
   myPlayerId,
   onDelete,
   canDelete,
@@ -427,7 +439,13 @@ export function MessageList({
           className="mt-auto flex flex-col p-4 [touch-action:pan-y_pinch-zoom]"
           data-testid="chat-messages"
         >
-          {rows.map((row) => (
+          {rows.map((row) => {
+            // COMPUTED ONCE PER ROW, NOT RE-DERIVED AT EACH USE SITE BELOW —
+            // `authorFor` is only ever consulted where `row.showsName` is
+            // already true, so this costs nothing on the far more common rows
+            // that show no name at all.
+            const author = row.showsName ? authorFor(row.message.playerId) : null
+            return (
             <li
               key={row.message._id}
               className={`flex flex-col ${
@@ -447,9 +465,34 @@ export function MessageList({
               {/* ONCE PER RUN, AND NEVER OVER YOUR OWN — see showsAuthorName.
                   `px-3` lines it up with the bubble's own padding rather than
                   with the bubble's edge, so the name sits over the first
-                  character of the message. */}
+                  character of the message.
+
+                  THE AVATAR SITS INLINE WITH THE NAME, ON THE SAME LINE —
+                  NOT IN A LEFT GUTTER. `showsName` is already "first of a run,
+                  and never over your own", exactly the rule an avatar wants,
+                  so hanging it here gets that behaviour for free instead of
+                  restructuring every row into two columns and re-reasoning
+                  the alignment comments above and below this block.
+
+                  A DEPARTED AUTHOR GETS NO AVATAR AT ALL — not an empty
+                  circle. `authorFor` returns `null` for a playerId off the
+                  current roster, the same case `nameFor` renders as "Former
+                  member", and both a face and a pair of initials would put
+                  back the identity that label deliberately withholds. That
+                  `null` is what gates the whole element, not just its
+                  contents. */}
               {row.showsName ? (
-                <span className="px-3 pb-0.5 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5 px-3 pb-0.5 text-xs text-muted-foreground">
+                  {author !== null ? (
+                    <Avatar className="h-5 w-5">
+                      {author.image !== null ? (
+                        <AvatarImage src={author.image} alt="" aria-hidden="true" />
+                      ) : null}
+                      <AvatarFallback className="text-[9px] font-medium">
+                        {author.initials}
+                      </AvatarFallback>
+                    </Avatar>
+                  ) : null}
                   {nameFor(row.message.playerId)}
                 </span>
               ) : null}
@@ -558,7 +601,8 @@ export function MessageList({
                 </span>
               </div>
             </li>
-          ))}
+            )
+          })}
         </ol>
       )}
     </div>

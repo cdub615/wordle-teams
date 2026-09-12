@@ -20,6 +20,7 @@ import { Composer } from '#/components/chat/composer.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { initialsFor } from '#/lib/initials.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -299,6 +300,18 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   if (loadState === 'pending') return frame(<p className="p-4">Loading…</p>)
   if (loadState === 'error') return frame(<p className="p-4">Could not load chat.</p>)
 
+  // THE ONE LOOKUP `nameFor` AND `authorFor` BOTH STAND ON, and that sharing is
+  // the whole point of pulling it out. Each used to run its own
+  // `team.members.find`, which is two independent opinions about who counts
+  // as a current member — and the specific way those two could disagree is a
+  // FACE rendered beside the words "Former member", handing back the exact
+  // identity that label exists to withhold. src/lib/display-names.ts was
+  // extracted for the same reason (its own doc comment: "so the table and the
+  // today panel cannot disagree"); this is that argument again, one level
+  // lower, between a name and the avatar next to it.
+  const memberFor = (playerId: Id<'players'>) =>
+    team?.members.find((candidate) => candidate.id === playerId)
+
   // A PLAYER ID NOT AMONG CURRENT MEMBERS RENDERS AS "Former member" —
   // documented behaviour, not a fallback: messages deliberately outlive their
   // author leaving the team (see message-list.tsx). "Not loaded yet" is NOT
@@ -309,8 +322,23 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
   // milliseconds. That case renders an empty name instead.
   const nameFor = (playerId: Id<'players'>): string => {
     if (!team) return ''
-    const member = team.members.find((candidate) => candidate.id === playerId)
+    const member = memberFor(playerId)
     return member ? `${member.firstName} ${member.lastName}` : 'Former member'
+  }
+
+  // THE AVATAR'S OWN ANSWER, BUILT ON THE SAME `memberFor` AS `nameFor` ABOVE
+  // — see the comment there. `null` is a departed author (or "not loaded
+  // yet", same as `nameFor`'s empty-string branch: there is nothing dishonest
+  // about withholding a face for a few hundred milliseconds), and that null
+  // is deliberately the one signal message-list.tsx needs to gate the whole
+  // avatar element, not just its contents — a member with no uploaded picture
+  // still gets a record back (`image: null`), just no `<img>`.
+  const authorFor = (
+    playerId: Id<'players'>,
+  ): { image: string | null; initials: string | null } | null => {
+    const member = memberFor(playerId)
+    if (!member) return null
+    return { image: member.image, initials: initialsFor(member.firstName, member.lastName) }
   }
 
   // Mirrors the server rule in deleteMessageFor (convex/chat.ts): the author
@@ -443,6 +471,7 @@ function ChatPanel({ teamId }: { teamId: Id<'teams'> }) {
       <MessageList
         messages={shown}
         nameFor={nameFor}
+        authorFor={authorFor}
         // THE SAME `undefined` BRANCH `canDelete` GUARDS, handed on rather than
         // resolved here: getMyPlayerId resolves independently of the messages,
         // and `messageRows` reads "not loaded" as "no bubble is mine yet".

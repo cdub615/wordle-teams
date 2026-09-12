@@ -229,8 +229,11 @@ independently: wordle-teams-31a is already about storage that grows without boun
 
 ### 5. Chat rendering
 
-- A 24px avatar in a left gutter, on the **first message of each author's group** only,
-  not on every bubble.
+- A 20px avatar inline with the author's name, on the same line — not in a left gutter.
+  `message-list.tsx`'s `row.showsName` already encodes exactly the rule the avatar
+  needs (first message of a run, never over your own), so hanging the avatar there gets
+  the right behaviour for free; a gutter would have meant restructuring every row into
+  two columns and re-reasoning the file's existing alignment comments for no benefit.
 - **Others only, never your own.** `row.mine` is right-aligned and the alignment already
   identifies you; a gutter on both sides costs real width on a phone.
 - **"Former member" shows no avatar.** The existing design deliberately withholds a
