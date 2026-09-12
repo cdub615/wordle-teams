@@ -41,29 +41,6 @@ export default defineSchema({
     legacyId: v.optional(v.string()),
     email: v.string(), // always lowercase; auth stores it that way
 
-    /**
-     * THE PROVIDER'S OWN URL, mirrored from Better Auth's `user.image` by
-     * players.syncSocialImage. Never bytes we host: this is
-     * lh3.googleusercontent.com, and the browser fetches it from Google, which
-     * is why the social path costs this deployment nothing at all.
-     *
-     * MIRRORED RATHER THAN JOINED because chat has to show OTHER players'
-     * avatars, and another player's Better Auth user record is reachable only
-     * from their own session. The mirror is what makes it readable here.
-     */
-    socialImage: v.optional(v.string()),
-
-    /**
-     * AN UPLOADED AVATAR, AND IT ALWAYS WINS OVER socialImage.
-     *
-     * TWO FIELDS RATHER THAN ONE, AND THIS IS LOAD-BEARING.
-     * `overrideUserInfoOnSignIn: true` (auth.ts, wordle-teams-wdp1) rewrites
-     * `user.image` on EVERY social sign-in. Collapsing these into a single URL
-     * column would mean the next Google sign-in silently overwrites an avatar
-     * the player deliberately uploaded. Do not "simplify" this pair.
-     */
-    imageId: v.optional(v.id('_storage')),
-
     // REQUIRED SINCE PHASE 4, so a name can never be ABSENT.
     //
     // IT CAN STILL BE EMPTY. v.string() accepts '' and Convex has no minLength,
@@ -203,6 +180,29 @@ export default defineSchema({
     // boolean cannot answer it. Nothing reads the value yet; absence is the
     // only thing the UI tests.
     onboardingDismissedAt: v.optional(v.number()),
+
+    /**
+     * THE PROVIDER'S OWN URL, mirrored from Better Auth's `user.image` by
+     * players.syncSocialImage. Never bytes we host: this is
+     * lh3.googleusercontent.com, and the browser fetches it from Google, which
+     * is why the social path costs this deployment nothing at all.
+     *
+     * MIRRORED RATHER THAN JOINED because chat has to show OTHER players'
+     * avatars, and another player's Better Auth user record is reachable only
+     * from their own session. The mirror is what makes it readable here.
+     */
+    socialImage: v.optional(v.string()),
+
+    /**
+     * AN UPLOADED AVATAR, AND IT ALWAYS WINS OVER socialImage.
+     *
+     * TWO FIELDS RATHER THAN ONE, AND THIS IS LOAD-BEARING.
+     * `overrideUserInfoOnSignIn: true` (auth.ts, wordle-teams-wdp1) rewrites
+     * `user.image` on EVERY social sign-in. Collapsing these into a single URL
+     * column would mean the next Google sign-in silently overwrites an avatar
+     * the player deliberately uploaded. Do not "simplify" this pair.
+     */
+    imageId: v.optional(v.id('_storage')),
   })
     .index('by_legacyId', ['legacyId'])
     .index('by_email', ['email']),
