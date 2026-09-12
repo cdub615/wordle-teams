@@ -575,6 +575,27 @@ type AvatarCtx = { db: GenericDatabaseWriter<DataModel>; storage: StorageWriter 
 export async function setAvatarFor(ctx: AvatarCtx, playerId: Id<'players'>, storageId: Id<'_storage'>) {
   const metadata = await ctx.db.system.get('_storage', storageId)
   if (!metadata || !isAllowedAvatarType(metadata.contentType) || metadata.size > MAX_AVATAR_BYTES) {
+    /**
+     * LOGGED BECAUSE THE ERROR DELIBERATELY WILL NOT SAY, AND THAT COST US
+     * TWICE IN ONE DAY (2026-09-12). The code returned to the client stays
+     * reason-free on purpose, but a refusal with no server-side record of WHAT
+     * was refused makes an ordinary upload failure undiagnosable — the beta
+     * logs showed only `INVALID_AVATAR` twice, which narrowed nothing.
+     *
+     * THE THREE VALUES HERE ARE THE WHOLE DECISION: whether the storage row
+     * resolved at all, the content type Convex actually recorded from the
+     * upload POST's header (NOT what the client believed it sent), and the byte
+     * count. A client cannot self-diagnose the middle one — it checks its own
+     * blob, while the server checks what arrived — so this is the only place
+     * the two can be compared.
+     *
+     * No PII: a MIME type and a byte count.
+     */
+    console.warn(
+      `[avatar] refused upload: metadata=${metadata ? 'found' : 'MISSING'}` +
+        ` contentType=${JSON.stringify(metadata?.contentType ?? null)}` +
+        ` size=${metadata?.size ?? 'n/a'} cap=${MAX_AVATAR_BYTES}`,
+    )
     await ctx.storage.delete(storageId)
     throw accessError('INVALID_AVATAR')
   }
