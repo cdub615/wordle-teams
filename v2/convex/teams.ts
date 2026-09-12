@@ -13,6 +13,7 @@ import {
 import { purgeChatHistoryFor, resetChatCursorFor } from './chat.ts'
 import { sendEmail } from './email.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
+import { resolveAvatar } from './lib/avatar.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
@@ -117,10 +118,12 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
              * plain string already on the document we just read, so the common
              * case — and every case for a player who has never uploaded —
              * costs nothing at all.
+             *
+             * resolveAvatar (lib/avatar.ts) OWNS THE CONDITIONAL NOW, not this
+             * call site — see that module for why the precedence rule lives
+             * there rather than being restated here and in players.ts's myName.
              */
-            image: member.imageId
-              ? await ctx.storage.getUrl(member.imageId)
-              : (member.socialImage ?? null),
+            image: await resolveAvatar(ctx, member),
           }
         }),
       )

@@ -3,7 +3,12 @@ import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import { accessError, currentPlayer, isProFor, playerForEmail, requirePlayer } from './access'
 import { resetChatCursorFor } from './chat.ts'
-import { MAX_AVATAR_BYTES, isAllowedAvatarType, shouldSyncSocialImage } from './lib/avatar.ts'
+import {
+  MAX_AVATAR_BYTES,
+  isAllowedAvatarType,
+  resolveAvatar,
+  shouldSyncSocialImage,
+} from './lib/avatar.ts'
 import { isCompleteName } from './lib/invite.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
@@ -380,6 +385,11 @@ export const needsProfile = query({
  * (lib/invite.ts) is the single opinion about what a good name is; a second
  * opinion here is how v1 ended up saving names its own redirect guard then
  * refused to accept.
+ *
+ * THE OUTER .trim() BELOW IS NOT REDUNDANT WITH isCompleteName'S INTERNAL ONE,
+ * for the same reason completeProfileFor's identical .trim() is not — see that
+ * function's "THE OUTER .trim() IS NOT REDUNDANT" note above for the full
+ * argument; it applies here unchanged.
  */
 export async function updateNameFor(
   ctx: WriterCtx,
@@ -432,7 +442,9 @@ export const myName = query({
        * THE HEADER'S AVATAR CAME FROM BETTER AUTH'S `user.image` UNTIL NOW, and
        * that is why an OTP account could never have one — nothing in v2 ever
        * wrote that field. It resolves from the player row here instead, by the
-       * same precedence every other surface uses.
+       * same precedence every other surface uses — resolveAvatar (lib/avatar.ts),
+       * shared with teams.ts's getMyTeamsFor so the two surfaces cannot disagree
+       * about which image wins.
        *
        * ADDED TO THIS QUERY RATHER THAN A NEW ONE: the header already subscribes
        * to it for the initials and the label, and a second query on every
@@ -440,9 +452,7 @@ export const myName = query({
        * cost more than the field does. The doc comment above about "deliberately
        * just these two fields" is superseded by this.
        */
-      image: player.imageId
-        ? await ctx.storage.getUrl(player.imageId)
-        : (player.socialImage ?? null),
+      image: await resolveAvatar(ctx, player),
       /**
        * WHETHER THERE IS AN UPLOAD TO REMOVE, which is NOT the same question as
        * whether there is an image. The Profile tab's "Remove picture" must not

@@ -1,12 +1,21 @@
+import type { Doc, Id } from '../_generated/dataModel'
+
 /**
- * The avatar rules that are pure, kept out of the mutations so they can be
- * tested at all.
+ * This feature's avatar rules, gathered in one module rather than duplicated
+ * across the surfaces that need them.
  *
- * WHY THIS MODULE EXISTS RATHER THAN INLINE LOGIC: syncSocialImage reads the
- * authenticated Better Auth user, and convex-test cannot stand up a Better Auth
- * session (wordle-teams-bya), so a mutation body that decides anything is a
- * mutation body no test can reach (wordle-teams-obw). Everything that decides
- * lives here; the mutation is a shell.
+ * MOST OF WHAT FOLLOWS IS PURE, kept out of the mutations so it can be tested
+ * at all. WHY THAT MATTERS: syncSocialImage reads the authenticated Better
+ * Auth user, and convex-test cannot stand up a Better Auth session
+ * (wordle-teams-bya), so a mutation body that decides anything is a mutation
+ * body no test can reach (wordle-teams-obw). Everything that decides lives
+ * here; the mutation is a shell.
+ *
+ * `resolveAvatar` BELOW IS THE EXCEPTION: it takes a `ctx` and is not pure,
+ * because resolving a stored file to a URL is a storage read, not a decision —
+ * there is no value to compute without asking storage for it. It belongs here
+ * anyway, alongside this feature's other rules, rather than being left to
+ * duplicate at each call site.
  */
 
 /**
@@ -82,4 +91,34 @@ export function shouldSyncSocialImage(
   if (next === null) return current === undefined ? { action: 'none' } : { action: 'clear' }
   if (current === next) return { action: 'none' }
   return { action: 'set', value: next }
+}
+
+/**
+ * THE ONE PRECEDENCE RULE for a player's avatar: an uploaded image wins over
+ * the mirrored social one, which wins over nothing.
+ *
+ * EXTRACTED FROM TWO PLACES THAT HAD INDEPENDENTLY WRITTEN IT — teams.ts's
+ * getMyTeamsFor (for a teammate) and players.ts's myName (for the caller's own
+ * row). Two copies of a precedence rule is how two surfaces end up disagreeing
+ * about which image wins; src/lib/display-names.ts was extracted for the same
+ * reason, and its doc comment says so.
+ *
+ * THE CONDITIONAL IS LOAD-BEARING AND MUST SURVIVE ANY FUTURE EDIT HERE.
+ * `getUrl` is a `_storage` system read, and getMyTeamsFor is the hottest query
+ * in the app (wordle-teams-dcu) — dashboardBandwidth.test.ts counts `getUrl`
+ * calls directly and pins this at exactly zero for a roster with no uploads.
+ * Calling `getUrl` unconditionally, even on a value this then discards, would
+ * charge that cost on every member of every team on every dashboard load.
+ *
+ * A STRUCTURAL `ctx` TYPE, NOT `StorageReader`/`StorageWriter`. Both call
+ * sites happen to carry a Convex query ctx today, but importing either shared
+ * type here would be a needless coupling for what this function actually uses,
+ * which is the one method below.
+ */
+export async function resolveAvatar(
+  ctx: { storage: { getUrl: (id: Id<'_storage'>) => Promise<string | null> } },
+  player: Pick<Doc<'players'>, 'imageId' | 'socialImage'>,
+): Promise<string | null> {
+  if (!player.imageId) return player.socialImage ?? null
+  return await ctx.storage.getUrl(player.imageId)
 }
