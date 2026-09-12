@@ -1,11 +1,18 @@
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { getMyTeamsFor } from './teams'
 import { unreadBadgeFor } from './chat'
+import { internal } from './_generated/api'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
+
+// Mocked for the same reason reminders.test.ts mocks it, and that comment is
+// authoritative: nothing here registers the Resend component, and `deliver`
+// discards the return value anyway. What this file measures is document counts,
+// and the real component's would not be `reminders.ts`'s.
+vi.mock('./email.ts', () => ({ sendEmail: vi.fn() }))
 
 /**
  * WHAT AN AUTHENTICATED /app SESSION COSTS TO READ, PER EXECUTION — the GA
@@ -71,7 +78,28 @@ async function seedTeams(
   return { me, teamIds }
 }
 
-const withLimit = (documentsRead: number) => convexTest({ schema, modules, transactionLimits: { documentsRead } })
+/**
+ * `transactionLimits` IS WHAT MAKES A LIMIT BITE, and it is opt-in.
+ * `convexTest(schema, modules)` builds its root metrics layer with
+ * `enforce: false`, and `convex-test`'s `index.d.ts` says so plainly — "`false`
+ * (default): limits are not enforced". So convex-test's model of the platform
+ * caps is not what keeps any test in this repo from throwing; only a passed
+ * `transactionLimits` is. Three other suites pass one (grep: scores.test.ts,
+ * chat.test.ts, reminders.test.ts) and nothing else in the repo is metered.
+ *
+ * THE CONFIG IS PER-`t`, SO IT APPLIES TO EVERY TRANSACTION ON IT — each
+ * top-level `t.run` / `t.mutation` gets a fresh counter against the same
+ * ceiling, seeds included.
+ */
+type Limits = {
+  documentsRead?: number
+  databaseQueries?: number
+  functionsScheduled?: number
+}
+const withLimits = (transactionLimits: Limits) =>
+  convexTest({ schema, modules, transactionLimits })
+
+const withLimit = (documentsRead: number) => withLimits({ documentsRead })
 
 describe('getMyTeamsFor — the enumeration every authenticated session holds', () => {
   /**
@@ -162,5 +190,613 @@ describe('unreadBadgeFor — the live subscription /app holds open', () => {
       const { me, teamIds } = await seedTeams(ctx, CEILING_TEAMS, 24)
       expect(await unreadBadgeFor(ctx, me, teamIds)).toMatchObject({ unread: [] })
     })
+  })
+})
+
+/**
+ * WHAT A REMINDER COSTS PER EXECUTION (wordle-teams-spcu).
+ *
+ * The claim the whole per-player scheduling change rests on is a cost claim, so
+ * it gets a test. Same method as the read-path guards above — bisect
+ * `transactionLimits` until the call stops throwing, and assert FROM BOTH
+ * SIDES, because a ceiling alone would pass at any number above the truth.
+ *
+ * WHY DOCUMENT COUNTS AND NOT THE DASHBOARD'S BYTES: this file's header has the
+ * argument and it applies unchanged. The document count is also the term this
+ * change exists to cut — the deleted hourly `sweep` opened with
+ * `ctx.db.query('players').collect()` on every one of 720 monthly runs. If
+ * `deliver` ever collects a table again, the ceilings below fail.
+ *
+ * THREE PROPERTIES OF `convex-test`'s METER THAT EVERY NUMBER BELOW DEPENDS ON,
+ * each measured in this session rather than read off a doc:
+ *
+ *  1. `trackRead` fires per document YIELDED, not per query. An index range
+ *     that matches nothing costs zero documents (it still costs one
+ *     `databaseQueries`).
+ *  2. A `ctx.db.get` is metered as BOTH one document and one index range; a
+ *     `ctx.db.patch` is metered as one document READ plus one write, because
+ *     convex-test's `1.0/shallowMerge` reads the row before merging. So a patch
+ *     costs a read here, which is what makes the maintenance read ceilings
+ *     below double as write guards. Whether a deployed Convex backend charges
+ *     the same read for a patch is not something this repo has verified; what
+ *     these tests hold still is convex-test's meter.
+ *  3. THE SEEDS COST NOTHING MEASURED, which is the only reason a ceiling here
+ *     is attributable to the mutation at all — `1.0/insert` calls `trackWrite`
+ *     and nothing else. Each block opens with the test that holds that, rather
+ *     than leaving it to this paragraph.
+ */
+describe('reminder delivery bandwidth', () => {
+  const DUE = new Date('2026-09-11T14:00:00Z').getTime() // 09:00 Friday in Chicago
+
+  // THE CLOCK IS PINNED, and this block cannot be made deterministic without
+  // it — see the same note on reminders.test.ts's `deliver` block, which is
+  // authoritative. The short version: `deliver` reads `Date.now()`, and the
+  // local day it derives from it decides which `dailyScores` rows the two index
+  // lookups match. Under a real clock the fixture's boards fall out of the
+  // activity window the day after this is written, the run takes the 'inactive'
+  // path instead, and the read count is a different number.
+  beforeEach(() => {
+    vi.stubEnv('REMINDERS_ENABLED', 'true')
+    vi.stubEnv('REMINDERS_ALLOWLIST', '')
+    vi.stubEnv('SITE_URL', 'https://example.com')
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(DUE))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+  })
+
+  async function aScheduledPlayer(t: ReturnType<typeof convexTest>, over = {}) {
+    return await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert(
+        'players',
+        aPlayer({
+          timeZone: 'America/Chicago',
+          reminderDeliveryTime: '09:00:00',
+          reminderDeliveryMethods: ['email'],
+          playsWeekends: true,
+          nextReminderAt: DUE,
+          ...over,
+        }),
+      )
+      for (const puzzleDay of ['2026-09-08', '2026-09-09', '2026-09-10']) {
+        await ctx.db.insert('dailyScores', { playerId, puzzleDay, date: 0, guesses: ['xxxxx'] })
+      }
+      return playerId
+    })
+  }
+
+  /**
+   * The same player, with today's board already in. `2026-09-11` has to be
+   * `DUE`'s local day in Chicago or the row lands outside the lookup this
+   * fixture exists to make match.
+   */
+  async function anEnteredPlayer(t: ReturnType<typeof convexTest>) {
+    const playerId = await aScheduledPlayer(t)
+    await t.run((ctx) =>
+      ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2026-09-11',
+        date: 0,
+        guesses: ['xxxxx'],
+      }),
+    )
+    return playerId
+  }
+
+  /**
+   * THE GUARD ON EVERY GUARD BELOW. A `transactionLimits` config applies to
+   * every transaction on its `t`, so a ceiling is only attributable to the
+   * mutation while the fixture that precedes it is free. It is, and this is
+   * what says so rather than the header's word for it: insert is the only
+   * syscall the seed makes, and convex-test charges an insert a write and
+   * nothing else. Add a `patch` or a query here and the numbers below move
+   * without any of them failing.
+   */
+  test('the fixtures themselves cost nothing metered', async () => {
+    const free = { documentsRead: 0, databaseQueries: 0, functionsScheduled: 0 }
+    await expect(aScheduledPlayer(withLimits(free))).resolves.toBeDefined()
+    await expect(anEnteredPlayer(withLimits(free))).resolves.toBeDefined()
+  })
+
+  /**
+   * MEASURED BY BISECTION, and written as an enumeration because a figure that
+   * does not match a named list of documents is not a measurement. The
+   * delivered path, one line per charge:
+   *
+   *   1. `deliver`'s own `ctx.db.get(playerId)`                      1 doc, 1 range
+   *   2. entered-today: an index range that yields NO document — the
+   *      player has not entered today, which is why they are due     0 docs, 1 range
+   *   3. recent-activity: an index range yielding ONE document —
+   *      `.first()` stops there, and the fixture holds THREE boards in
+   *      the window on purpose, so a `.collect()` regression reads
+   *      more than one and breaches this                             1 doc,  1 range
+   *   4. `ctx.db.patch(playerId, { lastBoardEntryReminder })`        1 doc,  0 ranges
+   *   5. `scheduleNextFor`'s own `ctx.db.get(playerId)` — the second
+   *      read of the same row, which Task 3 kept deliberately so
+   *      that helper contains no cancel call                         1 doc, 1 range
+   *   6. `scheduleNextFor`'s `ctx.db.patch` of the new job and instant 1 doc, 0 ranges
+   *
+   * RETIRED: 3 and then 2, neither measured. Both were short the two patches
+   * (property 2 in this block's header); the 2 also forgot line 5.
+   */
+  const DELIVER_READS = 5
+  const DELIVER_QUERIES = 4
+
+  test(`delivering reads exactly ${DELIVER_READS} documents`, async () => {
+    const t = withLimits({ documentsRead: DELIVER_READS })
+    const playerId = await aScheduledPlayer(t)
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).resolves.toMatchObject({ delivered: true, reason: 'sent' })
+  })
+
+  test(`and ${DELIVER_READS - 1} is not enough, so the number is measured not bounded`, async () => {
+    const t = withLimits({ documentsRead: DELIVER_READS - 1 })
+    const playerId = await aScheduledPlayer(t)
+
+    await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
+      /Scanned too many documents/,
+    )
+  })
+
+  /**
+   * A SEPARATE METER, AND THE ONE THAT CATCHES A RE-INTRODUCED COLLECT. A
+   * `collect()` over a small table costs few documents but always one range, so
+   * a regression that swapped an index lookup for a scan of a two-row table
+   * could slip under `DELIVER_READS` and not under this.
+   */
+  test(`delivering runs exactly ${DELIVER_QUERIES} index ranges`, async () => {
+    const t = withLimits({ databaseQueries: DELIVER_QUERIES })
+    const playerId = await aScheduledPlayer(t)
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).resolves.toMatchObject({ delivered: true })
+  })
+
+  test(`and ${DELIVER_QUERIES - 1} index ranges is not enough`, async () => {
+    const t = withLimits({ databaseQueries: DELIVER_QUERIES - 1 })
+    const playerId = await aScheduledPlayer(t)
+
+    await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
+      /Too many index ranges read/,
+    )
+  })
+
+  /**
+   * ONE JOB: tomorrow's reminder. This is the number that makes the chain O(1)
+   * per player per day rather than fanning out.
+   */
+  test('delivering to an email player schedules exactly one follow-on job', async () => {
+    const t = withLimits({ functionsScheduled: 1 })
+    const playerId = await aScheduledPlayer(t)
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).resolves.toMatchObject({ delivered: true })
+  })
+
+  test('and it does schedule one — zero is not enough', async () => {
+    const t = withLimits({ functionsScheduled: 0 })
+    const playerId = await aScheduledPlayer(t)
+
+    await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
+      /Scheduled too many functions/,
+    )
+  })
+
+  /**
+   * PUSH ADDS EXACTLY ONE, AND THE DELIVERY METHODS ARE THE ONLY FIXTURE FIELD
+   * THAT MOVES IT. Every other fixture in this block is `['email']`, so without
+   * this pair the fan-out per method is a constant nothing varies — and push is
+   * the method that enqueues rather than sends. Two: `pushSend.deliverTo` plus
+   * the chain's own next link.
+   */
+  test('adding push schedules exactly one more', async () => {
+    const t = withLimits({ functionsScheduled: 2 })
+    const playerId = await aScheduledPlayer(t, { reminderDeliveryMethods: ['email', 'push'] })
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).resolves.toMatchObject({ delivered: true })
+  })
+
+  test('and one is not enough once push is on', async () => {
+    const t = withLimits({ functionsScheduled: 1 })
+    const playerId = await aScheduledPlayer(t, { reminderDeliveryMethods: ['email', 'push'] })
+
+    await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
+      /Scheduled too many functions/,
+    )
+  })
+
+  /**
+   * THE SKIP PATH IS CHEAPER THAN THE DELIVERED ONE, AND THIS IS THE ONLY
+   * FIXTURE WHERE THE ENTERED-TODAY LOOKUP MATCHES ANYTHING. Every other
+   * fixture in this block is a due player, who by definition has not entered
+   * today — so without this the lookup's yield is a constant zero and its
+   * per-document charge is unmeasured.
+   *
+   *   1. `deliver`'s own `ctx.db.get(playerId)`                      1 doc, 1 range
+   *   2. entered-today, now yielding ONE document                    1 doc, 1 range
+   *   3. `scheduleNextFor`'s `ctx.db.get(playerId)`                  1 doc, 1 range
+   *   4. `scheduleNextFor`'s `ctx.db.patch`                          1 doc, 0 ranges
+   *   -> 4 documents, 3 index ranges, 1 job.
+   *
+   * The recent-activity range and the `lastBoardEntryReminder` patch are the
+   * two the delivered path adds on top; the chain still costs its one
+   * reschedule, which is the property that makes every skip path safe.
+   */
+  const ALREADY_ENTERED_READS = 4
+
+  test(`a player who has already entered costs ${ALREADY_ENTERED_READS} documents`, async () => {
+    const t = withLimits({ documentsRead: ALREADY_ENTERED_READS, functionsScheduled: 1 })
+    const playerId = await anEnteredPlayer(t)
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).resolves.toMatchObject({ delivered: false, reason: 'already-entered' })
+  })
+
+  test(`and ${ALREADY_ENTERED_READS - 1} is not enough`, async () => {
+    const t = withLimits({ documentsRead: ALREADY_ENTERED_READS - 1 })
+    const playerId = await anEnteredPlayer(t)
+
+    await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
+      /Scanned too many documents/,
+    )
+  })
+
+  /**
+   * A SUPERSEDED JOB IS NEARLY FREE, which is what makes a leftover job a
+   * non-event rather than a cost. The staleness guard runs before anything
+   * else, so the job costs its one `ctx.db.get` and stops: no `dailyScores`
+   * lookup, no patch, no reschedule.
+   *
+   * `databaseQueries: 1` IS WHAT SAYS "NO `dailyScores` LOOKUP", and the
+   * document ceiling cannot: an index range that matches nothing yields no
+   * document, so a lookup reinstated above the guard would cost zero reads and
+   * be invisible to `documentsRead: 1` alone.
+   *
+   * SEEDED AS A MISMATCHED INSERT RATHER THAN A PATCH, deliberately. A patch
+   * would charge the seed a document read (property 2 above) and the
+   * `documentsRead: 0` half below would then be measuring the fixture.
+   */
+  test('a superseded job reads one document, asks one index range, schedules nothing', async () => {
+    const t = withLimits({ documentsRead: 1, databaseQueries: 1, functionsScheduled: 0 })
+    const playerId = await aScheduledPlayer(t, { nextReminderAt: DUE + 3600_000 })
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).resolves.toMatchObject({ delivered: false, reason: 'superseded' })
+  })
+
+  test('and that one document is read, so the guard is reached not skipped', async () => {
+    const t = withLimits({ documentsRead: 0 })
+    const playerId = await aScheduledPlayer(t, { nextReminderAt: DUE + 3600_000 })
+
+    await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
+      /Scanned too many documents/,
+    )
+  })
+})
+
+describe('reminder maintenance bandwidth', () => {
+  const NOW = new Date('2026-09-11T14:00:00Z').getTime()
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(NOW))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /**
+   * THREE FIXTURES, TWO INDEPENDENT FIELDS, AND INSERTS ONLY. `zoned` decides
+   * whether a row can ever be scheduled; `chained` whether it currently is. A
+   * patch would be charged a document read against the ceiling under test (see
+   * this block's header), so the absent `nextReminderAt` is withheld at insert
+   * rather than cleared afterwards.
+   *
+   * `zoned: false, chained: true` IS NOT A REACHABLE ROW and nothing here asks
+   * for it: `scheduleNextFor` returns before scheduling when `timeZone` is
+   * absent, so nothing can give a zoneless row an instant.
+   *
+   * EVERY FIXTURE IS ALREADY ON THE RIGHT SIDE OF THE WEEKEND DERIVATION
+   * (`playsWeekends: true` against weekend-playing teams), so no flag flips and
+   * no fixture patches. That is steady state for the zoneless table too — the
+   * flag derivation sits ABOVE the zone check, so such a table settles its
+   * flags in one run and looks like this from the second run on.
+   *
+   * `reminderDeliveryMethods` IS LEFT AT THE FIXTURE DEFAULT even though the
+   * real non-cutover copy also blanks it (scripts/lib/copy-reminder-policy.mjs
+   * sends `[]`). `maintain` never reads that field — every
+   * `reminderDeliveryMethods` reference in reminders.ts is inside `deliver` —
+   * so varying it would add a difference between the fixtures that changes
+   * nothing.
+   */
+  async function seedTable(
+    t: ReturnType<typeof convexTest>,
+    {
+      players,
+      teams,
+      zoned,
+      chained,
+    }: { players: number; teams: number; zoned: boolean; chained: boolean },
+  ) {
+    await t.run(async (ctx) => {
+      const playerIds: Id<'players'>[] = []
+      for (let i = 0; i < players; i++) {
+        playerIds.push(
+          await ctx.db.insert(
+            'players',
+            aPlayer({
+              email: `p${i}@example.com`,
+              playsWeekends: true,
+              ...(zoned ? { timeZone: 'America/Chicago' } : {}),
+              ...(chained ? { nextReminderAt: NOW + 6 * 3600_000 } : {}),
+            }),
+          ),
+        )
+      }
+      for (let j = 0; j < teams; j++) {
+        await ctx.db.insert('teams', aTeam({ legacyId: 200 + j, playerIds, playWeekends: true }))
+      }
+    })
+  }
+
+  /** As in the delivery block: the ceilings are the mutation's only while this holds. */
+  test('every fixture in this block costs nothing metered', async () => {
+    for (const [zoned, chained] of [
+      [true, true],
+      [true, false],
+      [false, false],
+    ]) {
+      const t = withLimits({ documentsRead: 0, databaseQueries: 0, functionsScheduled: 0 })
+      await expect(
+        seedTable(t, { players: 3, teams: 2, zoned, chained }),
+      ).resolves.toBeUndefined()
+    }
+  })
+
+  /**
+   * THE EXHAUSTIVE RETURN OF A HEALTHY PASS, and `toEqual` rather than
+   * `toMatchObject` on purpose. Two of these zeroes are the reason:
+   *
+   *  - `failed: 0`. A pass in which EVERY player's work threw returns
+   *    `scheduled: 0, weekendFlagsChanged: 0, deferred: 0` as well, because the
+   *    per-player `try` swallows it — measured, and not hypothetically: a
+   *    ceiling one document too low for this pass's own repair path produces
+   *    exactly that shape instead of throwing (see the reschedule ceiling
+   *    below). A subset match would call that healthy.
+   *  - `zoneless: 0`. See the all-zoneless test that follows.
+   */
+  const HEALTHY_PASS = {
+    players: 3,
+    teams: 2,
+    weekendFlagsChanged: 0,
+    scheduled: 0,
+    deferred: 0,
+    zoneless: 0,
+    failed: 0,
+  }
+
+  /**
+   * IN STEADY STATE THIS PASS WRITES AND SCHEDULES NOTHING, which is the
+   * statement that the 82 MB/month floor is gone rather than moved. It still
+   * READS both tables every run — a daily full scan is the deliberate price of
+   * the self-healing property, and at 30 runs a month rather than 720 it is
+   * under 4 MB — but if it starts rescheduling healthy players it is churning
+   * ~393 rows a day and this fails.
+   *
+   * `functionsScheduled: 0` METERS THE SCHEDULING HALF; the counters meter the
+   * writing half, and the read ceiling below covers a write the counters would
+   * miss, since a patch is charged a document read. Note what the meter cannot
+   * do here: `maintain`'s per-player `try` catches a limit breach, so this
+   * ceiling reports `failed`, it does not throw. `toEqual` is what reads it.
+   */
+  test('does no work when every chain is healthy', async () => {
+    const t = withLimits({ functionsScheduled: 0 })
+    await seedTable(t, { players: 3, teams: 2, zoned: true, chained: true })
+
+    await expect(t.mutation(internal.reminders.maintain, {})).resolves.toEqual(HEALTHY_PASS)
+  })
+
+  /**
+   * THE STATE THE TEST ABOVE WOULD OTHERWISE CALL HEALTHY. A table where every
+   * row has lost its `timeZone` is unschedulable in full, and before `zoneless`
+   * existed its return was byte-identical to the healthy one — so the assertion
+   * that carries this change's headline claim passed just as happily on the
+   * worst outcome the cutover has.
+   *
+   * IT IS THE CUTOVER'S ACTUAL FAILURE MODE, not a contrived one:
+   * scripts/lib/copy-reminder-policy.mjs withholds `timeZone` on every copy
+   * except the one passing `--with-reminders`, so getting that flag wrong on
+   * the final copy produces this table exactly.
+   *
+   * WRITTEN AS `{ ...HEALTHY_PASS, zoneless: 3 }` so the claim is structural:
+   * one field, and one field only, tells the two apart.
+   */
+  test('an all-zoneless table returns the healthy shape in every field but zoneless', async () => {
+    const t = withLimits({ functionsScheduled: 0 })
+    await seedTable(t, { players: 3, teams: 2, zoned: false, chained: false })
+
+    await expect(t.mutation(internal.reminders.maintain, {})).resolves.toEqual({
+      ...HEALTHY_PASS,
+      zoneless: 3,
+    })
+  })
+
+  /**
+   * ONE DOCUMENT PER ROW AND NOTHING ELSE — the two collects, and no per-player
+   * read on top. This is the ceiling that would catch the `ctx.db.system.get`
+   * per player that `maintain`'s THE ROW ONLY, NEVER `_scheduled_functions`
+   * paragraph explains the absence of, and (because a patch is charged a read)
+   * any unconditional write the counters would not report.
+   *
+   * PLAYERS AND TEAMS ARE VARIED INDEPENDENTLY, which is the whole point of the
+   * table. Every fixture here used to hold one team per player, and `players +
+   * teams` is indistinguishable from `2 x players` until they differ.
+   */
+  const SHAPES = [
+    { players: 3, teams: 1 },
+    { players: 1, teams: 3 },
+    { players: 4, teams: 2 },
+  ]
+
+  test('a healthy pass reads exactly one document per row', async () => {
+    for (const { players, teams } of SHAPES) {
+      const t = withLimits({ documentsRead: players + teams })
+      await seedTable(t, { players, teams, zoned: true, chained: true })
+
+      await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
+        players,
+        teams,
+        scheduled: 0,
+        failed: 0,
+      })
+    }
+  })
+
+  test('and one document fewer is not enough at any shape', async () => {
+    for (const { players, teams } of SHAPES) {
+      const t = withLimits({ documentsRead: players + teams - 1 })
+      await seedTable(t, { players, teams, zoned: true, chained: true })
+
+      // THROWS RATHER THAN REPORTING `failed`, and that is structural: both
+      // collects sit OUTSIDE the per-player `try`, so a breach reading them
+      // aborts the whole pass. See `maintain`'s BOTH COLLECTS SIT OUTSIDE
+      // paragraph.
+      await expect(t.mutation(internal.reminders.maintain, {})).rejects.toThrow(
+        /Scanned too many documents/,
+      )
+    }
+  })
+
+  /**
+   * TWO INDEX RANGES, WHATEVER THE ROW COUNT — one per collect. The read
+   * ceiling above grows with the table and so cannot say that the per-player
+   * path asks the database nothing at all; this can, and it says it at a size
+   * where a per-player lookup would be lost in the noise of the scan.
+   */
+  test('a healthy pass runs exactly two index ranges at any size', async () => {
+    for (const players of [1, 6]) {
+      const t = withLimits({ databaseQueries: 2 })
+      await seedTable(t, { players, teams: 2, zoned: true, chained: true })
+
+      await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
+        players,
+        failed: 0,
+      })
+    }
+  })
+
+  test('and one index range is not enough', async () => {
+    const t = withLimits({ databaseQueries: 1 })
+    await seedTable(t, { players: 3, teams: 2, zoned: true, chained: true })
+
+    await expect(t.mutation(internal.reminders.maintain, {})).rejects.toThrow(
+      /Too many index ranges read/,
+    )
+  })
+
+  /**
+   * WHAT REPAIRING ONE CHAIN COSTS: three documents, on top of the scan. The
+   * row through `reschedulePlayerReminderFor`'s own `ctx.db.get`, the same row
+   * again through `scheduleNextFor`'s, and the patch that records the new job
+   * and instant. So a pass that has to bootstrap the whole table reads
+   * `players + teams + 3 x players`, and repair is O(1) per player rather than
+   * per anything else.
+   *
+   * THE DUPLICATE GET IS DELIBERATE (Task 3, so `scheduleNextFor` contains no
+   * cancel call). Removing it is a legitimate change that would make this
+   * number 2 per player — this test is then the record of what it bought, not
+   * an objection to it.
+   */
+  const REPAIR_READS_PER_PLAYER = 3
+  const bootstrapReads = (players: number, teams: number) =>
+    players + teams + REPAIR_READS_PER_PLAYER * players
+
+  test(`repairing a chain costs ${REPAIR_READS_PER_PLAYER} documents per player`, async () => {
+    for (const players of [2, 3]) {
+      const t = withLimits({ documentsRead: bootstrapReads(players, 1) })
+      // ZONED BUT NOT CHAINED: schedulable rows with no pending instant, which
+      // is what `maintain` bootstraps. `zoned: false` would make them
+      // unschedulable instead and cost nothing at all.
+      await seedTable(t, { players, teams: 1, zoned: true, chained: false })
+
+      await expect(t.mutation(internal.reminders.maintain, {})).resolves.toEqual({
+        players,
+        teams: 1,
+        weekendFlagsChanged: 0,
+        scheduled: players,
+        deferred: 0,
+        zoneless: 0,
+        failed: 0,
+      })
+    }
+  })
+
+  test('and one document fewer strands the last player instead of throwing', async () => {
+    const players = 3
+    const t = withLimits({ documentsRead: bootstrapReads(players, 1) - 1 })
+    await seedTable(t, { players, teams: 1, zoned: true, chained: false })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // THE OTHER SIDE OF THE CEILING, AND IT IS NOT A THROW. The breach happens
+    // inside the per-player `try`, which logs and carries on — so the pass
+    // reports two repaired and one failed. That is the measurement, and it is
+    // also the demonstration of why the healthy assertion above has to read
+    // `failed`: a swallowed limit is indistinguishable from a quiet pass in
+    // every other field.
+    await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
+      scheduled: players - 1,
+      failed: 1,
+    })
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * THE BUDGET BOUNDS WHAT ONE TRANSACTION SCHEDULES, which is the protection
+   * MAINTAIN_SCHEDULE_BUDGET exists for — and the only fixture here that
+   * crosses it, since every other one is far below. Passed explicitly because
+   * 800 rows is not a table worth seeding to learn that a `>=` holds.
+   *
+   * NOTE THAT THE BUDGET DEFERS, IT DOES NOT THROW: two rows are left for
+   * tomorrow's run, and it is `deferred` that makes a multi-day bootstrap
+   * visible.
+   */
+  test('a budget of one schedules exactly one function and defers the rest', async () => {
+    const t = withLimits({ functionsScheduled: 1 })
+    await seedTable(t, { players: 3, teams: 1, zoned: true, chained: false })
+
+    await expect(t.mutation(internal.reminders.maintain, { budget: 1 })).resolves.toEqual({
+      players: 3,
+      teams: 1,
+      weekendFlagsChanged: 0,
+      scheduled: 1,
+      deferred: 2,
+      zoneless: 0,
+      failed: 0,
+    })
+  })
+
+  test('and it really does schedule that one — a ceiling of zero refuses every row', async () => {
+    const t = withLimits({ functionsScheduled: 0 })
+    await seedTable(t, { players: 3, teams: 1, zoned: true, chained: false })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // Swallowed per player again, so `scheduled` never reaches the budget and
+    // nothing is deferred either: three refusals, reported as failures.
+    await expect(t.mutation(internal.reminders.maintain, { budget: 1 })).resolves.toMatchObject({
+      scheduled: 0,
+      deferred: 0,
+      failed: 3,
+    })
+    vi.restoreAllMocks()
   })
 })
