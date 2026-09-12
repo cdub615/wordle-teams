@@ -29,6 +29,14 @@ describe('shouldSyncSocialImage', () => {
   test('does nothing when neither side has one', () => {
     expect(shouldSyncSocialImage(undefined, null)).toEqual({ action: 'none' })
   })
+
+  // Better Auth omits `image` entirely for a user who has none, so an absent
+  // value and an explicit null are the same fact and must behave the same way.
+  // Pinned because treating a bare `undefined` as "unknown, leave it alone"
+  // would pass every other test in this file.
+  test('CLEARS on an absent incoming value, exactly as on null', () => {
+    expect(shouldSyncSocialImage('https://old', undefined)).toEqual({ action: 'clear' })
+  })
 })
 
 describe('isAllowedAvatarType', () => {

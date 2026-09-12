@@ -45,6 +45,13 @@ export type SocialImageSync = { action: 'none' } | { action: 'clear' } | { actio
  * `action: 'none'` IS THE COMMON CASE AND IT MATTERS. This runs on app load, so
  * anything other than "usually writes nothing" would put a mutation on every
  * page view.
+ *
+ * TYPE ASYMMETRY: `current` is `string | undefined` because it is an optional
+ * Convex field, while `incoming` accepts both `null` and `undefined`. Both mean
+ * "no image" — Better Auth omits the `image` field entirely for a user who has
+ * none, so absent and explicit-null are the same fact and must behave the same
+ * way. Treating bare `undefined` as "unknown, leave it alone" would strand a
+ * photo the provider has stopped serving; both must clear a previously mirrored URL.
  */
 export function shouldSyncSocialImage(
   current: string | undefined,
