@@ -446,161 +446,173 @@ export function MessageList({
             // that show no name at all.
             const author = row.showsName ? authorFor(row.message.playerId) : null
             return (
-            <li
-              key={row.message._id}
-              className={`flex flex-col ${
-                row.separator !== null ? 'mt-1' : row.startsRun ? 'mt-3' : 'mt-0.5'
-              } ${row.mine ? 'items-end' : 'items-start'} first:mt-0`}
-            >
-              {/* CENTRED ACROSS THE WHOLE LIST, WHICH `w-full` IS WHAT BUYS —
-                  the row it sits in is aligned to one edge or the other for the
-                  bubble's sake, and a separator inherited into that alignment
-                  would sit under the last bubble rather than across the
-                  conversation. */}
-              {row.separator !== null ? (
-                <span className="w-full py-2 text-center text-xs text-muted-foreground">
-                  {row.separator}
-                </span>
-              ) : null}
-              {/* ONCE PER RUN, AND NEVER OVER YOUR OWN — see showsAuthorName.
-                  `px-3` lines it up with the bubble's own padding rather than
-                  with the bubble's edge, so the name sits over the first
-                  character of the message.
+              <li
+                key={row.message._id}
+                className={`flex flex-col ${
+                  row.separator !== null ? 'mt-1' : row.startsRun ? 'mt-3' : 'mt-0.5'
+                } ${row.mine ? 'items-end' : 'items-start'} first:mt-0`}
+              >
+                {/* CENTRED ACROSS THE WHOLE LIST, WHICH `w-full` IS WHAT BUYS —
+                    the row it sits in is aligned to one edge or the other for the
+                    bubble's sake, and a separator inherited into that alignment
+                    would sit under the last bubble rather than across the
+                    conversation. */}
+                {row.separator !== null ? (
+                  <span className="w-full py-2 text-center text-xs text-muted-foreground">
+                    {row.separator}
+                  </span>
+                ) : null}
+                {/* ONCE PER RUN, AND NEVER OVER YOUR OWN — see showsAuthorName.
+                    `px-3` lines it up with the bubble's own padding rather than
+                    with the bubble's edge, so the name sits over the first
+                    character of the message.
 
-                  THE AVATAR SITS INLINE WITH THE NAME, ON THE SAME LINE —
-                  NOT IN A LEFT GUTTER. `showsName` is already "first of a run,
-                  and never over your own", exactly the rule an avatar wants,
-                  so hanging it here gets that behaviour for free instead of
-                  restructuring every row into two columns and re-reasoning
-                  the alignment comments above and below this block.
+                    THE AVATAR SITS INLINE WITH THE NAME, ON THE SAME LINE —
+                    NOT IN A LEFT GUTTER. `showsName` is already "first of a run,
+                    and never over your own", exactly the rule an avatar wants,
+                    so hanging it here gets that behaviour for free instead of
+                    restructuring every row into two columns and re-reasoning
+                    the alignment comments above and below this block.
 
-                  A DEPARTED AUTHOR GETS NO AVATAR AT ALL — not an empty
-                  circle. `authorFor` returns `null` for a playerId off the
-                  current roster, the same case `nameFor` renders as "Former
-                  member", and both a face and a pair of initials would put
-                  back the identity that label deliberately withholds. That
-                  `null` is what gates the whole element, not just its
-                  contents. */}
-              {row.showsName ? (
-                <span className="flex items-center gap-1.5 px-3 pb-0.5 text-xs text-muted-foreground">
-                  {author !== null ? (
-                    <Avatar className="h-5 w-5">
-                      {author.image !== null ? (
-                        <AvatarImage src={author.image} alt="" aria-hidden="true" />
-                      ) : null}
-                      <AvatarFallback className="text-[9px] font-medium">
-                        {author.initials}
-                      </AvatarFallback>
-                    </Avatar>
-                  ) : null}
-                  {nameFor(row.message.playerId)}
-                </span>
-              ) : null}
-              {/*
-                THE BUBBLE. `bg-accent-solid`, NOT `bg-primary` — the same call
-                today-panel.tsx's progress fill and unread-badge.tsx's dot both
-                made (wordle-teams-5jcn.21): `--primary` maps to `--text`, which
-                is near-white in dark, so "my messages" painted with it would be
-                a column of white slabs rather than the brand green. The
-                foreground is the token minted for exactly this pairing,
-                `--accent-solid-foreground`: #ffffff on #15803d is 5.00:1 in
-                light and #052e16 on #22c55e is 6.54:1 in dark, both clear of
-                AA, and both measured out of styles.css by styles.test.ts rather
-                than quoted here and left to rot.
+                    A DEPARTED AUTHOR GETS NO AVATAR AT ALL — not an empty
+                    circle. `authorFor` returns `null` for a playerId off the
+                    current roster, the same case `nameFor` renders as "Former
+                    member", and both a face and a pair of initials would put
+                    back the identity that label deliberately withholds. That
+                    `null` is what gates the whole element, not just its
+                    contents.
 
-                THE OTHER SIDE IS `bg-muted text-foreground`, the app's neutral
-                band — `--surface-sunken`, the dark grey iMessage uses for the
-                other person in dark mode and the light grey it uses in light.
-                That pairing is already asserted at AA by styles.test.ts's
-                `--text on --surface-sunken`.
-
-                THE TAIL IS A FLATTENED CORNER ON THE LAST BUBBLE OF A RUN, on
-                the side the run is aligned to — which is what iMessage draws and
-                what makes a run read as one utterance with an end rather than as
-                a stack of separate arrivals. Done with a border radius rather
-                than a pseudo-element on purpose: a pointer hung off the side of
-                a bubble is one more thing that can stick out past a 390px
-                viewport, and this route already has to be measured for
-                horizontal overflow.
-
-                `max-w-[75%]` IS THE OTHER HALF OF "THIS READS AS A
-                CONVERSATION". A bubble that spans the full width has no side to
-                be on, so the alignment that identifies the author disappears on
-                exactly the long messages where it is most needed.
-              */}
-              {/*
-                THE BUBBLE GETS A ROW OF ITS OWN, WHICH IS WHAT THE TIMESTAMP
-                HANGS OFF. `w-full` makes this row span the whole list, so the
-                label below anchors to the CONVERSATION'S right edge rather than
-                to the bubble's — the times line up in a column instead of
-                stepping in and out with each message's length. That anchor is
-                the list's CONTENT edge, one padding short of the edge the
-                scroller clips at, which is what the label's own `ml-4` closes.
-                The
-                `justify-*` reproduces exactly the alignment the `<li>`'s own
-                `items-*` gave the bubble, and `max-w-[75%]` now resolves
-                against a box the same width as the one it did before, so
-                nothing about part 2's layout moves. This is the same
-                `flex w-full justify-end|justify-start` shape the delete row
-                that used to sit here had.
-              */}
-              <div className={`relative flex w-full ${row.mine ? 'justify-end' : 'justify-start'}`}>
-                <MessageBubble
-                  row={row}
-                  nameFor={nameFor}
-                  // WITHHELD RATHER THAN PASSED WITH A FLAG BESIDE IT: a bubble
-                  // with no `onDelete` renders as a plain div with no gesture,
-                  // no tab stop and no menu, so "may not delete" is the absence
-                  // of the affordance rather than a disabled version of it.
-                  // `canDelete` is routes/chat.tsx's, unchanged and not
-                  // re-derived here.
-                  onDelete={onDelete && canDelete(row.message) ? onDelete : undefined}
-                />
+                    THE WHOLE AVATAR IS DECORATIVE TO ASSISTIVE TECH, IMAGE AND
+                    INITIALS ALIKE — both `AvatarImage` and `AvatarFallback`
+                    carry `aria-hidden="true"` (the image also gets `alt=""`),
+                    because the name rendered right beside either one IS the
+                    accessible identity; a screen reader announcing a photo or
+                    a pair of initials immediately before the name it
+                    duplicates would name the author twice. The two are never
+                    both in the DOM at once — Radix only renders the fallback
+                    while the image's loading status is not "loaded" — but
+                    that mutual exclusion is exactly why it is easy to guard
+                    one branch and forget the other; guard both, always. */}
+                {row.showsName ? (
+                  <span className="flex items-center gap-1.5 px-3 pb-0.5 text-xs text-muted-foreground">
+                    {author !== null ? (
+                      <Avatar className="h-5 w-5">
+                        {author.image !== null ? (
+                          <AvatarImage src={author.image} alt="" aria-hidden="true" />
+                        ) : null}
+                        <AvatarFallback className="text-[9px] font-medium" aria-hidden="true">
+                          {author.initials}
+                        </AvatarFallback>
+                      </Avatar>
+                    ) : null}
+                    {nameFor(row.message.playerId)}
+                  </span>
+                ) : null}
                 {/*
-                  THE REVEALED TIMESTAMP, PARKED EXACTLY ON THE CLIP BOUNDARY.
+                  THE BUBBLE. `bg-accent-solid`, NOT `bg-primary` — the same call
+                  today-panel.tsx's progress fill and unread-badge.tsx's dot both
+                  made (wordle-teams-5jcn.21): `--primary` maps to `--text`, which
+                  is near-white in dark, so "my messages" painted with it would be
+                  a column of white slabs rather than the brand green. The
+                  foreground is the token minted for exactly this pairing,
+                  `--accent-solid-foreground`: #ffffff on #15803d is 5.00:1 in
+                  light and #052e16 on #22c55e is 6.54:1 in dark, both clear of
+                  AA, and both measured out of styles.css by styles.test.ts rather
+                  than quoted here and left to rot.
 
-                  `ml-4` IS THE WHOLE BUG FIX AND IT MUST EQUAL THE `<ol>`'s
-                  `p-4`. `left-full` alone anchors this to the ROW's right edge,
-                  and the row lives inside the list's 16px padding — so the
-                  label started 16px INSIDE the scroller's clip edge and 4px of
-                  its first digit was on screen at rest, under no drag at all.
-                  The owner read those digits off a real phone. The margin
-                  pushes the anchor out to the clip edge, where zero pixels of
-                  it can show however wide the formatted time happens to be:
-                  "12:00 AM" is 21px wider than "14:05", and the resting state
-                  must not depend on which one a reader's locale produces. The
-                  two numbers are one number written twice; the 390x844
-                  measurement asserts the overhang is 0 for the widest label the
-                  formatter can emit, so they cannot drift apart silently.
+                  THE OTHER SIDE IS `bg-muted text-foreground`, the app's neutral
+                  band — `--surface-sunken`, the dark grey iMessage uses for the
+                  other person in dark mode and the light grey it uses in light.
+                  That pairing is already asserted at AA by styles.test.ts's
+                  `--text on --surface-sunken`.
 
-                  NO `pl-3` ANY MORE. The gap between the bubble and its time is
-                  the list's own padding, for free: at full reveal the bubble's
-                  right edge is 16px further left than the label's, by
-                  construction. Padding here would only eat into TIME_REVEAL_PX.
+                  THE TAIL IS A FLATTENED CORNER ON THE LAST BUBBLE OF A RUN, on
+                  the side the run is aligned to — which is what iMessage draws and
+                  what makes a run read as one utterance with an end rather than as
+                  a stack of separate arrivals. Done with a border radius rather
+                  than a pseudo-element on purpose: a pointer hung off the side of
+                  a bubble is one more thing that can stick out past a 390px
+                  viewport, and this route already has to be measured for
+                  horizontal overflow.
 
-                  IT IS IN THE DOM AT ALL TIMES AND NEVER TOGGLED, because the
-                  reveal is a transform on the `<ol>` and nothing here
-                  re-renders while a finger is moving — see the drag handlers.
-
-                  `whitespace-nowrap` IS LOAD-BEARING. An absolutely positioned
-                  box with `left: 100%` and no `right` has zero available width,
-                  so a wrapping label would break after every character into a
-                  vertical strip of digits.
-
-                  `aria-hidden`, DELIBERATELY. It is the same instant part 2's
-                  separators already announce, duplicated for a gesture a screen
-                  reader user has no way to perform; announcing a time after
-                  every bubble would double the length of the conversation to
-                  no one's benefit.
+                  `max-w-[75%]` IS THE OTHER HALF OF "THIS READS AS A
+                  CONVERSATION". A bubble that spans the full width has no side to
+                  be on, so the alignment that identifies the author disappears on
+                  exactly the long messages where it is most needed.
                 */}
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-0 left-full ml-4 flex items-center whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
-                >
-                  {clockTime(row.message.createdAt)}
-                </span>
-              </div>
-            </li>
+                {/*
+                  THE BUBBLE GETS A ROW OF ITS OWN, WHICH IS WHAT THE TIMESTAMP
+                  HANGS OFF. `w-full` makes this row span the whole list, so the
+                  label below anchors to the CONVERSATION'S right edge rather than
+                  to the bubble's — the times line up in a column instead of
+                  stepping in and out with each message's length. That anchor is
+                  the list's CONTENT edge, one padding short of the edge the
+                  scroller clips at, which is what the label's own `ml-4` closes.
+                  The
+                  `justify-*` reproduces exactly the alignment the `<li>`'s own
+                  `items-*` gave the bubble, and `max-w-[75%]` now resolves
+                  against a box the same width as the one it did before, so
+                  nothing about part 2's layout moves. This is the same
+                  `flex w-full justify-end|justify-start` shape the delete row
+                  that used to sit here had.
+                */}
+                <div className={`relative flex w-full ${row.mine ? 'justify-end' : 'justify-start'}`}>
+                  <MessageBubble
+                    row={row}
+                    nameFor={nameFor}
+                    // WITHHELD RATHER THAN PASSED WITH A FLAG BESIDE IT: a bubble
+                    // with no `onDelete` renders as a plain div with no gesture,
+                    // no tab stop and no menu, so "may not delete" is the absence
+                    // of the affordance rather than a disabled version of it.
+                    // `canDelete` is routes/chat.tsx's, unchanged and not
+                    // re-derived here.
+                    onDelete={onDelete && canDelete(row.message) ? onDelete : undefined}
+                  />
+                  {/*
+                    THE REVEALED TIMESTAMP, PARKED EXACTLY ON THE CLIP BOUNDARY.
+
+                    `ml-4` IS THE WHOLE BUG FIX AND IT MUST EQUAL THE `<ol>`'s
+                    `p-4`. `left-full` alone anchors this to the ROW's right edge,
+                    and the row lives inside the list's 16px padding — so the
+                    label started 16px INSIDE the scroller's clip edge and 4px of
+                    its first digit was on screen at rest, under no drag at all.
+                    The owner read those digits off a real phone. The margin
+                    pushes the anchor out to the clip edge, where zero pixels of
+                    it can show however wide the formatted time happens to be:
+                    "12:00 AM" is 21px wider than "14:05", and the resting state
+                    must not depend on which one a reader's locale produces. The
+                    two numbers are one number written twice; the 390x844
+                    measurement asserts the overhang is 0 for the widest label the
+                    formatter can emit, so they cannot drift apart silently.
+
+                    NO `pl-3` ANY MORE. The gap between the bubble and its time is
+                    the list's own padding, for free: at full reveal the bubble's
+                    right edge is 16px further left than the label's, by
+                    construction. Padding here would only eat into TIME_REVEAL_PX.
+
+                    IT IS IN THE DOM AT ALL TIMES AND NEVER TOGGLED, because the
+                    reveal is a transform on the `<ol>` and nothing here
+                    re-renders while a finger is moving — see the drag handlers.
+
+                    `whitespace-nowrap` IS LOAD-BEARING. An absolutely positioned
+                    box with `left: 100%` and no `right` has zero available width,
+                    so a wrapping label would break after every character into a
+                    vertical strip of digits.
+
+                    `aria-hidden`, DELIBERATELY. It is the same instant part 2's
+                    separators already announce, duplicated for a gesture a screen
+                    reader user has no way to perform; announcing a time after
+                    every bubble would double the length of the conversation to
+                    no one's benefit.
+                  */}
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-full ml-4 flex items-center whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+                  >
+                    {clockTime(row.message.createdAt)}
+                  </span>
+                </div>
+              </li>
             )
           })}
         </ol>
