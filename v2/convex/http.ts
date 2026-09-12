@@ -4,6 +4,7 @@ import { httpAction } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent, createAuth } from './auth.ts'
 import { extractIdentityCandidates } from './lib/polarIdentity.ts'
+import { POLAR_API_VERSION } from './lib/polarVersion.ts'
 import type { ActionCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
 import type { IdentityCandidates, SubscriptionIdentity } from './lib/polarIdentity.ts'
@@ -194,6 +195,48 @@ http.route({
     if (typeof event?.type !== 'string') {
       console.error('[polar] verified webhook carried no event type', { webhookId })
       return new Response('Invalid payload', { status: 400 })
+    }
+
+    // THE DRIFT CHECK (wordle-teams-swmt). Polar renders a webhook payload at a
+    // version chosen PER ENDPOINT — an `api_version` set where the endpoint is
+    // configured — and an endpoint that names none renders at whatever is
+    // Current, which changes at every quarterly release. So the pin
+    // convex/polar.ts puts on OUTBOUND requests does not reach this payload at
+    // all, and the two can disagree with nothing in this repo having changed.
+    //
+    // WHICH WOULD OTHERWISE BE INVISIBLE, AND THAT IS THE POINT. This handler
+    // deliberately runs no per-event schema — see the module note — so a version
+    // flip does not fail a parse. It changes the shape under `extractIdentity-
+    // Candidates`, which reads four optional, nullable snake_case fields off
+    // unvalidated JSON and answers "nobody" for a field that moved. The delivery
+    // is then 202'd, no audit row is stored, and a subscriber is silently not
+    // upgraded — the exact failure v1 lost an upgrade to on 2026-08-03, arriving
+    // by a new route. A warning line is the cheapest thing that makes it
+    // findable.
+    //
+    // WARN, NOT REJECT, and the asymmetry is deliberate. A wrong dashboard
+    // setting is an operator error on Polar's side, not an untrusted delivery;
+    // answering it 4xx or 5xx would convert a stale setting into an outage plus
+    // a Polar retry loop against a body this app can very probably still read.
+    // The four fields it depends on are stable across these versions. So the
+    // delivery is processed exactly as it would have been, and the log is the
+    // only difference.
+    //
+    // SILENT WHEN THE HEADER IS ABSENT. Deliveries sent before Polar shipped
+    // versioning carry no `webhook-api-version`, and an absent header is not a
+    // disagreement — warning on it would put a line in the log for every
+    // redelivery of an old event and teach us to ignore the check.
+    //
+    // After verification, so nothing unsigned is ever logged. The header is read
+    // off the same `headers` the signature was computed over.
+    const deliveredVersion = headers['webhook-api-version']
+    if (deliveredVersion && deliveredVersion !== POLAR_API_VERSION) {
+      console.warn('[polar] webhook delivered at an unexpected API version', {
+        webhookId,
+        eventName: event.type,
+        delivered: deliveredVersion,
+        expected: POLAR_API_VERSION,
+      })
     }
 
     // THE VERIFIED WIRE JSON. Polar sends snake_case and nothing here renames

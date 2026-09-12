@@ -3,9 +3,7 @@ import { convexTest } from 'convex-test'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { api } from './_generated/api'
-import { SDK_METADATA } from '@polar-sh/sdk/lib/config.js'
 import {
-  POLAR_API_VERSION,
   assertPolarEnv,
   classifyPortalError,
   ensurePortal,
@@ -672,7 +670,7 @@ describe('ensurePortal only creates after an exhausted no-customer sweep', () =>
 })
 
 /**
- * wordle-teams-rpc0. The API version pin.
+ * wordle-teams-rpc0. The outbound API version pin.
  *
  * WHY THIS IS TESTABLE WHEN THE SDK CALLS AROUND IT ARE NOT. Everything this
  * file's header rules out is "stub the SDK, assert the stub was called". The
@@ -686,32 +684,10 @@ describe('ensurePortal only creates after an exhausted no-customer sweep', () =>
  * or a fetch stub to observe, and stubbing it would land squarely in the
  * assert-called trap above. Task 13's sandbox pass is where the header meets a
  * real Polar.
+ *
+ * The constant itself is pinned in lib/polarVersion.test.ts, beside the file it
+ * lives in.
  */
-describe('POLAR_API_VERSION', () => {
-  // THE TEST THAT EARNS ITS KEEP AT UPGRADE TIME, NOT TODAY.
-  //
-  // The constant is not a preference — it has to name the contract the SDK's
-  // GENERATED MODELS describe, because those models are the types polar.ts
-  // compiles against. `SDK_METADATA.openapiDocVersion` is the installed SDK's
-  // own statement of which contract that is.
-  //
-  // So this fails on exactly one event: a dependency bump that moves the SDK to
-  // a new API version while the pin stays put. That combination would otherwise
-  // typecheck, build, and ship a request whose header contradicts the types
-  // handling the response. Migrating the pin is wordle-teams-4etd; this is what
-  // makes the migration impossible to forget.
-  test('names the API version the installed SDK was generated from', () => {
-    expect(POLAR_API_VERSION).toBe(SDK_METADATA.openapiDocVersion)
-  })
-
-  // Pinned as a literal too, so the assertion above cannot be satisfied by BOTH
-  // sides moving together — which is precisely what a careless upgrade would do
-  // if someone "fixed" the failure by reading the new value off the SDK.
-  test('is 2026-04', () => {
-    expect(POLAR_API_VERSION).toBe('2026-04')
-  })
-})
-
 describe('pinApiVersion', () => {
   test('puts the pinned version on the wire', () => {
     const pinned = pinApiVersion(new Request('https://sandbox-api.polar.sh/v1/checkouts/'))

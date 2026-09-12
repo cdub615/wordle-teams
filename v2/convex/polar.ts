@@ -5,6 +5,7 @@ import { action, internalAction, internalQuery } from './_generated/server'
 import { internal } from './_generated/api'
 import { currentPlayer } from './access.ts'
 import { isCredentialProblem, isMissingCheckout, isMissingCustomer } from './lib/polarErrors.ts'
+import { POLAR_API_VERSION } from './lib/polarVersion.ts'
 import type { Id } from './_generated/dataModel'
 
 /**
@@ -205,43 +206,6 @@ export function polarServer(): 'production' | 'sandbox' {
   if (server === 'production' || server === 'sandbox') return server
   throw new Error(`POLAR_SERVER must be 'production' or 'sandbox', not '${server}'`)
 }
-
-/**
- * The Polar API version every request from this app is pinned to.
- *
- * wordle-teams-rpc0 / wordle-teams-jn7m.
- *
- * POLAR VERSIONS THE CONTRACT BY DATE, AND AN UNPINNED REQUEST IS NOT
- * VERSIONLESS — it resolves to whatever is Current, and Current CHANGES at each
- * quarterly release (January, April, July, October). On 2026-10-01, 2026-10
- * becomes Current, so leaving this unset would have changed the shape of every
- * response this module reads with no code change, no build failure and no test
- * failure. 2026-04 becomes Deprecated on that date and keeps its stable
- * contract until it is REMOVED at the January 2027 release; migrating off it is
- * wordle-teams-4etd, and it is a hard deadline because Polar answers an unknown
- * or removed version with 404 rather than a fallback.
- *
- * 2026-04 IS NOT A PREFERENCE, IT IS WHAT THE INSTALLED SDK ALREADY IS.
- * `@polar-sh/sdk@0.49.0` reports `SDK_METADATA.openapiDocVersion === '2026-04'`:
- * its generated models — the types the calls below compile against — describe
- * that contract and no other. Pinning the wire to it makes the request agree
- * with the types. `polar.test.ts` asserts that equality rather than trusting
- * it, so an SDK upgrade that moves the generated contract fails the suite
- * instead of drifting silently past this constant.
- *
- * A CONSTANT, NOT AN ENV VAR, and the reasoning is `polarServer`'s inverted.
- * That value is checked rather than coerced because a deployment genuinely has
- * to change it and a typo must not resolve to something plausible. This one a
- * deployment must NOT change: a version the SDK's models do not describe is
- * broken code, not a configuration choice, and making it settable would let an
- * operator turn every Polar call into a 404 from a dashboard.
- *
- * IT DOES NOT PIN THE WEBHOOK. Webhook payloads are versioned per ENDPOINT, by
- * an `api_version` set where the endpoint is configured, and the request header
- * below has no bearing on them. convex/http.ts warns when the two disagree;
- * docs/runbooks/2026-cutover.md carries the dashboard step.
- */
-export const POLAR_API_VERSION = '2026-04'
 
 /**
  * The `beforeRequest` hook that stamps {@link POLAR_API_VERSION} on the wire.

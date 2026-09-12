@@ -1,8 +1,9 @@
 import { convexTest } from 'convex-test'
 import { Webhook } from 'standardwebhooks'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
+import { POLAR_API_VERSION } from './lib/polarVersion.ts'
 
 /**
  * The Polar webhook endpoint, driven end to end through `t.fetch`.
@@ -67,7 +68,7 @@ const aBody = (data: Record<string, unknown> = {}, type = 'subscription.active')
  * `@polar-sh/sdk` derives by base64-encoding the secret and letting
  * `standardwebhooks` decode it straight back.
  */
-const signed = (body: string, webhookId = WEBHOOK_ID) => {
+const signed = (body: string, webhookId = WEBHOOK_ID, extraHeaders: Record<string, string> = {}) => {
   const timestamp = new Date()
   const signature = new Webhook(new TextEncoder().encode(SECRET), { format: 'raw' }).sign(
     webhookId,
@@ -83,6 +84,11 @@ const signed = (body: string, webhookId = WEBHOOK_ID) => {
       'webhook-id': webhookId,
       'webhook-timestamp': String(Math.floor(timestamp.getTime() / 1000)),
       'webhook-signature': signature,
+      // Headers outside the three Standard Webhooks signs over. The signature
+      // covers id, timestamp and body only, so adding one here produces a
+      // delivery that verifies — which is the whole point for
+      // `webhook-api-version` below.
+      ...extraHeaders,
     },
   } satisfies RequestInit
 }
@@ -343,5 +349,141 @@ test('a canceled event is 200, stored, and changes no membership', async () => {
       .first()
     expect(row!.membershipStatus).toBe('pro')
     expect(await ctx.db.query('webhookEvents').collect()).toHaveLength(1)
+  })
+})
+
+/**
+ * wordle-teams-swmt. The webhook API version drift check.
+ *
+ * WHAT THESE TESTS ARE ACTUALLY DEFENDING. The version a payload is rendered at
+ * is set per ENDPOINT on Polar, not by the `Polar-Version` header
+ * convex/polar.ts pins on outbound requests, so this repo cannot pin it and the
+ * two can drift with nothing here having changed. This handler runs no
+ * per-event schema, so drift does not fail a parse — it changes a field shape
+ * under `extractIdentityCandidates` and comes out as a 202 with no audit row.
+ * The warning is the only thing that makes that findable.
+ *
+ * SO THE CENTRAL ASSERTION IS NOT "IT WARNS" — it is that a drifting delivery is
+ * treated IDENTICALLY to a matching one: same status, same body, same upgrade,
+ * same stored row. A check that quietly started rejecting deliveries would turn
+ * a stale dashboard setting into an outage plus a Polar retry loop, which is
+ * strictly worse than the silence it replaced.
+ */
+describe('the API version a delivery was rendered at', () => {
+  const warnings = () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    return {
+      spy,
+      versionLines: () =>
+        spy.mock.calls.filter(
+          (call) => typeof call[0] === 'string' && call[0].includes('unexpected API version'),
+        ),
+    }
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** Drives a real upgrade so the "same side effects" claim has side effects to compare. */
+  const anUpgrade = async (extraHeaders: Record<string, string>) => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ legacyId: undefined })))
+    const { versionLines } = warnings()
+
+    const res = await post(
+      t,
+      signed(aBody({ customer: { id: 'cus_1', external_id: playerId } }), WEBHOOK_ID, extraHeaders),
+    )
+
+    const upgraded = await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query('playerMembership')
+        .withIndex('by_player', (q) => q.eq('playerId', playerId))
+        .first()
+      const rows = await ctx.db.query('webhookEvents').collect()
+      return { status: membership?.membershipStatus, stored: rows.length, processed: rows[0]?.processed }
+    })
+
+    return { res, upgraded, versionLines }
+  }
+
+  const PROCESSED = { status: 'pro', stored: 1, processed: true }
+
+  test('says nothing when the delivery matches the version this app expects', async () => {
+    const { res, upgraded, versionLines } = await anUpgrade({
+      'webhook-api-version': POLAR_API_VERSION,
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('processed')
+    expect(upgraded).toEqual(PROCESSED)
+    expect(versionLines()).toHaveLength(0)
+  })
+
+  // Deliveries predating Polar's versioning rollout carry no such header, and a
+  // redelivery of one is not a problem. Warning here would put a line in the log
+  // for every old event and teach us to ignore the check.
+  test('says nothing when the delivery carries no version header at all', async () => {
+    const { res, upgraded, versionLines } = await anUpgrade({})
+
+    expect(res.status).toBe(200)
+    expect(upgraded).toEqual(PROCESSED)
+    expect(versionLines()).toHaveLength(0)
+  })
+
+  // THE CASE THE CHECK EXISTS FOR: Oct 1 arrives, the endpoint's api_version was
+  // never set, and Polar starts rendering at the new Current.
+  test('warns when the delivery was rendered at a different version', async () => {
+    const { res, upgraded, versionLines } = await anUpgrade({ 'webhook-api-version': '2026-10' })
+
+    expect(res.status).toBe(200)
+    expect(upgraded).toEqual(PROCESSED)
+
+    const [line] = versionLines()
+    expect(line).toBeDefined()
+    // BOTH versions, because "this looks wrong" is not actionable and the fix is
+    // a specific value typed into a specific dashboard field.
+    expect(line[1]).toMatchObject({
+      delivered: '2026-10',
+      expected: POLAR_API_VERSION,
+      eventName: 'subscription.active',
+      webhookId: WEBHOOK_ID,
+    })
+  })
+
+  // The warning must not become a rejection by any route, including the ones
+  // that already answer something other than 200. An unresolvable subscriber is
+  // still a 202 when the version drifts, not a 4xx that stops redelivery.
+  test('does not change the answer on a delivery that resolves no player', async () => {
+    const t = convexTest(schema, modules)
+    const { versionLines } = warnings()
+
+    const res = await post(
+      t,
+      signed(aBody({ metadata: { player_id: 'nobody' } }), WEBHOOK_ID, {
+        'webhook-api-version': '2026-10',
+      }),
+    )
+
+    expect(res.status).toBe(202)
+    expect(await res.text()).toBe('Accepted, no matching player')
+    expect(versionLines()).toHaveLength(1)
+  })
+
+  // Nothing unsigned is logged: a forgery is rejected before the version is ever
+  // read, so an attacker cannot write lines into the log by guessing a header.
+  test('does not warn about a delivery that failed verification', async () => {
+    const t = convexTest(schema, modules)
+    const { versionLines } = warnings()
+    const init = signed(aBody(), WEBHOOK_ID, { 'webhook-api-version': '2026-10' })
+
+    const res = await post(t, {
+      ...init,
+      headers: { ...init.headers, 'webhook-signature': 'v1,not-a-real-signature' },
+    })
+
+    expect(res.status).toBe(403)
+    expect(versionLines()).toHaveLength(0)
   })
 })
