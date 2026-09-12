@@ -860,7 +860,7 @@ git commit -m "feat(avatar): name editing, and the caller's own resolved avatar"
 **Files:**
 - Create: `v2/src/lib/avatar.ts`, `v2/src/lib/avatar.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import { describe, expect, test } from 'vitest'
@@ -888,12 +888,12 @@ describe('cropRectFor', () => {
 })
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd v2 && pnpm exec vitest run src/lib/avatar.test.ts`
 Expected: FAIL — cannot resolve `./avatar.ts`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 import { AVATAR_SIZE } from '../../convex/lib/avatar.ts'
@@ -950,12 +950,12 @@ export async function resizeToSquare(file: File | Blob): Promise<Blob> {
 }
 ```
 
-- [ ] **Step 4: Run it and watch it pass**
+- [x] **Step 4: Run it and watch it pass**
 
 Run: `cd v2 && pnpm exec vitest run src/lib/avatar.test.ts`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd v2 && git add src/lib/avatar.ts src/lib/avatar.test.ts
@@ -969,7 +969,7 @@ git commit -m "feat(avatar): client-side centre-crop and resize"
 **Files:**
 - Create: `v2/src/components/settings/profile-tab.tsx`, `v2/src/components/settings/profile-tab.hook.test.ts`
 
-- [ ] **Step 1: Write the component**
+- [x] **Step 1: Write the component**
 
 ```tsx
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
@@ -1154,7 +1154,7 @@ instead — Task 6 Step 4 adds that field. Replace both `me?.image ?` guards aro
 the Remove button with `me?.hasUpload ?`; the `AvatarImage` guard stays on
 `me?.image`, which is the right question for *that* one.
 
-- [ ] **Step 2: Write the jsdom test**
+- [x] **Step 2: Write the jsdom test**
 
 `v2/src/components/settings/profile-tab.hook.test.ts`, opening with `// @vitest-environment jsdom` and a comment explaining why, exactly like `app-menu.hook.test.ts`. Build elements with `createElement`, not JSX. Assert:
 
@@ -1167,12 +1167,12 @@ the Remove button with `me?.hasUpload ?`; the `AvatarImage` guard stays on
 
 Mock the Convex hooks the way `notifications-tab.hook.test.ts` already does — follow that file rather than inventing a mocking style.
 
-- [ ] **Step 3: Run it**
+- [x] **Step 3: Run it**
 
 Run: `cd v2 && pnpm exec vitest run src/components/settings/profile-tab.hook.test.ts`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd v2 && git add src/components/settings/profile-tab.tsx src/components/settings/profile-tab.hook.test.ts
