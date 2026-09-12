@@ -1187,19 +1187,19 @@ git commit -m "feat(avatar): the Profile tab — picture and name"
 - Modify: `v2/src/components/settings/settings-dialog.tsx`, `v2/src/components/app-menu.tsx`
 - Test: `v2/src/components/app-menu.hook.test.ts`
 
-- [ ] **Step 1: Add the tab**
+- [x] **Step 1: Add the tab**
 
 In `settings-dialog.tsx`: widen the type to `export type SettingsTab = 'profile' | 'notifications' | 'install'`, import `ProfileTab`, and add `<TabsTrigger value="profile">Profile</TabsTrigger>` **first** in the `TabsList` with a matching `TabsContent`. First because it is the identity tab and the dialog already opens with an identity line above the strip.
 
-- [ ] **Step 2: Add the menu item**
+- [x] **Step 2: Add the menu item**
 
 In `app-menu.tsx`, beside the existing `openTab('install')` item, add one calling `openTab('profile')` with the `UserIcon` already imported, labelled "Profile". Keep it inside the `isAuthenticated` block.
 
-- [ ] **Step 3: Source the header avatar from the player row**
+- [x] **Step 3: Source the header avatar from the player row**
 
 Replace `user?.image` in the `RingedAvatar` call with `name?.image` — `myName` now resolves it by the same precedence as everywhere else. Update the surrounding comment to say so.
 
-- [ ] **Step 4: Write the failing menu test**
+- [x] **Step 4: Write the failing menu test**
 
 Add to `app-menu.hook.test.ts`, matching the file's existing assertions style:
 
@@ -1210,12 +1210,12 @@ test('offers Profile, which opens the settings dialog on that tab', async () => 
 })
 ```
 
-- [ ] **Step 5: Run the suite**
+- [x] **Step 5: Run the suite**
 
 Run: `cd v2 && pnpm exec vitest run src/components/app-menu.hook.test.ts src/components/settings/`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd v2 && git add src/components/settings/settings-dialog.tsx src/components/app-menu.tsx src/components/app-menu.hook.test.ts
@@ -1338,7 +1338,7 @@ git commit -m "feat(avatar): faces in team chat, once per run and never your own
 **Files:**
 - Modify: `v2/src/routes/app.tsx`
 
-- [ ] **Step 1: Call it once per load**
+- [x] **Step 1: Call it once per load**
 
 In the dashboard route's component, add:
 
@@ -1358,12 +1358,12 @@ In the dashboard route's component, add:
   }, [syncSocialImage])
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd v2 && pnpm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd v2 && git add src/routes/app.tsx
