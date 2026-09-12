@@ -271,17 +271,28 @@ describe('reminder delivery bandwidth', () => {
    * The same player, with today's board already in. `2026-09-11` has to be
    * `DUE`'s local day in Chicago or the row lands outside the lookup this
    * fixture exists to make match.
+   *
+   * TWO ROWS FOR THAT ONE DAY, AND THE SECOND IS DEGENERATE ON PURPOSE. The
+   * entered-today lookup is a `.first()`, so its yield is one either way — and
+   * with a single matching row `.collect()` would yield one too, leaving the
+   * per-document charge of THAT lookup unmeasurable. The duplicate is the
+   * mirror of the three boards the delivered fixture keeps in the
+   * recent-activity window, and it is the only thing that makes a widened
+   * entered-today lookup visible. Nothing asserts the row count itself, so the
+   * pair is a measuring instrument rather than a claim about real data.
    */
   async function anEnteredPlayer(t: ReturnType<typeof convexTest>) {
     const playerId = await aScheduledPlayer(t)
-    await t.run((ctx) =>
-      ctx.db.insert('dailyScores', {
-        playerId,
-        puzzleDay: '2026-09-11',
-        date: 0,
-        guesses: ['xxxxx'],
-      }),
-    )
+    await t.run(async (ctx) => {
+      for (const guesses of [['xxxxx'], ['yyyyy']]) {
+        await ctx.db.insert('dailyScores', {
+          playerId,
+          puzzleDay: '2026-09-11',
+          date: 0,
+          guesses,
+        })
+      }
+    })
     return playerId
   }
 
@@ -428,12 +439,15 @@ describe('reminder delivery bandwidth', () => {
    *
    * The recent-activity range and the `lastBoardEntryReminder` patch are the
    * two the delivered path adds on top; the chain still costs its one
-   * reschedule, which is the property that makes every skip path safe.
+   * reschedule, which is the property that makes every skip path safe — and
+   * all three of those numbers are asserted from both sides, because a
+   * one-sided ceiling is not a measurement.
    */
   const ALREADY_ENTERED_READS = 4
+  const ALREADY_ENTERED_QUERIES = 3
 
   test(`a player who has already entered costs ${ALREADY_ENTERED_READS} documents`, async () => {
-    const t = withLimits({ documentsRead: ALREADY_ENTERED_READS, functionsScheduled: 1 })
+    const t = withLimits({ documentsRead: ALREADY_ENTERED_READS })
     const playerId = await anEnteredPlayer(t)
 
     await expect(
@@ -448,6 +462,40 @@ describe('reminder delivery bandwidth', () => {
     await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
       /Scanned too many documents/,
     )
+  })
+
+  test(`that skip runs ${ALREADY_ENTERED_QUERIES} index ranges — one fewer than delivering`, async () => {
+    const t = withLimits({ databaseQueries: ALREADY_ENTERED_QUERIES })
+    const playerId = await anEnteredPlayer(t)
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).resolves.toMatchObject({ reason: 'already-entered' })
+  })
+
+  test(`and ${ALREADY_ENTERED_QUERIES - 1} index ranges is not enough`, async () => {
+    const t = withLimits({ databaseQueries: ALREADY_ENTERED_QUERIES - 1 })
+    const playerId = await anEnteredPlayer(t)
+
+    await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
+      /Too many index ranges read/,
+    )
+  })
+
+  test('and the skip still schedules its one job, which is what keeps the chain alive', async () => {
+    const t = withLimits({ functionsScheduled: 1 })
+    const playerId = await anEnteredPlayer(t)
+
+    await expect(
+      t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE }),
+    ).resolves.toMatchObject({ reason: 'already-entered' })
+
+    const t2 = withLimits({ functionsScheduled: 0 })
+    const playerId2 = await anEnteredPlayer(t2)
+
+    await expect(
+      t2.mutation(internal.reminders.deliver, { playerId: playerId2, dueAt: DUE }),
+    ).rejects.toThrow(/Scheduled too many functions/)
   })
 
   /**
@@ -482,6 +530,15 @@ describe('reminder delivery bandwidth', () => {
       /Scanned too many documents/,
     )
   })
+
+  test('and that one index range is asked, so the range ceiling is measured too', async () => {
+    const t = withLimits({ databaseQueries: 0 })
+    const playerId = await aScheduledPlayer(t, { nextReminderAt: DUE + 3600_000 })
+
+    await expect(t.mutation(internal.reminders.deliver, { playerId, dueAt: DUE })).rejects.toThrow(
+      /Too many index ranges read/,
+    )
+  })
 })
 
 describe('reminder maintenance bandwidth', () => {
@@ -493,6 +550,11 @@ describe('reminder maintenance bandwidth', () => {
   })
   afterEach(() => {
     vi.useRealTimers()
+    // The `console.error` spies the swallowed-breach tests install restore
+    // themselves only on the happy path, and vitest.config.ts does not set
+    // `restoreMocks`. Without this, one failing assertion leaks a stubbed
+    // console into every test after it in this block.
+    vi.restoreAllMocks()
   })
 
   /**
@@ -526,19 +588,41 @@ describe('reminder maintenance bandwidth', () => {
       teams,
       zoned,
       chained,
-    }: { players: number; teams: number; zoned: boolean; chained: boolean },
+      flagDerived = true,
+      jobbed = false,
+    }: {
+      players: number
+      teams: number
+      zoned: boolean
+      chained: boolean
+      flagDerived?: boolean
+      jobbed?: boolean
+    },
   ) {
     await t.run(async (ctx) => {
       const playerIds: Id<'players'>[] = []
       for (let i = 0; i < players; i++) {
+        // A `reminderJobId` CANNOT BE FABRICATED — it is `v.id` of a system
+        // table — so the only way to seed one is to schedule a real job. That
+        // is the one fixture option that is NOT free: it charges the seed one
+        // `functionsScheduled`, which is why the tests that pass
+        // `functionsScheduled: 0` leave it off. The instant is far enough out
+        // that the pinned clock can never reach it.
+        const reminderJobId = jobbed
+          ? await ctx.scheduler.runAt(NOW + 10 * 3600_000, internal.reminders.deliver, {
+              playerId: playerIds[0] ?? ('' as Id<'players'>),
+              dueAt: NOW + 10 * 3600_000,
+            })
+          : undefined
         playerIds.push(
           await ctx.db.insert(
             'players',
             aPlayer({
               email: `p${i}@example.com`,
-              playsWeekends: true,
+              ...(flagDerived ? { playsWeekends: true } : {}),
               ...(zoned ? { timeZone: 'America/Chicago' } : {}),
               ...(chained ? { nextReminderAt: NOW + 6 * 3600_000 } : {}),
+              ...(reminderJobId ? { reminderJobId } : {}),
             }),
           ),
         )
@@ -549,18 +633,57 @@ describe('reminder maintenance bandwidth', () => {
     })
   }
 
-  /** As in the delivery block: the ceilings are the mutation's only while this holds. */
-  test('every fixture in this block costs nothing metered', async () => {
-    for (const [zoned, chained] of [
-      [true, true],
-      [true, false],
-      [false, false],
-    ]) {
-      const t = withLimits({ documentsRead: 0, databaseQueries: 0, functionsScheduled: 0 })
-      await expect(
-        seedTable(t, { players: 3, teams: 2, zoned, chained }),
-      ).resolves.toBeUndefined()
+  const FIXTURES = [
+    { zoned: true, chained: true },
+    { zoned: true, chained: false },
+    { zoned: false, chained: false },
+    { zoned: true, chained: true, flagDerived: false },
+    { zoned: true, chained: true, jobbed: true },
+  ]
+
+  /**
+   * As in the delivery block: the ceilings are the mutation's only while this
+   * holds. Every fixture reads nothing and asks nothing.
+   */
+  test('no fixture in this block reads a document or asks an index range', async () => {
+    for (const shape of FIXTURES) {
+      const t = withLimits({ documentsRead: 0, databaseQueries: 0 })
+      await expect(seedTable(t, { players: 3, teams: 2, ...shape })).resolves.toBeUndefined()
     }
+  })
+
+  /**
+   * THE ONE EXCEPTION, MEASURED RATHER THAN DISCLOSED. `jobbed` has to schedule
+   * a real job per player, because `reminderJobId` is a `v.id` of a system
+   * table and cannot be fabricated. So that fixture alone charges the seed one
+   * `functionsScheduled` per player — asserted from both sides here, and it is
+   * why the tests that pass `functionsScheduled: 0` never ask for it.
+   */
+  test('only the jobbed fixture schedules, and exactly once per player', async () => {
+    for (const shape of FIXTURES.filter((f) => !f.jobbed)) {
+      const t = withLimits({ functionsScheduled: 0 })
+      await expect(seedTable(t, { players: 3, teams: 2, ...shape })).resolves.toBeUndefined()
+    }
+
+    await expect(
+      seedTable(withLimits({ functionsScheduled: 3 }), {
+        players: 3,
+        teams: 2,
+        zoned: true,
+        chained: true,
+        jobbed: true,
+      }),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      seedTable(withLimits({ functionsScheduled: 2 }), {
+        players: 3,
+        teams: 2,
+        zoned: true,
+        chained: true,
+        jobbed: true,
+      }),
+    ).rejects.toThrow(/Scheduled too many functions/)
   })
 
   /**
@@ -569,10 +692,9 @@ describe('reminder maintenance bandwidth', () => {
    *
    *  - `failed: 0`. A pass in which EVERY player's work threw returns
    *    `scheduled: 0, weekendFlagsChanged: 0, deferred: 0` as well, because the
-   *    per-player `try` swallows it — measured, and not hypothetically: a
-   *    ceiling one document too low for this pass's own repair path produces
-   *    exactly that shape instead of throwing (see the reschedule ceiling
-   *    below). A subset match would call that healthy.
+   *    per-player `try` swallows it. The test two below reaches that state and
+   *    asserts it. A subset match on the first three fields would call it
+   *    healthy.
    *  - `zoneless: 0`. See the all-zoneless test that follows.
    */
   const HEALTHY_PASS = {
@@ -632,13 +754,48 @@ describe('reminder maintenance bandwidth', () => {
   })
 
   /**
+   * THE SECOND STATE THE HEADLINE ASSERTION WOULD OTHERWISE CALL HEALTHY, and
+   * the reason `HEALTHY_PASS` is a `toEqual` and not a `toMatchObject` on three
+   * fields. A pass in which every single player's work threw reports
+   * `weekendFlagsChanged: 0, scheduled: 0, deferred: 0` — all three of the
+   * counters a subset match would look at — and says so only in `failed`.
+   *
+   * REACHED HERE BY A CEILING EXACTLY AT THE SCAN COST: the two collects fit,
+   * so the pass starts; every row then needs repairing and every repair
+   * breaches inside the per-player `try`, which logs and carries on. Nothing
+   * about the shape depends on the breach being the cause — a permanent throw
+   * from any per-player work produces it, which is the case `maintain`'s own
+   * doc comment exists for.
+   *
+   * SAME SPECIES AS THE ALL-ZONELESS STATE, DIFFERENT FIELD. That one is
+   * separated by `zoneless`, this one by `failed`, and neither is separable
+   * without reading the field.
+   */
+  test('a pass in which every row threw is not a quiet pass', async () => {
+    const t = withLimits({ documentsRead: 3 + 2 })
+    await seedTable(t, { players: 3, teams: 2, zoned: true, chained: false })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(t.mutation(internal.reminders.maintain, {})).resolves.toEqual({
+      ...HEALTHY_PASS,
+      failed: 3,
+    })
+  })
+
+  /**
    * ONE DOCUMENT PER ROW AND NOTHING ELSE — the two collects, and no per-player
    * read on top. This is the ceiling that guards the absence `maintain`'s THE
-   * ROW ONLY, NEVER `_scheduled_functions` paragraph argues for: a per-player
-   * lookup of any kind breaches it. Mutation-tested with a `ctx.db.get` per
-   * player, which is the shape that paragraph's rejected alternative takes; and
+   * ROW ONLY, NEVER `_scheduled_functions` paragraph argues for. Two shapes are
+   * mutation-tested against it: a `ctx.db.get` per player, and the specific
+   * `ctx.db.system.get(player.reminderJobId)` that paragraph rejects. And
    * because a patch is charged a read, the same ceiling catches an
    * unconditional write the counters would not report.
+   *
+   * `jobbed: true` IS WHAT MAKES THE SECOND OF THOSE REACHABLE, and without it
+   * the guard was decorative: a lookup guarded by `if (player.reminderJobId)`
+   * never fires on a fixture that has none, so it survived the whole file.
+   * System reads ARE metered — measured, one document and one range, the same
+   * as any `ctx.db.get`. It was the fixture, not the meter.
    *
    * PLAYERS AND TEAMS ARE VARIED INDEPENDENTLY, which is the whole point of the
    * table. Every fixture here used to hold one team per player, and `players +
@@ -653,7 +810,7 @@ describe('reminder maintenance bandwidth', () => {
   test('a healthy pass reads exactly one document per row', async () => {
     for (const { players, teams } of SHAPES) {
       const t = withLimits({ documentsRead: players + teams })
-      await seedTable(t, { players, teams, zoned: true, chained: true })
+      await seedTable(t, { players, teams, zoned: true, chained: true, jobbed: true })
 
       await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
         players,
@@ -667,7 +824,7 @@ describe('reminder maintenance bandwidth', () => {
   test('and one document fewer is not enough at any shape', async () => {
     for (const { players, teams } of SHAPES) {
       const t = withLimits({ documentsRead: players + teams - 1 })
-      await seedTable(t, { players, teams, zoned: true, chained: true })
+      await seedTable(t, { players, teams, zoned: true, chained: true, jobbed: true })
 
       // THROWS RATHER THAN REPORTING `failed`, and that is structural: both
       // collects sit OUTSIDE the per-player `try`, so a breach reading them
@@ -680,15 +837,17 @@ describe('reminder maintenance bandwidth', () => {
   })
 
   /**
-   * TWO INDEX RANGES, WHATEVER THE ROW COUNT — one per collect. The read
-   * ceiling above grows with the table and so cannot say that the per-player
-   * path asks the database nothing at all; this can, and it says it at a size
-   * where a per-player lookup would be lost in the noise of the scan.
+   * TWO INDEX RANGES, WHATEVER THE ROW COUNT — one per collect, and the claim
+   * this meter can make that the read meter cannot: it is SIZE-INDEPENDENT. The
+   * read ceiling grows with the table, so "one document per row" has to be
+   * restated at every shape; two ranges is the same number at one player and at
+   * six, which states "the per-player path asks the database nothing" once and
+   * for all sizes.
    */
   test('a healthy pass runs exactly two index ranges at any size', async () => {
     for (const players of [1, 6]) {
       const t = withLimits({ databaseQueries: 2 })
-      await seedTable(t, { players, teams: 2, zoned: true, chained: true })
+      await seedTable(t, { players, teams: 2, zoned: true, chained: true, jobbed: true })
 
       await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
         players,
@@ -699,7 +858,7 @@ describe('reminder maintenance bandwidth', () => {
 
   test('and one index range is not enough', async () => {
     const t = withLimits({ databaseQueries: 1 })
-    await seedTable(t, { players: 3, teams: 2, zoned: true, chained: true })
+    await seedTable(t, { players: 3, teams: 2, zoned: true, chained: true, jobbed: true })
 
     await expect(t.mutation(internal.reminders.maintain, {})).rejects.toThrow(
       /Too many index ranges read/,
@@ -718,10 +877,18 @@ describe('reminder maintenance bandwidth', () => {
    * cancel call). Removing it is a legitimate change that would make this
    * number 2 per player — this test is then the record of what it bought, not
    * an objection to it.
+   *
+   * THE OTHER TWO METERS ARE CLAIMED AND ASSERTED HERE TOO, both sides: TWO
+   * index ranges per repaired player (the two `ctx.db.get`s; the patch asks
+   * none) and ONE job. That last is the number that says a repair creates the
+   * same single link `deliver` does, rather than fanning out.
    */
   const REPAIR_READS_PER_PLAYER = 3
+  const REPAIR_QUERIES_PER_PLAYER = 2
+  const REPAIR_JOBS_PER_PLAYER = 1
   const bootstrapReads = (players: number, teams: number) =>
     players + teams + REPAIR_READS_PER_PLAYER * players
+  const bootstrapQueries = (players: number) => 2 + REPAIR_QUERIES_PER_PLAYER * players
 
   test(`repairing a chain costs ${REPAIR_READS_PER_PLAYER} documents per player`, async () => {
     for (const players of [2, 3]) {
@@ -759,7 +926,106 @@ describe('reminder maintenance bandwidth', () => {
       scheduled: players - 1,
       failed: 1,
     })
-    vi.restoreAllMocks()
+  })
+
+  test(`repairing a chain asks ${REPAIR_QUERIES_PER_PLAYER} index ranges per player`, async () => {
+    for (const players of [2, 3]) {
+      const t = withLimits({ databaseQueries: bootstrapQueries(players) })
+      await seedTable(t, { players, teams: 1, zoned: true, chained: false })
+
+      await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
+        scheduled: players,
+        failed: 0,
+      })
+    }
+  })
+
+  test('and one index range fewer is not enough', async () => {
+    for (const players of [2, 3]) {
+      const t = withLimits({ databaseQueries: bootstrapQueries(players) - 1 })
+      await seedTable(t, { players, teams: 1, zoned: true, chained: false })
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      // Swallowed, like the read ceiling: the breach happens inside the
+      // per-player `try`, so the last player is stranded rather than the pass
+      // aborting.
+      await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
+        scheduled: players - 1,
+        failed: 1,
+      })
+    }
+  })
+
+  test(`repairing a chain schedules ${REPAIR_JOBS_PER_PLAYER} job per player`, async () => {
+    for (const players of [2, 3]) {
+      const t = withLimits({ functionsScheduled: REPAIR_JOBS_PER_PLAYER * players })
+      await seedTable(t, { players, teams: 1, zoned: true, chained: false })
+
+      await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
+        scheduled: players,
+        failed: 0,
+      })
+    }
+  })
+
+  test('and one job fewer strands the last player', async () => {
+    const players = 3
+    const t = withLimits({ functionsScheduled: REPAIR_JOBS_PER_PLAYER * players - 1 })
+    await seedTable(t, { players, teams: 1, zoned: true, chained: false })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
+      scheduled: players - 1,
+      failed: 1,
+    })
+  })
+
+  /**
+   * A FLIPPED WEEKEND FLAG COSTS ONE DOCUMENT MORE THAN A BARE REPAIR, and it
+   * is the only path in this pass that patches a `players` row outside
+   * `scheduleNextFor`. Every other fixture in this block arrives with the flag
+   * already derived, so `flipped` is false throughout, `weekendFlagsChanged` is
+   * 0 in every other assertion, and the patch branch sits on no metered path at
+   * all — a deleted `weekendFlagsChanged += 1` survived the whole file before
+   * this.
+   *
+   * FOUR DOCUMENTS PER PLAYER: the flag patch, then the three a repair costs,
+   * because the flip is itself a reason to reschedule (see `maintain`'s THE
+   * FLAG IS AN INPUT TO THE SCHEDULE paragraph). The ranges do not move —
+   * `players + 2` per player as before — since a patch asks none.
+   */
+  const FLIP_READS_PER_PLAYER = REPAIR_READS_PER_PLAYER + 1
+
+  test(`a flipped weekend flag costs ${FLIP_READS_PER_PLAYER} documents per player`, async () => {
+    const players = 3
+    const t = withLimits({ documentsRead: players + 1 + FLIP_READS_PER_PLAYER * players })
+    await seedTable(t, { players, teams: 1, zoned: true, chained: true, flagDerived: false })
+
+    await expect(t.mutation(internal.reminders.maintain, {})).resolves.toEqual({
+      players,
+      teams: 1,
+      weekendFlagsChanged: players,
+      scheduled: players,
+      deferred: 0,
+      zoneless: 0,
+      failed: 0,
+    })
+  })
+
+  test('and one document fewer strands the last flipped player', async () => {
+    const players = 3
+    const t = withLimits({ documentsRead: players + 1 + FLIP_READS_PER_PLAYER * players - 1 })
+    await seedTable(t, { players, teams: 1, zoned: true, chained: true, flagDerived: false })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // The flag patch lands BEFORE the reschedule, so the stranded player's flag
+    // is already changed when its repair breaches — which is `maintain`'s
+    // "leaving the flag stale is CHEAP, NOT FREE" case seen from the other side.
+    await expect(t.mutation(internal.reminders.maintain, {})).resolves.toMatchObject({
+      weekendFlagsChanged: players,
+      scheduled: players - 1,
+      failed: 1,
+    })
   })
 
   /**
@@ -799,6 +1065,5 @@ describe('reminder maintenance bandwidth', () => {
       deferred: 0,
       failed: 3,
     })
-    vi.restoreAllMocks()
   })
 })
