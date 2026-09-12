@@ -492,11 +492,24 @@ export async function setAvatarFor(ctx: AvatarCtx, playerId: Id<'players'>, stor
   }
 
   const player = await ctx.db.get(playerId)
-  if (!player) throw accessError('NO_PLAYER')
+  if (!player) {
+    // UNREACHABLE TODAY — every caller resolves playerId via requirePlayer in
+    // the SAME transaction, which has already confirmed the player exists — but
+    // kept consistent with the rejection branch above rather than assumed safe:
+    // the file has already been validated and accepted by this point, and a
+    // future caller that passes an unchecked playerId must not be able to
+    // reintroduce an orphan just because this branch happened to be unreachable
+    // when it was written.
+    await ctx.storage.delete(storageId)
+    throw accessError('NO_PLAYER')
+  }
 
   await ctx.db.patch(playerId, { imageId: storageId })
   // AFTER the patch, so a failure here cannot leave the row pointing at a file
-  // that no longer exists.
+  // that no longer exists. MUST STAY THE LAST STATEMENT: `ctx.db.patch` is
+  // transactional and rolls back if this handler throws, but `storage.delete`
+  // is an immediate side effect that a later throw would NOT undo — safe here
+  // only because nothing runs after it that could throw.
   if (player.imageId) await ctx.storage.delete(player.imageId)
 }
 
@@ -510,6 +523,9 @@ export async function removeAvatarFor(ctx: AvatarCtx, playerId: Id<'players'>) {
   const player = await ctx.db.get(playerId)
   if (!player?.imageId) return
   await ctx.db.patch(playerId, { imageId: undefined })
+  // MUST STAY THE LAST STATEMENT, for the same reason as setAvatarFor's own
+  // trailing delete: `ctx.db.patch` rolls back on a later throw, but this
+  // delete is an immediate side effect nothing here would undo.
   await ctx.storage.delete(player.imageId)
 }
 

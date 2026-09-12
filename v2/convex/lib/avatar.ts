@@ -24,11 +24,32 @@ export const MAX_AVATAR_BYTES = 100_000
 export const AVATAR_SIZE = 256
 
 /**
- * SVG IS EXCLUDED DELIBERATELY and is the reason this is an allow-list rather
- * than a `startsWith('image/')` check. An SVG is a document: it can carry
- * script, and these files are served from a URL that Convex's own docs say
- * anyone holding it can fetch without authentication. The three raster types
- * below are what the client's canvas resize can produce anyway.
+ * WHAT THIS ACTUALLY CHECKS: a CLIENT-SUPPLIED LABEL, not the bytes. `contentType`
+ * here is the `Content-Type` header the uploader's POST carried, which Convex
+ * stores verbatim and later serves back verbatim — it is not sniffed or
+ * re-derived from the file's contents. A client can lie: it can POST SVG or
+ * HTML bytes labelled `image/png`, and those bytes WILL land in storage under
+ * that label. This allow-list does not keep such bytes OUT of storage.
+ *
+ * WHAT IT DOES GUARANTEE IS THE SERVED CONTENT-TYPE, and that is what SVG
+ * exclusion is actually for. Convex serves a stored file back with exactly the
+ * content-type it was stored under, and every avatar in this app is loaded
+ * exactly one way: an `<img src>` (Radix's AvatarImage) — there is no `<a
+ * href>`, `window.open`, iframe, or direct `fetch` of an avatar URL anywhere in
+ * src/. A browser doing content sniffing in an IMAGE context only ever promotes
+ * bytes to a raster format; it will not reinterpret a mislabelled response as
+ * `text/html` or `image/svg+xml` there. So mislabelled bytes served as
+ * `image/png` fail to decode and show a broken image — they never execute.
+ *
+ * THIS PROTECTION DEPENDS ON THAT LAST FACT, not on this allow-list alone.
+ * Anyone who later adds a way to link to, download, or frame an avatar URL —
+ * or renders one in a context a browser sniffs differently — must revisit this
+ * check, because at that point a served `image/png` label stops being a safe
+ * place for a client to have hidden SVG or HTML bytes.
+ *
+ * The three types below are also, incidentally, what the client's canvas
+ * resize can produce anyway — but that is not why they are the allow-list;
+ * the reasoning above is.
  */
 const ALLOWED_AVATAR_TYPES = ['image/webp', 'image/png', 'image/jpeg']
 
