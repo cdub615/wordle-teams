@@ -3,8 +3,9 @@ import { DialogContent, DialogHeader, DialogTitle } from '#/components/ui/dialog
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs.tsx'
 import InstallGuideTab from './install-guide-tab.tsx'
 import NotificationsTab from './notifications-tab.tsx'
+import ProfileTab from './profile-tab.tsx'
 
-export type SettingsTab = 'notifications' | 'install'
+export type SettingsTab = 'profile' | 'notifications' | 'install'
 
 /**
  * The settings dialog's body — two tabs, ported from user-dialog.tsx. The
@@ -104,9 +105,20 @@ export function SettingsDialog({
       )}
       <Tabs defaultValue={defaultTab}>
         <TabsList>
+          {/*
+            FIRST, BECAUSE IT IS THE IDENTITY TAB. The name-and-address block
+            above already answers "which account is this"; Profile is the tab
+            that block is about, so the strip opens on it rather than making a
+            visitor land on Notifications and hunt sideways for their own
+            picture and name.
+          */}
+          <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="install">Install Guide</TabsTrigger>
         </TabsList>
+        <TabsContent value="profile">
+          <ProfileTab />
+        </TabsContent>
         <TabsContent value="notifications">
           <NotificationsTab />
         </TabsContent>

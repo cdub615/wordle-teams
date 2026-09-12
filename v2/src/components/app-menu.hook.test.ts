@@ -323,6 +323,7 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
       'Home',
       'About',
       'Feedback',
+      'Profile',
       'Install Guide',
       'Log out',
     ])

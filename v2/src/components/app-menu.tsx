@@ -423,6 +423,10 @@ export function AppMenu() {
             {isAuthenticated && (
               <>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => openTab('profile')}>
+                  <UserIcon className="mr-2 h-4 w-4" aria-hidden="true" />
+                  <span>Profile</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openTab('install')}>
                   <Download className="mr-2 h-4 w-4" aria-hidden="true" />
                   <span>Install Guide</span>
@@ -457,7 +461,19 @@ export function AppMenu() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {isAuthenticated && <RingedAvatar image={user?.image} name={displayName} initials={initials} />}
+        {/*
+          `name?.image`, NOT `user?.image` — THE PLAYER ROW, NOT BETTER AUTH'S
+          OWN RECORD. `myName` resolves this by the same precedence every other
+          surface uses: an uploaded picture wins, else the mirrored social
+          photo, else null. `user.image` is Better Auth's own field and NOTHING
+          in v2 ever wrote it, so a player who signed in with email OTP —
+          which has no provider photo for Better Auth to capture in the first
+          place — was permanently initials-only here no matter what picture
+          they set anywhere else. syncSocialImage (see routes/app.tsx) is what
+          keeps `name.image` current with the provider's photo for everyone
+          else.
+        */}
+        {isAuthenticated && <RingedAvatar image={name?.image} name={displayName} initials={initials} />}
       </div>
       {/*
         Only for a session. DialogContent renders through a Portal that Radix
