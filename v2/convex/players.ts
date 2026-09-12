@@ -371,14 +371,48 @@ export const needsProfile = query({
 })
 
 /**
- * The caller's own name, for the settings menu's avatar initials and label
- * (Phase 6, Task 6).
+ * Renames a player. THE FIRST WAY TO CHANGE A NAME AFTER ONBOARDING — before
+ * this, completeProfileFor was the only writer outside the migration and it runs
+ * once, gated by needsProfile, so a name typed wrong at signup was permanent
+ * and visible on the scoreboard forever.
  *
- * DELIBERATELY JUST THESE TWO FIELDS. getMyPlayerId (scores.ts) already gives
- * the id and amIPro (teams.ts) the plan; myData (me.ts) has both names too,
- * but it is a Phase-1 diagnostic that collects every team and score the
- * caller has ever recorded — the wrong query to run on every authenticated
- * page load just to paint two letters in the corner of the header.
+ * SHARES completeProfile's GUARD RATHER THAN RESTATING IT. isCompleteName
+ * (lib/invite.ts) is the single opinion about what a good name is; a second
+ * opinion here is how v1 ended up saving names its own redirect guard then
+ * refused to accept.
+ */
+export async function updateNameFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  firstName: string,
+  lastName: string,
+) {
+  if (!isCompleteName(firstName, lastName)) throw accessError('INVALID_NAME')
+  await ctx.db.patch(playerId, { firstName: firstName.trim(), lastName: lastName.trim() })
+}
+
+export const updateName = mutation({
+  args: { firstName: v.string(), lastName: v.string() },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    await updateNameFor(ctx, player._id, args.firstName, args.lastName)
+  },
+})
+
+/**
+ * The caller's own name and avatar, for the settings menu's initials/label and
+ * (Task 6) the header's own picture.
+ *
+ * NO LONGER "DELIBERATELY JUST THESE TWO FIELDS" — that was true through Task
+ * 5. getMyPlayerId (scores.ts) still gives the id and amIPro (teams.ts) the
+ * plan; myData (me.ts) has both names too, but it is a Phase-1 diagnostic that
+ * collects every team and score the caller has ever recorded — the wrong query
+ * to run on every authenticated page load just to paint the corner of the
+ * header. `image` and `hasUpload` are added HERE rather than in a new query for
+ * the same reason the two name fields already are: the header already
+ * subscribes to this query, and a second query on every authenticated page
+ * load to paint one more thing in the same corner would cost more than the
+ * fields do.
  *
  * currentPlayer, NOT requirePlayer: the header this feeds mounts globally,
  * including on /complete-profile, where a signed-in session with no player
@@ -391,7 +425,32 @@ export const myName = query({
   handler: async (ctx) => {
     const player = await currentPlayer(ctx)
     if (!player) return null
-    return { firstName: player.firstName, lastName: player.lastName }
+    return {
+      firstName: player.firstName,
+      lastName: player.lastName,
+      /**
+       * THE HEADER'S AVATAR CAME FROM BETTER AUTH'S `user.image` UNTIL NOW, and
+       * that is why an OTP account could never have one — nothing in v2 ever
+       * wrote that field. It resolves from the player row here instead, by the
+       * same precedence every other surface uses.
+       *
+       * ADDED TO THIS QUERY RATHER THAN A NEW ONE: the header already subscribes
+       * to it for the initials and the label, and a second query on every
+       * authenticated page load to paint one more thing in the same corner would
+       * cost more than the field does. The doc comment above about "deliberately
+       * just these two fields" is superseded by this.
+       */
+      image: player.imageId
+        ? await ctx.storage.getUrl(player.imageId)
+        : (player.socialImage ?? null),
+      /**
+       * WHETHER THERE IS AN UPLOAD TO REMOVE, which is NOT the same question as
+       * whether there is an image. The Profile tab's "Remove picture" must not
+       * appear for a Google user who has never uploaded anything — removing
+       * their provider's photo is not something this app can do.
+       */
+      hasUpload: player.imageId !== undefined,
+    }
   },
 })
 

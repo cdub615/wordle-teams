@@ -8,6 +8,7 @@ import {
   completeProfileFor,
   removeAvatarFor,
   setAvatarFor,
+  updateNameFor,
 } from './players.ts'
 import { upgradeTeamInvitesFor } from './billing.ts'
 import { MAX_AVATAR_BYTES } from './lib/avatar.ts'
@@ -828,6 +829,47 @@ describe('removeAvatarFor', () => {
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       await expect(removeAvatarFor(ctx, ada)).resolves.toBeUndefined()
+    })
+  })
+})
+
+describe('updateNameFor', () => {
+  test('renames the player', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await updateNameFor(ctx, ada, 'Grace', 'Hopper')
+      const row = await ctx.db.get(ada)
+      expect(row?.firstName).toBe('Grace')
+      expect(row?.lastName).toBe('Hopper')
+    })
+  })
+
+  test('trims', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await updateNameFor(ctx, ada, '  Grace  ', '  Hopper  ')
+      expect((await ctx.db.get(ada))?.firstName).toBe('Grace')
+    })
+  })
+
+  /**
+   * THE GUARD THAT MATTERS. schema.ts is emphatic: an empty name pair reaches
+   * the scoreboard, the team card AND the winner computation, where it can win
+   * a month. completeProfileFor refuses one and so must this — one opinion
+   * about what a good name is, not two.
+   */
+  test.each([
+    ['', 'Hopper'],
+    ['Grace', ''],
+    ['   ', 'Hopper'],
+  ])('REFUSES the pair (%s, %s) and leaves the old name', async (first, last) => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await expect(updateNameFor(ctx, ada, first, last)).rejects.toThrow()
+      expect((await ctx.db.get(ada))?.firstName).toBe('Ada')
     })
   })
 })
