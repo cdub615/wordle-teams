@@ -2499,6 +2499,43 @@ EOF
 
 ## Task 8: Pin the costs
 
+> **THIS TASK'S CODE AS WRITTEN DOES NOT COMPILE OR RUN. Corrected after execution —
+> errors 30 to 32.** Read this before the snippets below; three separate defects, all
+> measured:
+>
+> 1. **`t.mutation(fn, args, { transactionLimits })` HAS NO SUCH OVERLOAD.** `convex-test`
+>    types `mutation` as `(mutationOrFunc, ...OptionalRestArgs)`. `transactionLimits` is a
+>    **`convexTest()` constructor option**, per-instance (`convex-test/dist/index.d.ts:132`) —
+>    not a per-call argument. Use the `withLimits` form the existing guards in
+>    `dashboardBandwidth.test.ts` already use.
+> 2. **The snippets do not pin the clock, and cannot work without it.** `deliver` reads
+>    `Date.now()`, and the fixture's boards only sit inside the activity window on
+>    2026-09-11. On any other date the run takes `'inactive'` and `delivered: true` is
+>    false. Same class as the Task 5 date bombs.
+> 3. **`DELIVER_READS` is 5, not 3, and `databaseQueries` is 4, not 2** — the third
+>    wrong prediction of this number, in a third direction. The enumeration below was
+>    right as far as it went and short by exactly two, because of two `convex-test`
+>    behaviours neither the plan nor its corrections knew:
+>    - **A `ctx.db.patch` is charged a document READ** — `1.0/shallowMerge` calls
+>      `getAndTrack` before merging (`convex-test/dist/index.js`).
+>    - **A `ctx.db.get` is charged an index RANGE as well as a document** — the
+>      `1.0/get` case calls `trackIndexRange()`.
+>
+>    So the delivered path is: `deliver`'s `get`; entered-today yielding nothing;
+>    recent-activity yielding one; the `lastBoardEntryReminder` patch; `scheduleNextFor`'s
+>    `get`; `scheduleNextFor`'s patch → **5 documents, 4 ranges, 1 job.**
+>
+> **And the headline assertion accepts TWO catastrophic states, not one.** The beads note
+> caught the all-zoneless table. Measurement found a second the note did not name: **every
+> row's work throwing.** `maintain`'s per-player guard — required by this plan — swallows
+> it, so the pass returns `scheduled: 0, weekendFlagsChanged: 0, deferred: 0, failed: 3`,
+> and a `toMatchObject` on the first three fields passes on that too. Assert the healthy
+> return with `toEqual` over the FULL shape, `failed` and `zoneless` included.
+>
+> **A consequence for any future `maintain` ceiling:** a limit that trips INSIDE the loop
+> does not throw — the guard catches it and it surfaces as `failed`. Only a breach while
+> reading the two collects throws, because those sit outside the guard.
+
 The claim this whole change rests on is a cost claim, so it gets a test. `convex-test`
 meters `documentsRead` and `functionsScheduled` per transaction, which is what makes
 the numbers assertable rather than modelled.
