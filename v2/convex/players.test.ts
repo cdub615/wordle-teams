@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { addDays, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
-import { completeProfileFor } from './players.ts'
+import { applySocialImageSync, completeProfileFor } from './players.ts'
 import { upgradeTeamInvitesFor } from './billing.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import type { GenericMutationCtx } from 'convex/server'
@@ -678,6 +678,40 @@ describe('completeProfileFor validation', () => {
 
       expect((await ctx.db.get(teamId))!.invited).toEqual([ADA])
       expect((await ctx.db.get(teamId))!.playerIds).toEqual([bob])
+    })
+  })
+})
+
+describe('applySocialImageSync', () => {
+  test('sets the mirrored URL on the player row', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await applySocialImageSync(ctx, ada, 'https://lh3/a')
+      expect((await ctx.db.get(ada))?.socialImage).toBe('https://lh3/a')
+    })
+  })
+
+  test('clears it when the provider no longer has one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer({ socialImage: 'https://lh3/a' }))
+      await applySocialImageSync(ctx, ada, null)
+      expect((await ctx.db.get(ada))?.socialImage).toBeUndefined()
+    })
+  })
+
+  // An uploaded avatar is the player's own decision and a provider must never
+  // undo it. This is the assertion that makes the two-field design necessary.
+  test('LEAVES AN UPLOADED AVATAR ALONE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const imageId = await ctx.storage.store(new Blob(['x'], { type: 'image/webp' }))
+      const ada = await ctx.db.insert('players', aPlayer({ imageId }))
+      await applySocialImageSync(ctx, ada, 'https://lh3/a')
+      const row = await ctx.db.get(ada)
+      expect(row?.imageId).toBe(imageId)
+      expect(row?.socialImage).toBe('https://lh3/a')
     })
   })
 })

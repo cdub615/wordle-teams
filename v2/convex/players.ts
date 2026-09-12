@@ -3,6 +3,7 @@ import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import { accessError, currentPlayer, isProFor, playerForEmail } from './access'
 import { resetChatCursorFor } from './chat.ts'
+import { shouldSyncSocialImage } from './lib/avatar.ts'
 import { isCompleteName } from './lib/invite.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
@@ -390,5 +391,51 @@ export const myName = query({
     const player = await currentPlayer(ctx)
     if (!player) return null
     return { firstName: player.firstName, lastName: player.lastName }
+  },
+})
+
+/**
+ * Applies the mirror decision to one player row. Exported for its tests: the
+ * mutation below reads the Better Auth user, which convex-test cannot stand up
+ * (wordle-teams-bya), so the wrapper's body is unreachable there and everything
+ * worth asserting has to live in a function that is not the wrapper.
+ */
+export async function applySocialImageSync(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  incoming: string | null | undefined,
+) {
+  const player = await ctx.db.get(playerId)
+  if (!player) return
+  const decision = shouldSyncSocialImage(player.socialImage, incoming)
+  if (decision.action === 'none') return
+  await ctx.db.patch(playerId, {
+    socialImage: decision.action === 'clear' ? undefined : decision.value,
+  })
+}
+
+/**
+ * Mirrors the caller's OWN Better Auth profile image onto their player row.
+ *
+ * TAKES NO ARGUMENTS, AND THAT IS THE SECURITY PROPERTY RATHER THAN A STYLE
+ * CHOICE. The value comes from the authenticated user server-side. A
+ * client-supplied URL here would let anybody point their teammate-visible
+ * avatar at any URL on the internet.
+ *
+ * ONLY EVER YOUR OWN. Another player's Better Auth record is reachable only
+ * from their own session, so a teammate's Google photo appears in chat when
+ * THEY next open the app, not when you do. Chat therefore fills in with faces
+ * over the days after launch rather than all at once. Accepted, not overlooked.
+ *
+ * SILENT ON FAILURE at the call site: this is a convenience, and a failed sync
+ * costs initials until the next load.
+ */
+export const syncSocialImage = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const player = await currentPlayer(ctx)
+    if (!player) return
+    const user = await authComponent.getAuthUser(ctx)
+    await applySocialImageSync(ctx, player._id, user?.image ?? null)
   },
 })
