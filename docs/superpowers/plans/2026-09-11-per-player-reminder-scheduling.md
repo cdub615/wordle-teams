@@ -2817,9 +2817,15 @@ next fires.
 **Verify before flipping the flag. `budget: 0` IS NOT READ-ONLY — do not treat it as
 a dry run.** An earlier draft of this step said "this is a read, so it is safe". That
 was wrong, and wrong in the direction that matters for a production runbook:
-`maintain` derives `playsWeekends` and patches every player whose flag differs
-**before** it reaches the schedule budget, so `budget: 0` suppresses scheduling but
-still writes. The writes are idempotent and the daily cron makes them anyway, so this
+`maintain` still writes on that path, but the precise shape is narrower than an
+earlier draft said and matters for what you tell an operator. **CORRECTED after Task 6
+shipped:** its final ordering defers BEFORE patching the flag, so a *schedulable* row
+that needs rescheduling is left entirely untouched, flag included. What still gets
+patched is a **zoneless** row whose derived flag flipped — because such a row is never
+schedulable, so it never reaches the budget check at all. On beta that is a large
+population, since `copy-reminder-policy.mjs` withholds `timeZone` on every copy but the
+one passing `--with-reminders`. So: it writes nothing for any schedulable row, and it is
+still not a read. The writes are idempotent and the daily cron makes them anyway, so this
 is harmless — but it is a mutation against production, not an inspection, and it must
 be run deliberately rather than casually.
 
