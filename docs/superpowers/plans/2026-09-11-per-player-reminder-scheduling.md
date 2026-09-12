@@ -2356,12 +2356,24 @@ exist. Replace that paragraph with:
  *    error; instantForLocal's own doc carries the measurement and records that
  *    "after the gap" had already been written and corrected once.
  *  - isDueThisHour's midnight wrap did NOT make "the whole 23:xx-00:xx band
- *    unmatchable". That is true only for WHOLE-HOUR-offset zones. Measured by
- *    replaying the comparison across a full 24-tick day per offset shape: a
- *    whole-hour zone lost everything after 23:00:00, but a HALF-HOUR zone
- *    matched '23:30:00' perfectly well and lost [00:00:00, 00:30:00) instead,
- *    and +05:45 lost everything before 00:45:00. Asia/Calcutta and Asia/Rangoon
- *    are in this repo's own copied-row test set, so that population is real.
+ *    unmatchable", and the FIRST correction of this was itself incomplete.
+ *    Re-derived over all 1440 minute-values x 24 ticks per offset shape, the
+ *    true rule is UNIFORM: every offset loses exactly one hour-wide band
+ *    STRADDLING local midnight -- (23:MM, 24:00) union [00:00, 00:MM), where MM
+ *    is the zone's offset minutes. Fifty-nine minute-values in every case:
+ *
+ *        +00  -> 23:01..23:59
+ *        +30  -> 00:00..00:29 AND 23:31..23:59
+ *        +45  -> 00:00..00:44 AND 23:46..23:59
+ *
+ *    So '23:30:00' does match in a half-hour zone (the illustration that
+ *    prompted the correction, and still true) -- but the first correction said
+ *    such a zone loses [00:00, 00:30) "instead", omitting the 23:31..23:59
+ *    half. That omission points the wrong way for the paragraph's only purpose:
+ *    a reader judging what widening REMINDER_TIMES would cost concludes 23:45 is
+ *    safe in a half-hour zone. It is not. Asia/Calcutta, Asia/Rangoon and
+ *    Asia/Kathmandu are all in this repo's own copied-row test set, so the
+ *    affected population is real rather than theoretical.
 ```
 
 Also update `convex/settings.ts:146-150` (moved down by Task 4's added comment lines; verify before editing)'s comment on `updateReminderTimeFor`, which
