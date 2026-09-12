@@ -164,19 +164,59 @@ describe('getMyTeamsFor — the enumeration every authenticated session holds', 
   })
 
   /**
-   * AVATARS ADD NOTHING FOR A PLAYER WHO HAS NOT UPLOADED ONE, which is the
-   * guarantee wordle-teams-wty4.1.1 was allowed to ship on. `socialImage` rides
-   * along on a player document this query already reads; only `imageId` costs a
-   * storage read, and the resolution in teams.ts is conditional on it.
+   * THE CONDITIONAL, PINNED BY THE ONLY MEANS THAT ACTUALLY SEES IT.
    *
-   * If this number ever moves, the conditional has been removed and every
-   * dashboard load is paying up to 54 extra reads.
+   * MEASURED 2026-09-12: `ctx.storage.getUrl` does NOT charge convex-test's
+   * `documentsRead` meter — a 6x8 roster with an avatar on every member
+   * resolves 48 URLs and still passes under `withReadLimit(54)`. So a read
+   * ceiling cannot notice an unconditional resolve, and an earlier version of
+   * this test claimed it could. Counting the calls is what is left, and it is
+   * the thing worth holding anyway: on a real deployment each of those is a
+   * _storage system read on the hottest query in the app (wordle-teams-dcu).
    */
-  test(`still costs exactly ${ENUMERATION_READS} documents once avatars resolve`, async () => {
-    await withReadLimit(ENUMERATION_READS).run(async (ctx) => {
+  test('resolves NO storage URL for a roster with no uploaded avatars', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
       const { me } = await seedTeams(ctx, CEILING_TEAMS, CEILING_MEMBERS)
-      const teams = await getMyTeamsFor(ctx, me)
+      let getUrlCalls = 0
+      const counting = {
+        db: ctx.db,
+        storage: {
+          ...ctx.storage,
+          getUrl: async (id: Id<'_storage'>) => {
+            getUrlCalls++
+            return await ctx.storage.getUrl(id)
+          },
+        },
+      }
+      const teams = await getMyTeamsFor(counting, me)
       expect(teams[0].members[0]).toHaveProperty('image', null)
+      expect(getUrlCalls).toBe(0)
+    })
+  })
+
+  test('and resolves exactly one per member who HAS uploaded one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const imageId = await ctx.storage.store(new Blob(['x'], { type: 'image/webp' }))
+      const me = await ctx.db.insert('players', aPlayer({ imageId }))
+      const mate = await ctx.db.insert('players', aPlayer({ email: 'mate@example.com' }))
+      await ctx.db.insert('teams', aTeam({ playerIds: [me, mate] }))
+      let getUrlCalls = 0
+      const counting = {
+        db: ctx.db,
+        storage: {
+          ...ctx.storage,
+          getUrl: async (id: Id<'_storage'>) => {
+            getUrlCalls++
+            return await ctx.storage.getUrl(id)
+          },
+        },
+      }
+      await getMyTeamsFor(counting, me)
+      // One member has an avatar, one does not. Two resolves would mean the
+      // conditional is gone; zero would mean nothing resolves at all.
+      expect(getUrlCalls).toBe(1)
     })
   })
 })
