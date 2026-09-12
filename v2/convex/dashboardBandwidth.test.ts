@@ -6,7 +6,7 @@ import { getMyTeamsFor } from './teams'
 import { unreadBadgeFor } from './chat'
 import { internal } from './_generated/api'
 import type { DataModel, Id } from './_generated/dataModel'
-import type { GenericDatabaseWriter } from 'convex/server'
+import type { GenericDatabaseReader, GenericDatabaseWriter, StorageReader } from 'convex/server'
 
 // Mocked for the same reason reminders.test.ts mocks it, and that comment is
 // authoritative: nothing here registers the Resend component, and `deliver`
@@ -120,6 +120,52 @@ const withLimits = (transactionLimits: Limits) =>
 /** Read-only shorthand for the read-path guards below, which meter one thing. */
 const withReadLimit = (documentsRead: number) => withLimits({ documentsRead })
 
+/**
+ * COUNTS `getUrl` CALLS, because `documentsRead` cannot see them. MEASURED
+ * 2026-09-12, against convex-test's own storageGetUrl path and convex's
+ * storage_impl.js: `ctx.storage.getUrl` does not touch `trackRead`, so a 6x8
+ * roster with an avatar on EVERY member still passes under
+ * `withReadLimit(54)` — 48 resolved URLs, zero of them charged. A read
+ * ceiling is blind to this call; counting it directly is what is left, and it
+ * is the number worth holding anyway: on a real deployment each call is a
+ * `_storage` system read on the hottest query in the app (wordle-teams-dcu).
+ *
+ * THE `{ ...ctx.storage }` SPREAD IS SAFE, not incidental. Production builds
+ * `ctx.storage` as a plain object literal of arrow-function properties (see
+ * convex's `registration_impl.ts`), not a class with prototype methods, so a
+ * shallow spread carries every property forward untouched. That is also what
+ * makes this proxy a faithful stand-in for the `ctx.storage` `getMyTeamsFor`
+ * actually receives in production, not a test-only shape.
+ *
+ * COUNTS `getUrl` ONLY, NOT "ANY STORAGE READ". `StorageReader` has exactly
+ * one other method, `getMetadata` — itself deprecated in favour of
+ * `ctx.db.system.get`, so the gap is small today, not zero. If a later change
+ * to `getMyTeamsFor` resolves an avatar through `getMetadata`, or through
+ * whatever eventually replaces `getUrl`, that call passes straight through
+ * this proxy uncounted and both tests below keep passing while the query
+ * quietly costs more. Whoever changes how `getMyTeamsFor` touches storage
+ * must extend this helper to match — it is not exhaustive over the interface,
+ * only over the one method this feature currently uses.
+ */
+function countingStorage(ctx: { db: GenericDatabaseReader<DataModel>; storage: StorageReader }) {
+  let calls = 0
+  return {
+    ctx: {
+      db: ctx.db,
+      storage: {
+        ...ctx.storage,
+        getUrl: async (id: Id<'_storage'>) => {
+          calls++
+          return await ctx.storage.getUrl(id)
+        },
+      },
+    },
+    get calls() {
+      return calls
+    },
+  }
+}
+
 describe('getMyTeamsFor — the enumeration every authenticated session holds', () => {
   /**
    * THE SCAN IS UNAVOIDABLE AND IS NOT WHAT THIS GUARDS. Convex cannot index array
@@ -166,32 +212,18 @@ describe('getMyTeamsFor — the enumeration every authenticated session holds', 
   /**
    * THE CONDITIONAL, PINNED BY THE ONLY MEANS THAT ACTUALLY SEES IT.
    *
-   * MEASURED 2026-09-12: `ctx.storage.getUrl` does NOT charge convex-test's
-   * `documentsRead` meter — a 6x8 roster with an avatar on every member
-   * resolves 48 URLs and still passes under `withReadLimit(54)`. So a read
-   * ceiling cannot notice an unconditional resolve, and an earlier version of
-   * this test claimed it could. Counting the calls is what is left, and it is
-   * the thing worth holding anyway: on a real deployment each of those is a
-   * _storage system read on the hottest query in the app (wordle-teams-dcu).
+   * A read ceiling cannot notice an unconditional resolve here — see
+   * `countingStorage`'s comment for the measurement and the reasoning. Counting
+   * `getUrl` calls directly is what is left.
    */
   test('resolves NO storage URL for a roster with no uploaded avatars', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { me } = await seedTeams(ctx, CEILING_TEAMS, CEILING_MEMBERS)
-      let getUrlCalls = 0
-      const counting = {
-        db: ctx.db,
-        storage: {
-          ...ctx.storage,
-          getUrl: async (id: Id<'_storage'>) => {
-            getUrlCalls++
-            return await ctx.storage.getUrl(id)
-          },
-        },
-      }
-      const teams = await getMyTeamsFor(counting, me)
+      const counted = countingStorage(ctx)
+      const teams = await getMyTeamsFor(counted.ctx, me)
       expect(teams[0].members[0]).toHaveProperty('image', null)
-      expect(getUrlCalls).toBe(0)
+      expect(counted.calls).toBe(0)
     })
   })
 
@@ -202,21 +234,11 @@ describe('getMyTeamsFor — the enumeration every authenticated session holds', 
       const me = await ctx.db.insert('players', aPlayer({ imageId }))
       const mate = await ctx.db.insert('players', aPlayer({ email: 'mate@example.com' }))
       await ctx.db.insert('teams', aTeam({ playerIds: [me, mate] }))
-      let getUrlCalls = 0
-      const counting = {
-        db: ctx.db,
-        storage: {
-          ...ctx.storage,
-          getUrl: async (id: Id<'_storage'>) => {
-            getUrlCalls++
-            return await ctx.storage.getUrl(id)
-          },
-        },
-      }
-      await getMyTeamsFor(counting, me)
+      const counted = countingStorage(ctx)
+      await getMyTeamsFor(counted.ctx, me)
       // One member has an avatar, one does not. Two resolves would mean the
       // conditional is gone; zero would mean nothing resolves at all.
-      expect(getUrlCalls).toBe(1)
+      expect(counted.calls).toBe(1)
     })
   })
 })
