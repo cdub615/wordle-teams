@@ -273,15 +273,6 @@ test.describe('route shape', () => {
   test('a signed-out visitor can open the menu and navigate from it', async ({ page }) => {
     await page.goto('/about')
 
-    // openAppMenu, not a bare click: the header server-renders, so the trigger
-    // exists before React attaches a handler to it, and on this page — no
-    // session, nothing else to wait for — a click lands on a dead button. See
-    // the helper's note; this test is where that was measured.
-    await openAppMenu(page)
-
-    const about = page.getByRole('menuitem', { name: 'About' })
-    await expect(about).toHaveAttribute('href', '/about')
-
     /**
      * THE CANONICAL APEX IS NOW THE WORDMARK'S JOB, NOT A MENU ITEM'S
      * (wordle-teams-wty4.1.3 removed the "Home" entry as a near-duplicate of
@@ -289,6 +280,13 @@ test.describe('route shape', () => {
      * matters MORE here than it did there: the wordmark is the only route to
      * `/` in the chrome, so if it ever points at the duplicate there is no
      * second link to be right.
+     *
+     * BEFORE THE MENU IS OPENED, AND THAT IS NOT INCIDENTAL. Radix's dropdown
+     * is modal by default: while it is open the rest of the page is marked
+     * `aria-hidden`, so the wordmark is not in the accessibility tree at all
+     * and `getByRole('link')` finds nothing. The helper's own note about the
+     * overlay is the same fact from the pointer-events side. Asserting header
+     * chrome after openAppMenu will always fail with "element(s) not found".
      *
      * `/home` is the compatibility duplicate of the landing — the two render
      * the identical component, and sitemap.ts ranks `/` at priority 1 against
@@ -299,6 +297,16 @@ test.describe('route shape', () => {
     const wordmark = page.getByRole('link', { name: 'Wordle Teams' })
     await expect(wordmark).toHaveAttribute('href', '/')
     await expect(wordmark).not.toHaveAttribute('href', '/home')
+
+    // openAppMenu, not a bare click: the header server-renders, so the trigger
+    // exists before React attaches a handler to it, and on this page — no
+    // session, nothing else to wait for — a click lands on a dead button. See
+    // the helper's note; this test is where that was measured.
+    await openAppMenu(page)
+
+    const about = page.getByRole('menuitem', { name: 'About' })
+    await expect(about).toHaveAttribute('href', '/about')
+
 
     // AND IT ACTUALLY NAVIGATES. An href is not a working link: these are
     // `DropdownMenuItem asChild` wrapping a TanStack `Link`, so Radix merges

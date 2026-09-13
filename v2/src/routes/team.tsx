@@ -161,104 +161,131 @@ function TeamSettingsPage() {
   if (!selectedTeam) {
     return (
       <main className="page-max mt-2 md:mt-6">
-        <Skeleton className="h-96 w-full rounded-lg" />
+        {/* THE SAME CAP AS THE RESOLVED PAGE BELOW, or the skeleton paints at
+            1440px and the content snaps to 768px the instant the query lands. */}
+        <div className="mx-auto w-full max-w-3xl">
+          <Skeleton className="h-96 w-full rounded-lg" />
+        </div>
       </main>
     )
   }
 
   return (
-    <main className="page-max mt-2 flex flex-col gap-6 md:mt-6">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" aria-label="Back to dashboard" asChild>
-          <Link to="/app" search={{ team: teamParam }}>
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          </Link>
-        </Button>
-        <h1 className="text-2xl font-bold">Team settings</h1>
-      </div>
-      <CurrentTeamCard
-        teamId={selectedTeam.id}
-        name={selectedTeam.name}
-        members={selectedTeam.members}
-        isOwner={selectedTeam.isOwner}
-        myPlayerId={myPlayerId}
-        onEditSettings={() => setEditOpen(true)}
-        // Same repair app.tsx used to make from inside TeamSettingsDialog:
-        // leaving the selected team leaves `?team=` on THIS page pointing at
-        // a team the caller is no longer on, so send them back to /app with
-        // empty search and let its own sync effect pick a live one.
-        onLeft={() => {
-          localStorage.removeItem(STORAGE_KEY)
-          void navigate({ to: '/app', search: {} })
-        }}
-      />
-      {/*
-        `id="scoring"` IS THE SCORING DEEP LINK'S WHOLE MECHANISM
-        (wordle-teams-5jcn.29). routes/app.tsx's ScoringLegend "Edit" control
-        navigates here with `hash: 'scoring'`; TanStack Router's scroll
-        restoration calls `document.getElementById(hash)?.scrollIntoView(...)`
-        by default (`defaultHashScrollIntoView`, unset here and true) once the
-        navigation settles, with no wiring needed on this end beyond the id
-        existing. AN ANCHOR, NOT A ROUTE OR SEARCH PARAM, because this page has
-        no tabs left to switch between — CurrentTeamCard, MyTeamsCard and
-        ScoringSystemCard are three plain, always-mounted Cards stacked on one
-        page (the fix for wordle-teams-5jcn.16's nested dialog+Card chrome and
-        redundant tab-label/heading pairs), not panels behind a strip that
-        hides the other two. A route or search param would be answering "which
-        panel is active" — a question this page no longer asks.
-        THE `id` SITS ON THIS WRAPPER, NOT INSIDE THE `<Suspense>` BELOW,
-        DELIBERATELY: it has to exist the instant this component commits, not
-        only once ScoringSystemCard's own query resolves, or a fast scroll
-        attempt would find nothing yet to scroll to.
-      */}
-      <div id="scoring">
+    /*
+      `page-max` STAYS ON `main` AND THE CAP GOES INSIDE IT (wordle-teams-wty4.1.2).
+      That class is not only a width: it also carries `margin-inline: auto` and
+      the responsive `padding-inline` that holds the safe-area insets, and it is
+      deliberately the SAME token the header reads (styles.css) so the two
+      cannot drift. Narrowing it here would narrow the header with it, and
+      dropping it would lose the insets.
+
+      WHY NARROWER AT ALL: --page-max is 1440px, a number chosen for the SCORES
+      TABLE, which genuinely wants every pixel. These are settings cards, and
+      every row in all three of them is `justify-between` — a label on the left
+      and its action on the right. Stretched to 1440px the button ends up a
+      forearm away from the thing it acts on, which reads as two unrelated
+      elements rather than one row.
+
+      3xl (768px) IS THE LARGEST WIDTH THAT STILL READS AS A ROW. It is the
+      conventional settings-column cap, it keeps a member's name and their
+      Remove button in one glance, and it leaves the scoring legend — which is
+      `flex flex-wrap`, so it simply reflows — enough room to stay compact
+      rather than becoming a tall column of pairs.
+    */
+    <main className="page-max mt-2 md:mt-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" aria-label="Back to dashboard" asChild>
+            <Link to="/app" search={{ team: teamParam }}>
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
+          <h1 className="text-2xl font-bold">Team settings</h1>
+        </div>
+        <CurrentTeamCard
+          teamId={selectedTeam.id}
+          name={selectedTeam.name}
+          members={selectedTeam.members}
+          isOwner={selectedTeam.isOwner}
+          myPlayerId={myPlayerId}
+          onEditSettings={() => setEditOpen(true)}
+          // Same repair app.tsx used to make from inside TeamSettingsDialog:
+          // leaving the selected team leaves `?team=` on THIS page pointing at
+          // a team the caller is no longer on, so send them back to /app with
+          // empty search and let its own sync effect pick a live one.
+          onLeft={() => {
+            localStorage.removeItem(STORAGE_KEY)
+            void navigate({ to: '/app', search: {} })
+          }}
+        />
         {/*
-          KEPT, NOT DROPPED — components/teams/team-settings-dialog.tsx
-          (deleted) wrapped this same component in a `<Suspense>` because
-          Radix's Tabs never mounted an inactive tab's content, so
-          ScoringSystemCard mounted only on first switch to the Scoring tab
-          rather than on open. THAT REASON
-          IS GONE — there are no tabs here, so ScoringSystemCard mounts the
-          instant this page does. But the boundary is still needed for the
-          reason routes/app.tsx's OWN three getTeamMonth consumers keep theirs
-          (wordle-teams-9ahw): this route's loader deliberately does not
-          prefetch `getTeamMonth` (see the loader's own comment), so
-          ScoringSystemCard's `useSuspenseQuery` for it can still be in flight
-          after CurrentTeamCard above has already painted — and, since
-          wordle-teams-wty4.1.2 moved MyTeamsCard BELOW this block, while the
-          card under it is still waiting to. Dropping this would suspend the
-          WHOLE page — including the two cards that have nothing to do with
-          this query — back to `TeamSettingsSkeleton` on every mount.
+          `id="scoring"` IS THE SCORING DEEP LINK'S WHOLE MECHANISM
+          (wordle-teams-5jcn.29). routes/app.tsx's ScoringLegend "Edit" control
+          navigates here with `hash: 'scoring'`; TanStack Router's scroll
+          restoration calls `document.getElementById(hash)?.scrollIntoView(...)`
+          by default (`defaultHashScrollIntoView`, unset here and true) once the
+          navigation settles, with no wiring needed on this end beyond the id
+          existing. AN ANCHOR, NOT A ROUTE OR SEARCH PARAM, because this page has
+          no tabs left to switch between — CurrentTeamCard, MyTeamsCard and
+          ScoringSystemCard are three plain, always-mounted Cards stacked on one
+          page (the fix for wordle-teams-5jcn.16's nested dialog+Card chrome and
+          redundant tab-label/heading pairs), not panels behind a strip that
+          hides the other two. A route or search param would be answering "which
+          panel is active" — a question this page no longer asks.
+          THE `id` SITS ON THIS WRAPPER, NOT INSIDE THE `<Suspense>` BELOW,
+          DELIBERATELY: it has to exist the instant this component commits, not
+          only once ScoringSystemCard's own query resolves, or a fast scroll
+          attempt would find nothing yet to scroll to.
         */}
-        <Suspense fallback={<ScoringSystemCardSkeleton />}>
-          <ScoringSystemCard
-            teamId={selectedTeam.id}
-            month={month}
-            isPro={isPro}
-            isOwner={selectedTeam.isOwner}
-          />
-        </Suspense>
+        <div id="scoring">
+          {/*
+            KEPT, NOT DROPPED — components/teams/team-settings-dialog.tsx
+            (deleted) wrapped this same component in a `<Suspense>` because
+            Radix's Tabs never mounted an inactive tab's content, so
+            ScoringSystemCard mounted only on first switch to the Scoring tab
+            rather than on open. THAT REASON
+            IS GONE — there are no tabs here, so ScoringSystemCard mounts the
+            instant this page does. But the boundary is still needed for the
+            reason routes/app.tsx's OWN three getTeamMonth consumers keep theirs
+            (wordle-teams-9ahw): this route's loader deliberately does not
+            prefetch `getTeamMonth` (see the loader's own comment), so
+            ScoringSystemCard's `useSuspenseQuery` for it can still be in flight
+            after CurrentTeamCard above has already painted — and, since
+            wordle-teams-wty4.1.2 moved MyTeamsCard BELOW this block, while the
+            card under it is still waiting to. Dropping this would suspend the
+            WHOLE page — including the two cards that have nothing to do with
+            this query — back to `TeamSettingsSkeleton` on every mount.
+          */}
+          <Suspense fallback={<ScoringSystemCardSkeleton />}>
+            <ScoringSystemCard
+              teamId={selectedTeam.id}
+              month={month}
+              isPro={isPro}
+              isOwner={selectedTeam.isOwner}
+            />
+          </Suspense>
+        </div>
+        {/*
+          MY TEAMS SITS LAST (wordle-teams-wty4.1.2). This page is "manage the
+          team I am looking at": the current team's own card and the scoring
+          system that governs it belong together at the top, and the list of
+          every OTHER team is navigation away from that — which is the right
+          thing to meet after the settings, not between them.
+        */}
+        <MyTeamsCard
+          teams={teams}
+          // Deleting the SELECTED team (the one this page is showing) leaves
+          // `?team=` pointing at a gone id, same repair as onLeft above.
+          // Deleting any OTHER team from this list is a no-op here — the list
+          // itself updates reactively and there is nothing else to fix.
+          onDeleted={(deleted) => {
+            if (deleted !== teamParam) return
+            localStorage.removeItem(STORAGE_KEY)
+            void navigate({ to: '/app', search: {} })
+          }}
+        />
+        <UpdateTeamDialog open={editOpen} onOpenChange={setEditOpen} team={selectedTeam} />
       </div>
-      {/*
-        MY TEAMS SITS LAST (wordle-teams-wty4.1.2). This page is "manage the
-        team I am looking at": the current team's own card and the scoring
-        system that governs it belong together at the top, and the list of
-        every OTHER team is navigation away from that — which is the right
-        thing to meet after the settings, not between them.
-      */}
-      <MyTeamsCard
-        teams={teams}
-        // Deleting the SELECTED team (the one this page is showing) leaves
-        // `?team=` pointing at a gone id, same repair as onLeft above.
-        // Deleting any OTHER team from this list is a no-op here — the list
-        // itself updates reactively and there is nothing else to fix.
-        onDeleted={(deleted) => {
-          if (deleted !== teamParam) return
-          localStorage.removeItem(STORAGE_KEY)
-          void navigate({ to: '/app', search: {} })
-        }}
-      />
-      <UpdateTeamDialog open={editOpen} onOpenChange={setEditOpen} team={selectedTeam} />
     </main>
   )
 }
