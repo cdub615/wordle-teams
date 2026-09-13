@@ -78,10 +78,11 @@ const CODE = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
  * `./x.ts`, which is the NodeNext spelling nothing here uses yet.
  *
  * `#/` IS RESOLVED TOO, even though the rule only talks about relative
- * specifiers. src/ reaches itself through the alias 326 times; stopping at an
- * alias boundary would still catch a violation (every src file is a root) but
- * would report a chain starting in the middle, and the chain is the entire
- * value of this test.
+ * specifiers. Most of src/ reaches the rest of src/ through the alias, not
+ * relatively; stopping at an alias boundary would still catch a violation
+ * (every src file is a root, so the far side is walked anyway) but would report
+ * a chain starting in the middle, and the chain is the entire value of this
+ * test.
  *
  * Returns null for a package import — 'react', '@convex-dev/better-auth' —
  * which is somebody else's graph and not walkable from here.
@@ -175,9 +176,12 @@ function graphFrom(roots: string[]): Map<string, string[]> {
  * For every file that reaches `target`, the SHORTEST chain to it.
  *
  * A breadth-first walk of the REVERSED graph, seeded at the target, rather than
- * a search per root: one pass answers it for all 266 roots at once, the first
- * time a file is seen is by definition its shortest route, and a cycle cannot
- * hang it. The recorded next hop is what turns a boolean into
+ * a search per root: one pass answers it for every root at once, the first time
+ * a file is seen is by definition its shortest route, and a cycle cannot hang
+ * it. (No count is written here on purpose. The first draft said "all 266
+ * roots", which was already wrong by one the moment this file was saved — it
+ * had counted src/ before adding itself to it — and nothing asserts the number,
+ * so it could only ever rot.) The recorded next hop is what turns a boolean into
  * `composer.tsx -> lib/chat.ts -> access.ts -> auth.ts`.
  */
 function chainsTo(graph: Map<string, string[]>, target: string): Map<string, string[]> {
