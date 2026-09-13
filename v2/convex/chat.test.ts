@@ -1,6 +1,5 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test, vi } from 'vitest'
-import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema'
 import { api } from './_generated/api'
 import {
@@ -19,7 +18,7 @@ import {
 import { deleteTeamFor, invitePlayerFor, leaveTeamFor, removeMemberFor } from './teams.ts'
 import { completeProfileFor } from './players.ts'
 import { downgradeTeamRemovalFor, upgradeTeamInvitesFor } from './billing.ts'
-import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
+import { aPlayer, aTeam, authenticatedAs, registerBetterAuth } from './fixtures.ts'
 import {
   BUDGET_THRESHOLD_BYTES,
   RATE_LIMIT_MESSAGES,
@@ -1293,7 +1292,7 @@ describe('the public surface', () => {
   // `@convex-dev/better-auth` version).
   test('refuses an authenticated caller who is not on the team, with NOT_A_MEMBER', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
 
     const teamId = await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
@@ -1331,7 +1330,7 @@ describe('the public surface', () => {
   // for free: skip inserting a `players` row for the email at all.
   test('refuses an authenticated caller with no player row, with NO_PLAYER', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
 
     const teamId = await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())

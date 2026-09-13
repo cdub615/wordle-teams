@@ -1,10 +1,9 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
-import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema'
 import { api } from './_generated/api'
 import { addDays, addMonths, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
-import { aPlayer, aTeam, authenticatedAs } from './fixtures.ts'
+import { aPlayer, aTeam, authenticatedAs, registerBetterAuth } from './fixtures.ts'
 import { getTeamMonthFor, upsertBoardFor } from './scores'
 
 // `today` is now bounded server-side to ±1 day of the real clock (Step 0b), so
@@ -629,7 +628,7 @@ describe('getTeamMonthFor — scoring version resolution', () => {
 describe('scores.getMyMonth', () => {
   test("returns only the caller's own scores, only for the month asked for", async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com' }))
@@ -666,7 +665,7 @@ describe('scores.getMyMonth', () => {
     // seven months a year: no error, no empty state, just a day the player
     // entered that the form no longer prefills.
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       for (const puzzleDay of ['2026-10-01', '2026-10-31', '2026-11-01']) {
@@ -688,7 +687,7 @@ describe('scores.getMyMonth', () => {
     // The form derives from ONE shape regardless of which query fed it, so a
     // drift here is a runtime break in the team-less branch only.
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       await ctx.db.insert('dailyScores', {
@@ -717,7 +716,7 @@ describe('scores.getMyMonth', () => {
     // symptom it prevents is React dropping an uncontrolled contentEditable
     // back to its previous text in the entry form.
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
       await ctx.db.insert('dailyScores', {
@@ -734,7 +733,7 @@ describe('scores.getMyMonth', () => {
 
   test('is empty rather than throwing for a caller with no player row', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     const as = await authenticatedAs(t, 'nobody@example.com')
     expect(await as.query(api.scores.getMyMonth, { month: '2026-09' })).toEqual([])
   })

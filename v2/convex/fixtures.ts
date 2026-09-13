@@ -1,6 +1,8 @@
 import schema from './schema'
+import betterAuthComponentSchema from './betterAuth/schema'
 import { components } from './_generated/api'
 import type { TestConvex } from 'convex-test'
+import type { GenericSchema, SchemaDefinition } from 'convex/server'
 
 /**
  * Shared convex-test document factories.
@@ -45,19 +47,55 @@ export const aTeam = (over: Record<string, unknown> = {}) => ({
 })
 
 /**
+ * Registers THIS REPO'S betterAuth component into a convexTest instance — the
+ * same `convex/betterAuth/` sources `convex/convex.config.ts` mounts, under
+ * the same mount name, so `components.betterAuth.*` resolves in tests to the
+ * code production actually runs.
+ *
+ * THIS USED TO BE `betterAuthTest.register(t)` FROM THE PACKAGE, AND THAT WAS
+ * TESTING A DIFFERENT COMPONENT (found in review of wordle-teams-hrqw Task 2).
+ * `@convex-dev/better-auth/test` registers the PACKAGE'S `./component/schema.js`
+ * and `import.meta.glob("./component/**​/*.ts")`
+ * (node_modules/@convex-dev/better-auth/src/test.ts — the whole file is eight
+ * lines). Nothing in the suite imported `convex/betterAuth/adapter.ts` at all —
+ * the review's demonstration was that our adapter could be DELETED and all 2845
+ * tests still passed. Re-measured here from the other direction on 2026-09-13:
+ * put `betterAuthTest.register(t)` back into this function and
+ * betterAuthSchema.test.ts's adapter test fails with `Validator error: Expected
+ * one of object ×10` — ten tables, i.e. the package's schema, not our eleven.
+ *
+ * That was tolerable only while the local copy and the package copy were
+ * byte-identical. Adding the `passkey` table made them differ, at which point
+ * the suite would have been blind to the one thing this component exists for.
+ *
+ * The shape is copied from the package's `register` on purpose — same
+ * `registerComponent(name, schema, glob)` call, same default name — so the
+ * only thing that changed is WHICH sources get wired. The glob has to reach
+ * `convex/betterAuth/_generated/`: convex-test derives the module-path prefix
+ * by locating a `_generated` entry in the glob keys and would throw
+ * "Could not find the \"_generated\" directory" without one
+ * (node_modules/convex-test/dist/index.js, `findModulesRoot`).
+ *
+ * The name argument is not optional here the way it is upstream. Renaming the
+ * component orphans every row — see `convex/betterAuth/convex.config.ts`.
+ */
+const betterAuthModules = import.meta.glob('./betterAuth/**/*.ts')
+
+export function registerBetterAuth(t: TestConvex<SchemaDefinition<GenericSchema, boolean>>) {
+  t.registerComponent('betterAuth', betterAuthComponentSchema, betterAuthModules)
+}
+
+/**
  * Stands up a REAL Better Auth session for `email` and returns a convexTest
  * instance authenticated as it, via `t.withIdentity`. Caller must have
- * already run `betterAuthTest.register(t)` on `t` — this only reproduces
+ * already run `registerBetterAuth(t)` on `t` — this only reproduces
  * production's identity shape, it does not register the component itself.
  *
- * USES THE PACKAGE'S PUBLISHED TEST ENTRY POINT, `@convex-dev/better-auth/test`
- * (`"./test": "./src/test.ts"` in its package.json) — not an unpublished
- * internal. `betterAuthTest.register` wires the SAME schema and functions the
- * real `betterAuth` component in `convex/convex.config.ts` runs into
- * convexTest, and `components.betterAuth.adapter.create` below is the same
- * generated adapter API `createClient` (`convex/auth.ts`'s `authComponent`)
- * uses internally — this reproduces production's own lookup rather than
- * working around it.
+ * `components.betterAuth.adapter.create` below is the same generated adapter
+ * API `createClient` (`convex/auth.ts`'s `authComponent`) uses internally, and
+ * — since `registerBetterAuth` above wires `convex/betterAuth/` rather than the
+ * package's copy — it is now literally our `adapter.ts` running. This
+ * reproduces production's own lookup rather than working around it.
  *
  * THE LOOKUP THIS REPRODUCES: `requirePlayer` (access.ts) →
  * `authComponent.getAuthUser` resolves a caller by finding a `session` row

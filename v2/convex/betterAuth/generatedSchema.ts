@@ -3,7 +3,17 @@
  * DO NOT HAND-EDIT — our additions live in ./schema.ts, which spreads this.
  * To refresh: re-copy from
  * node_modules/@convex-dev/better-auth/src/component/schema.ts and re-read the
- * diff, then check ./schema.ts still spreads everything it expects.
+ * diff, THEN RESTORE THIS HEADER — a literal `cp` overwrites it, which destroys
+ * the DO-NOT-EDIT warning and the pointer to ./schema.ts along with it. Then
+ * check ./schema.ts still spreads everything it expects.
+ *
+ * THE DEFAULT EXPORT BELOW IS UPSTREAM'S AND IS UNUSED. It is kept only because
+ * this file is verbatim. Never import it: `import schema from
+ * './generatedSchema'` typechecks identically to `import schema from './schema'`
+ * — `createApi` is generic over `Schema extends SchemaDefinition<any, any>` and
+ * both satisfy it — and silently drops every table ./schema.ts adds, with no
+ * error from tsc, lint, build or deploy. Import ./schema, always.
+ * betterAuthSchema.test.ts exists to catch exactly that substitution.
  */
 
 import { defineSchema, defineTable } from "convex/server";

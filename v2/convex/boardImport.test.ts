@@ -1,9 +1,8 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
-import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from './schema'
 import { api } from './_generated/api'
-import { aPlayer, authenticatedAs } from './fixtures.ts'
+import { aPlayer, authenticatedAs, registerBetterAuth } from './fixtures.ts'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -28,7 +27,7 @@ describe('logCorrections', () => {
 
   test('writes one row per corrected tile, against the player who confirmed', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer()))
     const asPlayer = await authenticatedAs(t, 'member@example.com')
 
@@ -54,7 +53,7 @@ describe('logCorrections', () => {
 
   test('records an answer correction as well as a board one', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run((ctx) => ctx.db.insert('players', aPlayer()))
     const asPlayer = await authenticatedAs(t, 'member@example.com')
 
@@ -72,7 +71,7 @@ describe('logCorrections', () => {
   // cleared says the parse saw a letter that was not there.
   test('keeps an empty read and an empty actual rather than dropping them', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run((ctx) => ctx.db.insert('players', aPlayer()))
     const asPlayer = await authenticatedAs(t, 'member@example.com')
 
@@ -90,7 +89,7 @@ describe('logCorrections', () => {
 
   test('stores single uppercase letters, whatever the client sent', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run((ctx) => ctx.db.insert('players', aPlayer()))
     const asPlayer = await authenticatedAs(t, 'member@example.com')
 
@@ -107,7 +106,7 @@ describe('logCorrections', () => {
   // put junk in the one corpus the accuracy figure is measured against.
   test('refuses to store more tiles than a board has', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run((ctx) => ctx.db.insert('players', aPlayer()))
     const asPlayer = await authenticatedAs(t, 'member@example.com')
 
@@ -123,7 +122,7 @@ describe('logCorrections', () => {
 
   test('writes nothing when the player changed nothing', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await t.run((ctx) => ctx.db.insert('players', aPlayer()))
     const asPlayer = await authenticatedAs(t, 'member@example.com')
 
@@ -135,7 +134,7 @@ describe('logCorrections', () => {
 
   test('refuses a caller with no player', async () => {
     const t = convexTest(schema, modules)
-    betterAuthTest.register(t)
+    registerBetterAuth(t)
     await expect(
       t.mutation(api.boardImport.logCorrections, { puzzleDay: '2026-09-10', corrections: [correction()] }),
     ).rejects.toThrow()
