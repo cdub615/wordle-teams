@@ -131,9 +131,22 @@ request goes through, and which the component never calls.
 It is also load-bearing for passkeys later, for a reason that is easy to miss.
 `createApi` builds the adapter from **both** the Convex schema and
 `getAuthTables(createAuthOptions(...))` (`src/client/create-api.ts:61-65`). A table has
-to appear in **two** places to work: the component schema, and the auth options via the
-plugin that declares it. **Adding `passkey` to the schema alone is inert** — which is
-exactly why this migration can ship the table with no behaviour change.
+to appear in **two** places to be *used*: the component schema, and the auth options via
+the plugin that declares it. **Adding `passkey` to the schema alone leaves it unused** —
+which is exactly why this migration can ship the table with no behaviour change.
+
+**Measured 2026-09-13, correcting an earlier draft of this paragraph that said
+"inert".** Unused is not unreachable, and the distinction matters because the
+stronger claim is false. The adapter's argument validators are built from the
+Convex schema alone, so `adapter.create({ model: 'passkey', … })` would validate
+and insert through the raw adapter API; `betterAuthSchema` gates only
+`checkUniqueFields`, `listOne` and `paginate`, never construction. What actually
+keeps the table inert is that Better Auth only ever *calls* the models its own
+options declare. The asymmetry is worth knowing too: options-only is a hard
+`ArgumentValidationError`, schema-only is silent. And one corollary —
+`isUniqueField` returns `false` for a model it cannot find rather than throwing
+(`src/client/adapter-utils.ts:61-74`), so a schema-only table carries **no
+uniqueness enforcement** until its plugin lands.
 
 ### The schema decision: extend, do not regenerate
 
