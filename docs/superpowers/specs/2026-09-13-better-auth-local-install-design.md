@@ -86,6 +86,24 @@ resolves the mount as `options.name ?? definition.defaultName ?? basename(path)`
 (`convex/dist/esm/server/components/index.js:77-85`), and both the prebuilt and the
 local definition are `defineComponent("betterAuth")`.
 
+**CONFIRMED ON BETA 2026-09-13, AFTER THE FACT.** The rehearsal below ran on an
+anonymous **local** backend via `convex dev`; beta ran `convex deploy` against
+**cloud** Convex. That local-vs-cloud gap was never stated as a limit of the
+probe — only the stub adapter was — and it mattered, because component identity
+could in principle be computed differently in the two. It is not: after the beta
+deploy, the `betterAuth` component's `user` table still holds rows created before
+the deploy. The claim is now first-hand rather than inferred from a rehearsal.
+
+One check did fail, and it is worth recording why it was not the alarm it looked
+like. A browser signed in before the deploy was signed out. That check was a
+*proxy* for "did the component keep its tables", and the direct reading above
+supersedes it. Nothing in this repo deletes session rows, and `convex/auth.ts`
+sets no session lifetime — the only `expiresIn` in the file is `OTP_EXPIRY_SEC`
+for the sign-in code — so Better Auth's defaults apply, and an untouched browser
+older than seven days was already signed out before the deploy ran. That last
+step is inference; the decisive reading, if it ever matters, is whether the
+`session` table holds rows predating the deploy.
+
 **What the probe does not cover.** It carried a stub adapter — `createApi(schema, () => ({}))`
 — rather than real auth options. It proves the **data** survives the move and says
 nothing about the auth wiring working afterward. Verifying that is the acceptance
