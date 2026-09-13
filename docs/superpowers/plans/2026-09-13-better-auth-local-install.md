@@ -375,7 +375,9 @@ pnpm lint
 pnpm build
 ```
 
-Expected: all four pass. `convex/fixtures.ts` writes `user` and `session` rows through `components.betterAuth.adapter.create`, so every convex-test that authenticates a caller is exercising this wiring — if the adapter is wrong, the suite fails broadly, not subtly.
+Expected: all four pass.
+
+**CORRECTED 2026-09-13 — the gates do NOT cover the new adapter, and an earlier draft of this step claimed they did.** `convex/fixtures.ts` writes through `components.betterAuth.adapter.create`, but `betterAuthTest.register(t)` mounts the PACKAGE's component (`node_modules/@convex-dev/better-auth/src/test.ts` registers `./component/schema.js` and `import.meta.glob("./component/**/*.ts")`). Nothing imports `convex/betterAuth/adapter.ts`; delete it and all tests still pass. What actually covers this task is `tsc`, successful component codegen, and the deploy itself. Task 4 closes the gap.
 
 Then confirm no call site moved — the acceptance criteria require `components.betterAuth` to still resolve everywhere untouched:
 
@@ -506,9 +508,19 @@ const schema = defineSchema({
    * `createdAt` is a number here because the Convex adapter stores dates that
    * way, as every other table in generatedSchema.ts does.
    *
-   * IT IS DELIBERATELY UNREACHABLE UNTIL wordle-teams-wty4.1.7. The adapter is
-   * built from the schema AND from the auth options, so until the passkey()
-   * plugin appears in createAuthOptions nothing can write a row here.
+   * UNUSED UNTIL wordle-teams-wty4.1.7 — WHICH IS NOT THE SAME AS UNREACHABLE,
+   * and the difference was measured rather than assumed. The adapter's arg
+   * validators are built from THIS schema, so `adapter.create({ model:
+   * 'passkey', ... })` would validate and insert. What makes the table inert in
+   * practice is that Better Auth only ever CALLS the models its own options
+   * declare (`getAuthTables`, src/client/create-api.ts:65), and nothing in the
+   * auth flow names passkey until the plugin lands.
+   *
+   * ONE CONSEQUENCE WORTH KNOWING: `checkUniqueFields` consults the OPTIONS
+   * schema, and `isUniqueField` returns false for a model it cannot find rather
+   * than throwing (src/client/adapter-utils.ts:61-74). So this table has NO
+   * uniqueness enforcement until wty4.1.7 adds the plugin — credentialID is not
+   * protected by the adapter today.
    */
   passkey: defineTable({
     name: v.optional(v.union(v.null(), v.string())),
