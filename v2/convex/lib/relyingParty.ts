@@ -1,12 +1,16 @@
 /**
  * THE RELYING PARTY — THE ONE PASSKEY SETTING THAT CANNOT BE UNDONE.
  *
+ * THIS HEADER IS THE SINGLE STATEMENT OF THE ARGUMENT. convex/auth.ts's
+ * `passkey()` call and convex/lib/relyingParty.test.ts both point here instead
+ * of restating it; it was written out three times, and three copies of a
+ * paragraph is three things that have to stay true.
+ *
  * An rpID is chosen ONCE, PER CREDENTIAL, AT REGISTRATION. It is baked into the
- * credential by the authenticator and there is no migration, no re-scoping and
- * no repair: a credential scoped to the wrong id is simply orphaned, and the
- * failure is silent until someone tries to sign in and their key is not
- * offered. That is why this is a module with its own tests rather than two
- * lines inline in convex/auth.ts.
+ * credential by the authenticator and can never be changed, migrated or
+ * repaired: a credential scoped to the wrong id is simply orphaned, and nothing
+ * says so until someone tries to sign in and their key is not offered. That is
+ * why this is a module with its own tests rather than two lines inline.
  *
  * WHAT GOES WRONG IF NOBODY SETS IT. The default rpID is the FULL HOSTNAME of
  * the origin. This app is serving from `beta.wordleteams.com` until the DNS
@@ -23,15 +27,29 @@
  *
  * DERIVED FROM THE SITE URL, NEVER HARDCODED. A literal here is exactly how the
  * beta hostname sneaks back in — and, worse, how it survives review, because a
- * hardcoded apex looks right. convex/lib/relyingParty.test.ts carries a source
- * assertion that convex/auth.ts passes `rpIdFor(...)` rather than a string.
+ * hardcoded apex looks right. relyingParty.test.ts carries a source assertion
+ * that convex/auth.ts passes `rpIdFor(...)` rather than a string.
  *
- * PURE AND DEPENDENCY-FREE ON PURPOSE. convex/auth.ts's `createAuthOptions` is
- * imported by the local Better Auth component, which evaluates it at module
- * init with no deployment environment at all — so these functions are called
- * with the `SCHEMA_ONLY_BASE_URL` placeholder and MUST NOT THROW there. A throw
- * at component init is an unpushable deployment (wordle-teams-hrqw), which is
- * why the placeholder gets a test of its own below the real hosts.
+ * WHERE THESE THROW, AND WHY THAT IS THE RIGHT COST. Both call `new URL`, so
+ * both are PARTIAL over a malformed SITE_URL — a value with no scheme throws
+ * from `new URL` itself, and one that parses to an empty host throws by name
+ * from the guard below. An earlier draft of this header claimed they "must not
+ * throw", flat. That is true only of the placeholder path, and the distinction
+ * is worth stating exactly because the two paths cost wildly different things:
+ *
+ *   - AT COMPONENT INIT the value is ALWAYS `SCHEMA_ONLY_BASE_URL`, because
+ *     `createApi` evaluates `createAuthOptions({})` where no deployment
+ *     environment variables exist (see convex/betterAuth/adapter.ts). A throw
+ *     there is not a failed request, it is a push that dies at module analysis
+ *     — an unpushable deployment (wordle-teams-hrqw). These are total over that
+ *     placeholder, and a test pins it.
+ *
+ *   - AT REQUEST TIME the throw happens inside `createAuth`, which is called
+ *     per request, so a hand-misconfigured SITE_URL is a loud 500 on the auth
+ *     routes naming the offending value. That is the outcome we want, and it is
+ *     pinned by a test so that nobody later softens it into a `?? ''`: an empty
+ *     rpID is not a safe default, it is a ceremony the browser rejects with a
+ *     message that names nothing.
  */
 
 /**
@@ -39,24 +57,46 @@
  *
  * THE RULE IS "LAST TWO LABELS", which is the registrable domain for every
  * single-label public suffix: `beta.wordleteams.com` -> `wordleteams.com`,
- * `wordleteams.com` -> itself. A host with fewer than two labels is returned
- * unchanged, which is what special-cases `localhost` — the one host WebAuthn
- * itself special-cases, since dev has no registrable domain to speak of.
+ * `wordleteams.com` -> itself. `localhost` needs no branch of its own and does
+ * not have one: `slice(-2)` over a single label is that label. (The spec's
+ * localhost special case is about it being a trustworthy origin over plain
+ * http, which is a different question from what the rpID should say.)
  *
  * IT IS NOT A PUBLIC SUFFIX LIST, and that limit is stated rather than hidden:
  * on a multi-label suffix like `co.uk` this would return the suffix itself and
  * every browser would reject it. That is acceptable because the only hosts this
  * is ever called with are `wordleteams.com`, its subdomains, `localhost`, and
- * the schema-only placeholder — and importing a PSL into convex/lib/ to cover
- * a domain we do not own would be cost with no benefit. Anyone moving this app
- * to a `.co.uk` has to come back here.
+ * the schema-only placeholder — and importing a PSL into convex/lib/ to cover a
+ * domain we do not own would be cost with no benefit. Anyone moving this app to
+ * a `.co.uk` has to come back here.
  *
  * `new URL` rather than string surgery so a trailing slash, a path or a port on
  * SITE_URL all normalise away instead of ending up inside the rpID.
  */
 export function rpIdFor(siteUrl: string): string {
-  const labels = new URL(siteUrl).hostname.split('.')
-  return labels.length <= 2 ? labels.join('.') : labels.slice(-2).join('.')
+  const { hostname } = new URL(siteUrl)
+
+  /**
+   * A SITE_URL MISSING THE SLASHES AFTER ITS SCHEME STILL PARSES.
+   * `beta.wordleteams.com:443` is read as scheme `beta.wordleteams.com:` with
+   * path `443`, leaving the hostname EMPTY.
+   *
+   * BE PRECISE ABOUT WHAT THIS PREVENTS, because the obvious guess is wrong and
+   * was written down once already. It is NOT a silent fall back to the full
+   * hostname. The plugin's own default is
+   * `options.rpID || new URL(baseURL).hostname`, and `baseURL` is the SAME
+   * `siteUrl` these options set — so when the host is empty, both sides are
+   * empty and the browser rejects the ceremony outright. This belongs with the
+   * IP-literal and multi-label-suffix cases: loud at first use, not an orphaned
+   * credential.
+   *
+   * It is worth three lines anyway. It turns a confusing client-side failure
+   * into a named server-side one that quotes the offending value, which is the
+   * stance convex/polar.ts already takes on an unset SITE_URL.
+   */
+  if (!hostname) throw new Error(`SITE_URL has no host, so no rpID can be derived: ${siteUrl}`)
+
+  return hostname.split('.').slice(-2).join('.')
 }
 
 /**
@@ -69,10 +109,17 @@ export function rpIdFor(siteUrl: string): string {
  * a list holding only the configured site URL would refuse every ceremony from
  * the other name the very day DNS changes.
  *
- * The apex is appended only when it differs from the site URL's own origin, so
- * production returns one entry rather than the same origin twice, and dev
- * returns just `http://localhost:3000` — the port is preserved, because an
- * origin with a different port is a different origin.
+ * ASYMMETRIC ON PURPOSE — A DECISION, NOT AN OVERSIGHT. From beta this returns
+ * beta AND the apex; from the apex it returns ONLY the apex, so ceremonies
+ * reported from `beta.wordleteams.com` are refused the moment SITE_URL flips.
+ * That is intended, because beta is retired at the cutover (wt-ksh.9). Making
+ * it symmetric would mean writing `beta.` into this module, which is the single
+ * thing it exists not to do. If a beta CNAME outlives the flip and the passkey
+ * button breaks on it, this paragraph is the reason and this function is the
+ * place to change it.
+ *
+ * The port is preserved, because an origin on a different port is a different
+ * origin — which is also why dev returns one entry rather than two.
  */
 export function originsFor(siteUrl: string): string[] {
   const url = new URL(siteUrl)

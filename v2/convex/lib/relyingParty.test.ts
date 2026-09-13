@@ -13,10 +13,18 @@ import { originsFor, rpIdFor } from './relyingParty.ts'
  *
  * `AUTH_CODE` is comment-stripped and is what the source assertions at the foot
  * of this file parse — auth.ts's prose names both the apex and the beta
- * hostname repeatedly, and a match inside it would prove nothing. `AUTH_TEXT`
- * is the raw file, used only to recover a string literal that `codeOf` mangles:
- * its line-comment pass eats from the `//` of a URL to the end of the line, so
- * `'https://schema-generation.invalid'` survives stripping as `'https:`.
+ * hostname repeatedly, and a match inside it would prove nothing.
+ *
+ * `AUTH_TEXT` IS A WORKAROUND FOR wordle-teams-sba2, and exists only to recover
+ * a string literal `codeOf` destroys. Its line-comment regex has no string
+ * awareness, so it eats from the `//` inside any URL to the end of the line:
+ * `const SCHEMA_ONLY_BASE_URL = 'https://schema-generation.invalid'` survives
+ * stripping as `const SCHEMA_ONLY_BASE_URL = 'https:`. The AST assertions below
+ * are unharmed — TypeScript's scanner ends the unterminated string at the
+ * newline and recovers, and if recovery ever degraded `objectLiteralReturnedBy`
+ * throws on a declaration count rather than passing vacuously — but the literal
+ * itself is unrecoverable from the stripped text. DELETE THIS SECOND READ when
+ * sba2 lands: a string-aware `codeOf` makes `AUTH_CODE` sufficient on its own.
  */
 const AUTH_TEXT = readFileSync(new URL('../auth.ts', import.meta.url), 'utf8')
 const AUTH_CODE = codeOf(AUTH_TEXT)
@@ -34,17 +42,17 @@ const SCHEMA_ONLY_BASE_URL = (() => {
 })()
 
 /**
- * THE ONE SETTING THAT CANNOT BE UNDONE.
+ * WHY THIS RUNS INSIDE THE FOUR GATES RATHER THAN IN e2e, WHERE THE FEATURE IS.
  *
- * An rpID is chosen once, per credential, at registration. A credential scoped
- * to the wrong id is orphaned — there is no migration and no repair, and the
- * failure is silent until someone tries to sign in.
+ * The passkey ceremony itself can only be exercised by a Playwright virtual
+ * authenticator, and e2e sits outside the gates on this project — a spec here
+ * has stayed red for three tasks with nothing failing. The rpID is the one part
+ * of that flow which can never be repaired afterwards, so it gets a guard that
+ * runs on every commit regardless of the e2e suite's health.
  *
- * THIS RUNS INSIDE THE FOUR GATES ON PURPOSE. The passkey flow itself can only
- * be exercised by a Playwright virtual authenticator, and e2e sits outside the
- * gates on this project — a spec here has stayed red for three tasks with
- * nothing failing. So the unrecoverable half gets a guard that runs on every
- * commit regardless of the e2e suite's health.
+ * The argument for the VALUES asserted below — why the apex, why it is legal
+ * from a subdomain, why an orphaned credential has no fix — is stated once, in
+ * convex/lib/relyingParty.ts's header, and deliberately not repeated here.
  */
 describe('the relying-party id', () => {
   test('is the APEX on beta, not the beta hostname', () => {
@@ -86,6 +94,27 @@ describe('the relying-party id', () => {
     expect(() => rpIdFor(SCHEMA_ONLY_BASE_URL)).not.toThrow()
     expect(() => originsFor(SCHEMA_ONLY_BASE_URL)).not.toThrow()
   })
+
+  test('but BOTH throw, by name, on a SITE_URL that parses to no host at all', () => {
+    // `beta.wordleteams.com:443` parses: the host is swallowed as the scheme and
+    // the hostname comes back empty. PINNED SO THE THROW IS NOT LATER SOFTENED
+    // into a `?? ''` by someone reading the placeholder test above as "these
+    // must never throw". An empty rpID is not a safe default — the plugin's own
+    // fallback derives from the same value and is equally empty, so the browser
+    // rejects the ceremony with a message that names nothing.
+    expect(() => rpIdFor('beta.wordleteams.com:443')).toThrow(/SITE_URL/)
+    expect(() => originsFor('beta.wordleteams.com:443')).toThrow(/SITE_URL/)
+  })
+
+  test('and both throw on a SITE_URL with no scheme, which `new URL` refuses', () => {
+    // Not caught and not dressed up: this is `new URL`'s own TypeError. It can
+    // only fire at REQUEST time, inside createAuth — component init always uses
+    // the placeholder above — so the blast radius is a loud 500 on the auth
+    // routes of a deployment someone misconfigured by hand, never a push that
+    // will not deploy.
+    expect(() => rpIdFor('wordleteams.com')).toThrow()
+    expect(() => originsFor('wordleteams.com')).toThrow()
+  })
 })
 
 /**
@@ -122,7 +151,11 @@ describe("the relying party auth.ts actually wires, not the one it's able to der
     // than quietly leaving the assertions below with nothing to check.
     expect(calls).toHaveLength(1)
 
-    return optionsPassedTo('auth.ts', calls[0], 'passkey')
+    // NAMED FOR WHAT IS ACTUALLY PARSED, not for the file it came out of. Only
+    // the one array element is handed over, so a failure reporting "in auth.ts"
+    // would send the next reader looking for a second `passkey({...})` in a
+    // file whose text this call never saw.
+    return optionsPassedTo('the passkey() element of auth.ts', calls[0], 'passkey')
   }
 
   test('passes rpIdFor(siteUrl) to passkey(), never a hardcoded hostname', () => {

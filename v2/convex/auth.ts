@@ -370,26 +370,24 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         },
       }),
       /**
-       * THE ONE SETTING HERE THAT CANNOT BE UNDONE IS `rpID`.
+       * `rpID` IS THE ONE SETTING IN THIS WHOLE FILE THAT CANNOT BE UNDONE — it
+       * is stamped into each credential at registration and a credential scoped
+       * to the wrong id is orphaned with no repair. THE ARGUMENT IS NOT
+       * RESTATED HERE: convex/lib/relyingParty.ts's header carries all of it —
+       * why the apex rather than this deployment's hostname, why that is legal
+       * from a subdomain, what `origin` must hold for the DNS cutover to be a
+       * non-event, and where these two may throw. It was written out in three
+       * places, which is three things to keep true.
        *
-       * It is stamped into each credential at registration and can never be
-       * changed, migrated or repaired; a credential scoped to the wrong id is
-       * orphaned, and nothing says so until someone tries to sign in and their
-       * key is simply not offered. Left unset it defaults to the FULL HOSTNAME,
-       * which on this deployment is `beta.wordleteams.com` — so every passkey
-       * registered before the DNS cutover (wt-ksh.9) would die at the flip.
+       * WHAT IS LOCAL TO THIS CALL: both values are DERIVED, and that is
+       * ENFORCED rather than trusted. relyingParty.test.ts parses this very
+       * element out of the source and fails if `rpID` is anything but
+       * `rpIdFor(...)`. A hardcoded apex would read as correct in review and
+       * would be wrong the first time the site URL moves.
        *
-       * DERIVED, NEVER A LITERAL, and that is enforced rather than trusted:
-       * convex/lib/relyingParty.test.ts reads this very call out of the source
-       * and fails if `rpID` is anything but `rpIdFor(...)`. A hardcoded apex
-       * would look correct in review and would drift the first time the site
-       * URL moves. See that module's header for why the apex is legal from a
-       * subdomain and what `origin` has to carry for the flip to be a non-event.
-       *
-       * `siteUrl` here is the local above, so on the component's schema-only
-       * path this is called with SCHEMA_ONLY_BASE_URL. Both helpers are total
-       * over that placeholder — a throw at component init is an unpushable
-       * deployment (wordle-teams-hrqw), not a failed test.
+       * `siteUrl` is the local above, so on the component's schema-only path
+       * these are called with SCHEMA_ONLY_BASE_URL — which both helpers are
+       * total over, deliberately and with a test.
        */
       passkey({
         rpID: rpIdFor(siteUrl),

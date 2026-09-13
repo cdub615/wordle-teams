@@ -21,8 +21,16 @@ export default defineConfig({
     server: { deps: { inline: ['convex-test'] } },
     // Several modules read SITE_URL inside their functions (auth.ts's
     // createAuth, polar.ts, teams.ts) and reminders.test.ts overrides this
-    // default to assert the unset case. The value is never dereferenced; it
-    // only has to exist.
+    // default to assert the unset case.
+    //
+    // IT HAS TO BE A REAL ORIGIN, WHICH IT DID NOT USED TO. This comment said
+    // "the value is never dereferenced; it only has to exist" — true until the
+    // passkey plugin landed, and false from that commit on:
+    // convex/lib/relyingParty.ts calls `new URL(siteUrl)` every time
+    // createAuthOptions is built, and throws on a value with no scheme or no
+    // host. So a stub of 'set' or 'x' here, or in any test that overrides this,
+    // is not ignored — it throws. Every current stub happens to parse, which is
+    // exactly why the stale sentence was worth deleting rather than trusting.
     env: { SITE_URL: 'http://localhost:3000' },
   },
 })
