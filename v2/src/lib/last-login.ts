@@ -34,11 +34,9 @@
  * localStorage, NOT A COOKIE. Nothing server-side reads this, so a cookie would
  * add weight to every request for no one's benefit. Per-device is also the only
  * semantics available at the moment it is needed: the badge renders BEFORE we
- * know who is signing in, so a per-account field is unreadable exactly then.
- * That is also why Better Auth's own `lastLoginMethod` plugin is not used — its
- * database mode cannot serve this feature at all, and its cookie mode is only
- * reachable through the `better-auth/plugins` barrel that convex/auth.ts
- * deliberately refuses. The issue carries the measurement.
+ * know who is signing in, so a per-account field is unreadable exactly then —
+ * which is also, in one line, why Better Auth's own `lastLoginMethod` plugin is
+ * not used here. wordle-teams-ilej carries that measurement in full.
  *
  * NOTHING HERE MAY THROW, AND THAT IS NOT A FORMALITY. Private mode and "block
  * all site data" make a bare `window.localStorage` access throw rather than
@@ -70,8 +68,14 @@ export function rememberLoginAttempt(method: string): void {
 }
 
 /**
- * Promote a pending attempt to `last`, and clear it — call this ONLY where
- * arrival is confirmed (routes/app.tsx's `?signin=` effect).
+ * Promote a pending attempt to `last`, and clear it. Call this ONLY where a
+ * sign-in is confirmed; two places qualify, and both are named below.
+ *
+ * IT IS IDEMPOTENT, AND THAT IS THE LOAD-BEARING GUARANTEE OF THE WHOLE
+ * TWO-SITE ARRANGEMENT. A promotion consumes the pending key, so a second call
+ * — from the other site, from a remount, from anywhere — finds nothing and
+ * leaves `last` exactly as it was. Callers therefore do not have to establish
+ * that they are the only one running, and no future caller has to either.
  *
  * NO PENDING MEANS NOTHING TO SAY, and `last` is left exactly as it was. That
  * is the case for an already-authenticated visitor and for a second arrival
@@ -88,16 +92,31 @@ export function rememberLoginAttempt(method: string): void {
  * `last` throws then the store is blocked and the read would have thrown first,
  * so the state where pending survives a successful promotion is not reachable.
  *
- * THERE ARE TWO CALL SITES, AND THE SECOND IS NOT A BELT-AND-BRACES EXTRA.
+ * THE TWO SITES, AND WHY THE SECOND IS NOT A BELT-AND-BRACES EXTRA.
  * routes/app.tsx's `?signin=` effect covers a returning player. It CANNOT cover
  * a brand-new one: /app's loader throws `redirect({ to: '/complete-profile' })`
  * for an account with no players row, and that drops the search params —
  * `?signin=` included — so the one sign-in that created the account is never
- * promoted. Left there, the badge would first appear on that player's THIRD
- * visit, and their second visit is exactly the "returning player on a device
- * that has signed in before" the feature is for. routes/complete-profile.tsx
- * promotes on its own success path for that reason; its comment carries the
- * argument that the two sites cannot double-promote or mis-attribute.
+ * promoted there. Left at one site, the badge would first appear on that
+ * player's THIRD visit, and their SECOND visit is exactly the "returning player
+ * on a device that has signed in before" the feature is for.
+ * routes/complete-profile.tsx promotes on its own success path for that reason.
+ *
+ * IN PRACTICE THE TWO ARE MUTUALLY EXCLUSIVE — an account routed to
+ * /complete-profile never renders /app with the marker still on the URL — but
+ * DO NOT TREAT THAT AS THE SAFETY PROPERTY. It is contingent on a routing
+ * detail that is already disliked elsewhere in this repo: lib/use-pending-invite
+ * .ts's header calls the URL "the faster carrier whenever it survives" and
+ * exists because it does not always survive, and one `search: (prev) => prev` on
+ * that redirect would make both sites fire on the same sign-in. Nothing breaks
+ * when that happens, because of the idempotency above — which is the guarantee
+ * to reason from, and the one a test holds (lib/last-login.test.ts, "promotes
+ * nothing when there is no attempt to promote").
+ *
+ * WHAT NEITHER SITE MAY DO IS PROMOTE WITHOUT CONFIRMATION. `pending` is an
+ * attempt, and an attempt that did not arrive is precisely a bounce; the
+ * argument that each site's position is a real confirmation is local to each
+ * and is made there.
  *
  * NEITHER SITE EMITS A FUNNEL EVENT OF ITS OWN. `login_callback_arrived` is
  * emitted where it always was, for the arrivals it always counted; a fresh

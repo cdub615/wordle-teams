@@ -400,6 +400,15 @@ export const runtimeImportsOf = (name: string, source: string): string[] => {
  * does — and the target call itself appears in its own list, so a caller can
  * locate it without a second walk.
  *
+ * `within` HOLDS CALLEE TEXTS, SO DUPLICATES COLLAPSE. A body that calls
+ * `setError` three times contributes three indistinguishable entries, which
+ * makes `indexOf`/`lastIndexOf` on that name a positional guess rather than a
+ * reference to the call the caller meant. PREFER A UNIQUE ANCHOR; where the
+ * repeated one IS the anchor that expresses the property — "past the last
+ * `setError`", meaning past the refusal branch — say so at the call site and
+ * reach for `orderedIn` below, which is defined over all occurrences and so has
+ * no position to guess at.
+ *
  * ONE ENTRY PER CALL SITE, in source order, and deliberately NOT an
  * exactly-one rule like `optionsPassedTo`'s: /login legitimately records an
  * attempt from two different handlers, and a caller that means "exactly one"
@@ -451,4 +460,40 @@ export const callSitesOf = (
   }
   visit(parseSource(name, source))
   return sites
+}
+
+/**
+ * "EVERY CALL TO `first` HAPPENS BEFORE EVERY CALL TO `then`", over one
+ * `callSitesOf` body. THROWS if either name is absent from it.
+ *
+ * THE THROW IS THE ENTIRE POINT, and it is `optionsPassedTo`'s stance applied
+ * to an ordering. The natural spelling of this assertion is
+ *
+ *     expect(within.indexOf(a)).toBeGreaterThan(within.indexOf(b))
+ *
+ * and `indexOf` answers -1 for a name that is not there, so ANY value is
+ * greater than an absent `b` and the assertion silently stops asserting the
+ * moment someone renames the anchor. Two of this repo's ordering tests were
+ * written that way and were vacuity-proof only by accident — one had a
+ * neighbouring `toContain`, the other a `.filter` that happened to require the
+ * anchor. A rename should be a named failure, not a green test.
+ *
+ * DEFINED OVER ALL OCCURRENCES — `lastIndexOf(first) < indexOf(then)` — which
+ * is what makes it safe on the duplicate-collapse edge described above. "Past
+ * the last setError" needs no index arithmetic at the call site and cannot
+ * drift when a fourth `setError` appears.
+ *
+ * Returns a boolean rather than asserting, so the caller supplies its own
+ * message and the failure reads in that suite's own terms.
+ */
+export const orderedIn = (within: string[], first: string, then: string): boolean => {
+  for (const anchor of [first, then]) {
+    if (!within.includes(anchor)) {
+      throw new Error(
+        `\`${anchor}\` is not called in that body, so no ordering involving it can be ` +
+          `asserted — the body calls: ${within.join(', ')}`,
+      )
+    }
+  }
+  return within.lastIndexOf(first) < within.indexOf(then)
 }

@@ -5,6 +5,7 @@ import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { lastLoginMethod, rememberLoginAttempt } from '#/lib/last-login.ts'
 import { publicRouteHead } from '#/lib/seo'
 import { useHydrated } from '#/lib/use-hydrated'
+import { LastUsedBadge } from '#/components/last-used-badge.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import {
   Card,
@@ -62,7 +63,8 @@ export const Route = createFileRoute('/login')({
  * A7 / wordle-teams-390: these carry VISIBLE TEXT LABELS. v1 renders a 3x2 grid
  * of icon-only buttons whose labels exist only as sr-only text plus a hover
  * Tooltip — and tooltips do not appear on tap, while the heaviest login traffic
- * is iPhone. Do not reduce these to icons.
+ * is iPhone. Do not reduce these to icons. components/last-used-badge.tsx
+ * defers to this paragraph for the same reason, and is held to it by a test.
  */
 const SOCIAL_PROVIDERS = [
   { id: 'google', label: 'Google' },
@@ -81,26 +83,6 @@ const SOCIAL_PROVIDERS = [
  * spelling would invite someone to pass one where the other is meant.
  */
 const EMAIL_METHOD = 'email'
-
-/**
- * The "you used this one last" marker, on the control that starts that method.
- *
- * VISIBLE TEXT, INSIDE THE BUTTON, AND BOTH HALVES ARE THE REQUIREMENT. Sitting
- * in the button's children makes it part of the control's accessible name —
- * "Google Last used" — so it is ANNOUNCED rather than being a tint or a
- * position. That is the lesson recorded above about v1's icon-only provider
- * buttons: a hint that only exists on hover does not exist on the phones most
- * of this traffic arrives on. Do not swap this for a dot, a border colour or an
- * `aria-hidden` flourish, and do not make it `sr-only` either — a sighted
- * returning player is exactly who it is for.
- */
-function LastUsedBadge() {
-  return (
-    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-      Last used
-    </span>
-  )
-}
 
 function LoginPage() {
   const hydrated = useHydrated()

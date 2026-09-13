@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest'
 import {
   callSitesOf,
   codeOf,
+  orderedIn,
   jsxElementsOf,
   jsxPropsOf,
   objectLiteralReturnedBy,
@@ -1149,9 +1150,10 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     // ORDER INSIDE THE ONE FUNCTION BODY, which is what "before the handoff"
     // means. Once signIn.social redirects, nothing in this module runs again —
     // the same reason login_provider_click is emitted there, stated in the file.
-    expect(site.within.indexOf('rememberLoginAttempt')).toBeLessThan(
-      site.within.indexOf('authClient.signIn.social'),
-    )
+    expect(
+      orderedIn(site.within, 'rememberLoginAttempt', 'authClient.signIn.social'),
+      'the attempt is recorded after the redirect, so a bounce is what gets recorded',
+    ).toBe(true)
 
     // AND IT RECORDS THE PROVIDER, not the funnel's coarse 'oauth'. The whole
     // reason `?signin=` was NOT widened to carry a provider id — that would
@@ -1168,15 +1170,33 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     expect(site, 'no rememberLoginAttempt in the function that verifies the code').toBeDefined()
     expect(site.args).toEqual(['EMAIL_METHOD'])
 
-    // PAST THE REFUSAL, and `setError` is what marks where that is: the last
-    // one in this body is the `if (error) return setError('Invalid code')` that
-    // separates a verified code from a wrong one. Hoisted over it, an attempt is
-    // recorded for a code that never verified. That is harmless TODAY — an
-    // unpromoted attempt is overwritten by the retry — but it records the wrong
-    // fact, and the provider site's identical mistake is not harmless at all.
-    expect(site.within.indexOf('rememberLoginAttempt')).toBeGreaterThan(
-      site.within.lastIndexOf('setError'),
-    )
+    // PAST THE REFUSAL — `if (error) return setError('Invalid code')` — which is
+    // what separates a verified code from a wrong one. Hoisted over it, an
+    // attempt is recorded for a code that never verified. Harmless TODAY, since
+    // an unpromoted attempt is overwritten by the retry, but it records the
+    // wrong fact and the provider site's identical mistake is not harmless.
+    //
+    // SPELLED AS "NOTHING ELSE HAPPENS AFTER IT", which is true here and is the
+    // only formulation of this that holds. The two obvious anchors both fail:
+    //
+    //   - `authClient.signIn.emailOtp` reads best — "recorded after the code
+    //     verified" — and kills NOTHING. The order is signIn.emailOtp,
+    //     setPending(false), the refusal, then this; a hoist over the refusal
+    //     still lands after signIn.emailOtp, so the mutant satisfies it too.
+    //   - `setError` does mark the refusal, but it is CALLED TWICE in this body
+    //     (`setError(null)` before the await), and `within` holds callee texts
+    //     with no identity — so renaming just the refusal's leaves the earlier
+    //     one to be found instead, and the assertion silently weakens to a
+    //     claim about a line that is not the boundary. Measured: that rename
+    //     was green. It is the sharp edge callSitesOf's doc warns about.
+    //
+    // The body's last CALL is this one; `window.location.href = ...` follows it
+    // and is an assignment, not a call. So this says "recorded once the handler
+    // has no way left to refuse", robustly, with no anchor to rename.
+    expect(
+      site.within.at(-1),
+      'something runs after the attempt is recorded — is it still past the refusal?',
+    ).toBe('rememberLoginAttempt')
 
     // NOT 'otp', WHICH IS THE FUNNEL'S WORD. `?signin=otp` is charted by
     // login_callback_arrived as one of oauth|otp; this is a method id sitting
@@ -1205,9 +1225,10 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     // bounced attempt on any later visit with a live session, which is the one
     // failure the two keys exist to exclude. `trackFunnel` is the marker for
     // the guard's position: it is the first thing the effect does once past it.
-    expect(sites[0].within.indexOf('promoteLoginAttempt')).toBeGreaterThan(
-      sites[0].within.indexOf('trackFunnel'),
-    )
+    expect(
+      orderedIn(sites[0].within, 'trackFunnel', 'promoteLoginAttempt'),
+      'the promotion sits above the ?signin= guard, so it fires on every /app mount',
+    ).toBe(true)
   })
 
   test('a brand-new account is promoted too, on complete-profile\'s success path', () => {
@@ -1225,12 +1246,14 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     // `complete.mutateAsync` is what makes it the confirmed-onboarding moment
     // rather than "someone opened this page"; before `navigate` is /login's
     // reason, that the hop is what discards the component.
-    expect(sites[0].within.indexOf('promoteLoginAttempt')).toBeGreaterThan(
-      sites[0].within.indexOf('complete.mutateAsync'),
-    )
-    expect(sites[0].within.indexOf('promoteLoginAttempt')).toBeLessThan(
-      sites[0].within.indexOf('navigate'),
-    )
+    expect(
+      orderedIn(sites[0].within, 'complete.mutateAsync', 'promoteLoginAttempt'),
+      'the promotion happens before the profile is written, not on its success',
+    ).toBe(true)
+    expect(
+      orderedIn(sites[0].within, 'promoteLoginAttempt', 'navigate'),
+      'the promotion happens after the hop that discards this component',
+    ).toBe(true)
 
     // AND IT EMITS NOTHING. Carrying `?signin=` through the two redirects was
     // the other candidate fix and is forbidden: the arrival effect emits
@@ -1271,23 +1294,23 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     expect(login()).toMatch(/hydrated \? lastLoginMethod\(\) : undefined/)
   })
 
-  test('the badge is announced, not signalled by colour or position', () => {
-    // BOUNDED TO THE COMPONENT'S OWN DECLARATION, so the prose in this file and
-    // the file under test cannot satisfy it. Its body has no nested closing
-    // brace at the start of a line, which is what makes the slice exact.
-    const badge = login().match(/function LastUsedBadge\(\)[\s\S]*?\n\}/)?.[0]
-    expect(badge, 'no `function LastUsedBadge()` in login.tsx').toBeDefined()
-
-    // REAL TEXT, IN THE BUTTON'S CHILDREN, so it lands in the control's
-    // accessible name. This is the lesson login.tsx already records about v1's
-    // icon-only provider buttons: labels that exist only as a hover tooltip do
-    // not exist at all on the iPhones most of this traffic arrives on. A dot, a
-    // tint or a ring would pass every other test in this block.
-    expect(badge).toMatch(/>\s*Last used\s*</)
-    // ...and it is not hidden from that name again on the way out. `sr-only`
-    // would lose the sighted player it is for; `aria-hidden` would lose
-    // everyone else.
-    expect(badge).not.toMatch(/aria-hidden|sr-only/)
+  test('the badge is a component of its own, so its accessibility can be executed', () => {
+    // WHAT THE MARKER MUST BE — visible text that reaches the control's
+    // accessible name — IS NOT ASSERTED HERE ANY MORE. It used to be, by
+    // slicing this file with `/function LastUsedBadge\(\)[\s\S]*?\n\}/` and
+    // running regexes over the slice, and that slice ends at the first
+    // line-initial `}`: wrapping the span in a fragment truncates it and the
+    // "not aria-hidden" assertion then passes on the remains. Vacuous exactly
+    // where it must not be.
+    //
+    // components/last-used-badge.hook.test.ts renders the thing and reads the
+    // accessible name a browser would compute. WHAT IS LEFT HERE is the half
+    // that test cannot see: that /login uses that component rather than
+    // reintroducing a local one the executable test would never reach.
+    expect(login()).toMatch(
+      /import \{ LastUsedBadge \} from '#\/components\/last-used-badge\.tsx'/,
+    )
+    expect(login()).not.toMatch(/function LastUsedBadge/)
   })
 })
 
@@ -1333,6 +1356,21 @@ describe('callSitesOf, the helper those assertions are built on', () => {
     // Returning `[]` for `within` would read as "it has no neighbours" and pass
     // an ordering assertion vacuously.
     expect(() => sites('remember(x)')).toThrow(/not inside a function/)
+  })
+
+  test('orderedIn answers over ALL occurrences, so a repeated anchor is exact', () => {
+    // "past the LAST setError" with no index arithmetic at the call site.
+    expect(orderedIn(['setError', 'x', 'setError', 'remember'], 'setError', 'remember')).toBe(true)
+    expect(orderedIn(['setError', 'remember', 'setError'], 'setError', 'remember')).toBe(false)
+  })
+
+  test('orderedIn THROWS on a missing anchor rather than answering vacuously', () => {
+    // THE WHOLE REASON IT EXISTS. `indexOf` answers -1 for an absent name, so
+    // the hand-written form of this assertion silently stops asserting the day
+    // someone renames the anchor — which is how two ordering tests in the block
+    // above were vacuity-proof by accident rather than by construction.
+    expect(() => orderedIn(['a', 'b'], 'renamed', 'b')).toThrow(/is not called in that body/)
+    expect(() => orderedIn(['a', 'b'], 'a', 'renamed')).toThrow(/is not called in that body/)
   })
 
   test('a callee that is nowhere in the file is no sites, not a throw', () => {
