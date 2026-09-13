@@ -312,3 +312,61 @@ export const objectLiteralReturnedBy = (
   }
   return propertiesOf(returnedObjectOf(found[0]))
 }
+
+/**
+ * Every module specifier that survives into the EMITTED module — the edges a
+ * bundler actually walks. `importedModulesOf`'s sibling, and deliberately a
+ * second function rather than an option on it.
+ *
+ * WHY NOT JUST USE `importedModulesOf`. Its contract is "every line naming a
+ * module", pinned specifier-for-specifier by nine `toEqual` tests in
+ * src/about-screenshots.test.ts, and that contract is right for what it
+ * guards: /about must not NAME the aceternity carousel under any import form,
+ * erased or not. A graph walk asks a different question — what ships — and the
+ * two answers differ in both directions on files that exist today:
+ *
+ *   - `import type` IS reported by `importedModulesOf` and must NOT be walked.
+ *     src/lib/convex-error.ts:3 carries `import type { AccessCode } from
+ *     '../../convex/access'`. `verbatimModuleSyntax` is on, so that declaration
+ *     is erased whole and reaches no bundle. Walking it would fail
+ *     src/frontend-import-graph.test.ts on a legitimate file today, and the
+ *     next reader would delete the guard rather than the import.
+ *   - `export ... from` is NOT reported by `importedModulesOf` — its own test
+ *     says so, on purpose — and MUST be walked. It is a runtime edge:
+ *     convex/lib/chat.ts:22 re-exports `./chatLimits.ts`, and src/lib/wordle.ts
+ *     re-exports out of convex/lib/board.ts. A guard blind to it would be
+ *     evaded by one `export { x } from '../../convex/lib/chat.ts'`.
+ *
+ * INLINE `type` SPECIFIERS STAY, and that is not an oversight:
+ * `import { type A, b } from './x'` and even `import { type A } from './x'`
+ * both still emit a real import of './x' under `verbatimModuleSyntax`. Only a
+ * type-only CLAUSE (`import type {...}` / `export type {...}`) is erased, which
+ * is exactly the flag read here.
+ *
+ * Dynamic `import()` is not reported, same as `importedModulesOf` and for the
+ * same reason. It is a real runtime edge — a lazily loaded chunk is still
+ * shipped — so this is a genuine gap and not a non-issue; it is empty today
+ * because the only `import()` calls under src/ are inside `.test.ts` files.
+ * A caller that needs one must extend this and say so here.
+ */
+export const runtimeImportsOf = (name: string, source: string): string[] => {
+  const out: string[] = []
+  for (const statement of parseSource(name, source).statements) {
+    if (
+      ts.isImportDeclaration(statement) &&
+      !statement.importClause?.isTypeOnly &&
+      ts.isStringLiteral(statement.moduleSpecifier)
+    ) {
+      out.push(statement.moduleSpecifier.text)
+    }
+    if (
+      ts.isExportDeclaration(statement) &&
+      !statement.isTypeOnly &&
+      statement.moduleSpecifier &&
+      ts.isStringLiteral(statement.moduleSpecifier)
+    ) {
+      out.push(statement.moduleSpecifier.text)
+    }
+  }
+  return out
+}

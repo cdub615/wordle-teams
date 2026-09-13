@@ -242,11 +242,15 @@ export function pinApiVersion(request: Request): Request {
  *
  * LAZY RATHER THAN AT MODULE SCOPE. v1 is lazy too, but for a reason that does
  * not carry over — it was avoiding a failed `next build`. v2's reason is the
- * demonstrated cost of the alternative, which is visible in this repo:
- * `convex/auth.ts` validates SITE_URL at module scope, and `vitest.config.ts`
- * has to supply a SITE_URL in return, its comment explaining that "tests import
- * it transitively through access.ts". Module-scope validation makes every
- * importer, direct or transitive, answerable for configuration it may not use.
+ * demonstrated cost of the alternative, and this repo paid it twice with the
+ * same module: `convex/auth.ts` USED TO validate SITE_URL at module scope.
+ * Every importer, direct or transitive, became answerable for configuration it
+ * may not use — `vitest.config.ts` still supplies a SITE_URL because of it —
+ * and the throw rode into any client chunk that reached auth.ts and killed the
+ * route (2026-09-06 beta outage; see convex/lib/chatLimits.ts). It ended by
+ * making the Better Auth component unpushable, since component code receives no
+ * deployment environment variables, and a5d5c3f0 had to move the check into
+ * `createAuth` — exactly the lazy shape this client already had.
  * Task 11's upgrade button (wordle-teams-ksh) will import this module, Task
  * 10's webhook reaches it by function reference, none of the five variables is
  * set on any deployment yet, and none of them is needed to read a scoreboard.

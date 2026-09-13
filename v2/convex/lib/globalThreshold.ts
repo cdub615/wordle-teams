@@ -4,7 +4,10 @@
  *
  * THIS FILE HAS NO IMPORTS, for the reason chatLimits.ts exists: the rule is
  * needed on both sides of the wire, and reaching it through a module that pulls
- * in ../access.ts would drag auth.ts's module-scope throw into the client chunk.
+ * in ../access.ts would drag auth.ts — the whole Better Auth server surface —
+ * into the client chunk. That used to KILL the chunk, via a module-scope
+ * SITE_URL throw a5d5c3f0 moved into `createAuth`; it is now silent weight and
+ * just as forbidden. chatLimits.ts's banner has the measurement.
  *
  * ── THE THRESHOLD ────────────────────────────────────────────────────────────
  *

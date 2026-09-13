@@ -154,7 +154,10 @@ const PROVIDER_OPTIONS: Record<string, Record<string, unknown>> = {
 /**
  * A provider is wired only when BOTH of its variables are present.
  *
- * Deliberately not fail-fast, which is the opposite of the SITE_URL check above.
+ * Deliberately not fail-fast, which is the opposite of the SITE_URL check in
+ * `createAuth` at the bottom of this file. (It used to sit at module scope
+ * ABOVE this comment, which is what this line said until wordle-teams-dt6t;
+ * a5d5c3f0 moved it and left the word "above" pointing at nothing.)
  * `createAuth` builds the whole auth surface, so throwing here over a missing
  * Discord secret would take email OTP down with it — a total outage caused by
  * the least-used button. Omitting the provider instead keeps every other route

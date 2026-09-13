@@ -650,11 +650,19 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
 
   test('neither placement reaches convex/lib/chat.ts, which would ship auth.ts to the browser', () => {
     // THE BUG THIS COST AN AFTERNOON OF, recorded on convex/lib/chatLimits.ts:
-    // lib/chat.ts -> access.ts -> auth.ts, which THROWS AT MODULE SCOPE without
-    // SITE_URL. A module-scope throw is a side effect no bundler may
-    // tree-shake, so one import drags the auth module into the client chunk and
-    // kills the route. The CI grep for the throw string catches it in the
-    // built bundle; this catches it in the file, where the fix is.
+    // lib/chat.ts -> access.ts -> auth.ts, so one import drags the whole Better
+    // Auth server surface into the client chunk. It used to KILL the route —
+    // auth.ts threw at module scope without SITE_URL and a module-scope throw
+    // is a side effect no bundler may tree-shake — until a5d5c3f0 moved that
+    // check into `createAuth`, which the Convex component required. The import
+    // is now silent bundle bloat, and still wrong.
+    //
+    // THIS IS THE NARROW VERSION: three named files, one direct specifier.
+    // src/frontend-import-graph.test.ts is the general one — it walks the graph
+    // from every file under src/ and reports the chain — and it took over from
+    // the dist/client grep in deploy-v2.yml, which was looking for the throw
+    // string a5d5c3f0 deleted. This block stays because these three files are
+    // where the mistake is actually tempting to make.
     for (const path of [APP, PICKER, CHAT]) {
       expect(read(path)).not.toMatch(/from '.*convex\/lib\/chat\.ts'/)
     }

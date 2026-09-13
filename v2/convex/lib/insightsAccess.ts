@@ -3,8 +3,12 @@
  *
  * THIS FILE HAS NO IMPORTS, for the reason chatLimits.ts exists: the insights
  * surface needs these rules in the browser, and reaching them through
- * ../access.ts would drag auth.ts's module-scope throw into the client chunk.
- * If you are about to add an import here, you are about to ship that bug again.
+ * ../access.ts would drag auth.ts — the whole Better Auth server surface — into
+ * the client chunk. That used to KILL the chunk, via a module-scope SITE_URL
+ * throw a5d5c3f0 moved into `createAuth`; it is now silent weight, which is
+ * harder to notice rather than less wrong. chatLimits.ts's banner has the
+ * measurement. If you are about to add an import here, you are about to ship
+ * that bug again.
  *
  * The DECISION lives here as a pure function and the Convex wrapper only
  * supplies the inputs, because nothing in this repo can drive an authed wrapper

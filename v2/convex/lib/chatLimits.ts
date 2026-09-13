@@ -5,10 +5,26 @@
  * The composer needs MAX_BODY_LENGTH so the client's cap cannot disagree with
  * the server's, and importing it from lib/chat.ts shipped a broken route to
  * beta: lib/chat.ts imports `accessError` from ../access.ts, access.ts imports
- * ./auth.ts, and auth.ts THROWS AT MODULE SCOPE when process.env.SITE_URL is
- * unset — which in a browser it always is. A module-scope throw is a side
- * effect, so no bundler may tree-shake it away, and the whole auth module rode
- * into the client chunk behind one integer.
+ * ./auth.ts, and auth.ts drags the whole Better Auth SERVER surface into
+ * whatever client chunk reaches it — behind one integer.
+ *
+ * WHAT MADE IT FATAL THEN IS GONE; THE RULE IS NOT. auth.ts used to THROW AT
+ * MODULE SCOPE when process.env.SITE_URL was unset, which in a browser it
+ * always is, and a module-scope throw is a side effect no bundler may
+ * tree-shake — so the auth module both rode into the chunk and killed it on
+ * load. a5d5c3f0 moved that throw into `createAuth`, and had to: the Better
+ * Auth Convex component imports `createAuthOptions` from this repo's auth.ts,
+ * component code receives no deployment environment variables, and the
+ * module-scope throw made the component unpushable. Measured 2026-09-13 with a
+ * control — the same probe import in composer.tsx, built against each auth.ts —
+ * the throw string is in dist/client under the old one and ABSENT under
+ * today's, along with 'schema-generation.invalid', so auth.ts is now
+ * tree-shaken out of the client graph entirely.
+ *
+ * THAT MAKES THE BUG SILENT RATHER THAN HARMLESS. An import reaching auth.ts
+ * today is not a dead route, it is every visitor to that route downloading
+ * better-auth for nothing, with no symptom and every gate green. The 2026-09-06
+ * version at least announced itself. Nothing here relaxes.
  *
  * The symptom was nasty precisely because it was narrow: /chat is a lazily
  * loaded chunk, so every other route worked perfectly and the server was
@@ -20,6 +36,12 @@
  * imports nothing. If you are about to add an import to it, you are about to
  * reintroduce that bug; put the thing that needs the import in lib/chat.ts
  * instead, which is server-only.
+ *
+ * WHAT ENFORCES IT NOW: src/frontend-import-graph.test.ts, which walks the
+ * runtime import graph from every file under src/ and fails naming the chain.
+ * It replaced a dist/client grep in .github/workflows/deploy-v2.yml that went
+ * looking for the throw string and, after a5d5c3f0, could no longer find it in
+ * any build — see that file's retirement note (wordle-teams-dt6t).
  */
 
 /** The longest message the server will accept. Enforced by requireBody. */

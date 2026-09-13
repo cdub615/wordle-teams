@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 // convex/lib/chatLimits.ts AND NOTHING ELSE FROM convex/lib. That file imports
-// nothing, deliberately; lib/chat.ts reaches access.ts -> auth.ts, which throws
-// at module scope without SITE_URL and cannot be tree-shaken out of a browser
-// bundle. See chatLimits.ts's own header.
+// nothing, deliberately; lib/chat.ts reaches access.ts -> auth.ts, which hauls
+// the Better Auth server surface into whatever browser chunk reaches it. It
+// used to kill that chunk outright, via a module-scope SITE_URL throw a5d5c3f0
+// moved into `createAuth`; the import is now silent bloat and just as forbidden.
+// See chatLimits.ts's own header, and src/frontend-import-graph.test.ts.
 import { RECENT_WINDOW } from '../../../convex/lib/chatLimits.ts'
 // clockTime AND ITS FORMATTER CACHE MOVED TO lib/ (wordle-teams-8klr): the
 // notification settings tab formats a reminder hour with the same function, and

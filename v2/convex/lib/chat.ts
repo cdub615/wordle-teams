@@ -13,11 +13,18 @@ import {
 
 /**
  * SERVER-ONLY. This module imports accessError, which reaches ../access.ts and
- * on to ./auth.ts, whose module scope throws without process.env.SITE_URL.
- * Importing it from the frontend ships that throw into a browser chunk — it
- * did exactly that once, and broke the /chat route while every other route
- * stayed perfectly healthy. The numbers the client needs live in
- * ./chatLimits.ts, which imports nothing. Import from there instead.
+ * on to ./auth.ts, which is the whole Better Auth server surface. Importing it
+ * from the frontend ships that into a browser chunk — it did exactly that once,
+ * and broke the /chat route while every other route stayed perfectly healthy.
+ * The numbers the client needs live in ./chatLimits.ts, which imports nothing.
+ * Import from there instead.
+ *
+ * THE FAILURE MODE CHANGED IN a5d5c3f0 AND THE RULE DID NOT. auth.ts no longer
+ * throws at module scope — the check moved into `createAuth` because the Convex
+ * component imports `createAuthOptions` from it and gets no env vars — so the
+ * chunk no longer dies on load. It just carries better-auth to every visitor,
+ * silently. ./chatLimits.ts's banner is the full account with the measurement;
+ * src/frontend-import-graph.test.ts is what fails if this rule is broken.
  */
 export * from './chatLimits.ts'
 

@@ -37,9 +37,12 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * state for a moment; it never asserts anything false.
  *
  * IMPORTS FROM `use-chat-sync.ts`, NOT FROM `convex/lib/chat.ts`. Nothing under
- * the frontend may reach that module — it pulls in access.ts and auth.ts, whose
- * module scope throws without SITE_URL, and a module-scope throw is a side
- * effect no bundler may tree-shake. See the banner on convex/lib/chatLimits.ts.
+ * the frontend may reach that module — it pulls in access.ts and auth.ts, and
+ * auth.ts is the whole Better Auth server surface. It used to KILL the chunk it
+ * landed in (a module-scope SITE_URL throw, moved into `createAuth` by
+ * a5d5c3f0); now it only bloats it, which is harder to notice, not less wrong.
+ * See the banner on convex/lib/chatLimits.ts, and
+ * src/frontend-import-graph.test.ts, which fails naming the chain.
  */
 export function UnreadBadge({
   teamId,
