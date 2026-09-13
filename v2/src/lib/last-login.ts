@@ -88,17 +88,21 @@ export function rememberLoginAttempt(method: string): void {
  * `last` throws then the store is blocked and the read would have thrown first,
  * so the state where pending survives a successful promotion is not reachable.
  *
- * A BRAND-NEW ACCOUNT'S FIRST SIGN-IN DOES NOT REACH THIS, and that is known
- * rather than overlooked. /app's loader throws `redirect({ to:
- * '/complete-profile' })` for an account with no players row, which drops the
- * search params — `?signin=` included — and complete-profile then navigates to
- * `/app` with none. So the badge appears from the SECOND sign-in onwards. It
- * costs nothing real: the affordance is for a RETURNING player, and someone who
- * has never signed in has nothing to be reminded of. It also cannot
- * mis-attribute, because the attempt left behind is overwritten by the next one
- * before any arrival can promote it — every marked arrival is preceded by a
- * write from /login. Carrying the marker through both redirects would be the fix
- * if that ever stops being true.
+ * THERE ARE TWO CALL SITES, AND THE SECOND IS NOT A BELT-AND-BRACES EXTRA.
+ * routes/app.tsx's `?signin=` effect covers a returning player. It CANNOT cover
+ * a brand-new one: /app's loader throws `redirect({ to: '/complete-profile' })`
+ * for an account with no players row, and that drops the search params —
+ * `?signin=` included — so the one sign-in that created the account is never
+ * promoted. Left there, the badge would first appear on that player's THIRD
+ * visit, and their second visit is exactly the "returning player on a device
+ * that has signed in before" the feature is for. routes/complete-profile.tsx
+ * promotes on its own success path for that reason; its comment carries the
+ * argument that the two sites cannot double-promote or mis-attribute.
+ *
+ * NEITHER SITE EMITS A FUNNEL EVENT OF ITS OWN. `login_callback_arrived` is
+ * emitted where it always was, for the arrivals it always counted; a fresh
+ * signup still does not emit one, because the fix was a second promotion rather
+ * than carrying `?signin=` through the redirects.
  */
 export function promoteLoginAttempt(): void {
   try {

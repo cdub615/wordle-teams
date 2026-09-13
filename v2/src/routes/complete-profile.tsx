@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
+import { promoteLoginAttempt } from '#/lib/last-login.ts'
 import { useHydrated } from '#/lib/use-hydrated'
 import { Button } from '#/components/ui/button.tsx'
 import {
@@ -155,6 +156,36 @@ function CompleteProfilePage() {
       // Verified in the browser as well as reasoned about, and the round trip
       // is pinned by e2e/complete-profile.spec.ts so a regression cannot land
       // silently.
+      // THE SECOND PROMOTION POINT FOR THE LAST-USED BADGE (wordle-teams-ilej),
+      // AND WITHOUT IT A BRAND-NEW ACCOUNT NEVER GETS ONE UNTIL ITS THIRD VISIT.
+      // /app's loader redirects an account with no player row here and DROPS
+      // THE SEARCH PARAMS, `?signin=` included, so the arrival effect in
+      // routes/app.tsx — the other promotion point — never sees the one sign-in
+      // that created this account. The player then comes back a week later as
+      // exactly the returning visitor the badge is for, and has nothing
+      // recorded.
+      //
+      // CARRYING `?signin=` THROUGH THE TWO REDIRECTS IS THE WRONG FIX. That
+      // effect also emits `login_callback_arrived`, which a fresh signup does
+      // not emit today; making it start would change what the funnel counts.
+      // This promotes and emits NOTHING, so the funnel is untouched.
+      //
+      // IT CANNOT MIS-ATTRIBUTE. beforeLoad refuses an unauthenticated visitor
+      // and one who already has a player row, so this line is only reachable
+      // holding a session — and a BOUNCED attempt leaves you without one, so
+      // the only way onward from a bounce is another sign-in from /login, which
+      // overwrites the pending key before any session exists. Once
+      // authenticated, /login redirects to /app, so no further attempt can be
+      // written while a session is held. Whatever is pending here is therefore
+      // the method that produced the session the user is holding.
+      //
+      // NOR DOUBLE-PROMOTE. The two points are mutually exclusive in practice —
+      // an account routed here never renders /app with the marker still on the
+      // URL — and promotion clears the pending key anyway, so a second call
+      // finds nothing and leaves `last` alone (lib/last-login.test.ts pins
+      // that). Before the navigate for /login's reason: the hop is what
+      // discards this component.
+      promoteLoginAttempt()
       await navigate({ to: '/app' })
     } catch (err) {
       // Inline rather than a toast, unlike the team dialogs: this page has one

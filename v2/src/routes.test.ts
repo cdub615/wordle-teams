@@ -1130,6 +1130,7 @@ describe('a route file does not export the component it routes to', () => {
 describe('the last-used sign-in badge is written on attempt and promoted on arrival', () => {
   const LOGIN = './routes/login.tsx'
   const APP = './routes/app.tsx'
+  const PROFILE = './routes/complete-profile.tsx'
   const login = () => codeOf(read(LOGIN))
 
   test('the attempt is recorded at exactly two places, one per sign-in path', () => {
@@ -1167,6 +1168,16 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     expect(site, 'no rememberLoginAttempt in the function that verifies the code').toBeDefined()
     expect(site.args).toEqual(['EMAIL_METHOD'])
 
+    // PAST THE REFUSAL, and `setError` is what marks where that is: the last
+    // one in this body is the `if (error) return setError('Invalid code')` that
+    // separates a verified code from a wrong one. Hoisted over it, an attempt is
+    // recorded for a code that never verified. That is harmless TODAY — an
+    // unpromoted attempt is overwritten by the retry — but it records the wrong
+    // fact, and the provider site's identical mistake is not harmless at all.
+    expect(site.within.indexOf('rememberLoginAttempt')).toBeGreaterThan(
+      site.within.lastIndexOf('setError'),
+    )
+
     // NOT 'otp', WHICH IS THE FUNNEL'S WORD. `?signin=otp` is charted by
     // login_callback_arrived as one of oauth|otp; this is a method id sitting
     // beside google/microsoft/github/discord in the same store, and the two
@@ -1186,6 +1197,47 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     // strips, synchronously, so a later-declared effect finds nothing — or fire
     // unguarded, and promote a bounced attempt on any later visit.
     expect(sites[0].within).toContain('trackFunnel')
+
+    // AND PAST THE GUARD, WHICH IS THE HALF `toContain` CANNOT SEE. Sharing the
+    // effect is worth nothing if the call sits ABOVE the `if (method !== ...)
+    // return` — the body is still the same body, so membership still holds,
+    // and the mutant promotes on EVERY /app mount. That resurrects a stale
+    // bounced attempt on any later visit with a live session, which is the one
+    // failure the two keys exist to exclude. `trackFunnel` is the marker for
+    // the guard's position: it is the first thing the effect does once past it.
+    expect(sites[0].within.indexOf('promoteLoginAttempt')).toBeGreaterThan(
+      sites[0].within.indexOf('trackFunnel'),
+    )
+  })
+
+  test('a brand-new account is promoted too, on complete-profile\'s success path', () => {
+    // THE VISIT THIS EXISTS FOR IS THE SECOND ONE, and without this site it is
+    // the one that misses. /app's loader redirects an account with no player row
+    // to /complete-profile and DROPS the search params, so the sign-in that
+    // created the account never reaches the arrival effect above — the badge
+    // would first appear on the player's THIRD visit. Deleting this call leaves
+    // every other test in this block green and quietly reintroduces that.
+    const sites = callSitesOf(PROFILE, read(PROFILE), 'promoteLoginAttempt')
+    expect(sites).toHaveLength(1)
+    expect(sites[0].args).toEqual([])
+
+    // ON THE SUCCESS PATH, not on render and not before the write. Past
+    // `complete.mutateAsync` is what makes it the confirmed-onboarding moment
+    // rather than "someone opened this page"; before `navigate` is /login's
+    // reason, that the hop is what discards the component.
+    expect(sites[0].within.indexOf('promoteLoginAttempt')).toBeGreaterThan(
+      sites[0].within.indexOf('complete.mutateAsync'),
+    )
+    expect(sites[0].within.indexOf('promoteLoginAttempt')).toBeLessThan(
+      sites[0].within.indexOf('navigate'),
+    )
+
+    // AND IT EMITS NOTHING. Carrying `?signin=` through the two redirects was
+    // the other candidate fix and is forbidden: the arrival effect emits
+    // `login_callback_arrived`, a fresh signup does not emit one today, and
+    // making it start would change what the funnel counts. A trackFunnel call
+    // appearing in this handler is that mistake wearing a different hat.
+    expect(sites[0].within).not.toContain('trackFunnel')
   })
 
   test('neither route reaches past the helpers into the store itself', () => {
@@ -1194,16 +1246,16 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     // helpers get bypassed by something that reads like an obvious inline
     // simplification — and the wrapping is what keeps Safari private mode from
     // turning a cosmetic hint into a blank sign-in page.
-    for (const code of [login(), codeOf(read(APP))]) {
+    for (const code of [login(), codeOf(read(APP)), codeOf(read(PROFILE))]) {
       expect(code).not.toMatch(/wt\.login\./)
       expect(code).not.toMatch(/localStorage/)
     }
     expect(login()).toMatch(
       /import \{ lastLoginMethod, rememberLoginAttempt \} from '#\/lib\/last-login\.ts'/,
     )
-    expect(codeOf(read(APP))).toMatch(
-      /import \{ promoteLoginAttempt \} from '#\/lib\/last-login\.ts'/,
-    )
+    for (const code of [codeOf(read(APP)), codeOf(read(PROFILE))]) {
+      expect(code).toMatch(/import \{ promoteLoginAttempt \} from '#\/lib\/last-login\.ts'/)
+    }
   })
 
   test('the badge is rendered per method, and only once hydrated', () => {
