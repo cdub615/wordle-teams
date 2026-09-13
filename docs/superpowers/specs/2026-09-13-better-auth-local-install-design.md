@@ -113,6 +113,21 @@ Code in the component directory needs the Better Auth options, but calling
 `createAuthOptions(ctx)` returning the options object, with `createAuth(ctx)` staying
 as `betterAuth(createAuthOptions(ctx))`.
 
+**Measured 2026-09-13: component code does not receive deployment environment
+variables, and the app's code does.** With `SITE_URL` unset on the deployment, the push
+fails analyzing `auth.js`. With `SITE_URL` set, `auth.js` analyzes fine and the push
+still fails — now analyzing `adapter.js`, with the same
+`SITE_URL is not set on this deployment` thrown from `auth.ts`. The component imports
+`createAuthOptions` from `../auth`, so every module-scope side effect in `auth.ts`
+runs inside the component too, where the environment is empty.
+
+This is not avoidable by moving the read into the function, because `createApi` calls
+`createAuthOptions({} as any)` at component module-init time
+(`src/client/create-api.ts:65`). **`createAuthOptions` must tolerate a missing
+`SITE_URL`; `createAuth` must assert it.** The fail-fast that `auth.ts:19` provides
+today is preserved, just relocated from module load to `createAuth` — which every real
+request goes through, and which the component never calls.
+
 It is also load-bearing for passkeys later, for a reason that is easy to miss.
 `createApi` builds the adapter from **both** the Convex schema and
 `getAuthTables(createAuthOptions(...))` (`src/client/create-api.ts:61-65`). A table has
