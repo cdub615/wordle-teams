@@ -132,7 +132,7 @@ export function BoardInput({
           board's own size, 4px of gap is what stops the ring cutting into the
           top row of tiles.
         */
-        className="mx-auto mt-4 flex h-fit w-fit select-none rounded-lg caret-transparent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background md:my-6"
+        className="mx-auto mt-4 flex h-fit w-fit select-none rounded-lg caret-transparent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background md:my-2"
         role="region"
         aria-label="Wordle Board"
         tabIndex={tabIndex}
@@ -141,7 +141,7 @@ export function BoardInput({
       </div>
       {/* Desktop's submit. The mobile one lives in the sheet footer so it can
           pin above the keyboard. */}
-      <div className="invisible mt-2 flex h-0 justify-end space-x-4 md:visible md:mt-4 md:h-fit">
+      <div className="invisible mt-2 flex h-0 justify-end space-x-4 md:visible md:mt-2 md:h-fit">
         <Button
           disabled={submitting || submitDisabled}
           aria-disabled={submitting || submitDisabled}

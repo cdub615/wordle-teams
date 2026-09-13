@@ -71,8 +71,22 @@ export function BoardEntrySurface({
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         {trigger && <DialogTrigger asChild>{trigger(true)}</DialogTrigger>}
-        <DialogContent>
-          <DialogHeader className="pb-4">
+        {/*
+          `p-4 gap-2` RATHER THAN THE DIALOG'S DEFAULT `p-6 gap-4`, and `pb-2`
+          on the header below, because this dialog is the one that does not fit
+          (wordle-teams-wty4.1.5). MEASURED: six tiles at 64px plus this
+          chrome came to roughly 700px against a cap of `100dvh` minus insets,
+          so every browser window shorter than that scrolled — and it was
+          DialogContent's own overflow doing it, not anything in the form.
+          These three trims give back 40px; the entry board's height-aware tile
+          (wordle-board.tsx) gives back another 48 on a short viewport.
+
+          DESKTOP-ONLY BY CONSTRUCTION: this branch renders only when
+          `isDesktop`, so no `md:` prefix is needed and the phone's sheet below
+          keeps its own spacing untouched.
+        */}
+        <DialogContent className="gap-2 p-4">
+          <DialogHeader className="pb-2">
             <DialogTitle>Add or Update Board</DialogTitle>
             <DialogDescription>Pick the day, then import a screenshot or type the board in</DialogDescription>
           </DialogHeader>
