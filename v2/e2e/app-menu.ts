@@ -36,10 +36,18 @@ export async function openAppMenu(page: Page): Promise<void> {
     if ((await trigger.getAttribute('data-state')) !== 'open') {
       await trigger.click()
     }
-    // Every state of the menu contains Home — it is one of the four items a
-    // signed-out visitor gets — so this is the one item that proves "open"
-    // without assuming a session.
-    await expect(page.getByRole('menuitem', { name: 'Home' })).toBeVisible({ timeout: 1_000 })
+    /**
+     * THE MENU ITSELF, NOT AN ITEM IN IT. This waited on the "Home" item until
+     * wordle-teams-wty4.1.3 removed it, and three specs in two files went red
+     * for a change that had nothing to do with any of them — none of the four
+     * local quality gates runs Playwright, so it only surfaced in CI.
+     *
+     * Radix's DropdownMenuContent carries `role="menu"`, which is true of every
+     * state of it and of no particular item, so it proves "open" without
+     * assuming a session AND without betting on which entries the menu happens
+     * to hold. Do not put an item name back here.
+     */
+    await expect(page.getByRole('menu')).toBeVisible({ timeout: 1_000 })
   }).toPass({ timeout: 15_000 })
 }
 
@@ -50,5 +58,6 @@ export async function openAppMenu(page: Page): Promise<void> {
  */
 export async function closeAppMenu(page: Page): Promise<void> {
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('menuitem', { name: 'Home' })).toHaveCount(0)
+  // The menu, not an item — same reasoning as openAppMenu's note above.
+  await expect(page.getByRole('menu')).toHaveCount(0)
 }

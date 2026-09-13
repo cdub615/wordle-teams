@@ -279,23 +279,34 @@ test.describe('route shape', () => {
     // the helper's note; this test is where that was measured.
     await openAppMenu(page)
 
-    const home = page.getByRole('menuitem', { name: 'Home' })
-    await expect(home).toHaveAttribute('href', '/')
-    await expect(page.getByRole('menuitem', { name: 'About' })).toHaveAttribute('href', '/about')
-    // `/home` is the compatibility duplicate of the landing — the two render
-    // the identical component, and sitemap.ts ranks `/` at priority 1 against
-    // /home at 0.9. Linking internally to the duplicate advertises the
-    // non-canonical copy of a page we serve twice, and it is the plausible
-    // wrong answer rather than an arbitrary one.
-    await expect(home).not.toHaveAttribute('href', '/home')
+    const about = page.getByRole('menuitem', { name: 'About' })
+    await expect(about).toHaveAttribute('href', '/about')
+
+    /**
+     * THE CANONICAL APEX IS NOW THE WORDMARK'S JOB, NOT A MENU ITEM'S
+     * (wordle-teams-wty4.1.3 removed the "Home" entry as a near-duplicate of
+     * "Dashboard"). The assertion moves rather than disappearing, and it
+     * matters MORE here than it did there: the wordmark is the only route to
+     * `/` in the chrome, so if it ever points at the duplicate there is no
+     * second link to be right.
+     *
+     * `/home` is the compatibility duplicate of the landing — the two render
+     * the identical component, and sitemap.ts ranks `/` at priority 1 against
+     * /home at 0.9. Linking internally to the duplicate advertises the
+     * non-canonical copy of a page we serve twice, and it is the plausible
+     * wrong answer rather than an arbitrary one.
+     */
+    const wordmark = page.getByRole('link', { name: 'Wordle Teams' })
+    await expect(wordmark).toHaveAttribute('href', '/')
+    await expect(wordmark).not.toHaveAttribute('href', '/home')
 
     // AND IT ACTUALLY NAVIGATES. An href is not a working link: these are
     // `DropdownMenuItem asChild` wrapping a TanStack `Link`, so Radix merges
     // its own props — including an `onSelect` that closes the menu — onto the
     // anchor, and a mis-wired asChild can swallow the click while leaving the
     // href perfectly correct.
-    await home.click()
-    await expect(page).toHaveURL(/\/$/)
+    await about.click()
+    await expect(page).toHaveURL(/\/about$/)
   })
 
   /*
