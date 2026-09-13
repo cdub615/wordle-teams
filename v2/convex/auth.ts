@@ -15,8 +15,23 @@ import { isE2eTraffic } from './lib/e2e.ts'
 import type { GenericCtx } from '@convex-dev/better-auth'
 import type { DataModel } from './_generated/dataModel'
 
-const siteUrl = process.env.SITE_URL
-if (!siteUrl) throw new Error('SITE_URL is not set on this deployment')
+/**
+ * WHY THE SITE_URL CHECK IS NOT AT MODULE SCOPE ANY MORE.
+ *
+ * `convex/betterAuth/adapter.ts` imports `createAuthOptions` from this file,
+ * so every module-scope side effect here also runs inside the COMPONENT — and
+ * component code receives no deployment environment variables. Measured
+ * 2026-09-13: with SITE_URL set on the deployment, the app's `auth.js`
+ * analyzes fine and the push still dies with
+ * `Failed to analyze adapter.js: Uncaught Error: SITE_URL is not set`.
+ *
+ * Moving the read inside `createAuthOptions` is not enough on its own, because
+ * `createApi` evaluates `createAuthOptions({} as any)` at component init
+ * (`src/client/create-api.ts:65`). So the OPTIONS tolerate an absent SITE_URL
+ * and `createAuth` carries the guard instead. Nothing is weakened: every real
+ * request builds auth through `createAuth`, and the component never calls it.
+ */
+const SCHEMA_ONLY_BASE_URL = 'https://schema-generation.invalid'
 
 /**
  * The four social providers, chosen from measured production usage rather than
@@ -224,15 +239,24 @@ export function buildSocialProviders(
   )
 }
 
-const socialProviders = buildSocialProviders()
-
 export const authComponent = createClient<DataModel>(components.betterAuth)
 
-export const createAuth = (ctx: GenericCtx<DataModel>) =>
-  betterAuth({
+export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
+  // Absent only when the component imports these options for schema shape.
+  const configuredSiteUrl = process.env.SITE_URL
+  // TWO LOCALS, so the fallback reaches every consumer of the URL while the
+  // presence check below stays honest. With one, `onAPIError.errorURL` built a
+  // literal `undefined/login-error` on the component's schema-only path.
+  const siteUrl = configuredSiteUrl ?? SCHEMA_ONLY_BASE_URL
+
+  return {
     baseURL: siteUrl,
     database: authComponent.adapter(ctx),
-    socialProviders,
+
+    // Skipped entirely without an environment: see the third test in
+    // auth.test.ts. Providers contribute no tables, so the component's view of
+    // the schema is identical either way.
+    socialProviders: configuredSiteUrl ? buildSocialProviders() : {},
 
     /**
      * WHERE A FAILED SIGN-IN LANDS (wordle-teams-vjh).
@@ -330,7 +354,15 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
       }),
       convex({ authConfig }),
     ],
-  })
+  }
+}
+
+export const createAuth = (ctx: GenericCtx<DataModel>) => {
+  // The guard that used to sit at module scope.
+  if (!process.env.SITE_URL) throw new Error('SITE_URL is not set on this deployment')
+
+  return betterAuth(createAuthOptions(ctx))
+}
 
 export const getCurrentUser = query({
   args: {},

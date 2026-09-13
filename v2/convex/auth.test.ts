@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest'
-import { buildSocialProviders } from './auth.ts'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { buildSocialProviders, createAuth, createAuthOptions } from './auth.ts'
 
 /**
  * THE SOCIAL PROVIDER CONFIG, WHICH NOTHING COVERED UNTIL wordle-teams-wdp1.
@@ -118,5 +118,70 @@ describe('a provider with no credentials is omitted, not half-wired', () => {
     })
 
     expect(Object.keys(providers)).toEqual(['github'])
+  })
+})
+
+/**
+ * THE OPTIONS HAVE TO SURVIVE AN EMPTY ENVIRONMENT, because the COMPONENT
+ * imports them.
+ *
+ * `convex/betterAuth/adapter.ts` calls `createApi(schema, createAuthOptions)`,
+ * and `createApi` evaluates `createAuthOptions({} as any)` at component
+ * module-init time to derive the Better Auth table shape
+ * (`src/client/create-api.ts:65`). Component code gets NO deployment
+ * environment variables — measured 2026-09-13: with SITE_URL set on the
+ * deployment the app's own `auth.js` analyzes fine and the push still fails
+ * analyzing `adapter.js`, throwing our own SITE_URL error.
+ *
+ * So the fail-fast moved from module scope to `createAuth`, which every real
+ * request goes through and the component never calls. These tests are the only
+ * thing standing between that arrangement and a deploy that cannot push.
+ */
+describe('createAuthOptions survives the empty environment the component imports it into', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  test('falls back to a placeholder baseURL when SITE_URL is unset', () => {
+    vi.stubEnv('SITE_URL', undefined)
+
+    expect(createAuthOptions({} as never).baseURL).toBe('https://schema-generation.invalid')
+  })
+
+  test('and wires NO social providers, so the component logs no false alarms', () => {
+    // buildSocialProviders console.warn's per unconfigured provider. Called in
+    // the component, where every credential is absent, it would claim all four
+    // providers are unconfigured on every component init — misleading exactly
+    // when someone is reading logs to find out why sign-in broke.
+    vi.stubEnv('SITE_URL', undefined)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    expect(createAuthOptions({} as never).socialProviders).toEqual({})
+    expect(warn).not.toHaveBeenCalled()
+
+    warn.mockRestore()
+  })
+
+  test('uses the real baseURL, and real providers, when SITE_URL is set', () => {
+    vi.stubEnv('SITE_URL', 'https://beta.wordleteams.com')
+    // THE CREDENTIALS HAVE TO BE STUBBED, not read from the ambient
+    // environment. `createAuthOptions` calls `buildSocialProviders()` with no
+    // argument, so it reads `process.env` directly — and there is no .env file
+    // under v2/, so every provider variable is absent under test and the built
+    // map would be `{}` here for the wrong reason, hiding the very branch this
+    // asserts. Same fixture, and the same principle, as the suites above.
+    for (const [name, value] of Object.entries(ALL_CONFIGURED)) vi.stubEnv(name, value)
+
+    const options = createAuthOptions({} as never)
+
+    expect(options.baseURL).toBe('https://beta.wordleteams.com')
+    expect(options.socialProviders).not.toEqual({})
+  })
+
+  test('createAuth still fails fast when SITE_URL is unset', () => {
+    // The guard auth.ts:19 used to provide, relocated rather than dropped.
+    vi.stubEnv('SITE_URL', undefined)
+
+    expect(() => createAuth({} as never)).toThrow(/SITE_URL/)
   })
 })

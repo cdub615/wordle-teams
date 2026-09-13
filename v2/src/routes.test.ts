@@ -5,6 +5,7 @@ import {
   codeOf,
   jsxElementsOf,
   jsxPropsOf,
+  objectLiteralReturnedBy,
   optionsPassedTo,
   propertiesOf,
 } from './test-support/source-ast'
@@ -55,6 +56,10 @@ const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf
  * own paths relative to its own file. Hence `parsed(path)` below.
  */
 const parsed = (path: string, callee: string) => optionsPassedTo(path, read(path), callee)
+
+/** The same, for options a function RETURNS rather than a call receives. */
+const returned = (path: string, identifier: string) =>
+  objectLiteralReturnedBy(path, read(path), identifier)
 
 /**
  * The same, for a JSX element's props. The RAW source, not `codeOf`'s stripped
@@ -359,11 +364,19 @@ describe('/login-error, and the two config strings that are the only way to it',
     expect(social.get('errorCallbackURL')?.getText()).toBe("'/login-error'")
 
     // Two levels, because the claim is about a nested option: `onAPIError` is a
-    // top-level option of the betterAuth config, and `errorURL` is a property
+    // top-level option of the Better Auth config, and `errorURL` is a property
     // of it. ABSOLUTE, via the template — this handler runs on the Convex
     // deployment, where a bare '/login-error' has no origin to resolve against.
-    const onAPIError = parsed('../convex/auth.ts', 'betterAuth').get('onAPIError')
-    expect(onAPIError, 'onAPIError is no longer an option on betterAuth({...})').toBeDefined()
+    //
+    // READ OFF `createAuthOptions` RATHER THAN `betterAuth({...})`, which is
+    // where these options lived until the local Better Auth component needed to
+    // import them too. `betterAuth(createAuthOptions(ctx))` passes no literal
+    // for `optionsPassedTo` to find; the literal is the one this function
+    // returns, and `objectLiteralReturnedBy` is `optionsPassedTo`'s counterpart
+    // for that shape. The mutation both are written against is unchanged —
+    // lifting `onAPIError` out into a detached `const` still fails here.
+    const onAPIError = returned('../convex/auth.ts', 'createAuthOptions').get('onAPIError')
+    expect(onAPIError, 'onAPIError is no longer an option in createAuthOptions').toBeDefined()
     expect(propertiesOf(onAPIError!).get('errorURL')?.getText()).toBe('`${siteUrl}/login-error`')
   })
 

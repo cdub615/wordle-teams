@@ -19,10 +19,10 @@ export default defineConfig({
     // lift is just the usual way of satisfying it.
     include: ['convex/**/*.test.ts', 'src/**/*.test.ts', 'scripts/**/*.test.mjs'],
     server: { deps: { inline: ['convex-test'] } },
-    // auth.ts fails fast at module scope when SITE_URL is unset — a deliberate
-    // guard against the scheme-less-origin bug. Tests import it transitively
-    // through access.ts, so the harness has to supply one. The value is never
-    // dereferenced in tests; it only has to exist.
+    // Several modules read SITE_URL inside their functions (auth.ts's
+    // createAuth, polar.ts, teams.ts) and reminders.test.ts overrides this
+    // default to assert the unset case. The value is never dereferenced; it
+    // only has to exist.
     env: { SITE_URL: 'http://localhost:3000' },
   },
 })

@@ -172,13 +172,33 @@ export const elementsOf = (node: ts.Node): string[] => {
 /**
  * The object literal an arrow function returns — `() => ({ ... })`, the shape a
  * route's `head` uses. Unwraps the parentheses TypeScript records as a real
- * node, and throws on anything else rather than guessing, so a `head` rewritten
- * as a block body is a named failure telling you to teach this helper about it.
+ * node, and throws on anything else rather than guessing.
+ *
+ * BLOCK BODIES TOO, which is the extension the previous version of this comment
+ * asked for by name. convex/auth.ts's `createAuthOptions` is
+ * `(ctx) => { const siteUrl = ...; return { ... } }` — it has to compute a local
+ * before the literal can be written, so a concise body is not available to it.
+ * Exactly one top-level `return` of an object literal counts: a body that
+ * returns conditionally has no single literal to hand back, and guessing which
+ * branch was meant is how a helper starts lying to the suite that trusts it.
  */
 export const returnedObjectOf = (node: ts.Node): ts.ObjectLiteralExpression => {
   if (!ts.isArrowFunction(node))
     throw new Error(`expected an arrow function, got ${ts.SyntaxKind[node.kind]}`)
   let body: ts.Node = node.body
+
+  if (ts.isBlock(body)) {
+    // TOP-LEVEL STATEMENTS ONLY, deliberately not a recursive walk: a `return`
+    // nested inside an `if` or a callback is a different code path, and pinning
+    // an option found down one of those would assert something the caller does
+    // not necessarily reach.
+    const returned = body.statements.filter(ts.isReturnStatement)
+    if (returned.length !== 1)
+      throw new Error(`expected exactly one top-level return, found ${returned.length}`)
+    if (!returned[0].expression) throw new Error('expected a return with a value')
+    body = returned[0].expression
+  }
+
   while (ts.isParenthesizedExpression(body)) body = body.expression
   if (!ts.isObjectLiteralExpression(body))
     throw new Error(`expected an object-returning arrow, got a body of ${ts.SyntaxKind[body.kind]}`)
@@ -248,4 +268,47 @@ export const objectLiteralAssignedTo = (
     throw new Error(`expected exactly one \`const ${identifier} = {...}\` in ${name}, found ${found.length}`)
   }
   return propertiesOf(found[0])
+}
+
+/**
+ * The object literal returned by a top-level `const NAME = (...) => ...`.
+ *
+ * THE SIBLING OF `objectLiteralAssignedTo`, for the case where the value worth
+ * pinning is built by a function rather than written as a const. convex/auth.ts
+ * used to pass its Better Auth options straight to `betterAuth({ ... })`, where
+ * `optionsPassedTo` could see them; `createAuthOptions` was split out so the
+ * local Better Auth component could import the same options, and the literal
+ * stopped being an argument to any call. The protection is unchanged and the
+ * mutation is the same one `optionsPassedTo` was written against: an option
+ * lifted out of this literal into a detached `const` is not a property of it.
+ *
+ * Locating is all this does — unwrapping is `returnedObjectOf`'s job, so both
+ * arrow shapes are understood here for free. Throws rather than returning an
+ * empty map, so a renamed or deleted declaration is a named failure.
+ */
+export const objectLiteralReturnedBy = (
+  name: string,
+  source: string,
+  identifier: string,
+): Map<string, ts.Expression> => {
+  const found: ts.ArrowFunction[] = []
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.name.getText() === identifier &&
+      node.initializer &&
+      ts.isArrowFunction(node.initializer)
+    ) {
+      found.push(node.initializer)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parseSource(name, source))
+
+  if (found.length !== 1) {
+    throw new Error(
+      `expected exactly one \`const ${identifier} = (...) => ...\` in ${name}, found ${found.length}`,
+    )
+  }
+  return propertiesOf(returnedObjectOf(found[0]))
 }
