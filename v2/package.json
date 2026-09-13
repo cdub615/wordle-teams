@@ -26,6 +26,7 @@
 		"cf-typegen": "wrangler types"
 	},
 	"dependencies": {
+		"@better-auth/passkey": "1.6.23",
 		"@cloudflare/vite-plugin": "^1.26.0",
 		"@convex-dev/better-auth": "0.12.5",
 		"@convex-dev/react-query": "^0.1.0",

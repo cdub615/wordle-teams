@@ -2,6 +2,19 @@ import { betterAuth } from 'better-auth/minimal'
 // Subpath import rather than the 'better-auth/plugins' barrel: the barrel pulls
 // every plugin into the module graph, and only this one is used.
 import { emailOTP } from 'better-auth/plugins/email-otp'
+// NOT the barrel the note above refuses, and not a subpath of it either:
+// `better-auth/plugins` does not carry passkey at all at 1.6.23, so this is its
+// own package with its own exports map.
+//
+// PINNED IN package.json TO THE EXACT better-auth VERSION, no caret, because
+// its `better-call` peer is an exact pin that moves with better-auth's minor
+// (1.3.5 at 1.6.11, 1.3.7 at 1.6.23). A range here lets the two drift into a
+// second copy of better-call, which nothing reports.
+//
+// And better-auth itself must stay BELOW 1.7: 1.7 removed
+// `better-auth/plugins/oidc-provider`, which `convex()` still imports, so no
+// 1.7.x can bundle the component (get-convex/better-auth#433).
+import { passkey } from '@better-auth/passkey'
 import { createClient } from '@convex-dev/better-auth'
 import { convex } from '@convex-dev/better-auth/plugins'
 import { requireActionCtx } from '@convex-dev/better-auth/utils'
@@ -12,6 +25,7 @@ import { sendEmail } from './email.ts'
 import { signInCodeEmail } from './authEmails'
 import { OTP_EXPIRY_SEC } from './lib/otpExpiry.ts'
 import { isE2eTraffic } from './lib/e2e.ts'
+import { originsFor, rpIdFor } from './lib/relyingParty.ts'
 import type { GenericCtx } from '@convex-dev/better-auth'
 import type { DataModel } from './_generated/dataModel'
 
@@ -354,6 +368,33 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
             html,
           })
         },
+      }),
+      /**
+       * THE ONE SETTING HERE THAT CANNOT BE UNDONE IS `rpID`.
+       *
+       * It is stamped into each credential at registration and can never be
+       * changed, migrated or repaired; a credential scoped to the wrong id is
+       * orphaned, and nothing says so until someone tries to sign in and their
+       * key is simply not offered. Left unset it defaults to the FULL HOSTNAME,
+       * which on this deployment is `beta.wordleteams.com` — so every passkey
+       * registered before the DNS cutover (wt-ksh.9) would die at the flip.
+       *
+       * DERIVED, NEVER A LITERAL, and that is enforced rather than trusted:
+       * convex/lib/relyingParty.test.ts reads this very call out of the source
+       * and fails if `rpID` is anything but `rpIdFor(...)`. A hardcoded apex
+       * would look correct in review and would drift the first time the site
+       * URL moves. See that module's header for why the apex is legal from a
+       * subdomain and what `origin` has to carry for the flip to be a non-event.
+       *
+       * `siteUrl` here is the local above, so on the component's schema-only
+       * path this is called with SCHEMA_ONLY_BASE_URL. Both helpers are total
+       * over that placeholder — a throw at component init is an unpushable
+       * deployment (wordle-teams-hrqw), not a failed test.
+       */
+      passkey({
+        rpID: rpIdFor(siteUrl),
+        rpName: 'Wordle Teams',
+        origin: originsFor(siteUrl),
       }),
       convex({ authConfig }),
     ],
