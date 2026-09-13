@@ -2,7 +2,11 @@ import { describe, expect, test } from 'vitest'
 import { convexTest } from 'convex-test'
 import schema from './schema.ts'
 import { api } from './_generated/api'
-import { aPlayer, authenticatedAs, registerBetterAuth } from './fixtures.ts'
+import { aPlayer, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
+
+// Supplied here, not in fixtures.ts: that file is PUSHED to the deployment and
+// the Convex runtime has no import.meta. See makeRegisterBetterAuth's comment.
+const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
 
 // Every convexTest call site in this repo passes `modules`; see chat.test.ts:35.
 const modules = import.meta.glob('./**/*.ts')

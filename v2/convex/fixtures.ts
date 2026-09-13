@@ -79,10 +79,37 @@ export const aTeam = (over: Record<string, unknown> = {}) => ({
  * The name argument is not optional here the way it is upstream. Renaming the
  * component orphans every row — see `convex/betterAuth/convex.config.ts`.
  */
-const betterAuthModules = import.meta.glob('./betterAuth/**/*.ts')
-
-export function registerBetterAuth(t: TestConvex<SchemaDefinition<GenericSchema, boolean>>) {
-  t.registerComponent('betterAuth', betterAuthComponentSchema, betterAuthModules)
+/**
+ * THE GLOB CANNOT LIVE IN THIS FILE, AND THAT IS NOT A STYLE CHOICE.
+ *
+ * `convex/fixtures.ts` is not a test file, so the Convex CLI PUSHES it as a
+ * module — and the Convex runtime has no `import.meta`. An earlier version of
+ * this helper called `import.meta.glob` here and every local gate stayed green:
+ * vitest, tsc, eslint and `vite build` all support it. The only thing that
+ * could see it was a real push, and CI's e2e step duly died with
+ * `Failed to analyze fixtures.js: Uncaught TypeError: import.meta unsupported`
+ * (run 34780544321) before anything deployed.
+ *
+ * So the glob is supplied by the CALLER, which is always a `*.test.ts` — the
+ * one kind of module under convex/ the CLI does not push. That is the same
+ * reason the ten-odd `const modules = import.meta.glob('./**\/*.ts')` lines
+ * scattered across convex/*.test.ts are written where they are.
+ *
+ * A FACTORY RATHER THAN A SECOND ARGUMENT, purely so the 24 call sites stay
+ * `registerBetterAuth(t)` and the diff stays about the one thing that moved.
+ *
+ * The glob has to reach `convex/betterAuth/_generated/`: convex-test derives
+ * the module-path prefix by locating a `_generated` entry in the glob keys and
+ * throws "Could not find the \"_generated\" directory" without one
+ * (node_modules/convex-test/dist/index.js, `findModulesRoot`). Pass
+ * `import.meta.glob('./betterAuth/**\/*.ts')`, not the file-local
+ * `./**\/*.ts` every suite already has — that one's keys root at convex/
+ * and would give the component the wrong prefix.
+ */
+export function makeRegisterBetterAuth(betterAuthModules: Record<string, () => Promise<unknown>>) {
+  return function registerBetterAuth(t: TestConvex<SchemaDefinition<GenericSchema, boolean>>) {
+    t.registerComponent('betterAuth', betterAuthComponentSchema, betterAuthModules)
+  }
 }
 
 /**

@@ -4,7 +4,11 @@ import schema from './schema'
 import betterAuthComponentSchema from './betterAuth/schema'
 import { tables as upstreamTables } from './betterAuth/generatedSchema'
 import { components } from './_generated/api'
-import { registerBetterAuth } from './fixtures.ts'
+import { makeRegisterBetterAuth } from './fixtures.ts'
+
+// Supplied here, not in fixtures.ts: that file is PUSHED to the deployment and
+// the Convex runtime has no import.meta. See makeRegisterBetterAuth's comment.
+const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
 
 const modules = import.meta.glob('./**/*.ts')
 

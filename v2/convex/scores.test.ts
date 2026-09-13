@@ -3,8 +3,12 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { api } from './_generated/api'
 import { addDays, addMonths, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
-import { aPlayer, aTeam, authenticatedAs, registerBetterAuth } from './fixtures.ts'
+import { aPlayer, aTeam, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import { getTeamMonthFor, upsertBoardFor } from './scores'
+
+// Supplied here, not in fixtures.ts: that file is PUSHED to the deployment and
+// the Convex runtime has no import.meta. See makeRegisterBetterAuth's comment.
+const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
 
 // `today` is now bounded server-side to ±1 day of the real clock (Step 0b), so
 // tests can no longer hardcode a literal like '2026-08-18' for it — that drifts

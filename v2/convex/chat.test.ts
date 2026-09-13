@@ -18,7 +18,7 @@ import {
 import { deleteTeamFor, invitePlayerFor, leaveTeamFor, removeMemberFor } from './teams.ts'
 import { completeProfileFor } from './players.ts'
 import { downgradeTeamRemovalFor, upgradeTeamInvitesFor } from './billing.ts'
-import { aPlayer, aTeam, authenticatedAs, registerBetterAuth } from './fixtures.ts'
+import { aPlayer, aTeam, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import {
   BUDGET_THRESHOLD_BYTES,
   RATE_LIMIT_MESSAGES,
@@ -30,6 +30,10 @@ import {
   budgetMonthFor,
 } from './lib/chat.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
+
+// Supplied here, not in fixtures.ts: that file is PUSHED to the deployment and
+// the Convex runtime has no import.meta. See makeRegisterBetterAuth's comment.
+const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
 
 const modules = import.meta.glob('./**/*.ts')
 const today = toPuzzleDay(new Date())
