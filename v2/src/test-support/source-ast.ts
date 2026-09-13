@@ -378,3 +378,77 @@ export const runtimeImportsOf = (name: string, source: string): string[] => {
   }
   return out
 }
+
+/**
+ * EVERY PLACE `callee(...)` IS CALLED — with what, and among which neighbours.
+ *
+ * THE MUTATION IT EXISTS FOR is the one the helpers above do not reach: a call
+ * that is still in the file, still spelled correctly, and in the WRONG PLACE.
+ * `rememberLoginAttempt(provider)` lifted out of `signInWith` into the `if
+ * (error)` branch below it still matches every `toMatch` anyone would write,
+ * still type-checks and still lints — and records an attempt only when the
+ * redirect FAILED, which is the exact inversion of what it is for. Neither
+ * `optionsPassedTo` (no object literal) nor `jsxPropsOf` (not JSX) can see a
+ * bare statement call at all.
+ *
+ * `within` IS BOUNDED TO THE INNERMOST ENCLOSING FUNCTION, which is what makes
+ * an ordering assertion mean something. Comparing `indexOf` over a whole file's
+ * text answers "which line is higher up", and two calls in unrelated functions
+ * have an order by that measure too; comparing positions inside one body
+ * answers "which runs first", which is the claim. Nested calls are included —
+ * a call inside a `.map()` callback inside the body is still something the body
+ * does — and the target call itself appears in its own list, so a caller can
+ * locate it without a second walk.
+ *
+ * ONE ENTRY PER CALL SITE, in source order, and deliberately NOT an
+ * exactly-one rule like `optionsPassedTo`'s: /login legitimately records an
+ * attempt from two different handlers, and a caller that means "exactly one"
+ * can assert the length. A call at module scope THROWS rather than being
+ * reported with an empty `within`, because "outside any function" is not an
+ * ordering a test can usefully assert and silently returning `[]` would read as
+ * a pass.
+ */
+export const callSitesOf = (
+  name: string,
+  source: string,
+  callee: string,
+): Array<{ args: string[]; within: string[] }> => {
+  const isFunctionLike = (node: ts.Node): node is ts.FunctionLikeDeclaration =>
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isMethodDeclaration(node)
+
+  const enclosingFunction = (node: ts.Node): ts.FunctionLikeDeclaration | undefined => {
+    for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
+      if (isFunctionLike(current)) return current
+    }
+    return undefined
+  }
+
+  const calleesIn = (node: ts.Node): string[] => {
+    const out: string[] = []
+    const walk = (inner: ts.Node): void => {
+      if (ts.isCallExpression(inner)) out.push(inner.expression.getText())
+      ts.forEachChild(inner, walk)
+    }
+    walk(node)
+    return out
+  }
+
+  const sites: Array<{ args: string[]; within: string[] }> = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.getText() === callee) {
+      const enclosing = enclosingFunction(node)
+      if (!enclosing)
+        throw new Error(`\`${callee}(...)\` in ${name} is not inside a function`)
+      sites.push({
+        args: node.arguments.map((argument) => argument.getText()),
+        within: calleesIn(enclosing.body ?? enclosing),
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parseSource(name, source))
+  return sites
+}

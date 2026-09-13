@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import {
+  callSitesOf,
   codeOf,
   jsxElementsOf,
   jsxPropsOf,
@@ -1106,4 +1107,186 @@ describe('a route file does not export the component it routes to', () => {
       ).toBe(false)
     })
   }
+})
+
+/**
+ * THE LAST-USED SIGN-IN BADGE, WHERE IT IS WRITTEN AND WHERE IT IS PROMOTED
+ * (wordle-teams-ilej).
+ *
+ * THE BEHAVIOURAL HALF IS src/lib/last-login.test.ts, which executes the two
+ * keys against a fake store. What it cannot see is the part that makes them
+ * correct: WHICH MOMENTS the two functions are called at. Both route modules
+ * are unrenderable under vitest, so the source is the artefact again.
+ *
+ * AND THE MOMENTS ARE THE WHOLE DESIGN. `rememberLoginAttempt` moved one line
+ * later in signInWith — after the `await`, into the error branch — records an
+ * attempt only when the redirect FAILED, which is the exact inversion of the
+ * feature; every gate stays green and the badge quietly starts naming whichever
+ * provider was broken. `promoteLoginAttempt` moved out of the `?signin=` effect
+ * into an unguarded one promotes a stale attempt on any later visit with a live
+ * session, which is the bounce case the two keys exist to exclude. Neither is
+ * visible as a diff to anything that reads whole-file text.
+ */
+describe('the last-used sign-in badge is written on attempt and promoted on arrival', () => {
+  const LOGIN = './routes/login.tsx'
+  const APP = './routes/app.tsx'
+  const login = () => codeOf(read(LOGIN))
+
+  test('the attempt is recorded at exactly two places, one per sign-in path', () => {
+    // Five methods, two code paths: four providers share `signInWith`, and the
+    // email code has its own. A third site is either a new path that needs its
+    // own reasoning or a duplicate that will fight the other one.
+    expect(callSitesOf(LOGIN, read(LOGIN), 'rememberLoginAttempt')).toHaveLength(2)
+  })
+
+  test('the provider attempt is recorded BEFORE the handoff, not after it', () => {
+    const [site] = callSitesOf(LOGIN, read(LOGIN), 'rememberLoginAttempt').filter((call) =>
+      call.within.includes('authClient.signIn.social'),
+    )
+    expect(site, 'no rememberLoginAttempt in the function that calls signIn.social').toBeDefined()
+
+    // ORDER INSIDE THE ONE FUNCTION BODY, which is what "before the handoff"
+    // means. Once signIn.social redirects, nothing in this module runs again —
+    // the same reason login_provider_click is emitted there, stated in the file.
+    expect(site.within.indexOf('rememberLoginAttempt')).toBeLessThan(
+      site.within.indexOf('authClient.signIn.social'),
+    )
+
+    // AND IT RECORDS THE PROVIDER, not the funnel's coarse 'oauth'. The whole
+    // reason `?signin=` was NOT widened to carry a provider id — that would
+    // break login_callback_arrived's historical comparability — is that this
+    // key carries the granularity instead. Recording a constant here would
+    // badge Google for a Discord sign-in.
+    expect(site.args).toEqual(['provider'])
+  })
+
+  test('the email attempt is recorded on the verified code, with its own method id', () => {
+    const [site] = callSitesOf(LOGIN, read(LOGIN), 'rememberLoginAttempt').filter((call) =>
+      call.within.includes('authClient.signIn.emailOtp'),
+    )
+    expect(site, 'no rememberLoginAttempt in the function that verifies the code').toBeDefined()
+    expect(site.args).toEqual(['EMAIL_METHOD'])
+
+    // NOT 'otp', WHICH IS THE FUNNEL'S WORD. `?signin=otp` is charted by
+    // login_callback_arrived as one of oauth|otp; this is a method id sitting
+    // beside google/microsoft/github/discord in the same store, and the two
+    // vocabularies must not be confused for one another.
+    expect(login()).toMatch(/const EMAIL_METHOD = 'email'/)
+  })
+
+  test('the promotion happens in the arrival effect, beside the funnel event', () => {
+    const sites = callSitesOf(APP, read(APP), 'promoteLoginAttempt')
+    expect(sites).toHaveLength(1)
+    expect(sites[0].args).toEqual([])
+
+    // THE SHARED EFFECT IS THE ASSERTION. `login_callback_arrived` is emitted
+    // only past the `?signin=oauth|otp` guard, and that marker is the only
+    // thing tying this arrival to the attempt /login stashed. A promotion in an
+    // effect of its own would have to re-read the URL — which this effect
+    // strips, synchronously, so a later-declared effect finds nothing — or fire
+    // unguarded, and promote a bounced attempt on any later visit.
+    expect(sites[0].within).toContain('trackFunnel')
+  })
+
+  test('neither route reaches past the helpers into the store itself', () => {
+    // The same invariant the pending-invite block above asserts, for the same
+    // reason: a route touching localStorage directly is how the wrapped, tested
+    // helpers get bypassed by something that reads like an obvious inline
+    // simplification — and the wrapping is what keeps Safari private mode from
+    // turning a cosmetic hint into a blank sign-in page.
+    for (const code of [login(), codeOf(read(APP))]) {
+      expect(code).not.toMatch(/wt\.login\./)
+      expect(code).not.toMatch(/localStorage/)
+    }
+    expect(login()).toMatch(
+      /import \{ lastLoginMethod, rememberLoginAttempt \} from '#\/lib\/last-login\.ts'/,
+    )
+    expect(codeOf(read(APP))).toMatch(
+      /import \{ promoteLoginAttempt \} from '#\/lib\/last-login\.ts'/,
+    )
+  })
+
+  test('the badge is rendered per method, and only once hydrated', () => {
+    // ONE BADGE PER CONTROL, each guarded by a comparison against that
+    // control's own method id. `lastUsed && <LastUsedBadge />` — dropping the
+    // comparison — marks every button at once and is a one-character edit.
+    expect(login().match(/lastUsed === \w+ && <LastUsedBadge \/>/g) ?? []).toHaveLength(2)
+
+    // AND THE VALUE IS GATED ON HYDRATION. localStorage does not exist on the
+    // server, so a badge in the SSR pass is a hydration mismatch on exactly the
+    // returning players this is for. Reading it unconditionally still renders
+    // correctly in a browser, which is why nothing else would catch it.
+    expect(login()).toMatch(/hydrated \? lastLoginMethod\(\) : undefined/)
+  })
+
+  test('the badge is announced, not signalled by colour or position', () => {
+    // BOUNDED TO THE COMPONENT'S OWN DECLARATION, so the prose in this file and
+    // the file under test cannot satisfy it. Its body has no nested closing
+    // brace at the start of a line, which is what makes the slice exact.
+    const badge = login().match(/function LastUsedBadge\(\)[\s\S]*?\n\}/)?.[0]
+    expect(badge, 'no `function LastUsedBadge()` in login.tsx').toBeDefined()
+
+    // REAL TEXT, IN THE BUTTON'S CHILDREN, so it lands in the control's
+    // accessible name. This is the lesson login.tsx already records about v1's
+    // icon-only provider buttons: labels that exist only as a hover tooltip do
+    // not exist at all on the iPhones most of this traffic arrives on. A dot, a
+    // tint or a ring would pass every other test in this block.
+    expect(badge).toMatch(/>\s*Last used\s*</)
+    // ...and it is not hidden from that name again on the way out. `sr-only`
+    // would lose the sighted player it is for; `aria-hidden` would lose
+    // everyone else.
+    expect(badge).not.toMatch(/aria-hidden|sr-only/)
+  })
+})
+
+/**
+ * callSitesOf, ON THE FORMS THE BLOCK ABOVE LEANS ON.
+ *
+ * Asserted on hand-written fixtures for the reason about-screenshots.test.ts
+ * gives for doing the same to `importedModulesOf`: a helper that quietly
+ * reported nothing would make every test above pass on a file with the calls
+ * deleted, and reading it out of a real route file would couple these to that
+ * file's contents.
+ */
+describe('callSitesOf, the helper those assertions are built on', () => {
+  const sites = (source: string) => callSitesOf('fixture.ts', source, 'remember')
+
+  test('reports one entry per call site, with the arguments as written', () => {
+    const found = sites(`
+      function a() { remember(provider) }
+      function b() { remember('email', 2) }
+    `)
+    expect(found.map((site) => site.args)).toEqual([['provider'], ["'email'", '2']])
+  })
+
+  test('`within` is the ENCLOSING function, in order — not the file', () => {
+    // The ordering claim only means "which runs first" while it is bounded to
+    // one body; across two functions, `indexOf` over the file text answers the
+    // different and useless question of which line is higher up.
+    const [first, second] = sites(`
+      function a() { track(); remember(x); go() }
+      function b() { remember(y); other() }
+    `)
+    expect(first.within).toEqual(['track', 'remember', 'go'])
+    expect(second.within).toEqual(['remember', 'other'])
+  })
+
+  test('an arrow body counts, which is what a useEffect is', () => {
+    const [site] = sites('useEffect(() => { guard(); remember(x) }, [])')
+    // The arrow, not the useEffect call around it.
+    expect(site.within).toEqual(['guard', 'remember'])
+  })
+
+  test('a call at module scope throws rather than reporting an empty body', () => {
+    // Returning `[]` for `within` would read as "it has no neighbours" and pass
+    // an ordering assertion vacuously.
+    expect(() => sites('remember(x)')).toThrow(/not inside a function/)
+  })
+
+  test('a callee that is nowhere in the file is no sites, not a throw', () => {
+    // Unlike optionsPassedTo, which has an exactly-one contract. The callers
+    // above assert their own counts, and "zero" is a failure they can report
+    // better than this helper can.
+    expect(sites('function a() { other() }')).toEqual([])
+  })
 })

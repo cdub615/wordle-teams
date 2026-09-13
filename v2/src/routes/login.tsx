@@ -1,7 +1,8 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { authClient } from '#/lib/auth-client'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
+import { lastLoginMethod, rememberLoginAttempt } from '#/lib/last-login.ts'
 import { publicRouteHead } from '#/lib/seo'
 import { useHydrated } from '#/lib/use-hydrated'
 import { Button } from '#/components/ui/button.tsx'
@@ -70,6 +71,37 @@ const SOCIAL_PROVIDERS = [
   { id: 'discord', label: 'Discord' },
 ] as const
 
+/**
+ * The method id the email one-time-code path records (wordle-teams-ilej).
+ *
+ * NOT 'otp', which is already taken: `?signin=otp` is a FUNNEL value, charted by
+ * `login_callback_arrived` as one of oauth|otp, and the two vocabularies must
+ * not be confused for each other. `wt.login.pending` is the granular one — it
+ * holds a provider id where the funnel only ever says "oauth" — so sharing a
+ * spelling would invite someone to pass one where the other is meant.
+ */
+const EMAIL_METHOD = 'email'
+
+/**
+ * The "you used this one last" marker, on the control that starts that method.
+ *
+ * VISIBLE TEXT, INSIDE THE BUTTON, AND BOTH HALVES ARE THE REQUIREMENT. Sitting
+ * in the button's children makes it part of the control's accessible name —
+ * "Google Last used" — so it is ANNOUNCED rather than being a tint or a
+ * position. That is the lesson recorded above about v1's icon-only provider
+ * buttons: a hint that only exists on hover does not exist on the phones most
+ * of this traffic arrives on. Do not swap this for a dot, a border colour or an
+ * `aria-hidden` flourish, and do not make it `sr-only` either — a sighted
+ * returning player is exactly who it is for.
+ */
+function LastUsedBadge() {
+  return (
+    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+      Last used
+    </span>
+  )
+}
+
 function LoginPage() {
   const hydrated = useHydrated()
   const [step, setStep] = useState<'email' | 'code'>('email')
@@ -84,11 +116,33 @@ function LoginPage() {
     trackFunnel({ name: 'login_view' })
   }, [])
 
+  /**
+   * The method this device last COMPLETED a sign-in with (wordle-teams-ilej).
+   *
+   * GATED ON `hydrated`, WHICH IS NOT COSMETIC: localStorage does not exist on
+   * the server, so a badge rendered in the SSR pass is a hydration mismatch on
+   * every returning player. Undefined until the flag flips means the server and
+   * the first client render agree on "no badge", and the marker appears in the
+   * same commit that enables the buttons.
+   *
+   * `useMemo` over the flag rather than a plain call, so the store is read once
+   * on arrival instead of on every keystroke in the OTP field. Nothing can
+   * change the answer while this page is open — the only writer is a promotion
+   * on /app, which is a fresh document.
+   */
+  const lastUsed = useMemo(() => (hydrated ? lastLoginMethod() : undefined), [hydrated])
+
   async function signInWith(provider: (typeof SOCIAL_PROVIDERS)[number]['id']) {
     // Emitted BEFORE the redirect: once the provider takes over the document,
     // nothing here runs again. This is the event that separates "never chose a
     // provider" from "chose one and did not come back".
     trackFunnel({ name: 'login_provider_click', provider })
+    // AND FOR THE SAME REASON, one line later (wordle-teams-ilej). This records
+    // an ATTEMPT, not a success: it is promoted to the badge only if the round
+    // trip lands back on /app authenticated, so a user who declines consent —
+    // and therefore never gets there — leaves the badge on whatever last
+    // actually worked.
+    rememberLoginAttempt(provider)
     setPending(true)
     setError(null)
     // No full-page reload afterwards, unlike the OTP path: this hands off to the
@@ -143,6 +197,12 @@ function LoginPage() {
     const { error } = await authClient.signIn.emailOtp({ email, otp })
     setPending(false)
     if (error) return setError(error.message ?? 'Invalid code')
+    // Written BEFORE the navigation, like the provider path's, and for a
+    // slightly different reason: the reload below is what discards this
+    // component, so anything after it is code nobody should have to reason
+    // about. The code has already verified here, so the attempt this records is
+    // one that will be promoted on the very next page.
+    rememberLoginAttempt(EMAIL_METHOD)
     // full reload — required with expectAuth
     window.location.href = `/app?${SIGNIN_PARAM}=otp`
   }
@@ -173,8 +233,14 @@ function LoginPage() {
                 autoComplete="email"
                 placeholder="you@example.com"
               />
+              {/* On "Send code" rather than beside the Email label: the badge
+                  exists to answer "which control do I press", and this is the
+                  control. It is also the slow path — a trip to a mail app and
+                  back — so it is the one most worth steering a returning player
+                  off when a provider is theirs. */}
               <Button type="submit" disabled={!hydrated || pending}>
                 {pending ? 'Sending…' : 'Send code'}
+                {lastUsed === EMAIL_METHOD && <LastUsedBadge />}
               </Button>
             </form>
           ) : (
@@ -232,6 +298,7 @@ function LoginPage() {
                   disabled={!hydrated || pending}
                 >
                   {label}
+                  {lastUsed === id && <LastUsedBadge />}
                 </Button>
               ))}
             </div>

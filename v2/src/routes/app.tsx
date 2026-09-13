@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
+import { promoteLoginAttempt } from '#/lib/last-login.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
@@ -301,11 +302,26 @@ function Dashboard() {
   // only reliable "they made it" signal: the OAuth round-trip finishes as a fresh
   // document load, so nothing on /login survives to observe it. The marker is
   // stripped from the URL immediately so a refresh or a share cannot double-count.
+  //
+  // IT NOW CARRIES A SECOND CONSEQUENCE (wordle-teams-ilej), AND SHARING THE
+  // EFFECT IS DELIBERATE. "They made it" is exactly the fact the last-used badge
+  // needs, and the marker is the only thing that ties this arrival to the
+  // attempt /login stashed — without it, any later visit on a live session would
+  // promote a stale attempt, which is the bounce case the two keys exist to
+  // exclude. A SEPARATE EFFECT CANNOT SAFELY READ IT: the strip below is
+  // synchronous, so one declared after this finds `?signin=` already gone, and
+  // one declared before is correct only by a hook ordering nothing in the file
+  // makes visible — the same hazard useCheckoutReturn's comment above documents.
+  // The cost is that a cosmetic feature now rides on the funnel event's guard;
+  // that guard is the passkey note on wordle-teams-wty4.1.7.
   useEffect(() => {
     const url = new URL(window.location.href)
     const method = url.searchParams.get(SIGNIN_PARAM)
     if (method !== 'oauth' && method !== 'otp') return
     trackFunnel({ name: 'login_callback_arrived', method })
+    // The pending attempt knows WHICH provider; `method` only knows oauth vs
+    // otp, and widening it would break the funnel's historical comparability.
+    promoteLoginAttempt()
     url.searchParams.delete(SIGNIN_PARAM)
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
   }, [])
