@@ -279,71 +279,42 @@ jobs:
       # RETIRED 2026-09-13 (wordle-teams-dt6t). A step called "The auth module
       # must not reach the client bundle" stood here — "THE CHECK THAT WOULD
       # HAVE CAUGHT THE 2026-09-06 BETA OUTAGE" — and it grepped dist/client for
-      # 'SITE_URL is not set'. It is gone, not moved: v2/src/frontend-import-graph.test.ts
-      # does the job now and runs in the vitest gate above. Do not re-add it.
+      # 'SITE_URL is not set'. It is gone, not moved: the check now lives in
+      # v2/src/frontend-import-graph.test.ts and runs in the vitest gate above,
+      # walking the import graph from every file under src/ and failing with the
+      # chain named. THE FULL ACCOUNT — the incident, the control measurement
+      # and both its arms — is on v2/convex/lib/chatLimits.ts, where the seven
+      # other comments on this rule already point. What follows is only what a
+      # person standing in THIS file needs before re-adding a bundle check.
       #
-      # WHAT IT DETECTED. convex/auth.ts used to THROW AT MODULE SCOPE when
-      # process.env.SITE_URL was falsy — which in a browser it always is. That
-      # one throw did two jobs: it made the fault FATAL (a module-scope throw is
-      # a side effect no bundler may tree-shake, so the whole auth module rode
-      # into the client chunk and the route owning it died on load) and it left
-      # the FINGERPRINT this step grepped for. It happened for real:
-      # src/components/chat/composer.tsx imported one integer from
-      # convex/lib/chat.ts, which imports ../access.ts, which imports ./auth.ts
-      # (56d4b88), and /chat was dead on beta for an afternoon.
+      # WHY IT COULD NO LONGER FAIL. convex/auth.ts used to throw at MODULE
+      # SCOPE without process.env.SITE_URL. That one throw made a frontend
+      # import reaching auth.ts fatal AND left the fingerprint this step
+      # grepped for. a5d5c3f0 moved it into `createAuth`, and had to:
+      # `convex/betterAuth/adapter.ts` imports `createAuthOptions` from auth.ts,
+      # COMPONENT CODE RECEIVES NO DEPLOYMENT ENVIRONMENT VARIABLES, and the
+      # module-scope throw made the component unpushable (`Failed to analyze
+      # adapter.js: Uncaught Error: SITE_URL is not set`, with SITE_URL set on
+      # the deployment). The string stopped existing in the source at all, so
+      # this step printed "clean: no module-scope auth throw in dist/client" on
+      # every deploy and read as evidence. A check that cannot fail is worse
+      # than no check.
       #
-      # WHY IT COULD NO LONGER FAIL. a5d5c3f0 moved that throw off module scope
-      # into `createAuth`, and had to: `convex/betterAuth/adapter.ts` imports
-      # `createAuthOptions` from auth.ts, COMPONENT CODE RECEIVES NO DEPLOYMENT
-      # ENVIRONMENT VARIABLES, and the module-scope throw made the component
-      # unpushable (`Failed to analyze adapter.js: Uncaught Error: SITE_URL is
-      # not set`, with SITE_URL set on the deployment). The string this step
-      # looked for stopped existing in the source, so the step printed
-      # "clean: no module-scope auth throw in dist/client" on every deploy and
-      # read as evidence. A check that cannot fail is worse than no check.
-      #
-      # MEASURED 2026-09-13, WITH A CONTROL. Same probe both runs — a temporary
-      # `import { budgetIncrementFor } from '../../../convex/lib/chat.ts'` in
-      # composer.tsx, used so it survives minification — then `pnpm build` and
-      # `grep -rl 'SITE_URL is not set' dist/client/`:
-      #   - auth.ts restored from 76d9ffab (module-scope throw): FOUND, in
-      #     dist/client/assets/chat-*.js. The step fires, exactly as documented.
-      #   - auth.ts as it stands today: NOT FOUND. Nor is SCHEMA_ONLY_BASE_URL's
-      #     'schema-generation.invalid', so auth.ts is tree-shaken out of the
-      #     client graph ENTIRELY, not merely shipped without its fingerprint.
-      # The probe string itself was in the bundle both times, so the import was
-      # not being elided and the control is valid.
-      #
-      # THE FAULT IS NOW BLOAT, NOT AN OUTAGE, and that is why the replacement
-      # is a source check and not a repointed grep. With the throw gone, nothing
-      # in auth.ts kills a chunk on load: a frontend import reaching it makes
-      # every visitor to that route download better-auth for nothing, silently,
-      # with all four gates green. A bundle grep can only see a fault that
-      # leaves a mark in the bundle, and this one stopped leaving one. Two
-      # replacement fingerprints were considered and rejected:
+      # WHY IT WAS NOT SIMPLY REPOINTED AT ANOTHER STRING. Measured with a
+      # control on 2026-09-13: auth.ts is now tree-shaken out of the client
+      # graph ENTIRELY, so there is no mark left in the bundle to look for. Two
+      # candidate fingerprints were measured and rejected —
       # 'schema-generation.invalid' lives INSIDE createAuthOptions and vanishes
       # to the same tree-shaking, and the `better-auth` package id is already
-      # legitimately in dist/client (dist/client/assets/login-*.js — the login
-      # route uses the Better Auth CLIENT), so it would fire on every deploy.
+      # legitimately in dist/client (assets/login-*.js: the login route uses the
+      # Better Auth CLIENT), so it would fire on every deploy. The fault is also
+      # no longer an outage but silent bundle bloat, which is a thing to catch
+      # in source rather than in a build artefact.
       #
       # AND DO NOT RESURRECT THE GREP AS WRITTEN, whatever string it is given:
       # the pattern 'SITE_URL is not set' also matches v2/src/lib/auth-server.ts's
       # 'VITE_CONVEX_SITE_URL is not set', which IS in dist/server today. It
       # could fire for a reason unrelated to the bug it names.
-      #
-      # THE REPLACEMENT IS STRICTLY STRONGER THAN WHAT IT REPLACES. The old
-      # comment here claimed no other step could see this fault, because "Lint
-      # inspects specifiers, not the graph behind them". Lint cannot; a graph
-      # walk can. frontend-import-graph.test.ts treats every file under src/ as
-      # a root, follows every RUNTIME edge (type-only imports excluded,
-      # `export ... from` included) to a real file on disk, and fails naming the
-      # CHAIN — `src/components/chat/composer.tsx -> convex/lib/chat.ts ->
-      # convex/access.ts -> convex/auth.ts`. No build required, a location
-      # rather than a boolean, and it catches the import whether or not the
-      # module it drags in leaves a fingerprint. Proven red against the exact
-      # 56d4b88 import before being shipped, and it also asserts the positive
-      # case (lib/chat.ts DOES reach auth.ts) so it cannot quietly rot into a
-      # check that always passes, which is how the step it replaced ended up.
 
       # The insights corpus is ~79 KB and must stay a STATIC FILE the CDN serves,
       # fetched only when the insights route renders. `import`ing it instead would

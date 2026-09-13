@@ -219,6 +219,14 @@ export const returnedObjectOf = (node: ts.Node): ts.ObjectLiteralExpression => {
  *
  * Dynamic `import()` is not an ImportDeclaration and is not reported here.
  * Nothing in src/routes uses it; a caller that needs to care must say so.
+ *
+ * NOT THE FUNCTION TO WALK A GRAPH WITH — see `runtimeImportsOf` at the foot of
+ * this file. This one answers "which modules does the file NAME", type-only
+ * declarations included and `export ... from` excluded. Both of those are wrong
+ * for "which edges does the bundler follow", and the type-only half fails on a
+ * correct file in this repo today. That is stated here because this is the
+ * older and more findable of the two, so it is the one a future caller reaches
+ * for first.
  */
 export const importedModulesOf = (name: string, source: string): string[] => {
   const out: string[] = []
@@ -319,7 +327,7 @@ export const objectLiteralReturnedBy = (
  * second function rather than an option on it.
  *
  * WHY NOT JUST USE `importedModulesOf`. Its contract is "every line naming a
- * module", pinned specifier-for-specifier by nine `toEqual` tests in
+ * module", pinned specifier-for-specifier by a block of `toEqual` tests in
  * src/about-screenshots.test.ts, and that contract is right for what it
  * guards: /about must not NAME the aceternity carousel under any import form,
  * erased or not. A graph walk asks a different question — what ships — and the
@@ -333,7 +341,7 @@ export const objectLiteralReturnedBy = (
  *     next reader would delete the guard rather than the import.
  *   - `export ... from` is NOT reported by `importedModulesOf` — its own test
  *     says so, on purpose — and MUST be walked. It is a runtime edge:
- *     convex/lib/chat.ts:22 re-exports `./chatLimits.ts`, and src/lib/wordle.ts
+ *     convex/lib/chat.ts:29 re-exports `./chatLimits.ts`, and src/lib/wordle.ts
  *     re-exports out of convex/lib/board.ts. A guard blind to it would be
  *     evaded by one `export { x } from '../../convex/lib/chat.ts'`.
  *

@@ -15,11 +15,22 @@
  * load. a5d5c3f0 moved that throw into `createAuth`, and had to: the Better
  * Auth Convex component imports `createAuthOptions` from this repo's auth.ts,
  * component code receives no deployment environment variables, and the
- * module-scope throw made the component unpushable. Measured 2026-09-13 with a
- * control — the same probe import in composer.tsx, built against each auth.ts —
- * the throw string is in dist/client under the old one and ABSENT under
- * today's, along with 'schema-generation.invalid', so auth.ts is now
- * tree-shaken out of the client graph entirely.
+ * module-scope throw made the component unpushable.
+ *
+ * THE MEASUREMENT, 2026-09-13, WITH A CONTROL — and this is the one place it is
+ * written down, because the other comments on this rule point here rather than
+ * restating it. Same probe both runs: a temporary
+ * `import { budgetIncrementFor } from '../../../convex/lib/chat.ts'` in
+ * src/components/chat/composer.tsx, USED rather than merely imported so it
+ * survives minification, then `pnpm build` and
+ * `grep -rl 'SITE_URL is not set' dist/client/`.
+ *   - auth.ts restored from 76d9ffab (the module-scope throw): FOUND, in
+ *     dist/client/assets/chat-*.js. The old CI grep fires, as documented.
+ *   - auth.ts as it stands today: NOT FOUND. Nor is SCHEMA_ONLY_BASE_URL's
+ *     'schema-generation.invalid', so auth.ts is tree-shaken out of the client
+ *     graph ENTIRELY rather than shipping unmarked.
+ * The probe string itself was present in the bundle both times, so the import
+ * was not being elided and the control is valid.
  *
  * THAT MAKES THE BUG SILENT RATHER THAN HARMLESS. An import reaching auth.ts
  * today is not a dead route, it is every visitor to that route downloading
