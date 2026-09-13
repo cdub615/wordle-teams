@@ -164,7 +164,10 @@ options declare. The asymmetry is worth knowing too: options-only is a hard
 `ArgumentValidationError`, schema-only is silent. And one corollary —
 `isUniqueField` returns `false` for a model it cannot find rather than throwing
 (`src/client/adapter-utils.ts:61-74`), so a schema-only table carries **no
-uniqueness enforcement** until its plugin lands.
+uniqueness enforcement** until its plugin lands — and **measured 2026-09-13, not even
+then**: `@better-auth/passkey@1.6.23` declares `credentialID` as `index: true` rather than
+`unique: true`, so `isUniqueField` still answers false once the plugin is wired. See
+`wordle-teams-047w`.
 
 ### The schema decision: extend, do not regenerate
 

@@ -48,11 +48,32 @@ Cloudflare Worker bound to `beta.wordleteams.com` as a `custom_domain`, only on 
 there is no preview URL to guard against, and a whole class of "hide the offer where it
 cannot work" handling disappears with it.
 
-**The `credentialID` uniqueness gap closes itself.** `hrqw` recorded that the passkey
-table has no adapter-level uniqueness enforcement, because `checkUniqueFields` consults
-the OPTIONS schema and `isUniqueField` returns false for a model it cannot find. Adding
-`passkey()` to `createAuthOptions` is exactly what starts enforcing it. Nothing extra to
-build; the note simply stops applying.
+**The `credentialID` uniqueness gap does NOT close itself — this paragraph said the
+opposite and was wrong.** `hrqw` recorded that the passkey table has no adapter-level
+uniqueness enforcement because `checkUniqueFields` consults the options schema, and this
+spec originally concluded that adding `passkey()` to `createAuthOptions` would therefore
+start enforcing it. **Measured 2026-09-13, it does not.** `@better-auth/passkey@1.6.23`
+declares `credentialID` as `index: true`, not `unique: true`, and `isUniqueField` filters
+on `value.unique`:
+
+```
+getAuthTables({ plugins: [emailOTP(…), passkey()] })
+  passkey.credentialID          = { type: 'string', required: true, index: true }
+  unique fields on passkey      = []
+  CONTROL — user.email unique   = true
+```
+
+The control is what makes it decisive: the same probe returns `true` for a field that
+genuinely is unique, so this is not a broken harness. The model moved from *not found,
+answer false* to *found, answer false* — the reason changed, the outcome did not. No
+other layer closes it either: registration calls `adapter.create` with no prior lookup on
+the field, and authentication resolves a credential with a plain `findOne`, so duplicates
+would resolve to whichever row came back first. A Convex index does not constrain.
+
+Tracked as `wordle-teams-047w`. Probably unreachable in a normal flow — an authenticator
+mints a fresh credential id per registration — and filed at P1 anyway **because the plan
+believed the opposite**, which is the more dangerous half. Nothing in this design depends
+on the enforcement: no task asserts it, and the sign-in path is unaffected.
 
 ## Relying party, which is the one unrecoverable setting
 
