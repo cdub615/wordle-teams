@@ -305,7 +305,7 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
     isAuthenticated = false
     render(createElement(AppMenu))
 
-    expect(openMenu()).toEqual(['Theme', 'Home', 'About', 'Feedback', 'Log in'])
+    expect(openMenu()).toEqual(['Theme', 'About', 'Feedback', 'Log in'])
   })
 
   test('signed in: the full set, and NO "Log in" in it', () => {
@@ -320,7 +320,6 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
       'Notifications',
       'Theme',
       'Billing',
-      'Home',
       'About',
       'Feedback',
       'Profile',

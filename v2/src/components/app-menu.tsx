@@ -10,7 +10,6 @@ import {
   ChartNoAxesColumn,
   CreditCard,
   Download,
-  Home as HomeIcon,
   Info,
   LayoutDashboard,
   Loader2,
@@ -392,17 +391,23 @@ export function AppMenu() {
 
             <DropdownMenuSeparator />
             {/*
-              THE NAV LINKS THAT USED TO BE A ROW IN THE BAR. `/` and not
-              /home: the two render the identical component, `/` is the
-              canonical apex, and /home exists only to catch v1's inbound
-              links. Header.tsx's wordmark carries the long-form note.
+              THE NAV LINKS THAT USED TO BE A ROW IN THE BAR.
+
+              HOME IS DELIBERATELY NOT ONE OF THEM ANY MORE (wordle-teams-wty4.1.3).
+              It linked to `/`, the marketing apex, which for a signed-in player
+              is the page they are least likely to want, and it sat one row
+              above "Dashboard" — near enough to read as a duplicate of it. The
+              wordmark in Header.tsx is still a Link to `/`, so nothing is
+              stranded: a SIGNED-OUT visitor on /login or /about, who is the
+              only person with a real reason to go there and the reason this
+              menu renders unauthenticated at all, still has one obvious way
+              back. Do not re-add it here without removing the wordmark's link
+              first, or there will be two again.
+
+              `/` and not /home, if it ever does come back: the two render the
+              identical component, `/` is the canonical apex, and /home exists
+              only to catch v1's inbound links.
             */}
-            <DropdownMenuItem asChild>
-              <Link to="/">
-                <HomeIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-                <span>Home</span>
-              </Link>
-            </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to="/about">
                 <Info className="mr-2 h-4 w-4" aria-hidden="true" />

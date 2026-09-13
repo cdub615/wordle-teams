@@ -192,18 +192,6 @@ function TeamSettingsPage() {
           void navigate({ to: '/app', search: {} })
         }}
       />
-      <MyTeamsCard
-        teams={teams}
-        // Deleting the SELECTED team (the one this page is showing) leaves
-        // `?team=` pointing at a gone id, same repair as onLeft above.
-        // Deleting any OTHER team from this list is a no-op here — the list
-        // itself updates reactively and there is nothing else to fix.
-        onDeleted={(deleted) => {
-          if (deleted !== teamParam) return
-          localStorage.removeItem(STORAGE_KEY)
-          void navigate({ to: '/app', search: {} })
-        }}
-      />
       {/*
         `id="scoring"` IS THE SCORING DEEP LINK'S WHOLE MECHANISM
         (wordle-teams-5jcn.29). routes/app.tsx's ScoringLegend "Edit" control
@@ -236,10 +224,11 @@ function TeamSettingsPage() {
           (wordle-teams-9ahw): this route's loader deliberately does not
           prefetch `getTeamMonth` (see the loader's own comment), so
           ScoringSystemCard's `useSuspenseQuery` for it can still be in flight
-          after CurrentTeamCard and MyTeamsCard above have already painted.
-          Dropping this would suspend the WHOLE page — including the two cards
-          that have nothing to do with this query — back to `TeamSettingsSkeleton`
-          on every mount.
+          after CurrentTeamCard above has already painted — and, since
+          wordle-teams-wty4.1.2 moved MyTeamsCard BELOW this block, while the
+          card under it is still waiting to. Dropping this would suspend the
+          WHOLE page — including the two cards that have nothing to do with
+          this query — back to `TeamSettingsSkeleton` on every mount.
         */}
         <Suspense fallback={<ScoringSystemCardSkeleton />}>
           <ScoringSystemCard
@@ -250,6 +239,25 @@ function TeamSettingsPage() {
           />
         </Suspense>
       </div>
+      {/*
+        MY TEAMS SITS LAST (wordle-teams-wty4.1.2). This page is "manage the
+        team I am looking at": the current team's own card and the scoring
+        system that governs it belong together at the top, and the list of
+        every OTHER team is navigation away from that — which is the right
+        thing to meet after the settings, not between them.
+      */}
+      <MyTeamsCard
+        teams={teams}
+        // Deleting the SELECTED team (the one this page is showing) leaves
+        // `?team=` pointing at a gone id, same repair as onLeft above.
+        // Deleting any OTHER team from this list is a no-op here — the list
+        // itself updates reactively and there is nothing else to fix.
+        onDeleted={(deleted) => {
+          if (deleted !== teamParam) return
+          localStorage.removeItem(STORAGE_KEY)
+          void navigate({ to: '/app', search: {} })
+        }}
+      />
       <UpdateTeamDialog open={editOpen} onOpenChange={setEditOpen} team={selectedTeam} />
     </main>
   )
