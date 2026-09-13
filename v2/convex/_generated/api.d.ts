@@ -24,6 +24,7 @@ import type * as http from "../http.js";
 import type * as insights from "../insights.js";
 import type * as inviteEmails from "../inviteEmails.js";
 import type * as inviteLinks from "../inviteLinks.js";
+import type * as lib_avatar from "../lib/avatar.js";
 import type * as lib_board from "../lib/board.js";
 import type * as lib_chat from "../lib/chat.js";
 import type * as lib_chatLimits from "../lib/chatLimits.js";
@@ -36,6 +37,7 @@ import type * as lib_otpExpiry from "../lib/otpExpiry.js";
 import type * as lib_polarErrors from "../lib/polarErrors.js";
 import type * as lib_polarEvents from "../lib/polarEvents.js";
 import type * as lib_polarIdentity from "../lib/polarIdentity.js";
+import type * as lib_polarVersion from "../lib/polarVersion.js";
 import type * as lib_pushErrors from "../lib/pushErrors.js";
 import type * as lib_puzzleDay from "../lib/puzzleDay.js";
 import type * as lib_reminders from "../lib/reminders.js";
@@ -84,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   insights: typeof insights;
   inviteEmails: typeof inviteEmails;
   inviteLinks: typeof inviteLinks;
+  "lib/avatar": typeof lib_avatar;
   "lib/board": typeof lib_board;
   "lib/chat": typeof lib_chat;
   "lib/chatLimits": typeof lib_chatLimits;
@@ -96,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   "lib/polarErrors": typeof lib_polarErrors;
   "lib/polarEvents": typeof lib_polarEvents;
   "lib/polarIdentity": typeof lib_polarIdentity;
+  "lib/polarVersion": typeof lib_polarVersion;
   "lib/pushErrors": typeof lib_pushErrors;
   "lib/puzzleDay": typeof lib_puzzleDay;
   "lib/reminders": typeof lib_reminders;
@@ -149,6 +153,6 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
-  betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
+  betterAuth: import("../betterAuth/_generated/component.js").ComponentApi<"betterAuth">;
   resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
 };

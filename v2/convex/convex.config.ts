@@ -1,5 +1,8 @@
 import { defineApp } from 'convex/server'
-import betterAuth from '@convex-dev/better-auth/convex.config'
+// LOCAL INSTALL (wordle-teams-hrqw): the component is defined in this repo so
+// we own its schema. Same mount name, so components.betterAuth and every
+// existing row are unchanged.
+import betterAuth from './betterAuth/convex.config'
 import resend from '@convex-dev/resend/convex.config.js'
 
 const app = defineApp()

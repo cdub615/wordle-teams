@@ -33,6 +33,17 @@ export default tseslint.config(
     // `wrangler types` and is ~14,700 lines of ambient declarations.
     ignores: [
       'convex/_generated/**',
+      // The LOCAL Better Auth component's codegen output (wordle-teams-hrqw).
+      // Written by `convex dev`/`convex deploy` exactly like convex/_generated,
+      // and tracked for the same reason: once the component is defined in this
+      // repo, convex/_generated/api.d.ts types `components.betterAuth` as
+      // `import("../betterAuth/_generated/component.js")`, so a checkout
+      // without it does not typecheck.
+      //
+      // Every one of these files opens with `/* eslint-disable */`, which
+      // reportUnusedDisableDirectives below turns into an error the moment the
+      // file happens to be clean — which is how this dir announced itself.
+      'convex/betterAuth/_generated/**',
       'src/routeTree.gen.ts',
       'worker-configuration.d.ts',
       'dist/**',
