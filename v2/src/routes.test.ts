@@ -1371,16 +1371,23 @@ describe('the passkey sign-in button is offered only where it can succeed', () =
     // AND THE CONJUNCTION ITSELF, WHICH `within` CANNOT SEE. Membership is
     // satisfied just as well by `passkeySupported() || passkeyRegisteredHere()`,
     // which is the dead-end button for everyone.
-    expect(login()).toMatch(/passkeySupported\(\) && passkeyRegisteredHere\(\)/)
+    expect(
+      login(),
+      'the two probes are not ANDed — an || here is the dead-end button for everyone',
+    ).toMatch(/passkeySupported\(\) && passkeyRegisteredHere\(\)/)
   })
 
   test('the answer is what draws the button, and it is never drawn on the server', () => {
     // THE PROBE EVALUATED AND THROWN AWAY is a green diff that ships a button
     // for every visitor, so the assertion is that its value reaches the flag.
-    expect(login()).toMatch(
-      /setCanUsePasskey\(passkeySupported\(\) && passkeyRegisteredHere\(\)\)/,
-    )
-    expect(login()).toMatch(/\{canUsePasskey && \(/)
+    expect(
+      login(),
+      'the gate is evaluated but its answer never reaches the flag',
+    ).toMatch(/setCanUsePasskey\(passkeySupported\(\) && passkeyRegisteredHere\(\)\)/)
+    expect(
+      login(),
+      'the button is not wrapped in the flag, so it renders for everyone',
+    ).toMatch(/\{canUsePasskey && \(/)
 
     // FALSE UNTIL AN EFFECT RAISES IT, which is this page's existing rule for
     // anything read out of localStorage (`hydrated ? lastLoginMethod() :
@@ -1389,7 +1396,10 @@ describe('the passkey sign-in button is offered only where it can succeed', () =
     // exactly the returning players it is for. It is `useState` rather than a
     // `useMemo` over `hydrated` because the value CHANGES: a ceremony that
     // proves the marker wrong clears it and the button goes with it.
-    expect(login()).toMatch(/const \[canUsePasskey, setCanUsePasskey\] = useState\(false\)/)
+    expect(
+      login(),
+      'the flag does not start false, so the button is drawn in the SSR pass',
+    ).toMatch(/const \[canUsePasskey, setCanUsePasskey\] = useState\(false\)/)
   })
 
   test('a ceremony that disproves the marker takes the button away too', () => {
@@ -1429,7 +1439,10 @@ describe('the passkey sign-in button is offered only where it can succeed', () =
     // above wants an identifier: this id sits in the same store beside
     // google/microsoft/github/discord and 'email', and a string spelled in two
     // places is one that can be spelled differently in one of them.
-    expect(login()).toMatch(/const PASSKEY_METHOD = 'passkey'/)
+    expect(
+      login(),
+      "the method id is not a named constant spelled 'passkey'",
+    ).toMatch(/const PASSKEY_METHOD = 'passkey'/)
   })
 
   test('the marker /login puts on the URL is one /app\'s arrival guard accepts', () => {

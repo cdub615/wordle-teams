@@ -342,8 +342,11 @@ function Dashboard() {
     // method the player used before, forever, on a green build.
     if (method !== 'oauth' && method !== 'otp' && method !== 'passkey') return
     trackFunnel({ name: 'login_callback_arrived', method })
-    // The pending attempt knows WHICH provider; `method` only knows oauth vs
-    // otp, and widening it would break the funnel's historical comparability.
+    // The pending attempt knows WHICH PROVIDER; `method` is the coarse marker —
+    // oauth, otp or passkey — and widening THAT to carry a provider id would
+    // break the funnel's historical comparability by recounting existing
+    // sign-ins under new names. Adding 'passkey' is the other thing: a value
+    // with no prior events to reinterpret, so oauth and otp are unchanged.
     promoteLoginAttempt()
     url.searchParams.delete(SIGNIN_PARAM)
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)

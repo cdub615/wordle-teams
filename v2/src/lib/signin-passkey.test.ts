@@ -101,15 +101,56 @@ describe('signInWithPasskey', () => {
     expect(forgetRegisteredMock).not.toHaveBeenCalled()
   })
 
-  test('the other two ways a ceremony ends quietly are cancellations too', async () => {
+  test('an aborted ceremony is a cancellation too, and the set is exactly those two', async () => {
     // ERROR_CEREMONY_ABORTED is the abort signal — a second ceremony starting
-    // cancels the first. AUTH_CANCELLED is the plugin's own fallback for a
-    // throw that is not a WebAuthnError at all. Neither is a failure to report
-    // and neither says anything about what this device holds.
-    for (const code of ['ERROR_CEREMONY_ABORTED', 'AUTH_CANCELLED']) {
-      signInPasskeyMock.mockResolvedValue({ data: null, error: { code, message: 'Auth cancelled' } })
-      await expect(signInWithPasskey()).resolves.toEqual({ outcome: 'cancelled' })
-    }
+    // cancels the first, which is a race rather than a fault. It and the
+    // passthrough above are the WHOLE cancelled set; the assertion that nothing
+    // else joins them is the test below.
+    signInPasskeyMock.mockResolvedValue({
+      data: null,
+      error: { code: 'ERROR_CEREMONY_ABORTED', message: 'Auth cancelled' },
+    })
+    await expect(signInWithPasskey()).resolves.toEqual({ outcome: 'cancelled' })
+    expect(forgetRegisteredMock).not.toHaveBeenCalled()
+  })
+
+  test('AUTH_CANCELLED is a FAILURE despite its name, and this is not a quibble', async () => {
+    /**
+     * THE CODE'S NAME IS THE TRAP, AND IT COST A ROUND OF REVIEW TO SEE IT.
+     * Traced end to end: a real cancel raises `NotAllowedError`,
+     * `identifyAuthenticationError` turns it into a `WebAuthnError` carrying
+     * `ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY`, and the plugin's
+     * `err instanceof WebAuthnError ? err.code : 'AUTH_CANCELLED'` therefore
+     * takes the instanceof arm. A PLAYER PRESSING CANCEL NEVER PRODUCES THIS
+     * CODE.
+     *
+     * What does produce it is every throw that is not a `WebAuthnError` —
+     * `InvalidStateError`, `NotSupportedError`, `NotReadableError`, an
+     * unsupported browser — AND, byte-identically, the plugin's second catch
+     * around `/passkey/verify-authentication`. `@better-fetch/fetch` awaits
+     * `fetch()` bare, so a dropped connection rejects whatever `throw: false`
+     * says, and that catch absorbs it.
+     *
+     * SO THE COMMON CASE HERE IS A NETWORK DROP AFTER A SUCCESSFUL CEREMONY:
+     * the player presented a face or a finger and the verification never
+     * landed. /login answers 'cancelled' with a bare `return` — no message, no
+     * log — so classifying it that way makes the page do NOTHING in response to
+     * a successful Face ID, on mobile, which is where both the passkeys and the
+     * flaky networks are.
+     */
+    signInPasskeyMock.mockResolvedValue({
+      data: null,
+      error: { code: 'AUTH_CANCELLED', message: 'Auth cancelled', status: 400 },
+    })
+    const result = await signInWithPasskey()
+    expect(result.outcome).toBe('failed')
+
+    // AND IT DOES NOT WEAR THE CANNED SENTENCE EITHER. "Auth cancelled" is what
+    // BOTH catches hard-code beside this code, so passing it through would tell
+    // someone whose connection dropped that they cancelled something. That is
+    // why `messageIsCanned` is not a bare `ERROR_` prefix test — this code has
+    // no prefix and would slip past one.
+    expect(result).toEqual({ outcome: 'failed', message: SIGN_IN_FAILED_MESSAGE })
     expect(forgetRegisteredMock).not.toHaveBeenCalled()
   })
 

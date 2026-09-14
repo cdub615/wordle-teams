@@ -53,11 +53,12 @@
  * differently in one of them, and the failure is silent: the write succeeds,
  * the read finds nothing, the offer never stops appearing.
  *
- * ONE FUNCTION HERE STILL HAS NO CALLER, and it is `passkeyRegisteredHere()`.
- * /login's passkey button (Task 4) is the reader it was shaped for and it is
- * not built yet — so if you are here wondering why nothing reads it, that is
- * why, and not because a call site was deleted. Everything else is live:
- * routes/app.tsx asks `shouldOfferPasskey()` on a confirmed sign-in arrival,
+ * EVERY FUNCTION HERE NOW HAS A CALLER, and this paragraph used to say that one
+ * did not. `passkeyRegisteredHere()` was written ahead of the reader it was
+ * shaped for; routes/login.tsx is that reader and it is built
+ * (wordle-teams-wty4.1.7.4), gating the passkey sign-in button on it alongside
+ * `passkeySupported()`. The rest: routes/app.tsx asks `shouldOfferPasskey()` on
+ * a confirmed sign-in arrival,
  * components/passkey-offer.tsx writes `declined`, lib/register-passkey.ts
  * writes `registered`, and components/settings/security-tab.tsx probes support
  * and clears `registered` when a removal empties the account.
@@ -135,12 +136,28 @@ export function rememberPasskeyRegistered(): void {
 /**
  * Record that this device holds NO passkey after all.
  *
- * CALLED ON EXACTLY ONE PIECE OF EVIDENCE: a removal that leaves the account
- * with no passkeys at all. Zero credentials on the ACCOUNT is the only thing
- * the Settings list can prove about THIS DEVICE, because no field on a passkey
- * row says which authenticator it belongs to. Removing one of three leaves the
- * marker set, and that is correct rather than a gap — the device probably does
- * still hold one.
+ * TWO CALLERS, TWO PIECES OF EVIDENCE, AND THE SECOND IS THE ONE THAT COVERS
+ * THE CASE THE FIRST CANNOT. This docblock claimed "exactly one" until
+ * wordle-teams-wty4.1.7.4; read lib/signin-passkey.ts's header for the argument
+ * in full, because the hard part is which failures are NOT evidence.
+ *
+ *   - components/settings/security-tab.tsx, ON A REMOVAL THAT EMPTIES THE
+ *     ACCOUNT. Zero credentials on the ACCOUNT is the only thing the Settings
+ *     list can prove about THIS DEVICE, because no field on a passkey row says
+ *     which authenticator it belongs to. Removing one of three leaves the
+ *     marker set, and that is correct rather than a gap — the device probably
+ *     does still hold one.
+ *   - lib/signin-passkey.ts, ON A `PASSKEY_NOT_FOUND` FROM THE SERVER. That is
+ *     the case above's blind spot answered from the other end: the ceremony
+ *     SUCCEEDED, so this device really does hold a credential, and
+ *     /passkey/verify-authentication found no row for it. Proof the marker
+ *     lied, arriving as a rejection.
+ *
+ * WHAT MUST NOT CALL IT IS A FAILED CEREMONY, and that is not a style note.
+ * WebAuthn raises `NotAllowedError` both for "the player pressed Cancel" and
+ * for "no credential matched" — the spec conflates them on purpose — so
+ * clearing there would take /login's button away from anyone who changed their
+ * mind, on a device holding a perfectly good credential.
  *
  * IT DOES NOT TOUCH `declined`, deliberately. Removing a passkey is not
  * un-declining an offer; a player who dismissed the offer and later cleaned up
@@ -162,20 +179,31 @@ export function rememberPasskeyDeclined(): void {
  * Without it the button is a dead-end tap: the browser opens a system sheet,
  * finds no credential for this relying party, and says so.
  *
- * IT IS MAINTAINED IN BOTH DIRECTIONS, and this paragraph used to claim it was
- * not. It is SET on a successful registration and on a
- * `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED` rejection, which is the
+ * IT IS MAINTAINED IN BOTH DIRECTIONS. It is SET on a successful registration
+ * and on a `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED` rejection, which is the
  * authenticator volunteering the same fact; it is CLEARED when a removal in
- * Settings leaves the account with no passkeys at all.
+ * Settings empties the account, and when a sign-in ceremony is refused with
+ * `PASSKEY_NOT_FOUND`. See `forgetPasskeyRegistered` above for both.
  *
- * ONE STALE CASE SURVIVES, AND IT IS THE SURVIVABLE DIRECTION: register on a
- * phone, then remove that credential from a laptop. The account still has other
- * passkeys, so nothing clears the phone's marker, and the phone goes on
- * offering a button whose ceremony will find nothing. The sheet says "no
- * passkeys found" and every other sign-in method is still on the page. Task 4
- * turns that into a signpost rather than a dead end; do not try to fix it by
- * guessing here, because no field on a passkey row says which authenticator it
- * belongs to.
+ * THE STALE CASE THIS PARAGRAPH USED TO DESCRIBE IS GONE, AND WHAT REPLACED IT
+ * IS A DIFFERENT CASE WITH A DIFFERENT ENDING. Do not merge them.
+ *
+ *   - REGISTER ON A PHONE, REMOVE IT FROM A LAPTOP. Fixed, and it SELF-HEALS
+ *     rather than being prevented: the phone still holds the credential, so its
+ *     ceremony succeeds and the SERVER refuses with `PASSKEY_NOT_FOUND`. The
+ *     marker is cleared at that moment, the button goes with it, and /login
+ *     says where to get a new one (wordle-teams-wty4.1.7.8, closed by
+ *     wordle-teams-wty4.1.7.4).
+ *   - THE AUTHENTICATOR ITSELF DROPPED THE CREDENTIAL while site data survived
+ *     — deleted from the OS password manager, say. STILL UNFIXABLE, and not for
+ *     want of trying: the ceremony fails with `NotAllowedError`, which WebAuthn
+ *     uses for BOTH this and a plain Cancel so that a page cannot probe a
+ *     device, so there is nothing to distinguish. The platform's own "no
+ *     passkeys found" sheet explains it, and every other sign-in method is
+ *     still on the page.
+ *
+ * Do not try to fix either by guessing here, because no field on a passkey row
+ * says which authenticator it belongs to.
  */
 export function passkeyRegisteredHere(): boolean {
   return marked(PASSKEY_REGISTERED_KEY)

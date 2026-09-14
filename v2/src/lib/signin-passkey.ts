@@ -7,13 +7,20 @@ import { forgetPasskeyRegistered } from '#/lib/passkey.ts'
  * (wordle-teams-wty4.1.7.4).
  *
  * THE SIBLING OF lib/register-passkey.ts, and every trap that module's header
- * lists applies here unchanged: `signIn.passkey` NEVER REJECTS (measured in
- * `@better-auth/passkey/dist/client.mjs`, whose `signInPasskey` catches the
- * ceremony's throw and RETURNS it), and THE ERROR IS A UNION ONE OF WHOSE ARMS
- * HAS NO `code` — the one returned untouched when
- * `/passkey/generate-authenticate-options` fails. `'code' in …` is what makes
- * reading it legal, and typecheck is the only thing that catches the other
- * spelling.
+ * lists applies here — one of them in a WEAKER form that is worth stating
+ * exactly. `signIn.passkey` DOES NOT REJECT FOR THE CEREMONY OR FOR
+ * VERIFICATION: both sit inside catches that RETURN the failure (measured in
+ * `@better-auth/passkey/dist/client.mjs`), so a bare `await` in a `try` reads
+ * them as successes. IT CAN STILL REJECT ON THE OPTIONS FETCH, which sits
+ * outside any try — and `@better-fetch/fetch` awaits `fetch()` bare, so a
+ * network failure there rejects whatever `throw: false` says. Both halves are
+ * handled below, and both are tested; the `try` around the call is load-bearing
+ * rather than defensive.
+ *
+ * AND THE ERROR IS A UNION ONE OF WHOSE ARMS HAS NO `code` — the one returned
+ * untouched when `/passkey/generate-authenticate-options` answers with an
+ * error rather than failing outright. `'code' in …` is what makes reading it
+ * legal, and typecheck is the only thing that catches the other spelling.
  *
  * IT IS A MODULE RATHER THAN A HANDLER IN routes/login.tsx FOR THE ONE REASON
  * THAT MATTERS ON THIS PROJECT: a route module cannot be imported under vitest,
@@ -91,23 +98,73 @@ const NO_CREDENTIAL_MESSAGE =
 export const SIGN_IN_FAILED_MESSAGE = 'Could not sign in with a passkey.'
 
 /**
- * The three codes that mean "the ceremony ended without an assertion, and that
- * is not news".
+ * The TWO codes that mean "the ceremony ended without an assertion, and that is
+ * not news". `AUTH_CANCELLED` IS NOT ONE OF THEM, despite its name, and the
+ * name is the whole trap.
  *
- * `ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY` is the ambiguous one argued above.
+ * `ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY` is the ambiguous one argued in the
+ * header, and IT is what a real cancel produces. Traced end to end:
+ * `startAuthentication` catches `navigator.credentials.get()` and rethrows
+ * `identifyAuthenticationError(...)`, which turns a `NotAllowedError` — the one
+ * the platform raises both for "the player dismissed the sheet" and for "no
+ * credential matched" — into a `WebAuthnError` carrying this code. The plugin
+ * then reads `err instanceof WebAuthnError ? err.code : 'AUTH_CANCELLED'`
+ * (`@better-auth/passkey/dist/client.mjs`), so the instanceof arm is the one
+ * that fires and the code is this one.
+ *
  * `ERROR_CEREMONY_ABORTED` is the abort signal — a second ceremony starting
- * cancels the first, which is a race rather than a fault. `AUTH_CANCELLED` is
- * the plugin's own fallback when what was thrown is not a `WebAuthnError` at
- * all.
+ * cancels the first — which is a race rather than a fault.
+ *
+ * SO `AUTH_CANCELLED` IS REACHED ONLY WHEN WHAT WAS THROWN IS NOT A
+ * `WebAuthnError` AT ALL, and every way to get there is a real failure:
+ * `identifyAuthenticationError` returns the raw DOMException untouched for
+ * every name it does not recognise (`InvalidStateError`, `NotSupportedError`,
+ * `NotReadableError`, `ConstraintError`, `TypeError`, and a `SecurityError` on
+ * a valid domain whose rpId matches), `startAuthentication` throws a plain
+ * `Error` for an unsupported browser and for a credential that came back empty,
+ * and malformed options fail base64url parsing before the ceremony starts.
+ *
+ * AND THERE IS A SECOND SOURCE OF THIS CODE, WHICH IS THE STRONGEST REASON OF
+ * ALL AND THE ONE A READER WILL MISS. `client.mjs` has a SECOND catch — around
+ * `/passkey/verify-authentication` — that returns a BYTE-IDENTICAL
+ * `{ code: 'AUTH_CANCELLED', message: 'Auth cancelled', status: 400,
+ * statusText: 'BAD_REQUEST' }`. The two sources cannot be told apart from out
+ * here. And `@better-fetch/fetch` awaits `fetch()` bare, with no try/catch, so
+ * a network-level failure rejects whatever `throw: false` says — which is
+ * precisely what that catch is there to absorb.
+ *
+ * So the common way to reach `AUTH_CANCELLED` is A CONNECTION DROPPING AFTER
+ * THE CEREMONY SUCCEEDED: the player presented a face or a finger, the
+ * assertion exists, and the verification round trip never landed. Classifying
+ * that as "the player said no" means /login returns silently and the page does
+ * nothing at all in response to a successful Face ID — on mobile, which is
+ * where both the passkeys and the flaky networks are. That is far likelier than
+ * any non-`WebAuthnError` throw out of `startAuthentication`, so 'failed' is the
+ * better default on frequency as well as on principle. Do not stop reading at
+ * the first catch.
+ *
+ * Reporting that set as "the player said no" is the mistake this module's own
+ * codeless-arm test argues against in the next breath: /login answers
+ * 'cancelled' with a bare `return`, so a tap would do nothing, show nothing and
+ * log nothing. lib/register-passkey.ts already takes the other line on the same
+ * class of throw — its non-`WebAuthnError` fallback is `UNKNOWN_ERROR`, which it
+ * reports as a failure.
  */
-const CANCELLED_CODES = new Set([
-  'ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY',
-  'ERROR_CEREMONY_ABORTED',
-  'AUTH_CANCELLED',
-])
+const CANCELLED_CODES = new Set(['ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY', 'ERROR_CEREMONY_ABORTED'])
 
-/** Whether a code came from the ceremony rather than from our server. */
-const isCeremonyCode = (code: string) => code.startsWith('ERROR_')
+/**
+ * Whether the plugin OVERWROTE this error's message with its canned sentence,
+ * so that what it carries says nothing about what went wrong.
+ *
+ * BOTH SHAPES, AND `AUTH_CANCELLED` IS WHY THIS IS NOT AN `ERROR_` PREFIX TEST.
+ * The ceremony catch sets `message: PASSKEY_ERROR_CODES.AUTH_CANCELLED.message`
+ * — the literal "Auth cancelled" — beside whatever code it produced, and that
+ * code is `err.code` (always `ERROR_`-prefixed) OR the bare string
+ * 'AUTH_CANCELLED'. The verify catch produces the same pair. A prefix test
+ * alone would let the bare one through and tell someone whose browser cannot do
+ * WebAuthn at all that they cancelled something.
+ */
+const messageIsCanned = (code: string) => code.startsWith('ERROR_') || code === 'AUTH_CANCELLED'
 
 /**
  * Run the ceremony and report what happened. Never rejects, never throws.
@@ -131,14 +188,15 @@ export async function signInWithPasskey(): Promise<PasskeySignIn> {
         return { outcome: 'no-credential', message: NO_CREDENTIAL_MESSAGE }
       }
       if (code !== undefined && CANCELLED_CODES.has(code)) return { outcome: 'cancelled' }
-      // A CEREMONY ERROR'S MESSAGE IS A LIE AND IS DISCARDED. `signInPasskey`'s
-      // catch sets `message: PASSKEY_ERROR_CODES.AUTH_CANCELLED.message` — the
-      // literal "Auth cancelled" — for EVERY ceremony failure whatever the code
-      // beside it says. Passing it through would tell a player whose rpID is
-      // misconfigured that they cancelled something they never saw, and the
-      // rpID is the one mistake the design doc calls unrecoverable for
-      // credentials already issued.
-      if (code !== undefined && isCeremonyCode(code))
+      // THE MESSAGE IS A LIE AND IS DISCARDED, BUT THE FAILURE IS REPORTED.
+      // Everything reaching here failed for a reason the player cannot see and
+      // the plugin will not name — a misconfigured rpID, an authenticator that
+      // would not read, a browser that cannot do WebAuthn, a verification round
+      // trip that threw — and all of them arrive wearing "Auth cancelled".
+      // Passing that through would tell someone they cancelled something they
+      // never saw; saying nothing at all would leave a button that does nothing
+      // when pressed.
+      if (code !== undefined && messageIsCanned(code))
         return { outcome: 'failed', message: SIGN_IN_FAILED_MESSAGE }
       // Everything else is our server's, or the options request's, and those
       // messages say something true.
@@ -146,8 +204,8 @@ export async function signInWithPasskey(): Promise<PasskeySignIn> {
     }
     return { outcome: 'signed-in' }
   } catch (cause) {
-    // Unreachable through `signIn.passkey` itself (see the header) — this
-    // covers the network layer underneath it.
+    // REACHED BY THE OPTIONS FETCH, which is the one `$fetch` in `signIn.passkey`
+    // that sits outside a catch of its own (see the header). Not dead code.
     return {
       outcome: 'failed',
       // `&& cause.message`, NOT A BARE `instanceof`: `new Error('')` is an

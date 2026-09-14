@@ -44,10 +44,12 @@ import { rememberPasskeyRegistered } from '#/lib/passkey.ts'
  * probe with no imports at all, and `routes/app.tsx` imports it — so putting
  * the ceremony there would pull the whole Better Auth client into the DASHBOARD
  * route's module graph now, for a route that starts no ceremony. /login's
- * passkey button (Task 4) will be the second such importer; that half is
- * PLANNED rather than present, and `login.tsx` imports nothing from
- * lib/passkey.ts yet. This module depends on the auth client and belongs beside
- * it rather than inside the storage primitives it calls.
+ * passkey button is the second such importer and is now BUILT
+ * (wordle-teams-wty4.1.7.4): `login.tsx` imports `passkeyRegisteredHere` and
+ * `passkeySupported` from lib/passkey.ts, and drives its ceremony through
+ * lib/signin-passkey.ts — this module's sibling, which exists for the same
+ * reason and keeps the same split. This module depends on the auth client and
+ * belongs beside it rather than inside the storage primitives it calls.
  */
 export type PasskeyRegistration =
   | { outcome: 'registered' }
