@@ -533,6 +533,30 @@ fix(entry): backspace deletes behind the cursor, not from the last filled row
 
 ## Task 3: `moveZone` and `cursorFor`
 
+> **Three carry-forwards from Task 2b's quality review**, folded in here because
+> they touch this same file and are not worth their own commit.
+>
+> 1. **The comment ratio is now 53%**, above the 50% of its sibling
+>    `convex/lib/board.ts` and up from 44% before Task 2b. Every line earns its
+>    keep individually, but the trend must not compound. **Task 3's additions
+>    should lower the ratio, not raise it.** If `moveZone` and `cursorFor` want
+>    doc comments proportional to `backspace`'s 26 lines, hoist the historical
+>    bug narratives out of the function docs into one top-of-file "why this
+>    shape" block instead, and leave the function docs stating rules.
+> 2. **`backspace`'s contingency clause becomes TRUE in this task.** It
+>    currently hedges that "every no-op is visible to the player" depends on a
+>    cursor that does not exist yet. `cursorFor` is that cursor. Rewrite the
+>    clause as a statement rather than a promise, and drop the self-referential
+>    framing ("this paragraph is a claim about where the module is headed") —
+>    say the thing, not that you are saying it.
+> 3. **Fix one test comment's framing.** The walk-back-as-recovery test says
+>    "nothing pinned it", which is no longer accurate — the pre-existing
+>    `BACKSPACING AN EMPTY BOARD RETURNS TO THE ANSWER` test already covers that
+>    branch. Keep the test (it documents the `typeLetter`/`backspace` pairing)
+>    but say what it actually adds: documentation of the pairing, not new branch
+>    coverage.
+
+
 **Files:**
 - Modify: `v2/src/components/board-entry/entry-cursor.ts`
 - Test: `v2/src/components/board-entry/entry-cursor.test.ts`
