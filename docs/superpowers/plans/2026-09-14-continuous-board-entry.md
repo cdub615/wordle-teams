@@ -510,6 +510,13 @@ git commit -m "feat(entry): one definition of where the next letter goes"
 
 ## Task 4: The coach line
 
+> **Contract change from Task 1's review.** `Refusal` gained a fifth member,
+> `'not-a-letter'`, so that a raw `KeyboardEvent.key` like `'Enter'` cannot be
+> appended whole and overshoot the answer. `coachFor` needs no new branch — it
+> falls through to the zone line — but the silence is deliberate and is pinned
+> by a test below. The union is now:
+> `'not-a-letter' | 'answer-full' | 'answer-incomplete' | 'board-solved' | 'board-full'`.
+
 **Files:**
 - Create: `v2/src/components/board-entry/entry-coach.ts`
 - Test: `v2/src/components/board-entry/entry-coach.test.ts`
@@ -560,6 +567,20 @@ describe('coachFor', () => {
   test('says backspace goes back once a guess is under way', () => {
     expect(line({ answer: 'CRANE', zone: 'board', guesses: ['SL', '', '', '', '', ''] })).toBe(
       'Keep typing. Backspace goes back a letter',
+    )
+  })
+
+  /**
+   * 'not-a-letter' IS DELIBERATELY NOT ANNOUNCED. Task 1's review added it so
+   * that an arrow key or 'Enter' arriving as a KeyboardEvent.key cannot
+   * overshoot the answer — but a player pressing an arrow key has not made a
+   * mistake and does not need telling. It falls through to the zone line, and
+   * this test is what stops someone "helpfully" giving it copy later.
+   */
+  test('a key that is not a letter is passed over in silence', () => {
+    expect(line({}, 'not-a-letter')).toBe("Type today's answer — five letters")
+    expect(line({ answer: 'CRANE', zone: 'board' }, 'not-a-letter')).toBe(
+      'Now type your first guess — rows advance on their own',
     )
   })
 
