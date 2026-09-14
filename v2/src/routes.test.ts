@@ -784,6 +784,47 @@ describe('/chat is reachable from the app, which is the whole of wordle-teams-qi
 })
 
 /**
+ * ONE OPINION ABOUT WHO IS ON THE ROSTER, AND IT IS NOT IN THIS ROUTE.
+ *
+ * WHAT GOES WRONG IF THERE ARE TWO. Chat resolves an author's NAME and their
+ * AVATAR from the same roster. If those two lookups ever disagree, the specific
+ * way it surfaces is a FACE beside the words "Former member" — handing back
+ * exactly the identity that label exists to withhold.
+ *
+ * WHY A STATIC CHECK AND NOT A UNIT TEST. src/lib/chat-roster.test.ts pins what
+ * `rosterEntryFor` ANSWERS, including that a departed author never comes back
+ * with a record. What it structurally cannot pin is a SECOND lookup that agrees
+ * with the first today: two finds that return the same member for every input
+ * are behaviourally identical, so no assertion over behaviour can see the
+ * difference — measured, with a mutant that split the resolution in two and
+ * survived all five of that file's tests. The divergence is a source property,
+ * so it is asserted against the source.
+ *
+ * THIS IS THE ASSERTION THAT ACTUALLY FAILS ON THE LIKELY EDIT: a mention, a
+ * reaction or a read-receipt needing a member, and the obvious
+ * `team.members.find(...)` written inline next to the call that already has the
+ * answer. That edit compiles, lints, builds and passes every other test in this
+ * repo.
+ *
+ * `codeOf` STRIPS COMMENTS FIRST, which is not incidental — routes/chat.tsx
+ * discusses `members.find` in prose precisely because it must not call it, and
+ * a raw-source regex would fail on the sentence explaining the rule.
+ */
+describe('chat holds exactly one opinion about who is on the roster', () => {
+  const CHAT = './routes/chat.tsx'
+
+  test('routes/chat.tsx resolves an author through rosterEntryFor and never finds a member itself', () => {
+    const source = codeOf(read(CHAT))
+
+    // Optional chaining and whitespace included: `team?.members .find(` is the
+    // same second opinion written differently, and a literal-substring check
+    // would wave it through.
+    expect(source).not.toMatch(/members\s*\??\s*\.\s*find\b/)
+    expect(source).toMatch(/\brosterEntryFor\b/)
+  })
+})
+
+/**
  * `/join/$token`, THE ROUTE WHOSE URLs LIVE IN OTHER PEOPLE'S CHAT HISTORIES.
  *
  * THE SAME CRITERION AS `/me` AT THE TOP OF THIS FILE, arrived at by a
