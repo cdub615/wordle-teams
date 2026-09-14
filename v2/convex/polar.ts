@@ -1,11 +1,9 @@
-import { Polar } from '@polar-sh/sdk'
-import { HTTPClient } from '@polar-sh/sdk/lib/http.js'
+import { createPolar } from '@polar-sh/sdk/2026-10'
 import { v } from 'convex/values'
 import { action, internalAction, internalQuery } from './_generated/server'
 import { internal } from './_generated/api'
 import { currentPlayer } from './access.ts'
 import { isCredentialProblem, isMissingCheckout, isMissingCustomer } from './lib/polarErrors.ts'
-import { POLAR_API_VERSION } from './lib/polarVersion.ts'
 import type { Id } from './_generated/dataModel'
 
 /**
@@ -30,21 +28,31 @@ import type { Id } from './_generated/dataModel'
  * can be exercised without a network. What is left inside each action is one
  * SDK call and nothing worth asserting about. See polar.test.ts.
  *
- * NO `'use node'`, AND THAT IS MEASURED RATHER THAN ASSUMED — three ways.
- * Grepping `@polar-sh/sdk@0.49.0`'s published ESM build for `node:`-prefixed or
- * bare Node built-in imports finds exactly one file, `dist/esm/webhooks.test.js`,
- * which is the package's own test and is reachable from no entry point; the
- * client is `fetch` and `zod` and nothing else. `npx convex codegen` then pushed
- * this module to the local deployment on the DEFAULT runtime and succeeded. And
- * adding `'use node'` made that same push fail outright
+ * NO `'use node'`, AND THAT IS MEASURED RATHER THAN ASSUMED — AND RE-MEASURED
+ * FOR THIS PACKAGE. The audit below is specific to the dependency it was run
+ * against and does NOT transfer across an SDK swap, which is why
+ * wordle-teams-y8to re-ran it when the client moved from `@polar-sh/sdk@0.49.0`
+ * to `1.0.0-alpha.21`. Over the alpha's installed ESM dist: zero
+ * `node:`-prefixed imports, zero bare Node built-in imports, zero `Buffer.*`
+ * uses and zero `process.*` uses. It is `fetch` and nothing else.
+ *
+ * That is STRICTLY CLEANER than the package it replaced. 0.49.0 carried a real
+ * `Buffer.from` in its webhook helper — see the paragraph below, which is the
+ * whole reason convex/http.ts verifies through `standardwebhooks` directly —
+ * and its only other hit was `dist/esm/webhooks.test.js`, the package's own
+ * test. The alpha's single textual "Buffer" match is `new ArrayBuffer(...)`,
+ * which is a substring, not Node's global.
+ *
+ * The runtime half of the measurement stands unchanged from Task 9: `npx convex
+ * codegen` pushed this module to the local deployment on the DEFAULT runtime and
+ * succeeded, and adding `'use node'` made that same push fail outright
  * (`DeploymentNotConfiguredForNodeActions` — the Node runtime wants v20/22/24,
  * which this machine does not have), so the directive would cost local
  * development for nothing.
  *
  * (The one runtime dependency that could plausibly have needed Node,
  * `standardwebhooks`, reaches only `@stablelib/base64` and `fast-sha256` — both
- * pure JS — and is not on this module's import path anyway, since the root entry
- * does not re-export `webhooks.js`.)
+ * pure JS — and is not on this module's import path anyway.)
  *
  * TASK 10 WENT FURTHER, AND THE REASON MATTERS HERE: `@polar-sh/sdk`'s
  * `validateEvent` cannot run on the default runtime at all — measured against
@@ -208,36 +216,6 @@ export function polarServer(): 'production' | 'sandbox' {
 }
 
 /**
- * The `beforeRequest` hook that stamps {@link POLAR_API_VERSION} on the wire.
- *
- * A HOOK BECAUSE 0.49.0'S `SDKOptions` HAS NO `headers` FIELD. It has
- * `accessToken`, `httpClient`, `server`, `serverURL`, `userAgent`,
- * `retryConfig`, `timeoutMs` and `debugLogger` — and nothing else — so the
- * documented seam for an extra header is `HTTPClient.addHook('beforeRequest')`,
- * which is what the SDK's own README uses for exactly this. The alternative
- * was `@polar-sh/sdk@next` and its `createPolar` versioned import, which sets
- * the header itself; that line is a public preview, and adopting it would also
- * invalidate the no-`'use node'` measurement in this module's header, which was
- * run against 0.49.0's published ESM build and would have to be redone against
- * a different package.
- *
- * CLONES RATHER THAN MUTATES. A `Request` built by the SDK carries the
- * immutable "request" header guard for some fields, and the hook is handed the
- * SDK's own object; `new Request(req)` produces one whose headers accept a set,
- * and every other property — method, url, body, signal — comes across. This is
- * the README's pattern verbatim, minus its timeout.
- *
- * Exported so `polar.test.ts` can drive it over a real `Request` without a
- * network, which is the only way to prove the header is actually on the wire —
- * the SDK calls it internally and nothing else here can observe it.
- */
-export function pinApiVersion(request: Request): Request {
-  const pinned = new Request(request)
-  pinned.headers.set('Polar-Version', POLAR_API_VERSION)
-  return pinned
-}
-
-/**
  * The SDK client: built on first use and then reused.
  *
  * LAZY RATHER THAN AT MODULE SCOPE. v1 is lazy too, but for a reason that does
@@ -267,19 +245,28 @@ export function pinApiVersion(request: Request): Request {
  * Memoised because the client is stateless configuration — it holds a token and
  * a base URL — so a warm function instance reusing it is free and correct.
  */
-let client: Polar | undefined
+let client: ReturnType<typeof createPolar> | undefined
 
-export function polar(): Polar {
+export function polar() {
   assertPolarEnv()
 
-  client ??= new Polar({
-    accessToken: process.env.POLAR_ACCESS_TOKEN,
-    server: polarServer(),
-    // Configuration, not a new failure path: the hook runs per request, sets
-    // one header and returns. It cannot throw on a value this module does not
-    // control, so `polar()`'s contract — assert the environment, then hand back
-    // a client — is unchanged.
-    httpClient: new HTTPClient().addHook('beforeRequest', pinApiVersion),
+  client ??= createPolar({
+    // Non-null because `assertPolarEnv` above has just proved it. The alpha
+    // types this as a required `string`, where 0.49.0 accepted
+    // `string | undefined` and failed later, at the request.
+    accessToken: process.env.POLAR_ACCESS_TOKEN!,
+    // `environment`, not 0.49.0's `server` — the SAME two values, so
+    // `polarServer` and everything that validates it carry over untouched.
+    environment: polarServer(),
+    // NO Polar-Version HERE, AND THAT IS THE POINT OF THE VERSIONED IMPORT.
+    // `createPolar` from '@polar-sh/sdk/2026-10' bakes the version into the
+    // client and sets the header itself on every request
+    // (`dist/base-*.mjs`: `"Polar-Version": this.options.version`). The
+    // `pinApiVersion` hook this replaced existed only because 0.49.0's
+    // `SDKOptions` had no way to say it. Adding one back would mean two things
+    // setting one header, and the import path is now the single place the
+    // version is chosen — which is why POLAR_API_VERSION is asserted against
+    // that path in lib/polarVersion.test.ts rather than passed to anything.
   })
 
   return client
@@ -508,11 +495,11 @@ export const createProCheckout = action({
     try {
       const checkout = await polar().checkouts.create({
         products: proProductIds(),
-        externalCustomerId: me.playerId,
+        external_customer_id: me.playerId,
         metadata: { player_id: me.playerId },
-        customerEmail: me.email,
-        customerName: me.name ?? undefined,
-        successUrl: `${siteUrl()}/app?checkout=success`,
+        customer_email: me.email,
+        customer_name: me.name ?? undefined,
+        success_url: `${siteUrl()}/app?checkout=success`,
       })
 
       return { url: checkout.url }
@@ -846,10 +833,10 @@ export const getCustomerPortalUrl = action({
     const attempt: PortalAttempt = async (externalId) => {
       try {
         const session = await polar().customerSessions.create({
-          externalCustomerId: externalId,
-          returnUrl,
+          external_customer_id: externalId,
+          return_url: returnUrl,
         })
-        return { url: session.customerPortalUrl, customerId: session.customerId }
+        return { url: session.customer_portal_url, customerId: session.customer_id }
       } catch (error) {
         const reason = classifyPortalError(error)
 
@@ -892,7 +879,7 @@ export const getCustomerPortalUrl = action({
           try {
             await polar().customers.create({
               email: me.email,
-              externalId: me.playerId,
+              external_id: me.playerId,
               // `?? undefined`, not `?? ''`: checkoutIdentity nulls a blank
               // name on purpose, and Polar's own field is optional. See its
               // note — an empty string is at best meaningless here.
@@ -978,8 +965,8 @@ export const fetchCheckoutExternalId = internalAction({
   args: { checkoutId: v.string() },
   handler: async (_ctx, { checkoutId }): Promise<string | null> => {
     try {
-      const checkout = await polar().checkouts.get({ id: checkoutId })
-      return checkout.externalCustomerId ?? null
+      const checkout = await polar().checkouts.get(checkoutId)
+      return checkout.external_customer_id ?? null
     } catch (error) {
       if (isMissingCheckout(error)) {
         // An answer, not a failure: this checkout can never name anybody. Warn
@@ -1037,10 +1024,7 @@ export const repairCustomerExternalId = internalAction({
   args: { customerId: v.string(), playerId: v.id('players') },
   handler: async (_ctx, { customerId, playerId }): Promise<void> => {
     try {
-      await polar().customers.update({
-        id: customerId,
-        customerUpdate: { externalId: playerId },
-      })
+      await polar().customers.update(customerId, { external_id: playerId })
     } catch (error) {
       console.warn('[polar] could not stamp external id onto customer', { customerId }, error)
     }

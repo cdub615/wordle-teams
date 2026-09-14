@@ -9,7 +9,6 @@ import {
   ensurePortal,
   externalIdsFor,
   lookupPortal,
-  pinApiVersion,
   polarEnvProblem,
   polarServer,
   proProductIds,
@@ -199,7 +198,7 @@ describe('classifyPortalError', () => {
   // see isMissingCustomer, which was three attempts in v1. Not a failure.
   test('a 422 naming a missing customer is no-customer', () => {
     expect(
-      classifyPortalError({ statusCode: 422, body: '{"detail":"Customer does not exist."}' }),
+      classifyPortalError({ statusCode: 422, error: { detail: 'Customer does not exist.' } }),
     ).toBe('no-customer')
   })
 
@@ -216,7 +215,7 @@ describe('classifyPortalError', () => {
   test.each<[string, unknown]>([
     ['a 500', { statusCode: 500 }],
     ['a 429', { statusCode: 429 }],
-    ['a 422 with no matching detail', { statusCode: 422, body: '{"detail":"bad success_url"}' }],
+    ['a 422 with no matching detail', { statusCode: 422, error: { detail: 'bad success_url' } }],
     ['a network error with no status', new Error('fetch failed')],
     ['a thrown string', 'nope'],
     ['null', null],
@@ -466,12 +465,12 @@ describe('the URLs Polar returns the browser to', () => {
   // are read as source, the pattern src/lib/sw-push.test.ts uses for the push
   // payload, because that literal is the artefact that ships.
   //
-  // successUrl's other half is pinned from the consuming side, in
+  // success_url's other half is pinned from the consuming side, in
   // src/lib/checkout-return.test.ts, against that module's CHECKOUT_PARAM.
   const source = readFileSync(new URL('./polar.ts', import.meta.url), 'utf8')
 
   /**
-   * The rest of the line the named URL is built on — `successUrl:` is a
+   * The rest of the line the named URL is built on — `success_url:` is a
    * property, `returnUrl =` a local, hence the two-character class. Bounded to
    * that one line, so a later, unrelated occurrence of the same path cannot
    * satisfy the assertion.
@@ -483,7 +482,7 @@ describe('the URLs Polar returns the browser to', () => {
   }
 
   test('checkout comes back to the dashboard, carrying its marker', () => {
-    expect(urlLine('successUrl')).toContain('/app?checkout=success')
+    expect(urlLine('success_url')).toContain('/app?checkout=success')
   })
 
   test('the customer portal comes back to the dashboard', () => {
@@ -666,71 +665,5 @@ describe('ensurePortal only creates after an exhausted no-customer sweep', () =>
     const misconfigured = { found: false, result: { url: null, reason: 'not-configured' } } as const
 
     expect(await ensurePortal(misconfigured, PLAYER, forbidden, noAttempt)).toEqual(misconfigured)
-  })
-})
-
-/**
- * wordle-teams-rpc0. The outbound API version pin.
- *
- * WHY THIS IS TESTABLE WHEN THE SDK CALLS AROUND IT ARE NOT. Everything this
- * file's header rules out is "stub the SDK, assert the stub was called". The
- * hook is the opposite: it is a pure `Request -> Request` function that the
- * production client is built from, so driving it directly exercises the real
- * thing and asserts on a real answer. A regression that dropped the header, set
- * the wrong one, or mutated the caller's request would fail here.
- *
- * What is NOT covered, deliberately: that `new Polar({ httpClient })` actually
- * invokes the hook. That is the SDK's contract with itself, it needs a network
- * or a fetch stub to observe, and stubbing it would land squarely in the
- * assert-called trap above. Task 13's sandbox pass is where the header meets a
- * real Polar.
- *
- * The constant itself is pinned in lib/polarVersion.test.ts, beside the file it
- * lives in.
- */
-describe('pinApiVersion', () => {
-  test('puts the pinned version on the wire', () => {
-    const pinned = pinApiVersion(new Request('https://sandbox-api.polar.sh/v1/checkouts/'))
-
-    expect(pinned.headers.get('Polar-Version')).toBe('2026-04')
-  })
-
-  // An unpinned request is not versionless — Polar resolves it to Current, and
-  // Current changes quarterly. This is the whole point of the hook.
-  test('the request it was given had no such header', () => {
-    const original = new Request('https://sandbox-api.polar.sh/v1/checkouts/')
-
-    pinApiVersion(original)
-
-    expect(original.headers.get('Polar-Version')).toBeNull()
-  })
-
-  // The hook is handed the SDK's own fully-formed request — method, url, body,
-  // auth header, content type. Cloning has to carry all of it across, because
-  // anything dropped here is dropped from every Polar call this app makes.
-  test('carries the rest of the request across the clone', async () => {
-    const original = new Request('https://sandbox-api.polar.sh/v1/checkouts/', {
-      method: 'POST',
-      headers: { authorization: 'Bearer polar_oat_test', 'content-type': 'application/json' },
-      body: JSON.stringify({ products: ['prod_annual', 'prod_monthly'] }),
-    })
-
-    const pinned = pinApiVersion(original)
-
-    expect(pinned.method).toBe('POST')
-    expect(pinned.url).toBe('https://sandbox-api.polar.sh/v1/checkouts/')
-    expect(pinned.headers.get('authorization')).toBe('Bearer polar_oat_test')
-    expect(pinned.headers.get('content-type')).toBe('application/json')
-    expect(await pinned.json()).toEqual({ products: ['prod_annual', 'prod_monthly'] })
-  })
-
-  // A header Polar itself sets on the response, and one an earlier hook could
-  // conceivably set: the pin must win rather than append a second value.
-  test('replaces a version already on the request rather than appending one', () => {
-    const stale = new Request('https://sandbox-api.polar.sh/v1/checkouts/', {
-      headers: { 'Polar-Version': '2025-10' },
-    })
-
-    expect(pinApiVersion(stale).headers.get('Polar-Version')).toBe('2026-04')
   })
 })

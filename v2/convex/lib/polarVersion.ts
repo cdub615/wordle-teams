@@ -1,32 +1,42 @@
 /**
- * The Polar API version this app is written against.
+ * The Polar API version this app is written against, in BOTH directions.
  *
- * wordle-teams-rpc0 / wordle-teams-jn7m.
+ * wordle-teams-rpc0 / wordle-teams-jn7m, moved to 2026-10 by wordle-teams-y8to
+ * and wordle-teams-3mpq (epic wordle-teams-acmm).
  *
  * POLAR VERSIONS THE CONTRACT BY DATE, AND AN UNPINNED REQUEST IS NOT
  * VERSIONLESS — it resolves to whatever is Current, and Current CHANGES at each
- * quarterly release (January, April, July, October). On 2026-10-01, 2026-10
- * becomes Current, so leaving this unset would have changed the shape of every
- * response convex/polar.ts reads with no code change, no build failure and no
- * test failure. 2026-04 becomes Deprecated on that date and keeps its stable
- * contract until it is REMOVED at the January 2027 release; migrating off it is
- * wordle-teams-4etd, and it is a hard deadline because Polar answers an unknown
- * or removed version with 404 rather than a fallback.
+ * quarterly release (January, April, July, October). 2026-10 became Current on
+ * 2026-10-01, so leaving this unset would change the shape of every response
+ * convex/polar.ts reads with no code change, no build failure and no test
+ * failure. 2026-10 goes Deprecated at the January 2027 release and is REMOVED
+ * roughly two quarters later; moving off it is a hard deadline, because Polar
+ * answers an unknown or removed version with 404 rather than a fallback. See
+ * wordle-teams-shdx, which carries that date alongside the prerelease it is
+ * entangled with.
  *
- * 2026-04 IS NOT A PREFERENCE, IT IS WHAT THE INSTALLED SDK ALREADY IS.
- * `@polar-sh/sdk@0.49.0` reports `SDK_METADATA.openapiDocVersion === '2026-04'`:
- * its generated models — the types convex/polar.ts compiles against — describe
- * that contract and no other. Pinning the wire to it makes the request agree
- * with the types. `polarVersion.test.ts` asserts that equality rather than
- * trusting it, so an SDK upgrade that moves the generated contract fails the
- * suite instead of drifting silently past this constant.
+ * 2026-10 IS NOT A PREFERENCE, IT IS THE IMPORT PATH convex/polar.ts USES.
+ * `@polar-sh/sdk@1.0.0-alpha.21` ships one entry point per API version, and
+ * `createPolar` from '@polar-sh/sdk/2026-10' bakes that version into the client
+ * and sends it as `Polar-Version` on every request. So the subpath IS the
+ * contract selection, and this constant only DESCRIBES it — which is why
+ * `polarVersion.test.ts` asserts the two agree by reading the import statement
+ * rather than trusting them to be kept in step by hand.
+ *
+ * MOVING TO IT COST NOTHING IN SHAPE, WHICH IS WORTH RECORDING BECAUSE IT
+ * SOUNDS UNLIKELY. Diffing the two model sets the prerelease ships — 21710
+ * lines each, 2026-04 against 2026-10 — yields three hunks: two doc-comment
+ * strings and a sourcemap filename. No field is renamed, removed or retyped,
+ * and `external_id`, `customer_id` and `checkout_id` occur 212 times in each.
+ * The migration was a client-API change (camelCase bodies to snake_case,
+ * `new Polar` to `createPolar`), not a data-shape change.
  *
  * A CONSTANT, NOT AN ENV VAR, and the reasoning is `polarServer`'s inverted.
  * That value is checked rather than coerced because a deployment genuinely has
  * to change it and a typo must not resolve to something plausible. This one a
- * deployment must NOT change: a version the SDK's models do not describe is
- * broken code, not a configuration choice, and making it settable would let an
- * operator turn every Polar call into a 404 from a dashboard.
+ * deployment must NOT change: the version is chosen by an import path that is
+ * fixed at build time, so a deployment variable could only ever disagree with
+ * the code — and Polar answers an unknown version with 404.
  *
  * DEPENDENCY-FREE, LIKE EVERYTHING ELSE IN convex/lib/ — and here that is the
  * whole reason this is a file of its own rather than an export from
@@ -39,15 +49,22 @@
  * value and neither reach the other. `polarErrors.ts` was split out for exactly
  * the same reason.
  *
- * THE TWO SIDES ARE NOT THE SAME MECHANISM, which is why one constant serves
- * both rather than one setting covering both:
- *   - OUTBOUND is pinned by the `Polar-Version` request header, which
- *     convex/polar.ts's `pinApiVersion` hook sets on every SDK call.
- *   - INBOUND is pinned per WEBHOOK ENDPOINT, by an `api_version` set where the
- *     endpoint is configured — a dashboard setting on each Polar instance, which
- *     the request header has no bearing on. This repo cannot set it;
- *     docs/runbooks/2026-cutover.md carries the step, and convex/http.ts warns
- *     when a delivery arrives at a version other than this one, which is how a
- *     missed step becomes visible.
+ * THE TWO SIDES ARE NOT THE SAME MECHANISM, AND THEY AGREE ONLY BY CURRENT
+ * COINCIDENCE. One constant serves both today because both happen to be
+ * 2026-10; that is a fact about this moment, NOT a rule, and the next quarterly
+ * release can separate them again:
+ *   - OUTBOUND is chosen by the '@polar-sh/sdk/2026-10' import path in
+ *     convex/polar.ts. It changes when the code changes.
+ *   - INBOUND is pinned per WEBHOOK ENDPOINT, by an `api_version` fixed when the
+ *     endpoint is created (and PATCHable at /v1/webhooks/endpoints/{id} with a
+ *     `webhooks:write` token). It lives in a Polar dashboard this repo cannot
+ *     read, on each instance separately, and it changes when a HUMAN changes it
+ *     — or when an endpoint is replaced, which is exactly what happened on
+ *     2026-09-14.
+ *
+ * SO IF THEY EVER DIVERGE, SPLIT THIS INTO TWO CONSTANTS RATHER THAN PICKING A
+ * WINNER. convex/http.ts warns when a delivery arrives at a version other than
+ * this one, which is the only signal this repo gets that somebody moved the
+ * endpoint side; docs/runbooks/2026-cutover.md §1.6 says what to do about it.
  */
-export const POLAR_API_VERSION = '2026-04'
+export const POLAR_API_VERSION = '2026-10'

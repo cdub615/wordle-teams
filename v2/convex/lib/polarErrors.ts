@@ -16,8 +16,20 @@
 /**
  * The two fields the classification reads, both `unknown` because the input is
  * whatever `catch` produced.
+ *
+ * `error` RATHER THAN `body`, WHICH IS AN SDK-SHAPE CHANGE AND NOT A RENAME
+ * (wordle-teams-y8to). `@polar-sh/sdk@0.49.0`'s `PolarError` carried the raw
+ * response text on `body`. `1.0.0-alpha.21` has no `body` at all: its
+ * `PolarClientError` carries `statusCode` and `error`, and what `error` HOLDS
+ * depends on whether the endpoint declared that status —
+ *   - declared:   `new ErrorClass(statusCode, await response.json())`, so a
+ *                 PARSED OBJECT;
+ *   - undeclared: `new PolarClientError(statusCode, await response.text())`, so
+ *                 a RAW STRING.
+ * Both shapes are live for the same status code depending on the endpoint,
+ * which is why the matcher below normalises instead of picking one.
  */
-type HttpErrorish = { statusCode?: unknown; body?: unknown }
+type HttpErrorish = { statusCode?: unknown; error?: unknown }
 
 /**
  * Whether this error means the customer does not exist, rather than that the
@@ -55,24 +67,55 @@ type HttpErrorish = { statusCode?: unknown; body?: unknown }
  * to depend on and testable.
  *
  * Deliberately does NOT distinguish the SDK's `HTTPValidationError` subclass by
- * name: `body` is the raw response text, which is populated on every
- * `PolarError` (measured on 0.49.0 — `PolarError` sets `this.body` from
- * `httpMeta.body`, and `HTTPValidationError` extends it), whereas the parsed
- * `detail` field only survives when the body matches the schema the generated
- * client expects. Matching the raw text is what v1 shipped and what has been
- * live since 2026-08-03.
+ * name, and does not reach for a `detail` field either. On the alpha a 422 can
+ * arrive as `HTTPValidationError` with `error` a parsed `{ detail: [...] }`, or
+ * as a bare `PolarClientError` with `error` the raw response text, depending on
+ * whether the endpoint's spec declares 422. Serialising whichever it is and
+ * matching the sentence covers both, and is the same thing v1 shipped against
+ * the raw text and has run since 2026-08-03.
+ *
+ * SERIALISING IS NOT `String(error)`. That yields "[object Object]" for the
+ * parsed shape — a value the regex can never match, which would silently
+ * restore exactly the bug this function exists to fix: every non-subscriber
+ * told to try again later, forever. `JSON.stringify` is what actually reaches a
+ * nested `detail`. Mutating `serialise` to `String(value)` fails two tests in
+ * polarErrors.test.ts, which is the check that this paragraph is still true.
  */
 export function isMissingCustomer(error: unknown): boolean {
   // `?? {}` rather than a typeof guard: a thrown string or null must fall
   // through to false, and destructuring an object literal gives that for free.
-  const { statusCode, body } = (error ?? {}) as HttpErrorish
+  const { statusCode, error: detail } = (error ?? {}) as HttpErrorish
 
   if (statusCode === 404) return true
   if (statusCode !== 422) return false
 
-  // A non-string body cannot carry the detail, and `.test(String(body))` would
-  // be a way to match "[object Object]" by accident.
-  return typeof body === 'string' && /customer does not exist/i.test(body)
+  return /customer does not exist/i.test(serialise(detail))
+}
+
+/**
+ * The error body as text, whether the SDK handed over a string or a parsed
+ * object, and '' for anything that cannot be represented.
+ *
+ * THE try/catch IS LOAD-BEARING: a circular value makes `JSON.stringify` THROW,
+ * and this runs inside a `catch` on the portal's happy path, so the throw would
+ * replace "no billing account" with an unhandled error for a user whose only
+ * problem is that they have not paid. polarErrors.test.ts drives a circular
+ * body for exactly that.
+ *
+ * `?? ''` IS FOR THE TYPE, NOT FOR BEHAVIOUR, and is called out because it
+ * looks like a guard. `JSON.stringify(undefined)` returns `undefined`, which
+ * this function's `string` return type forbids — but the only caller feeds the
+ * result to `RegExp.test`, which would coerce it to the harmless "undefined".
+ * Removing it changes no observable behaviour and no test fails, so nothing
+ * here should be read as claiming otherwise.
+ */
+function serialise(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return ''
+  }
 }
 
 /**

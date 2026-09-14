@@ -432,10 +432,13 @@ describe('the API version a delivery was rendered at', () => {
     expect(versionLines()).toHaveLength(0)
   })
 
-  // THE CASE THE CHECK EXISTS FOR: Oct 1 arrives, the endpoint's api_version was
-  // never set, and Polar starts rendering at the new Current.
+  // THE CASE THE CHECK EXISTS FOR: a quarterly release lands, an endpoint's
+  // api_version was never set or was set to something else, and Polar starts
+  // rendering at a version this app was not written against. 2027-01 is the
+  // next release after the one the app is pinned to, so it is the realistic
+  // shape of the drift rather than an arbitrary string.
   test('warns when the delivery was rendered at a different version', async () => {
-    const { res, upgraded, versionLines } = await anUpgrade({ 'webhook-api-version': '2026-10' })
+    const { res, upgraded, versionLines } = await anUpgrade({ 'webhook-api-version': '2027-01' })
 
     expect(res.status).toBe(200)
     expect(upgraded).toEqual(PROCESSED)
@@ -445,7 +448,7 @@ describe('the API version a delivery was rendered at', () => {
     // BOTH versions, because "this looks wrong" is not actionable and the fix is
     // a specific value typed into a specific dashboard field.
     expect(line[1]).toMatchObject({
-      delivered: '2026-10',
+      delivered: '2027-01',
       expected: POLAR_API_VERSION,
       eventName: 'subscription.active',
       webhookId: WEBHOOK_ID,
@@ -462,7 +465,7 @@ describe('the API version a delivery was rendered at', () => {
     const res = await post(
       t,
       signed(aBody({ metadata: { player_id: 'nobody' } }), WEBHOOK_ID, {
-        'webhook-api-version': '2026-10',
+        'webhook-api-version': '2027-01',
       }),
     )
 
@@ -476,7 +479,7 @@ describe('the API version a delivery was rendered at', () => {
   test('does not warn about a delivery that failed verification', async () => {
     const t = convexTest(schema, modules)
     const { versionLines } = warnings()
-    const init = signed(aBody(), WEBHOOK_ID, { 'webhook-api-version': '2026-10' })
+    const init = signed(aBody(), WEBHOOK_ID, { 'webhook-api-version': '2027-01' })
 
     const res = await post(t, {
       ...init,

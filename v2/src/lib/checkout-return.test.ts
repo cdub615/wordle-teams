@@ -90,10 +90,10 @@ describe('checkoutReturnUrl', () => {
 })
 
 describe('the URL convex/polar.ts actually sends the browser back to', () => {
-  test("createProCheckout's successUrl is the input this module claims it is", () => {
+  test("createProCheckout's success_url is the input this module claims it is", () => {
     // THE OTHER END OF THE CONTRACT, which had no coverage of any kind. The
     // header of checkout-return.ts states as fact that polar.ts sets
-    // `successUrl` to `${siteUrl()}/app?checkout=success`, and everything here
+    // `success_url` to `${siteUrl()}/app?checkout=success`, and everything here
     // is built on that; but changing that literal to `/` was green on lint,
     // typecheck, `vitest run` and build. e2e cannot reach it either —
     // e2e/billing.spec.ts types `/app?checkout=success` in by hand precisely
@@ -107,8 +107,8 @@ describe('the URL convex/polar.ts actually sends the browser back to', () => {
     // above rather than a second hardcoded copy, so this fails if EITHER side
     // moves.
     const polar = readFileSync(new URL('../../convex/polar.ts', import.meta.url), 'utf8')
-    const at = polar.indexOf('successUrl:')
-    expect(at, 'successUrl not found in convex/polar.ts').toBeGreaterThan(-1)
+    const at = polar.indexOf('success_url:')
+    expect(at, 'success_url not found in convex/polar.ts').toBeGreaterThan(-1)
 
     // Bounded to its own line. An unbounded slice would be satisfied by any
     // later occurrence of the string — the false negative sw-push.test.ts had.
