@@ -341,6 +341,196 @@ git commit -m "feat(entry): backspace walks back into the answer"
 
 ---
 
+## Task 2b: `nextSlot`, `normalise`, and the gapped-board backspace fix
+
+> **Inserted after Task 2's quality review.** It found a **live production bug**
+> (`wordle-teams-lz3w`) that Task 2 faithfully ported, plus two extractions that
+> are genuine sharing rather than false sharing. Split out of Task 3 so
+> "refactor and fix" and "add the two new functions" are separate reviewable
+> commits.
+
+**Files:**
+- Modify: `v2/src/components/board-entry/entry-cursor.ts`
+- Modify: `v2/src/components/board-entry/entry-cursor.test.ts`
+- Closes (partly): `wordle-teams-lz3w`
+
+### The bug, measured
+
+`typeLetter` scans FORWARDS for the first row with room. `backspace` scans
+BACKWARDS for the last row with any content. On a board where those disagree,
+backspace deletes from a row the cursor is not in.
+
+They disagree on any **gapped** board, and gapped boards are a designed-for
+shape: `prefillFrom` (`import-prefill.ts`) assembles the board **by row index**
+from a screenshot parse and reports unreadable rows through `missingRows`.
+`import-prefill.test.ts` asserts exactly `['', '', 'CRANE', '', '', '']` with
+`missingRows: [0, 1]`.
+
+Measured against the real functions on `['', '', 'SLATE', '', '', '']`:
+
+```
+type 'A'        -> A | | SLATE | | |     lands row 0, correct
+then backspace  -> A | | SLAT  | | |     eats row 2, leaves the A
+production      -> A | | SLAT  | | |     applyBackspace, identical
+backspace alone -> | | SLAT | | |        nothing was ever typed
+```
+
+The last line is the user-visible bug: open an import-prefilled board with an
+unread row, press backspace once, and a row the reader got RIGHT silently loses
+a letter nowhere near the cursor.
+
+**Why no test caught it:** `board-input.test.ts`'s "crosses back into the
+previous row once the active row is empty" documents the reverse scan as
+intentional — and it IS correct for a **prefix** board, where rows fill in order
+and the two scans always agree. Every test used a prefix board. Import is what
+produces the non-prefix shape.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `entry-cursor.test.ts`:
+
+```ts
+describe('a gapped board, which is what an import with an unread row produces', () => {
+  /**
+   * wordle-teams-lz3w. import-prefill.ts assembles by ROW INDEX, so a parse
+   * that could not read rows 0-1 yields ['', '', 'SLATE', '', '', ''] — a board
+   * where "the first row with room" (row 0) and "the last row with content"
+   * (row 2) are different rows. Typing used the first; backspace used the
+   * second; so backspace ate a row the player never touched.
+   */
+  test('backspace deletes behind the CURSOR, not from the last row with content', () => {
+    const next = backspace(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['A', '', 'SLATE', '', '', ''] }),
+    )
+    expect(next.guesses).toEqual(['', '', 'SLATE', '', '', ''])
+  })
+
+  test('with nothing typed, backspace leaves an imported row alone entirely', () => {
+    const next = backspace(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['', '', 'SLATE', '', '', ''] }),
+    )
+    expect(next.guesses).toEqual(['', '', 'SLATE', '', '', ''])
+  })
+
+  // The walk-back must NOT fire here: there is a board with content on it, so
+  // the answer is not the only thing behind the cursor.
+  test('and does not walk back to the answer while the board has content', () => {
+    const next = backspace(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['', '', 'SLATE', '', '', ''] }),
+    )
+    expect(next.zone).toBe('board')
+  })
+})
+```
+
+- [ ] **Step 2: Run and confirm the first two fail for the right reason**
+
+Run: `pnpm vitest run src/components/board-entry/entry-cursor.test.ts`
+Expected: the first two FAIL, showing `['A', '', 'SLAT', ...]` — backspace eating
+row 2. That failure IS the bug. The third may already pass; that is fine.
+
+- [ ] **Step 3: Extract the two helpers**
+
+In `entry-cursor.ts`, replace the two duplicated normalisation expressions with
+one helper, and add `nextSlot`:
+
+```ts
+/**
+ * Every entry point opens with this. v1 boards can carry a seventh '' sentinel
+ * (see convex/lib/board.ts), so a caller reading `guesses.length` must get 6
+ * regardless of which function it called or which branch fired.
+ */
+const normalise = (state: EntryState): EntryState => ({
+  ...state,
+  guesses: toRows(state.guesses),
+})
+
+/**
+ * Where the next letter lands: the first row with room, and the column in it.
+ * Null when all six rows are full.
+ *
+ * typeLetter, backspace and cursorFor MUST all derive from this. If the
+ * rendered cursor and the row a keystroke fills were computed separately they
+ * could disagree — and they DID (wordle-teams-lz3w), on an import-prefilled
+ * board with an unread middle row, where the first row with room is row 1 but
+ * the last row with content is row 2.
+ *
+ * NOT NAMED `activeRow`. "Active row" is vague enough to invite exactly the
+ * reuse that caused that bug; "next slot" says it answers one question. And it
+ * returns the column as well as the row because the column is free
+ * (`rows[row].length`) and cursorFor needs it — a helper that dropped it would
+ * leave cursorFor hand-rolling half the query again.
+ */
+function nextSlot(rows: Array<string>): { row: number; col: number } | null {
+  const row = rows.findIndex((guess) => guess.length < ANSWER_LENGTH)
+  return row === -1 ? null : { row, col: rows[row].length }
+}
+```
+
+Rewrite `typeLetter`'s board branch to use `nextSlot` (behaviour identical), and
+replace `backspace`'s reverse scan with the cursor-relative rule:
+
+- `slot === null` (board full) → delete the last letter of row 5
+- `slot.col > 0` → delete the last letter of `slot.row`
+- `slot.col === 0 && slot.row > 0` → delete the last letter of `slot.row - 1`
+  (this is the existing, correct "cross back into the previous row" behaviour)
+- `slot.row === 0 && every row empty` → the walk-back, `zone = 'answer'`
+- `slot.row === 0` with content elsewhere → **no-op**. Nothing is behind the
+  cursor, and eating an untouched imported row is the bug.
+
+- [ ] **Step 4: Run the whole file**
+
+Run: `pnpm vitest run src/components/board-entry/entry-cursor.test.ts`
+Expected: PASS. **All 20 pre-existing tests must still pass unchanged** — the new
+rule is identical on every prefix board, and if any of them go red the rewrite
+is wrong rather than the test being outdated.
+
+- [ ] **Step 5: Fix the two doc comments**
+
+Replace `EntryResult`'s doc comment with the affirmative rule, so `moveZone` in
+Task 3 can be measured against it:
+
+```ts
+/**
+ * The envelope for operations that can swallow a keystroke invisibly: the
+ * resulting state, plus the named reason nothing happened. An operation whose
+ * every no-op is already legible on screen returns plain EntryState instead —
+ * `backspace` does, and its doc comment has the argument.
+ */
+```
+
+Delete the duplicated argument from the two places it currently appears, keeping
+the full version only on `backspace`, and drop the phrase "deliberate rather
+than an oversight" from both — the contrast with `typeLetter`'s refusals already
+makes the case, and asserting that a choice is not a mistake is the grammar of
+an apology rather than a design.
+
+Add one clause to `backspace`'s comment acknowledging that "every no-op is
+visible to the player" is only true once Task 3's `cursorFor` renders a cursor.
+
+- [ ] **Step 6: Add the walk-back-as-recovery test**
+
+```ts
+// The pairing with typeLetter's 'answer-incomplete' refusal: landing in the
+// board zone with a short answer is a dead end for typing and an EXIT for
+// backspace. That is the two functions composing, and nothing pinned it.
+test('the walk-back is the recovery from a short answer', () => {
+  const next = backspace(state({ answer: 'CRA', zone: 'board' }))
+  expect(next.zone).toBe('answer')
+  expect(next.answer).toBe('CRA')
+})
+```
+
+- [ ] **Step 7: All four gates, each checked separately**
+
+- [ ] **Step 8: Commit**
+
+```
+fix(entry): backspace deletes behind the cursor, not from the last filled row
+```
+
+---
+
 ## Task 3: `moveZone` and `cursorFor`
 
 **Files:**
@@ -462,17 +652,17 @@ export function moveZone(state: EntryState, zone: Zone): EntryResult {
  * Returns null only when there is genuinely nothing left to type.
  */
 export function cursorFor(state: EntryState): Cursor | null {
-  if (state.zone === 'answer') {
-    return { zone: 'answer', index: state.answer.length }
-  }
+  const { answer, guesses, zone } = normalise(state)
 
-  const rows = toRows(state.guesses)
-  if (rows.some((row) => row === state.answer)) return null
+  if (zone === 'answer') return { zone: 'answer', index: answer.length }
 
-  const row = rows.findIndex((guess) => guess.length < ANSWER_LENGTH)
-  if (row === -1) return null
+  if (guesses.some((row) => row === answer)) return null
 
-  return { zone: 'board', row, index: rows[row].length }
+  // nextSlot, NOT a third hand-rolled scan. Task 2b extracted it precisely so
+  // the rendered cursor and the row a keystroke fills cannot disagree — see
+  // wordle-teams-lz3w for what happened when they did.
+  const slot = nextSlot(guesses)
+  return slot === null ? null : { zone: 'board', row: slot.row, index: slot.col }
 }
 ```
 
