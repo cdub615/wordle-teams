@@ -4,7 +4,8 @@ import { toast } from 'sonner'
 import { Button } from '#/components/ui/button.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { authClient } from '#/lib/auth-client.ts'
-import { forgetPasskeyRegistered, passkeySupported, rememberPasskeyRegistered } from '#/lib/passkey.ts'
+import { forgetPasskeyRegistered, passkeySupported } from '#/lib/passkey.ts'
+import { ALREADY_REGISTERED_MESSAGE, registerPasskey } from '#/lib/register-passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 
 /**
@@ -93,14 +94,19 @@ export function removeLabel(
  * lock anybody out of anything. A confirmation dialog would imply a danger that
  * does not exist, and teach the player to expect one where it is not warranted.
  *
- * `addPasskey` NEVER REJECTS — it resolves to `{ data, error }` in every case,
- * including a ceremony the player aborted (measured in
- * `@better-auth/passkey/dist/client.mjs`, whose `registerPasskey` catches
- * `WebAuthnError` and returns it). So the `error` field is the ONLY failure
- * signal on that path and a bare `await` in a `try` would silently treat every
- * failure as a success. `deletePasskey` goes through the inferred-endpoint
- * proxy instead, whose return type is `any`, so its throwing behaviour is not
- * pinned by anything — that one is handled both ways on purpose.
+ * ADDING IS NOT DONE HERE ANY MORE, AND REMOVING STILL IS. `lib/register-
+ * passkey.ts` owns the ceremony, the `{ data, error }` classification and the
+ * per-device marker write, because components/passkey-offer.tsx starts the same
+ * registration and every trap in it — `addPasskey` never rejecting, one arm of
+ * the error union having no `code`, a PREVIOUSLY_REGISTERED rejection being
+ * evidence rather than a failure — would have had to be got right twice. Its
+ * header carries the reasoning. What stays here is the MESSAGING, which is not
+ * shared: this tab answers a player who came looking for a passkey, the offer
+ * answers a question the app asked.
+ *
+ * `deletePasskey` has no such sibling and goes through the inferred-endpoint
+ * proxy, whose return type is `any`, so its throwing behaviour is not pinned by
+ * anything — that one is handled both ways on purpose.
  *
  * THE LIST REFRESHES ITSELF. `passkeyClient()` registers an atom listener on
  * `/passkey/verify-registration`, `/passkey/delete-passkey`,
@@ -147,49 +153,28 @@ export default function SecurityTab() {
   const onAdd = async () => {
     setAdding(true)
     try {
-      const result = await authClient.passkey.addPasskey()
-      if (result?.error) {
-        // A CANCELLED CEREMONY IS NOT AN ERROR TO REPORT. Dismissing the system
-        // sheet is how a player says "not now", and `startRegistration` surfaces
-        // it as an ordinary WebAuthnError — so the only thing distinguishing it
-        // from a genuine failure is this code. A toast here would scold someone
-        // for using the sheet's own cancel button.
-        //
-        // `'code' in …` RATHER THAN A PLAIN READ, because the declared error is
-        // a union: the shape returned when the ceremony fails carries a `code`,
-        // the one returned when the initial options request fails does not.
-        if ('code' in result.error && result.error.code === 'ERROR_CEREMONY_ABORTED') return
-        /**
-         * A REJECTION THAT IS EVIDENCE. `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED`
-         * is the authenticator refusing because it ALREADY HOLDS a credential
-         * for this relying party — which is precisely what the registered
-         * marker exists to record, arriving as a failure. Toasting it and
-         * moving on (which is what this did) leaves a device whose storage was
-         * cleared nagging to register forever: the exact loop passkey.ts's
-         * header sets out to rule out.
-         *
-         * THE PLUGIN'S OWN MESSAGE IS "Previously registered", which tells the
-         * player nothing they can act on. This says what is actually true, and
-         * the true thing is reassuring: there is nothing to do.
-         */
-        if ('code' in result.error && result.error.code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED') {
-          rememberPasskeyRegistered()
-          toast.error('This device already has a passkey on your account.')
-          return
-        }
-        toast.error(result.error.message || 'Could not add a passkey.')
+      // EVERY OUTCOME IS NAMED, AND `registerPasskey` NEVER THROWS — so there
+      // is no `catch` here any more. The error classification and the
+      // per-device marker write live in that module; this switch is only what
+      // to SAY, which is the half the two callers do not share.
+      const result = await registerPasskey()
+      // A CANCELLED CEREMONY IS NOT AN ERROR TO REPORT. Dismissing the system
+      // sheet is how a player says "not now"; a toast here would scold someone
+      // for using the sheet's own cancel button.
+      if (result.outcome === 'aborted') return
+      if (result.outcome === 'already-registered') {
+        // THE PLUGIN'S OWN MESSAGE IS "Previously registered", which tells the
+        // player nothing they can act on. This says what is actually true. It
+        // is an error HERE — unlike in the offer — because this player went
+        // looking for a new passkey and did not get one.
+        toast.error(ALREADY_REGISTERED_MESSAGE)
         return
       }
-      // THE ONE PER-DEVICE WRITE IN THIS FILE, and it is deliberately after the
-      // success check rather than beside it: marking a device as having a
-      // passkey when registration failed suppresses the offer on a device that
-      // has nothing, permanently, with no symptom.
-      rememberPasskeyRegistered()
+      if (result.outcome === 'failed') {
+        toast.error(result.message)
+        return
+      }
       toast.success('Passkey added')
-    } catch (cause) {
-      // Unreachable through `addPasskey` itself (see the header) — this covers
-      // the network layer underneath it.
-      toast.error(cause instanceof Error ? cause.message : 'Could not add a passkey.')
     } finally {
       setAdding(false)
     }

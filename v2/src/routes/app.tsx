@@ -9,6 +9,7 @@ import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { promoteLoginAttempt } from '#/lib/last-login.ts'
+import { shouldOfferPasskey } from '#/lib/passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
 import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
@@ -27,6 +28,7 @@ import { TeamBoards } from '#/components/teams/team-boards.tsx'
 import { TodayPanel } from '#/components/today-panel.tsx'
 import { ScoringLegend } from '#/components/scoring-legend.tsx'
 import { MonthlyWinnerCelebration } from '#/components/monthly-winner-celebration.tsx'
+import { PasskeyOffer } from '#/components/passkey-offer.tsx'
 import { BoardEntryButton, BoardEntrySurface } from '#/components/board-entry/button.tsx'
 import { NextStepCard } from '#/components/onboarding/next-step-card.tsx'
 import { onboardingFactsFrom } from '#/lib/onboarding-facts.ts'
@@ -260,6 +262,21 @@ function Dashboard() {
    * GUARDRAIL, not laziness. See where it is set below.
    */
   const [boardMonth, setBoardMonth] = useState<string | null>(null)
+  /**
+   * Whether to put the passkey offer in front of this player right now
+   * (wordle-teams-wty4.1.7.3).
+   *
+   * SET ONLY FROM THE ARRIVAL EFFECT BELOW, which is the entire design. The
+   * question "have they just signed in?" already has exactly one answer in this
+   * app and this is not allowed to become a second — see src/lib/last-login.ts's
+   * header, and components/passkey-offer.tsx's.
+   *
+   * FALSE ON THE SERVER AND ON THE FIRST CLIENT RENDER, by construction: the
+   * only writer is an effect, and effects do not run during SSR. That is what
+   * keeps `shouldOfferPasskey()`'s localStorage reads — invisible to the server
+   * — out of anything hydration compares.
+   */
+  const [offerPasskey, setOfferPasskey] = useState(false)
   const dismissOnboarding = useMutation({
     mutationFn: useConvexMutation(api.onboarding.dismiss),
   })
@@ -324,6 +341,19 @@ function Dashboard() {
     promoteLoginAttempt()
     url.searchParams.delete(SIGNIN_PARAM)
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+    // AND THE THIRD CONSEQUENCE (wordle-teams-wty4.1.7.3): the passkey offer.
+    // This is the same "they made it" fact the two lines above ride on, and
+    // hanging a THIRD notion of "just signed in" off anything else is exactly
+    // what src/lib/last-login.ts's header argues against — an effect without
+    // this guard fires on every later visit with a live session, which for the
+    // offer means being asked on a device that only just declined.
+    //
+    // PAST THE GUARD, AND THAT IS WHAT src/routes.test.ts PINS. `shouldOffer-
+    // Passkey()` answers the per-device half — support, and the two markers —
+    // and is the only thing that may; this line supplies the other half, which
+    // is that a sign-in has just completed. Lifted above the `return` it would
+    // offer a passkey to someone who merely opened the dashboard.
+    if (shouldOfferPasskey()) setOfferPasskey(true)
   }, [])
 
 
@@ -487,6 +517,34 @@ function Dashboard() {
     </Suspense>
   )
 
+  /**
+   * The passkey offer, on ALL THREE returns below and as each one's FIRST
+   * child.
+   *
+   * ALL THREE, because the effect that opens it fires on mount and cannot know
+   * which branch will be rendering by the time it does. A team-less player and
+   * one waiting for `useDashboardSearchSync` to fill the params in have both
+   * just signed in, and the offer exists for exactly the returning player whose
+   * first screen is one of those.
+   *
+   * FIRST, WHICH IS LOAD-BEARING RATHER THAN TIDY. React reconciles children by
+   * INDEX, and these three branches swap during a normal load — skeleton to
+   * dashboard — while this dialog may already be open. At index 0 in every
+   * branch it survives the swap; anywhere else the element at its index differs
+   * between branches, React unmounts and remounts it, and a dialog open over a
+   * WebAuthn ceremony loses its `adding` flag and its focus trap mid-prompt.
+   * The three branches already happen to agree on their first two children —
+   * the `<h1>` and `CheckoutPending`, now at 1 and 2 — so taking index 0 costs
+   * nothing and disturbs no existing alignment. src/routes.test.ts pins it,
+   * because it is invisible to every other gate.
+   *
+   * IT COSTS THE DASHBOARD'S GRID NOTHING. A closed Radix dialog renders no DOM
+   * at all, and an open one lives in a portal — MonthlyWinnerCelebration is the
+   * precedent, and the reason `onboardingCard`'s className prop has no
+   * counterpart here.
+   */
+  const passkeyOffer = <PasskeyOffer open={offerPasskey} onClose={() => setOfferPasskey(false)} />
+
   // ALL THREE RETURNS BELOW RENDER THE PENDING NOTICE, and the empty state is
   // the one wordle-teams-6tn actually named: someone can upgrade before they
   // have created a single team, and that is the case where they would
@@ -496,6 +554,9 @@ function Dashboard() {
   if (teams.length === 0) {
     return (
       <main className="page-max mt-2 md:mt-6">
+        {/* FIRST CHILD ON EVERY BRANCH — see the const above; the index is what
+            keeps the dialog mounted across a branch swap. */}
+        {passkeyOffer}
         {/*
           THE ROUTE'S <h1>, VISUALLY HIDDEN, AND ON ALL THREE RETURNS SO IT IS
           STABLE (wordle-teams review of qt4.7). ui/card.tsx's own note states
@@ -542,6 +603,8 @@ function Dashboard() {
   if (!teamParam || !monthParam) {
     return (
       <main className="page-max mt-2 md:mt-6">
+        {/* First child on every branch. Full note on the const above. */}
+        {passkeyOffer}
         {/* The route's <h1>, on every return so it is stable. Full note on the
             no-team branch above. */}
         <h1 className="sr-only">Dashboard</h1>
@@ -609,6 +672,8 @@ function Dashboard() {
     // sizing specifically, with no flexbox equivalent. A future multi-column
     // widget is what would make the three columns earn their keep again.
     <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 md:mt-6 md:grid-cols-3 md:gap-6">
+      {/* First child on every branch. Full note on the const above. */}
+      {passkeyOffer}
       {/* The route's <h1>, on every return so it is stable. Full note on the
           no-team branch above. */}
       <h1 className="sr-only">Dashboard</h1>

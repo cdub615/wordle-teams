@@ -1315,6 +1315,100 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
 })
 
 /**
+ * THE PASSKEY OFFER HANGS ON THE ARRIVAL EFFECT, AND IS MOUNTED ON EVERY BRANCH
+ * (wordle-teams-wty4.1.7.3).
+ *
+ * THE BEHAVIOURAL HALVES ARE ELSEWHERE and are executable:
+ * components/passkey-offer.hook.test.ts renders the dialog and drives every way
+ * out of it, lib/passkey.test.ts runs `shouldOfferPasskey` against a fake store,
+ * lib/register-passkey.test.ts classifies the ceremony. What NONE of them can
+ * see is the two facts that live in a route module vitest cannot import: WHICH
+ * MOMENT the offer is triggered at, and whether it is rendered at all.
+ *
+ * AND BOTH ARE SILENT WHEN WRONG. `shouldOfferPasskey()` lifted out of the
+ * `?signin=` guard into an unguarded effect offers a passkey to anyone who
+ * merely opens the dashboard — including, one navigation later, the player who
+ * has just declined, since the decline marker is only consulted at the moment
+ * the effect runs. `{passkeyOffer}` dropped from one of the three returns leaves
+ * the offer invisible to exactly the players it was written for: a team-less
+ * signup, and anyone whose first frame is the params skeleton. Neither is a
+ * type error, a lint error or a rendering difference any other suite observes.
+ */
+describe('the passkey offer is triggered on arrival and mounted on every branch', () => {
+  const APP = './routes/app.tsx'
+  const app = () => codeOf(read(APP))
+
+  test('the decision is taken once, inside the ?signin= effect, past its guard', () => {
+    const sites = callSitesOf(APP, read(APP), 'shouldOfferPasskey')
+    expect(sites).toHaveLength(1)
+    expect(sites[0].args).toEqual([])
+
+    // THE SHARED EFFECT IS THE ASSERTION, exactly as it is for
+    // promoteLoginAttempt above. `trackFunnel` is the marker for the guard's
+    // position — it is the first thing the effect does once past
+    // `if (method !== 'oauth' && method !== 'otp') return` — so a body
+    // containing both, in that order, is a call that runs only on a confirmed
+    // sign-in arrival.
+    expect(sites[0].within).toContain('trackFunnel')
+    expect(
+      orderedIn(sites[0].within, 'trackFunnel', 'shouldOfferPasskey'),
+      'the offer decision sits above the ?signin= guard, so it fires on every /app mount',
+    ).toBe(true)
+  })
+
+  test('and it OPENS the offer rather than merely asking', () => {
+    // `shouldOfferPasskey()` called and its answer thrown away is a green diff
+    // that ships no offer at all. Two sites: the effect opens it, the dialog's
+    // own onClose shuts it, and a missing second one is an offer that cannot be
+    // dismissed for the rest of the session.
+    const sites = callSitesOf(APP, read(APP), 'setOfferPasskey')
+    expect(sites.map((site) => site.args)).toEqual([['true'], ['false']])
+    expect(sites[0].within).toContain('shouldOfferPasskey')
+  })
+
+  test('the dialog is wired to that state, and to nothing else', () => {
+    // jsxPropsOf throws unless there is EXACTLY ONE <PasskeyOffer> element, so
+    // a second one added in a branch this test does not read is a named
+    // failure rather than a silent divergence.
+    const props = jsxPropsOf(APP, read(APP), 'PasskeyOffer')
+    expect(props.get('open')).toBe('offerPasskey')
+    expect(props.get('onClose')).toBe('() => setOfferPasskey(false)')
+  })
+
+  test('the offer is rendered on ALL THREE returns, as each one\'s first child', () => {
+    const code = app()
+    // THE VACUITY GUARD FOR THE NUMBER BELOW. Three is the count of returns
+    // this component has; without this, a branch deleted along with its
+    // `{passkeyOffer}` would leave a "3" asserted against a file that no longer
+    // has three of anything, and the test would have to be edited to stay
+    // green for the wrong reason.
+    expect(code.match(/<main/g) ?? []).toHaveLength(3)
+    expect(code.match(/\{passkeyOffer\}/g) ?? []).toHaveLength(3)
+
+    // FIRST CHILD IN EACH, which is not cosmetic: React reconciles children by
+    // index and these branches swap during an ordinary load, so an offer at a
+    // different index in each is unmounted and remounted mid-dialog. Asserted
+    // as "nothing between the <main> and the offer", per branch.
+    //
+    // `[\s{}]*` RATHER THAN `\s*`, and the braces are not decoration. `codeOf`
+    // strips comment BODIES with a text replace, so a JSX comment —
+    // `{/* … */}`, which is a brace pair wrapped around one — leaves an empty
+    // `{}` behind in the stripped source. `\s*` fails on it, and the failure
+    // looks exactly like the offer not being the first child.
+    expect(code.match(/<main[^>]*>[\s{}]*\{passkeyOffer\}/g) ?? []).toHaveLength(3)
+  })
+
+  test('the route does not reimplement the offer it delegates', () => {
+    // The suppression rules are lib/passkey.ts's and the ceremony is
+    // lib/register-passkey.ts's. A route that reached for `addPasskey` itself
+    // would bypass both, and the marker writes with them.
+    expect(app()).toMatch(/import \{ shouldOfferPasskey \} from '#\/lib\/passkey\.ts'/)
+    expect(app()).toMatch(/import \{ PasskeyOffer \} from '#\/components\/passkey-offer\.tsx'/)
+    expect(app()).not.toMatch(/addPasskey/)
+  })
+})
+
+/**
  * callSitesOf, ON THE FORMS THE BLOCK ABOVE LEANS ON.
  *
  * Asserted on hand-written fixtures for the reason about-screenshots.test.ts
