@@ -37,6 +37,35 @@ describe('typeLetter, in the answer zone', () => {
     const { state: next, refused } = typeLetter(state({ answer: 'CRANE' }), 'X')
     expect(next.answer).toBe('CRANE')
     expect(refused).toBe('answer-full')
+    // A refusal is a no-op, in full: the zone does not move either.
+    expect(next.zone).toBe('answer')
+  })
+})
+
+describe('typeLetter, key validation', () => {
+  /**
+   * A KeyboardEvent's `key` is 'Enter', 'ArrowLeft', 'Dead' as readily as
+   * 'c'. Without this guard, appending one of these whole overshoots
+   * ANSWER_LENGTH in a single stroke — past the `>=` guard, which only ever
+   * sees the length AFTER the fact — and produces an answer that renders
+   * wrong, hands off never, and disables submit with nothing on screen to
+   * say why. That is wty4.1.6 wearing a better disguise.
+   */
+  test('a multi-character key (e.g. Enter) is refused, and leaves answer and zone untouched', () => {
+    const { state: next, refused } = typeLetter(state({ answer: 'CRA' }), 'Enter')
+    expect(refused).toBe('not-a-letter')
+    expect(next.answer).toBe('CRA')
+    expect(next.zone).toBe('answer')
+  })
+
+  test('a digit is refused as not-a-letter', () => {
+    const { refused } = typeLetter(state(), '5')
+    expect(refused).toBe('not-a-letter')
+  })
+
+  test('punctuation is refused as not-a-letter', () => {
+    const { refused } = typeLetter(state(), '-')
+    expect(refused).toBe('not-a-letter')
   })
 })
 
@@ -51,15 +80,31 @@ describe('typeLetter, in the board zone', () => {
    * outcome, which is the only shape of assertion the old behaviour cannot
    * satisfy.
    */
-  test('REFUSES a letter while the answer is incomplete, nameably', () => {
+  test('REFUSES a letter while the answer is incomplete, nameably (this test also pins the guard ABOVE the solved check)', () => {
     const { state: next, refused } = typeLetter(state({ zone: 'board' }), 'C')
     expect(refused).toBe('answer-incomplete')
     expect(next.guesses).toEqual(EMPTY_ROWS)
   })
 
   test('types into the first row with room', () => {
-    const { state: next } = typeLetter(state({ answer: 'CRANE', zone: 'board' }), 's')
+    const { state: next, refused } = typeLetter(state({ answer: 'CRANE', zone: 'board' }), 's')
     expect(next.guesses[0]).toBe('S')
+    expect(refused).toBeNull()
+  })
+
+  /**
+   * The success path already returned toRows(state.guesses) (always six),
+   * but a refusal used to return state.guesses raw, whatever length was
+   * passed. v1's upsertBoard appends a '' sentinel to a failed six-guess
+   * board (see convex/lib/board.ts), so seven-entry boards are a real shape
+   * in this data — and a caller reading next.guesses.length should not get
+   * a different answer depending on whether the keystroke landed.
+   */
+  test('a refusal normalises a seven-entry guesses array down to six rows', () => {
+    const sevenRows = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+    const { state: next, refused } = typeLetter(state({ zone: 'board', guesses: sevenRows }), 'C')
+    expect(refused).toBe('answer-incomplete')
+    expect(next.guesses).toEqual(['A', 'B', 'C', 'D', 'E', 'F'])
   })
 
   test('advances to the next row once the active one is full', () => {
