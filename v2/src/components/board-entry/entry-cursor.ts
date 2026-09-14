@@ -26,6 +26,14 @@ export type Refusal =
   | 'board-solved'
   | 'board-full'
 
+/**
+ * Not every export in this module returns one of these. `backspace` returns a
+ * plain EntryState instead — deliberately, not an oversight — because every
+ * way a backspace can do nothing is a state the player can already see for
+ * themselves (an empty answer with the cursor in it), so there is no refusal
+ * worth naming and nothing for a coach line to explain. See backspace's own
+ * doc comment for the fuller argument.
+ */
 export type EntryResult = { state: EntryState; refused: Refusal | null }
 
 export const ANSWER_LENGTH = 5
@@ -83,4 +91,47 @@ export function typeLetter(state: EntryState, key: string): EntryResult {
   const guesses = [...rows]
   guesses[index] = guesses[index] + letter
   return { state: { ...normalised, guesses }, refused: null }
+}
+
+/**
+ * Delete one letter, or walk back a zone when there is nothing left to delete.
+ *
+ * RETURNS PLAIN STATE, NOT AN EntryResult, and the asymmetry with typeLetter is
+ * deliberate rather than an oversight. Every way a backspace can do nothing is a
+ * state the player can see for themselves — an empty answer with the cursor in
+ * it — so there is no refusal worth naming and nothing for a coach line to
+ * explain. typeLetter's refusals are the opposite: each one is a keystroke that
+ * vanished for a reason the screen does not show.
+ */
+export function backspace(state: EntryState): EntryState {
+  // Same normalisation typeLetter opens with, and for the same reason: v1
+  // boards can carry a seventh '' sentinel (see board.ts), and every exit
+  // below — the answer-zone return included — must hand back six rows so a
+  // caller reading next.guesses.length gets the same answer regardless of
+  // which branch fired.
+  const normalised = { ...state, guesses: toRows(state.guesses) }
+
+  if (normalised.zone === 'answer') {
+    return { ...normalised, answer: normalised.answer.slice(0, -1) }
+  }
+
+  const rows = normalised.guesses
+  // Array.prototype.findLastIndex is ES2023 and this project's tsconfig
+  // targets ES2022, so the last filled row is found with a manual reverse
+  // scan rather than that method.
+  let lastFilled = -1
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].length > 0) {
+      lastFilled = i
+      break
+    }
+  }
+
+  // THE WALK-BACK: nothing typed yet, so the only thing behind the cursor is
+  // the answer. Going there is what makes the stream continuous in reverse.
+  if (lastFilled < 0) return { ...normalised, zone: 'answer' }
+
+  const guesses = [...rows]
+  guesses[lastFilled] = guesses[lastFilled].slice(0, -1)
+  return { ...normalised, guesses }
 }

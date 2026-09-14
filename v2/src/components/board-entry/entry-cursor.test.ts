@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { typeLetter, type EntryState } from './entry-cursor.ts'
+import { backspace, typeLetter, type EntryState } from './entry-cursor.ts'
 
 const EMPTY_ROWS = ['', '', '', '', '', '']
 
@@ -128,5 +128,64 @@ describe('typeLetter, in the board zone', () => {
     const full = ['SLATE', 'TRAIN', 'HOUSE', 'MOUSE', 'PIVOT', 'BLIMP']
     const { refused } = typeLetter(state({ answer: 'CRANE', zone: 'board', guesses: full }), 'X')
     expect(refused).toBe('board-full')
+  })
+})
+
+describe('backspace', () => {
+  test('shortens the answer in the answer zone', () => {
+    expect(backspace(state({ answer: 'CRAN' })).answer).toBe('CRA')
+  })
+
+  test('backspacing an empty answer is a no-op that stays put', () => {
+    const next = backspace(state())
+    expect(next.answer).toBe('')
+    expect(next.zone).toBe('answer')
+  })
+
+  test('deletes from the last row that has content', () => {
+    const next = backspace(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', 'TR', '', '', '', ''] }),
+    )
+    expect(next.guesses[1]).toBe('T')
+  })
+
+  test('crosses back into the previous row once the active row is empty', () => {
+    const next = backspace(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', '', '', '', '', ''] }),
+    )
+    expect(next.guesses[0]).toBe('SLAT')
+  })
+
+  /**
+   * THE WALK-BACK, which is the hand-off in reverse and the reason the stream
+   * is continuous in both directions. Without it, a player who mistyped the
+   * answer and has not yet typed a guess is stranded in a zone where backspace
+   * does nothing.
+   */
+  test('BACKSPACING AN EMPTY BOARD RETURNS TO THE ANSWER', () => {
+    const next = backspace(state({ answer: 'CRANE', zone: 'board' }))
+    expect(next.zone).toBe('answer')
+    expect(next.answer).toBe('CRANE')
+  })
+
+  /**
+   * Same discipline typeLetter's review established (wordle-teams-wty4.1.6
+   * follow-up): a seven-entry guesses array — the real shape v1's upsertBoard
+   * produces when it appends a '' sentinel to a failed board, see
+   * convex/lib/board.ts — must come back as six rows regardless of which exit
+   * backspace takes. Both early returns (the answer-zone branch and the
+   * walk-back) used to spread the raw, unnormalised state; this pins both.
+   */
+  test('normalises a seven-entry guesses array down to six rows, on the answer-zone exit', () => {
+    const sevenRows = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+    const next = backspace(state({ answer: 'CRAN', guesses: sevenRows }))
+    expect(next.guesses).toEqual(['A', 'B', 'C', 'D', 'E', 'F'])
+  })
+
+  test('normalises a seven-entry guesses array down to six rows, on the walk-back exit', () => {
+    const sevenRows = ['', '', '', '', '', '', '']
+    const next = backspace(state({ answer: 'CRANE', zone: 'board', guesses: sevenRows }))
+    expect(next.zone).toBe('answer')
+    expect(next.guesses).toEqual(['', '', '', '', '', ''])
   })
 })
