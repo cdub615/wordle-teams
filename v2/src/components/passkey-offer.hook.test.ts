@@ -381,3 +381,85 @@ describe('under a real controlled parent', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('held back by the monthly-winner celebration (wordle-teams-wty4.1.7.10)', () => {
+  /**
+   * THE EXACT EXPRESSION routes/app.tsx RENDERS, which is the point of building
+   * the parent this way rather than toggling a single `open`. The route holds
+   * TWO facts — `offerPasskey`, the decision its arrival effect made, and
+   * `celebrationOpen`, reported up by MonthlyWinnerCelebration — and draws the
+   * offer only when the first is true and the second is false. Both dialogs can
+   * open on one arrival (the 1st of a month, an unseen winner, a `?signin=`
+   * arrival on a device with neither passkey marker), and the celebration
+   * arrives off a QUERY RESOLUTION — so it can land mid-WebAuthn-ceremony and
+   * take the focus trap out from under an open system sheet.
+   *
+   * `owed` IS EXPOSED SO THE TESTS CAN READ IT. It stands in for
+   * `offerPasskey`: it is the record that this device is still owed an offer,
+   * and the whole claim below is that suppression does not consume it.
+   */
+  let owed: boolean
+  function GatedOffer({ celebrationOpen }: { celebrationOpen: boolean }) {
+    const [offerPasskey, setOfferPasskey] = useState(true)
+    owed = offerPasskey
+    return createElement(PasskeyOffer, {
+      open: offerPasskey && !celebrationOpen,
+      onClose: () => {
+        onClose()
+        setOfferPasskey(false)
+      },
+    })
+  }
+
+  beforeEach(() => {
+    owed = false
+  })
+
+  test('suppressed it writes NOTHING, and it appears the moment the celebration closes', () => {
+    /**
+     * THE ASSERTION THIS TEST EXISTS FOR IS THE ABSENCE OF A WRITE, AND THE
+     * SECOND HALF IS WHAT STOPS THAT PASSING FOR THE WRONG REASON. "The offer
+     * is not on screen" is satisfied just as well by a fix that DECLINED it —
+     * `rememberPasskeyDeclined()` plus a close — and on screen the two are
+     * indistinguishable. The difference is permanent and invisible: a decline
+     * is a once-per-device marker, so the player would never be asked again,
+     * having never seen the question.
+     *
+     * WHY SUPPRESSION IS SAFE AT ALL, which is what the rerender pins: `open`
+     * is fully CONTROLLED and `decline()` runs only on a user-initiated
+     * `onOpenChange`, so Radix does not round-trip a parent-driven change back
+     * through it. The offer is held, not cancelled.
+     */
+    const view = render(createElement(GatedOffer, { celebrationOpen: true }))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(rememberDeclinedMock).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    // THE RECORD SURVIVES. This is `offerPasskey` in routes/app.tsx, and it is
+    // the only thing that remembers an offer is still owed.
+    expect(owed).toBe(true)
+
+    view.rerender(createElement(GatedOffer, { celebrationOpen: false }))
+
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(acceptButton()).not.toBeNull()
+    // AND STILL NOTHING WRITTEN on the way in. A suppression that recorded a
+    // decline and then re-showed the dialog would pass every line above.
+    expect(rememberDeclinedMock).not.toHaveBeenCalled()
+  })
+
+  test('and it is fully usable afterwards — the held offer still declines exactly once', async () => {
+    // The trip through `open: false` must leave no residue: no latched `adding`
+    // flag, no consumed dismissal, no second marker write. Without this, the
+    // test above is satisfied by an offer that reappears and then does nothing.
+    const view = render(createElement(GatedOffer, { celebrationOpen: true }))
+    view.rerender(createElement(GatedOffer, { celebrationOpen: false }))
+
+    fireEvent.click(declineButton())
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(rememberDeclinedMock).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(owed).toBe(false)
+  })
+})

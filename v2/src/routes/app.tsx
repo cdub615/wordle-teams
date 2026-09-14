@@ -277,6 +277,27 @@ function Dashboard() {
    * — out of anything hydration compares.
    */
   const [offerPasskey, setOfferPasskey] = useState(false)
+  /**
+   * Whether MonthlyWinnerCelebration is on screen right now
+   * (wordle-teams-wty4.1.7.10).
+   *
+   * IT GATES RENDERING AND NOTHING ELSE, AND THAT IS THE WHOLE POINT. Both
+   * dialogs can open on one arrival — the 1st of a month, an unseen winner, a
+   * `?signin=` arrival on a device with neither passkey marker — and Radix
+   * stacks them. The stack is busy rather than broken, but this one opens off a
+   * QUERY RESOLUTION, so it can arrive DURING the offer's WebAuthn ceremony and
+   * take the focus trap out from under an open system sheet.
+   *
+   * THIS IS NOT A SECOND NOTION OF "JUST SIGNED IN", and it must not become
+   * one. The decision to offer a passkey at all still lives in the arrival
+   * effect below, and `offerPasskey` still records it; this only decides
+   * whether the dialog is drawn yet. Because `PasskeyOffer`'s `open` is fully
+   * controlled and its `decline()` runs only on a USER dismissal, suppressing
+   * it writes no marker and forfeits nothing — when the celebration closes the
+   * offer appears, and Radix does not round-trip a controlled reopen through
+   * `onOpenChange`.
+   */
+  const [celebrationOpen, setCelebrationOpen] = useState(false)
   const dismissOnboarding = useMutation({
     mutationFn: useConvexMutation(api.onboarding.dismiss),
   })
@@ -552,7 +573,15 @@ function Dashboard() {
    * precedent, and the reason `onboardingCard`'s className prop has no
    * counterpart here.
    */
-  const passkeyOffer = <PasskeyOffer open={offerPasskey} onClose={() => setOfferPasskey(false)} />
+  /**
+   * `&& !celebrationOpen` HOLDS IT BACK RATHER THAN CANCELLING IT
+   * (wordle-teams-wty4.1.7.10) — see the state's own comment above. `offerPasskey`
+   * is untouched by the suppression, so the offer returns of its own accord the
+   * moment the celebration is dismissed.
+   */
+  const passkeyOffer = (
+    <PasskeyOffer open={offerPasskey && !celebrationOpen} onClose={() => setOfferPasskey(false)} />
+  )
 
   // ALL THREE RETURNS BELOW RENDER THE PENDING NOTICE, and the empty state is
   // the one wordle-teams-6tn actually named: someone can upgrade before they
@@ -723,7 +752,13 @@ function Dashboard() {
           teamName={selectedTeam.name}
         />
       )}
-      <MonthlyWinnerCelebration teamId={teamParam as Id<'teams'>} />
+      {/* `onOpenChange` REPORTS UPWARDS; it does not drive this dialog. It is
+          what holds the passkey offer back while the celebration is up — see
+          `celebrationOpen` above, and wordle-teams-wty4.1.7.10. */}
+      <MonthlyWinnerCelebration
+        teamId={teamParam as Id<'teams'>}
+        onOpenChange={setCelebrationOpen}
+      />
       {/* THIS ROW FITS A PHONE ON ONE LINE, AND IT ONLY JUST DOES. Five
           controls live here — team picker, month picker, "Team settings",
           "Team chat" and BoardEntryButton — and at 390px there are 374px to

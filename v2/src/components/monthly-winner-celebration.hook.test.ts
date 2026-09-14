@@ -76,7 +76,8 @@ const GRACE = 'p_grace'
 // case — the January rollover has its own test below.
 const NOW = new Date(2026, 7, 20, 10, 0, 0)
 
-const dialog = (teamId: Id<'teams'> = TEAM_ID) => createElement(MonthlyWinnerCelebration, { teamId })
+const dialog = (teamId: Id<'teams'> = TEAM_ID, onOpenChange?: (open: boolean) => void) =>
+  createElement(MonthlyWinnerCelebration, { teamId, onOpenChange })
 
 /** Every confetti rectangle currently in the document — portal included. */
 const confetti = () => Array.from(document.querySelectorAll('.confetti-piece'))
@@ -460,6 +461,80 @@ describe('the confetti, without react-confetti-explosion', () => {
   })
 })
 
+describe('telling the dashboard it is on screen (wordle-teams-wty4.1.7.10)', () => {
+  /**
+   * WHAT THIS CALLBACK IS ACTUALLY FOR, since nothing on screen shows it. On
+   * the 1st of a month, with an unseen winner and a `?signin=` arrival on a
+   * device holding neither passkey marker, this dialog and the passkey offer
+   * both open and Radix stacks them. That is busy rather than broken — but this
+   * one opens off a QUERY RESOLUTION, so it can arrive DURING the offer's
+   * WebAuthn ceremony and take the focus trap out from under an open system
+   * sheet. routes/app.tsx holds the offer back on this signal.
+   *
+   * ASSERTED AS THE LAST VALUE, NOT AS A CALL COUNT. React may run the effect
+   * more than once for one state change (StrictMode does it deliberately), and
+   * the parent is a `setState`, so a repeat is free. What must never be wrong
+   * is the value the parent is left holding.
+   */
+  const report = () => vi.fn<(open: boolean) => void>()
+  const last = (spy: ReturnType<typeof report>) => spy.mock.calls.at(-1)?.[0]
+
+  test('it says TRUE when it opens and FALSE when it is dismissed', () => {
+    const onOpenChange = report()
+    render(dialog(TEAM_ID, onOpenChange))
+
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(last(onOpenChange)).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // THE HALF THAT MATTERS MOST. A callback that only ever reports the OPEN
+    // leaves the offer suppressed for the rest of the session — and the offer
+    // is a once-per-device chance, so the player simply never gets asked.
+    expect(last(onOpenChange)).toBe(false)
+  })
+
+  test('a celebration with nothing to celebrate never claims to be open', () => {
+    // The paired vacuity guard for the test above: without it, a callback wired
+    // to fire `true` unconditionally on mount passes there and suppresses the
+    // passkey offer on all eleven other months of the year.
+    winnerRow = null
+    const onOpenChange = report()
+    render(dialog(TEAM_ID, onOpenChange))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(onOpenChange).not.toHaveBeenCalledWith(true)
+    expect(last(onOpenChange)).toBe(false)
+  })
+
+  test('UNMOUNTING reports closed, or the offer is suppressed with nothing on screen', () => {
+    /**
+     * THE CASE THE DISMISS TEST CANNOT REACH. This component is mounted on the
+     * DASHBOARD branch of routes/app.tsx; the passkey offer is mounted on all
+     * three. A branch swap — the params skeleton that every load passes
+     * through, and that `useDashboardSearchSync` can return the route to —
+     * therefore unmounts this while the offer stays. With no cleanup the
+     * parent's flag stays `true` for the rest of the session and the offer is
+     * held back by a dialog that is no longer anywhere.
+     */
+    const onOpenChange = report()
+    const view = render(dialog(TEAM_ID, onOpenChange))
+    expect(last(onOpenChange)).toBe(true)
+
+    view.unmount()
+
+    expect(last(onOpenChange)).toBe(false)
+  })
+
+  test('it reports without one too — the callback is optional', () => {
+    // routes/app.tsx passes one, but the prop is optional and a missing one
+    // must not take the celebration down with it.
+    render(dialog())
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+})
+
 describe('the dialog is mounted on the dashboard', () => {
   // THE ONE THING EVERY TEST ABOVE IS BLIND TO: they all render the component
   // directly, so deleting the element from routes/app.tsx leaves this file
@@ -501,6 +576,18 @@ describe('the dialog is mounted on the dashboard', () => {
 
     // The whole attribute set, not a lookup: a prop added beside the right one,
     // or the team silently dropped, is a change to this list.
-    expect(rendered).toEqual([[['teamId', "{teamParam as Id<'teams'>}"]]])
+    //
+    // `onOpenChange` IS PART OF THE MOUNT, NOT DECORATION ON IT
+    // (wordle-teams-wty4.1.7.10). It is the only thing telling routes/app.tsx
+    // that this dialog is up, and the route uses that to hold the passkey offer
+    // back — so dropping it here puts the two dialogs back on top of each
+    // other, and lets this one arrive mid-WebAuthn-ceremony and steal the focus
+    // trap from an open system sheet. Nothing else in the tree can see that.
+    expect(rendered).toEqual([
+      [
+        ['teamId', "{teamParam as Id<'teams'>}"],
+        ['onOpenChange', '{setCelebrationOpen}'],
+      ],
+    ])
   })
 })

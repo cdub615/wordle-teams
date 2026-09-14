@@ -58,7 +58,31 @@ import type { Id } from '../../convex/_generated/dataModel'
  * viewer's own zone. The split into two components is what keeps that a plain
  * early return rather than a conditional query argument.
  */
-export function MonthlyWinnerCelebration({ teamId }: { teamId: Id<'teams'> }) {
+export function MonthlyWinnerCelebration({
+  teamId,
+  onOpenChange,
+}: {
+  teamId: Id<'teams'>
+  /**
+   * Told whenever this celebration opens or closes (wordle-teams-wty4.1.7.10).
+   *
+   * WHAT IT IS FOR, AND IT IS NOT A CONTROL. routes/app.tsx uses it to hold the
+   * passkey offer back while this dialog is up: on the 1st of a month, with an
+   * unseen winner and a `?signin=` arrival on a device with neither passkey
+   * marker, both dialogs open at once and Radix stacks them. That is busy
+   * rather than broken — Escape reaches only the highest layer, the
+   * pointer-events refcount is Set-based, and the covered layer is inert — but
+   * this one opens off a QUERY RESOLUTION, so it can mount DURING a WebAuthn
+   * ceremony and take the focus trap out from under an open system sheet. That
+   * is the case worth engineering around.
+   *
+   * IT REPORTS; IT DOES NOT ACCEPT. There is deliberately no `open` prop to
+   * match it. Whether to celebrate is this component's own question, answered
+   * from `getLastMonthWinner` and latched below, and a parent that could force
+   * it open or shut would be a second copy of a decision that has exactly one.
+   */
+  onOpenChange?: (open: boolean) => void
+}) {
   const hydrated = useHydrated()
   if (!hydrated) return null
 
@@ -69,10 +93,25 @@ export function MonthlyWinnerCelebration({ teamId }: { teamId: Id<'teams'> }) {
   // second would be considered already shown. The month is in the key for the
   // same reason at a much rarer boundary — a tab left open across midnight on
   // the 1st.
-  return <Celebration key={`${teamId}:${month}`} teamId={teamId} month={month} />
+  return (
+    <Celebration
+      key={`${teamId}:${month}`}
+      teamId={teamId}
+      month={month}
+      onOpenChange={onOpenChange}
+    />
+  )
 }
 
-function Celebration({ teamId, month }: { teamId: Id<'teams'>; month: string }) {
+function Celebration({
+  teamId,
+  month,
+  onOpenChange,
+}: {
+  teamId: Id<'teams'>
+  month: string
+  onOpenChange?: (open: boolean) => void
+}) {
   // PLAIN useQuery, NOT useSuspenseQuery, and neither is prefetched in the
   // route loader — Header.tsx's reasoning exactly. Suspending would hold the
   // whole dashboard behind a read that decides whether to show a dialog nobody
@@ -96,6 +135,30 @@ function Celebration({ teamId, month }: { teamId: Id<'teams'>; month: string }) 
 
   const view = celebrationView(row, myPlayerId)
   const shouldOpen = view?.shouldOpen ?? false
+  const open = opened && !dismissed
+
+  /**
+   * THE REPORT, AND THE CLEANUP IS THE HALF THAT IS EASY TO LEAVE OUT.
+   *
+   * ABOVE THE `if (!view) return null` BELOW, because hooks may not sit behind a
+   * conditional return — and it wants to run on that branch anyway: "no winner,
+   * nothing to celebrate" is exactly the case whose answer is `false`.
+   *
+   * THE CLEANUP IS NOT CEREMONY. This component is mounted on the DASHBOARD
+   * branch of routes/app.tsx only, while the offer it gates is mounted on all
+   * three; a branch swap therefore unmounts this one and, with no cleanup,
+   * would leave the parent's flag stuck at `true` and the passkey offer
+   * suppressed for the rest of the session with nothing on screen explaining
+   * why. It also covers the team switch, where `MonthlyWinnerCelebration`'s
+   * `key` remounts this component wholesale.
+   *
+   * BOTH CALLS IN ONE COMMIT ARE SAFE: React batches them and the last wins, so
+   * an `open` change does not flash the parent through `false`.
+   */
+  useEffect(() => {
+    onOpenChange?.(open)
+    return () => onOpenChange?.(false)
+  }, [open, onOpenChange])
 
   useEffect(() => {
     if (!shouldOpen || opened) return
@@ -113,7 +176,7 @@ function Celebration({ teamId, month }: { teamId: Id<'teams'>; month: string }) 
   if (!view) return null
 
   return (
-    <Dialog open={opened && !dismissed} onOpenChange={(next) => {
+    <Dialog open={open} onOpenChange={(next) => {
         if (!next) setDismissed(true)
       }}>
       <DialogContent>

@@ -1545,8 +1545,37 @@ describe('the passkey offer is triggered on arrival and mounted on every branch'
     // a second one added in a branch this test does not read is a named
     // failure rather than a silent divergence.
     const props = jsxPropsOf(APP, read(APP), 'PasskeyOffer')
-    expect(props.get('open')).toBe('offerPasskey')
+    expect(props.get('open')).toBe('offerPasskey && !celebrationOpen')
     expect(props.get('onClose')).toBe('() => setOfferPasskey(false)')
+  })
+
+  test('the celebration holds the offer BACK, and does not decline it for the player', () => {
+    /**
+     * wordle-teams-wty4.1.7.10. Both dialogs can open on one arrival — the 1st
+     * of a month, an unseen winner, a `?signin=` arrival on a device with
+     * neither passkey marker — and Radix stacks them. The celebration is the
+     * one that arrives off a QUERY RESOLUTION, so it can land DURING the
+     * offer's WebAuthn ceremony and take the focus trap out from under an open
+     * system sheet.
+     *
+     * THE TWO HALVES ARE BOTH ASSERTED HERE BECAUSE ONLY ONE OF THEM IS
+     * VISIBLE. The `open` expression above already pins the suppression. What
+     * this pins is the thing a reasonable-looking alternative fix gets wrong:
+     * closing the offer instead of hiding it. `setOfferPasskey(false)` called
+     * from a celebration handler would look identical on screen — the dialog is
+     * not drawn either way — and would silently forfeit the device's
+     * once-per-device chance, because the route's own state is the record that
+     * an offer is owed. The two `setOfferPasskey` call sites asserted above are
+     * still the only two, and neither knows about the celebration.
+     */
+    const celebration = jsxPropsOf(APP, read(APP), 'MonthlyWinnerCelebration')
+    expect(celebration.get('onOpenChange')).toBe('setCelebrationOpen')
+    // REPORTS ONLY. A parent that could also force the celebration open would
+    // be a second copy of a decision the component already owns.
+    expect(celebration.has('open')).toBe(false)
+    // AND THE FLAG IS ONLY EVER WRITTEN BY THAT CALLBACK. A second writer is
+    // the second notion of "just signed in" this design exists to avoid.
+    expect(callSitesOf(APP, read(APP), 'setCelebrationOpen')).toHaveLength(0)
   })
 
   test('the offer is rendered on ALL THREE returns, as each one\'s first child', () => {
