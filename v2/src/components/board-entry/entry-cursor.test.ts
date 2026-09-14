@@ -332,3 +332,19 @@ describe('cursorFor', () => {
     expect(typed.guesses[0]).toBe('A')
   })
 })
+
+describe('the empty-answer collision, which this module has hit three times', () => {
+  // A row that solved the board is a five-letter row. An empty row against an
+  // empty answer is the collision, not a solved board.
+  test('an empty board with no answer is NOT solved, so the caret survives', () => {
+    expect(cursorFor(state({ answer: '', zone: 'board' }))).toEqual({
+      zone: 'board',
+      row: 0,
+      index: 0,
+    })
+  })
+
+  test('and typing into it still refuses by name rather than reporting a solve', () => {
+    expect(typeLetter(state({ answer: '', zone: 'board' }), 'C').refused).toBe('answer-incomplete')
+  })
+})

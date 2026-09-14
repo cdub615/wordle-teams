@@ -7,14 +7,13 @@ import { toRows } from '../../../convex/lib/board.ts'
  * WHY THIS SHAPE. Two bugs dictated it, and they are recorded here once so the
  * functions below can state their rules rather than retell the history.
  *
- * wordle-teams-wty4.1.6, THE SILENT SWALLOW. The behaviour being replaced
- * returned the guesses array unchanged when the answer was empty — `current ===
- * answer` is `'' === ''` — so a player who clicked the board first met an
- * application that did not respond at all, and a test asserting "unchanged"
- * passed against it happily. Hence `Refusal`: a no-op that can be named is one a
- * test can demand and a coach line can explain. The same collision is why
- * typeLetter's answer-length guard sits ABOVE its solved check, and why a
- * multi-character `key` is rejected rather than appended.
+ * wordle-teams-wty4.1.6, THE `'' === ''` COLLISION. One bug class at three
+ * sites, all from asking "has a row solved the board?" as a bare `row ===
+ * answer`; `isSolved` below asks it correctly once and its doc has the history.
+ * The lesson that outlived it is `Refusal`: the original applyLetter answered a
+ * swallowed keystroke with an unchanged array and no signal at all, so a player
+ * who clicked the board first met an application that did not respond. A no-op
+ * that can be named is one a test can demand and a coach line can explain.
  *
  * wordle-teams-lz3w, TWO SCANS THAT DISAGREED. typeLetter scanned FORWARDS for
  * the first row with room while backspace scanned BACKWARDS for the last row
@@ -23,12 +22,10 @@ import { toRows } from '../../../convex/lib/board.ts'
  * board they do not: import-prefill.ts assembles by row index and leaves
  * unreadable rows empty, so ['', '', 'SLATE', '', '', ''] is a real shape, and
  * one backspace on it ate a letter out of row 2 while the cursor sat in row 0.
- * Hence `nextSlot`, the one answer to "where does the next letter go", which
- * typeLetter, backspace and cursorFor all derive from and none re-derives.
+ * Hence `nextSlot`, whose doc carries the rule.
  *
- * v1 boards can also carry a seventh '' sentinel (see convex/lib/board.ts), so
- * every exported function opens with `normalise` and every exit — refusal
- * included — hands back six rows.
+ * v1 boards can also carry a seventh '' sentinel (convex/lib/board.ts), so every
+ * exported function opens with `normalise` and every exit returns six rows.
  */
 
 /** Which half of the entry surface the next keystroke lands in. */
@@ -51,8 +48,8 @@ export type Refusal =
 /**
  * The envelope for operations that can swallow a keystroke invisibly: the
  * resulting state, plus the named reason nothing happened. An operation whose
- * every no-op is already legible on screen returns plain EntryState instead —
- * `backspace` does, and its doc comment has the argument.
+ * every no-op is already legible on screen returns plain EntryState — `backspace`
+ * does, and its doc has the argument.
  */
 export type EntryResult = { state: EntryState; refused: Refusal | null }
 
@@ -73,20 +70,33 @@ const normalise = (state: EntryState): EntryState => ({
  * typeLetter, backspace and cursorFor MUST all derive from this rather than scan
  * for themselves (lz3w, above).
  *
- * NOT NAMED `activeRow`. "Active row" is vague enough to invite exactly the
- * reuse that caused that bug; "next slot" says it answers one question. And it
- * returns the column as well as the row because the column is free
- * (`rows[row].length`) and cursorFor needs it — a helper that dropped it would
- * leave cursorFor hand-rolling half the query again.
+ * NOT NAMED `activeRow`: that is vague enough to invite exactly the reuse which
+ * caused the bug. It returns the column too, because cursorFor needs it.
  */
 function nextSlot(rows: Array<string>): { row: number; col: number } | null {
   const row = rows.findIndex((guess) => guess.length < ANSWER_LENGTH)
   return row === -1 ? null : { row, col: rows[row].length }
 }
 
+/**
+ * Whether any row has already solved the board.
+ *
+ * THE LENGTH CHECK IS THE WHOLE POINT, not belt-and-braces. A bare
+ * `row === answer` is true for an EMPTY row against an EMPTY answer, and that
+ * `'' === ''` collision is this module's recurring bug: it is what made the
+ * original applyLetter swallow every keystroke (wordle-teams-wty4.1.6, see the
+ * top-of-file note), it is why typeLetter's refusal guard used to have to run
+ * BEFORE its solved check, and it made cursorFor drop the caret entirely for a
+ * directly constructed board-zone state. Asking the question correctly once
+ * removes it from all three places rather than requiring each caller to guard in
+ * the right order.
+ */
+function isSolved(guesses: Array<string>, answer: string): boolean {
+  return answer.length === ANSWER_LENGTH && guesses.some((row) => row === answer)
+}
+
 export function typeLetter(state: EntryState, key: string): EntryResult {
-  // One normalisation, so every exit — refusal or not, including the
-  // not-a-letter guard right below — returns the same six-row shape.
+  // One normalisation, so every exit below returns the same six-row shape.
   const normalised = normalise(state)
 
   // A KeyboardEvent's `key` is 'Enter', 'ArrowLeft', 'Dead' as readily as 'c',
@@ -116,11 +126,11 @@ export function typeLetter(state: EntryState, key: string): EntryResult {
   if (normalised.answer.length !== ANSWER_LENGTH) return kept(normalised, 'answer-incomplete')
 
   const rows = normalised.guesses
-  // ORDER IS LOAD-BEARING, not stylistic: this must stay BELOW the guard above.
-  // With an empty answer every empty row satisfies `row === state.answer`
-  // ('' === ''), so run first it would tell a player their blank board was
-  // solved. The 'REFUSES a letter while the answer is incomplete' test keeps it.
-  if (rows.some((row) => row === normalised.answer)) return kept(normalised, 'board-solved')
+  // `isSolved` is what makes the empty-answer collision impossible, so this is
+  // safe in any order now. It stays below the guard above because
+  // 'answer-incomplete' is the more useful thing to tell a caller, not because
+  // the ordering is load-bearing for correctness.
+  if (isSolved(rows, normalised.answer)) return kept(normalised, 'board-solved')
 
   const slot = nextSlot(rows)
   if (slot === null) return kept(normalised, 'board-full')
@@ -144,8 +154,7 @@ export function typeLetter(state: EntryState, key: string): EntryResult {
  * the screen does not show.
  */
 export function backspace(state: EntryState): EntryState {
-  // Same normalisation typeLetter opens with, so every exit below — the
-  // answer-zone return and the walk-back included — hands back six rows.
+  // Same normalisation typeLetter opens with, for the same reason.
   const normalised = normalise(state)
 
   if (normalised.zone === 'answer') {
@@ -173,8 +182,7 @@ export function backspace(state: EntryState): EntryState {
   // the 'crosses back into the previous row' test pins it.
   if (slot.row > 0) return erase(slot.row - 1)
 
-  // From here the cursor is at row 0, column 0, and the two remaining cases are
-  // what the old reverse scan conflated.
+  // From here the cursor is at row 0, column 0 — the two cases the old scan conflated.
 
   // THE WALK-BACK: the board is genuinely empty, so the only thing behind the
   // cursor is the answer. Going there is what makes the stream continuous in
@@ -185,8 +193,7 @@ export function backspace(state: EntryState): EntryState {
   // A gapped board: row 0 is empty but rows below it are not. Nothing is behind
   // the cursor, so nothing is deleted, on purpose — there IS board content, so
   // the answer is not what the player is backing into. Deleting the far-off
-  // content instead is lz3w, and it damaged a row the screenshot reader got
-  // right.
+  // content instead is lz3w, which damaged a row the reader got right.
   return normalised
 }
 
@@ -224,7 +231,7 @@ export function cursorFor(state: EntryState): Cursor | null {
 
   if (zone === 'answer') return { zone: 'answer', index: answer.length }
 
-  if (guesses.some((row) => row === answer)) return null
+  if (isSolved(guesses, answer)) return null
 
   const slot = nextSlot(guesses)
   return slot === null ? null : { zone: 'board', row: slot.row, index: slot.col }
