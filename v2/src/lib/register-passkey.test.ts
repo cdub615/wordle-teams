@@ -15,10 +15,17 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { REGISTRATION_FAILED_MESSAGE, registerPasskey } from './register-passkey.ts'
 
-const { addPasskeyMock, rememberRegisteredMock } = vi.hoisted(() => ({
+const { addPasskeyMock, rememberRegisteredMock, deviceNameMock } = vi.hoisted(() => ({
   addPasskeyMock: vi.fn(),
   rememberRegisteredMock: vi.fn(),
+  deviceNameMock: vi.fn<() => string | undefined>(),
 }))
+
+// MOCKED SO THE LABEL CAN BE OBSERVED AT THE BOUNDARY, and so this file does not
+// come to depend on what the test runner's own `navigator` happens to say.
+// lib/device-name.test.ts is what proves the string is any good; this file
+// proves it reaches the ceremony at all.
+vi.mock('#/lib/device-name.ts', () => ({ deviceName: deviceNameMock }))
 
 vi.mock('#/lib/auth-client.ts', () => ({
   authClient: { passkey: { addPasskey: addPasskeyMock } },
@@ -32,11 +39,49 @@ vi.mock('#/lib/passkey.ts', async (importOriginal) => ({
 beforeEach(() => {
   vi.clearAllMocks()
   addPasskeyMock.mockResolvedValue({ data: { id: 'pk_new' }, error: null })
+  deviceNameMock.mockReturnValue('Chrome on macOS')
 })
 
 describe('registerPasskey', () => {
   test('a successful ceremony marks THIS DEVICE', async () => {
     await expect(registerPasskey()).resolves.toEqual({ outcome: 'registered' })
+    expect(rememberRegisteredMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('the ceremony is told what to CALL the passkey (wordle-teams-wty4.1.7.9)', async () => {
+    /**
+     * THE MUTATION THIS KILLS: `addPasskey()` with no argument, which is what
+     * this module used to do. The plugin stores only a name the CLIENT sends —
+     * `resolvedName` starts as `ctx.body.name || undefined` and is otherwise
+     * filled in by an `afterVerification` hook `convex/auth.ts` does not
+     * configure — so every row in the Security tab read the bare word
+     * "Passkey", and a player with a phone and a laptop could not tell which
+     * Remove button was which.
+     *
+     * PINNED HERE RATHER THAN IN EITHER COMPONENT, because this module is the
+     * single ceremony BOTH of them start. A name added at one call site is a
+     * feature that half the app's registrations silently do not get.
+     */
+    await registerPasskey()
+    expect(addPasskeyMock).toHaveBeenCalledWith({ name: 'Chrome on macOS' })
+  })
+
+  test('a browser that will not say registers anyway, with no name', async () => {
+    /**
+     * THE PAIRED CASE, and it is a real population rather than a defensive one:
+     * `deviceName()` returns `undefined` wherever it cannot read the browser,
+     * deliberately, instead of inventing a label. The plugin spreads the name
+     * in conditionally (`...opts?.name && { name }`) and the server's schema is
+     * `z.string().trim().optional()`, so this registers exactly as it did
+     * before and `passkeyLabel` falls back to "Passkey".
+     *
+     * Without this test, a `deviceName() ?? 'Unknown device'` would pass every
+     * other assertion in the file while putting a made-up fact on a settings
+     * row.
+     */
+    deviceNameMock.mockReturnValue(undefined)
+    await expect(registerPasskey()).resolves.toEqual({ outcome: 'registered' })
+    expect(addPasskeyMock).toHaveBeenCalledWith({ name: undefined })
     expect(rememberRegisteredMock).toHaveBeenCalledTimes(1)
   })
 

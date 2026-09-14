@@ -99,8 +99,14 @@ afterEach(() => {
 
 describe('the two label helpers', () => {
   test('a passkey with no name falls back to a generic one', () => {
-    // THE NORMAL CASE, not an edge: the plugin only stores a name when the
-    // CLIENT sends one at registration, and this tab sends none.
+    // NO LONGER THE ONLY CASE, AND STILL NOT AN EDGE (wordle-teams-wty4.1.7.9).
+    // This used to be the only thing that happened: the plugin stores only a
+    // name the CLIENT sends and nothing in the app sent one. `lib/register-
+    // passkey.ts` now sends `deviceName()`, so new rows carry real names — but
+    // two populations still land here and neither is going away. Credentials
+    // registered BEFORE that change are never backfilled, and `deviceName()`
+    // deliberately returns `undefined` for a browser it cannot read rather than
+    // inventing a label.
     expect(passkeyLabel(null)).toBe('Passkey')
     expect(passkeyLabel(undefined)).toBe('Passkey')
     expect(passkeyLabel('   ')).toBe('Passkey')
@@ -108,8 +114,11 @@ describe('the two label helpers', () => {
 
   test('a named passkey keeps its own name', () => {
     // Paired with the test above: on its own, that one passes for a function
-    // that returns 'Passkey' unconditionally.
+    // that returns 'Passkey' unconditionally. The second string is the shape
+    // this app now actually writes — lib/device-name.ts's output — rather than
+    // one invented for the test.
     expect(passkeyLabel('Ada’s phone')).toBe('Ada’s phone')
+    expect(passkeyLabel('Chrome on macOS')).toBe('Chrome on macOS')
   })
 
   test('a date becomes an "Added …" line', () => {
@@ -119,17 +128,38 @@ describe('the two label helpers', () => {
     expect(addedLabel(new Date(2026, 8, 13), 'en-US')).toBe('Added Sep 13, 2026')
   })
 
-  test('the remove action names the row by DATE, because the name never varies', () => {
+  test('the remove action names the row by DATE as well, for the rows with no name', () => {
     /**
-     * THE ASSERTION THIS FILE USED TO GET WRONG. The earlier version proved the
-     * accessible name distinguished rows by feeding it 'Ada's phone' and 'Work
-     * laptop' — names this app CANNOT PRODUCE. Nothing here sends a `name` at
-     * registration and the server fills none in, so every real row is the bare
-     * word 'Passkey' and the old accessible name was "Remove Passkey" N times
-     * over. The test was green on data that does not occur.
+     * THE ASSERTION THIS FILE USED TO GET WRONG, AND THE REASON IT IS STILL
+     * WRITTEN THIS WAY. An even earlier version proved the accessible name
+     * distinguished rows by feeding it 'Ada's phone' and 'Work laptop' — names
+     * this app could not then produce at all, so it was green on data that did
+     * not occur.
+     *
+     * wordle-teams-wty4.1.7.9 MADE THOSE NAMES PRODUCIBLE — see the test below,
+     * which now feeds the real thing — BUT DID NOT MAKE THIS CASE STALE. A
+     * nameless row is still what a pre-change credential and an unreadable
+     * browser produce, and the date is the only thing left to tell two of them
+     * apart.
      */
     expect(removeLabel(null, new Date(2026, 8, 13), 'en-US')).toBe('Remove Passkey, added Sep 13, 2026')
     expect(removeLabel(undefined, new Date(2026, 0, 2), 'en-US')).toBe('Remove Passkey, added Jan 2, 2026')
+  })
+
+  test('the date stays in the name even when the rows ARE named, and here is why', () => {
+    /**
+     * THE MUTATION THIS KILLS: dropping the date from `removeLabel` now that
+     * `deviceName()` supplies a real one. It looks like a tidy-up and it
+     * reintroduces exactly the defect this helper was written for — because the
+     * one case no naming scheme can ever fix is two credentials created from
+     * the SAME browser on the SAME device, which is what a player holding both
+     * a platform authenticator and a security key has. Their labels are
+     * identical by construction; the date is all there is.
+     */
+    const platform = removeLabel('Chrome on macOS', new Date(2026, 8, 13), 'en-US')
+    const securityKey = removeLabel('Chrome on macOS', new Date(2026, 0, 2), 'en-US')
+    expect(platform).toBe('Remove Chrome on macOS, added Sep 13, 2026')
+    expect(platform).not.toBe(securityKey)
   })
 
   test('two unnamed passkeys still get DIFFERENT remove labels', () => {
@@ -187,9 +217,11 @@ describe('the list of passkeys', () => {
   })
 
   test('every passkey gets a row, with its label and when it was added', () => {
-    // BOTH ROWS UNNAMED, which is what this app actually produces. A fixture
-    // with distinct names would make every row trivially distinguishable and
-    // hide the thing worth testing.
+    // BOTH ROWS UNNAMED, which is what this app produced before
+    // wordle-teams-wty4.1.7.9 and what a pre-change credential still looks
+    // like. Kept as the unnamed case ON PURPOSE: a fixture with distinct names
+    // makes every row trivially distinguishable and hides the thing worth
+    // testing. The named case gets its own test below, now that it exists.
     listState = {
       data: [
         { id: 'pk_1', name: null, createdAt: new Date(2026, 8, 13) },
@@ -241,6 +273,48 @@ describe('the list of passkeys', () => {
     mount()
     expect(screen.queryByRole('button', { name: first })).not.toBeNull()
     expect(screen.queryByRole('button', { name: second })).not.toBeNull()
+  })
+
+  test('a phone and a laptop are told apart BY NAME, which is the whole point', () => {
+    /**
+     * THE ISSUE'S OWN "DONE WHEN" (wordle-teams-wty4.1.7.9): two passkeys
+     * registered from different devices are distinguishable in the Security tab
+     * WITHOUT READING DATES. Every other test in this file deliberately feeds
+     * `name: null`, because that was all the app could produce and a named
+     * fixture would have been green on data that did not occur — see the
+     * `removeLabel` tests above. `lib/register-passkey.ts` now sends
+     * `deviceName()`, so these two strings are the real thing, and this is the
+     * test that fails if that call site ever loses its argument again.
+     *
+     * BOTH DATES ARE THE SAME, WHICH IS THE LOAD-BEARING PART. It is what makes
+     * the name the only thing distinguishing the two rows — so this cannot pass
+     * over a component that ignores `name` and leans on "Added …", which is
+     * exactly what it did before.
+     */
+    const sameDay = new Date(2026, 8, 13)
+    listState = {
+      data: [
+        { id: 'pk_1', name: 'Chrome on macOS', createdAt: sameDay },
+        { id: 'pk_2', name: 'Safari on iOS', createdAt: sameDay },
+      ],
+      error: null,
+      isPending: false,
+    }
+    mount()
+
+    // STRUCTURAL FIRST, as everywhere else here: without it the queries below
+    // could be matching in a tree that rendered no rows at all.
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    // VISIBLY. The generic fallback must be nowhere on the tab.
+    expect(screen.queryByText('Chrome on macOS')).not.toBeNull()
+    expect(screen.queryByText('Safari on iOS')).not.toBeNull()
+    expect(screen.queryByText('Passkey')).toBeNull()
+    // AND TO A SCREEN READER, which is the half with no visual fallback at all.
+    // ANCHORED ON THE NAME AND NOT ON THE DATE THAT FOLLOWS IT, so this test
+    // speaks only to `name`; `removeLabel`'s own tests above are what pin the
+    // "added …" half.
+    expect(screen.queryByRole('button', { name: /^Remove Chrome on macOS/ })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: /^Remove Safari on iOS/ })).not.toBeNull()
   })
 
   test('a failed REFETCH keeps the rows it already has', () => {

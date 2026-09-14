@@ -9,18 +9,30 @@ import { registerPasskey } from '#/lib/register-passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 
 /**
- * WHAT A ROW IS CALLED. `name` is only ever set when the CLIENT supplies one at
- * registration — measured in the plugin's own source, where `resolvedName`
- * starts as `ctx.body.name || undefined` and is only filled in by an
- * `afterVerification` hook, which `convex/auth.ts` does not configure. So this
- * fallback is the NORMAL case here rather than a defensive edge, and the
- * "Added …" line below it is what actually tells two rows apart.
+ * WHAT A ROW IS CALLED, AND THE FALLBACK IS NO LONGER THE ONLY CASE
+ * (wordle-teams-wty4.1.7.9).
  *
- * The plugin also ships `getAuthenticatorName(aaguid)` for a nicer label, and
- * it is deliberately not used: it is exported from `@better-auth/passkey`, the
- * SERVER entry, and pulling that into a browser bundle to resolve a display
- * string would drag the whole plugin — `@simplewebauthn/server` included — into
- * the client build. `@better-auth/passkey/client` does not re-export it.
+ * `name` is only ever set when the CLIENT supplies one at registration —
+ * measured in the plugin's own source, where `resolvedName` starts as
+ * `ctx.body.name || undefined` and is otherwise filled in only by an
+ * `afterVerification` hook, which `convex/auth.ts` does not configure. Nothing
+ * in this app used to send one, so every row read "Passkey"; `lib/register-
+ * passkey.ts` now sends `deviceName()` — "Chrome on macOS" and the like — for
+ * both of the places a registration can start.
+ *
+ * THE FALLBACK IS STILL REACHED BY REAL ROWS, WHICH IS WHY IT IS NOT DEAD CODE
+ * and why every test below that feeds `null` is still testing the present
+ * tense. Two populations produce it: credentials registered BEFORE that change
+ * — nothing backfills them, and the plugin's `/passkey/update-passkey` is the
+ * only thing that could — and browsers `deviceName()` cannot read, where it
+ * deliberately returns `undefined` rather than inventing a label.
+ *
+ * The plugin also ships `getAuthenticatorName(aaguid)` for a better label
+ * still ("iCloud Keychain", "Windows Hello"), and it is deliberately not used:
+ * it is exported from `@better-auth/passkey`, the SERVER entry, and pulling
+ * that into a browser bundle to resolve a display string would drag the whole
+ * plugin — `@simplewebauthn/server` included — into the client build.
+ * `@better-auth/passkey/client` does not re-export it.
  */
 export function passkeyLabel(name: string | null | undefined): string {
   return name?.trim() || 'Passkey'
@@ -55,14 +67,18 @@ export function addedLabel(createdAt: Date | string | null | undefined, locale?:
 /**
  * The remove button's ACCESSIBLE NAME: 'Remove Passkey, added 13 Sep 2026'.
  *
- * THE DATE IS IN HERE BECAUSE THE NAME IS NOT ENOUGH, and that is a fact about
- * this app rather than a nicety. `passkeyLabel` falls back to the bare word
- * 'Passkey' for every row — see its comment: nothing here sends a `name` at
- * registration and the server fills none in — so an accessible name built from
- * the label alone is the string "Remove Passkey", repeated once per credential,
- * with nothing to tell a screen-reader user which one they are about to
- * destroy. The visible rows have the same problem and solve it the same way:
- * the "Added …" line under each label is what actually distinguishes them.
+ * THE DATE IS IN HERE BECAUSE THE NAME IS NOT ENOUGH, AND IT STAYS NOW THAT
+ * ROWS HAVE REAL NAMES (wordle-teams-wty4.1.7.9). It was put here when
+ * `passkeyLabel` fell back to the bare word 'Passkey' for EVERY row, which made
+ * an accessible name built from the label alone the string "Remove Passkey"
+ * repeated once per credential — nothing to tell a screen-reader user which one
+ * they were about to destroy. `deviceName()` fixes the common case and not the
+ * whole of it, so removing the date now would reintroduce the identical-names
+ * problem for three populations at once: rows registered before that change,
+ * browsers `deviceName()` declines to guess at, and — the one no backfill could
+ * ever fix — two credentials created from the SAME browser on the same device,
+ * which is what a player holding both a platform authenticator and a security
+ * key has. The visible rows lean on the same second line for the same reason.
  *
  * A ROW WITH NO USABLE DATE STILL GETS A NAME, just an ambiguous one. That is
  * strictly better than "Remove undefined", and the case is close to

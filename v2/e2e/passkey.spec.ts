@@ -291,16 +291,32 @@ test('a passkey is offered after signing in, then signs the player back in, then
   await page.getByRole('tab', { name: 'Security' }).click()
 
   /**
-   * ONE ROW, AND IT IS THE ACCOUNT'S LIST RATHER THAN THE DEVICE'S. The name is
-   * always the bare word "Passkey" here — security-tab.tsx's `passkeyLabel`
-   * explains that nothing in this app sends a `name` at registration and the
-   * server fills none in — so the remove control's accessible name is
-   * "Remove Passkey, added <date>". Anchoring on the prefix keeps the assertion
-   * off the locale-formatted date while still proving the sr-only name exists,
-   * which is the only thing telling two rows apart for a screen reader.
+   * ONE ROW, AND IT IS THE ACCOUNT'S LIST RATHER THAN THE DEVICE'S. The row is
+   * named after the DEVICE now (wordle-teams-wty4.1.7.9) — lib/register-
+   * passkey.ts sends `deviceName()` at registration — so its remove control is
+   * announced as "Remove <browser> on <platform>, added <date>". Under
+   * Playwright that is literally "Remove HeadlessChrome on Linux, added …",
+   * measured; before the change it was the bare "Remove Passkey, added …" once
+   * per credential, with nothing telling a screen-reader user which one they
+   * were about to destroy.
+   *
+   * MATCHED ON THE SHAPE, NOT ON THE LITERAL, AND THE `on` IS THE ASSERTION.
+   * Pinning "HeadlessChrome on Linux" would couple this spec to the runner's
+   * browser build and OS, and pinning the date would couple it to a locale. The
+   * " on " is what no fallback label can ever contain, so this fails on exactly
+   * the regression worth catching — the argument going missing from that
+   * `addPasskey` call — while surviving a CI image bump. The unit suite
+   * (src/lib/device-name.test.ts) is where the exact strings live.
    */
-  const remove = page.getByRole('button', { name: /^Remove Passkey/ })
+  const remove = page.getByRole('button', { name: /^Remove \S.* on \S.*, added / })
   await expect(remove).toHaveCount(1)
+  // AND THE GENERIC LABEL IS GONE FROM THE TAB — the VISIBLE half, which the
+  // sr-only name above cannot speak to. `exact` keeps this off the "Passkeys"
+  // heading and the "Add a passkey" button; scoping to the dialog keeps it off
+  // the dashboard underneath.
+  await expect(
+    page.getByRole('dialog', { name: 'Settings' }).getByText('Passkey', { exact: true }),
+  ).toHaveCount(0)
   await remove.click()
 
   await expect(page.getByText('Passkey removed')).toBeVisible({ timeout: 15_000 })

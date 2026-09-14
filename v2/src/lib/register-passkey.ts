@@ -1,4 +1,5 @@
 import { authClient } from '#/lib/auth-client.ts'
+import { deviceName } from '#/lib/device-name.ts'
 import { rememberPasskeyRegistered } from '#/lib/passkey.ts'
 
 /**
@@ -157,7 +158,31 @@ const ABORTED_CODES = new Set(['ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY', 'ERROR_CE
  */
 export async function registerPasskey(): Promise<PasskeyRegistration> {
   try {
-    const result = await authClient.passkey.addPasskey()
+    /**
+     * THE NAME IS SENT HERE, WHICH IS WHY IT IS SENT ONCE
+     * (wordle-teams-wty4.1.7.9).
+     *
+     * The plugin stores ONLY a name the client supplies — `resolvedName` starts
+     * as `ctx.body.name || undefined` and is otherwise filled in by an
+     * `afterVerification` hook `convex/auth.ts` does not configure — so with no
+     * name every row in the Security tab read the bare word "Passkey" and a
+     * player with a phone and a laptop could not tell which Remove button was
+     * which.
+     *
+     * THIS MODULE RATHER THAN THE TWO CALLERS, for the same reason the marker
+     * write lives here: the Settings tab and the offer both start this
+     * ceremony, and a name added to one of them is a feature half the app's
+     * registrations do not get, with no symptom either gate or eye can see.
+     * Unlike the toasts above it, this is not a message — it is part of the
+     * registration.
+     *
+     * `undefined` IS A SAFE VALUE AND IS THE ANSWER ON SOME BROWSERS. The
+     * plugin spreads the name in conditionally (`...opts?.name && { name }`) and
+     * the server's schema is `z.string().trim().optional()`, so a browser that
+     * will not say what it is registers exactly as it did before and
+     * `passkeyLabel` falls back to "Passkey".
+     */
+    const result = await authClient.passkey.addPasskey({ name: deviceName() })
     if (result?.error) {
       const code = 'code' in result.error ? result.error.code : undefined
       if (code !== undefined && ABORTED_CODES.has(code)) return { outcome: 'aborted' }
