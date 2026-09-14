@@ -28,7 +28,20 @@ export type FunnelEvent =
   | { name: 'login_view' }
   | { name: 'login_provider_click'; provider: string }
   | { name: 'login_code_requested' }
-  | { name: 'login_callback_arrived'; method: 'oauth' | 'otp' }
+  // 'passkey' JOINED THE UNION WITH THE PASSKEY BUTTON (wordle-teams-wty4.1.7.4)
+  // AND DOES NOT BREAK THIS EVENT'S HISTORICAL COMPARABILITY, which is worth
+  // saying because a nearby change was rejected for exactly that. Widening
+  // `?signin=oauth` to carry a PROVIDER id would have split an existing series
+  // in two — the same sign-ins, counted under new names — so `wt.login.pending`
+  // carries that granularity instead (see routes/login.tsx). This adds a method
+  // that did not exist before and could not have been counted; the oauth and
+  // otp series are untouched, and leaving it out would instead understate
+  // completions by however many players adopt it.
+  //
+  // src/lib/funnel-payload.ts's METHODS allowlist HAS TO AGREE. A value this
+  // type permits but that set drops arrives at LogSnag with no `method` tag at
+  // all, which is a silent hole rather than an error.
+  | { name: 'login_callback_arrived'; method: 'oauth' | 'otp' | 'passkey' }
   // ACTIVATION HALF (wordle-teams-qt4). The login events above answer "did they
   // get in"; these answer "did they then do anything", which is the larger leak
   // — 82% of players have never entered a board.

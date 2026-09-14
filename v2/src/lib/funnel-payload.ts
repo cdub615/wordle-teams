@@ -30,7 +30,12 @@ const EVENT_SPECS: Record<FunnelEvent['name'], { event: string; icon: string }> 
 const EVENTS = new Map(Object.entries(EVENT_SPECS))
 
 const PROVIDERS = new Set(['google', 'microsoft', 'github', 'discord'])
-const METHODS = new Set(['oauth', 'otp'])
+// MUST STAY IN STEP WITH `login_callback_arrived`'s `method` in lib/funnel.ts,
+// and the failure when it does not is silent in the direction that matters: a
+// method the type permits but this set drops is forwarded with no `method` tag
+// at all, so the event still arrives and simply cannot be attributed.
+// 'passkey' joined both with wordle-teams-wty4.1.7.4.
+const METHODS = new Set(['oauth', 'otp', 'passkey'])
 
 /**
  * The onboarding task ids, allowlisted for the same reason PROVIDERS is:

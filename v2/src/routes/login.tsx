@@ -1,9 +1,12 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { KeyRound } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { authClient } from '#/lib/auth-client'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { lastLoginMethod, rememberLoginAttempt } from '#/lib/last-login.ts'
+import { passkeyRegisteredHere, passkeySupported } from '#/lib/passkey.ts'
 import { publicRouteHead } from '#/lib/seo'
+import { signInWithPasskey } from '#/lib/signin-passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated'
 import { LastUsedBadge } from '#/components/last-used-badge.tsx'
 import { Button } from '#/components/ui/button.tsx'
@@ -84,6 +87,20 @@ const SOCIAL_PROVIDERS = [
  */
 const EMAIL_METHOD = 'email'
 
+/**
+ * The method id the passkey path records (wordle-teams-wty4.1.7.4).
+ *
+ * IT IS THE SAME WORD AS THE FUNNEL'S, AND THAT IS A COINCIDENCE RATHER THAN A
+ * SHARED VALUE. `?signin=passkey` is a FUNNEL marker, charted by
+ * `login_callback_arrived` beside oauth and otp; this is a method id sitting in
+ * `wt.login.pending` beside google/microsoft/github/discord and 'email'. The
+ * email path is the one where the two vocabularies visibly differ — 'email'
+ * here, 'otp' on the URL — and the note on EMAIL_METHOD above explains why they
+ * must not be conflated. There is only one honest English word for this one, so
+ * they coincide; do not turn that into an import in either direction.
+ */
+const PASSKEY_METHOD = 'passkey'
+
 function LoginPage() {
   const hydrated = useHydrated()
   const [step, setStep] = useState<'email' | 'code'>('email')
@@ -91,6 +108,31 @@ function LoginPage() {
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  /**
+   * Whether to draw the passkey button at all (wordle-teams-wty4.1.7.4).
+   *
+   * BOTH HALVES OR NEITHER. WebAuthn has to exist, AND this device has to have
+   * registered a credential — without the second the button is a dead-end tap
+   * that opens a system sheet reading "no passkeys found", which is worse than
+   * no button, and lib/passkey.ts's header says so at the function it calls.
+   *
+   * STARTS FALSE AND IS RAISED IN AN EFFECT, which is this page's existing rule
+   * for anything read out of localStorage wearing a different shape — see
+   * `lastUsed` below. The server cannot see the marker, so a button in the SSR
+   * pass is a hydration mismatch on exactly the returning players it is for,
+   * and `false` is what both sides agree on.
+   *
+   * STATE RATHER THAN A `useMemo` OVER `hydrated`, AND THAT IS THE DIFFERENCE
+   * FROM `lastUsed`: this value CHANGES while the page is open. A ceremony that
+   * the server refuses with PASSKEY_NOT_FOUND proves the marker was wrong,
+   * lib/signin-passkey.ts clears it, and the button has to go with it — a memo
+   * keyed on `hydrated` would leave a control on screen offering a ceremony
+   * that has just been shown to fail.
+   */
+  const [canUsePasskey, setCanUsePasskey] = useState(false)
+  useEffect(() => {
+    setCanUsePasskey(passkeySupported() && passkeyRegisteredHere())
+  }, [])
 
   // Top of the funnel. Fires once per mount, after hydration, so it counts real
   // browsers rather than SSR renders or crawlers that never execute JS.
@@ -189,6 +231,53 @@ function LoginPage() {
     window.location.href = `/app?${SIGNIN_PARAM}=otp`
   }
 
+  /**
+   * Sign in with the credential this device already holds
+   * (wordle-teams-wty4.1.7.4).
+   *
+   * THE CEREMONY AND ITS CLASSIFICATION ARE lib/signin-passkey.ts's, not this
+   * file's, for the reason that module's header gives: the decision about which
+   * failure clears the per-device marker is the whole of
+   * wordle-teams-wty4.1.7.8's residual case, and a route module cannot be
+   * imported under vitest. What is left here is what to SAY and where to GO.
+   *
+   * THE THREE ENDINGS THAT ARE NOT A SIGN-IN ARE THREE DIFFERENT THINGS:
+   *
+   *   - 'cancelled' SAYS NOTHING. Dismissing the system sheet is how a person
+   *     says "not now" to a modal their operating system drew; a message there
+   *     scolds them for using its cancel button. components/passkey-offer.tsx
+   *     takes the same line on the registration ceremony's 'aborted'.
+   *   - 'no-credential' IS A SIGNPOST AND NOT A WALL, which is the whole point
+   *     of it having an outcome of its own. The marker has just been cleared as
+   *     wrong, so the button disappears in the same commit as the sentence
+   *     appears — and the sentence names what still works and where to make a
+   *     new one. The page the player is left looking at is one where every
+   *     control on it can succeed.
+   *   - 'failed' is an ordinary error in the ordinary place.
+   */
+  async function passkeySignIn() {
+    setPending(true)
+    setError(null)
+    const result = await signInWithPasskey()
+    setPending(false)
+    if (result.outcome === 'cancelled') return
+    if (result.outcome === 'no-credential') {
+      // THE MARKER IS ALREADY GONE FROM THE STORE; this is the same fact on
+      // screen. Nothing else re-reads it while this page is open.
+      setCanUsePasskey(false)
+      return setError(result.message)
+    }
+    if (result.outcome === 'failed') return setError(result.message)
+    // PAST EVERY REFUSAL, and last, exactly as the email path's is and for the
+    // same reason: the reload below is what discards this component, so nothing
+    // may follow it. src/routes.test.ts pins "nothing runs after this".
+    rememberLoginAttempt(PASSKEY_METHOD)
+    // full reload — required with expectAuth, as on the code path above. The
+    // session cookie is set by /passkey/verify-authentication and the Convex
+    // client only re-reads auth on a fresh document.
+    window.location.href = `/app?${SIGNIN_PARAM}=passkey`
+  }
+
   return (
     <main className="page-wrap flex justify-center px-4 py-10 sm:py-16">
       <Card className="w-full max-w-sm">
@@ -251,6 +340,41 @@ function LoginPage() {
                 {pending ? 'Verifying…' : 'Verify'}
               </Button>
             </form>
+          )}
+
+          {/*
+            BELOW THE FORM AND ABOVE THE ALERT, DELIBERATELY, ON BOTH COUNTS.
+
+            Below: it cannot exist before hydration, so wherever it goes it
+            arrives late and pushes something down. Here it pushes only the
+            social section; above the form it would push the whole form, which
+            is the thing a player may already be typing into.
+
+            Above the alert: the sentence this button can produce IS the alert —
+            "this device's passkey is no longer on your account" — and a
+            signpost reads as an answer when it sits under the control that
+            provoked it and as a page-level error when it floats above it.
+          */}
+          {canUsePasskey && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void passkeySignIn()}
+              // NOT `!hydrated || pending`, unlike every other button on this
+              // page, and the difference is not an oversight. Those exist in
+              // the SSR pass and must refuse a pre-hydration click (wt-ksh.2.2);
+              // this one is mounted BY an effect, so there is no frame in which
+              // it exists and React has not attached.
+              disabled={pending}
+            >
+              <KeyRound className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {/* NOT the offer dialog's "Set up a passkey" nor the Settings
+                  tab's "Add a passkey": this one USES a passkey rather than
+                  making one, and three controls with one accessible name is an
+                  ambiguous target for a screen reader. */}
+              Sign in with a passkey
+              {lastUsed === PASSKEY_METHOD && <LastUsedBadge />}
+            </Button>
           )}
 
           {error && (

@@ -1134,11 +1134,17 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
   const PROFILE = './routes/complete-profile.tsx'
   const login = () => codeOf(read(LOGIN))
 
-  test('the attempt is recorded at exactly two places, one per sign-in path', () => {
-    // Five methods, two code paths: four providers share `signInWith`, and the
-    // email code has its own. A third site is either a new path that needs its
-    // own reasoning or a duplicate that will fight the other one.
-    expect(callSitesOf(LOGIN, read(LOGIN), 'rememberLoginAttempt')).toHaveLength(2)
+  test('the attempt is recorded at exactly three places, one per sign-in path', () => {
+    // Six methods, three code paths: four providers share `signInWith`, the
+    // email code has its own, and the passkey button has its own. A fourth site
+    // is either a new path that needs its own reasoning or a duplicate that
+    // will fight the others.
+    //
+    // THE NUMBER IS THE TRIPWIRE AND IS DELIBERATELY NOT `toBeGreaterThan`.
+    // Loosening it is exactly what would let the NEXT sign-in method ship with
+    // no attempt recorded and no badge — a failure with no symptom, since the
+    // badge simply goes on naming whatever worked last.
+    expect(callSitesOf(LOGIN, read(LOGIN), 'rememberLoginAttempt')).toHaveLength(3)
   })
 
   test('the provider attempt is recorded BEFORE the handoff, not after it', () => {
@@ -1285,7 +1291,17 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
     // ONE BADGE PER CONTROL, each guarded by a comparison against that
     // control's own method id. `lastUsed && <LastUsedBadge />` — dropping the
     // comparison — marks every button at once and is a one-character edit.
-    expect(login().match(/lastUsed === \w+ && <LastUsedBadge \/>/g) ?? []).toHaveLength(2)
+    //
+    // THREE, NOT TWO, SINCE THE PASSKEY BUTTON (wordle-teams-wty4.1.7.4), and
+    // the count is updated rather than relaxed for the reason the attempt-site
+    // tripwire above gives: a method that records an attempt but renders no
+    // badge is invisible to every other assertion in this file.
+    //
+    // `\w+` MATCHES AN IDENTIFIER, NOT A STRING LITERAL, which is why each
+    // method id is a named constant. That is not the regex's convenience — a
+    // literal `'passkey'` spelled twice is a literal that can be spelled
+    // differently in one of them.
+    expect(login().match(/lastUsed === \w+ && <LastUsedBadge \/>/g) ?? []).toHaveLength(3)
 
     // AND THE VALUE IS GATED ON HYDRATION. localStorage does not exist on the
     // server, so a badge in the SSR pass is a hydration mismatch on exactly the
@@ -1311,6 +1327,151 @@ describe('the last-used sign-in badge is written on attempt and promoted on arri
       /import \{ LastUsedBadge \} from '#\/components\/last-used-badge\.tsx'/,
     )
     expect(login()).not.toMatch(/function LastUsedBadge/)
+  })
+})
+
+/**
+ * THE PASSKEY SIGN-IN BUTTON, AND THE METHOD IT RECORDS
+ * (wordle-teams-wty4.1.7.4).
+ *
+ * THE BEHAVIOURAL HALVES ARE ELSEWHERE AND ARE EXECUTABLE:
+ * lib/signin-passkey.test.ts classifies every way the ceremony can end and
+ * proves which one clears the per-device marker, lib/passkey.test.ts runs the
+ * markers against a fake store. What NEITHER can see is what this block pins,
+ * because it lives in a route module vitest cannot import:
+ *
+ *   - WHETHER THE BUTTON IS DRAWN AT ALL, and on what. Dropping the
+ *     `passkeyRegisteredHere()` half of its condition leaves a button that
+ *     opens a system sheet saying no passkeys were found — the dead-end tap the
+ *     design doc rules out — on every WebAuthn-capable device in the world. It
+ *     is a one-character edit, it type-checks, it lints, and no rendering test
+ *     exists that could reach it.
+ *   - WHETHER THE ATTEMPT IS RECORDED, and where in the handler. The same
+ *     ordering property the email path has, for the same reason.
+ *   - WHETHER THE MARKER /login WRITES ON THE URL IS ONE /app ACCEPTS. This is
+ *     the silent one: `?signin=passkey` arriving at a guard that still reads
+ *     `oauth | otp` is not an error anywhere. The promotion simply never
+ *     happens, and the badge goes on naming whatever method worked last —
+ *     forever, correctly-looking, on every gate.
+ */
+describe('the passkey sign-in button is offered only where it can succeed', () => {
+  const LOGIN = './routes/login.tsx'
+  const APP = './routes/app.tsx'
+  const login = () => codeOf(read(LOGIN))
+
+  test('it is gated on WebAuthn support AND a credential on THIS device', () => {
+    const sites = callSitesOf(LOGIN, read(LOGIN), 'passkeyRegisteredHere')
+    expect(sites, 'nothing in /login asks whether this device has a passkey').toHaveLength(1)
+    expect(sites[0].args).toEqual([])
+
+    // ONE BODY, so the two probes are one decision rather than two that can
+    // drift apart — and `orderedIn` would throw by name if either were renamed.
+    expect(sites[0].within).toContain('passkeySupported')
+
+    // AND THE CONJUNCTION ITSELF, WHICH `within` CANNOT SEE. Membership is
+    // satisfied just as well by `passkeySupported() || passkeyRegisteredHere()`,
+    // which is the dead-end button for everyone.
+    expect(login()).toMatch(/passkeySupported\(\) && passkeyRegisteredHere\(\)/)
+  })
+
+  test('the answer is what draws the button, and it is never drawn on the server', () => {
+    // THE PROBE EVALUATED AND THROWN AWAY is a green diff that ships a button
+    // for every visitor, so the assertion is that its value reaches the flag.
+    expect(login()).toMatch(
+      /setCanUsePasskey\(passkeySupported\(\) && passkeyRegisteredHere\(\)\)/,
+    )
+    expect(login()).toMatch(/\{canUsePasskey && \(/)
+
+    // FALSE UNTIL AN EFFECT RAISES IT, which is this page's existing rule for
+    // anything read out of localStorage (`hydrated ? lastLoginMethod() :
+    // undefined`, asserted above) wearing a different shape. The server cannot
+    // see the marker, so a button in the SSR pass is a hydration mismatch on
+    // exactly the returning players it is for. It is `useState` rather than a
+    // `useMemo` over `hydrated` because the value CHANGES: a ceremony that
+    // proves the marker wrong clears it and the button goes with it.
+    expect(login()).toMatch(/const \[canUsePasskey, setCanUsePasskey\] = useState\(false\)/)
+  })
+
+  test('a ceremony that disproves the marker takes the button away too', () => {
+    // lib/signin-passkey.ts clears the STORE on `no-credential`; nothing
+    // re-reads it while this page is open, so a button left on screen would go
+    // on offering a ceremony that has just been shown to fail.
+    const sites = callSitesOf(LOGIN, read(LOGIN), 'setCanUsePasskey')
+    expect(sites.map((site) => site.args)).toEqual([
+      ['passkeySupported() && passkeyRegisteredHere()'],
+      ['false'],
+    ])
+    expect(sites[1].within).toContain('signInWithPasskey')
+  })
+
+  test('the attempt is recorded past the point of refusal, as the email path is', () => {
+    const [site] = callSitesOf(LOGIN, read(LOGIN), 'rememberLoginAttempt').filter((call) =>
+      call.within.includes('signInWithPasskey'),
+    )
+    expect(site, 'no rememberLoginAttempt in the handler that runs the ceremony').toBeDefined()
+    expect(site.args).toEqual(['PASSKEY_METHOD'])
+
+    // SPELLED AS "NOTHING ELSE HAPPENS AFTER IT", exactly as the email site is
+    // and for the reason recorded there at length: the two anchors that read
+    // best are both unsound. `signInWithPasskey` is the await, and everything
+    // — the refusals included — is after it, so a hoist over them satisfies it
+    // too. `setError` is CALLED THREE TIMES in this body and `within` holds
+    // callee texts with no identity, so naming it is a positional guess.
+    //
+    // The body's last CALL is this one; `window.location.href = ...` follows it
+    // and is an assignment, not a call.
+    expect(
+      site.within.at(-1),
+      'something runs after the attempt is recorded — is it still past the refusals?',
+    ).toBe('rememberLoginAttempt')
+
+    // A NAMED CONSTANT, not a literal, and not only because the badge regex
+    // above wants an identifier: this id sits in the same store beside
+    // google/microsoft/github/discord and 'email', and a string spelled in two
+    // places is one that can be spelled differently in one of them.
+    expect(login()).toMatch(/const PASSKEY_METHOD = 'passkey'/)
+  })
+
+  test('the marker /login puts on the URL is one /app\'s arrival guard accepts', () => {
+    // THE FAILURE THIS EXISTS FOR HAS NO SYMPTOM. `?signin=passkey` arriving at
+    // a guard that still reads `method !== 'oauth' && method !== 'otp'` returns
+    // early: no funnel event, no promotion, no offer. Nothing throws, nothing
+    // logs, every gate is green, and the badge simply never moves off whatever
+    // method the player used before. Both halves are walked so that a change to
+    // either side is a failure rather than a drift.
+    const sent = [...login().matchAll(/SIGNIN_PARAM\}=(\w+)/g)].map((match) => match[1])
+    // THE VACUITY GUARD FOR THE PAIRING BELOW, and it is not optional: two
+    // empty walks compare equal, so a renamed `SIGNIN_PARAM` or a rewritten
+    // guard would satisfy the pairing while nothing at all was wired.
+    expect([...sent].sort()).toEqual(['oauth', 'otp', 'passkey'])
+
+    const accepted = [...codeOf(read(APP)).matchAll(/method !== '(\w+)'/g)].map(
+      (match) => match[1],
+    )
+    expect(
+      [...accepted].sort(),
+      'a marker /login writes is not one /app promotes on — the badge will never move',
+    ).toEqual([...sent].sort())
+  })
+
+  test('the route reaches the store only through the wrapped helpers', () => {
+    // The same invariant the badge block asserts for `wt.login.`, for the same
+    // reason: an inline `localStorage.getItem('wt.passkey.registered')` looks
+    // like an obvious simplification and throws in Safari private mode, which
+    // turns a convenience button into a blank sign-in page.
+    expect(login()).not.toMatch(/localStorage/)
+    expect(login()).not.toMatch(/wt\.passkey\./)
+    expect(login()).toMatch(
+      /import \{ passkeyRegisteredHere, passkeySupported \} from '#\/lib\/passkey\.ts'/,
+    )
+    // AND THE CEREMONY IS THE SHARED MODULE'S, not a second copy. The decision
+    // about WHICH failure clears the per-device marker is the whole of
+    // wordle-teams-wty4.1.7.8's residual case, and it is only testable where it
+    // is testable — in a module vitest can import.
+    expect(login()).toMatch(
+      /import \{ signInWithPasskey \} from '#\/lib\/signin-passkey\.ts'/,
+    )
+    expect(login()).not.toMatch(/authClient\.signIn\.passkey/)
   })
 })
 

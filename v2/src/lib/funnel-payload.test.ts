@@ -4,6 +4,7 @@ import {
   declaresOversizedBody,
   toLogSnagPayload,
 } from './funnel-payload.ts'
+import type { FunnelEvent } from './funnel.ts'
 
 // /api/funnel is public and unauthenticated, so these allowlists are the only
 // thing stopping it being an open relay into the project's LogSnag.
@@ -47,6 +48,31 @@ describe('toLogSnagPayload', () => {
     expect(
       toLogSnagPayload({ name: 'login_callback_arrived', method: 'sneaky' }, 'beta')?.tags,
     ).toEqual({ env: 'beta' })
+  })
+
+  test('every method lib/funnel.ts can emit survives the allowlist', () => {
+    // THE HOLE THIS CLOSES IS SILENT AND ONE-DIRECTIONAL. A method that
+    // `FunnelEvent` permits but METHODS drops is not rejected — `toLogSnagPayload`
+    // returns a payload with no `method` tag, so the event arrives at LogSnag
+    // and simply cannot be attributed to a sign-in method. Nothing throws, no
+    // gate notices, and the loss is only visible as a chart that stops adding
+    // up. wordle-teams-wty4.1.7.4 added 'passkey' to both; this is the pairing.
+    // A `Record` KEYED ON THE UNION, NOT AN ARRAY LITERAL, AND THAT IS THE
+    // WHOLE MECHANISM. An array can be written short — a fourth method added to
+    // `FunnelEvent` and forgotten here is a list that still type-checks and a
+    // loop that still passes. A Record demands every key, so the omission is a
+    // typecheck failure naming the missing method before this ever runs.
+    const everyMethod: Record<
+      Extract<FunnelEvent, { name: 'login_callback_arrived' }>['method'],
+      true
+    > = { oauth: true, otp: true, passkey: true }
+
+    for (const method of Object.keys(everyMethod) as Array<keyof typeof everyMethod>) {
+      expect(
+        toLogSnagPayload({ name: 'login_callback_arrived', method }, 'beta')?.tags,
+        `${method} is emittable but is dropped by the allowlist`,
+      ).toEqual({ env: 'beta', method })
+    }
   })
 
   test('never forwards arbitrary tags, and never PII', () => {

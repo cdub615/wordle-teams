@@ -334,7 +334,13 @@ function Dashboard() {
   useEffect(() => {
     const url = new URL(window.location.href)
     const method = url.searchParams.get(SIGNIN_PARAM)
-    if (method !== 'oauth' && method !== 'otp') return
+    // 'passkey' IS THE THIRD, AND ADDING IT HERE IS WHAT MAKES THE PASSKEY
+    // BUTTON COUNT (wordle-teams-wty4.1.7.4). /login hard-navigates to
+    // `?signin=passkey`; left out of this condition that arrival returns early
+    // and NOTHING happens — no funnel event, no promotion, no offer. There is
+    // no error and no log: the last-used badge simply goes on naming whatever
+    // method the player used before, forever, on a green build.
+    if (method !== 'oauth' && method !== 'otp' && method !== 'passkey') return
     trackFunnel({ name: 'login_callback_arrived', method })
     // The pending attempt knows WHICH provider; `method` only knows oauth vs
     // otp, and widening it would break the funnel's historical comparability.
