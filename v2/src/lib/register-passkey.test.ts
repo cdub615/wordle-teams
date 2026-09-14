@@ -91,18 +91,40 @@ describe('registerPasskey', () => {
     })
   })
 
-  test('a cancelled ceremony is its own outcome, and marks nothing', async () => {
-    /**
-     * THE MUTATION THIS KILLS: dropping the ERROR_CEREMONY_ABORTED branch so
-     * every error is alike. Dismissing the system sheet is how a player says
-     * "not now"; reporting it as a failure scolds them for pressing the cancel
-     * button the browser itself drew. It is a distinct outcome rather than a
-     * silent success because the two callers do different things with it.
-     */
-    addPasskeyMock.mockResolvedValue({
-      data: null,
-      error: { code: 'ERROR_CEREMONY_ABORTED', message: 'Registration cancelled' },
-    })
+  /**
+   * THE MUTATION THESE KILL: narrowing the aborted branch back to
+   * `ERROR_CEREMONY_ABORTED` alone, which is what this module shipped until
+   * wordle-teams-wty4.1.7.11 and is why a plain cancel was toasted as an error.
+   * Dismissing the system sheet is how a player says "not now"; reporting it as
+   * a failure scolds them for pressing the cancel button the browser itself
+   * drew. It is a distinct outcome rather than a silent success because the two
+   * callers do different things with it.
+   *
+   * THE FIRST ROW IS THE ONE A REAL CANCEL PRODUCES, and it is the row this
+   * suite did not have. `NotAllowedError` is passed through unclassified by
+   * `identifyRegistrationError` — see the module — so the code is the
+   * passthrough one and the message is whatever the platform wrote. The literal
+   * below is Chrome's, copied from the spec text that helper declines to
+   * replace; the point of carrying it is that a module which reported this as
+   * 'failed' would put THAT SENTENCE in a toast.
+   *
+   * The second row is the abort signal (a second ceremony cancelling the
+   * first). It is the code every cancel test in the tree used to feed, and
+   * alone it was a green light on data the platform never makes — the same
+   * class of vacuity as asserting a passkey `name` the app cannot produce.
+   *
+   * `toEqual` RATHER THAN A CHECK ON `.outcome`: it is exact, so it also proves
+   * no message rides along. An 'aborted' carrying the platform's jargon would
+   * satisfy a looser assertion and still be the bug.
+   */
+  test.each([
+    [
+      'ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY',
+      'The operation either timed out or was not allowed. See: https://www.w3.org/TR/webauthn-2/#sctn-privacy-considerations-client.',
+    ],
+    ['ERROR_CEREMONY_ABORTED', 'Registration cancelled'],
+  ])('a ceremony ending with no credential is aborted, not failed (%s)', async (code, message) => {
+    addPasskeyMock.mockResolvedValue({ data: null, error: { code, message } })
     await expect(registerPasskey()).resolves.toEqual({ outcome: 'aborted' })
     expect(rememberRegisteredMock).not.toHaveBeenCalled()
   })

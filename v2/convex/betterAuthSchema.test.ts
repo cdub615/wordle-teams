@@ -1,5 +1,7 @@
 import { convexTest } from 'convex-test'
+import { getAuthTables } from 'better-auth/db'
 import { describe, expect, test } from 'vitest'
+import { createAuthOptions } from './auth.ts'
 import schema from './schema'
 import betterAuthComponentSchema from './betterAuth/schema'
 import { tables as upstreamTables } from './betterAuth/generatedSchema'
@@ -92,5 +94,75 @@ describe('the betterAuth component schema', () => {
     )) as { _id: string; credentialID: string }
 
     expect(created.credentialID).toBe('cred-1')
+  })
+})
+
+/**
+ * A TRIPWIRE FOR wordle-teams-047w, AND RED HERE IS GOOD NEWS: it means an
+ * upstream version finally declares the field unique. Read 047w, drop the
+ * expectation below, and reconsider whatever was written on the assumption that
+ * nothing enforced it — starting with the long corollary in
+ * convex/betterAuth/adapter.ts.
+ *
+ * WHAT IT IS NOT: an assertion that `credentialID` is non-unique. 047w is
+ * explicit that pinning the current state that way locks the bug in. What is
+ * pinned is the SET of unique fields on the model, which is the thing that
+ * changes when the bug is fixed rather than the bug itself.
+ *
+ * THE SCHEMA THIS READS IS NOT THE CONVEX ONE ABOVE. `createApi` computes
+ * `getAuthTables(createAuthOptions({}))` (create-api.ts:65) and uses it for
+ * `checkUniqueFields` and nothing else, so this is the exact object the
+ * uniqueness check consults — a Convex index, which convex/betterAuth/schema.ts
+ * does declare on the field, constrains nothing.
+ */
+describe('the uniqueness the adapter actually enforces', () => {
+  /**
+   * Mirrors `isUniqueField`'s own predicate — it filters on `value.unique` and
+   * nothing else (node_modules/@convex-dev/better-auth/src/client/
+   * adapter-utils.ts:61-74) — so this tracks the real check rather than a
+   * paraphrase of it.
+   *
+   * RETURNS `null` FOR A MODEL THAT IS NOT THERE, WHICH IS THE WHOLE POINT OF
+   * THE HELPER. 047w's finding is that the passkey model went from "not found,
+   * answer false" to "found, answer false": the reason changed and the outcome
+   * did not. A helper that answered `[]` for both would report the two states
+   * identically and this test would pass with the plugin ripped out of
+   * `createAuthOptions` entirely.
+   */
+  const uniqueFieldsOf = (tables: ReturnType<typeof getAuthTables>, model: string) => {
+    const fields = Object.values(tables).find((table) => table.modelName === model)?.fields
+    if (!fields) return null
+    return Object.entries(fields)
+      .filter(([, field]) => (field as { unique?: boolean }).unique)
+      .map(([name]) => name)
+      .sort()
+  }
+
+  test('passkey has no unique fields, and user.email proves the probe can see one', () => {
+    const tables = getAuthTables(createAuthOptions({} as never))
+
+    // THE CONTROL, AND IT COMES FIRST DELIBERATELY. `user.email` is genuinely
+    // declared unique, so a harness that had broken — wrong shape out of
+    // `getAuthTables`, a `fields` object that is empty, a filter reading a
+    // property that no longer exists — fails HERE rather than sailing through
+    // the real assertion as a green light. Without it, `[]` below is equally
+    // the answer to "nothing is unique" and to "this probe sees nothing at
+    // all", which is precisely the pass-for-the-wrong-reason 047w's own
+    // measurement was careful to rule out.
+    expect(uniqueFieldsOf(tables, 'user')).toContain('email')
+
+    // THE MODEL IS PRESENT AND CARRIES THE FIELD. `[]` from an ABSENT passkey
+    // model — the plugin dropped from createAuthOptions — is the pre-wty4.1.7
+    // state, not the bug this guards, and these two lines are what tells them
+    // apart.
+    const passkeyFields = Object.values(tables).find((table) => table.modelName === 'passkey')
+      ?.fields
+    expect(Object.keys(passkeyFields ?? {})).toContain('credentialID')
+
+    // THE TRIPWIRE. Measured against @better-auth/passkey 1.6.23, whose schema
+    // declares `credentialID: { type: 'string', required: true, index: true }`
+    // — index, not unique (dist/index.mjs:648-651). When this goes red, see the
+    // paragraph at the top of this describe.
+    expect(uniqueFieldsOf(tables, 'passkey')).toEqual([])
   })
 })

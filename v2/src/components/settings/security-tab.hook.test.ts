@@ -294,20 +294,51 @@ describe('adding a passkey', () => {
     expect(toastSuccess).not.toHaveBeenCalled()
   })
 
-  test('says nothing at all when the player cancels the system sheet', async () => {
+  /**
+   * THE MUTATION THESE KILL: narrowing `registerPasskey`'s aborted branch back
+   * to `ERROR_CEREMONY_ABORTED` alone, and toasting everything else alike.
+   * Dismissing the sheet is how a player says "not now" — an error toast there
+   * scolds someone for pressing the cancel button the browser itself drew.
+   *
+   * THIS TEST WAS GREEN FOR THE WRONG REASON UNTIL wordle-teams-wty4.1.7.11. It
+   * fed `ERROR_CEREMONY_ABORTED` — the ABORT SIGNAL, raised when a second
+   * ceremony cancels the first — and called it "the player cancels". A real
+   * Cancel raises `NotAllowedError`, which `identifyRegistrationError` passes
+   * through as `ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY` (see
+   * lib/register-passkey.ts), so the path an actual player takes was untested
+   * here and shipped broken: an error toast carrying the platform's own
+   * sentence. The first row is that path. The second is kept because the abort
+   * signal is real too, just not what the Cancel button produces.
+   *
+   * DRIVEN THROUGH THE REAL CLASSIFIER, which is this file's value over
+   * lib/register-passkey.test.ts: `addPasskey` is the mock, so the plugin error
+   * shape travels through `registerPasskey` and into the tab's toasting exactly
+   * as it does in a browser.
+   */
+  test.each([
+    [
+      'ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY',
+      'The operation either timed out or was not allowed. See: https://www.w3.org/TR/webauthn-2/#sctn-privacy-considerations-client.',
+    ],
+    ['ERROR_CEREMONY_ABORTED', 'Registration cancelled'],
+  ])('says nothing at all when the system sheet closes empty (%s)', async (code, message) => {
     /**
-     * THE MUTATION THIS KILLS: dropping the ERROR_CEREMONY_ABORTED branch and
-     * toasting every error alike. Dismissing the sheet is how a player says
-     * "not now" — an error toast there scolds someone for pressing the cancel
-     * button the browser itself drew.
+     * A DEFERRED PROMISE, AND IT IS THE VACUITY GUARD RATHER THAN a flourish.
+     * Every assertion at the end of this test is a NEGATIVE one, and a negative
+     * assertion is satisfied by a handler that simply has not got there yet: a
+     * click still in flight has toasted nothing either. Releasing the mock by
+     * hand pins both edges — the button going dead proves the handler entered,
+     * the button coming back proves its `finally` ran — so "nothing was said"
+     * is measured against a handler that has demonstrably FINISHED.
      */
-    addPasskeyMock.mockResolvedValue({
-      data: null,
-      error: { code: 'ERROR_CEREMONY_ABORTED', message: 'Registration cancelled' },
-    })
+    let release: (value: unknown) => void = () => {}
+    addPasskeyMock.mockReturnValue(new Promise((resolve) => (release = resolve)))
     mount()
-    fireEvent.click(screen.getByRole('button', { name: /Add a passkey/i }))
-    await waitFor(() => expect(addPasskeyMock).toHaveBeenCalled())
+    const button = screen.getByRole('button', { name: /Add a passkey/i }) as HTMLButtonElement
+    fireEvent.click(button)
+    await waitFor(() => expect(button.disabled).toBe(true))
+    release({ data: null, error: { code, message } })
+    await waitFor(() => expect(button.disabled).toBe(false))
     expect(toastError).not.toHaveBeenCalled()
     expect(toastSuccess).not.toHaveBeenCalled()
     expect(rememberRegisteredMock).not.toHaveBeenCalled()

@@ -84,6 +84,63 @@ const ALREADY_REGISTERED_MESSAGE = 'This device already has a passkey on your ac
 export const REGISTRATION_FAILED_MESSAGE = 'Could not add a passkey.'
 
 /**
+ * THE TWO CODES THAT MEAN "THE SHEET CLOSED WITH NO CREDENTIAL, AND THAT IS NOT
+ * NEWS" — AND THE ONE A REAL CANCEL PRODUCES IS NOT THE ONE NAMED AFTER IT
+ * (wordle-teams-wty4.1.7.11).
+ *
+ * `ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY` IS THE CANCEL BUTTON. Dismissing the
+ * registration sheet raises a DOMException named `NotAllowedError`, and
+ * `identifyRegistrationError` REFUSES TO CLASSIFY THAT NAME — its own comment
+ * says "Platforms are overloading this error beyond what the spec defines and
+ * we don't want to overwrite potentially useful error messages" — so it comes
+ * back as a `WebAuthnError` carrying this code and THE PLATFORM'S OWN SENTENCE
+ * as its message (measured in @simplewebauthn/browser 13.3.0,
+ * `esm/helpers/identifyRegistrationError.js`). The plugin's registration catch
+ * has no arm for it and hands the pair straight out (@better-auth/passkey
+ * 1.6.23, `dist/client.mjs`).
+ *
+ * Until wty4.1.7.11 this module knew only the code below, so an ordinary cancel
+ * fell through to 'failed' and both callers toasted platform jargon at someone
+ * for pressing the button the browser itself drew — precisely what this file's
+ * header forbids, and worst in components/passkey-offer.tsx, where cancelling
+ * is the expected answer and must cost nothing.
+ *
+ * `ERROR_CEREMONY_ABORTED` IS THE ABORT SIGNAL, NOT THE BUTTON: a second
+ * ceremony starting cancels the first (`identifyRegistrationError` reaches it
+ * only for an `AbortError` raised against a caller-supplied `AbortSignal`). A
+ * race rather than a fault, and equally not worth a toast — it stays. What it
+ * is not is what every test in the tree used to feed as "the player cancelled",
+ * which was data the platform never makes.
+ *
+ * RECONCILED WITH lib/signin-passkey.ts, DELIBERATELY NOT SHARED WITH IT. The
+ * two modules classify opposite questions — this one reads evidence a
+ * credential EXISTS, its sibling reads evidence one does NOT — and the
+ * ambiguity the sibling has to argue at length does not arise here. There,
+ * `NotAllowedError` is genuinely two facts at once ("dismissed" and "this
+ * authenticator holds nothing"), and the choice between them decides whether to
+ * CLEAR the per-device marker; getting it wrong takes /login's button away from
+ * someone holding a good credential. Here there is nothing to clear: the marker
+ * is only ever WRITTEN, and only on positive evidence, so every reading of a
+ * `NotAllowedError` out of `navigator.credentials.create()` — dismissal,
+ * timeout, a permissions-policy refusal — ends the same way. No credential, no
+ * write, and nothing the player can act on.
+ *
+ * THE PLUGIN'S CANNED-MESSAGE PROBLEM IS THE SIBLING'S ALONE, and that is a
+ * measured difference rather than an oversight here. `signInPasskey` sets
+ * `message: PASSKEY_ERROR_CODES.AUTH_CANCELLED.message` — the literal "Auth
+ * cancelled" — on EVERY ceremony failure whatever the code, which is why
+ * signin-passkey.ts discards it. `registerPasskey` does not: its catch answers
+ * "Previously registered" / "Registration cancelled" on the two codes it names,
+ * and `e.message` — identifyRegistrationError's real sentence, e.g. `The RP ID
+ * "x" is invalid for this domain` — on every other `WebAuthnError`, falling to
+ * `UNKNOWN_ERROR` with the thrown Error's own message otherwise. So a
+ * misconfigured rpID reports itself accurately through this module, and
+ * blanking those messages would make it worse, not safer. Re-measure before
+ * assuming the two catches match (`dist/client.mjs`; they do not).
+ */
+const ABORTED_CODES = new Set(['ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY', 'ERROR_CEREMONY_ABORTED'])
+
+/**
  * Run the ceremony and report what happened. Never rejects, never throws.
  *
  * 'aborted' MEANS THE PLAYER PRESSED CANCEL on the system sheet, which is how a
@@ -103,7 +160,7 @@ export async function registerPasskey(): Promise<PasskeyRegistration> {
     const result = await authClient.passkey.addPasskey()
     if (result?.error) {
       const code = 'code' in result.error ? result.error.code : undefined
-      if (code === 'ERROR_CEREMONY_ABORTED') return { outcome: 'aborted' }
+      if (code !== undefined && ABORTED_CODES.has(code)) return { outcome: 'aborted' }
       if (code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED') {
         rememberPasskeyRegistered()
         return { outcome: 'already-registered', message: ALREADY_REGISTERED_MESSAGE }
