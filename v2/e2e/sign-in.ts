@@ -1,7 +1,86 @@
 import { expect } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
+import { PASSKEY_DECLINED_KEY } from '../src/lib/passkey.ts'
 import type { Page } from '@playwright/test'
+
+/**
+ * @see signIn
+ */
+export type SignInOptions = {
+  /**
+   * Let the post-sign-in passkey offer appear. ONE SPEC PASSES THIS —
+   * e2e/passkey.spec.ts — and it is the spec whose entire subject is the offer.
+   * Everything else takes the default and never sees the dialog. See
+   * `suppressPasskeyOffer` below for why the default is the way round it is.
+   */
+  offerPasskey?: boolean
+}
+
+/**
+ * SEED THE APP'S OWN "already declined" MARKER SO THE PASSKEY OFFER NEVER OPENS
+ * (wordle-teams-wty4.1.7.12).
+ *
+ * WHAT BREAKS WITHOUT THIS. src/components/passkey-offer.tsx is a MODAL Radix
+ * dialog, opened by routes/app.tsx's arrival effect on a confirmed sign-in. A
+ * modal's overlay covers the app bar, so `openAppMenu` — and every other
+ * control on the page — becomes unclickable, and Playwright's actionTimeout is
+ * 0, so the click RETRIES FOREVER and the spec burns its whole test timeout
+ * reporting something else. Fifteen specs failed this way the first time the
+ * suite was ever run against the passkey branch.
+ *
+ * THE SPLIT THAT IDENTIFIED IT, worth keeping because it is counter-intuitive:
+ * specs that sign in against a SEEDED player row land on `/app?signin=otp`,
+ * trip the arrival effect and fail, while specs that sign up FRESH are
+ * redirected to /complete-profile, arrive at a plain `/app` with no `?signin=`
+ * marker, and pass. onboarding.spec.ts:86 passed and :113 failed in the same
+ * file for that reason alone.
+ *
+ * WHY A MARKER BEFORE NAVIGATION RATHER THAN A DISMISSAL AFTER THE FACT. The
+ * obvious fix is to close the dialog if it turns up. That is a RACE in every
+ * signing-in spec: the offer opens from an effect after hydration, so "is it
+ * there yet" has no answer that is both fast and correct, and the version that
+ * is correct adds a wait to all forty-odd sign-ins. Seeding runs before the
+ * first byte of the document and cannot lose.
+ *
+ * WHY THE APP'S OWN KEY RATHER THAN A TEST-ONLY BRANCH. `wt.passkey.declined`
+ * is the suppression mechanism the feature ALREADY SHIPS — it is what a real
+ * player writes by pressing Escape — so this changes NO product behaviour and
+ * adds no `import.meta.env.VITE_E2E` path to production code. Real players
+ * still meet the real offer. The constant is imported rather than retyped
+ * because src/lib/passkey.ts's header is explicit that a key spelled in two
+ * modules fails silently when one of them drifts.
+ *
+ * ON THE CONTEXT, NOT THE PAGE, because localStorage is per-origin and a
+ * context is the unit that models "a device" — which is exactly what both
+ * passkey markers are scoped to. A spec that opens a second page in the same
+ * context gets the same answer, as a second tab on a real device would.
+ *
+ * WRAPPED IN try/catch BECAUSE THE INIT SCRIPT ALSO RUNS ON `about:blank`,
+ * whose opaque origin makes a bare `localStorage` access THROW rather than
+ * answer. src/lib/passkey.ts wraps every one of its own accesses for the
+ * neighbouring reason (Safari private mode), and its `shouldOfferPasskey`
+ * treats a blocked store as "do not offer" — so even in the browser where this
+ * throws, the offer stays shut.
+ *
+ * AND e2e/passkey.spec.ts DELIBERATELY OPTS OUT, with `{ offerPasskey: true }`.
+ * That spec drives the whole passkey journey through a virtual authenticator
+ * and its first assertion is that the offer appears; seeding the marker there
+ * would leave it asserting on a dialog that this helper had quietly suppressed,
+ * which is the exact shape of a test that passes for the wrong reason. If you
+ * ever change the default here, that opt-out is the call site to check first.
+ */
+async function suppressPasskeyOffer(page: Page): Promise<void> {
+  await page.context().addInitScript((key: string) => {
+    try {
+      window.localStorage.setItem(key, '1')
+    } catch {
+      // Opaque origin (about:blank) or a blocked store. Nothing to do: a store
+      // that cannot be written cannot be read either, and shouldOfferPasskey()
+      // answers false when its reads throw.
+    }
+  }, PASSKEY_DECLINED_KEY)
+}
 
 /**
  * Signs a page in through the emailed-OTP path.
@@ -27,12 +106,20 @@ import type { Page } from '@playwright/test'
  * instead of /complete-profile, for a reason nobody would guess from the
  * failure. Same shape the spec-local helpers in board-entry.spec.ts and
  * teams.spec.ts already use.
+ *
+ * IT ALSO SUPPRESSES THE POST-SIGN-IN PASSKEY OFFER, which is not a detail of
+ * signing in but is unavoidably a consequence of it — see `suppressPasskeyOffer`
+ * above for the whole argument, including why exactly one spec passes
+ * `{ offerPasskey: true }` to switch it back on.
  */
 export async function signIn(
   page: Page,
   email: string = `e2e+${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`,
+  { offerPasskey = false }: SignInOptions = {},
 ): Promise<string> {
   const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+
+  if (!offerPasskey) await suppressPasskeyOffer(page)
 
   await page.goto('/login')
 

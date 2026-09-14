@@ -107,7 +107,23 @@ async function signInWithPlayer(page: Page): Promise<string> {
   const email = `e2e+${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
   const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
   await convex.mutation(api.e2eSeed.ensureTeamFor, { email })
-  await signIn(page, email)
+  /**
+   * `offerPasskey: true` IS THE ONE OPT-OUT IN THE SUITE, AND WITHOUT IT THIS
+   * SPEC WOULD PASS FOR THE WRONG REASON OR NOT AT ALL.
+   *
+   * sign-in.ts seeds `wt.passkey.declined` into the context before navigating,
+   * because the offer is a modal whose overlay made fifteen other specs
+   * unclickable (wordle-teams-wty4.1.7.12). That default is right everywhere
+   * except here: this file's whole subject is the offer, and the first
+   * assertion below is that it appears. Seeded, the dialog never opens and this
+   * test fails at `expect(offer).toBeVisible()` — loudly, which is the point of
+   * making the opt-out explicit rather than letting the helper guess.
+   *
+   * SO THE OFFER STAYS COVERED. Read this line as the reason the suppression in
+   * sign-in.ts is safe: it is a test-harness default with exactly one
+   * exception, not a hole in the feature's coverage.
+   */
+  await signIn(page, email, { offerPasskey: true })
   return email
 }
 
