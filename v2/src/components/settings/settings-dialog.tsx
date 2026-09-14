@@ -4,16 +4,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs.t
 import InstallGuideTab from './install-guide-tab.tsx'
 import NotificationsTab from './notifications-tab.tsx'
 import ProfileTab from './profile-tab.tsx'
+import SecurityTab from './security-tab.tsx'
 
-export type SettingsTab = 'profile' | 'notifications' | 'install'
+export type SettingsTab = 'profile' | 'notifications' | 'security' | 'install'
 
 /**
- * The settings dialog's body — two tabs, ported from user-dialog.tsx. The
+ * The settings dialog's body — four tabs now, ported from user-dialog.tsx. The
  * `<Dialog>` root and its `open`/`onOpenChange` state live in app-menu.tsx,
  * one level up, because that is also where the two menu items that decide
  * `defaultTab` live: clicking "Notifications" opens here on that tab,
  * clicking "Install Guide" on the other, exactly like v1's
- * handleNotificationsClick / handleInstallClick pair.
+ * handleNotificationsClick / handleInstallClick pair. Profile and Security have
+ * no menu item of their own and are reached by tapping across, which is why
+ * neither needs a `defaultTab` of its own.
  *
  * `defaultTab`, NOT a controlled `value` — v1 does the same
  * (user-dialog.tsx:117). Once open, which tab is showing is this dialog's own
@@ -114,6 +117,14 @@ export function SettingsDialog({
           */}
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
+          {/*
+            AFTER NOTIFICATIONS, BEFORE INSTALL GUIDE. The strip runs from the
+            tab a visitor is most likely to have come for to the one they are
+            least likely to — Install Guide is static copy read once — and
+            Security is a thing you do rather than a thing you read, so it
+            belongs on the acting side of that line.
+          */}
+          <TabsTrigger value="security">Security</TabsTrigger>
           <TabsTrigger value="install">Install Guide</TabsTrigger>
         </TabsList>
         <TabsContent value="profile">
@@ -121,6 +132,9 @@ export function SettingsDialog({
         </TabsContent>
         <TabsContent value="notifications">
           <NotificationsTab />
+        </TabsContent>
+        <TabsContent value="security">
+          <SecurityTab />
         </TabsContent>
         <TabsContent value="install">
           <InstallGuideTab />
