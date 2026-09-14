@@ -1297,6 +1297,15 @@ git commit -m "refactor(entry): the board renders, it no longer decides"
 
 ## Task 8: `form.tsx` owns the keystroke stream
 
+> **From Task 4's review — `valid` is NOT `boardIsValid(...)` alone.**
+> `submitDisabled` in this file is `!day || !boardIsValid(answer, guesses, existing !== undefined)`
+> — **two** conditions. Passing `boardIsValid(...)` by itself into `coachFor` would tell a
+> player with a complete board and no day picked to "press Enter or Submit" while the
+> Submit button is disabled, which is the coach line lying at the one moment it matters
+> most. Pass `submitDisabled === false`, so the line and the button can never disagree —
+> and add a test for exactly that state (complete board, `day` unset).
+
+
 **Files:**
 - Modify: `v2/src/components/board-entry/form.tsx`
 
@@ -1447,7 +1456,7 @@ Then wrap the answer block and the board in the single region. Replace the `<div
         data-testid="entry-coach"
         className="min-h-9 px-2 text-xs text-muted-foreground md:px-4"
       >
-        {coachFor({ state: entry, refused, valid: boardIsValid(answer, guesses, existing !== undefined) })}
+        {coachFor({ state: entry, refused, valid: submitDisabled === false })}
       </p>
 
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
