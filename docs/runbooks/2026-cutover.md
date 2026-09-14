@@ -95,8 +95,8 @@ runbook whose evidence is an exit status is not evidence.
   codes tell you different things. Verified set on
   `fabulous-goldfish-949` on 2026-09-01.
 
-  While you are in that endpoint's settings, **set its `api_version`** — §1.6.
-  Same screen, different field, and that one has a deadline of its own.
+  **The endpoint this names was REPLACED on 2026-09-14** — see §1.6, which also
+  covers the new signing secret that came with it.
 
 - [ ] **1.3 — One full dry run: purge + copy + verify, no DNS flip.** §4.2–§4.5
       exactly as written, against beta, the week before. The cutover window is not
@@ -134,48 +134,73 @@ runbook whose evidence is an exit status is not evidence.
   the phase docs calling it permanent (`wordle-teams-cog5`). It works either way;
   decide before the flip whether you want 301.
 
-- [ ] **1.6 — Set `api_version` to `2026-04` on BOTH Polar webhook endpoints.**
-      **Deadline 2026-10-01, whatever cutover does.**
+- [ ] **1.6 — VERIFY both Polar webhook endpoints are the new ones, pinned to
+      `2026-10`.** The work here is done; what remains is confirming it.
 
-  Polar versions its contract by date. Since the April 2026 rollout, a webhook
-  endpoint that names **no** `api_version` renders its payloads at whatever is
-  **Current** — and on **2026-10-01** Current becomes `2026-10`. An endpoint left
-  unset therefore changes payload shape on that date on its own, with nothing in
-  this repo having changed.
+  **What happened (2026-09-14).** The Polar dashboard flagged the existing
+  webhook endpoints as deprecated. They were replaced with new endpoints pinned
+  to `api_version: 2026-10`, the new signing secret was set on the Convex
+  deployment, and the deprecated endpoints were disabled. `v2` moved to the
+  matching contract in the same week (`wordle-teams-acmm`), so **both directions
+  are now 2026-10**.
 
-  **This is not covered by the SDK pin.** `v2/convex/polar.ts` sends
-  `Polar-Version: 2026-04` on every OUTBOUND request (`pinApiVersion`), and that
-  header has **no bearing on webhook payloads** — inbound is versioned *per
-  endpoint*, in the dashboard, on each Polar instance. Two different mechanisms;
-  pinning one does nothing for the other.
+  Confirm, on **each** Polar instance — sandbox and production are wholly
+  separate accounts (§2.2), so this is two checks, not one:
 
-  **TWO endpoints, because sandbox and production are wholly separate instances**
-  (§2.2). Both need it:
+  | Check | Expected |
+  | --- | --- |
+  | The endpoint pointed at `/polar/webhook` | the NEW one, not the deprecated one |
+  | Its `api_version` | `2026-10` |
+  | The deprecated endpoint | disabled or deleted |
+  | `POLAR_WEBHOOK_SECRET` on the deployment | the NEW endpoint's secret |
 
-  | Instance | Endpoint | Easy to miss? |
-  | --- | --- | --- |
-  | sandbox | the one beta has been exercising | no — you are in it constantly |
-  | production | the one cutover flips to | **yes** — nobody has been using it |
+  **A NEW ENDPOINT HAS A NEW SIGNING SECRET.** This is the one that bites. If
+  `POLAR_WEBHOOK_SECRET` still holds the old endpoint's value, every delivery
+  fails signature verification and is answered **403**; Polar retries, then gives
+  up, and the upgrades in those deliveries are gone. It is written down here
+  because the next person to rotate an endpoint will meet it again.
 
-  The production one is the miss. It is configured on an instance that has
-  received no traffic, so nothing has ever forced anyone to open its settings.
+  **DO NOT LEAVE THE OLD ENDPOINT ENABLED ALONGSIDE THE NEW ONE.** Two enabled
+  endpoints on the same URL means **two deliveries per event with different
+  `webhook-id`s**, and the replay guard keys on `webhook-id` — so it cannot
+  collapse them. Both are processed and two `webhookEvents` rows are stored per
+  event.
 
-  **The deadline is a date, not a position in this runbook.** Every other step
-  here is ordered relative to the DNS flip; this one is not. If cutover slips
-  past October 1, this step does not slip with it.
+  **How the version is actually set — not, as this runbook previously said, a
+  dashboard field.** Polar's endpoint docs list only URL, Delivery Format,
+  Secret and Events. `api_version` is set when the endpoint is **created**, and
+  changed afterwards by `PATCH /v1/webhooks/endpoints/{id}`:
 
-  **If it was missed, the app says so rather than breaking.** `convex/http.ts`
-  logs, on every drifting delivery:
+  ```bash
+  # production is api.polar.sh
+  curl -s -X PATCH https://sandbox-api.polar.sh/v1/webhooks/endpoints/<id> \
+    -H "Authorization: Bearer $POLAR_WEBHOOKS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"api_version": "2026-10"}'
+  ```
+
+  **That token is not `POLAR_ACCESS_TOKEN`.** This needs `webhooks:write`;
+  the deployment's token carries `checkouts:write`, `customer_sessions:write`,
+  `checkouts:read` and `customers:write` and will answer **403**.
+
+  Changing an endpoint's `api_version` applies only to events created
+  **afterwards** — existing events keep the version they were rendered at, so a
+  redelivery reproduces the original contract. Setting it early is free; setting
+  it late fixes nothing already queued.
+
+  **If any of this drifts, the app says so rather than breaking.**
+  `convex/http.ts` logs, on every delivery whose version is not the one v2 was
+  written against:
 
   ```
   [polar] webhook delivered at an unexpected API version
-    { webhookId, eventName, delivered: '2026-10', expected: '2026-04' }
+    { webhookId, eventName, delivered: '2027-01', expected: '2026-10' }
   ```
 
   Convex dashboard → the deployment → Logs, filtered to `[polar]`. The delivery
   is still processed and still answered exactly as it would have been — the
-  warning is deliberately **not** a rejection, because a stale dashboard field is
-  an operator error and a 4xx would turn it into a Polar retry loop against a
+  warning is deliberately **not** a rejection, because a stale endpoint setting
+  is an operator error and a 4xx would turn it into a Polar retry loop against a
   body the app can still read (`wordle-teams-swmt`).
 
   **The silent failure this replaces is the one that matters.** The handler runs
@@ -184,10 +209,16 @@ runbook whose evidence is an exit status is not evidence.
   **202'd with no audit row and no error**. A subscriber is simply never
   upgraded. That is how v1 lost an upgrade on 2026-08-03.
 
-  **Migrating off 2026-04 is `wordle-teams-4etd`, and it is also a hard
-  deadline.** 2026-04 goes Deprecated on 2026-10-01 and is **removed** at the
-  January 2027 release; Polar answers a removed version with **404**, not a
-  fallback.
+  **Worth knowing for the next release:** moving 2026-04 → 2026-10 changed no
+  payload shape at all. Diffing the two model sets the SDK ships — 21710 lines
+  each — gives two doc-comment strings and a sourcemap filename. That is why the
+  endpoint switch above was safe to make ahead of the code. Do not assume the
+  next quarter is as kind.
+
+  **The next deadline is real.** 2026-10 goes Deprecated at the January 2027
+  release and is removed roughly two quarters later; Polar answers a removed
+  version with **404**, not a fallback. `wordle-teams-shdx` carries that date
+  together with the prerelease SDK it is entangled with.
 
 ---
 
@@ -244,11 +275,17 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
   | `customers:write` | `customers.update` | `repairCustomerExternalId` |
 
   **The API version is a third thing again, and no variable covers it.** Outbound
-  requests are pinned in code (`POLAR_API_VERSION` in
-  `convex/lib/polarVersion.ts`) and deliberately **not** settable per deployment:
-  a version the SDK's models do not describe is broken code, not configuration,
-  and Polar answers an unknown one with 404. The webhook side is a dashboard
-  field on each instance — §1.6.
+  requests are pinned by the `@polar-sh/sdk/2026-10` **import path** in
+  `convex/polar.ts`, which is why it is deliberately **not** settable per
+  deployment: the version is fixed at build time, so a deployment variable could
+  only ever disagree with the code, and Polar answers an unknown version with
+  404. `POLAR_API_VERSION` in `convex/lib/polarVersion.ts` describes that choice
+  and is asserted against it. The webhook side is per endpoint — §1.6.
+
+  **The SDK is a PRERELEASE: `@polar-sh/sdk` is pinned to an exact
+  `1.0.0-alpha.21`**, which is the only line shipping versioned clients. It is
+  pinned exactly rather than by range so an install cannot move it between CI and
+  a deploy. `wordle-teams-shdx` tracks moving to 1.0.0 when it is stable.
 
 - [ ] **2.3 — `REMINDERS_ENABLED=true` is the last switch you throw ON
       PRODUCTION, and it is irreversible in effect.**
