@@ -98,6 +98,25 @@ function InsightsRoute() {
   const { data, isPending } = useQuery(convexQuery(api.insights.myBenchmarkBoards, {}))
   const { benchmark, failed } = useBenchmark()
 
+  /*
+    THE SAME QUERY TeamSection ALREADY RUNS, deduped by TanStack on the query key,
+    so two components asking for it share one subscription and one read. It is
+    resolved HERE rather than inside InsightsPanel so that the panel's dependency
+    on team membership is a visible prop — src/routes/-insights.hook.test.ts
+    renders InsightsPanel directly, and a hidden query inside it can only be
+    reached from a test through the react-query mock, which reports every query
+    as unresolved.
+
+    NOT ON THE SERVER, THOUGH IT WOULD BE TIDIER THERE. Answering "is this player
+    on a team" in myBenchmarkBoards means a full-table collect over teams —
+    Convex cannot index array membership (see the schema comment) — and that
+    query is the exact subject of wordle-teams-dcu, where database BANDWIDTH and
+    not function calls is the binding free-tier limit. The client already holds
+    this for TeamSection; paying for it again on the server to save a prop is the
+    wrong trade in this project.
+  */
+  const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
+
   return (
     <div className="mx-auto w-full max-w-2xl p-4">
       <div className="mb-4 flex items-center gap-2">
@@ -134,7 +153,11 @@ function InsightsRoute() {
           Enter a board and we will show you how it compares.
         </p>
       ) : (
-        <InsightsPanel benchmark={benchmark!} data={data} />
+        <InsightsPanel
+          benchmark={benchmark!}
+          data={data}
+          onATeam={teams === undefined ? undefined : teams.length > 0}
+        />
       )}
     </div>
   )
@@ -159,9 +182,24 @@ type Boards = {
  * Acceptance criterion 5 needs a real render: that Layer 1 appears for a FREE
  * player on their first board, with the CC BY 4.0 credit visible.
  */
-export function InsightsPanel({ benchmark, data }: { benchmark: InsightsBenchmark; data: Boards }) {
+export function InsightsPanel({
+  benchmark,
+  data,
+  onATeam,
+}: {
+  benchmark: InsightsBenchmark
+  data: Boards
+  /** `undefined` until getMyTeams resolves — the upsell withholds rather than guessing. */
+  onATeam: boolean | undefined
+}) {
   const credit = benchmarkCredit(benchmark)
-  const upsell = upsellFor({ layer1: data.access.layer1, boardCount: data.boards.length })
+  const upsell = upsellFor({
+    layer1: data.access.layer1,
+    layer2: data.access.layer2,
+    layer3: data.access.layer3,
+    boardCount: data.boards.length,
+    onATeam,
+  })
 
   /*
     THE SUMMARIES LEAD AND THE DAY-BY-DAY LIST FOLLOWS, which is the reverse of how

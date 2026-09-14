@@ -101,18 +101,105 @@ describe('difficultySentence', () => {
   })
 })
 
+/**
+ * THE THREE TIERS ARE NOT A SPECTRUM, which is the whole reason this function
+ * composes rather than branching on a boolean. insightsAccess (convex/lib/
+ * insightsAccess.ts) grants:
+ *
+ *   free     layer1 'free'  layer2 'none'  layer3 'free'
+ *   trial    layer1 'free'  layer2 'full'  layer3 'full'
+ *   pro      layer1 'full'  layer2 'full'  layer3 'full'
+ *
+ * A TRIALIST'S LAYER 1 IS THE SAME 'free' AS A FREE PLAYER'S — the trial grants
+ * the two upper layers and deliberately withholds the board list. So the tier
+ * cannot be read off layer1, and a fixed sentence keyed to it pitched a
+ * trialist the history and team panels already on their screen.
+ */
 describe('upsellFor', () => {
-  test('a free player with a board is told what pro adds', () => {
-    expect(upsellFor({ layer1: 'free', boardCount: 1 })).toContain('every board')
+  const free = { layer1: 'free', layer2: 'none', layer3: 'free' } as const
+  const trial = { layer1: 'free', layer2: 'full', layer3: 'full' } as const
+  const pro = { layer1: 'full', layer2: 'full', layer3: 'full' } as const
+
+  test('a free player on a team is told about all three locked layers', () => {
+    const copy = upsellFor({ ...free, boardCount: 1, onATeam: true })
+    expect(copy).toBe(
+      'Free shows your most recent board and one team fact a day. Pro opens your full playing history, your team’s analytics, and every board you have ever entered.',
+    )
+  })
+
+  /**
+   * TeamSection RETURNS NULL FOR A PLAYER ON NO TEAM (routes/insights.tsx), and
+   * a v1 migrant can be exactly that. Promising team analytics to someone with
+   * no team promises something they cannot see even after paying.
+   */
+  test('a free player on no team is never promised team analytics', () => {
+    const copy = upsellFor({ ...free, boardCount: 1, onATeam: false })
+    expect(copy).toBe(
+      'Free shows your most recent board. Pro opens your full playing history and every board you have ever entered.',
+    )
+    expect(copy).not.toMatch(/team/i)
+  })
+
+  /**
+   * THE REGRESSION THIS ISSUE WAS FILED FOR, in the other direction. A trialist
+   * already sees PersonalHistory and the full TeamPanel; the only thing still
+   * withheld from them is the board list.
+   */
+  test('a trialist is pitched only the boards, not the history and team they already see', () => {
+    const copy = upsellFor({ ...trial, boardCount: 40, onATeam: true })
+    expect(copy).toBe(
+      'Free shows your most recent board. Pro shows every board you have ever entered.',
+    )
+    expect(copy).not.toMatch(/history|team/i)
   })
 
   test('a pro player is not sold anything', () => {
-    expect(upsellFor({ layer1: 'full', boardCount: 40 })).toBeNull()
+    expect(upsellFor({ ...pro, boardCount: 40, onATeam: true })).toBeNull()
   })
 
   test('a player with no boards gets an empty state, not a pitch', () => {
     // Selling history to someone who has none is the wrong first impression.
-    expect(upsellFor({ layer1: 'free', boardCount: 0 })).toBeNull()
+    expect(upsellFor({ ...free, boardCount: 0, onATeam: true })).toBeNull()
+  })
+
+  /**
+   * `onATeam` IS UNDEFINED UNTIL getMyTeams RESOLVES, and guessing costs a
+   * visible edit to copy the reader may already be part-way through. The same
+   * rule chat's roster resolution follows (src/lib/chat-roster.ts): withholding
+   * for a few hundred milliseconds is quiet, asserting something and then
+   * changing it is not.
+   */
+  test('an unresolved roster withholds the pitch rather than guessing at the team clause', () => {
+    expect(upsellFor({ ...free, boardCount: 1, onATeam: undefined })).toBeNull()
+  })
+
+  /**
+   * WHY THE PITCH WAS LEFT LAST ON THE PAGE, recorded as an assertion rather
+   * than as an opinion.
+   *
+   * The page's order was corrected once already on the owner's feedback — "Your
+   * Team and Your History are buried below miles of daily insights" — so a
+   * pitch below DailyBenchmark invites the same objection. It does not carry,
+   * and the reason is that the two conditions are mutually exclusive: the
+   * "miles" are the day-by-day list, `boardsForLayer1` caps that list at ONE
+   * board for anyone whose layer1 is not 'full', and layer1 not being 'full' is
+   * the precise condition for the pitch existing at all. Nobody is ever shown
+   * this sentence at the bottom of a long page.
+   *
+   * IF A FUTURE CHANGE BREAKS THAT PAIRING — layer1 granted to the free tier, or
+   * the pitch shown to a pro player — this test fails, and placement becomes a
+   * live question again rather than a settled one. That is what it is for.
+   */
+  test('the pitch and a long board list never appear on the same page', () => {
+    const many = Array.from({ length: 400 }, (_, index) => index)
+
+    for (const access of [free, trial]) {
+      expect(upsellFor({ ...access, boardCount: many.length, onATeam: true })).not.toBeNull()
+      expect(boardsForLayer1(many, access.layer1)).toHaveLength(1)
+    }
+
+    expect(upsellFor({ ...pro, boardCount: many.length, onATeam: true })).toBeNull()
+    expect(boardsForLayer1(many, pro.layer1)).toHaveLength(400)
   })
 })
 

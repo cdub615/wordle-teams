@@ -64,8 +64,17 @@ const benchmark: InsightsBenchmark = {
   },
 }
 
-const panel = (data: Parameters<typeof InsightsPanel>[0]['data']) =>
-  render(createElement(InsightsPanel, { benchmark, data }))
+/*
+  `onATeam` DEFAULTS TO TRUE HERE, which is the case that renders the most copy
+  rather than the least: the upsell names the team layer only for a player who
+  has a team, so a default of `false` or `undefined` would quietly assert less
+  than the panel can say and let a regression in the team clause through. Each
+  test that is about the other two states passes it explicitly.
+*/
+const panel = (
+  data: Parameters<typeof InsightsPanel>[0]['data'],
+  onATeam: boolean | undefined = true,
+) => render(createElement(InsightsPanel, { benchmark, data, onATeam }))
 
 describe('a free player on their first board', () => {
   const freeFirstBoard = {
@@ -97,9 +106,42 @@ describe('a free player on their first board', () => {
     expect(link?.textContent).toBe('CC BY 4.0')
   })
 
-  test('is told what pro would add', () => {
+  /*
+    RENDERED, NOT JUST RETURNED. lib/insights-panel.test.ts pins what `upsellFor`
+    says for each tier; this pins that the panel actually puts it on the page for
+    the tier that most needs it, and that the two benefits a free player CANNOT
+    SEE AT ALL are the ones named — PersonalHistory does not render for them
+    (layer2 'none') and TeamSection gives them one daily fact instead of the
+    panel, so nothing else on their screen hints that either exists.
+  */
+  test('is told what pro would add, including the two layers invisible to them', () => {
     panel(freeFirstBoard)
-    expect(screen.getByTestId('insights-upsell').textContent).toContain('every board')
+    const copy = screen.getByTestId('insights-upsell').textContent
+    expect(copy).toContain('every board')
+    expect(copy).toContain('your full playing history')
+    expect(copy).toContain('your team’s analytics')
+  })
+
+  test('and is not promised team analytics when they are on no team', () => {
+    panel(freeFirstBoard, false)
+    const copy = screen.getByTestId('insights-upsell').textContent
+    expect(copy).toContain('your full playing history')
+    expect(copy).not.toMatch(/team/i)
+  })
+
+  /*
+    The pitch is absent rather than partial while getMyTeams is in flight. Asserted
+    on the RENDER because "withheld" is a property of the page, not of the string:
+    returning null and rendering an empty <p> are the same value and different
+    pages.
+  */
+  test('and sees no pitch at all until team membership resolves', () => {
+    // NOT `panel(freeFirstBoard, undefined)`: a default parameter is applied for
+    // an argument that IS undefined, so the helper would silently hand the panel
+    // `true` and this test would assert the opposite of its name. Rendered
+    // directly so the unresolved value is the one that reaches the component.
+    render(createElement(InsightsPanel, { benchmark, data: freeFirstBoard, onATeam: undefined }))
+    expect(screen.queryByTestId('insights-upsell')).toBeNull()
   })
 })
 

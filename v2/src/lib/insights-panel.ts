@@ -85,21 +85,78 @@ export function difficultySentence(difficulty: NonNullable<BoardBenchmark['diffi
   return `Harder than ${difficulty.percentile}% of past puzzles`
 }
 
+/** `a, b, and c` — Oxford comma, because the last item is itself a phrase. */
+function listed(items: string[]): string {
+  if (items.length <= 1) return items.join('')
+  if (items.length === 2) return `${items[0]} and ${items[1]}`
+  return `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`
+}
+
 /**
  * Whether this player is seeing everything or a sample, and what to say about it.
- * Returns null when there is nothing to upsell — a pro player, or a player with
- * no boards at all, who needs an empty state rather than a pitch.
+ *
+ * COMPOSED FROM WHAT IS LOCKED, NOT BRANCHED ON A TIER, and that is the fix
+ * rather than an elaboration of it. This used to take `layer1` alone and return
+ * one fixed sentence about the board list, which made it STRUCTURALLY unable to
+ * mention the two upper layers — the largest invisible Pro benefits on the page.
+ * PersonalHistory does not render at all for a free player (layer2 'none') and
+ * TeamSection gives them one daily fact instead of the panel.
+ *
+ * AND THE SAME SIGNATURE GOT THE TRIAL WRONG IN THE OTHER DIRECTION. A trial
+ * grants layer2 and layer3 while layer1 stays 'free' (convex/lib/
+ * insightsAccess.ts), so the tier cannot be read off layer1: a trialist was
+ * being pitched the history and team panels already on their screen. Naming
+ * only the locked layers fixes both directions at once, and needs no `isTrial`
+ * flag — the access object already says what is withheld.
+ *
+ * THE TEAM CLAUSE IS CONDITIONAL ON HAVING A TEAM, not just on layer3.
+ * TeamSection returns null for a player on no team (routes/insights.tsx), which
+ * a v1 migrant can be, and promising team analytics to them promises something
+ * they would not see after paying.
+ *
+ * Returns null when there is nothing to upsell — a pro player, a player with no
+ * boards at all, who needs an empty state rather than a pitch, or a viewer
+ * whose team membership has not resolved yet (see `onATeam`).
  */
 export function upsellFor({
   layer1,
+  layer2,
+  layer3,
   boardCount,
+  onATeam,
 }: {
   layer1: 'none' | 'free' | 'full'
+  layer2: 'none' | 'free' | 'full'
+  layer3: 'none' | 'free' | 'full'
   boardCount: number
+  /** `undefined` until getMyTeams resolves — withhold rather than guess. */
+  onATeam: boolean | undefined
 }): string | null {
   if (layer1 === 'full') return null
   if (boardCount === 0) return null
-  return 'Free shows your most recent board. Pro shows every board you have ever entered.'
+  if (onATeam === undefined) return null
+
+  const historyLocked = layer2 !== 'full'
+  const teamLocked = layer3 !== 'full' && onATeam
+
+  const opens = [
+    ...(historyLocked ? ['your full playing history'] : []),
+    ...(teamLocked ? ['your team’s analytics'] : []),
+    'every board you have ever entered',
+  ]
+
+  // "one team fact a day" IS WHAT THE FREE TIER ACTUALLY GETS — DailyTeamFact,
+  // not a cut-down panel — so it is only honest to name it where that is the
+  // surface the reader is looking at.
+  const free = teamLocked
+    ? 'Free shows your most recent board and one team fact a day.'
+    : 'Free shows your most recent board.'
+
+  // "shows" where the boards are the only thing withheld, which is the
+  // trialist's case and reads as a smaller claim than "opens".
+  const verb = opens.length === 1 ? 'shows' : 'opens'
+
+  return `${free} Pro ${verb} ${listed(opens)}.`
 }
 
 /**
