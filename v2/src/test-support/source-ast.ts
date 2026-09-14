@@ -420,31 +420,56 @@ export const objectLiteralReturnedBy = (
  * type-only CLAUSE (`import type {...}` / `export type {...}`) is erased, which
  * is exactly the flag read here.
  *
- * Dynamic `import()` is not reported, same as `importedModulesOf` and for the
- * same reason. It is a real runtime edge — a lazily loaded chunk is still
- * shipped — so this is a genuine gap and not a non-issue; it is empty today
- * because the only `import()` calls under src/ are inside `.test.ts` files.
- * A caller that needs one must extend this and say so here.
+ * DYNAMIC `import()` IS FOLLOWED, and this is where it differs from
+ * `importedModulesOf` for the second time (wordle-teams-tgkm). A lazily loaded
+ * chunk still ships, so it is a real runtime edge and skipping it was a hole in
+ * every guard built on this — `await import('../../convex/auth.ts')` from a
+ * src/ module reached the auth surface and reported clean. It was EMPTY rather
+ * than exploited: measured twice, every `import(` under src/ sits in a
+ * `.test.ts`. Closed before it opened, because the thing that would open it is
+ * TanStack Router turning on route-level code splitting, which is a config
+ * change nobody would connect to this file.
+ *
+ * A COMPUTED SPECIFIER STILL CANNOT BE FOLLOWED, and that is the residual gap:
+ * `import(path)` has no literal to report and this skips it rather than
+ * guessing. It is pinned by its own case in src/frontend-import-graph.test.ts so
+ * the exclusion stays deliberate.
+ *
+ * ONE WALK, IN SOURCE ORDER, and the parent check is why it can be one. An
+ * `import ... from` is only a real declaration at module scope, so counting one
+ * found deeper — inside a `declare module` block — would report an edge the
+ * bundler does not follow. Dynamic `import()` is the opposite: it is an
+ * expression and belongs wherever it appears.
  */
 export const runtimeImportsOf = (name: string, source: string): string[] => {
+  const file = parseSource(name, source)
   const out: string[] = []
-  for (const statement of parseSource(name, source).statements) {
+
+  const visit = (node: ts.Node): void => {
     if (
-      ts.isImportDeclaration(statement) &&
-      !statement.importClause?.isTypeOnly &&
-      ts.isStringLiteral(statement.moduleSpecifier)
+      ts.isImportDeclaration(node) &&
+      node.parent === file &&
+      !node.importClause?.isTypeOnly &&
+      ts.isStringLiteral(node.moduleSpecifier)
     ) {
-      out.push(statement.moduleSpecifier.text)
+      out.push(node.moduleSpecifier.text)
     }
     if (
-      ts.isExportDeclaration(statement) &&
-      !statement.isTypeOnly &&
-      statement.moduleSpecifier &&
-      ts.isStringLiteral(statement.moduleSpecifier)
+      ts.isExportDeclaration(node) &&
+      node.parent === file &&
+      !node.isTypeOnly &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
     ) {
-      out.push(statement.moduleSpecifier.text)
+      out.push(node.moduleSpecifier.text)
     }
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [specifier] = node.arguments
+      if (specifier && ts.isStringLiteral(specifier)) out.push(specifier.text)
+    }
+    ts.forEachChild(node, visit)
   }
+  visit(file)
   return out
 }
 

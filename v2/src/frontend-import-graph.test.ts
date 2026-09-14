@@ -382,10 +382,33 @@ describe('runtimeImportsOf, on the forms that decide whether an edge ships', () 
     expect(modules("import './register.ts'")).toEqual(['./register.ts'])
   })
 
-  test('a dynamic import() is not reported — the one known gap', () => {
-    // A lazily loaded chunk is still shipped, so this IS a hole rather than a
-    // non-issue. It is empty today because every `import()` under src/ is
-    // inside a .test.ts file; a caller that needs one must extend the helper.
-    expect(modules("const x = await import('./x.ts')")).toEqual([])
+  test('a dynamic import() IS reported — a lazy chunk still ships', () => {
+    // This used to be the known gap, and closing it (wordle-teams-tgkm) is what
+    // makes the guarantee at the top of this file true of a lazily loaded
+    // route. It was empty rather than exploited — every `import(` under src/ is
+    // in a .test.ts — which is exactly why it was worth closing before the
+    // thing that opens it (route-level code splitting) arrives.
+    expect(modules("const x = await import('./x.ts')")).toEqual(['./x.ts'])
+  })
+
+  test('a dynamic import() nested in a function is reported too', () => {
+    // The whole point of following it: a lazy edge is not at module scope, so a
+    // walk that only reads top-level statements sees none of them.
+    expect(modules('const f = async () => { await import("./deep.ts") }')).toEqual(['./deep.ts'])
+  })
+
+  test('a computed dynamic import() is not reported — the residual gap', () => {
+    // There is no literal to report and guessing would be worse than silence.
+    // Pinned so the exclusion stays deliberate rather than becoming something
+    // the next reader has to rediscover.
+    expect(modules('const x = await import(path)')).toEqual([])
+  })
+
+  test('a type-only dynamic import type is not an edge', () => {
+    // `import('./x.ts')` in TYPE position is erased, so it ships nothing. It is
+    // an ImportType node rather than a CallExpression, which is what keeps it
+    // out without a special case — asserted so that stays true by test rather
+    // than by luck.
+    expect(modules("type T = import('./x.ts').Thing")).toEqual([])
   })
 })
