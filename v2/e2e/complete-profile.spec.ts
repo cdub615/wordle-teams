@@ -3,6 +3,25 @@ import { signIn } from './sign-in'
 import { completeProfile } from './complete-profile'
 
 /**
+ * THE CEILING FOR "THE DASHBOARD HAS FINISHED ARRIVING", and for nothing else
+ * (wordle-teams-usgy).
+ *
+ * The onboarding card is gated on onboarding.getStatus resolving, so until it
+ * does the heading exists nowhere and this locator is indistinguishable from a
+ * dashboard that rendered the wrong thing. Each of the three uses below sits
+ * immediately after a navigation or a reload, which means one assertion is
+ * absorbing the hop, the route's pending state, the auth handshake and a
+ * reactive query at the suite's strict 5s ceiling. It failed exactly there on a
+ * full local run at two workers, sitting on `/app` with no heading.
+ *
+ * Every assertion that follows one keeps the default. What the card OFFERS,
+ * once it is on screen, is a render away — and the tasks it lists are the whole
+ * subject of this file, so those must stay strict.
+ */
+const DASHBOARD_READY = { timeout: 20_000 }
+
+
+/**
  * Onboarding, end to end (wt-ksh.5.18).
  *
  * THIS FILE EXISTS BECAUSE THE UNIT SUITE CANNOT REACH THIS CODE AT ALL
@@ -42,7 +61,9 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
   // it; the onboarding card proves the page rendered through rather than dying
   // on NO_PLAYER.
   await expect(page).toHaveURL('/app')
-  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible(
+    DASHBOARD_READY,
+  )
 
   // THE TWO TASKS A PLAYER WITH NOTHING ACTUALLY OWES, AND THE ONE THEY MUST
   // NOT BE OFFERED. "Invite someone" shipped here briefly and was a dead end:
@@ -61,7 +82,9 @@ test('a cold signup lands on /complete-profile and reaches the dashboard once na
   // URL a moment later.
   await page.reload()
   await expect(page).toHaveURL('/app')
-  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible(
+    DASHBOARD_READY,
+  )
 
   // The guard runs the other way too: with a player, the form is unreachable.
   await page.goto('/complete-profile')
@@ -137,7 +160,9 @@ test('a one-character first and last name saves without bouncing back', async ({
   await completeProfile(page, { firstName: 'A', lastName: 'B' })
 
   await expect(page).toHaveURL('/app')
-  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible(
+    DASHBOARD_READY,
+  )
   await page.reload()
   await expect(page).toHaveURL('/app')
 })

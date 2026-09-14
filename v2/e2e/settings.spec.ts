@@ -171,7 +171,16 @@ test('changing the reminder time and toggling Email each report success and pers
   // now the locale's own short-time pattern, which for en-US carries the
   // minutes. The locale is pinned in playwright.config.ts, without which this
   // reads '18:00' on a browser launched anywhere that writes a 24-hour clock.
-  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('6:00 PM')
+  //
+  // 20s ON THE FIRST READ OF THE TAB, per wordle-teams-usgy. Everything this
+  // assertion covers is upstream of the test's subject: openSettingsOn has just
+  // navigated and opened a tab, and the combobox reads the placeholder until
+  // mySettings resolves. The write assertions below keep the strict default,
+  // because a toast that takes longer than 5s to answer a click IS the defect
+  // this test is for.
+  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('6:00 PM', {
+    timeout: 20_000,
+  })
   await page.getByRole('combobox', { name: 'Board Entry Reminder' }).click()
   await page.getByRole('option', { name: '9:00 AM' }).click()
   await expect(page.getByText('Delivery time updated')).toBeVisible()
@@ -186,7 +195,12 @@ test('changing the reminder time and toggling Email each report success and pers
   await page.reload()
   await openSettingsOn(page, 'Alerts')
 
-  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('9:00 AM')
+  // The same reload, the same cold read of mySettings — and this is the half
+  // that PROVES persistence, so it must not be the half that times out for
+  // being cold.
+  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('9:00 AM', {
+    timeout: 20_000,
+  })
   await expect(page.getByRole('switch', { name: 'Email' })).toBeChecked()
 })
 

@@ -21,6 +21,30 @@ import type { Page } from '@playwright/test'
 
 const today = toPuzzleDay(new Date())
 
+/**
+ * THE CEILING FOR THE FIRST ASSERTION AFTER `goto`, AND FOR NOTHING ELSE
+ * (wordle-teams-usgy).
+ *
+ * TeamSection renders `null` — not a skeleton, not an empty card — until BOTH
+ * of its queries have come back: getMyTeams, then teamMonth keyed on the team
+ * it returns (routes/insights.tsx `if (!teamId || !data) return null`). So
+ * between arriving on /insights and that pair resolving, a locator for the fact
+ * or the panel matches nothing, and it is indistinguishable from the page being
+ * wrong. There is no loading marker to wait on instead: `insights-loading`
+ * belongs to the benchmark query, which is a different read entirely.
+ *
+ * Every seed above is AWAITED over HTTP before sign-in, so the data is
+ * demonstrably in the database by the time the browser is pointed at the page.
+ * What is being waited on here is therefore page load, auth handshake and two
+ * chained reactive queries — the genuinely unbounded part — which is exactly
+ * where wordle-teams-h1rg says the generosity belongs.
+ *
+ * IT DOES NOT SOFTEN WHAT THESE TESTS CHECK. Only the "is it here at all"
+ * assertion carries it; every claim about WHAT IT SAYS keeps the suite's strict
+ * 5s default, so a fact that renders the wrong sentence still fails fast.
+ */
+const FIRST_PAINT = { timeout: 20_000 }
+
 async function seedTeamOfTwo(page: Page, options: { mine: number; theirs?: number; pro: boolean }) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const mine = `e2e+${stamp}a@wordleteams.com`
@@ -58,7 +82,7 @@ test.describe('a free member of a team', () => {
     await seedTeamOfTwo(page, { mine: 3, theirs: 5, pro: false })
 
     const fact = page.getByTestId('insights-daily-fact-text')
-    await expect(fact).toBeVisible()
+    await expect(fact).toBeVisible(FIRST_PAINT)
     await expect(fact).toContainText('You beat one of one teammate')
     await expect(page.getByTestId('insights-see-full-month')).toBeVisible()
 
@@ -77,7 +101,7 @@ test.describe('a free member of a team', () => {
     await seedTeamOfTwo(page, { mine: 3, pro: false })
 
     const fact = page.getByTestId('insights-daily-fact-text')
-    await expect(fact).toBeVisible()
+    await expect(fact).toBeVisible(FIRST_PAINT)
     await expect(fact).toContainText('none of your 1 teammates have played yet')
     await expect(fact).not.toContainText('beat')
     // No hook off an empty comparison — that would advertise the paid surface
@@ -90,7 +114,7 @@ test.describe('a pro member of a team', () => {
   test('sees the full team surface instead of the single fact', async ({ page }) => {
     await seedTeamOfTwo(page, { mine: 3, theirs: 5, pro: true })
 
-    await expect(page.getByTestId('insights-team')).toBeVisible()
+    await expect(page.getByTestId('insights-team')).toBeVisible(FIRST_PAINT)
     await expect(page.getByTestId('insights-head-to-head')).toBeVisible()
     await expect(page.getByTestId('insights-team-averages')).toBeVisible()
     await expect(page.getByTestId('insights-team-days')).toBeVisible()
@@ -107,7 +131,7 @@ test.describe('a pro member of a team', () => {
     await seedTeamOfTwo(page, { mine: 3, theirs: 5, pro: true })
 
     const record = page.getByTestId('insights-head-to-head')
-    await expect(record).toContainText('1-0')
+    await expect(record).toContainText('1-0', FIRST_PAINT)
     await expect(record).toContainText('1 shared day')
   })
 })

@@ -250,6 +250,31 @@ test('an invited address joins the team after completing a profile', async ({ br
     // moment ago, arrives on the dashboard already on one. `?team=` proves it:
     // with zero teams the dashboard renders the empty state and never writes
     // that parameter (see app.tsx / dashboard-search.ts).
+    //
+    // POLLED ON THE BACKEND FIRST, then asserted strictly (wordle-teams-usgy).
+    // This URL is the far end of a chain with nothing in the UI to wait on that
+    // is not itself the thing being asserted: completeProfileFor patches
+    // `playerIds`, getMyTeams has to come back non-empty, and only THEN does
+    // app.tsx write the parameter. At the suite's 5s ceiling that chain was the
+    // most frequent failure in the whole suite, always with the joiner sitting
+    // on a bare `/app`.
+    //
+    // 20s on the poll because the claim is the unbounded part; the URL
+    // assertion keeps the strict default, because once the membership is
+    // demonstrably written all that is left is a subscription push and a
+    // navigation. A failure there now means the dashboard did not ACT on a team
+    // it provably has, which is a real defect in app.tsx or dashboard-search.ts.
+    //
+    // AND IT DOES NOT WEAKEN THE TEST. What this exists to catch is
+    // completeProfileFor failing to claim the invite — that now fails at the
+    // poll, naming the membership, instead of as a URL timeout naming neither.
+    const joinerConvex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+    await expect
+      .poll(async () => (await joinerConvex.query(api.e2eSeed.teamsFor, { email: inviteeEmail }))?.length ?? 0, {
+        timeout: 20_000,
+      })
+      .toBe(1)
+
     await expect(joiner).toHaveURL(/\?team=/)
     await openTeamSettings(joiner)
     const joinerCard = teamCard(joiner)
@@ -376,6 +401,27 @@ test('inviting someone already on the team says so and leaves the dialog open', 
   // resolve. No reopening anywhere between here and the invite() above.
   await dialog.getByLabel('Email').fill(correctedEmail)
   await dialog.getByRole('button', { name: 'Invite' }).click()
+
+  // THE ADD, WAITED ON WHERE IT HAPPENS (wordle-teams-usgy). The close below was
+  // the single most frequent failure in the suite, and the error-context
+  // snapshot from a real one is the reason this poll exists rather than a bigger
+  // number: the toast already read "added to E2E Team" and the roster already
+  // showed two listitems — the add had LANDED and only the close had not
+  // painted. So the assertion was not measuring the add at all; it was measuring
+  // whether a round trip fitted in 5s.
+  //
+  // 20s here, strict default below, per wordle-teams-h1rg: generous where the
+  // wait is genuinely unbounded, strict where it should be fast.
+  await expect
+    .poll(
+      async () =>
+        (await convex.query(api.e2eSeed.teamsFor, { email }))?.find(
+          (team) => team.name === SEEDED_TEAM,
+        )?.memberCount ?? 0,
+      { timeout: 20_000 },
+    )
+    .toBe(2)
+
   // A bare role query — see the `invite` helper's own note on why this is the
   // only Dialog this page can have.
   await expect(page.getByRole('dialog')).toHaveCount(0)

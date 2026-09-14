@@ -400,3 +400,65 @@ export const seedTeamDayFor = mutation({
     return { puzzleDay, attempts }
   },
 })
+
+/**
+ * THE TEAMS AN E2E ADDRESS IS ACTUALLY ON, and how many members each has — the
+ * deterministic thing an invite spec can poll instead of racing the UI.
+ *
+ * IT IS timeZoneFor's SIBLING AND EXISTS FOR THE SAME REASON (wordle-teams-usgy,
+ * following wordle-teams-h1rg). Two assertions in e2e/invites.spec.ts were each
+ * absorbing a whole background round trip at the suite's strict 5s ceiling, with
+ * nothing in the UI to wait on that was not itself the thing being asserted:
+ *
+ *   - `toHaveURL(/\?team=/)` after the invitee completes a profile. The
+ *     dashboard writes that parameter only once getMyTeams comes back non-empty,
+ *     so the assertion was waiting on completeProfileFor's patch of `playerIds`
+ *     AND a reactive query AND a navigation.
+ *   - `getByRole('dialog')).toHaveCount(0)` after a corrected invite. The
+ *     error-context snapshot from a real failure shows the add had SUCCEEDED —
+ *     the toast names the player and the roster already lists two — and only the
+ *     close had not yet painted.
+ *
+ * Both now poll this first, generously, and then assert the UI at the strict
+ * default, which is h1rg's remedy: be generous where the wait is genuinely
+ * unbounded and strict where it should be fast.
+ *
+ * IT DOES NOT WEAKEN EITHER TEST. What they exist to catch is a claim that never
+ * lands — completeProfileFor failing to claim the invite, or invitePlayerFor
+ * taking the wrong branch. That still fails, at the poll, with the membership
+ * count on the message instead of a UI timeout that names neither.
+ *
+ * MEMBER COUNT, NOT THE MEMBERS. A count is what both call sites assert and it
+ * cannot grow into a second roster implementation living in the seed module;
+ * anything wanting names should read the UI, which is the thing under test.
+ *
+ * Collect-and-filter for the reason schema.ts gives at `teams`: Convex cannot
+ * index array membership, and this reads the same way getMyTeamsFor does.
+ *
+ * Guarded exactly like timeZoneFor and ensureTeamFor: E2E_TEST_MODE must be
+ * 'true' AND the address must be e2e+*@wordleteams.com, so it can never read a
+ * real person's memberships — and on production, where the flag is not set, it
+ * is inert whatever it is called with.
+ */
+export const teamsFor = query({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
+      throw new Error('e2eSeed.teamsFor is only available in E2E test mode for e2e+* addresses')
+    }
+    const player = await ctx.db
+      .query('players')
+      .withIndex('by_email', (q) => q.eq('email', email.toLowerCase()))
+      .first()
+    // NOT an empty array: "no player row yet" and "a player on no teams" are
+    // different waits, and a poll that cannot tell them apart reports the wrong
+    // one. completeProfileFor creates the row and claims the invites in the same
+    // mutation, so a caller waiting on a claim is waiting on the row too.
+    if (!player) return null
+
+    const teams = await ctx.db.query('teams').collect()
+    return teams
+      .filter((team) => team.playerIds.includes(player._id))
+      .map((team) => ({ name: team.name, memberCount: team.playerIds.length }))
+  },
+})
