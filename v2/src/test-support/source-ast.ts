@@ -39,9 +39,78 @@ import ts from 'typescript'
  * Comments stripped, so an assertion reads the CODE. Files like routes/me.tsx
  * are mostly prose explaining why they exist, and that prose quotes the very
  * literals being pinned — a match inside it would prove nothing.
+ *
+ * THE PARSER DOES THE STRIPPING, AND IT HAS TO. This was two regexes — one for
+ * block comments, one deleting from a `//` to the end of the line — and the
+ * second could not tell a comment from the middle of a string. Every absolute
+ * URL in source tripped it:
+ *
+ *     const url = 'https://wordleteams.com/app'; localStorage.setItem('x', y)
+ *
+ * became `const url = 'https:` and nothing else. That is the opposite of the
+ * failure this helper exists to prevent: a forbidden token sitting after a URL
+ * on the same line was deleted BEFORE the guard saw it, so
+ * `not.toMatch(/localStorage/)` passed on a file that violated it. Stripping
+ * LESS than intended shows up as a red test; stripping more is silent, which is
+ * why the safe direction is the one taken below and why this is not another
+ * regex — `//` lives in URLs, in template literals, in regex character classes
+ * and in JSX text, and a regex would have to understand all four.
+ *
+ * Every comment in a file is leading trivia of exactly one token, so walking
+ * the tokens and asking `getLeadingCommentRanges` at each one finds all of them
+ * and nothing else. The ranges are cut out rather than blanked, which is what
+ * the regexes did: a line comment leaves its newline behind and a block comment
+ * closes up, so no caller's idea of the text changes except in the case above.
+ *
+ * JsxText IS SKIPPED, and the skip is load-bearing. Its token carries its own
+ * leading whitespace, so `getLeadingCommentRanges` scanning past that whitespace
+ * would report a `//` that opens a line of PROSE as a comment — `<p>  // ...` —
+ * and delete rendered copy. Nothing else here can produce a comment range that
+ * is not one.
+ *
+ * PARSED AS TSX regardless of the caller's file, because most callers pass one
+ * and the alternative mis-scans JSX text as code. The cost is that `<T>value`
+ * assertion syntax in a `.ts` file would be read as a JSX element; none exists
+ * in this repo, and the failure would be under-stripping, which is red.
  */
-export const codeOf = (source: string) =>
-  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+export const codeOf = (source: string) => {
+  const file = ts.createSourceFile(
+    'codeOf.tsx',
+    source,
+    ts.ScriptTarget.ESNext,
+    /* setParentNodes */ true,
+    ts.ScriptKind.TSX,
+  )
+
+  const comments: ts.CommentRange[] = []
+  const collect = (node: ts.Node): void => {
+    const children = node.getChildren(file)
+    if (children.length > 0) {
+      for (const child of children) collect(child)
+      return
+    }
+    if (node.kind === ts.SyntaxKind.JsxText) return
+    // BOTH, because `getLeadingCommentRanges` deliberately ignores a comment
+    // sitting on the same line as the position it is given: `const a = 1 // x`
+    // is leading trivia of the NEXT line's token, and the leading scan does not
+    // start collecting until it has passed a newline. The trailing scan covers
+    // exactly that stretch — the position up to the first line break — so the
+    // pair of them sees every comment in the file and each one once.
+    const start = node.getFullStart()
+    for (const range of ts.getTrailingCommentRanges(source, start) ?? []) comments.push(range)
+    for (const range of ts.getLeadingCommentRanges(source, start) ?? []) comments.push(range)
+  }
+  collect(file)
+
+  let out = ''
+  let cursor = 0
+  for (const range of comments.sort((a, b) => a.pos - b.pos)) {
+    if (range.pos < cursor) continue
+    out += source.slice(cursor, range.pos)
+    cursor = range.end
+  }
+  return out + source.slice(cursor)
+}
 
 /** `name` is used only for diagnostics and to pick the TSX parser. */
 export const parseSource = (name: string, source: string) =>
