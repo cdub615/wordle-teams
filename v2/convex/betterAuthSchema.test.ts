@@ -95,14 +95,74 @@ describe('the betterAuth component schema', () => {
 
     expect(created.credentialID).toBe('cred-1')
   })
+
+  /**
+   * THE FIX FOR wordle-teams-047w, ASSERTED WHERE IT ACTUALLY BITES.
+   *
+   * The plugin declares `credentialID` as `index: true`, not `unique: true`, so
+   * NOTHING enforced uniqueness at any layer: registration calls
+   * `adapter.create` with no prior lookup, authentication resolves a credential
+   * with a plain `findOne` on the field, and a Convex index does not constrain.
+   * `convex/betterAuth/adapter.ts` now marks the field unique on the options it
+   * builds `createApi` from, which turns on the library's own
+   * `checkUniqueFields` — so this goes green through the same mutation the real
+   * adapter calls, not through a probe of the schema object.
+   *
+   * IT IS THE COMPLEMENT OF THE TRIPWIRE BELOW, and the two say different
+   * things on purpose: that one reads the UNPATCHED `createAuthOptions` and
+   * stays red-on-upstream-fix, this one reads the patched adapter and would go
+   * red if the patch were dropped. Deleting the patch without deleting this
+   * test is a failure, which is the point.
+   *
+   * THE FIRST INSERT IS PART OF THE ASSERTION. A `rejects` that fired because
+   * the row was malformed, the model was missing from the validator union or
+   * the component was never registered would look identical to a uniqueness
+   * refusal; creating one successfully first rules all three out.
+   */
+  test('refuses a second passkey carrying a credentialID that already exists', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+
+    // Same credentialID, DIFFERENT everything else, so nothing but the field
+    // under test can be what the second call trips on.
+    const row = (userId: string) => ({
+      publicKey: `pk-${userId}`,
+      userId,
+      credentialID: 'cred-shared',
+      counter: 0,
+      deviceType: 'singleDevice',
+      backedUp: false,
+      createdAt: Date.now(),
+    })
+    const create = (userId: string) =>
+      t.run((ctx) =>
+        ctx.runMutation(components.betterAuth.adapter.create, {
+          input: { model: 'passkey', data: row(userId) },
+        }),
+      )
+
+    await create('user-1')
+
+    // `checkUniqueFields`'s own message (adapter-utils.ts:273) — matched rather
+    // than a bare `rejects`, so a row rejected for any OTHER reason fails here.
+    await expect(create('user-2')).rejects.toThrow(/passkey credentialID already exists/)
+  })
 })
 
 /**
  * A TRIPWIRE FOR wordle-teams-047w, AND RED HERE IS GOOD NEWS: it means an
- * upstream version finally declares the field unique. Read 047w, drop the
- * expectation below, and reconsider whatever was written on the assumption that
- * nothing enforced it — starting with the long corollary in
- * convex/betterAuth/adapter.ts.
+ * upstream version finally declares the field unique. When it fires, drop the
+ * expectation below AND `withUniqueCredentialId` from
+ * convex/betterAuth/adapter.ts — 047w was closed by patching the options this
+ * app passes to `createApi`, which becomes redundant the moment the plugin does
+ * it itself.
+ *
+ * THIS READS THE UNPATCHED OPTIONS, DELIBERATELY. `createAuthOptions` is what
+ * builds the real Better Auth instance; the patch lives in adapter.ts and is
+ * seen by nothing else. So this still measures UPSTREAM, which is the only
+ * thing worth watching — the local enforcement is asserted end to end by
+ * 'refuses a second passkey carrying a credentialID that already exists'
+ * above, through the mutation the real adapter calls.
  *
  * WHAT IT IS NOT: an assertion that `credentialID` is non-unique. 047w is
  * explicit that pinning the current state that way locks the bug in. What is

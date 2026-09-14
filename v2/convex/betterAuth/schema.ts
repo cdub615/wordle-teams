@@ -40,8 +40,14 @@ const schema = defineSchema({
    * schema, and `isUniqueField` returns false for a model it cannot find rather
    * than throwing
    * (node_modules/@convex-dev/better-auth/src/client/adapter-utils.ts:61-74).
-   * So this table has NO uniqueness enforcement until wty4.1.7 adds the plugin
-   * — credentialID is not protected by the adapter today.
+   * So this table has NO uniqueness enforcement from the plugin's own schema,
+   * and adding the plugin in wty4.1.7 did not supply any: it declares
+   * credentialID `index: true`, not `unique: true`. adapter.ts marks the field
+   * unique on the options it builds `createApi` from, which is what turns
+   * `checkUniqueFields` on (wordle-teams-047w) — and THAT CHECK NEEDS THE INDEX
+   * BELOW. `.index('credentialID', ['credentialID'])` is load-bearing from here
+   * on: without it the check throws `No index found for passkeycredentialID` on
+   * every registration rather than failing quietly.
    */
   passkey: defineTable({
     name: v.optional(v.union(v.null(), v.string())),
