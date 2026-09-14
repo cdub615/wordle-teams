@@ -1,12 +1,23 @@
-import { KeyRound, Loader2, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { KeyRound, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { useState, type FormEventHandler } from 'react'
 import { toast } from 'sonner'
 import { Button } from '#/components/ui/button.tsx'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog.tsx'
+import { Input } from '#/components/ui/input.tsx'
+import { Label } from '#/components/ui/label.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { authClient } from '#/lib/auth-client.ts'
 import { forgetPasskeyRegistered, passkeySupported } from '#/lib/passkey.ts'
 import { registerPasskey } from '#/lib/register-passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
+import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
 
 /**
  * WHAT A ROW IS CALLED, AND THE FALLBACK IS NO LONGER THE ONLY CASE
@@ -64,6 +75,17 @@ export function addedLabel(createdAt: Date | string | null | undefined, locale?:
   return on && `Added ${on}`
 }
 
+/** `Remove Passkey, added 13 Sep 2026` — the one format both row buttons use. */
+const describeRow = (
+  verb: string,
+  name: string | null | undefined,
+  createdAt: Date | string | null | undefined,
+  locale?: string,
+): string => {
+  const on = addedOn(createdAt, locale)
+  return on ? `${verb} ${passkeyLabel(name)}, added ${on}` : `${verb} ${passkeyLabel(name)}`
+}
+
 /**
  * The remove button's ACCESSIBLE NAME: 'Remove Passkey, added 13 Sep 2026'.
  *
@@ -89,13 +111,34 @@ export function removeLabel(
   createdAt: Date | string | null | undefined,
   locale?: string,
 ): string {
-  const on = addedOn(createdAt, locale)
-  return on ? `Remove ${passkeyLabel(name)}, added ${on}` : `Remove ${passkeyLabel(name)}`
+  return describeRow('Remove', name, createdAt, locale)
 }
 
 /**
- * Security tab of the settings dialog: the passkeys on this account, with add
- * and remove (wordle-teams-wty4.1.7).
+ * The rename button's ACCESSIBLE NAME: 'Rename Passkey, added 13 Sep 2026'.
+ *
+ * BUILT FROM `removeLabel`'S RULE RATHER THAN BESIDE IT, and the date is in
+ * here for exactly the reason given above — with two credentials from the same
+ * browser on the same device, which is the case no auto-generated name can ever
+ * separate, the date is the only thing telling the two buttons apart. Adding a
+ * SECOND control per row doubles how much that matters: a screen-reader user
+ * moving through this list now meets two buttons per credential, and "Rename
+ * Passkey" repeated four times is worse than "Remove Passkey" repeated twice.
+ *
+ * THE VERB IS THE ONLY DIFFERENCE, so the two share `describeRow` and cannot
+ * drift into two formats.
+ */
+export function renameLabel(
+  name: string | null | undefined,
+  createdAt: Date | string | null | undefined,
+  locale?: string,
+): string {
+  return describeRow('Rename', name, createdAt, locale)
+}
+
+/**
+ * Security tab of the settings dialog: the passkeys on this account, with add,
+ * rename and remove (wordle-teams-wty4.1.7, wordle-teams-citj).
  *
  * THE LIST IS PER-ACCOUNT AND THE OFFER IS PER-DEVICE, and the two must not be
  * confused. Every row here is a credential on the ACCOUNT — most of them
@@ -149,6 +192,34 @@ export default function SecurityTab() {
   // is in flight (two removals racing against one list buys nothing), but only
   // the row actually going is marked busy. A boolean cannot say both.
   const [removingId, setRemovingId] = useState<string | null>(null)
+
+  /**
+   * THE ROW BEING RENAMED, NOT A BOOLEAN AND NOT AN ID (wordle-teams-citj).
+   *
+   * The dialog has to keep SAYING which credential it is editing while it is
+   * open, and the list under it is live — `/passkey/update-passkey` is one of
+   * the atoms `passkeyClient()` listens on, so a rename from another tab
+   * re-signals it. Holding the id alone would mean looking the row up on every
+   * render against a list that can change underneath, and the moment it changed
+   * the dialog's own title would move. Holding the snapshot the player opened
+   * pins the question they were answering.
+   *
+   * `draft` IS SEEDED FROM THE RAW NAME, NOT FROM `passkeyLabel`. A row with no
+   * name reads "Passkey" because that is the fallback; seeding the field with
+   * that word would let a player save the literal string "Passkey" as a real
+   * name, which is indistinguishable afterwards from the unnamed state it came
+   * from. An empty field with Save disabled asks for an actual answer instead —
+   * and the server agrees: the endpoint's body schema is `z.string().trim()
+   * .min(1)`, so a blank name is refused there too.
+   */
+  const [renaming, setRenaming] = useState<{
+    id: string
+    label: string
+    added: string | null
+    draft: string
+  } | null>(null)
+  const [savingName, setSavingName] = useState(false)
+  const { height, offsetTop } = useVisualViewport()
 
   /**
    * `passkeySupported()` reads a `window` global, so it answers false on the
@@ -231,6 +302,36 @@ export default function SecurityTab() {
     }
   }
 
+  const onRename: FormEventHandler<HTMLFormElement> = async (event) => {
+    event.preventDefault()
+    if (!renaming) return
+    // TRIMMED HERE AS WELL AS SERVER-SIDE. The Save button is disabled on a
+    // blank draft, but a form submits on Enter from the field too, and " " is
+    // not blank by `disabled`'s measure while it is by the endpoint's.
+    const name = renaming.draft.trim()
+    if (!name) return
+    setSavingName(true)
+    try {
+      const result = await authClient.passkey.updatePasskey({ id: renaming.id, name })
+      if (result?.error) {
+        toast.error(result.error.message || 'Could not rename that passkey.')
+        return
+      }
+      // THE LIST IS NOT REFETCHED HERE, deliberately — see the header: this is
+      // one of the four endpoints `passkeyClient()` registers an atom listener
+      // on, so the row updates itself.
+      toast.success('Passkey renamed')
+      setRenaming(null)
+    } catch (cause) {
+      // `updatePasskey` reaches the same inferred-endpoint proxy `deletePasskey`
+      // does, whose return type is `any`, so nothing pins whether it rejects or
+      // answers `{ error }`. Both are handled, for that reason and no other.
+      toast.error(cause instanceof Error ? cause.message : 'Could not rename that passkey.')
+    } finally {
+      setSavingName(false)
+    }
+  }
+
   return (
     <div className="flex flex-col space-y-4 py-4">
       <div className="flex flex-col space-y-1.5">
@@ -286,6 +387,44 @@ export default function SecurityTab() {
                     {added && <span className="truncate text-xs text-muted-foreground">{added}</span>}
                   </div>
                 </div>
+                <div className="flex shrink-0 items-center">
+                  {/*
+                    RENAME IS A SECOND CONTROL, NOT A CLICKABLE LABEL
+                    (wordle-teams-citj). This tab is rendered INSIDE
+                    settings-dialog.tsx's Dialog, so the alternative shape — an
+                    inline field that replaces the name in place — was the one
+                    that avoided a dialog on a dialog. A separate button that
+                    opens one was chosen anyway: update-team-dialog.tsx is the
+                    app's only existing rename and this inherits its reviewed
+                    handling of focus, the pending state and the iOS keyboard,
+                    where an inline editor would be a new interaction pattern
+                    with no precedent here to borrow from.
+
+                    DISABLED WHILE A REMOVAL IS IN FLIGHT, for the same reason
+                    every other button in the row is: two writes racing against
+                    one list buys nothing. It is NOT disabled while a rename is
+                    saving, because the dialog is modal — there is nothing to
+                    click underneath it.
+                  */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      setRenaming({
+                        id: passkey.id,
+                        label: passkeyLabel(passkey.name),
+                        added,
+                        draft: passkey.name?.trim() ?? '',
+                      })
+                    }
+                    disabled={removingId !== null}
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                    {/* The date is in here for removeLabel's reason, doubled —
+                        see renameLabel. */}
+                    <span className="sr-only">{renameLabel(passkey.name, passkey.createdAt)}</span>
+                  </Button>
                 {/*
                   THE BUTTON STAYS MOUNTED AND ONLY ITS ICON CHANGES, rather
                   than being swapped for a bare spinner — the same shape
@@ -301,7 +440,6 @@ export default function SecurityTab() {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="shrink-0"
                   // NO CONFIRMATION, EVEN FOR THE LAST ONE. See the header.
                   onClick={() => void onRemove(passkey.id)}
                   disabled={removingId !== null}
@@ -321,11 +459,96 @@ export default function SecurityTab() {
                   )}
                   <span className="sr-only">{removeLabel(passkey.name, passkey.createdAt)}</span>
                 </Button>
+                </div>
               </li>
             )
           })}
         </ul>
       )}
+
+      {/*
+        A DIALOG ON A DIALOG, WHICH IS THE COST OF THIS SHAPE AND IS STATED
+        RATHER THAN HIDDEN (wordle-teams-citj). This tab lives inside
+        settings-dialog.tsx's Dialog, so this is nested, and wordle-teams-4srj
+        is the precedent for what two dialogs on one page can cost.
+
+        WHAT THAT ACTUALLY DOES WAS MEASURED IN A BROWSER RATHER THAN REASONED
+        ABOUT, and the first guess was wrong in a useful direction. Radix marks
+        everything outside the TOP-MOST modal `aria-hidden` — the Settings
+        dialog included — so while this is open a role query sees ONE dialog,
+        not two: the parent is inert, which is what a stacked modal should be.
+        e2e/passkey.spec.ts pins both halves, the count of one while open and
+        the parent coming back visible after Save, because "inert" has to mean
+        restorable or the player is stranded on a page they cannot reach.
+
+        It still carries a DialogTitle, and not only for the name: Radix warns
+        without one, and it is what the description below hangs off.
+
+        MOUNTED ONLY WHILE A ROW IS SELECTED, which is the opposite of
+        update-team-dialog.tsx's always-mounted shape — and it is why this needs
+        no re-seeding effect. That file keeps `open` in its deps precisely
+        because a cancelled edit would otherwise survive; here the state IS the
+        openness, so closing discards the draft by construction.
+      */}
+      <Dialog open={renaming !== null} onOpenChange={(next) => !next && setRenaming(null)}>
+        <DialogContent
+          // Same keyboard-aware centering as update-team-dialog.tsx, and for
+          // the same reason: this one has a text field too, so on iOS Safari
+          // the unshrunk layout viewport would otherwise leave Save under the
+          // keyboard.
+          style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
+        >
+          <DialogHeader>
+            <DialogTitle>Rename passkey</DialogTitle>
+            {/*
+              WHICH ROW, IN THE PLAYER'S OWN TERMS. The list is not visible
+              behind a modal, and the case this feature exists for is two rows
+              that look alike — so the description repeats exactly what the row
+              said, date included, rather than trusting the player to remember
+              which pencil they pressed.
+            */}
+            <DialogDescription>
+              {renaming?.added ? `${renaming.label} · ${renaming.added}` : renaming?.label}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={onRename} className="w-full space-y-6">
+            <div className="flex flex-col space-y-2">
+              <Label htmlFor="passkey-name">Name</Label>
+              <Input
+                id="passkey-name"
+                value={renaming?.draft ?? ''}
+                onChange={(event) =>
+                  setRenaming((current) =>
+                    current && { ...current, draft: event.target.value },
+                  )
+                }
+                // A row with no name seeds this empty, so the placeholder is
+                // what the row currently reads — a hint, not a value that can
+                // be saved by pressing Enter on an untouched field.
+                placeholder={renaming?.label}
+                maxLength={64}
+                autoComplete="off"
+                disabled={savingName}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="submit"
+                variant="secondary"
+                // BLANK IS NOT SAVEABLE, and the server says so too
+                // (`z.string().trim().min(1)`). Disabling here is what stops a
+                // player discovering that as a toast.
+                disabled={savingName || renaming?.draft.trim() === ''}
+                aria-disabled={savingName || renaming?.draft.trim() === ''}
+                aria-busy={savingName}
+              >
+                {savingName && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/*
         THE BUTTON IS REPLACED, NOT DISABLED, WHERE WEBAUTHN IS MISSING. A

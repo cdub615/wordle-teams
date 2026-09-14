@@ -22,11 +22,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import SecurityTab, { addedLabel, passkeyLabel, removeLabel } from './security-tab.tsx'
+import SecurityTab, { addedLabel, passkeyLabel, removeLabel, renameLabel } from './security-tab.tsx'
 
 const {
   addPasskeyMock,
   deletePasskeyMock,
+  updatePasskeyMock,
   rememberRegisteredMock,
   forgetRegisteredMock,
   toastSuccess,
@@ -34,6 +35,7 @@ const {
 } = vi.hoisted(() => ({
   addPasskeyMock: vi.fn(),
   deletePasskeyMock: vi.fn(),
+  updatePasskeyMock: vi.fn(),
   rememberRegisteredMock: vi.fn(),
   forgetRegisteredMock: vi.fn(),
   toastSuccess: vi.fn(),
@@ -50,7 +52,11 @@ let listState: {
 vi.mock('#/lib/auth-client.ts', () => ({
   authClient: {
     useListPasskeys: () => listState,
-    passkey: { addPasskey: addPasskeyMock, deletePasskey: deletePasskeyMock },
+    passkey: {
+      addPasskey: addPasskeyMock,
+      deletePasskey: deletePasskeyMock,
+      updatePasskey: updatePasskeyMock,
+    },
   },
 }))
 
@@ -89,6 +95,7 @@ beforeEach(() => {
   supportWebAuthn()
   addPasskeyMock.mockResolvedValue({ data: { id: 'pk_new' }, error: null })
   deletePasskeyMock.mockResolvedValue({ data: { status: true }, error: null })
+  updatePasskeyMock.mockResolvedValue({ data: { passkey: { id: 'pk_1' } }, error: null })
   listState = { data: [], error: null, isPending: false }
 })
 
@@ -667,5 +674,170 @@ describe('a browser that cannot do WebAuthn', () => {
     mount()
     expect(screen.queryByRole('button', { name: /Add a passkey/i })).not.toBeNull()
     expect(screen.queryByText(/can’t use passkeys/i)).toBeNull()
+  })
+})
+
+/**
+ * RENAMING A PASSKEY (wordle-teams-citj), which is the honest complement to an
+ * auto-generated name: any label derived from the browser will sometimes be
+ * wrong, and only the person holding the device can say so.
+ *
+ * THE THREE CASES AUTO-NAMING CANNOT REACH, all recorded on that issue when
+ * option 1 shipped, are what this is for — a row registered before the naming
+ * change and never backfilled, a browser `deviceName()` declines to guess at,
+ * and two credentials from the SAME browser on the same device, which no
+ * generated label can ever separate. The first two are covered below by the
+ * unnamed row; the third is why every accessible name here still carries a date.
+ *
+ * WHAT THIS FILE CANNOT SEE IS THE NESTING. SecurityTab renders inside
+ * settings-dialog.tsx's Dialog in the real app; mounted on its own it renders
+ * exactly one, so nothing here is evidence about two. That half is
+ * e2e/passkey.spec.ts's, and it turned up something worth knowing rather than
+ * merely confirming: Radix marks everything outside the top-most modal
+ * `aria-hidden`, so while the rename dialog is open a role query sees ONE
+ * dialog and the Settings dialog is inert underneath. Nothing below reaches for
+ * the dialog by role anyway — the fields are addressed directly — so these
+ * assertions say the same thing in both worlds.
+ */
+describe('renaming a passkey', () => {
+  const NAMED = { id: 'pk_1', name: 'Chrome on macOS', createdAt: new Date(2026, 8, 13) }
+  const UNNAMED = { id: 'pk_2', name: null, createdAt: new Date(2026, 8, 13) }
+
+  const openRenameFor = (accessibleName: RegExp) => {
+    fireEvent.click(screen.getByRole('button', { name: accessibleName }))
+    return screen.getByLabelText('Name') as HTMLInputElement
+  }
+
+  test('the rename button names the row AND its date, like the remove button', () => {
+    // THE POINT OF THE FOLD, and adding a second control per row is what
+    // doubles how much it matters: a screen-reader user now meets two buttons
+    // per credential, so "Rename Passkey" repeated four times is worse than
+    // "Remove Passkey" repeated twice. Asserted against removeLabel's output on
+    // the same input, so the two formats cannot drift.
+    expect(renameLabel('Chrome on macOS', new Date(2026, 8, 13), 'en-US')).toBe(
+      'Rename Chrome on macOS, added Sep 13, 2026',
+    )
+    expect(removeLabel('Chrome on macOS', new Date(2026, 8, 13), 'en-US')).toBe(
+      'Remove Chrome on macOS, added Sep 13, 2026',
+    )
+    // A row with no usable date still gets a name, just an ambiguous one —
+    // strictly better than "Rename undefined".
+    expect(renameLabel(null, null, 'en-US')).toBe('Rename Passkey')
+  })
+
+  test('the pencil opens a dialog seeded with the row it belongs to', () => {
+    listState = { data: [NAMED], error: null, isPending: false }
+    mount()
+
+    const field = openRenameFor(/^Rename Chrome on macOS/)
+
+    expect(field.value).toBe('Chrome on macOS')
+    // THE DESCRIPTION REPEATS THE ROW, date included. The list is not visible
+    // behind a modal, and the case this feature exists for is two rows that
+    // look alike, so "which pencil did I press" must not be something the
+    // player has to remember.
+    expect(screen.getByText(/Chrome on macOS · Added/)).toBeTruthy()
+  })
+
+  test('an unnamed row opens EMPTY, and cannot be saved as the fallback word', async () => {
+    // The trap this avoids: seeding the field from `passkeyLabel` would put the
+    // literal string "Passkey" in it, and saving that writes a real name
+    // indistinguishable afterwards from the unnamed state it came from.
+    listState = { data: [UNNAMED], error: null, isPending: false }
+    mount()
+
+    const field = openRenameFor(/^Rename Passkey/)
+
+    expect(field.value).toBe('')
+    expect(screen.getByRole('button', { name: 'Save' }).getAttribute('aria-disabled')).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(updatePasskeyMock).not.toHaveBeenCalled())
+  })
+
+  test('saving sends the trimmed name for that row, and says so', async () => {
+    listState = { data: [NAMED, UNNAMED], error: null, isPending: false }
+    mount()
+
+    const field = openRenameFor(/^Rename Passkey/)
+    // Whitespace, so this pins the trim rather than merely passing the value
+    // through — the endpoint's own body schema is `z.string().trim().min(1)`.
+    fireEvent.change(field, { target: { value: '  Yubikey  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      // THE ID IS HALF THE ASSERTION. Two rows are mounted and the pencil
+      // pressed belongs to the second; a handler that closed over the first
+      // row, or over "whichever row is first", passes every other check here.
+      expect(updatePasskeyMock).toHaveBeenCalledWith({ id: 'pk_2', name: 'Yubikey' }),
+    )
+    expect(toastSuccess).toHaveBeenCalledWith('Passkey renamed')
+    // The dialog is gone, so the field it owned is too.
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+  })
+
+  test('a blank-but-not-empty draft is refused rather than sent', async () => {
+    // `disabled` measures "", the endpoint measures "".trim() — a form submits
+    // on Enter from the field, so " " would otherwise reach the server and come
+    // back as a toast.
+    listState = { data: [NAMED], error: null, isPending: false }
+    mount()
+
+    const field = openRenameFor(/^Rename Chrome on macOS/)
+    fireEvent.change(field, { target: { value: '   ' } })
+    fireEvent.submit(field.closest('form')!)
+
+    await waitFor(() => expect(updatePasskeyMock).not.toHaveBeenCalled())
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  test('a rejected rename is reported and the dialog stays open to correct', async () => {
+    updatePasskeyMock.mockResolvedValue({ data: null, error: { message: 'Passkey not found' } })
+    listState = { data: [NAMED], error: null, isPending: false }
+    mount()
+
+    const field = openRenameFor(/^Rename Chrome on macOS/)
+    fireEvent.change(field, { target: { value: 'Work laptop' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Passkey not found'))
+    expect(toastSuccess).not.toHaveBeenCalled()
+    // STILL THERE, which is the behavioural half: a dialog that closed on
+    // failure would throw away what the player typed and tell them to start
+    // again for a rename that may simply have raced a removal.
+    expect(screen.getByLabelText('Name')).toBeTruthy()
+  })
+
+  test('a THROWN failure is reported too, not just an { error } answer', async () => {
+    // `updatePasskey` reaches the same inferred-endpoint proxy `deletePasskey`
+    // does, whose return type is `any`, so nothing pins which shape a failure
+    // takes. Both are handled; this is the half a `{ error }`-only test misses.
+    updatePasskeyMock.mockRejectedValue(new Error('Network down'))
+    listState = { data: [NAMED], error: null, isPending: false }
+    mount()
+
+    const field = openRenameFor(/^Rename Chrome on macOS/)
+    fireEvent.change(field, { target: { value: 'Work laptop' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Network down'))
+  })
+
+  test('the pencil is disabled while a removal is in flight', async () => {
+    // Every button in the row is, for the reason `removingId` exists: two
+    // writes racing against one list buys nothing.
+    let settle: (value: unknown) => void = () => {}
+    deletePasskeyMock.mockReturnValue(new Promise((resolve) => (settle = resolve)))
+    listState = { data: [NAMED], error: null, isPending: false }
+    mount()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Remove Chrome on macOS/ }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /^Rename Chrome on macOS/ }).hasAttribute('disabled'),
+      ).toBe(true),
+    )
+    settle({ data: { status: true }, error: null })
   })
 })

@@ -317,7 +317,54 @@ test('a passkey is offered after signing in, then signs the player back in, then
   await expect(
     page.getByRole('dialog', { name: 'Settings' }).getByText('Passkey', { exact: true }),
   ).toHaveCount(0)
-  await remove.click()
+  // ---------------------------------------------------------------------
+  // 4b. Rename it first, which is the only place the nesting can be proven.
+  // ---------------------------------------------------------------------
+
+  /**
+   * A DIALOG ON A DIALOG, AND NO UNIT TEST CAN SEE IT (wordle-teams-citj).
+   * security-tab.hook.test.ts mounts the tab on its own, so it renders exactly
+   * one Dialog and the nesting that exists in the real app — this one inside
+   * settings-dialog.tsx's — is invisible to it. Radix stacks them and traps
+   * focus in the top one; what that changes for everyone else is that
+   * `getByRole('dialog')` now matches TWO, which is the shape wordle-teams-4srj
+   * had to untangle once already. Every dialog locator in this file is scoped
+   * by accessible name for that reason, including the ones that predate this.
+   */
+  const renamed = 'Iva’s spare key'
+  await page.getByRole('button', { name: /^Rename \S.* on \S.*, added / }).click()
+  const renameDialog = page.getByRole('dialog', { name: 'Rename passkey' })
+  await expect(renameDialog).toBeVisible()
+  // EXACTLY ONE DIALOG IS EXPOSED AT A TIME, which is measured rather than
+  // assumed and is the opposite of what "nested" first suggests: Radix marks
+  // everything outside the top-most modal `aria-hidden`, the Settings dialog
+  // included, so a role query sees one. That is correct stacked-modal
+  // behaviour — the parent is inert while the child is open — and it is the
+  // reason a role-only dialog locator stays unambiguous here.
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+
+  await renameDialog.getByLabel('Name').fill(renamed)
+  await renameDialog.getByRole('button', { name: 'Save' }).click()
+
+  await expect(page.getByText('Passkey renamed')).toBeVisible({ timeout: 15_000 })
+  // AND THE SETTINGS DIALOG COMES BACK. It was inert, not unmounted, so closing
+  // the child has to restore it — a stacking bug that left the parent
+  // aria-hidden would strand the player on a page they cannot reach.
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  // THE ROW UPDATES WITHOUT A REFETCH, which is the claim security-tab.tsx's
+  // header makes about `/passkey/update-passkey` being one of the atoms
+  // `passkeyClient()` listens on. Nothing here reloads or reopens anything.
+  await expect(
+    page.getByRole('dialog', { name: 'Settings' }).getByText(renamed, { exact: true }),
+  ).toBeVisible()
+
+  // ---------------------------------------------------------------------
+
+  // THE NEW NAME, NOT THE DEVICE ONE — so this doubles as proof that the
+  // rename reached the accessible name and not merely the visible label. The
+  // `remove` locator above deliberately still refers to the device-named row
+  // and would now match nothing, which is the point.
+  await page.getByRole('button', { name: new RegExp(`^Remove ${renamed}, added `) }).click()
 
   await expect(page.getByText('Passkey removed')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('You have no passkeys on this account yet.')).toBeVisible()
