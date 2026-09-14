@@ -226,6 +226,35 @@ jobs:
           test ! -e .env.local
           echo "removed v2/.env.local — the build below uses .env.production"
 
+      # THE ONLY GATE A PULL REQUEST WAS MISSING (wordle-teams-tkqr). Every
+      # deploy step here is guarded on `github.event_name == 'push'`, because
+      # this repository is PUBLIC and a fork's PR must never reach real
+      # credentials. `vite build` is not a step of its own — it runs inside
+      # `convex deploy --cmd 'pnpm build'` — so that guard also meant a pull
+      # request never COMPILED the production bundle, and a change that breaks
+      # only the production build (an import vite dev tolerates, a plugin that
+      # fails under build.ssr, anything in scripts/build-sw.mjs) went green on
+      # the PR and red on the push that merged it. The merge into main IS the
+      # deploy, so that is the worst place to find out.
+      #
+      # IT NEEDS NO SECRET, which is the whole reason it can run here. The
+      # deploy step takes VITE_CONVEX_URL from the deploy key so the bundle can
+      # never be built against the wrong Convex; a PR build is thrown away and
+      # never served, so it takes the same value from the committed
+      # .env.production that supplies every other build-time value. The step
+      # above has already removed the local-backend .env.local, which Vite would
+      # otherwise load in production mode too.
+      #
+      # ONE DIFFERENCE FROM THE PUSH BUILD, stated so nobody reads this as
+      # equivalent: with no SENTRY_AUTH_TOKEN the Sentry plugin warns and skips
+      # the upload. It still deletes the client maps, so the two checks below
+      # hold — measured on a tokenless local build: 0 maps in dist/client, the
+      # corpus present as a static file and not inlined. What a PR does not
+      # exercise is the upload itself, which the push-only token check covers.
+      - name: Build the production bundle (pull requests only)
+        if: github.event_name == 'pull_request'
+        run: pnpm build
+
       # Pushes schema + functions, then runs the client build with
       # VITE_CONVEX_URL set to the deployment this key points at, so the bundle
       # can never be built against the wrong Convex. The other build-time values
@@ -338,8 +367,17 @@ jobs:
       # dist/server maps are DELIBERATELY KEPT and are not checked here: that
       # directory is worker code, served to nobody, and its maps are what
       # wrangler's `upload_source_maps` finally has to upload.
+      # NO LONGER PUSH-ONLY (wordle-teams-tkqr): a pull request now builds, so
+      # there is a dist/client for this to read. It was guarded only because
+      # there was nothing to check, never because a PR should be exempt.
+      #
+      # THE CONDITION NAMES BOTH EVENTS RATHER THAN BEING DROPPED, because
+      # `workflow_dispatch` is a third trigger and it builds NOTHING — every
+      # build step above is gated on push or pull_request. An unguarded step
+      # here would `find dist/client` under `set -euo pipefail` on a manual run
+      # and fail the workflow on a directory that was never meant to exist.
       - name: No source map may reach the client bundle
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           found=$(find dist/client -name '*.map' | head -20)
@@ -352,8 +390,17 @@ jobs:
           fi
           echo "clean: no .map in dist/client"
 
+      # NO LONGER PUSH-ONLY (wordle-teams-tkqr): a pull request now builds, so
+      # there is a dist/client for this to read. It was guarded only because
+      # there was nothing to check, never because a PR should be exempt.
+      #
+      # THE CONDITION NAMES BOTH EVENTS RATHER THAN BEING DROPPED, because
+      # `workflow_dispatch` is a third trigger and it builds NOTHING — every
+      # build step above is gated on push or pull_request. An unguarded step
+      # here would `find dist/client` under `set -euo pipefail` on a manual run
+      # and fail the workflow on a directory that was never meant to exist.
       - name: The insights corpus must not reach the client bundle
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           if [ ! -f dist/client/insights/benchmark-openers.json ]; then
