@@ -91,8 +91,10 @@ export default function SecurityTab() {
   // whole ceremony again. Same reasoning as notifications-tab.tsx's
   // `pushPending`.
   const [adding, setAdding] = useState(false)
-  // The ID of the row being removed, rather than a boolean, so only the row
-  // actually in flight shows a spinner and loses its button.
+  // AN ID RATHER THAN A BOOLEAN, because the two questions it answers have
+  // different answers per row: EVERY row's button is disabled while a removal
+  // is in flight (two removals racing against one list buys nothing), but only
+  // the row actually going shows the spinner. A boolean cannot say both.
   const [removingId, setRemovingId] = useState<string | null>(null)
 
   /**
