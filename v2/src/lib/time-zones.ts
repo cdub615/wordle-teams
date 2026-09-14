@@ -129,11 +129,11 @@ export function canonicalTimeZone(zone: string | null): string | null {
  *
  * WHY THIS EXISTS (wordle-teams-54s). The picker offers 27 zones; production
  * players span 57. A copied player whose zone is not one of the 27 opened the
- * Notifications tab and saw "Select a time zone" — the placeholder, as though
- * nothing were configured — even though a zone IS set and the reminder sweep
- * resolves it correctly. The placeholder then invited them to pick, and picking
- * REPLACED a correct zone with a neighbouring one, silently moving when their
- * daily email arrives.
+ * Alerts tab (named "Notifications" then) and saw "Select a time zone" — the
+ * placeholder, as though nothing were configured — even though a zone IS set
+ * and the reminder sweep resolves it correctly. The placeholder then invited
+ * them to pick, and picking REPLACED a correct zone with a neighbouring one,
+ * silently moving when their daily email arrives.
  *
  * Inherited from v1 rather than introduced here, but it matters more now: Phase
  * 6 made the stored zone decide when a reminder fires, where in v1 the setting

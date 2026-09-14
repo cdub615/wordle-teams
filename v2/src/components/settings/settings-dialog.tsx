@@ -6,21 +6,27 @@ import NotificationsTab from './notifications-tab.tsx'
 import ProfileTab from './profile-tab.tsx'
 import SecurityTab from './security-tab.tsx'
 
-export type SettingsTab = 'profile' | 'notifications' | 'security' | 'install'
-
 /**
  * The settings dialog's body — four tabs now, ported from user-dialog.tsx. The
  * `<Dialog>` root and its `open`/`onOpenChange` state live in app-menu.tsx,
- * one level up, because that is also where the two menu items that decide
- * `defaultTab` live: clicking "Notifications" opens here on that tab,
- * clicking "Install" on the other, exactly like v1's
- * handleNotificationsClick / handleInstallClick pair. Profile and Security have
- * no menu item of their own and are reached by tapping across, which is why
- * neither needs a `defaultTab` of its own.
+ * one level up, because that is where the single "Settings" item that opens it
+ * lives.
  *
- * `defaultTab`, NOT a controlled `value` — v1 does the same
+ * IT TAKES NO `defaultTab` ANY MORE (wordle-teams-mwu0). It used to, because
+ * the menu carried THREE items that each deep-linked a tab — Notifications,
+ * Profile and Install — and the caller had to say which one it meant. Those
+ * three collapsed into one "Settings" item, so every open now starts in the
+ * same place, and a prop that can only ever receive one value is plumbing
+ * pretending to be a choice. Where it starts is Profile, for the reason the
+ * TabsList comment below gives — and that reason was never the CALLER'S: it is
+ * an argument about which tab this dialog should open on, and it stands on its
+ * own now that nobody is passing anything.
+ *
+ * `defaultValue`, NOT a controlled `value` — v1 does the same
  * (user-dialog.tsx:117). Once open, which tab is showing is this dialog's own
- * business; the caller only gets to pick where it STARTS.
+ * business. Radix mounts DialogContent through a Portal on open and unmounts it
+ * on close, so a fresh open genuinely returns to Profile rather than resuming
+ * wherever the previous one was left.
  *
  * CARRIES A `DialogTitle`, EVEN THOUGH EACH TAB ALREADY PAINTS ITS OWN
  * VISIBLE HEADING ("Notification Settings" / "Installation"). Radix's
@@ -44,11 +50,9 @@ export type SettingsTab = 'profile' | 'notifications' | 'security' | 'install'
  * would be worse than no row.
  */
 export function SettingsDialog({
-  defaultTab,
   email,
   displayName,
 }: {
-  defaultTab: SettingsTab
   email?: string | null
   displayName?: string | null
 }) {
@@ -78,8 +82,8 @@ export function SettingsDialog({
 
         ABOVE THE TABS RATHER THAN INSIDE ONE, and that is the whole reason it
         is here and not in NotificationsTab: it is true of the dialog, not of a
-        tab, and burying it under "Notifications" would make the answer to
-        "which account am I?" depend on which tab happened to be open. There is
+        tab, and burying it under "Alerts" would make the answer to "which
+        account am I?" depend on which tab happened to be open. There is
         no Account tab to put it in and adding one for a single read-only line
         would be a bigger change than the question deserves.
 
@@ -106,19 +110,60 @@ export function SettingsDialog({
           Signed in as <span className="text-foreground select-text">{email}</span>
         </p>
       )}
-      <Tabs defaultValue={defaultTab}>
+      <Tabs defaultValue="profile">
         <TabsList>
           {/*
-            FIRST, BECAUSE IT IS THE IDENTITY TAB. The name-and-address block
-            above already answers "which account is this"; Profile is the tab
-            that block is about, so the strip opens on it rather than making a
-            visitor land on Notifications and hunt sideways for their own
-            picture and name.
+            FIRST, AND THEREFORE THE TAB EVERY OPEN LANDS ON, BECAUSE IT IS
+            THE IDENTITY TAB. The name-and-address block above already answers
+            "which account is this"; Profile is the tab that block is about, so
+            the strip opens on it rather than making a visitor land on Alerts
+            and hunt sideways for their own picture and name. This is the whole
+            of the reason `defaultTab` could go: the argument for landing here
+            is the dialog's, not the caller's.
           */}
           <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
           {/*
-            AFTER NOTIFICATIONS, BEFORE INSTALL. The strip runs from the tab a
+            "Alerts", NOT "Notifications", AND THE REASON IS MEASURED WIDTH
+            (wordle-teams-wty4.1.7.7). This is the label that finally makes the
+            four-tab strip fit a phone. Measured in headless Chromium against
+            this app's compiled stylesheet and its real self-hosted Inter faces,
+            triggers at 14px/500 plus 8px of TabsList padding:
+
+              label           row    320    360    375    390    414
+              Notifications   341   +74    +37    +23     +9    fits
+              Reminders       324   +57    +20     +6   fits    fits
+              Alerts          290   +23   fits    fits   fits    fits
+
+            (The dialog's content box is `11/12 * viewport - 26px`: 267 at 320,
+            304 at 360, 318 at 375, 332 at 390, 354 at 414.)
+
+            "REMINDERS" WOULD HAVE BEEN THE MORE ACCURATE WORD — everything in
+            the panel is about the daily board-entry reminder — AND IT WAS
+            REJECTED ON THE NUMBERS. It clears 390 by 8px and leaves 375 and 360
+            still overflowing; 8px is inside the error bars of a real device,
+            and the owner has already measured this strip behaving differently
+            on an iPhone than headless Chromium predicts. "Alerts" clears 390 by
+            42px and fixes 375 and 360 as well — and those two were ALREADY
+            broken before Security was added, so this is the first label that
+            leaves the strip correct rather than merely un-regressed.
+
+            320 STILL OVERFLOWS, BY 23px, AND IS NOT FIXED HERE. The THREE-tab
+            row was 39px over at 320 long before this feature; that is a
+            pre-existing bug about a viewport no phone in the matrix has.
+
+            THE WORD IS NOT A LIE. Both delivery channels the panel offers are
+            alerts (Email and Push), and the panel's own heading — "Notification
+            Settings" — names the thing in full the moment you land on it. The
+            label only has to identify the tab; the panel describes it.
+
+            IT COULD ONLY BE SHORTENED ONCE THE MENU STOPPED MIRRORING IT
+            (wordle-teams-mwu0). Until then this string was also a menu item and
+            an e2e-asserted product name, which made renaming it a product
+            decision rather than a layout fix.
+          */}
+          <TabsTrigger value="notifications">Alerts</TabsTrigger>
+          {/*
+            AFTER ALERTS, BEFORE INSTALL. The strip runs from the tab a
             visitor is most likely to have come for to the one they are least
             likely to — Install is static copy read once — and Security is a
             thing you do rather than a thing you read, so it belongs on the
@@ -131,27 +176,14 @@ export function SettingsDialog({
             pushed the row from 306px to 387px, and the dialog's content box is
             only 332px at a 390px viewport — so a strip that fitted every phone
             from 390 up stopped fitting any of them. Dropping the second word
-            takes 46px back, to 341px.
+            took 46px back, to 341px, which undid the regression at 414 and up
+            and left 390 nine pixels over. The "Alerts" rename above is what
+            closed the remaining gap; the two triggers are measured together in
+            the table there.
 
-            THAT IS NOT ENOUGH FOR 390, AND SAYING SO IS THE POINT OF WRITING
-            THE NUMBER DOWN. 341 still exceeds 332 by 9px. Measured in headless
-            Chromium against this app's compiled stylesheet and its real Inter
-            faces: Profile 70, Notifications 115, Security 81, Install 67, plus
-            8px of TabsList padding. What the rename actually buys is 414 and up
-            (13px spare) — it undoes the regression for the widest phones and
-            leaves 390 and below where the FOUR-tab row still scrolls.
-
-            THE 320 AND 360 OVERFLOW IS NOT NEW AND IS NOT FIXED HERE: the
-            THREE-tab row was already over at both, by 39px and 2px. Fitting any
-            of the three would mean renaming "Notifications", which is also a
-            menu item and an e2e-asserted product string — a product decision,
-            not a layout one. Left for the owner on wordle-teams-wty4.1.7.7.
-
-            The label still names the tab — the panel's own heading reads
-            "Installation" — and the MENU ITEM was renamed in lockstep
-            (app-menu.tsx), because that item is what opens this dialog on this
-            tab and the two drifting apart is the failure worth guarding
-            against.
+            Profile 70, Alerts 64, Security 81, Install 67, plus 8px of TabsList
+            padding — 290. The label still names the tab; the panel's own
+            heading reads "Installation".
           */}
           <TabsTrigger value="install">Install</TabsTrigger>
         </TabsList>

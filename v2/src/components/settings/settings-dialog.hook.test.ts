@@ -14,9 +14,16 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { Dialog } from '#/components/ui/dialog.tsx'
 import { SettingsDialog } from './settings-dialog.tsx'
 
-// Both tabs reach Convex for settings this file has no opinion about. Their
-// contents are notifications-tab's business; what is under test is the dialog
-// chrome around them.
+// Every tab reaches Convex or Better Auth for settings this file has no
+// opinion about. Their contents are their own files' business; what is under
+// test is the dialog chrome around them.
+//
+// PROFILE JOINED THE LIST WHEN `defaultTab` WENT AWAY (wordle-teams-mwu0).
+// Radix mounts only the ACTIVE panel, and this file used to mount on
+// 'notifications', so ProfileTab never rendered here and never needed a stub.
+// Now that the dialog opens on Profile itself, the real one runs `useQuery` on
+// mount and throws "No QueryClient set" before a single assertion executes.
+vi.mock('./profile-tab.tsx', () => ({ default: () => null }))
 vi.mock('./notifications-tab.tsx', () => ({ default: () => null }))
 vi.mock('./install-guide-tab.tsx', () => ({ default: () => null }))
 // Security reaches Better Auth for the passkey list. Its own behaviour is
@@ -32,7 +39,7 @@ const mount = (email?: string | null, displayName?: string | null) =>
     createElement(
       Dialog,
       { open: true },
-      createElement(SettingsDialog, { defaultTab: 'notifications', email, displayName }),
+      createElement(SettingsDialog, { email, displayName }),
     ),
   )
 
@@ -64,14 +71,25 @@ describe('the dialog says which account this is (wordle-teams-7jpo)', () => {
     expect(screen.queryByText(/Signed in as/)).toBeNull()
   })
 
-  test('the two tabs the menu opens are still reachable — the row did not displace them', () => {
-    // It was inserted above the Tabs, so a bad edit could land inside TabsList.
-    // NAMED FOR WHAT IT CHECKS: these are the two tabs app-menu.tsx can open
-    // directly, which is why they are the pair this test watches. The full
-    // four-tab membership and order is asserted below, once.
+  test('the identity row sits ABOVE the strip, not inside it', () => {
+    /**
+     * It was inserted immediately above the Tabs, so a bad edit could land it
+     * inside TabsList — where it would render as a stray line wedged between
+     * the triggers and, worse, would be read out as part of the tab list.
+     *
+     * ASSERTED AGAINST THE TABLIST ELEMENT RATHER THAN AGAINST TWO TAB NAMES,
+     * which is what this test used to do. Naming two tabs answered "are these
+     * two still here", a question the four-tab order test below already answers
+     * properly, and it answered nothing at all about WHERE the row went — the
+     * row could have been dropped inside TabsList and both lookups would still
+     * have found their triggers.
+     */
     mount('ada@example.com')
-    expect(screen.queryByRole('tab', { name: 'Notifications' })).not.toBeNull()
-    expect(screen.queryByRole('tab', { name: 'Install' })).not.toBeNull()
+    const tablist = screen.getByRole('tablist')
+    const row = screen.getByText(/Signed in as/)
+    expect(tablist.contains(row)).toBe(false)
+    // DOCUMENT_POSITION_FOLLOWING === 4: the tablist comes after the row.
+    expect(row.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 
@@ -86,13 +104,38 @@ describe('the four-tab strip (wordle-teams-wty4.1.7)', () => {
      * fails either way.
      *
      * THE ORDER IS THE POINT, not just the membership. Security sits between
-     * Notifications and Install: the strip runs from what a visitor came
-     * for towards what they will read once, and a tab that DOES something does
-     * not belong after static copy.
+     * Alerts and Install: the strip runs from what a visitor came for towards
+     * what they will read once, and a tab that DOES something does not belong
+     * after static copy.
+     *
+     * 'Alerts', NOT 'Notifications' (wordle-teams-wty4.1.7.7). The label is the
+     * measured fix for a strip that overflowed the dialog at every phone width
+     * — settings-dialog.tsx carries the table. This assertion is what stops it
+     * drifting back to a longer word that silently re-breaks the layout, since
+     * no gate measures rendered width.
      */
     mount('ada@example.com')
     const names = screen.getAllByRole('tab').map((tab) => tab.textContent)
-    expect(names).toEqual(['Profile', 'Notifications', 'Security', 'Install'])
+    expect(names).toEqual(['Profile', 'Alerts', 'Security', 'Install'])
+  })
+
+  test('a fresh open lands on Profile, and the dialog decides that itself', () => {
+    /**
+     * THE PLUMBING THIS REPLACES (wordle-teams-mwu0). Which tab an open landed
+     * on used to be a required `defaultTab` prop, and e2e proved it by opening
+     * the dialog through two different menu items. Those items are gone — one
+     * "Settings" item opens it now — so the choice moved in here, and nothing
+     * outside this file would notice it changing: swap `defaultValue` to
+     * "install" and every other test in the suite stays green while every
+     * player lands on static copy instead of their own profile.
+     *
+     * ASSERTED ON `aria-selected` OF A NAMED TRIGGER rather than on whichever
+     * tab happens to be first, so it fails if the DEFAULT moves as well as if
+     * the ORDER does.
+     */
+    mount('ada@example.com')
+    expect(screen.getByRole('tab', { name: 'Profile' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: 'Alerts' }).getAttribute('aria-selected')).toBe('false')
   })
 
   test('Security has a panel of its own, not just a trigger', () => {

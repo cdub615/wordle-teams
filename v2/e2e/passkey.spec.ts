@@ -278,13 +278,15 @@ test('a passkey is offered after signing in, then signs the player back in, then
   // ---------------------------------------------------------------------
 
   /**
-   * VIA Profile, BECAUSE NO MENU ITEM OPENS Security DIRECTLY. app-menu.tsx
-   * offers Profile, Install and Notifications; settings-dialog.tsx's comment
-   * records that Profile and Security have no menu entry of their own and so
-   * need no `defaultTab`. The tab click below is therefore part of the journey
-   * rather than a shortcut around it.
+   * VIA THE TAB STRIP, BECAUSE NO MENU ITEM OPENS Security DIRECTLY — AND NOW
+   * NO MENU ITEM OPENS ANY TAB DIRECTLY (wordle-teams-mwu0). The menu used to
+   * offer Profile, Install and Notifications as three deep links into this one
+   * dialog; they are a single "Settings" item now, which opens on Profile
+   * because settings-dialog.tsx makes that its own default. The tab click below
+   * is therefore part of the journey rather than a shortcut around it, exactly
+   * as it was before.
    */
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Profile' }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Settings' }).click()
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await page.getByRole('tab', { name: 'Security' }).click()
 

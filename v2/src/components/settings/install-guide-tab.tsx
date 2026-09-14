@@ -10,8 +10,8 @@ import { MoreHorizontal, Share } from 'lucide-react'
  * NOT DECORATION. iOS Safari grants push permission only to a PWA that has
  * already been added to the home screen — there is no in-browser prompt to
  * fall back to — so on an iPhone this tab is the ONLY route to the feature
- * the Notifications tab's Email switch previews (and Push will join, once
- * the spike behind it lands).
+ * the Alerts tab's Email switch previews (and Push will join, once the spike
+ * behind it lands).
  */
 export default function InstallGuideTab() {
   return (

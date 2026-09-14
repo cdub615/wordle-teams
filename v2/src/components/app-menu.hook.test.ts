@@ -220,11 +220,30 @@ function memoryStorage(): Storage {
 
 vi.mock('#/lib/auth-client.ts', () => ({ authClient: { signOut } }))
 
-// Two tabs' worth of Convex queries behind a Radix portal; the dialog's own
-// contents are settings/notifications-tab's business, not this file's.
-vi.mock('#/components/settings/settings-dialog.tsx', () => ({
-  SettingsDialog: () => null,
-}))
+// Four tabs' worth of Convex queries behind a Radix portal; the dialog's own
+// contents are settings/settings-dialog.hook.test.ts's business, not this
+// file's.
+//
+// IT RENDERS A REAL `DialogContent` RATHER THAN `null`, WHICH IT USED TO
+// (wordle-teams-mwu0). Returning null made "the menu opened the dialog"
+// unobservable here — the stub rendered nothing whether the Dialog root was
+// open or shut. That was tolerable while three menu items opened it and e2e
+// watched all three; with one item left, whether that item opens anything is
+// the whole of the consolidation. DialogContent is what Radix portals ON OPEN
+// and unmounts on close, so the marker below exists exactly when the dialog
+// does.
+vi.mock('#/components/settings/settings-dialog.tsx', async () => {
+  const { DialogContent, DialogTitle } = await import('#/components/ui/dialog.tsx')
+  return {
+    // Named, like the real one — settings-dialog.tsx carries a VisuallyHidden
+    // `<DialogTitle>Settings</DialogTitle>` so Radix wires up `aria-labelledby`
+    // at all. A stub without one makes `getByRole('dialog', { name })`
+    // unusable, and would quietly train the assertion below to look for
+    // something the real component does not produce.
+    SettingsDialog: () =>
+      createElement(DialogContent, null, createElement(DialogTitle, null, 'Settings')),
+  }
+})
 
 /** jsdom refuses a real navigation, so the assignment needs somewhere to land. */
 let location: { href: string }
@@ -294,6 +313,24 @@ const openMenu = () => {
   return screen.queryAllByRole('menuitem').map((item) => item.textContent)
 }
 
+/**
+ * Every item AND every rule in the open menu, in document order, with the rules
+ * rendered as '---'.
+ *
+ * `[role="separator"]`, NOT a class or a tag: that is what Radix's
+ * DropdownMenuSeparator actually puts in the tree, and it is also what tells an
+ * assistive technology a group ended — so an assertion on it is an assertion on
+ * the thing a screen reader hears, not on styling.
+ *
+ * READ OFF `getByRole('menu')` rather than the whole document, so the theme
+ * submenu's own portalled content cannot drift into the list when some other
+ * test leaves it open.
+ */
+const menuInDocumentOrder = () =>
+  [...screen.getByRole('menu').querySelectorAll('[role="menuitem"],[role="separator"]')].map(
+    (element) => (element.getAttribute('role') === 'separator' ? '---' : element.textContent),
+  )
+
 describe('the menu offers a signed-out visitor navigation and nothing else', () => {
   test('signed out: nav, theme and a way in — no billing, no log out', () => {
     // THE LEAK THIS KILLS. Billing and Log out are inside `isAuthenticated &&`
@@ -317,15 +354,69 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
     expect(openMenu()).toEqual([
       'Dashboard',
       'Insights',
-      'Notifications',
+      'Settings',
       'Theme',
       'Billing',
       'About',
       'Feedback',
-      'Profile',
-      'Install',
       'Log out',
     ])
+  })
+
+  test('two dividers, and they fall where the sections actually change', () => {
+    /**
+     * WHY THE SEPARATORS ARE ASSERTED IN THE SAME LIST AS THE ITEMS RATHER
+     * THAN COUNTED (wordle-teams-mwu0). A bare count of 2 is satisfied by a
+     * menu with both rules stacked in the same place, and by a menu that moved
+     * one of them; what makes a divider right is WHICH GAP it sits in. Reading
+     * items and rules off the menu in document order pins both facts at once,
+     * and — unlike an index lookup on two anchors — it cannot pass on an empty
+     * or truncated menu, because the whole list has to match.
+     *
+     * WHAT IT IS PINNING. The menu used to carry THREE rules: after the
+     * identity label, before About, and before a third section holding
+     * Profile, Install and Log out. Collapsing those two tab-deep links into
+     * "Settings" left that third section with one item in it, and a rule that
+     * fences off a single item divides nothing. Two groups remain — inside the
+     * app, then outside it — and Log out ends the list with no rule above it.
+     */
+    render(createElement(AppMenu))
+    openMenu()
+
+    expect(menuInDocumentOrder()).toEqual([
+      '---',
+      'Dashboard',
+      'Insights',
+      'Settings',
+      'Theme',
+      'Billing',
+      '---',
+      'About',
+      'Feedback',
+      'Log out',
+    ])
+  })
+
+  test('Settings opens the settings dialog, which nothing else in the menu now does', async () => {
+    /**
+     * THE ONE WAY IN. Notifications, Profile and Install each used to open this
+     * dialog; all three are gone and this item carries their whole job. Break
+     * its handler and the settings dialog becomes unreachable from the running
+     * app with every other assertion in this file still green — the item list
+     * above would happily pass on a "Settings" entry that does nothing at all.
+     *
+     * THE DIALOG IS ASSERTED ABSENT FIRST, in the same opened menu, so this
+     * cannot pass on a stub that renders unconditionally — which is exactly
+     * what the previous `SettingsDialog: () => null` mock could not have been
+     * caught doing.
+     */
+    render(createElement(AppMenu))
+    openMenu()
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Settings' })).not.toBeNull()
   })
 
   test('THE MENU EXISTS AT ALL FOR A SIGNED-OUT VISITOR, which is the whole change', () => {

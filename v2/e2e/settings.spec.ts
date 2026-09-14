@@ -6,15 +6,15 @@ import { signIn } from './sign-in'
 import type { Page } from '@playwright/test'
 
 /**
- * Phase 6, Task 6 — the settings menu, its dialog, and the Notifications tab's
- * two persisted controls. Read teams.spec.ts and sign-in.ts before touching
+ * Phase 6, Task 6 — the settings menu, its dialog, and the Alerts tab's two
+ * persisted controls. Read teams.spec.ts and sign-in.ts before touching
  * this file; the setup below follows both exactly, including the strict 5s
  * default on every assertion after sign-in has landed.
  *
  * Seeds through e2eSeed.ensureTeamFor rather than a bare signIn(), the same
  * choice teams.spec.ts makes: a bare signIn() leaves the account with no
  * `players` row at all, and api.settings.mySettings (requirePlayer) throws
- * NO_PLAYER without one — the Notifications tab would show its error state
+ * NO_PLAYER without one — the Alerts tab would show its error state
  * instead of ever offering a control to interact with. The seeded row starts
  * with reminderDeliveryMethods: [] and reminderDeliveryTime: '18:00:00',
  * which is what the persistence assertions below change away from.
@@ -30,7 +30,42 @@ async function signInWithPlayer(page: Page, timeZone?: string): Promise<string> 
   return email
 }
 
-test('the hamburger opens the menu, and each item opens the dialog on its own tab', async ({
+/**
+ * Opens the settings dialog through the ONE menu item that opens it, and taps
+ * across to the tab the caller wants.
+ *
+ * WHY EVERY CALLER NEEDS THIS NOW (wordle-teams-mwu0). Three menu items used to
+ * deep-link three tabs, so a spec that wanted the reminder controls clicked
+ * "Notifications" and was there. Those three collapsed into one "Settings"
+ * item that opens on Profile, so reaching any other tab is two steps, and
+ * every spec below that wanted the reminder controls has to take both.
+ *
+ * IT ASSERTS THE LANDING RATHER THAN ASSUMING IT. Radix switches tabs on
+ * mousedown and the panel swaps synchronously, but the dialog itself is
+ * portalled on open — so without waiting for the trigger to actually read
+ * `data-state="active"` a caller can start asserting against the panel that
+ * was showing a moment ago and get a confusing "Email switch not found"
+ * instead of "the tab never opened".
+ */
+async function openSettingsOn(
+  page: Page,
+  tab: 'Profile' | 'Alerts' | 'Security' | 'Install',
+): Promise<void> {
+  await openAppMenu(page)
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Settings' }).click()
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  // Profile is where every open lands, so asking for it is already done — and
+  // clicking it anyway would prove nothing about where the dialog STARTS.
+  if (tab !== 'Profile') {
+    await page.getByRole('tab', { name: tab, exact: true }).click()
+  }
+  await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveAttribute(
+    'data-state',
+    'active',
+  )
+}
+
+test('one Settings item opens the dialog on Profile, and the other tabs are a tap away', async ({
   page,
 }) => {
   await signInWithPlayer(page)
@@ -40,8 +75,18 @@ test('the hamburger opens the menu, and each item opens the dialog on its own ta
   // attribute regresses to something decorative-only.
   await openAppMenu(page)
   const menu = page.getByRole('menu')
-  await expect(menu.getByRole('menuitem', { name: 'Notifications' })).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: 'Install', exact: true })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Settings' })).toBeVisible()
+  /**
+   * AND THE THREE IT REPLACED ARE GONE (wordle-teams-mwu0). `toHaveCount(0)`
+   * rather than `toBeHidden()`, which also passes for an element that never
+   * existed and would therefore keep this green if the locator itself drifted.
+   * This is the only place in the suite that would notice one of them creeping
+   * back in — the item-set assertion in app-menu.hook.test.ts covers the
+   * component, but nothing else covers the rendered app.
+   */
+  await expect(menu.getByRole('menuitem', { name: 'Notifications' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Profile' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Install', exact: true })).toHaveCount(0)
 
   // Seeded name is 'E2E Tester' (e2eSeed.ts), so the label reads that back —
   // proof the menu is reading the PLAYERS row, not Better Auth's own `name`
@@ -74,7 +119,7 @@ test('the hamburger opens the menu, and each item opens the dialog on its own ta
   // (unrelated) exact 'ET' text node off-screen for narrow viewports.
   await expect(header.getByText('ET', { exact: true })).toBeVisible()
 
-  await menu.getByRole('menuitem', { name: 'Notifications' }).click()
+  await menu.getByRole('menuitem', { name: 'Settings' }).click()
 
   // The dialog's OWN accessible name — settings-dialog.tsx's VisuallyHidden
   // `<DialogTitle>Settings</DialogTitle>`. Without it Radix omits
@@ -82,16 +127,29 @@ test('the hamburger opens the menu, and each item opens the dialog on its own ta
   // "dialog"; the visible tab heading below does not substitute for this,
   // since it is a plain `<h3>`, not a `DialogPrimitive.Title`.
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Notifications' })).toHaveAttribute('data-state', 'active')
+
+  /**
+   * WHERE A FRESH OPEN LANDS, WHICH NO CALLER GETS TO DECIDE ANY MORE.
+   * settings-dialog.tsx's `defaultValue="profile"` is the whole of it now that
+   * `defaultTab` is gone, and the panel heading is checked as well as the
+   * trigger's state: a highlighted trigger with the wrong panel under it is a
+   * real Radix failure mode (a `value` that pairs with no `TabsContent`) and
+   * `data-state` alone would not see it.
+   */
+  await expect(page.getByRole('tab', { name: 'Profile' })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('heading', { name: 'Picture' })).toBeVisible()
+
+  /**
+   * AND THE STRIP IS THE WAY TO THE REST. 'Alerts' is the renamed
+   * Notifications tab (wordle-teams-wty4.1.7.7) — the label that finally makes
+   * the four-tab row fit a phone — so this is also the assertion that fails if
+   * it ever drifts back to a longer word.
+   */
+  await page.getByRole('tab', { name: 'Alerts', exact: true }).click()
+  await expect(page.getByRole('tab', { name: 'Alerts', exact: true })).toHaveAttribute('data-state', 'active')
   await expect(page.getByRole('heading', { name: 'Notification Settings' })).toBeVisible()
 
-  // Close, then reopen through the OTHER item — proves `defaultTab` actually
-  // decides which tab a fresh open lands on, not just that both tabs exist.
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('heading', { name: 'Notification Settings' })).toBeHidden()
-
-  await openAppMenu(page)
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Install', exact: true }).click()
+  await page.getByRole('tab', { name: 'Install', exact: true }).click()
   await expect(page.getByRole('tab', { name: 'Install', exact: true })).toHaveAttribute('data-state', 'active')
   await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible()
   await expect(page.getByText('Add to Home Screen')).toBeVisible()
@@ -102,8 +160,7 @@ test('changing the reminder time and toggling Email each report success and pers
 }) => {
   await signInWithPlayer(page)
 
-  await openAppMenu(page)
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
+  await openSettingsOn(page, 'Alerts')
 
   // Seeded reminderDeliveryTime is '18:00:00' -> '6:00 PM' (notifications-tab.tsx
   // label()), so this locator also pins the display format is what the tab
@@ -127,8 +184,7 @@ test('changing the reminder time and toggling Email each report success and pers
   await expect(emailSwitch).toBeChecked()
 
   await page.reload()
-  await openAppMenu(page)
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
+  await openSettingsOn(page, 'Alerts')
 
   await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('9:00 AM')
   await expect(page.getByRole('switch', { name: 'Email' })).toBeChecked()
@@ -148,8 +204,7 @@ test('a time zone copied in its Postgres spelling displays correctly, and changi
   // the IANA spellings in TIME_ZONE_GROUPS).
   await signInWithPlayer(page, 'Asia/Calcutta')
 
-  await openAppMenu(page)
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
+  await openSettingsOn(page, 'Alerts')
 
   // canonicalTimeZone (time-zones.ts) maps the stored Postgres spelling back
   // to the IANA one TIME_ZONE_GROUPS lists, so this must show India Standard
@@ -163,8 +218,7 @@ test('a time zone copied in its Postgres spelling displays correctly, and changi
   await expect(page.getByText('Time zone updated')).toBeVisible()
 
   await page.reload()
-  await openAppMenu(page)
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
+  await openSettingsOn(page, 'Alerts')
   await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText('Eastern Standard Time (EST)')
 })
 
@@ -215,8 +269,7 @@ test.describe('a brand-new signup with no stored zone', () => {
       })
       .toBe('America/Denver')
 
-    await openAppMenu(page)
-    await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
+    await openSettingsOn(page, 'Alerts')
 
     // 'Mountain Standard Time (MST)' is TIME_ZONE_GROUPS's label for
     // 'America/Denver' (time-zones.ts:21) — what Intl resolves to under the
@@ -272,8 +325,7 @@ test('the Push switch is absent where no VAPID key is configured, and Email stil
 }) => {
   await signInWithPlayer(page)
 
-  await openAppMenu(page)
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Notifications' }).click()
+  await openSettingsOn(page, 'Alerts')
 
   // The tab really rendered its controls — without this the absence assertion
   // below would pass just as happily on a crashed tab, a loading spinner, or

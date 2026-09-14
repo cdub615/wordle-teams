@@ -9,16 +9,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChartNoAxesColumn,
   CreditCard,
-  Download,
   Info,
   LayoutDashboard,
   Loader2,
   LogIn,
   LogOut,
-  Mails,
   Menu,
   MessagesSquare,
   MoonStar,
+  Settings,
   Sparkles,
   Sun,
   SunMoon,
@@ -44,7 +43,6 @@ import {
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu.tsx'
 import { SettingsDialog } from '#/components/settings/settings-dialog.tsx'
-import type { SettingsTab } from '#/components/settings/settings-dialog.tsx'
 import { authClient } from '#/lib/auth-client.ts'
 import { portalOutcome } from '#/lib/billing-copy.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
@@ -108,12 +106,6 @@ export function AppMenu() {
   const [signOutPending, setSignOutPending] = useState(false)
 
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [defaultTab, setDefaultTab] = useState<SettingsTab>('notifications')
-
-  const openTab = (tab: SettingsTab) => {
-    setDefaultTab(tab)
-    setDialogOpen(true)
-  }
 
   // Prefers the players row's own name; falls to Better Auth's `name`, then
   // the email, so the label is never blank even for a brand-new account
@@ -309,10 +301,6 @@ export function AppMenu() {
                     <span>Insights</span>
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openTab('notifications')}>
-                  <Mails className="mr-2 h-4 w-4" aria-hidden="true" />
-                  <span>Notifications</span>
-                </DropdownMenuItem>
                 {/*
                   THE WAY BACK, AND WHY IT MUST EXIST AT ALL. Dismissing
                   onboarding/next-step-card.tsx writes onboardingDismissedAt
@@ -353,6 +341,31 @@ export function AppMenu() {
                     <span>Show getting started</span>
                   </DropdownMenuItem>
                 )}
+                {/*
+                  ONE ITEM WHERE THERE WERE THREE (wordle-teams-mwu0).
+                  "Notifications" sat here beside Dashboard and Insights,
+                  "Profile" and "Install" sat at the bottom beside Log out — and
+                  all three did the SAME THING: open the one settings dialog,
+                  each on a different tab. Three entries for one destination,
+                  scattered across two groups, is what forced the menu's third
+                  section and its third divider.
+
+                  IT OPENS ON THE DIALOG'S OWN DEFAULT TAB, which is Profile,
+                  and it passes nothing to say so. settings-dialog.tsx argues
+                  for Profile being first on its own terms — the identity tab,
+                  under the identity row — so there was never anything for a
+                  caller to decide. The other three tabs are one tap sideways,
+                  which is how Security has always been reached.
+
+                  IT IS THE LAST OF THE IN-APP ITEMS, not the first: Dashboard
+                  and Insights are where a player goes to DO something, Settings
+                  and Billing are where they go to change how the app treats
+                  them. Owner-approved order, 2026-09-14.
+                */}
+                <DropdownMenuItem onClick={() => setDialogOpen(true)}>
+                  <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
+                  <span>Settings</span>
+                </DropdownMenuItem>
               </>
             )}
 
@@ -427,23 +440,21 @@ export function AppMenu() {
 
             {isAuthenticated && (
               <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => openTab('profile')}>
-                  <UserIcon className="mr-2 h-4 w-4" aria-hidden="true" />
-                  <span>Profile</span>
-                </DropdownMenuItem>
                 {/*
-                  "Install" MATCHES THE TAB IT OPENS, and must keep matching.
-                  This item's whole job is to open the settings dialog on the
-                  Install tab; a menu item whose label disagrees with the tab it
-                  lands on reads as having gone to the wrong place. Renamed from
-                  "Install Guide" with the trigger in settings-dialog.tsx, where
-                  the measured width argument for the shorter label lives.
+                  NO SEPARATOR ABOVE LOG OUT, AND NO THIRD SECTION AT ALL
+                  (wordle-teams-mwu0). This block used to open with a rule and
+                  then carry Profile and Install — the two remaining tab-deep
+                  links — before Log out. With those folded into "Settings"
+                  above, what is left is a single item, and a rule to fence one
+                  item off is a divider that divides nothing.
+
+                  SO THE MENU HAS TWO GROUPS NOW, WHICH IS WHAT IT ALWAYS
+                  MEANT: things inside the app (Dashboard, Insights, Settings,
+                  Billing, plus the theme control) and things outside it (About,
+                  Feedback). Log out ends the list because ending the session is
+                  the last thing anyone does here, not because it is a third
+                  kind of thing.
                 */}
-                <DropdownMenuItem onClick={() => openTab('install')}>
-                  <Download className="mr-2 h-4 w-4" aria-hidden="true" />
-                  <span>Install</span>
-                </DropdownMenuItem>
                 {/* Menu held open for the round trip, as Billing is above. */}
                 <DropdownMenuItem
                   disabled={signOutPending}
@@ -494,7 +505,7 @@ export function AppMenu() {
         tabs' queries either way — but nothing should be able to open a
         settings dialog that has no settings behind it.
       */}
-      {isAuthenticated && <SettingsDialog defaultTab={defaultTab} email={user?.email} displayName={displayName} />}
+      {isAuthenticated && <SettingsDialog email={user?.email} displayName={displayName} />}
     </Dialog>
   )
 }
