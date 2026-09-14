@@ -116,9 +116,9 @@ rule about where a keystroke lands. Absorbs today's `applyLetter` and `applyBack
 type Zone = 'answer' | 'board'
 type EntryState = { answer: string; guesses: string[]; zone: Zone }
 
-typeLetter(state: EntryState, key: string): EntryState
+typeLetter(state: EntryState, key: string): EntryResult
 backspace(state: EntryState): EntryState
-moveZone(state: EntryState, zone: Zone): EntryState
+moveZone(state: EntryState, zone: Zone): EntryResult
 cursorFor(state: EntryState):
   | { zone: 'answer'; index: number }
   | { zone: 'board'; row: number; index: number }
@@ -152,9 +152,17 @@ refusal, and it is additionally unreachable, because no transition sets `zone = 
 while the answer is incomplete. Otherwise append to the first row with room. Stop when a
 row equals the answer (v1's rule, preserved) or when all six rows are full.
 
-**Backspace.** In the answer zone, shorten the answer. In the board zone, delete from the
-last filled row — and **when no row is filled, set `zone = 'answer'`** rather than
-dead-ending, so the stream walks back as smoothly as it walks forward.
+**Backspace.** In the answer zone, shorten the answer. In the board zone, **delete the
+letter behind the CURSOR** — and **when no row is filled, set `zone = 'answer'`** rather
+than dead-ending, so the stream walks back as smoothly as it walks forward.
+
+> **CORRECTED 2026-09-14, and the original wording was a live bug.** This paragraph said
+> "delete from the last filled row". That is a BACKWARDS scan, while typing uses a
+> FORWARDS one, and on a gapped board — what a screenshot import with an unread row
+> produces — the two name different rows. Measured: backspace ate a row the cursor was
+> nowhere near, in production (`wordle-teams-lz3w`). `entry-cursor.ts`'s `nextSlot` exists
+> so those two questions can never be asked separately again. Do not restore the old
+> wording, and do not write a reverse scan when implementing against this spec.
 
 **Clicking.** Clicking the answer slots sets `zone = 'answer'`, which is the escape hatch
 for a player on row five who spots a typo in the answer and should not have to backspace
