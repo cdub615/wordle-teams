@@ -135,3 +135,80 @@ export async function resolveAvatar(
   if (!player.imageId) return player.socialImage ?? fallback
   return await ctx.storage.getUrl(player.imageId)
 }
+
+/**
+ * Ten upload URLs an hour, per player.
+ *
+ * WHAT THIS BOUNDS, AND WHAT IT DOES NOT. `generateAvatarUploadUrl` hands out a
+ * one-shot URL that accepts whatever is POSTed to it, and MAX_AVATAR_BYTES is
+ * only enforced once setAvatar looks at the stored row — so a client that
+ * uploads and never calls setAvatar leaves bytes nothing references and nothing
+ * revisits. Each such file costs exactly one call of this mutation, which is
+ * what makes a limit on CALLS a real bound on deliberate abuse. It bounds the
+ * COUNT of files, not their size; an unsubmitted upload is still capped by
+ * nothing, so this reduces the ceiling rather than removing it.
+ *
+ * IT DOES NOTHING ABOUT THE BENIGN CASE, and that was decided rather than
+ * missed (wordle-teams-wty4.1.8). An upload interrupted between the POST
+ * completing and setAvatar resolving orphans its bytes too, and no rate limit
+ * can see the difference. The alternative considered was a scheduled sweep of
+ * unreferenced _storage rows — costed at roughly 400 documents a run, ~4.7 MB a
+ * month daily, about 0.5% of the free-tier ceiling. It was not taken: that
+ * window is one round trip wide, the client has already resized to 8-20 KB by
+ * then, and the expected lifetime volume is single digits of files. A recurring
+ * job to reclaim a few hundred KB is the wrong trade in a project that has cut a
+ * cron once already for this exact budget (wordle-teams-yhii).
+ *
+ * TEN AN HOUR RATHER THAN CHAT'S TWENTY A MINUTE, because the actions are not
+ * alike. Posting is the thing you do in chat, continuously; setting an avatar is
+ * something most players do once, ever. A player trying several photos in a row
+ * — the only legitimate burst — is comfortably inside ten, and nobody
+ * legitimately changes their picture ten times in an hour. The hour-long window
+ * is what bounds the SUSTAINED rate: ten a minute would permit six hundred an
+ * hour and bound very little.
+ */
+export const AVATAR_UPLOAD_LIMIT = 10
+export const AVATAR_UPLOAD_WINDOW_MS = 60 * 60 * 1000
+
+/** The window fields as they sit on a player row, both absent until the first upload. */
+export type AvatarUploadWindow = {
+  avatarWindowStartedAt?: number
+  avatarUploadsInWindow?: number
+}
+
+/**
+ * The window to write after allowing one more upload URL, or `null` to refuse.
+ *
+ * THE SAME FIXED-WINDOW ALGORITHM AS lib/chat.ts's nextPostWindow, over its own
+ * field pair and its own limit, and kept as its own small named function for
+ * that file's stated reason: a reader should never have to ask which limit a
+ * call site uses before trusting the line.
+ *
+ * IT ONLY RETURNS THE REFUSAL — the caller decides what to throw, exactly as
+ * nextPostWindow leaves RATE_LIMITED to sendMessageFor. That is what keeps this
+ * function pure, and therefore testable at all: the mutation around it reads an
+ * authenticated player and convex-test cannot stand one up (wordle-teams-bya).
+ *
+ * THE WINDOW LIVES ON THE PLAYER ROW, which `requirePlayer` has ALREADY READ by
+ * the time this is called — so enforcing the limit costs one extra write and no
+ * extra read. chatReads carries chat's window for the same reason, stated in
+ * schema.ts: counting recent activity instead would pay database I/O to protect
+ * database I/O.
+ */
+export function nextAvatarUploadWindow(
+  current: AvatarUploadWindow,
+  now: number,
+): Required<AvatarUploadWindow> | null {
+  const startedAt = current.avatarWindowStartedAt
+  const count = current.avatarUploadsInWindow ?? 0
+
+  // Checked explicitly rather than defaulting startedAt to 0 — see
+  // nextPostWindow, whose comment this repeats because the trap is the same:
+  // a 0 default only reads as "expired" while `now` is large.
+  if (startedAt === undefined || now - startedAt >= AVATAR_UPLOAD_WINDOW_MS) {
+    return { avatarWindowStartedAt: now, avatarUploadsInWindow: 1 }
+  }
+  if (count >= AVATAR_UPLOAD_LIMIT) return null
+
+  return { avatarWindowStartedAt: startedAt, avatarUploadsInWindow: count + 1 }
+}

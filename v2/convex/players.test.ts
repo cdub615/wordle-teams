@@ -6,12 +6,17 @@ import { addDays, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
 import {
   applySocialImageSync,
   completeProfileFor,
+  chargeAvatarUploadFor,
   removeAvatarFor,
   setAvatarFor,
   updateNameFor,
 } from './players.ts'
 import { upgradeTeamInvitesFor } from './billing.ts'
-import { MAX_AVATAR_BYTES } from './lib/avatar.ts'
+import {
+  AVATAR_UPLOAD_LIMIT,
+  AVATAR_UPLOAD_WINDOW_MS,
+  MAX_AVATAR_BYTES,
+} from './lib/avatar.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import type { GenericActionCtx, GenericMutationCtx } from 'convex/server'
 import type { DataModel, Id } from './_generated/dataModel'
@@ -756,6 +761,75 @@ describe('applySocialImageSync', () => {
       const row = await ctx.db.get(ada)
       expect(row?.imageId).toBe(imageId)
       expect(row?.socialImage).toBe('https://lh3/a')
+    })
+  })
+})
+
+describe('chargeAvatarUploadFor', () => {
+  test('records the first upload against a fresh window', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await chargeAvatarUploadFor(ctx, (await ctx.db.get(ada))!, 1_000)
+
+      const row = await ctx.db.get(ada)
+      expect(row?.avatarWindowStartedAt).toBe(1_000)
+      expect(row?.avatarUploadsInWindow).toBe(1)
+    })
+  })
+
+  /**
+   * THE BOUND ITSELF, end to end rather than on the pure function alone: the
+   * limit is only real if the count it reads is the one the previous call
+   * WROTE. A shell that computed the window correctly and patched the wrong
+   * row — or patched nothing — would leave every one of lib/avatar.test.ts's
+   * assertions green and the mutation unlimited.
+   */
+  test('refuses the request past the limit, after allowing exactly the limit', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+
+      for (let i = 0; i < AVATAR_UPLOAD_LIMIT; i++) {
+        await chargeAvatarUploadFor(ctx, (await ctx.db.get(ada))!, 1_000 + i)
+      }
+      expect((await ctx.db.get(ada))?.avatarUploadsInWindow).toBe(AVATAR_UPLOAD_LIMIT)
+
+      await expect(
+        chargeAvatarUploadFor(ctx, (await ctx.db.get(ada))!, 2_000),
+      ).rejects.toThrow()
+    })
+  })
+
+  // The window is per player, not global — one player exhausting theirs must
+  // not refuse anybody else. A patch against the wrong row would pass the test
+  // above and fail this one.
+  test('one player exhausting their window does not refuse another', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bea = await ctx.db.insert('players', aPlayer({ email: 'bea@example.com' }))
+
+      for (let i = 0; i < AVATAR_UPLOAD_LIMIT; i++) {
+        await chargeAvatarUploadFor(ctx, (await ctx.db.get(ada))!, 1_000 + i)
+      }
+
+      await chargeAvatarUploadFor(ctx, (await ctx.db.get(bea))!, 2_000)
+      expect((await ctx.db.get(bea))?.avatarUploadsInWindow).toBe(1)
+    })
+  })
+
+  test('a window that has aged out starts over rather than staying refused', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.patch(ada, {
+        avatarWindowStartedAt: 1_000,
+        avatarUploadsInWindow: AVATAR_UPLOAD_LIMIT,
+      })
+
+      await chargeAvatarUploadFor(ctx, (await ctx.db.get(ada))!, 1_000 + AVATAR_UPLOAD_WINDOW_MS)
+      expect((await ctx.db.get(ada))?.avatarUploadsInWindow).toBe(1)
     })
   })
 })

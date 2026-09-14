@@ -35,7 +35,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'SCROLL_RATE_LIMITED' ||
     code === 'INVITE_LINK_INVALID' ||
     code === 'TEAM_LIMIT_REACHED' ||
-    code === 'INVALID_AVATAR'
+    code === 'INVALID_AVATAR' ||
+    code === 'AVATAR_RATE_LIMITED'
   ) {
     return code
   }
@@ -146,6 +147,12 @@ export function typedCodeMessage(code: AccessCode): string {
       return 'You are sending messages very quickly — give it a moment.'
     case 'SCROLL_RATE_LIMITED':
       return "You're scrolling back very quickly — give it a moment."
+    case 'AVATAR_RATE_LIMITED':
+      // NAMES THE HOUR, unlike the two above. Those refusals clear in seconds and
+      // "give it a moment" is honest for them; this window is an hour long, and
+      // telling someone to wait a moment for something that will still refuse
+      // them in five minutes is worse than saying nothing.
+      return 'You have changed your picture several times just now — try again in an hour.'
     case 'INVITE_LINK_INVALID':
       // Read by someone a friend handed a link to, who has done NOTHING wrong:
       // the link expired, or the team's owner withdrew it. So the copy names

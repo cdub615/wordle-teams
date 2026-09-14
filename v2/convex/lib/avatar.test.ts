@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { MAX_AVATAR_BYTES, isAllowedAvatarType, resolveAvatar, shouldSyncSocialImage } from './avatar.ts'
+import {
+  AVATAR_UPLOAD_LIMIT,
+  AVATAR_UPLOAD_WINDOW_MS,
+  MAX_AVATAR_BYTES,
+  isAllowedAvatarType,
+  nextAvatarUploadWindow,
+  resolveAvatar,
+  shouldSyncSocialImage,
+} from './avatar.ts'
 
 describe('shouldSyncSocialImage', () => {
   test('syncs when the provider has an image and the player row has none', () => {
@@ -94,5 +102,75 @@ describe('resolveAvatar fallback', () => {
     expect(
       await resolveAvatar(stored, { imageId: 'k1' as never, socialImage: 'https://mirrored' }, 'https://github/a'),
     ).toBe('https://convex/stored')
+  })
+})
+
+/**
+ * THE FIXED-WINDOW ALGORITHM IS nextPostWindow'S, DELIBERATELY — same shape,
+ * different fields and a different limit. See AVATAR_UPLOAD_LIMIT for why the
+ * numbers differ so much from chat's, and lib/chat.ts's own note on why each
+ * limit gets its own small named function rather than one parameterised twice.
+ */
+describe('nextAvatarUploadWindow', () => {
+  test('a player who has never uploaded opens a fresh window', () => {
+    expect(nextAvatarUploadWindow({}, 1_000)).toEqual({
+      avatarWindowStartedAt: 1_000,
+      avatarUploadsInWindow: 1,
+    })
+  })
+
+  test('a second request inside the window counts up rather than resetting it', () => {
+    expect(
+      nextAvatarUploadWindow({ avatarWindowStartedAt: 1_000, avatarUploadsInWindow: 1 }, 2_000),
+    ).toEqual({ avatarWindowStartedAt: 1_000, avatarUploadsInWindow: 2 })
+  })
+
+  test('the request AT the limit is the last one allowed', () => {
+    expect(
+      nextAvatarUploadWindow(
+        { avatarWindowStartedAt: 1_000, avatarUploadsInWindow: AVATAR_UPLOAD_LIMIT - 1 },
+        2_000,
+      ),
+    ).toEqual({ avatarWindowStartedAt: 1_000, avatarUploadsInWindow: AVATAR_UPLOAD_LIMIT })
+  })
+
+  test('the request past the limit is refused', () => {
+    expect(
+      nextAvatarUploadWindow(
+        { avatarWindowStartedAt: 1_000, avatarUploadsInWindow: AVATAR_UPLOAD_LIMIT },
+        2_000,
+      ),
+    ).toBeNull()
+  })
+
+  /**
+   * A THRESHOLD TESTED IN ONE DIRECTION IS VACUOUS — the same rule
+   * insightsAccess's trial boundary is tested under. `>=` is what makes the
+   * window a fixed window rather than one that can never expire.
+   */
+  test('the window expires exactly at the boundary, not a millisecond later', () => {
+    const exhausted = {
+      avatarWindowStartedAt: 1_000,
+      avatarUploadsInWindow: AVATAR_UPLOAD_LIMIT,
+    }
+    expect(nextAvatarUploadWindow(exhausted, 1_000 + AVATAR_UPLOAD_WINDOW_MS - 1)).toBeNull()
+    expect(nextAvatarUploadWindow(exhausted, 1_000 + AVATAR_UPLOAD_WINDOW_MS)).toEqual({
+      avatarWindowStartedAt: 1_000 + AVATAR_UPLOAD_WINDOW_MS,
+      avatarUploadsInWindow: 1,
+    })
+  })
+
+  /**
+   * `startedAt === undefined` IS CHECKED EXPLICITLY rather than defaulting to 0,
+   * for nextPostWindow's stated reason: a 0 default only reads as "expired"
+   * while `now` is large, which is true of real timestamps and false of the
+   * small values these tests use. Correctness must not depend on how big the
+   * clock happens to be.
+   */
+  test('a count with no window start is treated as never having uploaded', () => {
+    expect(nextAvatarUploadWindow({ avatarUploadsInWindow: AVATAR_UPLOAD_LIMIT }, 5)).toEqual({
+      avatarWindowStartedAt: 5,
+      avatarUploadsInWindow: 1,
+    })
   })
 })

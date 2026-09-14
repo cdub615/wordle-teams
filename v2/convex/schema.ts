@@ -203,6 +203,22 @@ export default defineSchema({
      * the player deliberately uploaded. Do not "simplify" this pair.
      */
     imageId: v.optional(v.id('_storage')),
+
+    /**
+     * generateAvatarUploadUrl's rate-limit window. Both absent until a player's
+     * first upload.
+     *
+     * ON THE PLAYER ROW BECAUSE requirePlayer HAS ALREADY READ IT, which is
+     * chatReads' reasoning one table over: counting a player's recent uploads
+     * instead would pay database I/O to protect database I/O. Enforcing the
+     * limit therefore costs one extra write and no extra read.
+     *
+     * See AVATAR_UPLOAD_LIMIT in lib/avatar.ts for what the limit bounds — the
+     * count of files, not their size — and for why a sweep of unreferenced
+     * storage was considered and not taken (wordle-teams-wty4.1.8).
+     */
+    avatarWindowStartedAt: v.optional(v.number()),
+    avatarUploadsInWindow: v.optional(v.number()),
   })
     .index('by_legacyId', ['legacyId'])
     .index('by_email', ['email']),

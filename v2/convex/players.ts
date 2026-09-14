@@ -6,6 +6,7 @@ import { resetChatCursorFor } from './chat.ts'
 import {
   MAX_AVATAR_BYTES,
   isAllowedAvatarType,
+  nextAvatarUploadWindow,
   resolveAvatar,
   shouldSyncSocialImage,
 } from './lib/avatar.ts'
@@ -13,7 +14,7 @@ import { isCompleteName } from './lib/invite.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
 import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
-import type { Id, DataModel } from './_generated/dataModel'
+import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter, StorageWriter } from 'convex/server'
 import type { WriterCtx } from './winners.ts'
 import type { PuzzleDay } from './lib/puzzleDay.ts'
@@ -639,13 +640,46 @@ export async function removeAvatarFor(ctx: AvatarCtx, playerId: Id<'players'>) {
 }
 
 /**
+ * Records one upload URL against the player's window, or refuses.
+ *
+ * SPLIT OUT OF THE MUTATION FOR THE REASON THIS WHOLE FEATURE IS SPLIT THAT
+ * WAY: the mutation resolves an authenticated player and convex-test cannot
+ * stand up a Better Auth session (wordle-teams-bya), so anything that DECIDES
+ * inside it is unreachable by any test (wordle-teams-obw). The decision is
+ * nextAvatarUploadWindow's and is tested directly; this is the shell that
+ * writes what it returns.
+ */
+export async function chargeAvatarUploadFor(ctx: AvatarCtx, player: Doc<'players'>, now: number) {
+  const window = nextAvatarUploadWindow(player, now)
+  if (window === null) throw accessError('AVATAR_RATE_LIMITED')
+  await ctx.db.patch(player._id, window)
+}
+
+/**
  * A one-shot URL the client POSTs the resized blob to. Authenticated, so an
  * anonymous visitor cannot obtain one and use this deployment's storage.
+ *
+ * RATE LIMITED, BECAUSE AUTHENTICATION IS THE ONLY OTHER BOUND ON IT. The URL
+ * this returns accepts whatever is POSTed to it, and the file lands in storage
+ * the moment it is POSTed — MAX_AVATAR_BYTES is not enforced until setAvatar
+ * looks at the stored row, so a caller that never calls setAvatar leaves bytes
+ * that no players row references and no code path revisits. Each such file
+ * costs exactly one call of this mutation, which is what makes a limit on calls
+ * a real bound. See AVATAR_UPLOAD_LIMIT for what it does and does not cover.
+ *
+ * THE CHARGE IS BEFORE THE URL IS MINTED, though the ordering is housekeeping
+ * rather than a hole — stated plainly because the tempting version of this
+ * sentence is wrong. A charge placed AFTER the mint would still refuse: the
+ * throw happens before the handler returns, so the caller never receives the
+ * URL either way. What the later ordering would actually cost is a minted,
+ * undelivered upload URL on every refused request. Charging first simply avoids
+ * doing work for a request that is about to be turned down.
  */
 export const generateAvatarUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requirePlayer(ctx)
+    const player = await requirePlayer(ctx)
+    await chargeAvatarUploadFor(ctx, player, Date.now())
     return await ctx.storage.generateUploadUrl()
   },
 })

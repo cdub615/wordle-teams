@@ -42,6 +42,12 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // nextScrollWindow — a DISTINCT code from RATE_LIMITED, not a reuse, because
 // RATE_LIMITED's copy ("You are sending messages very quickly") names the
 // wrong action for a refused scroll.
+// AVATAR_RATE_LIMITED is thrown in players.ts, by generateAvatarUploadUrl, when
+// lib/avatar.ts's nextAvatarUploadWindow reports a refusal — same division of
+// labour as RATE_LIMITED above, where the pure function only returns null and
+// the caller decides what to throw. A DISTINCT code rather than a reuse of
+// RATE_LIMITED for the same reason SCROLL_RATE_LIMITED is one: that code's copy
+// names sending messages, which is the wrong action entirely here.
 // INVITE_LINK_INVALID is thrown in inviteLinks.ts, by revokeLinkFor, for a
 // token no live row matches. It is DELIBERATELY the single answer for every
 // way a token can fail — unknown, expired, revoked — so the refusal a holder
@@ -81,6 +87,7 @@ export type AccessCode =
   | 'INVITE_LINK_INVALID'
   | 'TEAM_LIMIT_REACHED'
   | 'INVALID_AVATAR'
+  | 'AVATAR_RATE_LIMITED'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
