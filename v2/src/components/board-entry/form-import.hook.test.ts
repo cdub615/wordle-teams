@@ -20,7 +20,7 @@
 // no canvas, so the decode is stood in for with a bitmap from the Task 1
 // renderer; everything downstream of that — lattice, colour, glyphs, repair —
 // is the shipping code.
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { getFunctionName, type FunctionReference } from 'convex/server'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -44,6 +44,32 @@ let failingMutation: string | null
 let proAnswer: boolean | undefined
 /** What BoardInput is currently showing, and how a test edits it. */
 let setGuessesFromTest: ((guesses: Array<string>) => void) | null
+
+/**
+ * REACT'S PASSIVE EFFECTS, DRAINED — the thing a focus assertion has to wait
+ * for and the reason three of them below are `await`ed rather than read.
+ *
+ * The form focuses the answer field from a `useEffect`, so the focus lands in a
+ * SEPARATE turn from the render that shows the note. `await waitFor(...)` on
+ * the note returns as soon as the note is in the DOM, which is inside that
+ * render's commit and before the effect has run — every focus assertion made
+ * synchronously after one is therefore reading a half-finished update and
+ * passing on the scheduler's goodwill.
+ *
+ * For the POSITIVE assertion that cost is measured: a red on the whole
+ * `vitest run` gate at roughly 1 run in 25 (wordle-teams-45kz), with
+ * `document.activeElement` still `<body>` — a focus that had not landed, not a
+ * wrong element.
+ *
+ * THE TWO NEGATIVE ONES ARE NOT MEASURED TO LOSE, and that is stated rather
+ * than assumed: mutating the form to focus on EVERY import is still caught by
+ * both of them today. What they share with the positive is the ordering
+ * dependence — `not.toBe(answerField())` is equally satisfied by a focus that
+ * simply has not happened YET — and the difference is only that losing it is
+ * silent instead of red. The flush removes the dependence from all three
+ * rather than waiting to find out which way each one falls.
+ */
+const flushEffects = () => act(async () => {})
 
 vi.mock('@convex-dev/react-query', () => ({
   convexQuery: (ref: FunctionReference<'query'>, args: unknown) => ({
@@ -318,6 +344,7 @@ describe('the two-step flow', () => {
     paste()
 
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
+    await flushEffects()
     expect(document.activeElement).not.toBe(document.getElementById('answer'))
   })
 
@@ -458,6 +485,7 @@ describe('the answer, asked for only when the board did not carry one', () => {
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
     expect(answerField()?.textContent).toBe('CRANE')
     expect(note()).not.toMatch(/not solved/i)
+    await flushEffects()
     expect(document.activeElement).not.toBe(answerField())
   })
 
@@ -473,7 +501,10 @@ describe('the answer, asked for only when the board did not carry one', () => {
 
     await waitFor(() => expect(note()).toMatch(/not solved/i))
     expect(answerField()?.textContent).toBe('')
-    expect(document.activeElement).toBe(answerField())
+    // `waitFor` rather than `flushEffects` for the one assertion that is
+    // waiting for something to ARRIVE: it retries, so it holds whatever the
+    // scheduler does, and a focus that never lands still fails on the ceiling.
+    await waitFor(() => expect(document.activeElement).toBe(answerField()))
   })
 
   // THE WIRING, NOT THE CONSTRAINT. The answer is a constraint rather than a
