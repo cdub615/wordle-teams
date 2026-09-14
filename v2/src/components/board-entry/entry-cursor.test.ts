@@ -197,6 +197,28 @@ describe('backspace', () => {
     expect(next.zone).toBe('answer')
     expect(next.answer).toBe('CRA')
   })
+
+  /**
+   * CASE 1, the board-full branch, which nothing else in this file reaches:
+   * when every row is full `nextSlot` returns null, so there is no cursor to
+   * delete behind and the last letter of the last row is the only sensible
+   * target. Mutating that branch to `erase(0)` left the whole suite green
+   * before this test existed — four tests for five cases, and this was the
+   * case with none.
+   *
+   * THE FIRST ASSERTION IS THE ONE THAT KILLS THAT MUTANT: under `erase(0)`,
+   * row 5 is still 'BLIMP' and the expectation on it fails there, before the
+   * row-0 line is ever evaluated (vitest stops at the first failing expect).
+   * The second assertion is a guard against a different implementation — one
+   * that gets row 5 right but erases from BOTH rows — and it is deliberately
+   * kept even though the observed mutation never reaches it.
+   */
+  test('on a full board, backspace deletes from the LAST row', () => {
+    const full = ['SLATE', 'TRAIN', 'HOUSE', 'MOUSE', 'PIVOT', 'BLIMP']
+    const next = backspace(state({ answer: 'CRANE', zone: 'board', guesses: full }))
+    expect(next.guesses[5]).toBe('BLIM')
+    expect(next.guesses[0]).toBe('SLATE')
+  })
 })
 
 describe('a gapped board, which is what an import with an unread row produces', () => {
