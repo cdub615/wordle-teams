@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { backspace, typeLetter, type EntryState } from './entry-cursor.ts'
+import { backspace, cursorFor, moveZone, typeLetter, type EntryState } from './entry-cursor.ts'
 
 const EMPTY_ROWS = ['', '', '', '', '', '']
 
@@ -189,9 +189,12 @@ describe('backspace', () => {
     expect(next.guesses).toEqual(['', '', '', '', '', ''])
   })
 
-  // The pairing with typeLetter's 'answer-incomplete' refusal: landing in the
-  // board zone with a short answer is a dead end for typing and an EXIT for
-  // backspace. That is the two functions composing, and nothing pinned it.
+  // The branch itself is already covered by 'BACKSPACING AN EMPTY BOARD RETURNS
+  // TO THE ANSWER'. What this adds is the PAIRING with typeLetter's
+  // 'answer-incomplete' refusal: landing in the board zone with a short answer
+  // is a dead end for typing and an EXIT for backspace, so the state typeLetter
+  // refuses to act on is one backspace recovers from. Documentation of how the
+  // two compose, not new coverage.
   test('the walk-back is the recovery from a short answer', () => {
     const next = backspace(state({ answer: 'CRA', zone: 'board' }))
     expect(next.zone).toBe('answer')
@@ -250,5 +253,82 @@ describe('a gapped board, which is what an import with an unread row produces', 
       state({ answer: 'CRANE', zone: 'board', guesses: ['', '', 'SLATE', '', '', ''] }),
     )
     expect(next.zone).toBe('board')
+  })
+})
+
+describe('moveZone', () => {
+  // The escape hatch: a player on row five who spots a typo in the answer must
+  // not have to backspace thirty times to reach it.
+  test('clicking the answer returns the cursor there from the board', () => {
+    const { state: next, refused } = moveZone(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', 'TR', '', '', '', ''] }),
+      'answer',
+    )
+    expect(next.zone).toBe('answer')
+    expect(refused).toBeNull()
+  })
+
+  test('clicking the board with a complete answer moves there', () => {
+    const { state: next, refused } = moveZone(state({ answer: 'CRANE' }), 'board')
+    expect(next.zone).toBe('board')
+    expect(refused).toBeNull()
+  })
+
+  /**
+   * The early click, and the reason the board needs no lock or dim: a click it
+   * cannot honour is REFUSED BY NAME, so the coach line can answer the click
+   * instead of the grid having to look disabled to prevent it.
+   */
+  test('clicking the board with an incomplete answer is refused and the cursor stays', () => {
+    const { state: next, refused } = moveZone(state({ answer: 'CRA' }), 'board')
+    expect(next.zone).toBe('answer')
+    expect(refused).toBe('answer-incomplete')
+  })
+})
+
+describe('cursorFor', () => {
+  test('points at the next empty answer slot', () => {
+    expect(cursorFor(state({ answer: 'CR' }))).toEqual({ zone: 'answer', index: 2 })
+  })
+
+  /**
+   * INDEX 5 IS A LEGAL INSERTION POINT with only five slots to render it in.
+   * It is reachable by clicking the slots to correct a complete answer, and
+   * answer-slots.tsx renders it as a trailing caret on the last slot, the way
+   * an OTP input does. Returning null here instead would take the cursor off
+   * the screen at exactly the moment the player asked to edit.
+   */
+  test('a complete answer still has a cursor, one past the end', () => {
+    expect(cursorFor(state({ answer: 'CRANE' }))).toEqual({ zone: 'answer', index: 5 })
+  })
+
+  test('points at the next empty tile in the board zone', () => {
+    expect(
+      cursorFor(state({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', 'TR', '', '', '', ''] })),
+    ).toEqual({ zone: 'board', row: 1, index: 2 })
+  })
+
+  test('there is no cursor once a row equals the answer', () => {
+    expect(
+      cursorFor(state({ answer: 'CRANE', zone: 'board', guesses: ['CRANE', '', '', '', '', ''] })),
+    ).toBeNull()
+  })
+
+  test('there is no cursor once all six rows are full', () => {
+    const full = ['SLATE', 'TRAIN', 'HOUSE', 'MOUSE', 'PIVOT', 'BLIMP']
+    expect(cursorFor(state({ answer: 'CRANE', zone: 'board', guesses: full }))).toBeNull()
+  })
+
+  /**
+   * THE PROPERTY nextSlot EXISTS FOR (wordle-teams-lz3w). On a gapped board —
+   * what an import with an unread row produces — the rendered cursor and the
+   * row a keystroke fills MUST be the same place. They were not, once.
+   */
+  test('on a gapped board the cursor is where the next letter actually lands', () => {
+    const gapped = state({ answer: 'CRANE', zone: 'board', guesses: ['', '', 'SLATE', '', '', ''] })
+    const cursor = cursorFor(gapped)
+    const typed = typeLetter(gapped, 'A').state
+    expect(cursor).toEqual({ zone: 'board', row: 0, index: 0 })
+    expect(typed.guesses[0]).toBe('A')
   })
 })
