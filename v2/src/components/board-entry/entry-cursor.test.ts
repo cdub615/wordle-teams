@@ -12,7 +12,7 @@ const state = (over: Partial<EntryState> = {}): EntryState => ({
 
 describe('typeLetter, in the answer zone', () => {
   test('appends, uppercased', () => {
-    const { state: next, refused } = typeLetter(state(), 'c')
+    const { next, refused } = typeLetter(state(), 'c')
     expect(next.answer).toBe('C')
     expect(refused).toBeNull()
   })
@@ -23,18 +23,18 @@ describe('typeLetter, in the answer zone', () => {
    * removes the gap players were getting lost in.
    */
   test('THE FIFTH LETTER HANDS OFF TO THE BOARD', () => {
-    const { state: next } = typeLetter(state({ answer: 'CRAN' }), 'E')
+    const { next } = typeLetter(state({ answer: 'CRAN' }), 'E')
     expect(next.answer).toBe('CRANE')
     expect(next.zone).toBe('board')
   })
 
   test('the fourth letter does NOT hand off', () => {
-    const { state: next } = typeLetter(state({ answer: 'CRA' }), 'N')
+    const { next } = typeLetter(state({ answer: 'CRA' }), 'N')
     expect(next.zone).toBe('answer')
   })
 
   test('a full answer refuses a sixth letter rather than silently dropping it', () => {
-    const { state: next, refused } = typeLetter(state({ answer: 'CRANE' }), 'X')
+    const { next, refused } = typeLetter(state({ answer: 'CRANE' }), 'X')
     expect(next.answer).toBe('CRANE')
     expect(refused).toBe('answer-full')
     // A refusal is a no-op, in full: the zone does not move either.
@@ -52,7 +52,7 @@ describe('typeLetter, key validation', () => {
    * say why. That is wty4.1.6 wearing a better disguise.
    */
   test('a multi-character key (e.g. Enter) is refused, and leaves answer and zone untouched', () => {
-    const { state: next, refused } = typeLetter(state({ answer: 'CRA' }), 'Enter')
+    const { next, refused } = typeLetter(state({ answer: 'CRA' }), 'Enter')
     expect(refused).toBe('not-a-letter')
     expect(next.answer).toBe('CRA')
     expect(next.zone).toBe('answer')
@@ -81,13 +81,13 @@ describe('typeLetter, in the board zone', () => {
    * satisfy.
    */
   test('REFUSES a letter while the answer is incomplete, nameably (this test also pins the guard ABOVE the solved check)', () => {
-    const { state: next, refused } = typeLetter(state({ zone: 'board' }), 'C')
+    const { next, refused } = typeLetter(state({ zone: 'board' }), 'C')
     expect(refused).toBe('answer-incomplete')
     expect(next.guesses).toEqual(EMPTY_ROWS)
   })
 
   test('types into the first row with room', () => {
-    const { state: next, refused } = typeLetter(state({ answer: 'CRANE', zone: 'board' }), 's')
+    const { next, refused } = typeLetter(state({ answer: 'CRANE', zone: 'board' }), 's')
     expect(next.guesses[0]).toBe('S')
     expect(refused).toBeNull()
   })
@@ -102,13 +102,13 @@ describe('typeLetter, in the board zone', () => {
    */
   test('a refusal normalises a seven-entry guesses array down to six rows', () => {
     const sevenRows = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
-    const { state: next, refused } = typeLetter(state({ zone: 'board', guesses: sevenRows }), 'C')
+    const { next, refused } = typeLetter(state({ zone: 'board', guesses: sevenRows }), 'C')
     expect(refused).toBe('answer-incomplete')
     expect(next.guesses).toEqual(['A', 'B', 'C', 'D', 'E', 'F'])
   })
 
   test('advances to the next row once the active one is full', () => {
-    const { state: next } = typeLetter(
+    const { next } = typeLetter(
       state({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', '', '', '', '', ''] }),
       'T',
     )
@@ -260,7 +260,7 @@ describe('moveZone', () => {
   // The escape hatch: a player on row five who spots a typo in the answer must
   // not have to backspace thirty times to reach it.
   test('clicking the answer returns the cursor there from the board', () => {
-    const { state: next, refused } = moveZone(
+    const { next, refused } = moveZone(
       state({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', 'TR', '', '', '', ''] }),
       'answer',
     )
@@ -269,7 +269,7 @@ describe('moveZone', () => {
   })
 
   test('clicking the board with a complete answer moves there', () => {
-    const { state: next, refused } = moveZone(state({ answer: 'CRANE' }), 'board')
+    const { next, refused } = moveZone(state({ answer: 'CRANE' }), 'board')
     expect(next.zone).toBe('board')
     expect(refused).toBeNull()
   })
@@ -280,7 +280,7 @@ describe('moveZone', () => {
    * instead of the grid having to look disabled to prevent it.
    */
   test('clicking the board with an incomplete answer is refused and the cursor stays', () => {
-    const { state: next, refused } = moveZone(state({ answer: 'CRA' }), 'board')
+    const { next, refused } = moveZone(state({ answer: 'CRA' }), 'board')
     expect(next.zone).toBe('answer')
     expect(refused).toBe('answer-incomplete')
   })
@@ -327,7 +327,7 @@ describe('cursorFor', () => {
   test('on a gapped board the cursor is where the next letter actually lands', () => {
     const gapped = state({ answer: 'CRANE', zone: 'board', guesses: ['', '', 'SLATE', '', '', ''] })
     const cursor = cursorFor(gapped)
-    const typed = typeLetter(gapped, 'A').state
+    const typed = typeLetter(gapped, 'A').next
     expect(cursor).toEqual({ zone: 'board', row: 0, index: 0 })
     expect(typed.guesses[0]).toBe('A')
   })
@@ -346,5 +346,62 @@ describe('the empty-answer collision, which this module has hit three times', ()
 
   test('and typing into it still refuses by name rather than reporting a solve', () => {
     expect(typeLetter(state({ answer: '', zone: 'board' }), 'C').refused).toBe('answer-incomplete')
+  })
+})
+
+describe('backspace stays live where there is no caret', () => {
+  /**
+   * THE ONE PLACE THE "all three derive from nextSlot" RULE DOES NOT HOLD, and it
+   * is deliberate. cursorFor short-circuits on isSolved; backspace never asks it.
+   * So a solved board has NO caret while backspace is still live, which is how a
+   * player edits a board they mistyped into a solve.
+   *
+   * ONLY AN EXPLICIT TEST CAN STATE THIS. Branch mutation cannot reach it — the
+   * solved case falls through a branch the other tests already cover — and a
+   * component author reading `cursorFor() === null` as "nothing to type, don't
+   * route the key" would strand the player on a board they cannot edit.
+   */
+  test('a solved board has no cursor, yet backspace deletes and brings it back', () => {
+    const solved = state({ answer: 'CRANE', zone: 'board', guesses: ['CRANE', '', '', '', '', ''] })
+    expect(cursorFor(solved)).toBeNull()
+
+    const next = backspace(solved)
+    expect(next.guesses[0]).toBe('CRAN')
+    expect(cursorFor(next)).toEqual({ zone: 'board', row: 0, index: 4 })
+  })
+})
+
+describe('normalise canonicalises the answer, not only the rows', () => {
+  /**
+   * A LOWERCASE ANSWER DEFEATED isSolved OUTRIGHT. 'crane' is not the string
+   * 'CRANE', so a solved board did not read as solved and typing ran on into row
+   * 1. Nothing upstream guarantees the case: convex/schema.ts stores the answer as
+   * an unconstrained optional string and form.tsx reads it straight into state.
+   */
+  test('a lowercase answer still solves the board', () => {
+    const solved = state({ answer: 'crane', zone: 'board', guesses: ['CRANE', '', '', '', '', ''] })
+    expect(typeLetter(solved, 'X').refused).toBe('board-solved')
+    expect(cursorFor(solved)).toBeNull()
+  })
+
+  /**
+   * A six-letter answer is corrupt data — a player's own typing caps at five — and
+   * leaving it uncanonical put the caret at index 6 with only five slots to render
+   * it in, breaking the 0..ANSWER_LENGTH range Cursor's doc promises.
+   */
+  test('a too-long answer is clamped, so the caret stays renderable', () => {
+    expect(cursorFor(state({ answer: 'CRANES' }))).toEqual({ zone: 'answer', index: 5 })
+  })
+
+  /**
+   * And the refusal stops lying. Both typeLetter and moveZone reported
+   * 'answer-incomplete' for an answer that was too LONG, which Task 4 would have
+   * turned into copy telling the player to finish an answer they had overfilled.
+   */
+  test('a clamped answer is complete, not incomplete', () => {
+    expect(moveZone(state({ answer: 'CRANES' }), 'board').refused).toBeNull()
+    expect(typeLetter(state({ answer: 'CRANES', zone: 'board' }), 'S').refused).not.toBe(
+      'answer-incomplete',
+    )
   })
 })
