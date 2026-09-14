@@ -1383,19 +1383,42 @@ describe('the passkey offer is triggered on arrival and mounted on every branch'
     // has three of anything, and the test would have to be edited to stay
     // green for the wrong reason.
     expect(code.match(/<main/g) ?? []).toHaveLength(3)
-    expect(code.match(/\{passkeyOffer\}/g) ?? []).toHaveLength(3)
 
     // FIRST CHILD IN EACH, which is not cosmetic: React reconciles children by
     // index and these branches swap during an ordinary load, so an offer at a
     // different index in each is unmounted and remounted mid-dialog. Asserted
     // as "nothing between the <main> and the offer", per branch.
     //
+    // PER BRANCH AND NAMED, NOT A COUNT. A count fails as "expected 3, received
+    // 2" and leaves the reader to find which of three near-identical returns
+    // lost it — two of them open with a byte-identical <main> tag, so there is
+    // nothing to grep for. Walking them in source order and naming each one
+    // turns the failure into a location.
+    //
     // `[\s{}]*` RATHER THAN `\s*`, and the braces are not decoration. `codeOf`
     // strips comment BODIES with a text replace, so a JSX comment —
     // `{/* … */}`, which is a brace pair wrapped around one — leaves an empty
     // `{}` behind in the stripped source. `\s*` fails on it, and the failure
     // looks exactly like the offer not being the first child.
-    expect(code.match(/<main[^>]*>[\s{}]*\{passkeyOffer\}/g) ?? []).toHaveLength(3)
+    const BRANCHES = ['the team-less branch', 'the params skeleton', 'the dashboard']
+    const opened = [...code.matchAll(/<main[^>]*>([\s\S]{0,120})/g)]
+    expect(opened, 'the three returns are no longer three <main> elements').toHaveLength(
+      BRANCHES.length,
+    )
+    opened.forEach((branch, index) => {
+      expect(
+        branch[1],
+        `${BRANCHES[index]} does not render {passkeyOffer} as its first child`,
+      ).toMatch(/^[\s{}]*\{passkeyOffer\}/)
+    })
+
+    // AND NO FOURTH MOUNT, which the per-branch walk cannot see: it only ever
+    // looks at what FOLLOWS a <main>, so an extra `{passkeyOffer}` further down
+    // any branch — two dialogs bound to one piece of state, one of them at an
+    // unstable index — passes every assertion above. This runs LAST because it
+    // is the one that fails as a bare number; when the offer has simply been
+    // dropped from a branch, the named check above gets there first.
+    expect(code.match(/\{passkeyOffer\}/g) ?? []).toHaveLength(3)
   })
 
   test('the route does not reimplement the offer it delegates', () => {

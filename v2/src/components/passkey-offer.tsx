@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog.tsx'
 import { rememberPasskeyDeclined } from '#/lib/passkey.ts'
-import { ALREADY_REGISTERED_MESSAGE, registerPasskey } from '#/lib/register-passkey.ts'
+import { registerPasskey } from '#/lib/register-passkey.ts'
 
 /**
  * "Sign in faster next time" — the one-per-device passkey offer, shown after a
@@ -60,9 +60,10 @@ export function PasskeyOffer({ open, onClose }: { open: boolean; onClose: () => 
   // controls stay live underneath it. security-tab.tsx disables its Add button
   // for the same reason; this additionally disables "Not now", because a
   // decline recorded mid-ceremony would be followed by the registration's own
-  // marker write and leave BOTH flags set for one sign-in. The button's
-  // `disabled` is the VISIBLE half of that; `decline` below is the half that
-  // actually holds, because Escape does not go near a button.
+  // marker write and leave BOTH flags set for one sign-in. `disabled` is the
+  // VISIBLE half of that and BOTH handlers below re-check the flag themselves,
+  // which is the half that actually holds — decisively so for `decline`, which
+  // Escape and the X reach without going near a button.
   const [adding, setAdding] = useState(false)
 
   /**
@@ -84,6 +85,21 @@ export function PasskeyOffer({ open, onClose }: { open: boolean; onClose: () => 
   }
 
   const accept = async () => {
+    // THE SAME BOTH-HALVES RULE `decline` KEEPS, and it is here so that the
+    // asymmetry does not read as a decision. Nothing routes to `accept` except
+    // its own button, so `disabled` really is sufficient TODAY — but React
+    // commits two fast clicks separately and a future keyboard shortcut or a
+    // second trigger would not know that, and a second ceremony behind the
+    // first is the failure this component's whole `adding` flag exists for.
+    //
+    // AND IT IS DELIBERATELY NOT TESTED, WHICH IS WORTH SAYING RATHER THAN
+    // LEAVING TO BE REDISCOVERED. Deleting this line leaves the whole suite
+    // green — measured — because the only way to reach it is through a button
+    // that `disabled` has already made unclickable, so no DOM-driven test can
+    // get past it. `decline`'s identical guard IS reachable, via Escape and the
+    // X, and is covered. This one is defence for a trigger that does not exist
+    // yet; do not read the surviving mutant as an untested behaviour.
+    if (adding) return
     setAdding(true)
     try {
       const result = await registerPasskey()
@@ -100,14 +116,15 @@ export function PasskeyOffer({ open, onClose }: { open: boolean; onClose: () => 
         return
       }
       if (result.outcome === 'already-registered') {
-        // `toast.info`, WHERE THE SETTINGS TAB USES `toast.error` FOR THE SAME
-        // OUTCOME, and the divergence is deliberate. There it answers a player
-        // who went looking for a NEW passkey and did not get one. Here it
-        // answers the app's own question, and the answer is that the question
-        // should not have been asked: nothing is wrong and there is nothing to
-        // do. `registerPasskey` has already written the registered marker off
-        // the authenticator's own evidence, so this offer is over.
-        toast.info(ALREADY_REGISTERED_MESSAGE)
+        // THE SENTENCE IS `registerPasskey`'s AND IS THE SAME ONE THE SETTINGS
+        // TAB SAYS; only the SEVERITY differs, and that is the whole of what is
+        // decided here. There, a player went looking for a NEW passkey and did
+        // not get one, so it is an error. Here, the app asked a question whose
+        // premise has just been disproved: nothing is wrong and there is nothing
+        // to do, which is information. `registerPasskey` has already written the
+        // registered marker off the authenticator's own evidence, so this offer
+        // is over either way.
+        toast.info(result.message)
       } else {
         toast.success('Passkey added')
       }
@@ -125,6 +142,14 @@ export function PasskeyOffer({ open, onClose }: { open: boolean; onClose: () => 
         if (!next) decline()
       }}
     >
+      {/*
+        `data-testid` WITH NO CONSUMER YET, which is worth saying rather than
+        leaving to be discovered. Task 5's virtual-authenticator Playwright spec
+        is what will read it; nothing in src/ does, and nothing should. Stated
+        here for the reason lib/passkey.ts states the same thing about
+        `passkeyRegisteredHere()`: an anchor with no reader looks like a deleted
+        call site.
+      */}
       <DialogContent data-testid="passkey-offer">
         <DialogHeader>
           {/*

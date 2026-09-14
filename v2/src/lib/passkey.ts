@@ -53,12 +53,14 @@
  * differently in one of them, and the failure is silent: the write succeeds,
  * the read finds nothing, the offer never stops appearing.
  *
- * ONLY ONE CALLER EXISTS TODAY, and the rest of this file's audience is
- * PLANNED rather than present: components/settings/security-tab.tsx writes the
- * markers. /app's offer (Task 3) and /login's passkey button (Task 4) are the
- * readers these functions were shaped for and neither is built yet — so if you
- * are here wondering why `shouldOfferPasskey` has no call site, that is why,
- * not because one was deleted.
+ * ONE FUNCTION HERE STILL HAS NO CALLER, and it is `passkeyRegisteredHere()`.
+ * /login's passkey button (Task 4) is the reader it was shaped for and it is
+ * not built yet — so if you are here wondering why nothing reads it, that is
+ * why, and not because a call site was deleted. Everything else is live:
+ * routes/app.tsx asks `shouldOfferPasskey()` on a confirmed sign-in arrival,
+ * components/passkey-offer.tsx writes `declined`, lib/register-passkey.ts
+ * writes `registered`, and components/settings/security-tab.tsx probes support
+ * and clears `registered` when a removal empties the account.
  */
 export const PASSKEY_REGISTERED_KEY = 'wt.passkey.registered'
 export const PASSKEY_DECLINED_KEY = 'wt.passkey.declined'

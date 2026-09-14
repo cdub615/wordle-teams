@@ -39,28 +39,46 @@ import { rememberPasskeyRegistered } from '#/lib/passkey.ts'
  * not a message, it is the fact, and both callers owe it identically. Leaving
  * it to the callers is exactly how one of them comes to forget it.
  *
- * NOT IN lib/passkey.ts. That module is two localStorage flags and one feature
- * probe, with no imports at all; it is read by /login's button, which has no
- * business pulling a registration ceremony into its module graph. This one
- * depends on the auth client and belongs beside it rather than inside the
- * storage primitives it calls.
+ * NOT IN lib/passkey.ts, AND THE COST OF FOLDING IT IN IS ALREADY PAID TODAY
+ * RATHER THAN AT TASK 4. That module is two localStorage flags and one feature
+ * probe with no imports at all, and `routes/app.tsx` imports it — so putting
+ * the ceremony there would pull the whole Better Auth client into the DASHBOARD
+ * route's module graph now, for a route that starts no ceremony. /login's
+ * passkey button (Task 4) will be the second such importer; that half is
+ * PLANNED rather than present, and `login.tsx` imports nothing from
+ * lib/passkey.ts yet. This module depends on the auth client and belongs beside
+ * it rather than inside the storage primitives it calls.
  */
 export type PasskeyRegistration =
   | { outcome: 'registered' }
-  | { outcome: 'already-registered' }
+  | { outcome: 'already-registered'; message: string }
   | { outcome: 'aborted' }
   | { outcome: 'failed'; message: string }
 
 /**
  * What to say when the authenticator reports it already holds a credential.
  *
- * EXPORTED AND SHARED BECAUSE BOTH CALLERS SAY IT, and because the plugin's own
- * message — "Previously registered" — tells the player nothing they can act on.
- * The true thing is reassuring: there is nothing to do.
+ * MODULE-PRIVATE, AND IT REACHES THE CALLERS AS `result.message` — the same way
+ * a failure's does. It used to be exported and imported by both of them, which
+ * made two files claim in a comment that "the messaging is not shared" while
+ * importing a shared message two lines above. What actually diverges is the
+ * SEVERITY, not the sentence: the Settings tab toasts this as an error, because
+ * a player who went looking for a new passkey did not get one; the offer toasts
+ * it as information, because the app asked a question whose premise was wrong.
+ * Carrying it on the outcome leaves each caller choosing only that.
+ *
+ * THE PLUGIN'S OWN MESSAGE IS "Previously registered", which tells the player
+ * nothing they can act on. This says what is actually true, and the true thing
+ * is reassuring: there is nothing to do.
  */
-export const ALREADY_REGISTERED_MESSAGE = 'This device already has a passkey on your account.'
+const ALREADY_REGISTERED_MESSAGE = 'This device already has a passkey on your account.'
 
-/** The generic failure, for an error that arrived with no message of its own. */
+/**
+ * The generic failure, for an error that arrived with no message of its own.
+ *
+ * EXPORTED ONLY FOR THE TEST'S VACUITY GUARD — no component imports it, because
+ * it too reaches them on `result.message`.
+ */
 export const REGISTRATION_FAILED_MESSAGE = 'Could not add a passkey.'
 
 /**
@@ -86,7 +104,7 @@ export async function registerPasskey(): Promise<PasskeyRegistration> {
       if (code === 'ERROR_CEREMONY_ABORTED') return { outcome: 'aborted' }
       if (code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED') {
         rememberPasskeyRegistered()
-        return { outcome: 'already-registered' }
+        return { outcome: 'already-registered', message: ALREADY_REGISTERED_MESSAGE }
       }
       return { outcome: 'failed', message: result.error.message || REGISTRATION_FAILED_MESSAGE }
     }
@@ -100,7 +118,13 @@ export async function registerPasskey(): Promise<PasskeyRegistration> {
     // the network layer underneath it.
     return {
       outcome: 'failed',
-      message: cause instanceof Error ? cause.message : REGISTRATION_FAILED_MESSAGE,
+      // `&& cause.message`, NOT A BARE `instanceof`. `new Error('')` is an Error
+      // whose message is the empty string, and handing that to a toast draws an
+      // empty toast — the exact failure the `|| REGISTRATION_FAILED_MESSAGE` on
+      // the returned-error path above guards against. An `instanceof` check
+      // answers "is it shaped like an Error", which is not the question; the
+      // question is whether there is anything to show.
+      message: cause instanceof Error && cause.message ? cause.message : REGISTRATION_FAILED_MESSAGE,
     }
   }
 }

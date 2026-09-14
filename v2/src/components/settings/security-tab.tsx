@@ -5,7 +5,7 @@ import { Button } from '#/components/ui/button.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { authClient } from '#/lib/auth-client.ts'
 import { forgetPasskeyRegistered, passkeySupported } from '#/lib/passkey.ts'
-import { ALREADY_REGISTERED_MESSAGE, registerPasskey } from '#/lib/register-passkey.ts'
+import { registerPasskey } from '#/lib/register-passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 
 /**
@@ -100,9 +100,11 @@ export function removeLabel(
  * registration and every trap in it — `addPasskey` never rejecting, one arm of
  * the error union having no `code`, a PREVIOUSLY_REGISTERED rejection being
  * evidence rather than a failure — would have had to be got right twice. Its
- * header carries the reasoning. What stays here is the MESSAGING, which is not
- * shared: this tab answers a player who came looking for a passkey, the offer
- * answers a question the app asked.
+ * header carries the reasoning. What stays here is the SEVERITY — not the
+ * sentences, which arrive on `result.message` and are the same in both places.
+ * This tab answers a player who came looking for a passkey and toasts a
+ * fruitless attempt as an error; the offer answers a question the app itself
+ * asked and toasts the same sentence as information.
  *
  * `deletePasskey` has no such sibling and goes through the inferred-endpoint
  * proxy, whose return type is `any`, so its throwing behaviour is not pinned by
@@ -154,23 +156,22 @@ export default function SecurityTab() {
     setAdding(true)
     try {
       // EVERY OUTCOME IS NAMED, AND `registerPasskey` NEVER THROWS — so there
-      // is no `catch` here any more. The error classification and the
-      // per-device marker write live in that module; this switch is only what
-      // to SAY, which is the half the two callers do not share.
+      // is no `catch` here any more. The error classification, the sentences and
+      // the per-device marker write all live in that module; what is left here
+      // is which of them to say out loud, and how loudly.
       const result = await registerPasskey()
       // A CANCELLED CEREMONY IS NOT AN ERROR TO REPORT. Dismissing the system
       // sheet is how a player says "not now"; a toast here would scold someone
       // for using the sheet's own cancel button.
       if (result.outcome === 'aborted') return
-      if (result.outcome === 'already-registered') {
-        // THE PLUGIN'S OWN MESSAGE IS "Previously registered", which tells the
-        // player nothing they can act on. This says what is actually true. It
-        // is an error HERE — unlike in the offer — because this player went
-        // looking for a new passkey and did not get one.
-        toast.error(ALREADY_REGISTERED_MESSAGE)
-        return
-      }
-      if (result.outcome === 'failed') {
+      // BOTH OF THESE READ `result.message`, AND BOTH TOAST IT AS AN ERROR, so
+      // they are one branch. The sentence is lib/register-passkey.ts's in both
+      // cases — the plugin's own "Previously registered" tells the player
+      // nothing they can act on — and the only thing this file decides is the
+      // severity: a player who came here for a new passkey and did not get one
+      // has had something go wrong, which is not true of the offer's version of
+      // the same outcome.
+      if (result.outcome === 'already-registered' || result.outcome === 'failed') {
         toast.error(result.message)
         return
       }

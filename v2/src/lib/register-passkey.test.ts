@@ -13,11 +13,7 @@
 // mistake in both. It is cheaper and more honest to state the contract once,
 // here, against the four outcomes.
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import {
-  ALREADY_REGISTERED_MESSAGE,
-  REGISTRATION_FAILED_MESSAGE,
-  registerPasskey,
-} from './register-passkey.ts'
+import { REGISTRATION_FAILED_MESSAGE, registerPasskey } from './register-passkey.ts'
 
 const { addPasskeyMock, rememberRegisteredMock } = vi.hoisted(() => ({
   addPasskeyMock: vi.fn(),
@@ -125,8 +121,34 @@ describe('registerPasskey', () => {
       data: null,
       error: { code: 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED', message: 'Previously registered' },
     })
-    await expect(registerPasskey()).resolves.toEqual({ outcome: 'already-registered' })
+    const result = await registerPasskey()
+    expect(result.outcome).toBe('already-registered')
     expect(rememberRegisteredMock).toHaveBeenCalledTimes(1)
+
+    // AND IT DOES NOT PASS THE PLUGIN'S OWN MESSAGE THROUGH. "Previously
+    // registered" is what `addPasskey` hands back, and it tells a player
+    // nothing they can act on — replacing it is the entire reason this outcome
+    // carries a message at all rather than the callers each writing one.
+    expect(result).toEqual({ outcome: 'already-registered', message: expect.any(String) })
+    expect(result.outcome === 'already-registered' && result.message).not.toBe(
+      'Previously registered',
+    )
+  })
+
+  test('an Error with an EMPTY message still gets a sentence', async () => {
+    /**
+     * THE HOLE `instanceof` LEAVES. `new Error('')` is an Error, so an
+     * `instanceof`-only check hands `''` to the caller and the caller hands it
+     * to a toast — an empty toast, which is exactly what the
+     * `|| REGISTRATION_FAILED_MESSAGE` on the returned-error path exists to
+     * prevent. The two paths had different answers to the same question.
+     */
+    addPasskeyMock.mockRejectedValue(new Error(''))
+    await expect(registerPasskey()).resolves.toEqual({
+      outcome: 'failed',
+      message: REGISTRATION_FAILED_MESSAGE,
+    })
+    expect(rememberRegisteredMock).not.toHaveBeenCalled()
   })
 
   test('a rejection from the layer underneath is reported, not thrown', async () => {
@@ -144,13 +166,28 @@ describe('registerPasskey', () => {
     })
   })
 
-  test('the two shared sentences are distinct, and neither is empty', () => {
-    // A vacuity guard on every assertion above that compares against these:
-    // two constants that had drifted to '' would satisfy a `toEqual` while
-    // rendering a blank toast, and one collapsed into the other would report a
-    // hard failure as "nothing to do".
-    expect(ALREADY_REGISTERED_MESSAGE.length).toBeGreaterThan(0)
-    expect(REGISTRATION_FAILED_MESSAGE.length).toBeGreaterThan(0)
-    expect(ALREADY_REGISTERED_MESSAGE).not.toBe(REGISTRATION_FAILED_MESSAGE)
+  test('the two sentences it can produce are distinct, and neither is empty', async () => {
+    /**
+     * THE VACUITY GUARD FOR EVERY MESSAGE ASSERTION ABOVE, and it is written
+     * against what the module PRODUCES rather than against exported constants.
+     * That is the stronger form: `ALREADY_REGISTERED_MESSAGE` is module-private
+     * now precisely because both callers read `result.message`, so a constant
+     * that had drifted to `''` — or collapsed into the other one, reporting a
+     * hard failure as "nothing to do" — is only observable out here through the
+     * outcomes themselves.
+     */
+    addPasskeyMock.mockResolvedValue({
+      data: null,
+      error: { code: 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED', message: 'Previously registered' },
+    })
+    const already = await registerPasskey()
+    addPasskeyMock.mockResolvedValue({ data: null, error: { status: 500, statusText: 'nope' } })
+    const failed = await registerPasskey()
+
+    const alreadyMessage = already.outcome === 'already-registered' ? already.message : ''
+    const failedMessage = failed.outcome === 'failed' ? failed.message : ''
+    expect(alreadyMessage.length).toBeGreaterThan(0)
+    expect(failedMessage.length).toBeGreaterThan(0)
+    expect(alreadyMessage).not.toBe(failedMessage)
   })
 })

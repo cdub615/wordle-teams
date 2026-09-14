@@ -17,10 +17,9 @@
 // comes back at every single sign-in, forever, which is the nagging loop
 // lib/passkey.ts's header sets out to rule out.
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { createElement } from 'react'
+import { createElement, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { PasskeyOffer } from './passkey-offer.tsx'
-import { ALREADY_REGISTERED_MESSAGE } from '#/lib/register-passkey.ts'
 
 const { registerPasskeyMock, rememberDeclinedMock, toastSuccess, toastError, toastInfo } = vi.hoisted(
   () => ({
@@ -32,9 +31,12 @@ const { registerPasskeyMock, rememberDeclinedMock, toastSuccess, toastError, toa
   }),
 )
 
-// PARTIAL, so ALREADY_REGISTERED_MESSAGE above is the REAL constant. Asserting
-// against a mocked copy of the string the component renders would prove only
-// that this file can repeat itself.
+// PARTIAL, though only `registerPasskey` is replaced. The SENTENCES are no
+// longer this file's business at all: they ride on `result.message`, so what is
+// asserted below is that the component passes the module's message through
+// unaltered — proved with a string this file invents, which a component that
+// substituted a literal of its own could not satisfy. The real sentences are
+// pinned, non-empty and distinct, in lib/register-passkey.test.ts.
 vi.mock('#/lib/register-passkey.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('#/lib/register-passkey.ts')>()),
   registerPasskey: registerPasskeyMock,
@@ -59,15 +61,45 @@ let onClose: () => void
 
 const mount = (open = true) => render(createElement(PasskeyOffer, { open, onClose }))
 
-/** The offer's two controls, by their accessible names. */
+/** The offer's controls, by their accessible names. */
 const acceptButton = () => screen.getByRole('button', { name: /Set up a passkey/i })
 const declineButton = () => screen.getByRole('button', { name: /Not now/i })
+/** DialogContent's own X, which is a THIRD dismissal path and not a button here. */
+const closeX = () => screen.getByRole('button', { name: /^Close$/i })
+
+/**
+ * The offer under a REAL controlled parent, which is the only way to observe
+ * what a close actually does.
+ *
+ * WHY THIS EXISTS ALONGSIDE `mount`. With a static `open={true}` the strongest
+ * claim in this file — that a successful registration is not recorded as a
+ * decline — can only be asserted as the ABSENCE of a call. That passes for a
+ * component that never closes at all. Driving `open` from state turns it into a
+ * behavioural claim: the dialog is gone, and the decline marker was not written
+ * on the way out. It also exercises the thing the design leans on, which is
+ * that Radix does NOT re-enter `onOpenChange` for a parent-driven close.
+ */
+function ControlledOffer() {
+  const [open, setOpen] = useState(true)
+  return createElement(PasskeyOffer, {
+    open,
+    onClose: () => {
+      onClose()
+      setOpen(false)
+    },
+  })
+}
+
+const mountControlled = () => render(createElement(ControlledOffer))
 
 beforeEach(() => {
   vi.clearAllMocks()
   onClose = vi.fn()
   registerPasskeyMock.mockResolvedValue({ outcome: 'registered' })
 })
+
+/** What a mocked `already-registered` outcome carries, so pass-through is visible. */
+const ALREADY = 'a sentence only lib/register-passkey.ts could have supplied'
 
 afterEach(cleanup)
 
@@ -142,6 +174,24 @@ describe('declining', () => {
     await waitFor(() => expect(rememberDeclinedMock).toHaveBeenCalledTimes(1))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  test('the X in the corner declines too — it is a THIRD path, not the button', async () => {
+    /**
+     * DialogContent DRAWS ITS OWN CLOSE, inside ui/dialog.tsx, and this file
+     * never mounts that component knowingly — it comes with the content. So a
+     * reader auditing the dismissal paths from THIS component's source sees
+     * "Not now" and Escape and can easily miss it. It funnels through the same
+     * `onOpenChange`, which is why it works, but "it funnels through the same
+     * callback" is precisely the fact a future refactor would break silently:
+     * `onCloseAutoFocus`, an `onPointerDownOutside` override, or moving the
+     * write onto the button would each leave one of the three unrecorded.
+     */
+    mount()
+    fireEvent.click(closeX())
+    await waitFor(() => expect(rememberDeclinedMock).toHaveBeenCalledTimes(1))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(registerPasskeyMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('accepting', () => {
@@ -201,11 +251,14 @@ describe('accepting', () => {
      * that it does not report it as a failure, because there is nothing wrong
      * and nothing to do.
      */
-    registerPasskeyMock.mockResolvedValue({ outcome: 'already-registered' })
+    registerPasskeyMock.mockResolvedValue({ outcome: 'already-registered', message: ALREADY })
     mount()
     fireEvent.click(acceptButton())
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
-    expect(toastInfo).toHaveBeenCalledWith(ALREADY_REGISTERED_MESSAGE)
+    // THE MODULE'S SENTENCE, PASSED THROUGH. A component that toasted a literal
+    // of its own would be a second copy of a string that has to match the
+    // Settings tab's, and the two would drift with nothing to notice.
+    expect(toastInfo).toHaveBeenCalledWith(ALREADY)
     expect(toastError).not.toHaveBeenCalled()
     expect(rememberDeclinedMock).not.toHaveBeenCalled()
   })
@@ -275,5 +328,56 @@ describe('accepting', () => {
     await waitFor(() => expect((declineButton() as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(declineButton())
     expect(rememberDeclinedMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('the X mid-ceremony records nothing either, for the same reason', async () => {
+    // The X is `disabled`-immune in exactly the way Escape is: it is Radix's
+    // own control and no prop of this component's touches it. The guard in
+    // `decline` is the only thing covering it.
+    let release: (value: unknown) => void = () => {}
+    registerPasskeyMock.mockReturnValue(new Promise((resolve) => (release = resolve)))
+    mount()
+    fireEvent.click(acceptButton())
+    await waitFor(() => expect((acceptButton() as HTMLButtonElement).disabled).toBe(true))
+    fireEvent.click(closeX())
+    expect(rememberDeclinedMock).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    release({ outcome: 'aborted' })
+    await waitFor(() => expect((acceptButton() as HTMLButtonElement).disabled).toBe(false))
+  })
+})
+
+describe('under a real controlled parent', () => {
+  test('a successful registration genuinely CLOSES, and writes no decline', async () => {
+    /**
+     * THE SAME CLAIM AS "is NOT recorded as a decline" ABOVE, PROMOTED FROM AN
+     * ABSENCE TO A BEHAVIOUR. That test mounts with a static `open={true}`, so
+     * the dialog never actually goes away and `rememberPasskeyDeclined` not
+     * being called is compatible with a component that simply never closes.
+     * Here `open` is driven by the parent's state exactly as routes/app.tsx
+     * drives it, so the close is real and the assertion is that Radix does NOT
+     * re-enter `onOpenChange` on a parent-driven close — which is the entire
+     * reason `registered` and `declined` cannot both be written for one
+     * sign-in.
+     */
+    mountControlled()
+    expect(screen.getByRole('dialog')).not.toBeNull()
+    fireEvent.click(acceptButton())
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(rememberDeclinedMock).not.toHaveBeenCalled()
+    expect(toastSuccess).toHaveBeenCalled()
+  })
+
+  test('and declining closes it exactly once, writing the marker once', async () => {
+    // The paired case, so the test above cannot pass over a component that
+    // closes on EVERYTHING. It also pins that the unmount does not itself
+    // produce a second `onOpenChange(false)` and a second marker write.
+    mountControlled()
+    fireEvent.click(declineButton())
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(rememberDeclinedMock).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
