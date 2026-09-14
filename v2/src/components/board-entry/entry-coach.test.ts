@@ -62,10 +62,13 @@ describe('coachFor', () => {
   })
 
   /**
-   * Validity outranks everything, including a refusal: a player whose board is
-   * finished should be told they can submit, not scolded for a stray keystroke.
+   * A refusal the branch never matches falls through to the validity line —
+   * but 'board-solved' is unmatched in EITHER ordering (the refusal branch only
+   * ever tests for 'answer-incomplete'), so this alone cannot show that validity
+   * is actually checked first. The ordering itself is pinned by the test below,
+   * which uses the one refusal the branch does match.
    */
-  test('validity outranks a refusal', () => {
+  test('a refusal the branch does not match falls through to validity', () => {
     expect(
       line(
         { answer: 'CRANE', zone: 'board', guesses: ['CRANE', '', '', '', '', ''] },
@@ -73,6 +76,22 @@ describe('coachFor', () => {
         true,
       ),
     ).toBe('Looks complete — press Enter or Submit')
+  })
+
+  /**
+   * THE PRECEDENCE THIS PAIR ACTUALLY DECIDES, and it is reachable rather than
+   * theoretical: boardIsValid's empty-board branch returns `hasExistingScore`, so
+   * a player CLEARING an existing score has valid: true with an empty answer —
+   * and a click on the board at that moment refuses 'answer-incomplete'. Telling
+   * them to answer first, when what they have done is already submittable, would
+   * be the wrong instruction at the one moment they are finishing.
+   *
+   * The sibling test above uses 'board-solved', which the refusal branch never
+   * matches in EITHER order, so it cannot pin this. Swapping the two rules leaves
+   * it green; this one goes red.
+   */
+  test('validity outranks the refusal the branch actually matches', () => {
+    expect(line({}, 'answer-incomplete', true)).toBe('Looks complete — press Enter or Submit')
   })
 
   /**
