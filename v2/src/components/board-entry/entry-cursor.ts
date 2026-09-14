@@ -27,12 +27,10 @@ export type Refusal =
   | 'board-full'
 
 /**
- * Not every export in this module returns one of these. `backspace` returns a
- * plain EntryState instead — deliberately, not an oversight — because every
- * way a backspace can do nothing is a state the player can already see for
- * themselves (an empty answer with the cursor in it), so there is no refusal
- * worth naming and nothing for a coach line to explain. See backspace's own
- * doc comment for the fuller argument.
+ * The envelope for operations that can swallow a keystroke invisibly: the
+ * resulting state, plus the named reason nothing happened. An operation whose
+ * every no-op is already legible on screen returns plain EntryState instead —
+ * `backspace` does, and its doc comment has the argument.
  */
 export type EntryResult = { state: EntryState; refused: Refusal | null }
 
@@ -40,13 +38,41 @@ export const ANSWER_LENGTH = 5
 
 const kept = (state: EntryState, refused: Refusal): EntryResult => ({ state, refused })
 
+/**
+ * Every entry point opens with this. v1 boards can carry a seventh '' sentinel
+ * (see convex/lib/board.ts), so a caller reading `guesses.length` must get 6
+ * regardless of which function it called or which branch fired.
+ */
+const normalise = (state: EntryState): EntryState => ({
+  ...state,
+  guesses: toRows(state.guesses),
+})
+
+/**
+ * Where the next letter lands: the first row with room, and the column in it.
+ * Null when all six rows are full.
+ *
+ * typeLetter, backspace and cursorFor MUST all derive from this. If the
+ * rendered cursor and the row a keystroke fills were computed separately they
+ * could disagree — and they DID (wordle-teams-lz3w), on an import-prefilled
+ * board with an unread middle row, where the first row with room is row 1 but
+ * the last row with content is row 2.
+ *
+ * NOT NAMED `activeRow`. "Active row" is vague enough to invite exactly the
+ * reuse that caused that bug; "next slot" says it answers one question. And it
+ * returns the column as well as the row because the column is free
+ * (`rows[row].length`) and cursorFor needs it — a helper that dropped it would
+ * leave cursorFor hand-rolling half the query again.
+ */
+function nextSlot(rows: Array<string>): { row: number; col: number } | null {
+  const row = rows.findIndex((guess) => guess.length < ANSWER_LENGTH)
+  return row === -1 ? null : { row, col: rows[row].length }
+}
+
 export function typeLetter(state: EntryState, key: string): EntryResult {
   // One normalisation, so every exit — refusal or not, including the
-  // not-a-letter guard right below — returns the same six-row shape. v1
-  // boards can carry a seventh '' sentinel (see board.ts), and a caller
-  // reading next.guesses.length should not get a different answer depending
-  // on whether the keystroke landed.
-  const normalised = { ...state, guesses: toRows(state.guesses) }
+  // not-a-letter guard right below — returns the same six-row shape.
+  const normalised = normalise(state)
 
   // A KeyboardEvent's `key` is 'Enter', 'ArrowLeft', 'Dead' as readily as 'c',
   // and appending one whole would overshoot ANSWER_LENGTH in a single stroke —
@@ -85,53 +111,84 @@ export function typeLetter(state: EntryState, key: string): EntryResult {
   // incomplete' test is what keeps it above.
   if (rows.some((row) => row === normalised.answer)) return kept(normalised, 'board-solved')
 
-  const index = rows.findIndex((row) => row.length < ANSWER_LENGTH)
-  if (index === -1) return kept(normalised, 'board-full')
+  const slot = nextSlot(rows)
+  if (slot === null) return kept(normalised, 'board-full')
 
   const guesses = [...rows]
-  guesses[index] = guesses[index] + letter
+  guesses[slot.row] = guesses[slot.row] + letter
   return { state: { ...normalised, guesses }, refused: null }
 }
 
 /**
  * Delete one letter, or walk back a zone when there is nothing left to delete.
  *
- * RETURNS PLAIN STATE, NOT AN EntryResult, and the asymmetry with typeLetter is
- * deliberate rather than an oversight. Every way a backspace can do nothing is a
- * state the player can see for themselves — an empty answer with the cursor in
- * it — so there is no refusal worth naming and nothing for a coach line to
- * explain. typeLetter's refusals are the opposite: each one is a keystroke that
- * vanished for a reason the screen does not show.
+ * DELETES BEHIND THE CURSOR, WHICH IS `nextSlot` AND NOTHING ELSE
+ * (wordle-teams-lz3w). This used to scan BACKWARDS for the last row with any
+ * content while typeLetter scanned FORWARDS for the first row with room. On a
+ * prefix board — rows filled in order, which is every board a player builds by
+ * hand — those two scans name the same row and the bug is invisible. On a
+ * GAPPED board they do not: import-prefill.ts assembles a board by row index
+ * and leaves unreadable rows empty, so ['', '', 'SLATE', '', '', ''] is a real
+ * shape, and one backspace on it used to eat a letter out of row 2 while the
+ * cursor sat in row 0.
+ *
+ * RETURNS PLAIN STATE, NOT AN EntryResult, because every way a backspace can do
+ * nothing is a state the player can see for themselves — an empty answer with
+ * the cursor in it, or a cursor sitting at the very start of the board with the
+ * content further down. There is no refusal worth naming and nothing for a
+ * coach line to explain. typeLetter's refusals are the opposite: each one is a
+ * keystroke that vanished for a reason the screen does not show.
+ *
+ * That argument rests on a cursor being drawn: "the player can see it" is true
+ * only once Task 3's `cursorFor` renders one. Until it does, the no-op in the
+ * last branch below is as silent as the refusals this module exists to name, and
+ * this paragraph is a claim about where the module is headed rather than about
+ * what is on screen today.
  */
 export function backspace(state: EntryState): EntryState {
-  // Same normalisation typeLetter opens with, and for the same reason: v1
-  // boards can carry a seventh '' sentinel (see board.ts), and every exit
-  // below — the answer-zone return included — must hand back six rows so a
-  // caller reading next.guesses.length gets the same answer regardless of
-  // which branch fired.
-  const normalised = { ...state, guesses: toRows(state.guesses) }
+  // Same normalisation typeLetter opens with, so every exit below — the
+  // answer-zone return and the walk-back included — hands back six rows.
+  const normalised = normalise(state)
 
   if (normalised.zone === 'answer') {
     return { ...normalised, answer: normalised.answer.slice(0, -1) }
   }
 
   const rows = normalised.guesses
-  // Array.prototype.findLastIndex is ES2023 and this project's tsconfig
-  // targets ES2022, so the last filled row is found with a manual reverse
-  // scan rather than that method.
-  let lastFilled = -1
-  for (let i = rows.length - 1; i >= 0; i--) {
-    if (rows[i].length > 0) {
-      lastFilled = i
-      break
-    }
+  const slot = nextSlot(rows)
+
+  const erase = (row: number): EntryState => {
+    const guesses = [...rows]
+    guesses[row] = guesses[row].slice(0, -1)
+    return { ...normalised, guesses }
   }
 
-  // THE WALK-BACK: nothing typed yet, so the only thing behind the cursor is
-  // the answer. Going there is what makes the stream continuous in reverse.
-  if (lastFilled < 0) return { ...normalised, zone: 'answer' }
+  // All six rows full: there is no next slot, so the cursor sits past the end
+  // of the last row and the letter behind it is that row's last.
+  if (slot === null) return erase(rows.length - 1)
 
-  const guesses = [...rows]
-  guesses[lastFilled] = guesses[lastFilled].slice(0, -1)
-  return { ...normalised, guesses }
+  // Mid-row: the letter behind the cursor is the one the cursor follows.
+  if (slot.col > 0) return erase(slot.row)
+
+  // Start of a row that is not the first: cross back into the row above. This
+  // is the existing, correct behaviour — on a prefix board it is the only way
+  // a player reaches the previous row, and the 'crosses back into the previous
+  // row' test pins it.
+  if (slot.row > 0) return erase(slot.row - 1)
+
+  // From here the cursor is at row 0, column 0, and the two remaining cases are
+  // what the old reverse scan conflated.
+
+  // THE WALK-BACK: the board is genuinely empty, so the only thing behind the
+  // cursor is the answer. Going there is what makes the stream continuous in
+  // reverse. `every` is deliberately inline and used once — a "last row with
+  // content" helper is exactly the abstraction that invited the bug.
+  if (rows.every((row) => row.length === 0)) return { ...normalised, zone: 'answer' }
+
+  // A gapped board: row 0 is empty but rows below it are not. Nothing is behind
+  // the cursor, so nothing is deleted, and this is a no-op rather than a
+  // walk-back on purpose — there IS board content, so the answer is not what
+  // the player is backing into. Deleting the far-off content instead is
+  // lz3w, and it silently damaged a row the screenshot reader got right.
+  return normalised
 }

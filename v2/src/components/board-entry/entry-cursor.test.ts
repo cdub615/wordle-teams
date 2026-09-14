@@ -188,4 +188,45 @@ describe('backspace', () => {
     expect(next.zone).toBe('answer')
     expect(next.guesses).toEqual(['', '', '', '', '', ''])
   })
+
+  // The pairing with typeLetter's 'answer-incomplete' refusal: landing in the
+  // board zone with a short answer is a dead end for typing and an EXIT for
+  // backspace. That is the two functions composing, and nothing pinned it.
+  test('the walk-back is the recovery from a short answer', () => {
+    const next = backspace(state({ answer: 'CRA', zone: 'board' }))
+    expect(next.zone).toBe('answer')
+    expect(next.answer).toBe('CRA')
+  })
+})
+
+describe('a gapped board, which is what an import with an unread row produces', () => {
+  /**
+   * wordle-teams-lz3w. import-prefill.ts assembles by ROW INDEX, so a parse
+   * that could not read rows 0-1 yields ['', '', 'SLATE', '', '', ''] — a board
+   * where "the first row with room" (row 0) and "the last row with content"
+   * (row 2) are different rows. Typing used the first; backspace used the
+   * second; so backspace ate a row the player never touched.
+   */
+  test('backspace deletes behind the CURSOR, not from the last row with content', () => {
+    const next = backspace(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['A', '', 'SLATE', '', '', ''] }),
+    )
+    expect(next.guesses).toEqual(['', '', 'SLATE', '', '', ''])
+  })
+
+  test('with nothing typed, backspace leaves an imported row alone entirely', () => {
+    const next = backspace(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['', '', 'SLATE', '', '', ''] }),
+    )
+    expect(next.guesses).toEqual(['', '', 'SLATE', '', '', ''])
+  })
+
+  // The walk-back must NOT fire here: there is a board with content on it, so
+  // the answer is not the only thing behind the cursor.
+  test('and does not walk back to the answer while the board has content', () => {
+    const next = backspace(
+      state({ answer: 'CRANE', zone: 'board', guesses: ['', '', 'SLATE', '', '', ''] }),
+    )
+    expect(next.zone).toBe('board')
+  })
 })
