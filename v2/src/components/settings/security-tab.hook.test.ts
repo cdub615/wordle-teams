@@ -22,16 +22,23 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import SecurityTab, { addedLabel, passkeyLabel } from './security-tab.tsx'
+import SecurityTab, { addedLabel, passkeyLabel, removeLabel } from './security-tab.tsx'
 
-const { addPasskeyMock, deletePasskeyMock, rememberRegisteredMock, toastSuccess, toastError } =
-  vi.hoisted(() => ({
-    addPasskeyMock: vi.fn(),
-    deletePasskeyMock: vi.fn(),
-    rememberRegisteredMock: vi.fn(),
-    toastSuccess: vi.fn(),
-    toastError: vi.fn(),
-  }))
+const {
+  addPasskeyMock,
+  deletePasskeyMock,
+  rememberRegisteredMock,
+  forgetRegisteredMock,
+  toastSuccess,
+  toastError,
+} = vi.hoisted(() => ({
+  addPasskeyMock: vi.fn(),
+  deletePasskeyMock: vi.fn(),
+  rememberRegisteredMock: vi.fn(),
+  forgetRegisteredMock: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
+}))
 
 /** What `authClient.useListPasskeys()` answers. Set per test. */
 let listState: {
@@ -50,6 +57,7 @@ vi.mock('#/lib/auth-client.ts', () => ({
 vi.mock('#/lib/passkey.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('#/lib/passkey.ts')>()),
   rememberPasskeyRegistered: rememberRegisteredMock,
+  forgetPasskeyRegistered: forgetRegisteredMock,
 }))
 
 vi.mock('sonner', () => ({ toast: { success: toastSuccess, error: toastError } }))
@@ -111,6 +119,36 @@ describe('the two label helpers', () => {
     expect(addedLabel(new Date(2026, 8, 13), 'en-US')).toBe('Added Sep 13, 2026')
   })
 
+  test('the remove action names the row by DATE, because the name never varies', () => {
+    /**
+     * THE ASSERTION THIS FILE USED TO GET WRONG. The earlier version proved the
+     * accessible name distinguished rows by feeding it 'Ada's phone' and 'Work
+     * laptop' — names this app CANNOT PRODUCE. Nothing here sends a `name` at
+     * registration and the server fills none in, so every real row is the bare
+     * word 'Passkey' and the old accessible name was "Remove Passkey" N times
+     * over. The test was green on data that does not occur.
+     */
+    expect(removeLabel(null, new Date(2026, 8, 13), 'en-US')).toBe('Remove Passkey, added Sep 13, 2026')
+    expect(removeLabel(undefined, new Date(2026, 0, 2), 'en-US')).toBe('Remove Passkey, added Jan 2, 2026')
+  })
+
+  test('two unnamed passkeys still get DIFFERENT remove labels', () => {
+    // The whole point, stated as the property rather than as two strings: with
+    // no name and no date there is nothing left to tell them apart.
+    const a = removeLabel(null, new Date(2026, 8, 13), 'en-US')
+    const b = removeLabel(null, new Date(2026, 0, 2), 'en-US')
+    expect(a).not.toBe(b)
+  })
+
+  test('a named passkey uses its name, and a dateless one still gets a label', () => {
+    expect(removeLabel('Ada’s phone', new Date(2026, 8, 13), 'en-US')).toBe(
+      'Remove Ada’s phone, added Sep 13, 2026',
+    )
+    // Never "Remove undefined". Close to unreachable — the plugin writes
+    // createdAt on every insert — but ambiguous beats wrong.
+    expect(removeLabel(null, undefined)).toBe('Remove Passkey')
+  })
+
   test('an unusable date becomes nothing at all, not "Invalid Date"', () => {
     // `new Date(undefined)` stringifies to "Invalid Date", and a settings row
     // reading "Added Invalid Date" is worse than a row with one line.
@@ -148,10 +186,13 @@ describe('the list of passkeys', () => {
     expect(screen.queryByText(/no passkeys/i)).toBeNull()
   })
 
-  test('every passkey gets a row, with its name and when it was added', () => {
+  test('every passkey gets a row, with its label and when it was added', () => {
+    // BOTH ROWS UNNAMED, which is what this app actually produces. A fixture
+    // with distinct names would make every row trivially distinguishable and
+    // hide the thing worth testing.
     listState = {
       data: [
-        { id: 'pk_1', name: 'Ada’s phone', createdAt: new Date(2026, 8, 13) },
+        { id: 'pk_1', name: null, createdAt: new Date(2026, 8, 13) },
         { id: 'pk_2', name: null, createdAt: new Date(2026, 0, 2) },
       ],
       error: null,
@@ -162,8 +203,7 @@ describe('the list of passkeys', () => {
     // matching in a tree that rendered no rows at all and the count assertion
     // would be the only thing that noticed.
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
-    expect(screen.queryByText('Ada’s phone')).not.toBeNull()
-    expect(screen.queryByText('Passkey')).not.toBeNull()
+    expect(screen.getAllByText('Passkey')).toHaveLength(2)
     // COUNTED, NOT MATCHED ONCE, and the prefix is this component's own literal
     // rather than a formatted date: the format follows the READER's locale, so
     // asserting 'Sep 13, 2026' here would pin the machine the suite runs on.
@@ -172,24 +212,55 @@ describe('the list of passkeys', () => {
     expect(screen.getAllByText(/^Added /)).toHaveLength(2)
   })
 
-  test('each remove button names the row it removes', () => {
+  test('each remove button names the row it removes, on data this app can produce', () => {
     /**
-     * THE MUTATION THIS KILLS: an icon-only button whose accessible name is
-     * just "Remove". Three near-identical rows then announce the same thing
-     * three times over, and a screen-reader user has no way to tell which
-     * credential they are about to destroy.
+     * THE MUTATION THIS KILLS: an accessible name built from the label alone.
+     * Every real row's label is the bare word 'Passkey', so that button is
+     * announced as "Remove Passkey" once per credential and a screen-reader
+     * user cannot tell which one they are about to destroy.
+     *
+     * THE EXPECTED STRINGS COME FROM `removeLabel` RATHER THAN BEING TYPED OUT,
+     * because the date follows the READER's locale and typing it here would pin
+     * the machine the suite runs on. The FORMAT is pinned once, with an explicit
+     * locale, up in the helper tests. What this pins is that the button uses
+     * that label, for THIS row's data — and the two guards below stop it passing
+     * over a helper that returned the same string, or nothing, for both.
      */
     listState = {
       data: [
-        { id: 'pk_1', name: 'Ada’s phone', createdAt: new Date(2026, 8, 13) },
-        { id: 'pk_2', name: 'Work laptop', createdAt: new Date(2026, 0, 2) },
+        { id: 'pk_1', name: null, createdAt: new Date(2026, 8, 13) },
+        { id: 'pk_2', name: null, createdAt: new Date(2026, 0, 2) },
       ],
       error: null,
       isPending: false,
     }
+    const first = removeLabel(null, new Date(2026, 8, 13))
+    const second = removeLabel(null, new Date(2026, 0, 2))
+    expect(first).toMatch(/^Remove /)
+    expect(first).not.toBe(second)
     mount()
-    expect(screen.queryByRole('button', { name: 'Remove Ada’s phone' })).not.toBeNull()
-    expect(screen.queryByRole('button', { name: 'Remove Work laptop' })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: first })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: second })).not.toBeNull()
+  })
+
+  test('a failed REFETCH keeps the rows it already has', () => {
+    /**
+     * THE BUG THIS KILLS, and it is reachable on the ordinary happy path.
+     * better-auth's `onError` preserves `data` for anything that is not a 401
+     * (`query.mjs`: `data: isUnauthorized ? null : value.get().data`), and a
+     * successful DELETE triggers a refetch — an unattended request, straight
+     * after a write, which is the one most likely to fail here. A bare `error`
+     * check swaps a still-valid list of the player's passkeys for the line
+     * "Could not load your passkeys."
+     */
+    listState = {
+      data: [{ id: 'pk_1', name: null, createdAt: new Date(2026, 8, 13) }],
+      error: new Error('refetch failed'),
+      isPending: false,
+    }
+    mount()
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    expect(screen.queryByText(/Could not load your passkeys/i)).toBeNull()
   })
 })
 
@@ -267,6 +338,30 @@ describe('adding a passkey', () => {
     await waitFor(() => expect(button.disabled).toBe(false))
   })
 
+  test('a PREVIOUSLY REGISTERED rejection MARKS the device, because it is proof', async () => {
+    /**
+     * THE MUTATION THIS KILLS, and it is the mirror image of the one above.
+     * `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED` is the authenticator refusing
+     * BECAUSE IT ALREADY HOLDS a credential for this relying party — the exact
+     * fact the marker records, arriving as a rejection. Treating it as a plain
+     * failure leaves a device whose storage was cleared (new browser profile,
+     * cleared site data) nagging to register at every single sign-in, forever,
+     * with no way for the player to stop it: the loop passkey.ts's header
+     * claims to rule out.
+     */
+    addPasskeyMock.mockResolvedValue({
+      data: null,
+      error: { code: 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED', message: 'Previously registered' },
+    })
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: /Add a passkey/i }))
+    await waitFor(() => expect(rememberRegisteredMock).toHaveBeenCalled())
+    // AND IT SAYS SOMETHING USEFUL. The plugin's own message is "Previously
+    // registered", which tells the player nothing they can act on.
+    expect(toastError).toHaveBeenCalledWith('This device already has a passkey on your account.')
+    expect(toastSuccess).not.toHaveBeenCalled()
+  })
+
   test('a rejection from the layer underneath is reported, not thrown', async () => {
     // `addPasskey` itself does not reject; the fetch under it can.
     addPasskeyMock.mockRejectedValue(new Error('offline'))
@@ -278,21 +373,29 @@ describe('adding a passkey', () => {
 })
 
 describe('removing a passkey', () => {
+  // Unnamed, dated rows — what this app actually stores. `ONE` and `TWO` are
+  // the accessible names those rows really get.
+  const FIRST_AT = new Date(2026, 8, 13)
+  const SECOND_AT = new Date(2026, 0, 2)
+  const ONE = removeLabel(null, FIRST_AT)
+  const TWO = removeLabel(null, SECOND_AT)
+
   beforeEach(() => {
     listState = {
-      data: [{ id: 'pk_1', name: 'Ada’s phone', createdAt: new Date(2026, 8, 13) }],
+      data: [{ id: 'pk_1', name: null, createdAt: FIRST_AT }],
       error: null,
       isPending: false,
     }
   })
 
   test('removes THE ROW THAT WAS CLICKED, by id', async () => {
+    expect(ONE).not.toBe(TWO)
     listState.data = [
-      { id: 'pk_1', name: 'Ada’s phone', createdAt: new Date(2026, 8, 13) },
-      { id: 'pk_2', name: 'Work laptop', createdAt: new Date(2026, 0, 2) },
+      { id: 'pk_1', name: null, createdAt: FIRST_AT },
+      { id: 'pk_2', name: null, createdAt: SECOND_AT },
     ]
     mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Work laptop' }))
+    fireEvent.click(screen.getByRole('button', { name: TWO }))
     await waitFor(() => expect(deletePasskeyMock).toHaveBeenCalledWith({ id: 'pk_2' }))
     expect(toastSuccess).toHaveBeenCalled()
   })
@@ -304,15 +407,24 @@ describe('removing a passkey', () => {
      * sequence of removals here can lock anyone out of anything — a
      * confirmation would imply a danger that does not exist.
      *
-     * BOTH HALVES MATTER: the dialog check alone would pass if the button did
+     * BOTH HALVES MATTER: the role check alone would pass if the button did
      * nothing at all, and the call check alone would pass if a confirmation had
      * been added and auto-confirmed.
+     *
+     * `dialog` AS WELL AS `alertdialog`, AND AFTER `mount()` RATHER THAN BEFORE.
+     * The baseline used to be taken against an EMPTY DOCUMENT, where it is true
+     * of everything and proves nothing. And this repo's own confirmation
+     * primitive is `src/components/confirm-popover.tsx`, a Radix Popover — role
+     * `dialog`, not `alertdialog` — so the most likely way this gate comes back
+     * is with the component already to hand, which an `alertdialog`-only query
+     * would sail straight past.
      */
-    expect(screen.queryByRole('alertdialog')).toBeNull()
     mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Ada’s phone' }))
+    const roles = () => [...screen.queryAllByRole('alertdialog'), ...screen.queryAllByRole('dialog')]
+    expect(roles()).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: ONE }))
     await waitFor(() => expect(deletePasskeyMock).toHaveBeenCalledWith({ id: 'pk_1' }))
-    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(roles()).toHaveLength(0)
   })
 
   test('a removal in flight freezes EVERY row, and only the clicked one spins', async () => {
@@ -326,29 +438,75 @@ describe('removing a passkey', () => {
      * that asymmetry is the point: every button freezes, one button spins.
      */
     listState.data = [
-      { id: 'pk_1', name: 'Ada’s phone', createdAt: new Date(2026, 8, 13) },
-      { id: 'pk_2', name: 'Work laptop', createdAt: new Date(2026, 0, 2) },
+      { id: 'pk_1', name: null, createdAt: FIRST_AT },
+      { id: 'pk_2', name: null, createdAt: SECOND_AT },
     ]
     let release: (value: unknown) => void = () => {}
     deletePasskeyMock.mockReturnValue(new Promise((resolve) => (release = resolve)))
     mount()
-    const target = screen.getByRole('button', { name: 'Remove Ada’s phone' }) as HTMLButtonElement
-    const other = screen.getByRole('button', { name: 'Remove Work laptop' }) as HTMLButtonElement
+    const target = screen.getByRole('button', { name: ONE }) as HTMLButtonElement
+    const other = screen.getByRole('button', { name: TWO }) as HTMLButtonElement
     expect(target.disabled).toBe(false)
     fireEvent.click(target)
     await waitFor(() => expect(target.disabled).toBe(true))
     expect(other.disabled).toBe(true)
-    expect(target.querySelector('.animate-spin')).not.toBeNull()
-    expect(other.querySelector('.animate-spin')).toBeNull()
+    // `aria-busy`, NOT `.animate-spin`. Pinning the Tailwind class couples this
+    // to a styling choice — a behaviourally identical spinner swap would break
+    // it — and, worse, it asserts on the half a screen reader cannot perceive.
+    // This is the announcement; the spinner is the decoration.
+    expect(target.getAttribute('aria-busy')).toBe('true')
+    expect(other.getAttribute('aria-busy')).toBe('false')
     release({ data: { status: true }, error: null })
     await waitFor(() => expect(other.disabled).toBe(false))
-    expect(target.querySelector('.animate-spin')).toBeNull()
+    expect(target.getAttribute('aria-busy')).toBe('false')
+  })
+
+  test('removing the LAST passkey forgets the per-device marker', async () => {
+    /**
+     * THE MUTATION THIS KILLS: leaving the marker set after the account is
+     * empty. Zero passkeys on the account means zero on this device, so the
+     * marker is now a lie — and /login (Task 4) renders its passkey button off
+     * exactly this, producing a tap that opens a system sheet saying no
+     * passkeys were found.
+     */
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: ONE }))
+    await waitFor(() => expect(forgetRegisteredMock).toHaveBeenCalled())
+    expect(rememberRegisteredMock).not.toHaveBeenCalled()
+  })
+
+  test('removing ONE OF TWO leaves the marker alone', async () => {
+    /**
+     * THE OPPOSITE MUTATION, and it matters just as much: clearing on every
+     * removal. Nothing on a passkey row says which authenticator it belongs to,
+     * so a shorter list is no evidence about the device in front of us — and it
+     * probably does still hold one. Clearing here would put the offer back in
+     * front of a player who is already set up.
+     */
+    listState.data = [
+      { id: 'pk_1', name: null, createdAt: FIRST_AT },
+      { id: 'pk_2', name: null, createdAt: SECOND_AT },
+    ]
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: TWO }))
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
+    expect(forgetRegisteredMock).not.toHaveBeenCalled()
+  })
+
+  test('a FAILED removal of the last passkey does not forget anything', async () => {
+    // The credential is still there. Forgetting on the way past would re-offer
+    // a passkey to a device that already holds one.
+    deletePasskeyMock.mockResolvedValue({ data: null, error: { message: 'Passkey not found' } })
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: ONE }))
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(forgetRegisteredMock).not.toHaveBeenCalled()
   })
 
   test('a refusal is reported rather than silently succeeding', async () => {
     deletePasskeyMock.mockResolvedValue({ data: null, error: { message: 'Passkey not found' } })
     mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Ada’s phone' }))
+    fireEvent.click(screen.getByRole('button', { name: ONE }))
     await waitFor(() => expect(toastError).toHaveBeenCalled())
     expect(toastSuccess).not.toHaveBeenCalled()
   })
@@ -358,7 +516,7 @@ describe('removing a passkey', () => {
     // whether it throws or answers `{ error }`. Both are handled.
     deletePasskeyMock.mockRejectedValue(new Error('offline'))
     mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Ada’s phone' }))
+    fireEvent.click(screen.getByRole('button', { name: ONE }))
     await waitFor(() => expect(toastError).toHaveBeenCalled())
     expect(toastSuccess).not.toHaveBeenCalled()
   })

@@ -48,11 +48,17 @@
  * feature probe is exactly the thing a caller is most likely to reach for
  * before thinking about where it runs.
  *
- * THE KEYS ARE EXPORTED because the write and the read live in different
- * places — the settings dialog registers, /app offers, /login reads — and a key
- * spelled in two modules is a key that can be spelled differently in one of
- * them. The failure is silent: the write succeeds, the read finds nothing, the
- * offer never stops appearing.
+ * THE KEYS ARE EXPORTED because the write and the read will live in different
+ * places — a key spelled in two modules is a key that can be spelled
+ * differently in one of them, and the failure is silent: the write succeeds,
+ * the read finds nothing, the offer never stops appearing.
+ *
+ * ONLY ONE CALLER EXISTS TODAY, and the rest of this file's audience is
+ * PLANNED rather than present: components/settings/security-tab.tsx writes the
+ * markers. /app's offer (Task 3) and /login's passkey button (Task 4) are the
+ * readers these functions were shaped for and neither is built yet — so if you
+ * are here wondering why `shouldOfferPasskey` has no call site, that is why,
+ * not because one was deleted.
  */
 export const PASSKEY_REGISTERED_KEY = 'wt.passkey.registered'
 export const PASSKEY_DECLINED_KEY = 'wt.passkey.declined'
@@ -86,8 +92,9 @@ function marked(key: string): boolean {
 /**
  * Write a marker. The VALUE is never read — presence is the whole signal — so
  * it is a constant rather than a timestamp: a timestamp invites a future reader
- * to expire it, and neither marker should expire. A device that has a passkey
- * still has it next year.
+ * to expire it, and neither marker should expire ON A CLOCK. A device that has
+ * a passkey still has it next year. `registered` IS cleared, but by evidence
+ * rather than by age — see `forgetPasskeyRegistered`.
  */
 function mark(key: string): void {
   try {
@@ -99,9 +106,46 @@ function mark(key: string): void {
   }
 }
 
-/** Record that a passkey was successfully registered ON THIS DEVICE. */
+/** Drop a marker, treating a blocked store as nothing to do. */
+function unmark(key: string): void {
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // Blocked store: there was nothing recorded to drop either, since the write
+    // would have failed the same way.
+  }
+}
+
+/**
+ * Record that a passkey was successfully registered ON THIS DEVICE.
+ *
+ * TWO CALLERS, AND THE SECOND ONE IS NOT AN ERROR PATH DESPITE APPEARING ON
+ * ONE. A registration that fails with `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED`
+ * is the authenticator itself saying it already holds a credential for this
+ * relying party — which is POSITIVE PROOF of exactly what this marker records,
+ * arriving as a rejection. Treating it as a plain failure is what left a device
+ * whose storage had been cleared nagging to register forever.
+ */
 export function rememberPasskeyRegistered(): void {
   mark(PASSKEY_REGISTERED_KEY)
+}
+
+/**
+ * Record that this device holds NO passkey after all.
+ *
+ * CALLED ON EXACTLY ONE PIECE OF EVIDENCE: a removal that leaves the account
+ * with no passkeys at all. Zero credentials on the ACCOUNT is the only thing
+ * the Settings list can prove about THIS DEVICE, because no field on a passkey
+ * row says which authenticator it belongs to. Removing one of three leaves the
+ * marker set, and that is correct rather than a gap — the device probably does
+ * still hold one.
+ *
+ * IT DOES NOT TOUCH `declined`, deliberately. Removing a passkey is not
+ * un-declining an offer; a player who dismissed the offer and later cleaned up
+ * their credentials has not asked to be asked again.
+ */
+export function forgetPasskeyRegistered(): void {
+  unmark(PASSKEY_REGISTERED_KEY)
 }
 
 /** Record that the offer was dismissed on this device. Never expires. */
@@ -116,11 +160,20 @@ export function rememberPasskeyDeclined(): void {
  * Without it the button is a dead-end tap: the browser opens a system sheet,
  * finds no credential for this relying party, and says so.
  *
- * IT CAN BE STALE IN ONE DIRECTION ONLY — it can claim a passkey that has since
- * been removed from the account elsewhere — and that is the survivable
- * direction: the sheet says "no passkeys found" and every other sign-in method
- * is still on the page. It can never claim a passkey was never registered here
- * when one was, because nothing clears it.
+ * IT IS MAINTAINED IN BOTH DIRECTIONS, and this paragraph used to claim it was
+ * not. It is SET on a successful registration and on a
+ * `ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED` rejection, which is the
+ * authenticator volunteering the same fact; it is CLEARED when a removal in
+ * Settings leaves the account with no passkeys at all.
+ *
+ * ONE STALE CASE SURVIVES, AND IT IS THE SURVIVABLE DIRECTION: register on a
+ * phone, then remove that credential from a laptop. The account still has other
+ * passkeys, so nothing clears the phone's marker, and the phone goes on
+ * offering a button whose ceremony will find nothing. The sheet says "no
+ * passkeys found" and every other sign-in method is still on the page. Task 4
+ * turns that into a signpost rather than a dead end; do not try to fix it by
+ * guessing here, because no field on a passkey row says which authenticator it
+ * belongs to.
  */
 export function passkeyRegisteredHere(): boolean {
   return marked(PASSKEY_REGISTERED_KEY)

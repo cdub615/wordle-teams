@@ -41,7 +41,7 @@ test('the hamburger opens the menu, and each item opens the dialog on its own ta
   await openAppMenu(page)
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('menuitem', { name: 'Notifications' })).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: 'Install Guide' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Install', exact: true })).toBeVisible()
 
   // Seeded name is 'E2E Tester' (e2eSeed.ts), so the label reads that back —
   // proof the menu is reading the PLAYERS row, not Better Auth's own `name`
@@ -91,8 +91,8 @@ test('the hamburger opens the menu, and each item opens the dialog on its own ta
   await expect(page.getByRole('heading', { name: 'Notification Settings' })).toBeHidden()
 
   await openAppMenu(page)
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Install Guide' }).click()
-  await expect(page.getByRole('tab', { name: 'Install Guide' })).toHaveAttribute('data-state', 'active')
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Install', exact: true }).click()
+  await expect(page.getByRole('tab', { name: 'Install', exact: true })).toHaveAttribute('data-state', 'active')
   await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible()
   await expect(page.getByText('Add to Home Screen')).toBeVisible()
 })

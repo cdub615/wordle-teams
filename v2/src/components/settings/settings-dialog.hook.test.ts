@@ -64,11 +64,14 @@ describe('the dialog says which account this is (wordle-teams-7jpo)', () => {
     expect(screen.queryByText(/Signed in as/)).toBeNull()
   })
 
-  test('every tab is still reachable — the row did not displace them', () => {
+  test('the two tabs the menu opens are still reachable — the row did not displace them', () => {
     // It was inserted above the Tabs, so a bad edit could land inside TabsList.
+    // NAMED FOR WHAT IT CHECKS: these are the two tabs app-menu.tsx can open
+    // directly, which is why they are the pair this test watches. The full
+    // four-tab membership and order is asserted below, once.
     mount('ada@example.com')
     expect(screen.queryByRole('tab', { name: 'Notifications' })).not.toBeNull()
-    expect(screen.queryByRole('tab', { name: 'Install Guide' })).not.toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Install' })).not.toBeNull()
   })
 })
 
@@ -83,13 +86,13 @@ describe('the four-tab strip (wordle-teams-wty4.1.7)', () => {
      * fails either way.
      *
      * THE ORDER IS THE POINT, not just the membership. Security sits between
-     * Notifications and Install Guide: the strip runs from what a visitor came
+     * Notifications and Install: the strip runs from what a visitor came
      * for towards what they will read once, and a tab that DOES something does
      * not belong after static copy.
      */
     mount('ada@example.com')
     const names = screen.getAllByRole('tab').map((tab) => tab.textContent)
-    expect(names).toEqual(['Profile', 'Notifications', 'Security', 'Install Guide'])
+    expect(names).toEqual(['Profile', 'Notifications', 'Security', 'Install'])
   })
 
   test('Security has a panel of its own, not just a trigger', () => {
@@ -108,7 +111,6 @@ describe('the four-tab strip (wordle-teams-wty4.1.7)', () => {
     expect(document.getElementById(panelId as string)).not.toBeNull()
   })
 })
-
 
 describe('the name sits above the address', () => {
   test('both are shown, name first', () => {

@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   PASSKEY_DECLINED_KEY,
   PASSKEY_REGISTERED_KEY,
+  forgetPasskeyRegistered,
   passkeyRegisteredHere,
   passkeySupported,
   rememberPasskeyDeclined,
@@ -137,6 +138,36 @@ describe('the per-device markers', () => {
     expect(session.peek(PASSKEY_DECLINED_KEY)).toBeNull()
   })
 
+  test('a registration can be FORGOTTEN again', () => {
+    // The account has no passkeys left, so this device certainly holds none.
+    // Without this the device goes on claiming a credential that was deleted,
+    // and /login offers a button whose ceremony finds nothing.
+    rememberPasskeyRegistered()
+    expect(passkeyRegisteredHere()).toBe(true)
+    forgetPasskeyRegistered()
+    expect(passkeyRegisteredHere()).toBe(false)
+  })
+
+  test('forgetting a registration does NOT un-decline the offer', () => {
+    /**
+     * THE MUTATION THIS KILLS: clearing both keys in `forgetPasskeyRegistered`.
+     * Removing a passkey is not a request to be asked about passkeys again — a
+     * player who dismissed the offer and later tidied up their credentials
+     * would start being nagged at every sign-in, which is the loop the whole
+     * declined marker exists to end.
+     */
+    rememberPasskeyDeclined()
+    rememberPasskeyRegistered()
+    forgetPasskeyRegistered()
+    expect(local.peek(PASSKEY_DECLINED_KEY)).not.toBeNull()
+    expect(shouldOfferPasskey()).toBe(false)
+  })
+
+  test('forgetting on a device that never registered is a no-op, not a throw', () => {
+    expect(() => forgetPasskeyRegistered()).not.toThrow()
+    expect(passkeyRegisteredHere()).toBe(false)
+  })
+
   test('the two keys are distinct, so neither can stand in for the other', () => {
     // A single shared key would pass "false after registering" and "false after
     // declining" both, while making `passkeyRegisteredHere()` true for someone
@@ -210,6 +241,14 @@ describe('a blocked store is survived rather than propagated', () => {
     install('localStorage', fakeStorage(['getItem']))
     expect(() => shouldOfferPasskey()).not.toThrow()
     expect(shouldOfferPasskey()).toBe(false)
+  })
+
+  test('forgetting does not throw when the store is blocked', () => {
+    // This runs inside the settings dialog's remove handler, straight after a
+    // removal the server has already accepted. A throw here would turn a
+    // successful delete into a crashed tab.
+    install('localStorage', fakeStorage(['removeItem']))
+    expect(() => forgetPasskeyRegistered()).not.toThrow()
   })
 
   test('asking whether this device registered one does not throw, and says no', () => {

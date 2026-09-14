@@ -134,8 +134,12 @@ export function pushFailureMessage(reason: SubscribeFailureReason): string {
  * on failure — never a thrown error left for React to render as a crashed
  * tab. UNLIKE current-team-card.tsx's buttons, though, a pending control here
  * stays MOUNTED and merely `disabled`, with the spinner beside it rather than
- * replacing it — matching Header.tsx's Billing button, which keeps its own
- * label mounted and swaps only the icon. Swapping the whole control out (an
+ * replacing it — matching Header.tsx's UPGRADE button, which keeps its own
+ * label mounted and swaps only the icon. (This said "Billing" until
+ * 2026-09-13, and had been wrong since wordle-teams-lyab moved Billing into
+ * app-menu.tsx, where it renders a persistent `<span>` with an APPENDED
+ * spinner rather than a swapped icon — a different shape from the one this
+ * sentence is pointing at.) Swapping the whole control out (an
  * earlier version of this file did) breaks the `<Label htmlFor>` association
  * for exactly as long as the mutation is in flight, since the element the
  * `id` lives on stops existing.

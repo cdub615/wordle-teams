@@ -13,7 +13,7 @@ export type SettingsTab = 'profile' | 'notifications' | 'security' | 'install'
  * `<Dialog>` root and its `open`/`onOpenChange` state live in app-menu.tsx,
  * one level up, because that is also where the two menu items that decide
  * `defaultTab` live: clicking "Notifications" opens here on that tab,
- * clicking "Install Guide" on the other, exactly like v1's
+ * clicking "Install" on the other, exactly like v1's
  * handleNotificationsClick / handleInstallClick pair. Profile and Security have
  * no menu item of their own and are reached by tapping across, which is why
  * neither needs a `defaultTab` of its own.
@@ -118,14 +118,42 @@ export function SettingsDialog({
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           {/*
-            AFTER NOTIFICATIONS, BEFORE INSTALL GUIDE. The strip runs from the
-            tab a visitor is most likely to have come for to the one they are
-            least likely to — Install Guide is static copy read once — and
-            Security is a thing you do rather than a thing you read, so it
-            belongs on the acting side of that line.
+            AFTER NOTIFICATIONS, BEFORE INSTALL. The strip runs from the tab a
+            visitor is most likely to have come for to the one they are least
+            likely to — Install is static copy read once — and Security is a
+            thing you do rather than a thing you read, so it belongs on the
+            acting side of that line.
           */}
           <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="install">Install Guide</TabsTrigger>
+          {/*
+            "Install", NOT "Install Guide", AND THE REASON IS MEASURED WIDTH
+            RATHER THAN TASTE (wordle-teams-wty4.1.7.7). Adding a fourth trigger
+            pushed the row from 306px to 387px, and the dialog's content box is
+            only 332px at a 390px viewport — so a strip that fitted every phone
+            from 390 up stopped fitting any of them. Dropping the second word
+            takes 46px back, to 341px.
+
+            THAT IS NOT ENOUGH FOR 390, AND SAYING SO IS THE POINT OF WRITING
+            THE NUMBER DOWN. 341 still exceeds 332 by 9px. Measured in headless
+            Chromium against this app's compiled stylesheet and its real Inter
+            faces: Profile 70, Notifications 115, Security 81, Install 67, plus
+            8px of TabsList padding. What the rename actually buys is 414 and up
+            (13px spare) — it undoes the regression for the widest phones and
+            leaves 390 and below where the FOUR-tab row still scrolls.
+
+            THE 320 AND 360 OVERFLOW IS NOT NEW AND IS NOT FIXED HERE: the
+            THREE-tab row was already over at both, by 39px and 2px. Fitting any
+            of the three would mean renaming "Notifications", which is also a
+            menu item and an e2e-asserted product string — a product decision,
+            not a layout one. Left for the owner on wordle-teams-wty4.1.7.7.
+
+            The label still names the tab — the panel's own heading reads
+            "Installation" — and the MENU ITEM was renamed in lockstep
+            (app-menu.tsx), because that item is what opens this dialog on this
+            tab and the two drifting apart is the failure worth guarding
+            against.
+          */}
+          <TabsTrigger value="install">Install</TabsTrigger>
         </TabsList>
         <TabsContent value="profile">
           <ProfileTab />

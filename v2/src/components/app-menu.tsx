@@ -432,9 +432,17 @@ export function AppMenu() {
                   <UserIcon className="mr-2 h-4 w-4" aria-hidden="true" />
                   <span>Profile</span>
                 </DropdownMenuItem>
+                {/*
+                  "Install" MATCHES THE TAB IT OPENS, and must keep matching.
+                  This item's whole job is to open the settings dialog on the
+                  Install tab; a menu item whose label disagrees with the tab it
+                  lands on reads as having gone to the wrong place. Renamed from
+                  "Install Guide" with the trigger in settings-dialog.tsx, where
+                  the measured width argument for the shorter label lives.
+                */}
                 <DropdownMenuItem onClick={() => openTab('install')}>
                   <Download className="mr-2 h-4 w-4" aria-hidden="true" />
-                  <span>Install Guide</span>
+                  <span>Install</span>
                 </DropdownMenuItem>
                 {/* Menu held open for the round trip, as Billing is above. */}
                 <DropdownMenuItem
