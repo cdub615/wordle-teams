@@ -36,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
 import { BoardEntryForm } from './form.tsx'
 import { monthOf, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { boardIsValid } from '../../../convex/lib/board.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -145,8 +146,17 @@ vi.mock('#/components/date-picker.tsx', () => ({
  *
  * jsdom implements no scrolling at all, so `scrollIntoView` is absent and
  * scrollActiveRowIntoView would throw on the first keystroke.
+ *
+ * IT COUNTS RATHER THAN DOING NOTHING, which is the difference between a stub
+ * that keeps the suite alive and one that can see a bug. form.tsx's rule that a
+ * refused keystroke must not be written back exists ENTIRELY to stop this effect
+ * firing on keys that changed nothing — with a no-op stub, stripping that rule
+ * leaves every test in the repo green.
  */
-Element.prototype.scrollIntoView = () => {}
+let scrolls = 0
+Element.prototype.scrollIntoView = () => {
+  scrolls += 1
+}
 
 beforeEach(() => {
   requested = []
@@ -155,6 +165,7 @@ beforeEach(() => {
   fired.length = 0
   warnings.length = 0
   selectDay = null
+  scrolls = 0
 })
 
 afterEach(cleanup)
@@ -515,6 +526,38 @@ describe('the stream on a board that is not a prefix', () => {
     expect(boardRow(6)).toBe('SLATE')
   })
 
+  /**
+   * THE GATE REMOVED IN T7, PINNED AT THE LEVEL THAT NOW OWNS THE KEYSTROKE.
+   *
+   * `boardIsValid` is TRUE for this board — answer PIVOT, rows 0, 2 and 5 filled,
+   * every row either empty or five long, last row full — and yet row 1 is a gap
+   * the player still has to type into. The old handler consulted `boardIsValid`
+   * and went dead here while `cursorFor` pointed the caret straight at row 1: A
+   * CARET ON A ROW YOU CANNOT TYPE INTO, which is wordle-teams-lz3w restated as a
+   * question about the board answered by whole-board validity instead of by
+   * asking where the cursor is.
+   *
+   * An equivalent test existed at 764de0bf against BoardInput's own handler and
+   * was lost when the handler moved to form.tsx. MEASURED: re-adding the gate to
+   * form.tsx's handleKeyDown passed all 3192 tests in all 176 files.
+   */
+  test('keeps typing into the gap on a board boardIsValid already calls valid', () => {
+    const guesses = ['CRANE', '', 'SLATE', '', '', 'TRAIN']
+    // Both spellings, because the form passes `existing !== undefined` and this
+    // board arrives WITH an existing score — the gate would be just as wrong.
+    expect(boardIsValid('PIVOT', guesses, true)).toBe(true)
+    expect(boardIsValid('PIVOT', guesses, false)).toBe(true)
+
+    openWith(guesses, 'PIVOT')
+
+    // The caret is on the gap, not on the "finished" board.
+    expect(screen.getByTestId('board-cursor').id).toBe('2-1')
+    type('x')
+    expect(boardRow(2)).toBe('X')
+    expect(boardRow(1)).toBe('CRANE')
+    expect(boardRow(6)).toBe('TRAIN')
+  })
+
   test('Tab and Ctrl/Cmd combos are left to the browser', () => {
     openWith(['', '', 'SLATE'])
     // fireEvent returns false when the event was preventDefault'd.
@@ -644,5 +687,71 @@ describe('nothing can be typed into the region natively', () => {
     // guard on the editing host rather than on each half.
     expect(beforeInput(tile as HTMLElement)).toBe(false)
     expect(fireEvent.paste(tile as HTMLElement)).toBe(false)
+  })
+})
+
+/**
+ * WRITE BACK ONLY WHAT CHANGED, PINNED BY COUNTING THE SCROLLS.
+ *
+ * Every operation in entry-cursor.ts returns its input NORMALISED through
+ * `toRows` — a FRESH array — whether or not anything moved, so writing the
+ * result back unconditionally hands form.tsx a new `guesses` identity on a key
+ * that changed nothing and re-fires `useEffect(scrollActiveRowIntoView, ...)`.
+ * On a phone that is the board jumping under the player's thumb on every Shift
+ * press.
+ *
+ * NOTHING ELSE IN THIS REPO CAN SEE THAT. jsdom has no scrolling, so the
+ * `scrollIntoView` every other test needs stubbed is also the only observable
+ * this rule has: MEASURED, stripping both guards — `applyEntry`'s field-by-field
+ * comparison and the refusal skip in the letter branch — left all 3192 tests
+ * green against a no-op stub.
+ */
+describe('a keystroke that changes nothing writes nothing', () => {
+  const openEntry = () => {
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+  }
+
+  test('a refused keystroke does not re-scroll the board', () => {
+    openEntry()
+    type('CRANE')
+    type('S')
+    const settled = scrolls
+    // A real letter DID scroll — otherwise the assertion below is vacuous.
+    expect(settled).toBeGreaterThan(0)
+
+    // 'not-a-letter', three ways: a modifier, an arrow, and a printable
+    // character that is not a letter. Each returns the board normalised.
+    fireEvent.keyDown(region(), { key: 'Shift' })
+    fireEvent.keyDown(region(), { key: 'ArrowLeft' })
+    fireEvent.keyDown(region(), { key: '5' })
+
+    expect(scrolls).toBe(settled)
+  })
+
+  test('a refused click on the board does not re-scroll it either', () => {
+    openEntry()
+    type('CR')
+    const settled = scrolls
+
+    // `moveZone` refuses this while the answer is short, and its `next` is the
+    // input normalised — a fresh array that must not be written.
+    fireEvent.mouseDown(boardHalf())
+
+    expect(coach().textContent).toMatch(/answer first/i)
+    expect(scrolls).toBe(settled)
+  })
+
+  test('typing into the ANSWER does not scroll the board, and the hand-off does', () => {
+    openEntry()
+    // Four letters, all of them in the answer zone: the board is untouched and
+    // the zone has not moved, so there is nothing for the effect to react to.
+    type('CRAN')
+    expect(scrolls).toBe(0)
+
+    // The fifth hands the caret over — a zone change with no focus event, which
+    // is exactly why `zone` is in the effect's deps.
+    type('E')
+    expect(scrolls).toBeGreaterThan(0)
   })
 })
