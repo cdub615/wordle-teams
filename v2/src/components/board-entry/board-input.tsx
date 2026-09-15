@@ -104,6 +104,21 @@ export function BoardInput({
  * OUTSIDE THE ENTRY REGION, ALWAYS — see the note above. `id="board-submit"` is
  * how form.tsx's Enter key reaches it, which is the same indirection the board's
  * own handler used before the stream moved.
+ *
+ * `hidden md:flex`, NOT `invisible h-0 md:visible md:h-fit` (wordle-teams-bi8i),
+ * AND ON A PHONE THAT WAS THE WHOLE OF THE SCROLLING. `invisible` hides this box
+ * and `h-0` flattens it, but the `h-10` Button INSIDE it still lays out.
+ * Measured at 390x844 against the built stylesheet: the entry scroller's
+ * clientHeight was 436 and its real content was exactly 436 — THE BOARD FITS —
+ * while scrollHeight read 476. All 40px of the phone's scrolling was this
+ * desktop-only button, plus the 8px `mt-2` that came with it.
+ *
+ * `display: none` RATHER THAN CLIPPING IT: clipping would leave a focusable
+ * submit control in the tab order and in the accessibility tree on the viewport
+ * where the sheet footer's Submit is the real one. `hidden` takes it out of all
+ * three. Under `md` it is a flex row again and the button is the desktop submit,
+ * unchanged — and `document.getElementById('board-submit')` still resolves at
+ * every width, because `display:none` removes a box, not an element.
  */
 export function BoardSubmit({
   submitting,
@@ -113,7 +128,7 @@ export function BoardSubmit({
   disabled: boolean
 }) {
   return (
-    <div className="invisible mt-2 flex h-0 justify-end space-x-4 md:visible md:mt-2 md:h-fit">
+    <div className="mt-2 hidden h-fit justify-end space-x-4 md:flex">
       <Button
         disabled={submitting || disabled}
         aria-disabled={submitting || disabled}

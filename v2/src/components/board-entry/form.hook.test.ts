@@ -856,3 +856,91 @@ describe('a keystroke that changes nothing writes nothing', () => {
     expect(scrolls).toBeGreaterThan(0)
   })
 })
+
+/**
+ * THE ANSWER ROW MUST NOT READ AS A SEVENTH BOARD ROW (wordle-teams-wty4.1.7).
+ *
+ * WHAT WENT WRONG. The slots shipped at `w-72 md:w-80` — the board grid's exact
+ * width — so five slots lined up column-for-column with five tiles, in the same
+ * square cells with the same border and no label above them. The owner's
+ * screenshot of it is a board with seven rows.
+ *
+ * WHAT THESE TWO TESTS CAN AND CANNOT SEE, stated plainly because it is the
+ * whole reason they are written against CLASS NAMES. jsdom has no layout engine
+ * and no Tailwind, so nothing here can measure a rendered width; what it CAN do
+ * is read the utility the caller passes and refuse the two edits most likely to
+ * undo this by habit — putting the board's width back on the slots, and putting
+ * the focus ring back on the region. The rendered widths are measured in a real
+ * Chromium instead (224px against 288/320, slots 41.59px wide with 4px gutters
+ * and no overlap), which is the only place that number is a fact.
+ */
+describe('the answer row is visibly not part of the board', () => {
+  const openEntry = () => {
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+  }
+
+  /**
+   * Tailwind's spacing scale: `w-56` is 14rem is 224px. Returns the base width
+   * and the `md:` one, which is the base again when there is no md override.
+   */
+  const widths = (className: string) => {
+    const base = /(?:^|\s)w-(\d+)(?:\s|$)/.exec(className)
+    const md = /(?:^|\s)md:w-(\d+)(?:\s|$)/.exec(className)
+    if (!base) throw new Error(`no width utility in ${JSON.stringify(className)}`)
+    return { base: Number(base[1]) * 4, md: md ? Number(md[1]) * 4 : Number(base[1]) * 4 }
+  }
+
+  test('the slots row is narrower than the board at both breakpoints, and above the overlap floor', () => {
+    openEntry()
+
+    const slots = widths(screen.getByRole('group', { name: /Wordle answer/i }).className)
+    const grid = document.querySelector('[data-slot="wordle-board"] .grid')
+    const board = widths((grid as HTMLElement).className)
+
+    // The board is unchanged: 288px on a phone, 320px from md. If this fails the
+    // comparison below has moved, not the thing it is defending.
+    expect(board).toEqual({ base: 288, md: 320 })
+
+    expect(slots.base).toBeLessThan(board.base)
+    expect(slots.md).toBeLessThan(board.md)
+
+    /**
+     * 216px IS A HARD FLOOR, NOT A STYLE PREFERENCE. `AnswerSlots`' slots carry
+     * `min-w-10`, so five of them plus four `gap-1` gutters cannot fit in less
+     * — and below it they OVERLAP rather than overflow: measured at 108px, slot
+     * 0 spans [0,40] while slot 1 starts at 22.39. A future trim that keeps
+     * "narrower than the board" true can still cross this line.
+     */
+    expect(slots.base).toBeGreaterThanOrEqual(216)
+    expect(slots.md).toBeGreaterThanOrEqual(216)
+  })
+
+  /**
+   * THE REGION HAS NO FOCUS RING, AND THE CARET IS WHAT REPLACED IT.
+   *
+   * Removed at the owner's direction: one ring around the answer AND the board
+   * said only "something here has focus", which is what made the two zones read
+   * as one control. Re-adding `focus:ring-2` is a one-word edit somebody makes
+   * out of habit while tidying focus styles, hence this.
+   *
+   * THE SECOND HALF IS NOT DECORATION. Removing a visible focus indicator with
+   * nothing in its place is a WCAG 2.4.7 failure, so this test refuses the ring
+   * ONLY TOGETHER WITH the thing that stands in for it: a focused region with an
+   * EMPTY answer draws a caret in the first slot. Both halves have to hold, or
+   * there is a state with focus and no indicator at all.
+   */
+  test('the region carries no focus-ring class, and a focused empty answer shows a caret instead', () => {
+    openEntry()
+
+    expect(region().className).not.toMatch(/ring/)
+    // The UA's own outline is still suppressed, so "no ring" cannot be read as
+    // "the browser draws its own box around both zones instead".
+    expect(region().className).toContain('focus:outline-none')
+
+    // Nothing typed: this is the state a player lands in when the step opens.
+    expect(answerText()).toBe('')
+    expect(answerCursor()).toBe(0)
+    expect(screen.getAllByTestId('answer-caret')).toHaveLength(1)
+  })
+})

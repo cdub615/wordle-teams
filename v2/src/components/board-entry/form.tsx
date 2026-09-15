@@ -197,6 +197,15 @@ function BoardEntryFields({
   const [focused, setFocused] = useState(false)
   /** The ONE focusable thing on the entry step: answer slots and board together. */
   const regionRef = useRef<HTMLDivElement>(null)
+  /**
+   * The region PLUS the "Wordle Answer" label above it, and it exists to be
+   * SCROLLED rather than focused. The label sits outside the editing host (see
+   * the render), so scrolling `regionRef` into view is what would push the label
+   * off the top of the scroll container — on the one viewport short enough for
+   * the scroll to do anything, which is the viewport where an unlabelled slots
+   * row is hardest to read.
+   */
+  const answerZoneRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Deferred to an effect rather than a useState initialiser: picking the
@@ -360,7 +369,7 @@ function BoardEntryFields({
    * to the wrong row rather than corrupting a board — but the next person to
    * change one of them would not have known to change the other.
    *
-   * THE ANSWER ZONE SCROLLS TO THE REGION, NOT TO A ROW. The answer slots live
+   * THE ANSWER ZONE SCROLLS TO THE ANSWER ZONE, NOT TO A ROW. The answer slots live
    * INSIDE the scroll container now, above the board, so "which row" is the wrong
    * question while the caret is up there — and answering it with the last row
    * (what a null cursor means, and what this fell back to) would scroll the thing
@@ -371,7 +380,9 @@ function BoardEntryFields({
    */
   const scrollActiveRowIntoView = () => {
     if (cursor !== null && cursor.zone === 'answer') {
-      regionRef.current?.scrollIntoView({ block: 'nearest' })
+      // THE LABEL COMES WITH IT — `answerZoneRef` wraps the label and the region,
+      // and `regionRef` would leave the label above the scrolled-to edge.
+      answerZoneRef.current?.scrollIntoView({ block: 'nearest' })
       return
     }
     const index = cursor === null ? guesses.length - 1 : cursor.row
@@ -795,64 +806,134 @@ function BoardEntryFields({
          * submit separately — see the note there — and why Cancel and Submit sit
          * in the sheet footer below rather than anywhere in here.
          *
-         * `w-fit` SO THE FOCUS RING HUGS THE CONTENT (wordle-teams-rpql). A
-         * full-width region draws a ring around the whole sheet, clipped at both
-         * edges by the scroll container's computed `overflow-x`.
+         * NO TEXT IS INSIDE IT EITHER, which is why the "Wordle Answer" label
+         * above is the WRAPPER's child rather than this one's. Text inside an
+         * editing host is reachable by the native input paths this element spends
+         * two handlers cancelling, and one of them — `insertCompositionText` from
+         * an IME commit — is NOT CANCELABLE AT ALL (wordle-teams-5n6n). A label
+         * in here would be a string the player can overwrite.
+         *
+         * `w-fit` SO THE REGION HUGS THE CONTENT (wordle-teams-rpql). It carried
+         * the focus ring when that note was written; the ring is gone (see the
+         * className below) and the sizing outlives it, because the region is
+         * still the thing the answer slots and the board are centred within.
          */}
-        <div
-          ref={regionRef}
-          contentEditable
-          suppressContentEditableWarning
-          tabIndex={2}
-          role="group"
-          aria-label="Wordle board entry"
-          aria-describedby="entry-instructions"
-          /**
-           * THE MOBILE INPUT HINTS, SET DELIBERATELY. Unset, they resolve to a
-           * spell-checked, auto-corrected, auto-capitalised editing host — which
-           * is what puts the predictive-text bar over the keyboard, and the
-           * predictive bar's commit path is the one `insertCompositionText` hole
-           * nothing can cancel (wordle-teams-5n6n). Narrowing the invitation is
-           * the only lever this component has over it.
-           *
-           * `autoCapitalize="characters"` rather than "off": the board and the
-           * slots are uppercase, so this is the keyboard agreeing with what is on
-           * screen, and `typeLetter` uppercases anyway so it cannot disagree.
-           * `enterKeyHint="done"` because Enter here submits the board.
-           */
-          spellCheck={false}
-          autoCorrect="off"
-          autoCapitalize="characters"
-          inputMode="text"
-          enterKeyHint="done"
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onKeyDown={handleKeyDown}
-          onBeforeInput={(event) => event.preventDefault()}
-          onPaste={(event) => event.preventDefault()}
-          className="mx-auto mt-4 flex w-fit select-none flex-col items-center gap-2 rounded-lg caret-transparent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-6 focus:ring-offset-background md:my-2"
-        >
-          {/* `w-72 md:w-80` IS THE BOARD GRID'S OWN WIDTH (wordle-board.tsx), so
-              the five slots line up column-for-column with the five tiles under
-              them — and it is comfortably above the 216px floor below which the
-              slots overlap each other. */}
-          <AnswerSlots
-            answer={answer}
-            cursorIndex={focused && cursor?.zone === 'answer' ? cursor.index : null}
-            onSelect={() => selectZone('answer')}
-            className="w-72 md:w-80"
-          />
-          <BoardInput
-            guesses={guesses}
-            answer={answer}
-            // UNADAPTED, both zones. BoardInput narrows it to a tile itself,
-            // which is the one place that narrowing may happen. NULL WHILE
-            // UNFOCUSED: a caret that cannot be typed into is a lie, and the
-            // scroll below still uses the ungated `cursor`, because where the
-            // board should be scrolled to does not depend on who has focus.
-            cursor={focused ? cursor : null}
-            onSelect={() => selectZone('board')}
-          />
+        {/* THE ANSWER ZONE: the label and the region it names.
+
+            THE MARGINS LIVE HERE RATHER THAN ON THE REGION so the label moves
+            with it, and `scrollActiveRowIntoView` scrolls THIS — scrolling the
+            region would push the label out of the scroll container exactly when
+            the player is typing the answer. */}
+        <div ref={answerZoneRef} className="mx-auto mt-4 w-fit md:my-2">
+          {/* THE LABEL, RESTORED — AND OUTSIDE THE EDITING HOST ON PURPOSE.
+
+              It was in the original plan for this surface and was dropped when the
+              old `#answer` input was deleted, which is most of why the slots row
+              became anonymous enough to read as another board row.
+
+              OUTSIDE THE `contentEditable`, NOT IN IT: see the region's own note
+              below. Text inside an editing host is reachable by native input
+              paths, and `insertCompositionText` cannot be cancelled at all
+              (wordle-teams-5n6n), so a label in there is a string the player can
+              overwrite.
+
+              `aria-hidden` SO IT IS NOT ANNOUNCED TWICE, AND THE HIDDEN HALF IS
+              THE BETTER ONE. `AnswerSlots`' group already carries an aria-label
+              reading "Today's Wordle answer, 2 of 5 letters: C R" — strictly more
+              useful than a bare "Wordle Answer", because it carries the live
+              count. This is the SIGHTED half of the same label. */}
+          <span aria-hidden="true" className="mb-1 block text-center text-xs font-medium sm:text-sm">
+            Wordle Answer
+          </span>
+          <div
+            ref={regionRef}
+            contentEditable
+            suppressContentEditableWarning
+            tabIndex={2}
+            role="group"
+            aria-label="Wordle board entry"
+            aria-describedby="entry-instructions"
+            /**
+             * THE MOBILE INPUT HINTS, SET DELIBERATELY. Unset, they resolve to a
+             * spell-checked, auto-corrected, auto-capitalised editing host — which
+             * is what puts the predictive-text bar over the keyboard, and the
+             * predictive bar's commit path is the one `insertCompositionText` hole
+             * nothing can cancel (wordle-teams-5n6n). Narrowing the invitation is
+             * the only lever this component has over it.
+             *
+             * `autoCapitalize="characters"` rather than "off": the board and the
+             * slots are uppercase, so this is the keyboard agreeing with what is on
+             * screen, and `typeLetter` uppercases anyway so it cannot disagree.
+             * `enterKeyHint="done"` because Enter here submits the board.
+             */
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="characters"
+            inputMode="text"
+            enterKeyHint="done"
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={handleKeyDown}
+            onBeforeInput={(event) => event.preventDefault()}
+            onPaste={(event) => event.preventDefault()}
+            /**
+             * NO FOCUS RING, AND THE CARET IS THE FOCUS INDICATOR THAT REPLACES IT.
+             *
+             * This element used to carry `focus:ring-2 focus:ring-ring
+             * focus:ring-offset-6 focus:ring-offset-background`, which drew ONE
+             * ring around the answer slots AND the board together. That was
+             * helpful while the answer was a separate `#answer` input with its own
+             * ring; with one region over both zones it outlines a whole sheet of
+             * content and says nothing about where the next keystroke lands.
+             *
+             * REMOVING A VISIBLE FOCUS INDICATOR WITH NOTHING IN ITS PLACE WOULD BE
+             * A WCAG 2.4.7 FAILURE, so the replacement is named here rather than
+             * assumed: `cursorIndex` below and `cursor` on BoardInput are BOTH
+             * gated on `focused`, so an unfocused region draws no caret anywhere
+             * and a RENDERED CARET IMPLIES A FOCUSED REGION (see the `focused`
+             * state's own note). A blinking text caret is the conventional focus
+             * indicator for an editing host, and unlike the ring it also says WHICH
+             * of the two zones has the cursor. e2e/board-entry.spec.ts asserts the
+             * caret is PAINTED rather than merely classed, in both zones.
+             *
+             * `focus:outline-none` STAYS. Dropping it would hand the region the
+             * UA's default focus outline, which is the same undifferentiated box
+             * around both zones that the ring was removed for.
+             */
+            className="mx-auto flex w-fit select-none flex-col items-center gap-4 caret-transparent focus:outline-none"
+          >
+            {/* `w-56` (224px) IS DELIBERATELY NARROWER THAN THE BOARD — 288px
+                (`w-72`) on a phone, 320px (`md:w-80`) from md — AND THAT IS THE
+                POINT. The slots used to be exactly the board grid's width, so they
+                lined up column-for-column with the tiles and the row read as a
+                SEVENTH BOARD ROW: same width, same square cells, same border, no
+                label. Breaking the alignment, plus the label above, is what makes
+                it read as a separate control.
+
+                224px IS 8px ABOVE THE FLOOR AND THE FLOOR IS HARD. `AnswerSlots`'
+                slots carry `min-w-10`, so five of them plus four `gap-1` gutters
+                have an intrinsic minimum of 216px — and BELOW that the slots
+                OVERLAP rather than overflow cleanly (measured: at 108px, slot 0
+                spans [0,40] while slot 1 starts at 22.39). Nothing here may go
+                under 216px. */}
+            <AnswerSlots
+              answer={answer}
+              cursorIndex={focused && cursor?.zone === 'answer' ? cursor.index : null}
+              onSelect={() => selectZone('answer')}
+              className="w-56"
+            />
+            <BoardInput
+              guesses={guesses}
+              answer={answer}
+              // UNADAPTED, both zones. BoardInput narrows it to a tile itself,
+              // which is the one place that narrowing may happen. NULL WHILE
+              // UNFOCUSED: a caret that cannot be typed into is a lie, and the
+              // scroll below still uses the ungated `cursor`, because where the
+              // board should be scrolled to does not depend on who has focus.
+              cursor={focused ? cursor : null}
+              onSelect={() => selectZone('board')}
+            />
+          </div>
         </div>
         <BoardSubmit submitting={submitting} disabled={submitDisabled} />
       </div>
@@ -884,10 +965,28 @@ function BoardEntryFields({
           sheet's bottom edge is the keyboard rather than the screen, so the
           two cases agree without a media query.
 
-          `md:p-0` STILL WINS ON DESKTOP: it is a later, more specific-in-
-          source-order padding utility than this one, and tailwind-merge keeps
-          both because they are different variants. */}
-      <div className="sticky bottom-0 flex w-full shrink-0 flex-row space-x-2 bg-background pb-[env(safe-area-inset-bottom)] pt-2 md:invisible md:h-0 md:p-0">
+          `md:hidden`, NOT `md:invisible md:h-0 md:p-0` (wordle-teams-bi8i), AND
+          THAT WAS THE DIALOG'S ENTIRE DESKTOP OVERFLOW. `invisible` is
+          `visibility: hidden` and `h-0` is a height on THIS box — neither stops
+          the two `h-10` buttons INSIDE it laying out. Measured in headless
+          Chromium at 1366x768 and 1920x1080: the buttons painted y 665 to 705
+          while the form ended at 665, the dialog's `p-4` absorbed 16px of that
+          and the remaining 24px escaped as scrollable overflow. It was the WHOLE
+          of it — removing the coach line, the answer slots and the focus ring
+          together still left exactly +24, because each of those lowers
+          scrollHeight and clientHeight by the same amount.
+
+          `display: none` RATHER THAN `overflow: hidden` ON THIS BOX. Clipping
+          also takes the overflow to 0, and it is the wrong fix: the box would
+          still be here, still 0px tall, still holding two focusable submit
+          controls that a keyboard reaches and a screen reader announces on the
+          viewport where they are meant to be gone. The goal is a box that
+          contributes nothing, not one whose contents are merely out of sight.
+
+          IT IS STILL A REAL SUBMIT ROW UNDER `md`, which is the half that must
+          not break: `hidden` applies only from md up, and below it this is the
+          only Cancel/Submit on screen. */}
+      <div className="sticky bottom-0 flex w-full shrink-0 flex-row space-x-2 bg-background pb-[env(safe-area-inset-bottom)] pt-2 md:hidden">
         <Button type="button" variant="outline" className="w-full" onClick={onSuccess}>
           Cancel
         </Button>
