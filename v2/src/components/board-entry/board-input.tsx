@@ -3,6 +3,8 @@ import { toast } from 'sonner'
 import type { KeyboardEvent, KeyboardEventHandler } from 'react'
 import { Button } from '#/components/ui/button.tsx'
 import { WordleBoard } from '#/components/wordle-board.tsx'
+import { backspace, typeLetter } from './entry-cursor.ts'
+import type { Cursor } from './entry-cursor.ts'
 import { boardIsValid, toRows } from '../../../convex/lib/board.ts'
 
 /**
@@ -23,42 +25,6 @@ import { boardIsValid, toRows } from '../../../convex/lib/board.ts'
  * not cancelable, but `beforeinput` is (it is also what fires for paste and
  * IME), so onBeforeInput + onPaste close the gap keydown leaves open.
  */
-export function applyLetter(key: string, answer: string, guesses: Array<string>): Array<string> {
-  const rows = toRows(guesses)
-  const current = rows.find((guess) => guess.length < 5) ?? ''
-  // v1 stops here: once a row equals the answer the board is finished, and
-  // typing past it would start a seventh guess.
-  if (current === answer) return rows
-  // A full, six-row board (every row length 5): there is no row left with
-  // room for another letter, so `current` falls back to '', which no row
-  // actually contains. board-input.tsx never reaches this — it gates every
-  // letter key on `toRows(guesses)[5].length < 5` first — but this is an
-  // exported pure function and that guard is a caller's responsibility to
-  // replicate, not this one's to assume.
-  const index = rows.indexOf(current)
-  if (index === -1) return rows
-  const next = [...rows]
-  next[index] = current + key.toUpperCase()
-  return next
-}
-
-export function applyBackspace(guesses: Array<string>): Array<string> {
-  const rows = toRows(guesses)
-  // Array.prototype.findLastIndex is ES2023; this project's tsconfig targets
-  // ES2022, so the last filled row is found with a manual reverse scan instead.
-  let lastFilled = -1
-  for (let i = rows.length - 1; i >= 0; i--) {
-    if (rows[i].length > 0) {
-      lastFilled = i
-      break
-    }
-  }
-  if (lastFilled < 0) return rows
-  const next = [...rows]
-  next[lastFilled] = rows[lastFilled].slice(0, -1)
-  return next
-}
-
 export function BoardInput({
   guesses,
   setGuesses,
@@ -66,6 +32,7 @@ export function BoardInput({
   hasExistingScore,
   submitting,
   submitDisabled,
+  cursor = null,
   tabIndex,
   onBoardFocus,
 }: {
@@ -75,9 +42,35 @@ export function BoardInput({
   hasExistingScore: boolean
   submitting: boolean
   submitDisabled: boolean
+  /**
+   * `cursorFor`'s RESULT, UNADAPTED — the whole Cursor, both zones, or null.
+   *
+   * THE ADAPTATION TO `<WordleBoard>`'s `{ row, col }` HAPPENS HERE AND ONLY
+   * HERE, one expression, at the render below. It is not the caller's to do: the
+   * answer-zone variant is NON-null with a caret that belongs to
+   * answer-slots.tsx, so "cursor is not null" is not "mark a tile" and every
+   * caller that adapted for itself would be one place the two zones could draw a
+   * caret each. Taking the undiscriminated type is what makes that impossible to
+   * get wrong from outside — a caller hands over `cursorFor(state)` and nothing
+   * else.
+   *
+   * NULL IS LEGAL AND IS THE DEFAULT, for a board with no cursor to show yet.
+   */
+  cursor?: Cursor | null
   tabIndex?: number
   onBoardFocus?: () => void
 }) {
+  /**
+   * THIS COMPONENT'S KEYSTROKES ARE BOARD KEYSTROKES, BY CONSTRUCTION.
+   *
+   * `zone: 'board'` is not an assumption about where the caret is: it is a
+   * statement about where the event came from. This handler is bound to the
+   * board's own contentEditable, and form.tsx's answer field has its own
+   * handler, so a key that arrives here was typed at the board. The zone that
+   * comes BACK from `backspace` is a different matter — see below.
+   */
+  const state = () => ({ answer, guesses, zone: 'board' as const })
+
   const handleKeyDown: KeyboardEventHandler = (event: KeyboardEvent<HTMLDivElement>) => {
     const key = event.key
     // Tab must reach the browser to move focus. Ctrl/Cmd combos (paste,
@@ -92,7 +85,12 @@ export function BoardInput({
     event.preventDefault()
 
     if (key === 'Backspace') {
-      setGuesses(applyBackspace(guesses))
+      // THE ZONE IS DISCARDED, DELIBERATELY. On a genuinely empty board
+      // `backspace` walks back to the answer, and this component has no answer
+      // to walk back to — form.tsx owns that field and its own focus. The
+      // guesses it returns are correct either way, so writing them and ignoring
+      // where the cursor went is the whole of what is available here.
+      setGuesses(backspace(state()).guesses)
       return
     }
     if (key === 'Enter') {
@@ -103,10 +101,26 @@ export function BoardInput({
       }
       return
     }
-    const isLetter = key.length === 1 && /[a-zA-Z]/.test(key)
-    if (isLetter && !boardIsValid(answer, guesses, hasExistingScore) && toRows(guesses)[5].length < 5) {
-      setGuesses(applyLetter(key, answer, guesses))
-    }
+    /**
+     * NO GATE OF ITS OWN, AND THAT IS THE POINT OF ROUTING THROUGH `typeLetter`.
+     *
+     * This used to read `isLetter && !boardIsValid(...) && toRows(guesses)[5].length
+     * < 5`, three conditions re-deciding here what the state machine already
+     * decides: 'not-a-letter', 'board-solved' and 'board-full' are exactly those
+     * three answers, plus 'answer-incomplete', which nothing here asked at all.
+     * Keeping them would leave two sites answering "may this letter land?", which
+     * is the shape of the bug this change exists to kill.
+     *
+     * THE WRITE IS SKIPPED ON A REFUSAL rather than merely harmless: every
+     * refusal returns the input normalised through `toRows`, so a fresh `guesses`
+     * array on every Shift press would re-fire form.tsx's `useEffect(…, [guesses])`
+     * — scrollActiveRowIntoView — for a keystroke that changed nothing.
+     *
+     * Nothing surfaces the refusal yet. The coach line that names it is the next
+     * task; until then a refused keystroke is as silent as it has always been.
+     */
+    const result = typeLetter(state(), key)
+    if (result.refused === null) setGuesses(result.next.guesses)
   }
 
   return (
@@ -137,7 +151,16 @@ export function BoardInput({
         aria-label="Wordle Board"
         tabIndex={tabIndex}
       >
-        <WordleBoard guesses={toRows(guesses)} answer={answer} boardEntry />
+        {/* The one adaptation, and the `zone` test is the load-bearing half of
+            it: the answer variant is non-null and its caret is drawn by
+            answer-slots.tsx, so forwarding it here would put two carets on
+            screen at once. See wordle-board.tsx's `cursor` doc. */}
+        <WordleBoard
+          guesses={toRows(guesses)}
+          answer={answer}
+          boardEntry
+          cursor={cursor?.zone === 'board' ? { row: cursor.row, col: cursor.index } : null}
+        />
       </div>
       {/* Desktop's submit. The mobile one lives in the sheet footer so it can
           pin above the keyboard. */}

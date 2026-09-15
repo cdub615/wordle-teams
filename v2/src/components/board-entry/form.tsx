@@ -470,6 +470,11 @@ function BoardEntryFields({
           hasExistingScore={existing !== undefined}
           submitting={submitting}
           submitDisabled={submitDisabled}
+          // No cursor to give yet: this form still owns two separate focus
+          // targets, so there is no single caret position to hand over. The
+          // continuous answer-into-board stream — one region, `cursorFor` wired
+          // through to here — is the next task.
+          cursor={null}
           tabIndex={3}
           onBoardFocus={scrollActiveRowIntoView}
         />
