@@ -24,14 +24,33 @@ export type EntryState = {
 }
 
 /**
- * Why a keystroke did nothing, when it did nothing. Named, never silent.
+ * Why a keystroke did nothing, when it did nothing. Named, never silent HERE —
+ * which is not the same as announced, and the difference is the whole note.
  *
- * PARTITIONED, AND A CONSUMER MUST RESPECT THE SPLIT. 'answer-full',
- * 'answer-incomplete', 'board-solved' and 'board-full' are copy a player should
- * see. `not-a-letter` is the caller's to IGNORE: it fires for Shift, ArrowLeft, F5
- * and Dead as readily as for a printable mistake like '5', and the coach line is
- * aria-live="polite", so announcing it on every Shift press is worse than silence.
- * It stays ONE member because no consumer distinguishes those two cases.
+ * ONE MEMBER REACHES THE PLAYER AS COPY: 'answer-incomplete', because a click
+ * into the board on a short answer has no other sign on screen at all — it is
+ * what lets the board render at full strength with no lock and no dim.
+ *
+ * THE OTHER FOUR ARE THE CALLER'S TO IGNORE, and an earlier version of this note
+ * claimed the opposite — that all four of the non-`not-a-letter` members were
+ * "copy a player should see". THEY ARE NOT, and routing them to the coach line
+ * would have been the wrong fix rather than a missing one (wordle-teams-x7ds):
+ *
+ *   `not-a-letter` fires for Shift, ArrowLeft, F5 and Dead as readily as for a
+ *   printable mistake like '5', and the coach line is aria-live="polite", so
+ *   announcing it on every Shift press is worse than silence. It stays ONE member
+ *   because no consumer distinguishes those two cases.
+ *
+ *   'answer-full', 'board-solved' and 'board-full' are all answered by a line
+ *   keyed on the STATE instead, in entry-coach.ts, and they have to be: each one
+ *   describes a state the player is already sitting in, so a refusal-keyed line
+ *   would arrive one wasted keystroke late and say nothing the state had not
+ *   already made true. Read `coachFor` for which states those are.
+ *
+ * SO THE TYPE IS STILL WORTH ITS KEYSTROKES: form.tsx skips the write-back on any
+ * refusal, which is what stops a no-op key re-firing the scroll effect, and
+ * 'answer-incomplete' is copy. What no longer holds is that the member NAMES map
+ * one-to-one onto lines of copy.
  */
 export type Refusal =
   | 'not-a-letter'
@@ -86,12 +105,38 @@ function nextSlot(rows: Array<string>): { row: number; col: number } | null {
 }
 
 /**
- * Whether any row has already solved the board. THE LENGTH CHECK IS THE WHOLE
+ * WHICH row has already solved the board, or -1. THE LENGTH CHECK IS THE WHOLE
  * POINT, not belt-and-braces: it closes the `'' === ''` collision above at the one
  * site that asks the question, so no caller has to guard in order to stay correct.
+ *
+ * IT RETURNS THE INDEX BECAUSE ONE CONSUMER NEEDS IT (see `solvedRow`), and it is
+ * ONE function rather than two for the reason the header gives: "has a row solved
+ * the board" and "which row solved the board" are the same question, and asking it
+ * twice is how this module got `Refusal` in the first place.
  */
+function solvedRowIn(guesses: Array<string>, answer: string): number {
+  return answer.length === ANSWER_LENGTH ? guesses.findIndex((row) => row === answer) : -1
+}
+
+/** The predicate the transitions below read, in terms of the one query above. */
 function isSolved(guesses: Array<string>, answer: string): boolean {
-  return answer.length === ANSWER_LENGTH && guesses.some((row) => row === answer)
+  return solvedRowIn(guesses, answer) !== -1
+}
+
+/**
+ * WHICH ROW SOLVED THE BOARD, FOR COPY THAT HAS TO DESCRIBE IT — null when none
+ * did. Exported, normalising like every other entry point here, because
+ * entry-coach.ts needs to say which rows sit ABOVE the solving row and a second
+ * `row === answer` scan over there is exactly the duplication the header warns
+ * about (a lowercase answer would defeat one copy and not the other).
+ *
+ * A QUERY, NOT A TRANSITION, and it answers nothing about where a letter goes.
+ * `nextSlot` remains the only answer to that.
+ */
+export function solvedRow(state: EntryState): number | null {
+  const { answer, guesses } = normalise(state)
+  const row = solvedRowIn(guesses, answer)
+  return row === -1 ? null : row
 }
 
 export function typeLetter(state: EntryState, key: string): EntryResult {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { backspace, cursorFor, moveZone, typeLetter, type EntryState } from './entry-cursor.ts'
+import { backspace, cursorFor, moveZone, solvedRow, typeLetter, type EntryState } from './entry-cursor.ts'
 
 const EMPTY_ROWS = ['', '', '', '', '', '']
 
@@ -423,5 +423,67 @@ describe('normalise canonicalises the answer, not only the rows', () => {
     expect(typeLetter(state({ answer: 'CRANES', zone: 'board' }), 'S').refused).not.toBe(
       'answer-incomplete',
     )
+  })
+})
+
+/**
+ * `solvedRow` — the only query here that exists for COPY rather than for a
+ * transition (wordle-teams-x7ds). entry-coach.ts needs to say which rows sit
+ * above the solving row, and the alternative was a second `row === answer` scan
+ * over there, which the module header calls out as the mistake that produced both
+ * of this file's founding bugs.
+ *
+ * WHAT THESE TESTS DEFEND IS THE NORMALISATION, because that is the half a local
+ * scan in entry-coach.ts would silently lose: coachFor is the one consumer that
+ * reads form.tsx's RAW state, straight off an unconstrained convex/schema.ts
+ * field. `isSolved` is pinned through typeLetter and cursorFor above; this is the
+ * exported index.
+ */
+describe('solvedRow says WHICH row solved the board', () => {
+  test('null when no row does', () => {
+    expect(solvedRow(state({ answer: 'CRANE', guesses: ['SLATE', '', '', '', '', ''] }))).toBeNull()
+  })
+
+  test('the index of the row that does, not merely that one did', () => {
+    expect(solvedRow(state({ answer: 'CRANE', guesses: ['SLATE', 'CRANE', '', '', '', ''] }))).toBe(1)
+  })
+
+  /**
+   * THE FIRST ONE, when a corrupt board somehow holds two. An index has to be a
+   * single answer, and "the row that ended the game" is the earlier one.
+   */
+  test('the FIRST such row when more than one matches', () => {
+    expect(solvedRow(state({ answer: 'CRANE', guesses: ['CRANE', 'CRANE', '', '', '', ''] }))).toBe(0)
+  })
+
+  /**
+   * wty4.1.6's collision, at the one site that now owns the length check: an
+   * empty row against an empty answer must NOT read as a solve. Without this,
+   * coachFor would announce a solved board for every fresh entry form.
+   */
+  test('an empty answer solves nothing, however empty the rows are', () => {
+    expect(solvedRow(state())).toBeNull()
+  })
+
+  test('a short answer solves nothing either', () => {
+    expect(solvedRow(state({ answer: 'CRAN', guesses: ['CRAN', '', '', '', '', ''] }))).toBeNull()
+  })
+
+  /** It normalises, which is the whole reason it is exported rather than inlined. */
+  test('a lowercase stored answer still finds its row', () => {
+    expect(solvedRow(state({ answer: 'crane', guesses: ['SLATE', 'CRANE', '', '', '', ''] }))).toBe(1)
+  })
+
+  test('an over-long stored answer is clamped, so its row is still found', () => {
+    expect(solvedRow(state({ answer: 'CRANES', guesses: ['CRANE', '', '', '', '', ''] }))).toBe(0)
+  })
+
+  /**
+   * A SHORT `guesses` IS PADDED, not read past the end — form.tsx holds whatever
+   * Convex returned, and `toRows` is what makes the index mean the same thing to
+   * entry-coach.ts's scan as it does here.
+   */
+  test('a guesses array shorter than the board still yields a real index', () => {
+    expect(solvedRow({ answer: 'CRANE', guesses: ['', '', 'CRANE'], zone: 'board' })).toBe(2)
   })
 })

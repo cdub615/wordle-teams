@@ -95,40 +95,126 @@ describe('coachFor', () => {
   })
 
   /**
-   * 'answer-full' DELIBERATELY FALLS THROUGH to the ordinary answer-zone line.
-   * A sixth letter never changes the zone (only a successful hand-off does), so
-   * the line is byte-identical to the one already on screen before the
-   * keystroke — an aria-live region only re-announces on a text change, so this
-   * is silence in practice, same spirit as 'not-a-letter', and the five filled
-   * slots already show the player why nothing happened.
+   * A COMPLETE ANSWER IS NOT ASKED FOR AGAIN (wordle-teams-x7ds).
+   *
+   * The old line here was "Type today's answer — five letters", and the argument
+   * for it was that 'answer-full' changes no text, so the live region stays quiet.
+   * THE LIVE-REGION HALF OF THAT WAS TRUE AND THE LINE WAS STILL WRONG: it is
+   * wrong BEFORE the refusal. Tapping a complete answer moves the zone with
+   * `refused` null, and a player who has done nothing but tap is then told to type
+   * an answer they have already typed, where every key is silently refused.
+   *
+   * SO THE ASSERTION IS THE STATE, NOT THE REFUSAL — the pair below is the point.
+   * The refusal changes nothing, which is what "the refusals stay silent" means.
    */
-  test('answer-full falls through to the unchanged answer prompt', () => {
-    expect(line({ answer: 'CRANE' }, 'answer-full')).toBe("Type today's answer — five letters")
+  test('a complete answer is told how to change it, not asked for again', () => {
+    expect(line({ answer: 'CRANE' })).toBe("Answer's in — backspace to change it")
+    expect(line({ answer: 'CRANE' }, 'answer-full')).toBe("Answer's in — backspace to change it")
   })
 
   /**
-   * 'board-solved' can fire with `valid` false: boardIsValid also requires
-   * rows[0] to be full, which a gapped board loaded from an unconstrained
-   * convex/schema.ts row need not satisfy even when some later row equals the
-   * answer. That combination is a corrupt-import edge case, not a state normal
-   * typing reaches, so the ordinary keep-typing line is judged good enough
-   * rather than inventing copy for it.
+   * AND AN INCOMPLETE ONE IS STILL ASKED FOR, which is what stops the test above
+   * being satisfied by a function that never asks for an answer at all.
    */
-  test('board-solved without valid falls through to keep-typing', () => {
+  test('a partial answer is still asked for', () => {
+    expect(line({ answer: 'CRAN' })).toBe("Type today's answer — five letters")
+  })
+
+  /**
+   * `>=`, NOT `===`. coachFor is the one place that reads UNNORMALISED state:
+   * convex/schema.ts stores the answer unconstrained, so a six-letter answer
+   * reaches this function intact while `typeLetter` — which normalises first —
+   * refuses every key as 'answer-full'. With `===` the corrupt board's owner is
+   * told to type an answer that cannot be typed.
+   */
+  test('an over-long stored answer counts as complete, because typeLetter treats it as one', () => {
+    expect(line({ answer: 'CRANES' })).toBe("Answer's in — backspace to change it")
+  })
+
+  /**
+   * THE STATE WHERE BOTH INSTRUCTIONS WERE FALSE (wordle-teams-x7ds), and the
+   * sharpest of the three. The old line was "Keep typing. Backspace goes back a
+   * letter", judged "good enough rather than inventing copy" for what was called
+   * a corrupt-import edge case. It is neither corrupt nor good enough:
+   *
+   *   REACHABLE BY AN ORDINARY PARTIAL IMPORT. `prefillFrom` places each parsed
+   *   row at its parsed POSITION and leaves an unread one blank, so a board solved
+   *   on row 2 whose row 1 the glyph reader missed arrives exactly like this, with
+   *   the answer the solve supplied. boardIsValid is false because it requires
+   *   rows[0] to be full.
+   *
+   *   AND BOTH HALVES OF THE LINE WERE UNTRUE. `typeLetter` refuses every key
+   *   ('board-solved', since a row equals the answer) and `backspace` deletes
+   *   NOTHING — nextSlot is row 0 column 0, and with content below that is a
+   *   gapped board rather than the walk-back, so entry-cursor.ts returns its input
+   *   unchanged. The player could neither type nor delete while being told to do
+   *   both.
+   *
+   * ASSERTED WITHOUT THE REFUSAL FIRST, because that is the case that matters: the
+   * import lands on the confirm step with `refused` null and the line is already
+   * wrong there, before any key is pressed.
+   */
+  test('a blank row above the solve is named, rather than told to keep typing', () => {
+    const gapped = { answer: 'CRANE', zone: 'board' as const, guesses: ['', 'CRANE', '', '', '', ''] }
+    expect(line(gapped)).toBe(
+      'Row 1 is blank, and a later row already solves this — tap the answer to edit it',
+    )
+    expect(line(gapped, 'board-solved')).toBe(
+      'Row 1 is blank, and a later row already solves this — tap the answer to edit it',
+    )
+  })
+
+  /**
+   * THE ROW NUMBER IS READ OFF THE BOARD, NOT HARDCODED. Without this the test
+   * above passes against a function that says "Row 1" for every gapped board, and
+   * row 1 is the only row the common case names — so the one assertion that can
+   * tell the difference is a gap somewhere else.
+   */
+  test('the named row is the first blank one above the solve', () => {
     expect(
-      line(
-        { answer: 'CRANE', zone: 'board', guesses: ['', 'CRANE', '', '', '', ''] },
-        'board-solved',
-        false,
-      ),
+      line({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', '', 'CRANE', '', '', ''] }),
+    ).toBe('Row 2 is blank, and a later row already solves this — tap the answer to edit it')
+  })
+
+  /**
+   * AND THE SENTENCE IS ONLY SAID WHEN IT IS TRUE. "A later row already solves
+   * this" is a claim about a blank row that PRECEDES the solve; a solve on row 1
+   * with the blanks after it keeps the ordinary line. That shape is unreachable
+   * through the app — a parse reads only played rows and a solve ends the game, so
+   * nothing follows the solving row — which is exactly why the guard is here
+   * rather than a comment asserting it cannot happen.
+   */
+  test('a solve with no blank row above it keeps the ordinary line', () => {
+    expect(
+      line({ answer: 'CRANE', zone: 'board', guesses: ['CRANE', 'SLATE', '', '', '', ''] }),
     ).toBe('Keep typing. Backspace goes back a letter')
   })
 
   /**
-   * 'board-full' can likewise fire with `valid` false, if an imported row is
-   * longer than five letters — boardIsValid's "every guess 0 or 5" check fails
-   * even though nextSlot sees no room left. Same corrupt-import edge case as
-   * above: the fall-through is deliberate, not an oversight.
+   * A LOWERCASE STORED ANSWER STILL FINDS THE SOLVE. coachFor reads unnormalised
+   * state, so this goes through entry-cursor.ts's exported `solvedRow` — which
+   * normalises — rather than a second `row === answer` scan over here. A local
+   * scan would miss this and go back to telling the player to keep typing.
+   */
+  test('the solve is found through a lowercase stored answer', () => {
+    expect(
+      line({ answer: 'crane', zone: 'board', guesses: ['', 'CRANE', '', '', '', ''] }),
+    ).toBe('Row 1 is blank, and a later row already solves this — tap the answer to edit it')
+  })
+
+  /**
+   * 'board-full' WITH `valid` FALSE STAYS SILENT, AND THAT IS AN OWNER DECISION
+   * TAKEN WITH THE OTHER TWO IN FRONT OF THEM (wordle-teams-x7ds), not the
+   * "same edge case as above" this comment used to claim — the case above turned
+   * out to be an ordinary partial import and got copy of its own.
+   *
+   * WHAT MAKES THIS ONE DIFFERENT IS THAT THE LINE IS HALF TRUE AND THE HALF THAT
+   * IS TRUE IS THE WAY OUT. It takes a stored row LONGER than five letters, which
+   * neither typing nor a parse can produce — boardIsValid's "every guess 0 or 5"
+   * rejects it, so no write in this app creates it. "Keep typing" is false there,
+   * but "Backspace goes back a letter" is TRUE and it recovers the board: nextSlot
+   * is null, so `backspace` erases from the last row. A player who follows the
+   * line gets unstuck, which is the opposite of the two cases above.
    */
   test('board-full without valid falls through to keep-typing', () => {
     expect(

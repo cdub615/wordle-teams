@@ -174,6 +174,8 @@ function paste() {
 }
 
 const board = () => screen.getByTestId('board').getAttribute('data-guesses')
+/** The one line of coaching under the title, which is also what a screen reader hears. */
+const coach = () => screen.getByTestId('entry-coach').textContent
 /** Board entry now opens on the step that asks which day and how. */
 const goToEntry = () => fireEvent.click(screen.getByRole('button', { name: /enter manually/i }))
 
@@ -531,6 +533,47 @@ describe('the import confirm step', () => {
 
     await waitFor(() => expect(board()).toBe(',CRANE,,,,'))
     expect(note()).toMatch(/row 1 could not be read/i)
+
+    /**
+     * AND THE COACH LINE SAYS SO TOO, BECAUSE THIS BOARD IS A DEAD END
+     * (wordle-teams-x7ds). The row the reader missed is row 1 and the row that
+     * SOLVED the board is row 2, so `cursorFor` returns null, `typeLetter`
+     * refuses every key as 'board-solved', and `backspace` — whose cursor is row
+     * 0 column 0 with content below it, which is a gapped board rather than the
+     * walk-back — deletes nothing. The player can neither type nor delete.
+     *
+     * THIS LINE USED TO READ "Keep typing. Backspace goes back a letter": two
+     * instructions, both false, on arrival and with no keystroke pressed. Only the
+     * import note above made the board recoverable at all.
+     *
+     * ASSERTED HERE RATHER THAN ONLY IN entry-coach.test.ts because the unit test
+     * can only show that coachFor answers this STATE correctly. That the state is
+     * reachable — by an ordinary partial parse of a real screenshot, not by a
+     * corrupt row — is a fact about this pipeline, and the test above already
+     * proves the pipeline produces it.
+     */
+    expect(coach()).toBe(
+      'Row 1 is blank, and a later row already solves this — tap the answer to edit it',
+    )
+
+    // THE TRAP ITSELF, so the line above is pinned as TRUE rather than merely as
+    // the current string. Both gestures the old copy named are no-ops here.
+    typeKeys('X')
+    expect(board()).toBe(',CRANE,,,,')
+    fireEvent.keyDown(region(), { key: 'Backspace' })
+    expect(board()).toBe(',CRANE,,,,')
+
+    // AND THE WAY OUT COMPOSES: tapping the answer is what the line tells them to
+    // do, and the answer-zone line then tells them how to change it — which
+    // un-solves the board and gives row 1 back.
+    selectAnswer()
+    expect(coach()).toBe("Answer's in — backspace to change it")
+    fireEvent.keyDown(region(), { key: 'Backspace' })
+    expect(answerText()).toBe('CRAN')
+    typeKeys('X')
+    expect(answerText()).toBe('CRANX')
+    typeKeys('S')
+    expect(board()).toBe('S,CRANE,,,,')
   })
 })
 
