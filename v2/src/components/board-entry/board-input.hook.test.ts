@@ -9,6 +9,7 @@ import { createElement } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { BoardInput } from './board-input.tsx'
 import type { Cursor } from './entry-cursor.ts'
+import { boardIsValid } from '../../../convex/lib/board.ts'
 
 /**
  * sonner is stubbed rather than rendered: the real toaster is a live region of
@@ -27,6 +28,7 @@ afterEach(() => {
 })
 
 const GAPPED = ['', '', 'SLATE', '', '', '']
+const EMPTY = ['', '', '', '', '', '']
 
 /** The contentEditable that owns the keystroke stream. */
 const board = () => screen.getByRole('region', { name: 'Wordle Board' })
@@ -105,6 +107,69 @@ describe('BoardInput typing', () => {
   test('typing past a solved row writes nothing at all', () => {
     const calls = mount({ guesses: ['SLATE', 'CRANE', '', '', '', ''], answer: 'CRANE' })
     fireEvent.keyDown(board(), { key: 'x' })
+    expect(calls).toEqual([])
+  })
+
+  /**
+   * THE DIVERGENCE THAT JUSTIFIES REMOVING THE OLD GATE, and the reason it was
+   * not merely redundant. That gate asked `toRows(guesses)[5].length < 5` — "is
+   * the LAST row full" — where nextSlot asks "is the BOARD full". They agree only
+   * on a prefix board.
+   *
+   * This shape is reachable: prefillFrom assigns guesses[guess.row] by absolute
+   * lattice row index, so a failed board whose reader resolved only the last row
+   * arrives exactly like this. On it, cursorFor returns { row: 0, index: 0 } —
+   * so the old gate DREW A CARET ON ROW 0 AND MADE EVERY LETTER KEY DEAD THERE.
+   * That is wordle-teams-lz3w again: a question about the board answered by
+   * scanning a fixed row instead of asking where the cursor is.
+   */
+  test('types into row 0 when only the LAST row is filled', () => {
+    const calls = mount({ guesses: ['', '', '', '', '', 'SLATE'], answer: 'CRANE' })
+    fireEvent.keyDown(board(), { key: 'c' })
+    expect(calls).toEqual([['C', '', '', '', '', 'SLATE']])
+  })
+
+  /**
+   * THE BACKSPACE COUNTERPART ON THE SAME BOARD, and it moved too: the old
+   * backwards scan found row 5 and deleted to 'SLAT'. The cursor is at row 0 with
+   * nothing behind it and board content below, so nothing is deleted and nothing
+   * is walked back into.
+   */
+  test('backspace deletes nothing when only the LAST row is filled', () => {
+    const calls = mount({ guesses: ['', '', '', '', '', 'SLATE'], answer: 'CRANE' })
+    fireEvent.keyDown(board(), { key: 'Backspace' })
+    expect(calls).toEqual([['', '', '', '', '', 'SLATE']])
+  })
+
+  // The surprising one: boardIsValid is TRUE for this board — row 0 is five long,
+  // every row is 0 or 5, and row 5 is full — so the old gate blocked it outright,
+  // yet there is a gap at row 1 the player still has to fill.
+  test('keeps typing into the gap on a board boardIsValid already calls valid', () => {
+    const guesses = ['CRANE', '', 'SLATE', '', '', 'TRAIN']
+    expect(boardIsValid('PIVOT', guesses, false)).toBe(true)
+    const calls = mount({ guesses, answer: 'PIVOT' })
+    fireEvent.keyDown(board(), { key: 'x' })
+    expect(calls).toEqual([['CRANE', 'X', 'SLATE', '', '', 'TRAIN']])
+  })
+
+  /**
+   * THE ONE REFUSAL THAT IS NEW, pinned so it is a decision rather than a side
+   * effect. With a 1-to-4 character answer, board typing USED TO WORK and now
+   * does nothing.
+   *
+   * Not a regression against the target design — in the finished feature the
+   * board zone is unreachable on a short answer, since `moveZone` refuses the
+   * move and the hand-off only fires on the fifth letter. It is that rule landing
+   * one commit before the coach line that explains it, so until then a player who
+   * types a partial answer and clicks the board gets silence where they used to
+   * get letters.
+   *
+   * The FULLY EMPTY answer is genuinely unchanged: the old code swallowed that
+   * too, through the `'' === ''` collision that is wty4.1.6 itself.
+   */
+  test('a short answer refuses board typing — new, and the coach line is what will explain it', () => {
+    const calls = mount({ guesses: EMPTY, answer: 'CRA' })
+    fireEvent.keyDown(board(), { key: 'c' })
     expect(calls).toEqual([])
   })
 

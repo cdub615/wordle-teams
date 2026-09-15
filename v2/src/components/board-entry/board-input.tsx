@@ -105,19 +105,39 @@ export function BoardInput({
      * NO GATE OF ITS OWN, AND THAT IS THE POINT OF ROUTING THROUGH `typeLetter`.
      *
      * This used to read `isLetter && !boardIsValid(...) && toRows(guesses)[5].length
-     * < 5`, three conditions re-deciding here what the state machine already
-     * decides: 'not-a-letter', 'board-solved' and 'board-full' are exactly those
-     * three answers, plus 'answer-incomplete', which nothing here asked at all.
-     * Keeping them would leave two sites answering "may this letter land?", which
-     * is the shape of the bug this change exists to kill.
+     * < 5`. Two of those three are genuinely subsumed — 'not-a-letter' and
+     * 'board-solved' are the same answers by better names, and `boardIsValid`'s
+     * empty-board-with-an-existing-score branch needs `answer === ''`, which
+     * 'answer-incomplete' already refuses.
+     *
+     * THE THIRD ONE IS NOT EQUIVALENT, AND THAT IS WHY IT HAD TO GO RATHER THAN
+     * MERELY WHY IT COULD. `toRows(guesses)[5].length < 5` asks "is the LAST row
+     * full"; `nextSlot() === null`, behind 'board-full', asks "is the BOARD full".
+     * Those coincide on a prefix board and diverge on ['','','','','','SLATE'] —
+     * reachable, because prefillFrom assigns `guesses[guess.row]` by absolute
+     * lattice row index, so a failed board whose reader resolved only the last row
+     * arrives exactly like that. On it `cursorFor` says { row: 0, index: 0 } while
+     * the old gate blocked every letter key: A CARET DRAWN ON ROW 0 WITH TYPING
+     * DEAD THERE. That is wordle-teams-lz3w restated — a question about the board
+     * answered by scanning a fixed row instead of asking where the cursor is — so
+     * keeping the gate would have re-imported the bug next to its own fix.
      *
      * THE WRITE IS SKIPPED ON A REFUSAL rather than merely harmless: every
      * refusal returns the input normalised through `toRows`, so a fresh `guesses`
      * array on every Shift press would re-fire form.tsx's `useEffect(…, [guesses])`
      * — scrollActiveRowIntoView — for a keystroke that changed nothing.
      *
-     * Nothing surfaces the refusal yet. The coach line that names it is the next
-     * task; until then a refused keystroke is as silent as it has always been.
+     * NOTHING SURFACES THE REFUSAL YET, AND FOR ONE OF THEM THAT IS A REAL CHANGE.
+     * 'not-a-letter', 'board-solved' and 'board-full' are as silent as they have
+     * always been. 'answer-incomplete' is NOT: with a 1-to-4 character answer,
+     * board typing used to work, and now does nothing. That is the target design
+     * rather than a regression — in the finished feature the board zone is
+     * unreachable on a short answer, since `moveZone` refuses the move and the
+     * hand-off only fires on the fifth letter — but it lands here ONE COMMIT
+     * BEFORE the coach line that explains it, so until then a player who types a
+     * partial answer and clicks the board gets silence where they used to get
+     * letters. The fully EMPTY answer is genuinely unchanged: the old code
+     * swallowed that too, through the `'' === ''` collision that is wty4.1.6.
      */
     const result = typeLetter(state(), key)
     if (result.refused === null) setGuesses(result.next.guesses)

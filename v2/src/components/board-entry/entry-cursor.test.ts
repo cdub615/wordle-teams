@@ -73,10 +73,10 @@ describe('typeLetter, in the board zone', () => {
   /**
    * THE REGRESSION THIS WHOLE CHANGE EXISTS FOR (wordle-teams-wty4.1.6).
    *
-   * Today's applyLetter returns the guesses array UNCHANGED when the answer is
-   * empty — `current === answer` is `'' === ''` — so every keystroke is
-   * swallowed with no signal of any kind. Asserting "the array did not change"
-   * would pass against that bug. The refusal has to be a DISTINCT, NAMED
+   * The applyLetter this replaced returned the guesses array UNCHANGED when the
+   * answer was empty — `current === answer` is `'' === ''` — so every keystroke
+   * was swallowed with no signal of any kind. Asserting "the array did not
+   * change" would pass against that bug. The refusal has to be a DISTINCT, NAMED
    * outcome, which is the only shape of assertion the old behaviour cannot
    * satisfy.
    */
