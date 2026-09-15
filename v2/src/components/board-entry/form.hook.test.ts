@@ -348,19 +348,30 @@ describe('one keystroke stream, from the answer into the board', () => {
     expect(screen.getByTestId('board-cursor').id).toBe('2-2')
   })
 
-  test('backspace walks back out of an empty board into the answer', () => {
+  /**
+   * THE CORRECTION GESTURE, IN ONE PRESS. Type the answer, the caret hands
+   * itself to the board, then change your mind about the last letter.
+   *
+   * The walk-back used to move the zone and delete NOTHING, so this press did
+   * nothing visible and the replacement letter was then refused 'answer-full'
+   * and did nothing either — two dead keystrokes in the commonest correction
+   * there is. The rule now is that backspace removes exactly one thing at every
+   * position (owner decision; entry-cursor.ts's `backspace` doc).
+   */
+  test('backspace walks back out of an empty board and eats the answer’s last letter', () => {
     openEntry()
     type('CRANE')
     expect(answerCursor()).toBe(-1)
 
-    // The board is empty, so the only thing behind the caret is the answer. The
-    // first Backspace moves there; it does not also delete.
-    fireEvent.keyDown(region(), { key: 'Backspace' })
-    expect(answerText()).toBe('CRANE')
-    expect(answerCursor()).toBe(4)
-
     fireEvent.keyDown(region(), { key: 'Backspace' })
     expect(answerText()).toBe('CRAN')
+    expect(answerCursor()).toBe(4)
+
+    // And the replacement lands, rather than being refused as 'answer-full'.
+    type('K')
+    expect(answerText()).toBe('CRANK')
+    // Five letters again, so the caret hands itself straight back to the board.
+    expect(screen.getByTestId('board-cursor').id).toBe('1-1')
   })
 
   /**
@@ -567,6 +578,33 @@ describe('the stream on a board that is not a prefix', () => {
     expect(boardRow(1)).toBe('')
   })
 
+  /**
+   * A KEYBOARD-ONLY PLAYER HAS TO BE ABLE TO SCROLL. The board is inside an
+   * `overflow-y-auto` container and every key but Tab used to be
+   * preventDefault'd, so ArrowDown, PageDown, Home, End and F5 were all dead —
+   * the rows below the fold unreachable without a mouse, and no way to reload.
+   */
+  test('navigation and function keys reach the browser', () => {
+    openWith(['', '', 'SLATE'])
+    // fireEvent returns true when nothing called preventDefault.
+    for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'F5', 'F12']) {
+      expect(fireEvent.keyDown(region(), { key })).toBe(true)
+    }
+    // And none of them typed anything.
+    expect(boardRow(1)).toBe('')
+  })
+
+  /**
+   * SPACE IS THE EXCEPTION AND STAYS PREVENTED. It is the one key that both
+   * scrolls a container and inserts a character into an editing host — and
+   * `insertCompositionText` (wordle-teams-5n6n) means the beforeinput guard
+   * cannot be relied on to catch what it inserts.
+   */
+  test('Space is still prevented, because it types', () => {
+    openWith(['', '', 'SLATE'])
+    expect(fireEvent.keyDown(region(), { key: ' ' })).toBe(false)
+  })
+
   test('every other key is preventDefaulted, so nothing lands in the DOM', () => {
     openWith(['', '', 'SLATE'])
     expect(fireEvent.keyDown(region(), { key: 'c' })).toBe(false)
@@ -661,6 +699,37 @@ describe('the entry region', () => {
     expect(region().querySelectorAll('button, input, a, [tabindex]')).toHaveLength(0)
     expect(screen.getAllByRole('button', { name: /^submit$/i })).toHaveLength(2)
     expect(screen.getByRole('button', { name: /^cancel$/i })).toBeTruthy()
+  })
+
+  /**
+   * A RENDERED CARET IMPLIES A FOCUSED REGION.
+   *
+   * `cursorFor` answers a question about the BOARD — where would the next letter
+   * go — and knows nothing about focus, so drawing it unconditionally painted a
+   * blinking caret on a region that could not receive a keystroke. That shipped
+   * on the unreadable-import branch: focus on BODY, the coach saying "Type
+   * today's answer", the caret blinking, and every key going nowhere — a screen
+   * pixel-identical to the manual path that works. Gating on focus is what makes
+   * that class of bug unable to recur rather than fixing the one branch.
+   */
+  test('draws no caret in either zone while the region is unfocused', () => {
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+
+    // Focused: the answer caret is on slot 0 — otherwise this test is vacuous.
+    expect(document.activeElement).toBe(region())
+    expect(answerCursor()).toBe(0)
+
+    fireEvent.blur(region())
+    expect(answerCursor()).toBe(-1)
+    expect(screen.queryByTestId('answer-caret')).toBeNull()
+
+    // And the same in the board zone, where the caret is a ring on a tile.
+    fireEvent.focus(region())
+    type('CRANE')
+    expect(screen.getByTestId('board-cursor')).toBeTruthy()
+    fireEvent.blur(region())
+    expect(screen.queryByTestId('board-cursor')).toBeNull()
   })
 
   test('says what the model is, once, for a screen reader', () => {

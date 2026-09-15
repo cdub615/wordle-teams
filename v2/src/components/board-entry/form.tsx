@@ -28,6 +28,24 @@ import type { FunctionReturnType } from 'convex/server'
 
 const EMPTY_ROWS = ['', '', '', '', '', '']
 
+/**
+ * Keys the browser must keep, beyond Tab and the modifier combos. The board is
+ * inside an `overflow-y-auto` container, so a keyboard-only player needs these to
+ * reach the rows below the fold — and F5 to reload. Space is NOT here: see
+ * handleKeyDown.
+ */
+const NAVIGATION_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'PageUp',
+  'PageDown',
+  'Home',
+  'End',
+])
+const FUNCTION_KEY = /^F\d{1,2}$/
+
 /** Row-by-row, because entry-cursor.ts always returns a FRESH array. See applyEntry. */
 const rowsEqual = (a: Array<string>, b: Array<string>) =>
   a.length === b.length && a.every((row, index) => row === b[index])
@@ -162,6 +180,21 @@ function BoardEntryFields({
   const [derivedAnswer, setDerivedAnswer] = useState<string | null>(null)
   /** Set when the player chose to TYPE, so the entry region takes focus then and not before. */
   const [focusAnswer, setFocusAnswer] = useState(false)
+  /**
+   * WHETHER THE REGION HAS FOCUS, AND IT GATES THE CARET IN BOTH ZONES.
+   *
+   * `cursorFor` knows nothing about focus — it answers "where would the next
+   * letter go", which is a fact about the BOARD. Drawing that unconditionally
+   * rendered a blinking caret on a region that did not have focus and could not
+   * receive a keystroke, which is the original dead end with a cursor painted on
+   * top of it: it happened on the unreadable-import branch below, pixel-identical
+   * to the manual path that works.
+   *
+   * A RENDERED CARET NOW IMPLIES A FOCUSED REGION. That is the invariant, not a
+   * patch for that one branch — it also covers the confirm step, where not
+   * focusing is deliberate, and any future branch that forgets.
+   */
+  const [focused, setFocused] = useState(false)
   /** The ONE focusable thing on the entry step: answer slots and board together. */
   const regionRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -241,14 +274,29 @@ function BoardEntryFields({
    * browser has one (Chrome, Safari) and from a `compositionend`/`keypress`
    * fallback where it does not (Firefox). So the prop cancels the legacy
    * `textInput` event, which in Chrome does stop the insertion, and leaves a real
-   * `beforeinput` — the one dictation, swipe-typing and predictive text actually
-   * fire, and the only one Firefox has — untouched.
+   * `beforeinput` — the one dictation, swipe-typing and predictive text fire, and
+   * the only one Firefox has — untouched.
    *
-   * That is the whole risk this region carries: a native insertion into an
-   * editing host wrapped around a React-owned subtree corrupts the DOM React
-   * thinks it owns, and the symptom is the WRONG BOARD ON SUBMIT or a
-   * `removeChild` reconciliation crash. So the real event is cancelled here, on
-   * the node itself, and the prop stays as the belt to this braces.
+   * WHAT THIS ACTUALLY STOPS: every CANCELABLE insertion. Paste, drag-and-drop,
+   * `insertText`, `insertReplacementText` and the rest — measured across all nine
+   * inputTypes an adversarial pass could produce, plus CDP-driven insertion and
+   * real clipboard paste.
+   *
+   * WHAT IT CANNOT STOP, AND THIS IS NOT A THEORETICAL GAP:
+   * `inputType: 'insertCompositionText'` is dispatched with `cancelable: FALSE`,
+   * measured through Chromium's own IME channel. `preventDefault()` on it does
+   * nothing, so a composed character lands in the DOM. The submitted payload is
+   * unaffected — it comes from React state, which is never read back off these
+   * nodes — but the SCREEN can lie, and permanently: React only rewrites a tile's
+   * text node when that tile's letter changes, so composed text dropped into a
+   * tile survives re-renders. Tracked as wordle-teams-5n6n; the real fix is a
+   * MutationObserver or moving off contentEditable, and neither belongs here.
+   * `inputMode`/`autoCorrect` on the region below narrow the path to it.
+   *
+   * The risk this closes is the one that could corrupt DATA: a cancelable native
+   * insertion into an editing host wrapped around a React-owned subtree, whose
+   * symptom is the WRONG BOARD ON SUBMIT or a `removeChild` reconciliation crash.
+   * The prop stays as the belt to this braces.
    *
    * KEYED ON `step` because the region does not exist on step one.
    */
@@ -410,6 +458,24 @@ function BoardEntryFields({
     // attempt. Returning without preventDefault lets the browser proceed with
     // its native action, which is what onBeforeInput/onPaste below intercept.
     if (key === 'Tab' || event.ctrlKey || event.metaKey) return
+    /**
+     * NAVIGATION AND FUNCTION KEYS REACH THE BROWSER TOO, and leaving them out
+     * was a real cost: the board sits in an `overflow-y-auto` container, and with
+     * every key but Tab preventDefault'd a keyboard-only player could not scroll
+     * it — ArrowDown, PageDown, Home and End were all dead, and so was F5.
+     * (Ctrl+R always worked, through the modifier return above, which is exactly
+     * the kind of near-miss that hides a bug like this.)
+     *
+     * SPACE IS DELIBERATELY NOT ON THIS LIST. It inserts a character in an
+     * editing host, and `insertCompositionText` (see the effect above) means the
+     * beforeinput guard cannot be relied on to catch everything — so the one key
+     * that both scrolls AND types stays prevented.
+     *
+     * Escape is not here because it does not need to be: Radix's dismissable
+     * layer listens on the document in the CAPTURE phase and ignores
+     * `defaultPrevented`, so the sheet still closes.
+     */
+    if (NAVIGATION_KEYS.has(key) || FUNCTION_KEY.test(key)) return
     event.preventDefault()
 
     if (key === 'Backspace') {
@@ -494,11 +560,17 @@ function BoardEntryFields({
      * NO row at all — no board in the image, a share card, an untouched board —
      * drops through to manual entry.
      *
-     * Neither branch focuses anything. On confirm the board is already there;
-     * on the fallback a keyboard would rise straight over the sentence
-     * explaining why the board is empty.
+     * THE CONFIRM BRANCH FOCUSES NOTHING — the board is already there, and a
+     * keyboard rising over it to confirm it is the original bug with an extra
+     * step in front of it. THE FALLBACK BRANCH FOCUSES, and that is a change: it
+     * used to reason that a keyboard would rise over the sentence explaining why
+     * the board is empty, but this branch IS manual entry, reached by a player
+     * whose only remaining action is to type. Leaving it unfocused put them on a
+     * screen pixel-identical to the working "Enter manually" one, with a caret
+     * blinking in the answer, where every keystroke went nowhere.
      */
     setStep(parse.guesses.length > 0 ? 'confirm' : 'entry')
+    if (parse.guesses.length === 0) setFocusAnswer(true)
     // THE ONE CONFIRM CASE THAT WANTS A KEYBOARD. A board that was not solved
     // carries no answer to derive, and typing five letters is then the only
     // thing left to do before it can be saved — so asking for it and focusing
@@ -735,10 +807,30 @@ function BoardEntryFields({
           role="group"
           aria-label="Wordle board entry"
           aria-describedby="entry-instructions"
+          /**
+           * THE MOBILE INPUT HINTS, SET DELIBERATELY. Unset, they resolve to a
+           * spell-checked, auto-corrected, auto-capitalised editing host — which
+           * is what puts the predictive-text bar over the keyboard, and the
+           * predictive bar's commit path is the one `insertCompositionText` hole
+           * nothing can cancel (wordle-teams-5n6n). Narrowing the invitation is
+           * the only lever this component has over it.
+           *
+           * `autoCapitalize="characters"` rather than "off": the board and the
+           * slots are uppercase, so this is the keyboard agreeing with what is on
+           * screen, and `typeLetter` uppercases anyway so it cannot disagree.
+           * `enterKeyHint="done"` because Enter here submits the board.
+           */
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="characters"
+          inputMode="text"
+          enterKeyHint="done"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onKeyDown={handleKeyDown}
           onBeforeInput={(event) => event.preventDefault()}
           onPaste={(event) => event.preventDefault()}
-          className="mx-auto mt-4 flex w-fit select-none flex-col items-center gap-2 rounded-lg caret-transparent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background md:my-2"
+          className="mx-auto mt-4 flex w-fit select-none flex-col items-center gap-2 rounded-lg caret-transparent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-6 focus:ring-offset-background md:my-2"
         >
           {/* `w-72 md:w-80` IS THE BOARD GRID'S OWN WIDTH (wordle-board.tsx), so
               the five slots line up column-for-column with the five tiles under
@@ -746,7 +838,7 @@ function BoardEntryFields({
               slots overlap each other. */}
           <AnswerSlots
             answer={answer}
-            cursorIndex={cursor?.zone === 'answer' ? cursor.index : null}
+            cursorIndex={focused && cursor?.zone === 'answer' ? cursor.index : null}
             onSelect={() => selectZone('answer')}
             className="w-72 md:w-80"
           />
@@ -754,8 +846,11 @@ function BoardEntryFields({
             guesses={guesses}
             answer={answer}
             // UNADAPTED, both zones. BoardInput narrows it to a tile itself,
-            // which is the one place that narrowing may happen.
-            cursor={cursor}
+            // which is the one place that narrowing may happen. NULL WHILE
+            // UNFOCUSED: a caret that cannot be typed into is a lie, and the
+            // scroll below still uses the ungated `cursor`, because where the
+            // board should be scrolled to does not depend on who has focus.
+            cursor={focused ? cursor : null}
             onSelect={() => selectZone('board')}
           />
         </div>

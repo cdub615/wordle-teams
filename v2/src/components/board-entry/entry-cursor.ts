@@ -136,9 +136,22 @@ export function typeLetter(state: EntryState, key: string): EntryResult {
 }
 
 /**
- * Delete one letter, or walk back a zone when there is nothing left to delete.
+ * Delete one letter. ALWAYS ONE — the walk-back deletes too.
  *
  * DELETES BEHIND THE CURSOR, WHICH IS `nextSlot` AND NOTHING ELSE (lz3w, above).
+ *
+ * THE WALK-BACK DELETES THE LAST ANSWER LETTER AS WELL AS MOVING THE ZONE, and
+ * that is an OWNER DECISION taken after the wiring was on screen, not an
+ * implementation detail. It used to move and delete nothing, which made the most
+ * natural correction gesture there is cost two dead keystrokes: type 'SPEED', the
+ * caret hands itself to the board, press Backspace meaning to fix the 'D' — the
+ * old rule returned to the answer zone with 'SPEED' intact, and the replacement
+ * letter was then refused 'answer-full' and also did nothing. Nothing on screen
+ * explained either. Deleting here makes one press do what the player expects and
+ * makes "backspace removes exactly one thing" true at every position.
+ *
+ * AN EMPTY ANSWER STILL MOVES AND DELETES NOTHING: `slice(0, -1)` of '' is '',
+ * so the zone change happens and there is simply nothing behind it to remove.
  *
  * RETURNS PLAIN STATE, NOT AN EntryResult: every way a backspace can do nothing is
  * a state `cursorFor` already draws, so there is no refusal worth naming.
@@ -180,10 +193,14 @@ export function backspace(state: EntryState): EntryState {
   // From here the cursor is at row 0, column 0 — the two cases the old scan conflated.
 
   // THE WALK-BACK: the board is genuinely empty, so the only thing behind the
-  // cursor is the answer, and going there makes the stream continuous in reverse.
+  // cursor is the answer's last letter — and that is what gets deleted, along
+  // with the move that makes the stream continuous in reverse. See the doc above
+  // for why deleting here rather than merely moving is the rule.
   // `every` is inline and used once on purpose — a "last row with content" helper
   // is exactly the abstraction that invited lz3w.
-  if (rows.every((row) => row.length === 0)) return { ...normalised, zone: 'answer' }
+  if (rows.every((row) => row.length === 0)) {
+    return { ...normalised, zone: 'answer', answer: normalised.answer.slice(0, -1) }
+  }
 
   // A gapped board: row 0 is empty but rows below it are not, so nothing is behind
   // the cursor and nothing is deleted. Not a walk-back — there IS board content,

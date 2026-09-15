@@ -466,6 +466,18 @@ describe('the import confirm step', () => {
 
     await waitFor(() => expect(note()).toMatch(/no wordle board/i))
     expect(board()).toBe(',,,,,')
+
+    /**
+     * AND IT FOCUSES, which this branch did not used to do. It drops the player
+     * into MANUAL ENTRY — the parse recovered nothing, so their only remaining
+     * action is to type — on a screen pixel-identical to the working "Enter
+     * manually" one, caret and all. Unfocused, that caret blinked over a region
+     * where every keystroke went nowhere: the original dead end relocated.
+     */
+    await waitFor(() => expect(document.activeElement).toBe(region()))
+    expect(screen.getAllByTestId('answer-slot')[0].getAttribute('data-cursor')).toBe('true')
+    typeKeys('CRANE')
+    expect(answerText()).toBe('CRANE')
   })
 
   // A ROW THE PARSE COULD NOT READ STAYS BLANK AND IS NAMED. prefillFrom

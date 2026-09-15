@@ -95,7 +95,7 @@ test('enter a board and see the score land', async ({ page }) => {
   await expect(row.locator(`[data-day="${day}"]`)).toHaveText('2')
 })
 
-test('native input paths cannot corrupt the board, but typing still can', async ({
+test('cancelable native input paths cannot corrupt the board, but typing still can', async ({
   page,
   context,
 }) => {
@@ -107,10 +107,20 @@ test('native input paths cannot corrupt the board, but typing still can', async 
   // submitted or a reconciliation crash (WordleBoard renders INSIDE the
   // board's contentEditable node). The fix is onPaste plus BOTH beforeinput
   // guards on the one entry region (form.tsx) — React's `onBeforeInput` prop,
-  // which is synthesized from `textInput`, and a native `beforeinput` listener,
-  // which is the event dictation and swipe-typing actually fire. They are three
-  // deletable lines and the failure they prevent is silent — this test exists so
-  // removing any of them fails CI instead of nothing at all.
+  // which is synthesized from `textInput`, and a native `beforeinput` listener.
+  // They are three deletable lines and the failure they prevent is silent — this
+  // test exists so removing any of them fails CI instead of nothing at all.
+  //
+  // WHAT THIS TEST DOES *NOT* COVER, STATED SO NOBODY READS IT AS A CLEAN BILL:
+  // an IME COMMIT. `insertText` below dispatches a beforeinput with
+  // `cancelable: true`, which the guard does stop; an IME composition commits
+  // with `inputType: 'insertCompositionText'` and `cancelable: FALSE`, measured
+  // through Chromium's own IME channel, so preventDefault() on it does nothing
+  // and the composed character lands in the DOM. The submitted payload is still
+  // correct — it comes from React state, never read back off these nodes — but
+  // the screen can lie, and permanently, since React only rewrites a tile's text
+  // node when that tile's letter changes. Tracked as wordle-teams-5n6n. Do not
+  // extend this test to claim otherwise without fixing that first.
   await signInWithTeam(page)
   await page.getByRole('button', { name: 'Board Entry' }).click()
   await page.getByRole('button', { name: 'Enter manually' }).click()

@@ -162,10 +162,29 @@ describe('backspace', () => {
    * answer and has not yet typed a guess is stranded in a zone where backspace
    * does nothing.
    */
-  test('BACKSPACING AN EMPTY BOARD RETURNS TO THE ANSWER', () => {
+  /**
+   * THE WALK-BACK DELETES AS WELL AS MOVING — an OWNER DECISION taken once the
+   * wiring was on screen, and the reason this expectation changed from 'CRANE'
+   * to 'CRAN'.
+   *
+   * The old rule moved the zone and deleted nothing, so the commonest correction
+   * there is — type 'SPEED', the caret hands itself to the board, press Backspace
+   * to fix the 'D' — cost two dead keystrokes: the walk-back did nothing visible,
+   * and the replacement letter was then refused 'answer-full' and did nothing
+   * either. One press now removes exactly one thing, here as everywhere else.
+   */
+  test('BACKSPACING AN EMPTY BOARD RETURNS TO THE ANSWER, AND EATS ITS LAST LETTER', () => {
     const next = backspace(state({ answer: 'CRANE', zone: 'board' }))
     expect(next.zone).toBe('answer')
-    expect(next.answer).toBe('CRANE')
+    expect(next.answer).toBe('CRAN')
+  })
+
+  // The edge of that rule: there is nothing behind the cursor to delete, so the
+  // move happens on its own rather than the whole thing being skipped.
+  test('the walk-back still moves when the answer is empty, and deletes nothing', () => {
+    const next = backspace(state({ answer: '', zone: 'board' }))
+    expect(next.zone).toBe('answer')
+    expect(next.answer).toBe('')
   })
 
   /**
@@ -198,7 +217,8 @@ describe('backspace', () => {
   test('the walk-back is the recovery from a short answer', () => {
     const next = backspace(state({ answer: 'CRA', zone: 'board' }))
     expect(next.zone).toBe('answer')
-    expect(next.answer).toBe('CRA')
+    // 'CRA' minus its last letter: the walk-back deletes, as everywhere else.
+    expect(next.answer).toBe('CR')
   })
 
   /**
