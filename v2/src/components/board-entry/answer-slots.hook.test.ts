@@ -3,7 +3,7 @@
 // jsdom rather than the suite's default edge-runtime, because this renders the
 // real component. `.hook.test.ts` and createElement by hand, matching every
 // other component test in src/ and vitest.config.ts's `src/**/*.test.ts` glob.
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test } from 'vitest'
 import { AnswerSlots } from './answer-slots.tsx'
@@ -54,6 +54,38 @@ describe('AnswerSlots', () => {
   test('announces the answer so far to a screen reader', () => {
     render(createElement(AnswerSlots, { answer: 'CR', cursorIndex: 2, onSelect: () => {} }))
     expect(screen.getByLabelText("Today's Wordle answer, 2 of 5 letters: C R")).toBeDefined()
+  })
+
+  /**
+   * A DELIBERATE DEVIATION FROM THE GENERAL FORM, AND THEREFORE WORTH PINNING.
+   * `...0 of 5 letters: ` would end on a dangling colon with nothing after it,
+   * so the empty answer gets its own sentence. Nothing else holds this string:
+   * swapping it back leaves every other test in this file green.
+   */
+  test('the empty answer is announced without a dangling letter list', () => {
+    render(createElement(AnswerSlots, { answer: '', cursorIndex: 0, onSelect: () => {} }))
+    expect(screen.getByLabelText("Today's Wordle answer, no letters yet")).toBeDefined()
+  })
+
+  /**
+   * THE ESCAPE HATCH BACK TO THE ANSWER FROM THE BOARD, and it was completely
+   * unpinned until now — severing the `onMouseDown` binding left all nine other
+   * tests green. Mousedown rather than click because it has to land before the
+   * focus/blur pair a click on the other zone would otherwise settle first.
+   */
+  test('mousedown anywhere in the group asks for the answer zone', () => {
+    let asked = 0
+    render(
+      createElement(AnswerSlots, {
+        answer: 'CR',
+        cursorIndex: 2,
+        onSelect: () => {
+          asked += 1
+        },
+      }),
+    )
+    fireEvent.mouseDown(slots()[3])
+    expect(asked).toBe(1)
   })
 })
 
