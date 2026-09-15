@@ -1297,6 +1297,21 @@ git commit -m "refactor(entry): the board renders, it no longer decides"
 
 ## Task 8: `form.tsx` owns the keystroke stream
 
+> **From Task 5: the answer row needs at least 216px, and will OVERFLOW below it.**
+> `AnswerSlots` slots carry a `min-w-10` floor (40px, matching their own `h-10`, so each
+> slot is square like a board tile). Five of those plus four `gap-1` gutters is an
+> intrinsic minimum of **216px**. Below that the group overflows its container rather
+> than shrinking — deliberately, because shrinking is what put the trailing caret 5.81px
+> INSIDE a `W` at the 108px the current `w-[30%]` column gives it. Measured in Chromium
+> against the built stylesheet.
+>
+> The answer block therefore **must** leave that narrow header column, which this task
+> already does by moving it into the region above `<BoardInput>`. The region is
+> `mx-auto w-fit` and the board inside it is `w-72` (288px), so 216px fits with room —
+> but **verify it at 360px** rather than assuming, and check the group has not landed
+> back inside anything narrower.
+
+
 > **From Task 4's review — `valid` is NOT `boardIsValid(...)` alone.**
 > `submitDisabled` in this file is `!day || !boardIsValid(answer, guesses, existing !== undefined)`
 > — **two** conditions. Passing `boardIsValid(...)` by itself into `coachFor` would tell a
