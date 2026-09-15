@@ -29,10 +29,14 @@ import type { Page } from '@playwright/test'
  * only thing that would notice `onboardingCard('md:col-span-3')` disappearing
  * from app.tsx:742.
  *
- * PLAYWRIGHT RUNS IN NO CI WORKFLOW (`deploy-v2.yml` has lint, typecheck, unit
- * tests and build, and nothing else — `wordle-teams-z6v4`), so this suite is
- * only ever a thing somebody runs by hand. Written to be worth the run rather
- * than to pad a count.
+ * PLAYWRIGHT IS A BLOCKING CI GATE, AND THIS COMMENT SAID THE OPPOSITE. It read
+ * "runs in no CI workflow ... only ever a thing somebody runs by hand", which was
+ * true when `wordle-teams-z6v4` was filed and stopped being true when z6v4 FIXED
+ * it: `deploy-v2.yml` runs the suite against a local Convex backend on every push
+ * to dev, main and feat/v2-replatform, before any deploy step, and a red spec
+ * blocks the deploy. So this file is worth the run for a stronger reason than when
+ * it was written — it is one of the things standing between a broken wiring change
+ * and beta.
  *
  * ABSENCE ASSERTIONS ARE ORDERED AFTER A PRESENCE ASSERTION, EVERY TIME, and
  * that is not stylistic. `toBeHidden()` passes on an element that does not
@@ -61,8 +65,12 @@ import type { Page } from '@playwright/test'
  * state that makes `hasInvited` false and puts the invite task on screen. See
  * convex/e2eSeed.ts's ensureTeamFor for the E2E_TEST_MODE / e2e+* guards.
  *
- * A unique email per call, same as signIn()'s own default: playwright.config.ts
- * runs two workers, so a shared address would mean a shared player row.
+ * A unique email per call, same as signIn()'s own default. This used to justify
+ * itself with "playwright.config.ts runs two workers", which stopped being true
+ * in wordle-teams-9lth — and the reason never depended on it: every test in this
+ * suite shares ONE Convex backend, so a shared address is a shared player row
+ * whether the specs run beside each other or one after another, and the state one
+ * test seeds would be the state the next one asserts on.
  */
 async function signInWithTeam(page: Page): Promise<string> {
   const email = `e2e+${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
@@ -83,11 +91,34 @@ async function signInWithTeam(page: Page): Promise<string> {
  */
 const CARD_HEADING = 'Get started'
 
+/**
+ * THE FIRST ASSERTION AFTER A NAVIGATION PAYS FOR THE NAVIGATION, so it gets 20s
+ * and everything after it keeps the suite's strict 5s default.
+ *
+ * NOT A CEILING RAISE, AND THE DISTINCTION IS THE ONE complete-profile.spec.ts
+ * ALREADY MAKES for this exact locator (its `DASHBOARD_READY`, and read its note).
+ * The card is gated on `onboarding.getStatus` resolving, so a bare assertion here
+ * absorbs the hop, the route's pending state, the auth handshake and a reactive
+ * query — and until the query lands the heading exists nowhere, which is
+ * indistinguishable from a dashboard that rendered the wrong thing. Once the card
+ * is on screen, what it OFFERS is a render away, and that is the subject of this
+ * file, so those assertions stay strict.
+ *
+ * MEASURED: this is one of the assertions that failed a full local run at two
+ * workers (wordle-teams-9lth), with the page on /app and no heading. The residual
+ * defect — that the wait is unbounded rather than merely long — is
+ * wordle-teams-73af; this makes the spec honest about what it is waiting for
+ * instead of failing whenever the backend is busy.
+ */
+const DASHBOARD_READY = { timeout: 20_000 }
+
 test('a fresh signup owes board and team, and can play with no team at all', async ({ page }) => {
   await signIn(page)
   await completeProfile(page)
 
-  await expect(page.getByRole('heading', { name: CARD_HEADING, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: CARD_HEADING, exact: true })).toBeVisible(
+    DASHBOARD_READY,
+  )
   await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Create a team/ })).toBeVisible()
   // THE PREREQUISITE, AND A REGRESSION TEST FOR SOMETHING THAT SHIPPED. The
@@ -134,7 +165,12 @@ test('dismissing survives a reload, and the menu offers it back', async ({ page 
   const heading = page.getByRole('heading', { name: CARD_HEADING, exact: true })
   const replay = page.getByRole('menuitem', { name: 'Show getting started' })
 
-  await expect(heading).toBeVisible()
+  // Same navigation, same allowance as above. The assertions after it are strict,
+  // INCLUDING the toBeHidden() that follows the dismiss click — that one is a
+  // mutation round trip rather than a navigation, and padding it would hide the
+  // defect wordle-teams-73af exists to remove (it wants a deterministic wait on
+  // players.onboardingDismissedAt, the way e2eSeed.timeZoneFor serves h1rg).
+  await expect(heading).toBeVisible(DASHBOARD_READY)
 
   // THE NEGATIVE CONTROL FOR THE MENU ITEM, taken while the menu is provably
   // open (openAppMenu waits on "Home", which every state of the menu carries).

@@ -79,11 +79,34 @@ export default defineConfig({
    * and every measurement above was taken on a 22-core machine where the
    * bottleneck is I/O rather than CPU.
    *
-   * `process.env.CI` rather than a hardcoded 1: this is also Playwright's own
-   * default shape for the same reason, and it keeps the workstation figure and
-   * all the reasoning above intact.
+   * AND THE WORKSTATION HALF BECAME ONE TOO, ON 2026-09-15 (wordle-teams-9lth).
+   * The `2` above was measured against a SIXTY-SIX test suite. It now carries 98,
+   * and the same oversubscription this file has already cut twice came back:
+   *
+   *    2 workers   96/98, 7.2m   (onboarding.spec.ts:90 and :150)
+   *    2 workers   94/98, 7.1m   (invite-links:209, onboarding:90, settings:186, :207)
+   *    1 worker    98/98, 9.2m
+   *    1 worker    98/98, 9.4m
+   *
+   * THE FAILING SET MOVED BETWEEN RUNS, which is this file's own signature for
+   * load rather than for a faulty spec: onboarding:90 failed in the first run and
+   * passed in the second, where :150 failed instead. Two minutes is the whole cost
+   * now rather than twelve seconds, and it is the same trade for the third time —
+   * the extra worker was buying wall clock and spending the suite's green.
+   *
+   * A HARDCODED 1, SO LOCAL IS CI. The conditional existed to preserve a
+   * workstation figure that no longer holds, and collapsing it means a local run
+   * is a faithful preview of the gate rather than a different experiment.
+   * Everything above still applies: a literal rather than a fraction, so the
+   * suite behaves the same on a 2-core runner as on a 22-core workstation.
+   *
+   * AND IT IS NOT A FLAKE FIX — SEE wordle-teams-73af. This removes the LOAD that
+   * exposes those four assertions, not the reason they are exposable: each waits
+   * at the suite's strict 5s default on a Convex round trip with no UI affordance
+   * bounding it. Reading a worker cut as the cure is precisely the inference
+   * retracted two paragraphs up, and 73af carries the per-assertion work.
    */
-  workers: process.env.CI ? 1 : 2,
+  workers: 1,
 
   /**
    * THE LOCALE IS PINNED, AND AS OF wordle-teams-8klr IT IS LOAD-BEARING RATHER
