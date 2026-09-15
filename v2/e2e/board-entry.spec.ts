@@ -395,6 +395,35 @@ test('the scrolling keys scroll the board, not the dialog', async ({ page }) => 
 })
 
 /**
+ * Is every one of these inside the board scroller's own client rect?
+ *
+ * SHARED BY THE TWO GEOMETRY TESTS BELOW, which is the whole reason it is out
+ * here: "can the player see it" is the only question a layout engine can answer
+ * that jsdom cannot, and both of them ask it. `false` FOR AN EMPTY MATCH rather
+ * than the vacuous `every`-on-nothing `true` — a selector that matches no tile
+ * must fail the assertion, not pass it.
+ *
+ * QUERIED INSIDE THE SCROLLER, NOT THE DOCUMENT, and that is a FIX rather than
+ * tidying. wordle-board.tsx ids its tiles "1-1", "2-1", … and the scores table
+ * behind the sheet renders boards of its own with the same ids, so a
+ * `document.querySelectorAll` here answers about whichever board comes first in
+ * document order. It was harmless only while no test had submitted a board before
+ * asserting on one — form.tsx's own scroll lookup is scoped to this exact ref for
+ * the same reason, and its comment says so.
+ */
+const allVisible = (page: Page, selector: string) =>
+  page.evaluate((css) => {
+    const scrollerElement = document.querySelector('[data-testid="entry-scroller"]')!
+    const box = scrollerElement.getBoundingClientRect()
+    const targets = [...scrollerElement.querySelectorAll(css)]
+    if (targets.length === 0) return false
+    return targets.every((target) => {
+      const rect = target.getBoundingClientRect()
+      return rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5
+    })
+  }, selector)
+
+/**
  * WHERE THE AUTOMATIC SCROLL LANDS, WITH REAL RECTANGLES. Two bugs, both
  * reported from a real iPhone, both of which need a layout engine to see at all.
  *
@@ -440,19 +469,6 @@ test('the answer scrolls back into view, and a solve does not jump past the play
   const max = await scroller.evaluate((element) => element.scrollHeight - element.clientHeight)
   expect(max, 'the board must actually overflow here, or nothing below proves anything').toBeGreaterThan(0)
 
-  /** Is every one of these inside the scroller's own client rect? */
-  const allVisible = (selector: string) =>
-    page.evaluate((css) => {
-      const scrollerElement = document.querySelector('[data-testid="entry-scroller"]')!
-      const box = scrollerElement.getBoundingClientRect()
-      const targets = [...document.querySelectorAll(css)]
-      if (targets.length === 0) return false
-      return targets.every((target) => {
-        const rect = target.getBoundingClientRect()
-        return rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5
-      })
-    }, selector)
-
   // THE SCROLL TARGET HAS TO FIT THE SCROLLPORT. This is bug 1 stated as the
   // property that was violated, rather than as its symptom — a target taller
   // than this cannot be scrolled to at all, whatever else is true.
@@ -475,9 +491,10 @@ test('the answer scrolls back into view, and a solve does not jump past the play
   // answer zone, which is the moment the player is trying to reach.
   for (let index = 0; index < 6; index += 1) await page.keyboard.press('Backspace')
   await expect(page.getByTestId('entry-coach')).toHaveText(/type today's answer/i)
-  expect(await allVisible('[data-testid="answer-slot"]'), 'the answer slots must be back on screen').toBe(
-    true,
-  )
+  expect(
+    await allVisible(page, '[data-testid="answer-slot"]'),
+    'the answer slots must be back on screen',
+  ).toBe(true)
 
   // AND A SOLVE STAYS ON THE ROWS THAT WERE PLAYED. Four more backspaces empty
   // the answer itself — the walk-back above already took its last letter, so
@@ -493,7 +510,71 @@ test('the answer scrolls back into view, and a solve does not jump past the play
   expect(await top(), 'solving must not jump the view to the empty rows below').toBeLessThanOrEqual(
     beforeSolve,
   )
-  expect(await allVisible('[id="1-1"], [id="2-1"]'), 'both played rows must still be visible').toBe(true)
+  expect(
+    await allVisible(page, '[id="1-1"], [id="2-1"]'),
+    'both played rows must still be visible',
+  ).toBe(true)
+})
+
+/**
+ * AND A BOARD THAT IS ALREADY SAVED IS SCROLLED TO AT ALL (wordle-teams-acnc).
+ *
+ * This is a DIFFERENT defect from the two above, and neither of their fixes
+ * touched it: the scroll was not aimed at the wrong element, it never happened.
+ * `scrollActiveRowIntoView` fires on `[guesses, zone]`, and the PREFILL sets both
+ * while board entry is still on the step that asks which day and how — where the
+ * scroller does not exist and both refs are null. `step` was in no dep array, so
+ * mounting the entry step re-fired nothing. MEASURED at 390x380 by patching
+ * Element.prototype.scrollIntoView: 0 calls before clicking "Enter manually" and
+ * 0 after, leaving scrollTop at 0 of a 317 maximum with about 43px of row 1
+ * showing and the rest of the player's board below the fold.
+ *
+ * NOT AN EDGE CASE, which is why it is worth a second sign-in and submit here:
+ * `pickDefaultDay` returns TODAY whenever today is playable, with no regard for
+ * whether it has been played, so this is the path of every player who reopens
+ * board entry to correct the board they just saved.
+ *
+ * form.hook.test.ts pins that the mount aims a scroll at row 2's tile, which is
+ * all jsdom's 0x0 boxes can support. This is the half that asserts it MOVED.
+ */
+test('reopening a board that is already saved scrolls it into view', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 380 })
+  await signInWithTeam(page)
+
+  // Save a board first — solved in two, so the reopened board has content in
+  // rows 1 and 2 and `cursorFor` correctly returns null for it.
+  await page.getByRole('button', { name: 'Board Entry' }).click()
+  await page.getByRole('button', { name: 'Enter manually' }).click()
+  const board = page.getByRole('region', { name: 'Wordle Board' })
+  await board.waitFor()
+  await page.keyboard.type('SPEED')
+  await page.keyboard.type('CRANESPEED')
+  await page.getByRole('button', { name: 'Submit' }).click()
+  await expect(board).toBeHidden()
+
+  // Reopen. This lands on today, which now HAS a board, so the prefill runs on
+  // step one — and then the entry step mounts, which is the moment under test.
+  await page.getByRole('button', { name: 'Board Entry' }).click()
+  await page.getByRole('button', { name: 'Enter manually' }).click()
+  await board.waitFor()
+
+  const scroller = page.getByTestId('entry-scroller')
+  const max = await scroller.evaluate((element) => element.scrollHeight - element.clientHeight)
+  expect(max, 'the board must actually overflow here, or nothing below proves anything').toBeGreaterThan(0)
+
+  // THE BUG, STATED AS THE PLAYER'S SYMPTOM: the board they opened to edit was
+  // below the fold. Both assertions are needed — scrollTop alone would pass on a
+  // scroll to the wrong row, and visibility alone would pass at a viewport where
+  // nothing overflows, which the guard above already rules out.
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollTop), {
+      message: 'opening a saved board must scroll it into view',
+    })
+    .toBeGreaterThan(0)
+  expect(
+    await allVisible(page, '[id="1-1"], [id="2-1"]'),
+    'both of the saved rows must be on screen',
+  ).toBe(true)
 })
 
 test('the mobile sheet has an accessible name', async ({ page }) => {

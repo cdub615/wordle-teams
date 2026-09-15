@@ -1023,15 +1023,30 @@ describe('a keystroke that changes nothing writes nothing', () => {
 
   test('typing into the ANSWER does not scroll the board, and the hand-off does', () => {
     openEntry()
+    /**
+     * A DELTA FROM THE MOUNT, NOT AN ABSOLUTE COUNT, and the difference was a
+     * BUG rather than a style choice. This read `expect(scrolls).toBe(0)`, which
+     * passed only because opening the entry step scrolled ZERO times — i.e. the
+     * assertion's baseline WAS wordle-teams-acnc. Now that the step scrolls itself
+     * into view on mount, the count this test is about is the one the four
+     * keystrokes below add, which is what it always meant.
+     *
+     * `settled` IS ASSERTED NON-ZERO for the same reason the two tests above do
+     * it: without that, a regression to "the mount scrolls nothing" would make
+     * `toBe(settled)` true again and this test would go quietly back to sleep.
+     */
+    const settled = scrolls
+    expect(settled).toBeGreaterThan(0)
+
     // Four letters, all of them in the answer zone: the board is untouched and
     // the zone has not moved, so there is nothing for the effect to react to.
     type('CRAN')
-    expect(scrolls).toBe(0)
+    expect(scrolls).toBe(settled)
 
     // The fifth hands the caret over — a zone change with no focus event, which
     // is exactly why `zone` is in the effect's deps.
     type('E')
-    expect(scrolls).toBeGreaterThan(0)
+    expect(scrolls).toBeGreaterThan(settled)
   })
 })
 
@@ -1221,6 +1236,14 @@ describe('the scroll is aimed at the thing the player is looking at', () => {
     expect(boardRow(2)).toBe('CRANE')
     expect(boardRow(3)).toBe('')
     expect(answerCursor()).toBe(-1)
+    expect(lastTarget().id).toBe('2-1')
+  })
+
+  test('opening a PREFILLED board scrolls it into view instead of leaving it at the top', () => {
+    myMonth = [{ id: 'score-solo', puzzleDay: today, answer: 'CRANE', guesses: ['SLATE', 'CRANE'] }]
+    openEntry()
+
+    expect(boardRow(2)).toBe('CRANE')
     expect(lastTarget().id).toBe('2-1')
   })
 

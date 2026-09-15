@@ -545,8 +545,27 @@ function BoardEntryFields({
   // MOVE. Its two inputs that can change the target are here instead — the third,
   // `answer`, can only change the target through `isSolved`, which needs a row
   // equal to it and therefore a `guesses` change too.
+  //
+  // `entryStepIsOpen` IS THE ONE DEP THAT IS NOT A TARGET INPUT, AND THAT IS THE
+  // POINT: it is the condition under which there is anything to scroll AT ALL.
+  // Both refs are ATTACHED below the `step === 'choose'` early return — declared
+  // above it, but pointing at elements that step one does not render — so on step
+  // one they are null and this effect is a no-op. And the PREFILL runs there,
+  // setting `answer`, `guesses` and `zone` for a saved board while the scroller
+  // does not exist yet. Every target input had therefore already fired and been
+  // discarded by the time the entry step mounted, and `step` was in no dep array,
+  // so nothing re-fired: opening a saved board to edit it scrolled ZERO times and
+  // landed at scrollTop 0 with about 43px of row 1 showing. Measured at 390x380 by
+  // counting scrollIntoView calls: 0 before, and 0 after BOTH target fixes in
+  // `scrollActiveRowIntoView` above, which is why neither of them could have
+  // caught it. (wordle-teams-acnc)
+  //
+  // THE BOOLEAN, NOT `step`, for the reason the `focused` effect above spells out:
+  // entry -> confirm keeps the same scroller mounted with the same content, so
+  // firing there would be a scroll the player did not ask for and cannot explain.
+  // false -> true is the mount, and it is the only transition that needs one.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(scrollActiveRowIntoView, [guesses, zone])
+  useEffect(scrollActiveRowIntoView, [guesses, zone, entryStepIsOpen])
 
   const submitDisabled = !day || !boardIsValid(answer, guesses, existing !== undefined)
 
@@ -569,9 +588,11 @@ function BoardEntryFields({
    *
    * Every operation in entry-cursor.ts returns its input NORMALISED — `toRows`,
    * so a fresh six-element array — whether or not anything moved. Writing that
-   * back unconditionally re-fires `useEffect(scrollActiveRowIntoView, [guesses])`
-   * on every Shift press and on every letter typed into the ANSWER, where the
-   * board did not change at all. `rowsEqual` rather than `!==` for exactly that
+   * back unconditionally re-fires the `scrollActiveRowIntoView` effect above — it
+   * is keyed on `guesses` — on every Shift press and on every letter typed into
+   * the ANSWER, where the board did not change at all. (Named rather than quoted
+   * as a dep array: that list has changed twice and this copy of it was stale
+   * both times.) `rowsEqual` rather than `!==` for exactly that
    * second case: the array is always new, its contents usually are not.
    */
   const applyEntry = (next: EntryState) => {
