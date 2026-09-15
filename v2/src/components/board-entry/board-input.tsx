@@ -13,25 +13,39 @@ import { toRows } from '../../../convex/lib/board.ts'
  * and its own tabIndex, sitting beside form.tsx's `#answer` box which had all of
  * the same. Two focus stops meant a player who finished the answer had to
  * discover that the board needed clicking, and the keystroke they tried it with
- * vanished. form.tsx now wraps BOTH halves in ONE contentEditable region and owns
- * the whole keystroke stream, so all of that lives there — including the
- * `onBeforeInput`/`onPaste` guards, which now have to cover a larger React-owned
- * subtree than this node ever did.
+ * vanished. form.tsx owns the whole keystroke stream now, so all of that lives
+ * there.
+ *
+ * AND THERE IS NO EDITING HOST LEFT ANYWHERE. The ONE region that replaced the
+ * two was itself a `contentEditable`, wrapped around this board — React-owned
+ * content inside an editing host, which is what made wordle-teams-5n6n possible:
+ * an IME commit's `beforeinput` is dispatched `cancelable: false`, so composed
+ * text could land in a tile and stay there permanently. form.tsx keeps focus and
+ * the software keyboard on a visually-hidden `<input>` that nothing reads now,
+ * and this board is plain presentation beside it. The `onBeforeInput`/`onPaste`
+ * guards that used to be described here are deleted, because a non-editable
+ * subtree has no insertion path to guard.
  *
  * WHAT IT KEEPS: the board, the cursor adaptation below (the one place the whole
  * `Cursor` is narrowed to a tile), and — as a SEPARATE export, `BoardSubmit` —
  * desktop's submit button.
  *
- * THE SUBMIT BUTTON IS A SEPARATE EXPORT RATHER THAN PART OF THIS ONE, AND THAT
- * IS FORCED. This file used to return a fragment: the board wrapper, then the
- * desktop submit next to it. form.tsx's region has to CONTAIN the board — that is
- * what makes one focus stop out of two — and NO BUTTON MAY SIT INSIDE A
- * contentEditable: it is focusable-inside-editable (browsers disagree about
- * whether it is even clickable there), it puts an interactive control in a
+ * THE SUBMIT BUTTON IS STILL A SEPARATE EXPORT, BUT THE CONSTRAINT THAT FORCED
+ * IT HAS DISSOLVED. It was forced because form.tsx's region had to CONTAIN the
+ * board — that is what makes one focus stop out of two — and NO BUTTON MAY SIT
+ * INSIDE A contentEditable: it is focusable-inside-editable (browsers disagree
+ * about whether it is even clickable there), it puts an interactive control in a
  * subtree whose every key event is preventDefault'd, and it drags a `type=submit`
- * into the editing host. Wrapping the fragment would have done exactly that, so
- * the two pieces became two exports and form.tsx places each on its own side of
- * the region's boundary.
+ * into the editing host. With the editing host gone, a button beside the board
+ * would now be merely a button beside the board.
+ *
+ * IT STAYS SPLIT ANYWAY, AND THE REASON IS NOW LAYOUT RATHER THAN SAFETY: the
+ * board sits in the `w-fit` column the answer slots are centred against, and the
+ * desktop submit is a right-aligned row under the whole scroller. Re-merging them
+ * is a layout change with `md:` consequences — see BoardSubmit's own
+ * `hidden md:flex` note, which is where a phone's last 40px of scrolling went —
+ * not a tidy-up. So this is a seam that no longer HAS to exist and costs nothing
+ * to keep.
  */
 export function BoardInput({
   guesses,
@@ -58,9 +72,10 @@ export function BoardInput({
   cursor?: Cursor | null
   /**
    * Mousedown anywhere in the board half — `AnswerSlots`' `onSelect` for the
-   * other zone, and MOUSEDOWN for the same reason it is there: it has to land
-   * before the focus/blur pair a click on the other zone would otherwise settle
-   * first.
+   * other zone, and MOUSEDOWN for the same reason it is there: it is the event
+   * whose default action IS the focus change, so it is the only one that can run
+   * beside form.tsx's `preventDefault` on the presentation wrapper and leave
+   * focus where it already is.
    *
    * The caller answers it with `moveZone`, which REFUSES the move while the
    * answer is short. That refusal is why the board can render at full strength
@@ -73,11 +88,12 @@ export function BoardInput({
     <div
       onMouseDown={onSelect}
       /*
-        `mx-auto w-fit` (wordle-teams-rpql). The ring that used to be drawn around
-        THIS element is form.tsx's region now, but the sizing survives it: while
-        this spanned the full row it was the ring that outlined the whole sheet
-        rather than the board, and a full-width board half inside a `w-fit` region
-        would put the region back in exactly that shape.
+        `mx-auto w-fit` (wordle-teams-rpql). The ring this once carried is gone
+        entirely — there is no focusable element on the entry surface for a ring
+        to belong to — but the sizing survives it: while this spanned the full row
+        it was the ring that outlined the whole sheet rather than the board, and a
+        full-width board half inside form.tsx's `w-fit` wrapper would put that
+        wrapper back in exactly that shape.
       */
       className="mx-auto flex h-fit w-fit"
       role="region"
@@ -101,9 +117,10 @@ export function BoardInput({
  * Desktop's submit. The mobile one lives in the sheet footer so it can pin above
  * the keyboard.
  *
- * OUTSIDE THE ENTRY REGION, ALWAYS — see the note above. `id="board-submit"` is
- * how form.tsx's Enter key reaches it, which is the same indirection the board's
- * own handler used before the stream moved.
+ * `id="board-submit"` is how form.tsx's Enter key reaches it, which is the same
+ * indirection the board's own handler used before the stream moved. It used to
+ * have to sit OUTSIDE the entry region as well, because that region was an
+ * editing host; it is not one any more — see the note above.
  *
  * `hidden md:flex`, NOT `invisible h-0 md:visible md:h-fit` (wordle-teams-bi8i),
  * AND ON A PHONE THAT WAS THE WHOLE OF THE SCROLLING. `invisible` hides this box

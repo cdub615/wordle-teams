@@ -29,21 +29,47 @@ import type { FunctionReturnType } from 'convex/server'
 const EMPTY_ROWS = ['', '', '', '', '', '']
 
 /**
- * Keys the browser must keep, beyond Tab and the modifier combos. The board is
- * inside an `overflow-y-auto` container, so a keyboard-only player needs these to
- * reach the rows below the fold — and F5 to reload. Space is NOT here: see
- * handleKeyDown.
+ * HOW FAR EACH SCROLLING KEY MOVES THE BOARD, and why the form scrolls it itself.
+ *
+ * The board is inside an `overflow-y-auto` container and a keyboard-only player
+ * has to be able to reach the rows below the fold. That used to be the BROWSER's
+ * job: focus sat on a contentEditable INSIDE that container, so leaving these
+ * keys unprevented let Chromium scroll the nearest scrollable ancestor, which was
+ * the board scroller.
+ *
+ * MOVING FOCUS ONTO AN INPUT OUTSIDE THE CONTAINER TOOK THAT AWAY, AND IT WAS
+ * MEASURED BOTH WAYS. At 390x380, board scroller max scrollTop 317: with the old
+ * contentEditable, PageDown/ArrowDown/End moved it 0 -> 317. With focus on the
+ * hidden input, the same three keys moved it 0 -> 0 — Chromium walks up from the
+ * FOCUSED element to find something to scroll, and the input is not inside the
+ * scroller. (It has to be outside: see the input's own note.) So the scrolling is
+ * done here instead, against the same container, and these keys are prevented
+ * rather than left to a browser that would otherwise scroll the dialog.
+ *
+ * ARROWLEFT/ARROWRIGHT ARE ABSENT AND THAT IS NOT AN OVERSIGHT: there is nothing
+ * to scroll horizontally. They fall through to `typeLetter`, which refuses them as
+ * 'not-a-letter' — the refusal the coach line ignores — exactly as before.
+ *
+ * `0.9` FOR A PAGE, matching what a browser does: a page-scroll overlaps a line or
+ * two so the reader keeps their place. `40` IS ONE TILE ROW at the entry board's
+ * short-viewport size (`h-14` plus the grid's `gap-1`), so an arrow key moves the
+ * board by a row, which is the unit this content actually has.
  */
-const NAVIGATION_KEYS = new Set([
-  'ArrowUp',
-  'ArrowDown',
-  'ArrowLeft',
-  'ArrowRight',
-  'PageUp',
-  'PageDown',
-  'Home',
-  'End',
-])
+const SCROLL_KEYS = {
+  ArrowUp: (node: HTMLElement) => node.scrollTop - 40,
+  ArrowDown: (node: HTMLElement) => node.scrollTop + 40,
+  PageUp: (node: HTMLElement) => node.scrollTop - node.clientHeight * 0.9,
+  PageDown: (node: HTMLElement) => node.scrollTop + node.clientHeight * 0.9,
+  Home: () => 0,
+  End: (node: HTMLElement) => node.scrollHeight,
+} as const
+
+/**
+ * Keys the form must not treat as letters, beyond Tab and the modifier combos:
+ * the scrolling keys above, the two horizontal arrows that scroll nothing, and
+ * F5 to reload. Space is NOT here: see handleKeyDown.
+ */
+const NAVIGATION_KEYS = new Set([...Object.keys(SCROLL_KEYS), 'ArrowLeft', 'ArrowRight'])
 const FUNCTION_KEY = /^F\d{1,2}$/
 
 /** Row-by-row, because entry-cursor.ts always returns a FRESH array. See applyEntry. */
@@ -117,7 +143,7 @@ function BoardEntryFields({
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState<Array<string>>(EMPTY_ROWS)
   /**
-   * WHICH HALF OF THE ONE ENTRY REGION THE NEXT KEYSTROKE LANDS IN.
+   * WHICH HALF OF THE ONE ENTRY SURFACE THE NEXT KEYSTROKE LANDS IN.
    *
    * It is state rather than a derivation, because it is the one thing about the
    * caret that is not a function of the board: a complete answer with an empty
@@ -178,35 +204,71 @@ function BoardEntryFields({
    * missing one.
    */
   const [derivedAnswer, setDerivedAnswer] = useState<string | null>(null)
-  /** Set when the player chose to TYPE, so the entry region takes focus then and not before. */
+  /** Set when the player chose to TYPE, so the entry input takes focus then and not before. */
   const [focusAnswer, setFocusAnswer] = useState(false)
   /**
-   * WHETHER THE REGION HAS FOCUS, AND IT GATES THE CARET IN BOTH ZONES.
+   * WHETHER THE ENTRY INPUT HAS FOCUS, AND IT GATES THE CARET IN BOTH ZONES.
    *
    * `cursorFor` knows nothing about focus — it answers "where would the next
    * letter go", which is a fact about the BOARD. Drawing that unconditionally
-   * rendered a blinking caret on a region that did not have focus and could not
+   * rendered a blinking caret on a surface that did not have focus and could not
    * receive a keystroke, which is the original dead end with a cursor painted on
    * top of it: it happened on the unreadable-import branch below, pixel-identical
    * to the manual path that works.
    *
-   * A RENDERED CARET NOW IMPLIES A FOCUSED REGION. That is the invariant, not a
+   * A RENDERED CARET NOW IMPLIES A FOCUSED INPUT. That is the invariant, not a
    * patch for that one branch — it also covers the confirm step, where not
-   * focusing is deliberate, and any future branch that forgets.
+   * focusing is deliberate, and any future branch that forgets. It also carries
+   * more weight than it used to: the caret is drawn on elements that are NOT the
+   * focus target, so `focused` is the only link between what has focus and what
+   * looks like it does.
    */
   const [focused, setFocused] = useState(false)
-  /** The ONE focusable thing on the entry step: answer slots and board together. */
-  const regionRef = useRef<HTMLDivElement>(null)
   /**
-   * The region PLUS the "Wordle Answer" label above it, and it exists to be
-   * SCROLLED rather than focused. The label sits outside the editing host (see
-   * the render), so scrolling `regionRef` into view is what would push the label
+   * THE ONE FOCUSABLE THING ON THE ENTRY STEP, AND IT IS A REAL `<input>` THAT
+   * NOTHING EVER READS.
+   *
+   * This used to be a `contentEditable` div wrapped around the answer slots and
+   * the board — React-owned content sitting inside an editing host — and the
+   * ONLY reason for the editing host was to make a phone raise its keyboard.
+   * Nothing was ever typed into it: every key is preventDefault'd and the letters
+   * come from React state. That shape cost us wordle-teams-5n6n, because an
+   * editing host accepts insertions no handler can refuse — `beforeinput` for
+   * `inputType: insertCompositionText` is dispatched with `cancelable: FALSE`, so
+   * an IME commit lands in the DOM under React and, in a tile the player does not
+   * retype, STAYS THERE (React only rewrites a tile's text node when its letter
+   * changes).
+   *
+   * SO THE KEYBOARD MAGNET AND THE CONTENT ARE NOW TWO DIFFERENT ELEMENTS. This
+   * input takes focus, the keyboard and any composition; the slots and the board
+   * are plain presentation OUTSIDE it. A composition then lands in a throwaway
+   * field whose value is read by nothing and wiped on `compositionend`. Measured
+   * in Chromium through CDP's own IME channel: a ten-update composition plus the
+   * commit of こんにちは, then three more compositions, left every slot and every
+   * tile byte-identical.
+   *
+   * IT LIVES OUTSIDE THE SCROLL CONTAINER, WHICH IS LOAD-BEARING (see the render).
+   */
+  const inputRef = useRef<HTMLInputElement>(null)
+  /**
+   * The presentation PLUS the "Wordle Answer" label above it, and it exists to be
+   * SCROLLED rather than focused — nothing down there is focusable at all now.
+   * Scrolling the slots-and-board wrapper into view is what would push the label
    * off the top of the scroll container — on the one viewport short enough for
    * the scroll to do anything, which is the viewport where an unlabelled slots
    * row is hardest to read.
    */
   const answerZoneRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  /**
+   * WHETHER AN IME IS MID-COMPOSITION, AND IT IS WHAT STOPS THE DRAIN BREAKING
+   * THE COMPOSITION IT IS DRAINING. See `drainInput` below.
+   *
+   * A ref rather than state: it is read inside an event handler and must never
+   * cause a render — the whole point of this input is that React does not care
+   * what is in it.
+   */
+  const composingRef = useRef(false)
 
   // Deferred to an effect rather than a useState initialiser: picking the
   // default day calls new Date(), and this component also renders on the server,
@@ -263,59 +325,38 @@ function BoardEntryFields({
    * in, and raising a keyboard over it to confirm it would be the original bug
    * with an extra step in front of it.
    *
-   * IT FOCUSES THE REGION, NOT AN ANSWER FIELD. There is no longer an answer
-   * field to focus: one contentEditable holds both halves, and which half the
-   * keystroke lands in is `zone`, not focus.
+   * IT FOCUSES THE INPUT, NOT AN ANSWER FIELD AND NOT THE BOARD. There is only
+   * one focusable thing on this step and neither zone is it: which half a
+   * keystroke lands in is `zone`, which is state, not focus.
    */
   useEffect(() => {
     if (!focusAnswer) return
-    regionRef.current?.focus()
+    inputRef.current?.focus()
     setFocusAnswer(false)
   }, [focusAnswer])
 
   /**
-   * THE NATIVE `beforeinput` GUARD, AND IT IS NOT THE SAME EVENT AS THE
-   * `onBeforeInput` PROP ON THE REGION. This was found by dispatching a real
-   * `InputEvent('beforeinput')` at the region and watching it go through.
+   * THROW AWAY WHATEVER LANDED IN THE INPUT, BECAUSE NOTHING READS IT.
    *
-   * React does NOT listen for `beforeinput`. `onBeforeInput` is SYNTHESIZED —
-   * react-dom's BeforeInputEventPlugin builds it from `textInput` where the
-   * browser has one (Chrome, Safari) and from a `compositionend`/`keypress`
-   * fallback where it does not (Firefox). So the prop cancels the legacy
-   * `textInput` event, which in Chrome does stop the insertion, and leaves a real
-   * `beforeinput` — the one dictation, swipe-typing and predictive text fire, and
-   * the only one Firefox has — untouched.
+   * The input exists to hold focus and raise a keyboard. Letters come from
+   * `handleKeyDown`, which preventDefaults every printable key, so in normal use
+   * the field never receives a character at all. What DOES reach it is everything
+   * keydown cannot refuse: an IME commit, a paste, a drop, dictation. All of that
+   * is harmless — the value is read by nobody — but leaving it there would let a
+   * stale composition sit in the accessibility tree and would grow without bound.
    *
-   * WHAT THIS ACTUALLY STOPS: every CANCELABLE insertion. Paste, drag-and-drop,
-   * `insertText`, `insertReplacementText` and the rest — measured across all nine
-   * inputTypes an adversarial pass could produce, plus CDP-driven insertion and
-   * real clipboard paste.
-   *
-   * WHAT IT CANNOT STOP, AND THIS IS NOT A THEORETICAL GAP:
-   * `inputType: 'insertCompositionText'` is dispatched with `cancelable: FALSE`,
-   * measured through Chromium's own IME channel. `preventDefault()` on it does
-   * nothing, so a composed character lands in the DOM. The submitted payload is
-   * unaffected — it comes from React state, which is never read back off these
-   * nodes — but the SCREEN can lie, and permanently: React only rewrites a tile's
-   * text node when that tile's letter changes, so composed text dropped into a
-   * tile survives re-renders. Tracked as wordle-teams-5n6n; the real fix is a
-   * MutationObserver or moving off contentEditable, and neither belongs here.
-   * `inputMode`/`autoCorrect` on the region below narrow the path to it.
-   *
-   * The risk this closes is the one that could corrupt DATA: a cancelable native
-   * insertion into an editing host wrapped around a React-owned subtree, whose
-   * symptom is the WRONG BOARD ON SUBMIT or a `removeChild` reconciliation crash.
-   * The prop stays as the belt to this braces.
-   *
-   * KEYED ON `step` because the region does not exist on step one.
+   * DRAINED ON `compositionend` AND ON A NON-COMPOSING `input`, NEVER ON EVERY
+   * `input`. That distinction is measured, not defensive: clearing the value on
+   * every `input` event restarts the IME, which reported `compositionstart ×10`
+   * for a single ten-update word and would tear down a real candidate window
+   * mid-choice. Guarding on `composingRef` gives the clean `compositionstart ×1 /
+   * compositionend ×1` lifecycle an IME needs while still leaving the field empty
+   * the instant the composition is over.
    */
-  useEffect(() => {
-    const node = regionRef.current
-    if (node === null) return
-    const block = (event: Event) => event.preventDefault()
-    node.addEventListener('beforeinput', block)
-    return () => node.removeEventListener('beforeinput', block)
-  }, [step])
+  const drainInput = () => {
+    const node = inputRef.current
+    if (node !== null && node.value !== '') node.value = ''
+  }
 
   /**
    * THE ANSWER AS A CONSTRAINT, THE MOMENT WE HAVE ONE.
@@ -348,7 +389,7 @@ function BoardEntryFields({
   }, [answer, parsed])
 
   /**
-   * THE WHOLE OF THE CARET, IN ONE PLACE, and both halves of the region read it:
+   * THE WHOLE OF THE CARET, IN ONE PLACE, and both halves of the surface read it:
    * `AnswerSlots` takes the answer variant's index, `BoardInput` narrows the
    * board variant to a tile. Neither derives anything of its own, so the two
    * renderings cannot disagree about where the next letter goes.
@@ -380,8 +421,9 @@ function BoardEntryFields({
    */
   const scrollActiveRowIntoView = () => {
     if (cursor !== null && cursor.zone === 'answer') {
-      // THE LABEL COMES WITH IT — `answerZoneRef` wraps the label and the region,
-      // and `regionRef` would leave the label above the scrolled-to edge.
+      // THE LABEL COMES WITH IT — `answerZoneRef` wraps the label and the slots,
+      // and scrolling the slots alone would leave the label above the scrolled-to
+      // edge.
       answerZoneRef.current?.scrollIntoView({ block: 'nearest' })
       return
     }
@@ -447,46 +489,73 @@ function BoardEntryFields({
    * here. `moveZone` REFUSES a move into the board while the answer is short, and
    * that refusal — surfaced through the coach line — is why the board renders at
    * full strength with no lock and no dim.
+   *
+   * IT ALSO PUTS FOCUS BACK ON THE INPUT, which is not a formality now that the
+   * thing being clicked is NOT the focus target. Tapping a slot or a tile has to
+   * end with the keyboard still up and the caret still drawn, and that is two
+   * halves: the presentation wrapper preventDefaults mousedown so the browser
+   * never takes focus AWAY, and this puts it back when it never had it (the first
+   * tap of an import-confirm board, where nothing was focused at all).
    */
   const selectZone = (next: Zone) => {
     const result = moveZone(entry, next)
     setRefused(result.refused)
     applyEntry(result.next)
-    regionRef.current?.focus()
+    inputRef.current?.focus()
   }
 
   /**
-   * ONE HANDLER, ONE REGION, BOTH ZONES. This replaces the pair that used to sit
+   * ONE HANDLER, ONE INPUT, BOTH ZONES. This replaces the pair that used to sit
    * either side of the boundary — `handleAnswerKeyDown` here and BoardInput's own
    * — which is the whole of what made a player click between them.
    */
-  const handleKeyDown: KeyboardEventHandler = (event: KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown: KeyboardEventHandler<HTMLInputElement> = (
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
     const key = event.key
     // Tab must reach the browser to move focus. Ctrl/Cmd combos (paste, copy,
     // select-all, ...) must NOT be treated as plain letters — Ctrl+V's keydown
     // has event.key === 'v' with no modifier check, so without this a paste
-    // shortcut is typed as a literal "v" instead of ever reaching a real paste
-    // attempt. Returning without preventDefault lets the browser proceed with
-    // its native action, which is what onBeforeInput/onPaste below intercept.
+    // shortcut is typed as a literal "v". Returning without preventDefault lets
+    // the browser proceed with its native action, and there is nothing left to
+    // intercept: the paste lands in the throwaway input above, where `drainInput`
+    // wipes it and nothing ever read it in the first place.
     if (key === 'Tab' || event.ctrlKey || event.metaKey) return
     /**
-     * NAVIGATION AND FUNCTION KEYS REACH THE BROWSER TOO, and leaving them out
-     * was a real cost: the board sits in an `overflow-y-auto` container, and with
-     * every key but Tab preventDefault'd a keyboard-only player could not scroll
-     * it — ArrowDown, PageDown, Home and End were all dead, and so was F5.
-     * (Ctrl+R always worked, through the modifier return above, which is exactly
-     * the kind of near-miss that hides a bug like this.)
+     * NAVIGATION AND FUNCTION KEYS DO NOT TYPE, and leaving them out was a real
+     * cost: the board sits in an `overflow-y-auto` container, and with every key
+     * but Tab preventDefault'd a keyboard-only player could not scroll it —
+     * ArrowDown, PageDown, Home and End were all dead, and so was F5. (Ctrl+R
+     * always worked, through the modifier return above, which is exactly the kind
+     * of near-miss that hides a bug like this.)
      *
-     * SPACE IS DELIBERATELY NOT ON THIS LIST. It inserts a character in an
-     * editing host, and `insertCompositionText` (see the effect above) means the
-     * beforeinput guard cannot be relied on to catch everything — so the one key
-     * that both scrolls AND types stays prevented.
+     * F5 AND THE FUNCTION KEYS STILL REACH THE BROWSER UNTOUCHED. THE SCROLLING
+     * KEYS NO LONGER CAN, because focus is on an input outside the container they
+     * used to scroll — so this form scrolls it, and prevents them. See SCROLL_KEYS.
+     *
+     * SPACE IS DELIBERATELY NOT ON THIS LIST, and the reason changed with the
+     * shape. It used to be here because Space inserts a character into an editing
+     * host and nothing could be relied on to refuse it; there is no editing host
+     * any more. What is left is simpler: focus sits in a one-line `<input>`, where
+     * Space does not scroll ANYTHING — it only types — so letting it through would
+     * buy a keyboard-only player nothing and cost an `input` event to drain.
      *
      * Escape is not here because it does not need to be: Radix's dismissable
      * layer listens on the document in the CAPTURE phase and ignores
      * `defaultPrevented`, so the sheet still closes.
      */
-    if (NAVIGATION_KEYS.has(key) || FUNCTION_KEY.test(key)) return
+    if (FUNCTION_KEY.test(key)) return
+    if (NAVIGATION_KEYS.has(key)) {
+      const scrollTo = SCROLL_KEYS[key as keyof typeof SCROLL_KEYS]
+      const node = scrollContainerRef.current
+      // ArrowLeft/ArrowRight have no entry: nothing scrolls horizontally, so they
+      // are left to the browser, where an empty one-line input does nothing with
+      // them either.
+      if (scrollTo === undefined || node === null) return
+      node.scrollTop = scrollTo(node)
+      event.preventDefault()
+      return
+    }
     event.preventDefault()
 
     if (key === 'Backspace') {
@@ -690,14 +759,107 @@ function BoardEntryFields({
   return (
     <form
       onSubmit={handleSubmit}
-      className={cn('flex min-h-0 flex-1 flex-col', submitting && 'animate-pulse')}
+      className={cn('relative flex min-h-0 flex-1 flex-col', submitting && 'animate-pulse')}
     >
+      {/**
+       * THE KEYBOARD MAGNET, AND THE ONLY FOCUSABLE THING ON THIS STEP.
+       *
+       * IT IS A REAL `<input>` AND NOTHING READS IT. Every letter on screen comes
+       * from React state through `handleKeyDown`; this field's `value` is wiped by
+       * `drainInput` and is never consulted, submitted (it has no `name`) or
+       * rendered. It exists because a software keyboard only opens for a focused
+       * form control, and that requirement is the entire reason the answer slots
+       * and the board used to sit inside a `contentEditable` — an editing host
+       * wrapped around React-owned content, which is what made wordle-teams-5n6n
+       * possible at all. Separating the two is the fix: a composition can only
+       * land HERE, in a field whose contents are meaningless.
+       *
+       * IT MUST LIVE OUTSIDE THE SCROLL CONTAINER BELOW, AND THAT IS MEASURED. In
+       * Chromium, with this input inside the `overflow-y-auto` div, focusing it
+       * yanked the container's `scrollTop` from 400 to 0 — and
+       * `focus({ preventScroll: true })` did NOT prevent it, because the jump is
+       * the editing host being scrolled to, not the focus call's own scroll.
+       * Placed out here it held at 400. `absolute` (against the `relative` on the
+       * form) so a 1px box in the flex column cannot add a row of its own.
+       *
+       * `role="group"` ON AN `<input>` IS A DELIBERATE ARIA OVERRIDE, NOT AN
+       * OVERSIGHT. Without it this reports as `textbox`, which is a lie — there is
+       * no text in it and nothing a screen-reader user can usefully type into it
+       * as text — and it would silently break every
+       * `getByRole('group', { name: 'Wordle board entry' })` in the unit and e2e
+       * suites, which are how the entry surface is addressed everywhere. The name
+       * and the description belong on the focusable element, so they are here and
+       * not on the presentation below.
+       *
+       * `pointer-events-none` SO THE INVISIBLE BOX CANNOT EAT A TAP. It is 1px in
+       * the corner; a player aims at a slot or a tile, and the presentation's own
+       * mousedown handler is what keeps focus here.
+       *
+       * `fontSize: 16px` INLINE, AND IT IS NOT COSMETIC: iOS Safari zooms the
+       * whole viewport when focus enters an input whose computed font-size is
+       * under 16px, and this is a mobile-first surface inside a sheet whose height
+       * is already bound to the visual viewport. Spelled as a style rather than a
+       * utility so it is greppable and readable from a test — it is a constraint,
+       * not a look.
+       */}
+      <input
+        ref={inputRef}
+        type="text"
+        tabIndex={2}
+        role="group"
+        aria-label="Wordle board entry"
+        aria-describedby="entry-instructions"
+        /**
+         * THE MOBILE INPUT HINTS, SET DELIBERATELY — and they are now a matter of
+         * politeness rather than of safety. Unset, they resolve to a spell-checked,
+         * auto-corrected, auto-capitalised field, which puts the predictive-text bar
+         * over the keyboard; that bar's commit path is the uncancelable
+         * `insertCompositionText` one. It can no longer corrupt anything (there is
+         * nothing React-owned for it to land in), but offering a player suggestions
+         * for a field that discards everything they give it is noise.
+         *
+         * `autoCapitalize="characters"` rather than "off": the board and the slots
+         * are uppercase, so this is the keyboard agreeing with what is on screen,
+         * and `typeLetter` uppercases anyway so it cannot disagree.
+         * `enterKeyHint="done"` because Enter here submits the board.
+         * `autoComplete="off"` so no browser offers to fill a nameless field.
+         */
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="characters"
+        autoComplete="off"
+        inputMode="text"
+        enterKeyHint="done"
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={handleKeyDown}
+        // COMPOSITION BOOKKEEPING, AND THE DRAIN. See `drainInput`: clearing on
+        // every `input` restarts the IME (compositionstart ×10 for one word), so
+        // the composing flag is what buys the clean 1/1 lifecycle.
+        onCompositionStart={() => {
+          composingRef.current = true
+        }}
+        onCompositionEnd={() => {
+          composingRef.current = false
+          drainInput()
+        }}
+        onInput={(event) => {
+          // BOTH TESTS, because they fail in different browsers: the ref covers
+          // the window between compositionstart and compositionend, and
+          // `isComposing` covers the `input` that carries the commit itself.
+          if (composingRef.current || (event.nativeEvent as InputEvent).isComposing) return
+          drainInput()
+        }}
+        style={{ fontSize: '16px' }}
+        className="pointer-events-none absolute left-0 top-0 h-px w-px border-0 bg-transparent p-0 opacity-0"
+      />
+
       {/* THE DAY ROW IS THE DAY ALONE NOW. The answer used to sit beside it in a
           `w-[30%]` column — 108px on a 360px phone — which is where it had to
           leave from: the five answer slots have a 216px intrinsic minimum
           (answer-slots.tsx measured the overlap that happens below it), and the
           answer belongs with the board anyway, because they are one keystroke
-          stream and the region has to wrap both. */}
+          stream and one input serves both. */}
       <div className="ml-2 flex w-full shrink-0 items-center space-x-4 md:px-4">
         <div className="flex w-full flex-col">
           <Button
@@ -781,61 +943,24 @@ function BoardEntryFields({
       )}
 
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
-        {/**
-         * ONE REGION OVER BOTH ZONES — the feature, and it is atomic. Two
-         * contentEditables with a keydown handler each is what made a player who
-         * finished the answer discover that the board needed clicking, and lose
-         * the keystroke they discovered it with.
-         *
-         * `onBeforeInput` AND `onPaste` ARE NOT OPTIONAL, and they are the most
-         * dangerous thing on this element. keydown does not cover paste, IME
-         * composition commits, or mobile swipe-typing / predictive text /
-         * dictation — all of which insert with NO per-character keydown. This
-         * node is an editing host wrapped around a LARGER React-owned subtree
-         * than board-input's ever was (the slots as well as the board), so a
-         * native insertion here corrupts the DOM React thinks it owns: the wrong
-         * board on submit, or a `removeChild` reconciliation crash.
-         *
-         * `onBeforeInput` IS NOT THE NATIVE `beforeinput` EVENT — React
-         * synthesizes it from `textInput` — so it is HALF the guard, and the
-         * effect above adds the real listener. Both are kept: the prop cancels
-         * Chrome's legacy `textInput`, the listener cancels `beforeinput`, and
-         * `input` itself is not cancelable at all.
-         *
-         * NO BUTTON IS INSIDE IT. That is why board-input.tsx exports its desktop
-         * submit separately — see the note there — and why Cancel and Submit sit
-         * in the sheet footer below rather than anywhere in here.
-         *
-         * NO TEXT IS INSIDE IT EITHER, which is why the "Wordle Answer" label
-         * above is the WRAPPER's child rather than this one's. Text inside an
-         * editing host is reachable by the native input paths this element spends
-         * two handlers cancelling, and one of them — `insertCompositionText` from
-         * an IME commit — is NOT CANCELABLE AT ALL (wordle-teams-5n6n). A label
-         * in here would be a string the player can overwrite.
-         *
-         * `w-fit` SO THE REGION HUGS THE CONTENT (wordle-teams-rpql). It carried
-         * the focus ring when that note was written; the ring is gone (see the
-         * className below) and the sizing outlives it, because the region is
-         * still the thing the answer slots and the board are centred within.
-         */}
-        {/* THE ANSWER ZONE: the label and the region it names.
+        {/* THE ANSWER ZONE: the label and the presentation it names.
 
-            THE MARGINS LIVE HERE RATHER THAN ON THE REGION so the label moves
-            with it, and `scrollActiveRowIntoView` scrolls THIS — scrolling the
-            region would push the label out of the scroll container exactly when
-            the player is typing the answer. */}
+            THE MARGINS LIVE HERE RATHER THAN ON THE PRESENTATION so the label
+            moves with it, and `scrollActiveRowIntoView` scrolls THIS — scrolling
+            the inner wrapper would push the label out of the scroll container
+            exactly when the player is typing the answer. */}
         <div ref={answerZoneRef} className="mx-auto mt-4 w-fit md:my-2">
-          {/* THE LABEL, RESTORED — AND OUTSIDE THE EDITING HOST ON PURPOSE.
+          {/* THE LABEL, RESTORED.
 
               It was in the original plan for this surface and was dropped when the
               old `#answer` input was deleted, which is most of why the slots row
               became anonymous enough to read as another board row.
 
-              OUTSIDE THE `contentEditable`, NOT IN IT: see the region's own note
-              below. Text inside an editing host is reachable by native input
-              paths, and `insertCompositionText` cannot be cancelled at all
-              (wordle-teams-5n6n), so a label in there is a string the player can
-              overwrite.
+              IT USED TO BE OUT HERE FOR A SECOND REASON THAT IS GONE: the slots
+              and the board sat inside a `contentEditable`, where any text is a
+              string the player can overwrite. Nothing below is an editing host any
+              more, so the placement is now purely about layout — the label belongs
+              to the scrolled-together answer zone, not to the slots row.
 
               `aria-hidden` SO IT IS NOT ANNOUNCED TWICE, AND THE HIDDEN HALF IS
               THE BETTER ONE. `AnswerSlots`' group already carries an aria-label
@@ -845,62 +970,58 @@ function BoardEntryFields({
           <span aria-hidden="true" className="mb-1 block text-center text-xs font-medium sm:text-sm">
             Wordle Answer
           </span>
+          {/**
+           * BOTH ZONES, AND NOT A FOCUS TARGET — THE WHOLE POINT OF THIS SHAPE.
+           *
+           * This wrapper used to be the `contentEditable` region: one editing host
+           * over the answer slots AND the board, carrying `tabIndex`, the ARIA
+           * name, a keydown handler and two insertion guards. Collapsing two focus
+           * stops into one was right and is kept; putting React-owned content
+           * inside an editing host to do it was not. `beforeinput` for an IME
+           * commit is dispatched with `cancelable: false`, so the guards could
+           * never be complete — and because a click moved the caret into a tile,
+           * composed text could land in any tile and STAY (wordle-teams-5n6n).
+           *
+           * SO THIS IS NOW PLAIN PRESENTATION. No `contentEditable`, no
+           * `tabIndex`, no `onBeforeInput`, no `onPaste`, no native `beforeinput`
+           * listener — none of which has anything left to guard, because there is
+           * no insertion path into a non-editable subtree. Focus, the keyboard and
+           * any composition live on the `<input>` at the top of this form.
+           *
+           * `onMouseDown` PREVENTDEFAULT IS THE ONE HANDLER THAT SURVIVES, AND IT
+           * IS LOAD-BEARING. The thing a player taps is no longer the thing that
+           * holds focus, so without this a tap on a slot or a tile blurs the input,
+           * drops the keyboard on a phone and takes the caret off screen (the
+           * caret is gated on `focused`). Mousedown's default action IS the focus
+           * change, so cancelling it here means focus never leaves — and it is on
+           * the WRAPPER rather than on each half because mousedown bubbles, so one
+           * handler covers every slot and every tile. `AnswerSlots` and
+           * `BoardInput` still get their own mousedown for `selectZone`; those run
+           * first, on the way up, and this cancels the default afterwards.
+           *
+           * NO FOCUS RING AND NO `focus:outline-none`, BECAUSE THIS CANNOT BE
+           * FOCUSED. The ring was removed earlier — one ring around the answer AND
+           * the board said only "something here has focus" — and the caret is what
+           * replaced it: `cursorIndex` below and `cursor` on BoardInput are BOTH
+           * gated on `focused`, so a rendered caret implies a focused input and a
+           * blurred input draws none. That is the WCAG 2.4.7 indicator, and
+           * e2e/board-entry.spec.ts asserts it is PAINTED rather than merely
+           * classed, in both zones.
+           *
+           * `caret-transparent` IS GONE WITH THE EDITING HOST: a non-editable div
+           * has no native caret to suppress. (`AnswerSlots` keeps its own, which
+           * is that component's business, not this one's.) `select-none` STAYS —
+           * a drag across five letter cells selecting text is still meaningless.
+           *
+           * `w-fit` SO IT HUGS THE CONTENT (wordle-teams-rpql). It carried the
+           * focus ring when that note was written; the sizing outlives both the
+           * ring and the editing host, because this is still the thing the answer
+           * slots and the board are centred within.
+           */}
           <div
-            ref={regionRef}
-            contentEditable
-            suppressContentEditableWarning
-            tabIndex={2}
-            role="group"
-            aria-label="Wordle board entry"
-            aria-describedby="entry-instructions"
-            /**
-             * THE MOBILE INPUT HINTS, SET DELIBERATELY. Unset, they resolve to a
-             * spell-checked, auto-corrected, auto-capitalised editing host — which
-             * is what puts the predictive-text bar over the keyboard, and the
-             * predictive bar's commit path is the one `insertCompositionText` hole
-             * nothing can cancel (wordle-teams-5n6n). Narrowing the invitation is
-             * the only lever this component has over it.
-             *
-             * `autoCapitalize="characters"` rather than "off": the board and the
-             * slots are uppercase, so this is the keyboard agreeing with what is on
-             * screen, and `typeLetter` uppercases anyway so it cannot disagree.
-             * `enterKeyHint="done"` because Enter here submits the board.
-             */
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="characters"
-            inputMode="text"
-            enterKeyHint="done"
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onKeyDown={handleKeyDown}
-            onBeforeInput={(event) => event.preventDefault()}
-            onPaste={(event) => event.preventDefault()}
-            /**
-             * NO FOCUS RING, AND THE CARET IS THE FOCUS INDICATOR THAT REPLACES IT.
-             *
-             * This element used to carry `focus:ring-2 focus:ring-ring
-             * focus:ring-offset-6 focus:ring-offset-background`, which drew ONE
-             * ring around the answer slots AND the board together. That was
-             * helpful while the answer was a separate `#answer` input with its own
-             * ring; with one region over both zones it outlines a whole sheet of
-             * content and says nothing about where the next keystroke lands.
-             *
-             * REMOVING A VISIBLE FOCUS INDICATOR WITH NOTHING IN ITS PLACE WOULD BE
-             * A WCAG 2.4.7 FAILURE, so the replacement is named here rather than
-             * assumed: `cursorIndex` below and `cursor` on BoardInput are BOTH
-             * gated on `focused`, so an unfocused region draws no caret anywhere
-             * and a RENDERED CARET IMPLIES A FOCUSED REGION (see the `focused`
-             * state's own note). A blinking text caret is the conventional focus
-             * indicator for an editing host, and unlike the ring it also says WHICH
-             * of the two zones has the cursor. e2e/board-entry.spec.ts asserts the
-             * caret is PAINTED rather than merely classed, in both zones.
-             *
-             * `focus:outline-none` STAYS. Dropping it would hand the region the
-             * UA's default focus outline, which is the same undifferentiated box
-             * around both zones that the ring was removed for.
-             */
-            className="mx-auto flex w-fit select-none flex-col items-center gap-4 caret-transparent focus:outline-none"
+            data-testid="entry-presentation"
+            onMouseDown={(event) => event.preventDefault()}
+            className="mx-auto flex w-fit select-none flex-col items-center gap-4"
           >
             {/* `w-56` (224px) IS DELIBERATELY NARROWER THAN THE BOARD — 288px
                 (`w-72`) on a phone, 320px (`md:w-80`) from md — AND THAT IS THE
@@ -938,8 +1059,9 @@ function BoardEntryFields({
         <BoardSubmit submitting={submitting} disabled={submitDisabled} />
       </div>
 
-      {/* THE MODEL, STATED ONCE, FOR SOMEBODY WHO CANNOT SEE IT. The region names
-          itself "Wordle board entry"; this is what that name means. */}
+      {/* THE MODEL, STATED ONCE, FOR SOMEBODY WHO CANNOT SEE IT. The entry input
+          names itself "Wordle board entry"; this is what that name means, and it
+          is why that input carries `aria-describedby` pointing here. */}
       <span id="entry-instructions" className="sr-only">
         Type the day&apos;s five-letter answer, then keep typing your guesses. The cursor moves from
         the answer to the board on its own, rows advance on their own, and backspace goes back a

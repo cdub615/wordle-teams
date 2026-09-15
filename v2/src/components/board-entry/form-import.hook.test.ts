@@ -112,9 +112,10 @@ vi.mock('#/components/date-picker.tsx', () => ({
 vi.mock('./board-input.tsx', () => ({
   BoardInput: ({ guesses }: { guesses: Array<string> }) =>
     createElement('div', { 'data-testid': 'board', 'data-guesses': guesses.join(',') }),
-  // Rendered OUTSIDE the contentEditable region, which is why it is a separate
-  // export at all — see board-input.tsx. Stubbed to nothing so `getByRole
-  // ('button', { name: /^submit$/ })` below stays the sheet footer's one button.
+  // A separate export from BoardInput — once because it had to live outside the
+  // contentEditable region, now for layout; see board-input.tsx. Stubbed to
+  // nothing so `getByRole('button', { name: /^submit$/ })` below stays the sheet
+  // footer's one button.
   BoardSubmit: () => null,
 }))
 
@@ -160,9 +161,12 @@ const board = () => screen.getByTestId('board').getAttribute('data-guesses')
 const goToEntry = () => fireEvent.click(screen.getByRole('button', { name: /enter manually/i }))
 
 /**
- * THE ONE FOCUS TARGET ON THE ENTRY STEP. The `#answer` box and the board's own
- * contentEditable are gone: one region holds both halves, one handler serves
- * both, and which half a keystroke lands in is state rather than focus.
+ * THE ONE FOCUS TARGET ON THE ENTRY STEP, and it is a visually-hidden `<input>`
+ * that nothing reads (wordle-teams-5n6n). The `#answer` box and the board's own
+ * contentEditable are long gone, and so is the contentEditable region that
+ * replaced them: one input serves both halves, one handler serves both, and which
+ * half a keystroke lands in is state rather than focus. It still answers to
+ * `getByRole('group', ...)` because form.tsx sets that role on it deliberately.
  */
 const region = () => screen.getByRole('group', { name: 'Wordle board entry' })
 /** The answer, read off the five slots that replaced the `#answer` box. */

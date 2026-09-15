@@ -170,8 +170,20 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
-/** The ONE focusable thing on the entry step: answer slots and board together. */
-const region = () => screen.getByRole('group', { name: 'Wordle board entry' })
+/**
+ * THE ONE FOCUSABLE THING ON THE ENTRY STEP, and since wordle-teams-5n6n it is a
+ * visually-hidden real `<input>` rather than a contentEditable wrapped around the
+ * slots and the board. It still answers to `getByRole('group', ...)` because
+ * form.tsx puts `role="group"` on it deliberately — that ARIA override is what
+ * keeps this selector, and its three siblings in e2e/board-entry.spec.ts, pointing
+ * at the entry surface instead of at a `textbox` that holds nothing.
+ */
+const entryInput = () =>
+  screen.getByRole('group', { name: 'Wordle board entry' }) as HTMLInputElement
+/** Kept under its old name because every keystroke in this file is aimed at it. */
+const region = entryInput
+/** The slots and the board, which are pure presentation and focus nothing. */
+const presentation = () => screen.getByTestId('entry-presentation')
 /** The board half of it, which is no longer a focus target of its own. */
 const boardHalf = () => screen.getByRole('region', { name: 'Wordle Board' })
 const coach = () => screen.getByTestId('entry-coach')
@@ -583,22 +595,58 @@ describe('the stream on a board that is not a prefix', () => {
    * `overflow-y-auto` container and every key but Tab used to be
    * preventDefault'd, so ArrowDown, PageDown, Home, End and F5 were all dead —
    * the rows below the fold unreachable without a mouse, and no way to reload.
+   *
+   * WHO DOES THE SCROLLING CHANGED WITH THE FOCUS TARGET, AND THAT IS MEASURED.
+   * While focus sat on a contentEditable INSIDE the scroll container, leaving
+   * these keys unprevented was enough: Chromium scrolled the nearest scrollable
+   * ancestor of the focused node. Focus is on an input OUTSIDE that container now
+   * (it has to be — see form.tsx), and Chromium walks up from the FOCUSED element,
+   * so the browser's answer became "scroll nothing". Measured at 390x380 in
+   * headless Chromium, board scroller max 317: old shape PageDown/ArrowDown/End
+   * moved scrollTop 0 -> 317, new shape 0 -> 0. So the form scrolls the container
+   * itself and prevents these keys.
+   *
+   * F5 AND F12 ARE THE OTHER HALF AND ARE UNCHANGED: they still reach the browser.
    */
-  test('navigation and function keys reach the browser', () => {
+  test('the scrolling keys scroll the board, and function keys still reach the browser', () => {
     openWith(['', '', 'SLATE'])
-    // fireEvent returns true when nothing called preventDefault.
-    for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'F5', 'F12']) {
+    const scroller = document.querySelector('.overflow-y-auto') as HTMLElement
+    expect(scroller).toBeTruthy()
+
+    // fireEvent returns false when the event was preventDefault'd. Each of these
+    // is handled here now rather than left to a browser that would scroll the
+    // dialog instead of the board.
+    for (const key of ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']) {
+      expect(fireEvent.keyDown(region(), { key })).toBe(false)
+    }
+
+    // AND THE CONTAINER IS WHAT MOVED. jsdom reports every box as 0x0, so the
+    // page- and end-relative distances all resolve to 0 and only the fixed step
+    // is observable — which is enough to prove the write lands on the scroller
+    // rather than being computed and dropped.
+    scroller.scrollTop = 0
+    fireEvent.keyDown(region(), { key: 'ArrowDown' })
+    expect(scroller.scrollTop).toBe(40)
+    fireEvent.keyDown(region(), { key: 'ArrowUp' })
+    expect(scroller.scrollTop).toBe(0)
+
+    // Nothing to scroll sideways, so these are left alone, and F5/F12 must still
+    // reach the browser or a keyboard-only player cannot reload.
+    for (const key of ['ArrowLeft', 'ArrowRight', 'F5', 'F12']) {
       expect(fireEvent.keyDown(region(), { key })).toBe(true)
     }
+
     // And none of them typed anything.
     expect(boardRow(1)).toBe('')
   })
 
   /**
-   * SPACE IS THE EXCEPTION AND STAYS PREVENTED. It is the one key that both
-   * scrolls a container and inserts a character into an editing host — and
-   * `insertCompositionText` (wordle-teams-5n6n) means the beforeinput guard
-   * cannot be relied on to catch what it inserts.
+   * SPACE IS THE EXCEPTION AND STAYS PREVENTED, though the reason changed with
+   * the shape. It used to be here because Space inserts a character into an
+   * editing host and `insertCompositionText` (wordle-teams-5n6n) meant no guard
+   * could be trusted to catch everything. There is no editing host now: focus
+   * sits in a one-line `<input>`, where Space scrolls nothing and only types, so
+   * letting it through would buy a keyboard-only player nothing.
    */
   test('Space is still prevented, because it types', () => {
     openWith(['', '', 'SLATE'])
@@ -671,48 +719,129 @@ describe('Enter, from anywhere in the region', () => {
 })
 
 /**
- * THE REGION'S BOUNDARY, which is the part of this task no gate can otherwise
+ * THE ENTRY SURFACE'S SHAPE, which is the part of this task no gate can otherwise
  * see.
  */
-describe('the entry region', () => {
-  test('is the one focus target, and the board half is not a second one', () => {
+describe('the entry surface', () => {
+  test('the one focus target is a real input, and neither zone is a second one', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
-    expect(region().getAttribute('contenteditable')).toBe('true')
-    expect(region().getAttribute('tabindex')).toBe('2')
-    expect(document.activeElement).toBe(region())
-    expect(boardHalf().getAttribute('contenteditable')).toBeNull()
+    expect(entryInput().tagName).toBe('INPUT')
+    expect(entryInput().getAttribute('contenteditable')).toBeNull()
+    expect(entryInput().getAttribute('tabindex')).toBe('2')
+    expect(document.activeElement).toBe(entryInput())
+    // The presentation holds the letters and takes no focus at all.
+    expect(presentation().getAttribute('tabindex')).toBeNull()
     expect(boardHalf().getAttribute('tabindex')).toBeNull()
+    expect(presentation().contains(entryInput())).toBe(false)
   })
 
   /**
-   * NO BUTTON INSIDE THE EDITING HOST. A button in a contentEditable is
-   * focusable-inside-editable, sits in a subtree whose every key event is
-   * preventDefault'd, and browsers disagree about whether it is even clickable
-   * there — which is why board-input.tsx exports its desktop submit separately.
+   * NOTHING IN THE ENTRY SURFACE IS AN EDITING HOST, AND THIS TEST EXISTS TO STOP
+   * THAT BEING REINSTATED BY HABIT (wordle-teams-5n6n).
+   *
+   * `contentEditable` on a wrapper is a one-word edit somebody makes to get a
+   * mobile keyboard, which is exactly how the board came to live inside one. The
+   * cost is not theoretical: `beforeinput` for an IME commit is dispatched with
+   * `cancelable: false`, so no handler can refuse the insertion, and composed text
+   * dropped into a tile the player does not retype survives every re-render.
+   *
+   * ASSERTED OVER THE WHOLE SUBTREE, not just the wrapper, because the next
+   * version of that mistake is a `contentEditable` on the slots row or on a single
+   * tile. `[contenteditable]` catches the attribute however it is spelled;
+   * `isContentEditable` would be a jsdom-specific property that is always false.
    */
-  test('contains no button, and both submits are still on the page', () => {
+  test('nothing in the entry surface is contentEditable', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
-    expect(region().querySelectorAll('button, input, a, [tabindex]')).toHaveLength(0)
+    const form = presentation().closest('form')
+    expect(form).toBeTruthy()
+    expect((form as HTMLElement).querySelectorAll('[contenteditable]')).toHaveLength(0)
+    // The tiles specifically — the place the bug was unrepairable.
+    expect(document.getElementById('1-1')?.getAttribute('contenteditable')).toBeNull()
+  })
+
+  /**
+   * THE INPUT HOLDS THE NAME AND THE DESCRIPTION, BECAUSE IT HOLDS THE FOCUS.
+   *
+   * `role="group"` on an `<input>` is a deliberate ARIA override (form.tsx says
+   * so). Without it the element reports as `textbox` — a lie about a field with no
+   * text in it — and every `getByRole('group', { name: 'Wordle board entry' })` in
+   * this file and in e2e/board-entry.spec.ts stops resolving.
+   *
+   * `font-size: 16px` IS A CONSTRAINT, NOT A LOOK: iOS Safari zooms the viewport
+   * when focus enters an input below it, on a surface whose height is already
+   * bound to the visual viewport. jsdom cannot see the zoom, but it can see the
+   * declaration, which is the only thing that keeps it from being tidied away.
+   */
+  test('the input is named as a group, not a textbox, and cannot trigger iOS zoom', () => {
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+
+    expect(entryInput().getAttribute('role')).toBe('group')
+    expect(entryInput().style.fontSize).toBe('16px')
+  })
+
+  /**
+   * A TAP ON THE PRESENTATION MUST NOT BLUR THE INPUT.
+   *
+   * The thing a player touches is no longer the thing that holds focus, so
+   * mousedown's default action — moving focus to what was pressed — would drop the
+   * keyboard on a phone and take the caret off screen with it (the caret is gated
+   * on `focused`). Cancelling it is what makes the input immovable, and it is
+   * three characters somebody could delete as dead code.
+   */
+  test('mousedown on the slots or a tile is prevented, so focus never leaves the input', () => {
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+    type('CRANE')
+
+    // fireEvent returns false when the event was preventDefault'd, and both of
+    // these bubble to the presentation wrapper's one handler.
+    expect(fireEvent.mouseDown(screen.getByRole('group', { name: /Today's Wordle answer/i }))).toBe(
+      false,
+    )
+    expect(fireEvent.mouseDown(document.getElementById('1-1') as HTMLElement)).toBe(false)
+    expect(document.activeElement).toBe(entryInput())
+  })
+
+  /**
+   * NO BUTTON INSIDE THE PRESENTATION. The constraint that forced this — no
+   * interactive control inside a contentEditable — has dissolved with the editing
+   * host, but the SPLIT is what keeps both submits addressable and keeps
+   * `document.getElementById('board-submit')` resolving for the Enter key, so it
+   * is still asserted. See board-input.tsx.
+   */
+  test('the presentation contains no controls, and both submits are still on the page', () => {
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+
+    expect(presentation().querySelectorAll('button, input, a, [tabindex]')).toHaveLength(0)
     expect(screen.getAllByRole('button', { name: /^submit$/i })).toHaveLength(2)
     expect(screen.getByRole('button', { name: /^cancel$/i })).toBeTruthy()
+    expect(document.getElementById('board-submit')).toBeTruthy()
   })
 
   /**
-   * A RENDERED CARET IMPLIES A FOCUSED REGION.
+   * A RENDERED CARET IMPLIES A FOCUSED INPUT.
    *
    * `cursorFor` answers a question about the BOARD — where would the next letter
    * go — and knows nothing about focus, so drawing it unconditionally painted a
-   * blinking caret on a region that could not receive a keystroke. That shipped
+   * blinking caret on a surface that could not receive a keystroke. That shipped
    * on the unreadable-import branch: focus on BODY, the coach saying "Type
    * today's answer", the caret blinking, and every key going nowhere — a screen
    * pixel-identical to the manual path that works. Gating on focus is what makes
    * that class of bug unable to recur rather than fixing the one branch.
+   *
+   * IT CARRIES MORE WEIGHT SINCE THE CARET AND THE FOCUS TARGET BECAME DIFFERENT
+   * ELEMENTS. The caret is drawn on the slots and the tiles; focus lives on a
+   * 1px invisible input. `focused` is the only thing tying them together, so a
+   * `focused` that stopped tracking the input would leave a caret blinking over a
+   * surface with no keyboard behind it and nothing else in the repo would notice.
    */
-  test('draws no caret in either zone while the region is unfocused', () => {
+  test('draws no caret in either zone while the input is unfocused', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
@@ -743,51 +872,87 @@ describe('the entry region', () => {
 })
 
 /**
- * THE GUARDS THAT KEYDOWN CANNOT PROVIDE, and the most dangerous thing on the
- * region.
+ * WHAT KEYDOWN CANNOT COVER NOW GOES SOMEWHERE HARMLESS INSTEAD OF BEING FOUGHT
+ * OFF — the shape change behind wordle-teams-5n6n.
  *
  * keydown does not cover paste, IME composition commits, or mobile swipe-typing /
- * predictive text / dictation — all of which insert via `beforeinput` with NO
- * per-character keydown. This node is an editing host wrapped around a React-owned
- * subtree (the slots AND the board), so a native insertion here corrupts the DOM
- * React thinks it owns: the wrong board on submit, or a `removeChild`
- * reconciliation crash. Neither is visible to any other gate in this repo.
+ * predictive text / dictation: they insert with NO per-character keydown. The old
+ * answer was to cancel them, with `onBeforeInput`, `onPaste` and a native
+ * `beforeinput` listener on a contentEditable wrapped around the slots and the
+ * board. THAT ANSWER WAS INCOMPLETE BY CONSTRUCTION: `beforeinput` for
+ * `inputType: insertCompositionText` is dispatched `cancelable: false`, so an IME
+ * commit walked straight through all three and the composed text stayed in the
+ * tile it landed in.
+ *
+ * The answer now is that there is nowhere for an insertion to land. The slots and
+ * the board are not editable, so they accept nothing; everything a keyboard,
+ * clipboard or IME can produce goes into the hidden input, where the value is read
+ * by nobody and wiped on `compositionend`.
+ *
+ * WHAT THIS FILE CAN AND CANNOT SEE. jsdom has no editing host, no composition and
+ * no IME, so the ABSENCE of an insertion path is what is assertable here — the
+ * contentEditable test above — and a real composition is measured in
+ * e2e/board-entry.spec.ts through CDP instead. What IS assertable is the drain,
+ * because it is plain DOM.
  */
-describe('nothing can be typed into the region natively', () => {
+describe('the hidden input is a dead end for anything that lands in it', () => {
   const open = () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
   }
 
   /**
-   * The REAL native event, dispatched by hand: @testing-library's `fireEvent` has
-   * no `beforeInput` helper, and this is the event a swipe-typed word arrives on.
-   * `dispatchEvent` returns false when something called preventDefault.
+   * DRAINED WHEN THE COMPOSITION ENDS, NOT WHILE IT RUNS.
+   *
+   * Draining on every `input` was measured to restart the IME —
+   * `compositionstart ×10` for one ten-update word — which in a real CJK keyboard
+   * tears the candidate window down mid-choice. So the assertion has two halves
+   * and the FIRST one is the load-bearing one: mid-composition the value is left
+   * exactly alone.
    */
-  const beforeInput = (target: Element) =>
-    target.dispatchEvent(
-      new InputEvent('beforeinput', { bubbles: true, cancelable: true, data: 'x' }),
-    )
-
-  // `beforeinput` is cancelable; `input` is not, which is why the guard is on it.
-  test('beforeinput is cancelled', () => {
+  test('a composition is left alone while it runs and wiped when it commits', () => {
     open()
-    expect(beforeInput(region())).toBe(false)
+    const input = entryInput()
+
+    fireEvent.compositionStart(input)
+    input.value = 'か'
+    fireEvent.input(input)
+    expect(input.value).toBe('か')
+
+    input.value = '漢'
+    fireEvent.compositionEnd(input)
+    expect(input.value).toBe('')
   })
 
-  test('paste is cancelled', () => {
+  /**
+   * AND ANYTHING THAT ARRIVES OUTSIDE A COMPOSITION IS WIPED AT ONCE — a paste, a
+   * drop, dictation. None of it is cancelled any more, because none of it can
+   * reach the board; it is simply thrown away.
+   */
+  test('a non-composing insertion is wiped immediately', () => {
     open()
-    expect(fireEvent.paste(region())).toBe(false)
+    const input = entryInput()
+
+    input.value = 'ZZZZZ'
+    fireEvent.input(input)
+    expect(input.value).toBe('')
   })
 
-  test('so is an insertion aimed at a tile deep inside it', () => {
+  /**
+   * AND NOTHING THAT LANDS IN IT REACHES THE BOARD. The value is not read on
+   * submit, on render, or anywhere else — the letters come from React state — so a
+   * field full of junk changes nothing on screen.
+   */
+  test('whatever is in the input has no effect on the answer or the board', () => {
     open()
-    const tile = document.getElementById('1-1')
-    expect(tile).toBeTruthy()
-    // It bubbles to the region's handler, which is the point of putting the
-    // guard on the editing host rather than on each half.
-    expect(beforeInput(tile as HTMLElement)).toBe(false)
-    expect(fireEvent.paste(tile as HTMLElement)).toBe(false)
+    type('CRANE')
+    const input = entryInput()
+
+    input.value = 'ZZZZZ'
+    fireEvent.input(input)
+
+    expect(answerText()).toBe('CRANE')
+    expect(boardRow(1)).toBe('')
   })
 })
 
@@ -917,26 +1082,33 @@ describe('the answer row is visibly not part of the board', () => {
   })
 
   /**
-   * THE REGION HAS NO FOCUS RING, AND THE CARET IS WHAT REPLACED IT.
+   * THE PRESENTATION HAS NO FOCUS RING, AND THE CARET IS WHAT REPLACED IT.
    *
    * Removed at the owner's direction: one ring around the answer AND the board
    * said only "something here has focus", which is what made the two zones read
    * as one control. Re-adding `focus:ring-2` is a one-word edit somebody makes
    * out of habit while tidying focus styles, hence this.
    *
+   * `focus:outline-none` IS GONE TOO, AND ITS ABSENCE IS NOW THE HONEST STATE
+   * RATHER THAN A REGRESSION. It existed to suppress the UA's default outline on
+   * an element that took focus; this element cannot take focus at all since the
+   * keyboard moved to a hidden input, so a `focus:` variant here would be a class
+   * that can never match — exactly the kind of no-op this file's other comments
+   * refuse elsewhere.
+   *
    * THE SECOND HALF IS NOT DECORATION. Removing a visible focus indicator with
    * nothing in its place is a WCAG 2.4.7 failure, so this test refuses the ring
-   * ONLY TOGETHER WITH the thing that stands in for it: a focused region with an
+   * ONLY TOGETHER WITH the thing that stands in for it: a focused input with an
    * EMPTY answer draws a caret in the first slot. Both halves have to hold, or
    * there is a state with focus and no indicator at all.
    */
-  test('the region carries no focus-ring class, and a focused empty answer shows a caret instead', () => {
+  test('the presentation carries no focus-ring class, and a focused empty answer shows a caret instead', () => {
     openEntry()
 
-    expect(region().className).not.toMatch(/ring/)
-    // The UA's own outline is still suppressed, so "no ring" cannot be read as
-    // "the browser draws its own box around both zones instead".
-    expect(region().className).toContain('focus:outline-none')
+    expect(presentation().className).not.toMatch(/ring/)
+    // Nor anywhere else on the surface: a ring re-added to the answer zone
+    // wrapper would read exactly as the one that was removed.
+    expect(presentation().className).not.toMatch(/focus:/)
 
     // Nothing typed: this is the state a player lands in when the step opens.
     expect(answerText()).toBe('')

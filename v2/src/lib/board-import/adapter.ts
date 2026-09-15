@@ -97,13 +97,21 @@ export function imageFromFiles(files: ArrayLike<File> | null | undefined): File 
  * WHY THERE IS A CLIPBOARD READ AT ALL, WHEN THERE IS ALREADY A PASTE LISTENER.
  *
  * On iOS there is no route into the paste listener. There is no Cmd-V, and the
- * only way to fire a paste event is a long-press "Paste" on an editable
- * element — but form.tsx's entry region, the one editable element on the
- * screen, preventDefaults every paste that reaches it, deliberately, to stop a
- * native insertion corrupting the React-owned board inside it. So the listener
- * can never fire there.
+ * only way to fire a paste event is a long-press "Paste" ON AN EDITABLE ELEMENT —
+ * and the screen that offers the import has none. import-screenshot.tsx renders
+ * on board entry's step one, which is the day and the method and is deliberately
+ * built with nothing focusable in it. There is nothing to long-press, so the
+ * listener can never fire there.
  *
- * That is not an edge case. Screenshots taken with iOS's "Copy and Delete" go
+ * THE OLDER ARGUMENT HERE — that form.tsx's entry region was "the one editable
+ * element on the screen" and preventDefaulted every paste — IS RETIRED, not
+ * merely reworded. That region is not an editing host any longer: focus and the
+ * software keyboard moved to a visually-hidden `<input>` so an IME could not
+ * write into the React-owned board (wordle-teams-5n6n), and no paste is cancelled
+ * anywhere any more. It was also never on screen at the same time as the import
+ * control. The conclusion below is untouched by any of that.
+ *
+ * And it is not an edge case. Screenshots taken with iOS's "Copy and Delete" go
  * to the clipboard and are never written to Photos at all, so for that workflow
  * the clipboard is the ONLY place the image exists and the file picker reaches
  * nothing. This is the primary path on a phone, not a convenience.

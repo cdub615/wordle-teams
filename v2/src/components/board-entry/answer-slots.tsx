@@ -147,13 +147,18 @@ export function AnswerSlots({ answer, cursorIndex, onSelect, className }: Answer
           ? "Today's Wordle answer, no letters yet"
           : `Today's Wordle answer, ${letters.length} of ${ANSWER_LENGTH} letters: ${letters.join(' ')}`
       }
-      // MOUSEDOWN, NOT CLICK: it has to land before the focus/blur pair a click
-      // on the other zone would otherwise settle first.
+      // MOUSEDOWN, NOT CLICK: mousedown's default action IS the focus change, so
+      // it is the only event that can run beside the caller's `preventDefault` on
+      // it — which is what stops a tap here blurring the hidden input that holds
+      // the keyboard (form.tsx).
       onMouseDown={onSelect}
       // `caret-transparent` AND `select-none` ARE KEPT FROM THE FIELD THIS
-      // REPLACES. The native caret must stay suppressed — the rendered one below
-      // is its replacement, and two carets is worse than none — and a drag across
-      // five letter cells selecting text is meaningless here.
+      // REPLACES. Neither is load-bearing against a native caret any more — this
+      // group has not been inside an editing host since form.tsx moved focus onto
+      // a real input — but `caret-transparent` costs nothing and keeps the
+      // rendered caret below the only caret this component can ever show, whoever
+      // renders it and wherever. A drag across five letter cells selecting text is
+      // still meaningless here.
       className={cn('grid grid-cols-5 gap-1 caret-transparent select-none', className)}
     >
       {Array.from({ length: ANSWER_LENGTH }, (_, index) => {

@@ -5,7 +5,7 @@ import { signIn } from './sign-in'
 import { toPuzzleDay } from '../convex/lib/puzzleDay.ts'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Locator, Page } from '@playwright/test'
+import type { CDPSession, Locator, Page } from '@playwright/test'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -24,11 +24,15 @@ const here = path.dirname(fileURLToPath(import.meta.url))
  *
  * CHROMIUM ONLY, AND THAT IS A REAL LIMIT RATHER THAN A DETAIL.
  * playwright.config.ts declares no `projects`, so every test below is a fact
- * about ONE engine. It has already hidden a defect exactly once — see the
- * insertText comment in the guard test — because Chromium fires the legacy
- * `textInput` event that React's `onBeforeInput` is synthesized from, and
- * Firefox does not. A guard can therefore look proven here while being inert
- * for half the web. Read every assertion below as "in Chromium".
+ * about ONE engine. It has already hidden a defect exactly once: the insertion
+ * guards this file used to assert were per-browser — Chromium fires the legacy
+ * `textInput` event React's `onBeforeInput` is synthesized from and Firefox does
+ * not — so a guard looked proven here while being inert for half the web, and the
+ * hole that mattered (an uncancelable IME commit, wordle-teams-5n6n) was in every
+ * browser at once. THOSE GUARDS ARE GONE; what replaced them is structural rather
+ * than per-engine — there is no editing host for an insertion to land in — which
+ * is the kind of claim one browser CAN stand for. The IME test below still needs
+ * `newCDPSession`, which is Chromium-only. Read every assertion as "in Chromium".
  */
 
 /**
@@ -92,7 +96,7 @@ test('enter a board and see the score land', async ({ page }) => {
   const board = page.getByRole('region', { name: 'Wordle Board' })
   await board.waitFor()
 
-  // Choosing to type focuses the ONE entry region; type the answer, and the
+  // Choosing to type focuses the ONE entry input; type the answer, and the
   // guesses follow it with no click in between — the fifth answer letter hands
   // the caret to the board itself.
   await page.keyboard.type('SPEED')
@@ -117,39 +121,73 @@ test('enter a board and see the score land', async ({ page }) => {
   await expect(row.locator(`[data-day="${day}"]`)).toHaveText('2')
 })
 
-test('cancelable native input paths cannot corrupt the board, but typing still can', async ({
+/**
+ * DRIVES A REAL IME COMPOSITION THROUGH CHROMIUM'S OWN CHANNEL.
+ *
+ * `Input.imeSetComposition` is the CDP command Blink's InputMethodController
+ * sits behind — the same path a Gboard, a Pinyin IME or macOS Kotoeri takes —
+ * and `Input.insertText` is how a composition is COMMITTED. Nothing else in this
+ * repo can produce one: jsdom has no composition at all, and
+ * `page.keyboard.insertText` fires a beforeinput that is `cancelable: true`,
+ * which is the easy half.
+ *
+ * Both are needed, and `newCDPSession` is Chromium-only, which is one more
+ * reason every assertion in this file reads "in Chromium".
+ */
+async function composeAndCommit(
+  cdp: CDPSession,
+  word: string,
+): Promise<void> {
+  // One update per character, the way an IME reports its in-progress reading.
+  for (let index = 1; index <= word.length; index++) {
+    await cdp.send('Input.imeSetComposition', {
+      text: word.slice(0, index),
+      selectionStart: index,
+      selectionEnd: index,
+    })
+  }
+  // The commit. This is the event whose `beforeinput` is `cancelable: FALSE`.
+  await cdp.send('Input.insertText', { text: word })
+}
+
+test('no native input path can reach the board — paste, drop, insertText or an IME', async ({
   page,
   context,
 }) => {
-  // Task 8 fixed a Critical bug: the two contentEditable fields (the answer
-  // box and the board) intercepted `keydown` only, so mobile swipe-typing,
-  // predictive text, voice dictation and paste — all of which insert via
-  // `beforeinput` with NO keydown at all — could reach the DOM without
-  // React's state knowing, risking a board that disagrees with what gets
-  // submitted or a reconciliation crash (WordleBoard renders INSIDE the
-  // board's contentEditable node). The fix is onPaste plus BOTH beforeinput
-  // guards on the one entry region (form.tsx) — React's `onBeforeInput` prop,
-  // which is synthesized from `textInput`, and a native `beforeinput` listener.
-  // They are three deletable lines and the failure they prevent is silent — this
-  // test exists so removing any of them fails CI instead of nothing at all.
-  //
-  // WHAT THIS TEST DOES *NOT* COVER, STATED SO NOBODY READS IT AS A CLEAN BILL:
-  // an IME COMMIT. `insertText` below dispatches a beforeinput with
-  // `cancelable: true`, which the guard does stop; an IME composition commits
-  // with `inputType: 'insertCompositionText'` and `cancelable: FALSE`, measured
-  // through Chromium's own IME channel, so preventDefault() on it does nothing
-  // and the composed character lands in the DOM. The submitted payload is still
-  // correct — it comes from React state, never read back off these nodes — but
-  // the screen can lie, and permanently, since React only rewrites a tile's text
-  // node when that tile's letter changes. Tracked as wordle-teams-5n6n. Do not
-  // extend this test to claim otherwise without fixing that first.
+  /**
+   * WHAT THIS REPLACES, AND WHY THE OLD VERSION COULD NOT BE EXTENDED.
+   *
+   * This test used to assert that the entry region CANCELLED every insertion:
+   * `onPaste`, React's synthesized `onBeforeInput`, and a native `beforeinput`
+   * listener, all on one `contentEditable` wrapped around the answer slots and
+   * the board. It then said in prose that it did NOT cover an IME commit, because
+   * `beforeinput` for `inputType: insertCompositionText` is dispatched
+   * `cancelable: FALSE` and no handler can refuse it — so composed text landed in
+   * the DOM under React and, in a tile the player never retyped, stayed there
+   * (wordle-teams-5n6n).
+   *
+   * THE FIX WAS TO DELETE THE EDITING HOST, NOT TO ADD A FOURTH GUARD. The slots
+   * and the board are plain presentation now; focus, the software keyboard and any
+   * composition live on a visually-hidden `<input>` beside them that nothing reads
+   * and that is wiped on `compositionend`. So there is no longer anything to
+   * cancel, and the assertion changes shape with it: not "the insertion is
+   * refused" but "the insertion lands somewhere that cannot be seen".
+   *
+   * THAT IS WHY THE IME CASE IS FINALLY IN HERE RATHER THAN DISCLAIMED IN A
+   * COMMENT. It is the one place in the repo where this fix is provable
+   * end to end.
+   */
   await signInWithTeam(page)
   await page.getByRole('button', { name: 'Board Entry' }).click()
   await page.getByRole('button', { name: 'Enter manually' }).click()
 
-  // ONE REGION OVER BOTH HALVES since Task 8 — the answer slots and the board
-  // inside a single contentEditable — so there is one node to aim an insertion
-  // at, and it is a LARGER React-owned subtree than the board alone ever was.
+  /**
+   * STILL `getByRole('group', ...)`, AND THAT IS NOT AN ACCIDENT OF THE REWRITE.
+   * form.tsx puts `role="group"` on the input deliberately — an ARIA override over
+   * the implicit `textbox`, which would be a lie about a field with no text in it
+   * and would break this selector and its two siblings below. The element behind
+   * it is an `<input>`, not the region it used to be.
+   */
   const region = page.getByRole('group', { name: 'Wordle board entry' })
   const answer = page.getByRole('group', { name: /Today's Wordle answer/ })
   const board = page.getByRole('region', { name: 'Wordle Board' })
@@ -159,11 +197,25 @@ test('cancelable native input paths cannot corrupt the board, but typing still c
   const firstTile = page.locator('[id="1-1"]')
   await board.waitFor()
 
+  /**
+   * THE STRUCTURAL ASSERTION, AND IT IS THE ONE THAT MAKES THE REST TRUE.
+   *
+   * Everything below is a consequence of this: a subtree that is not an editing
+   * host has no insertion path into it. Asserted here as well as in
+   * form.hook.test.ts because this is the built page, with the real stylesheet and
+   * the real Radix surface — a `contentEditable` reintroduced by any of the
+   * components in between would show up here and nowhere else.
+   */
+  expect(
+    await page.locator('[role="dialog"] [contenteditable]').count(),
+    'nothing in the entry surface may be an editing host — that is the whole fix',
+  ).toBe(0)
+
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.evaluate(() => navigator.clipboard.writeText('ZZZZZ'))
 
-  // Choosing to type focuses the region, so every insertion below lands on it
-  // with no click at all.
+  // Choosing to type focuses the input, so every insertion below lands on it with
+  // no click at all.
   await expect(region).toBeFocused()
 
   // Paste — a real OS-level Ctrl/Cmd+V through the clipboard, the same path a
@@ -173,33 +225,99 @@ test('cancelable native input paths cannot corrupt the board, but typing still c
   await expect(firstTile).toHaveText('')
 
   // insertText dispatches beforeinput/input WITHOUT keydown — the same event
-  // shape predictive text, swipe-typing and dictation use. This proves that
-  // SOMETHING on the node cancels that insertion, which is the behaviour a
-  // player depends on.
-  //
-  // IT DOES *NOT* PROVE **WHICH** OF THE TWO GUARDS DID IT, and the difference
-  // is the whole reason both exist. React's `onBeforeInput` prop is not the
-  // native `beforeinput` event — it is synthesized from the legacy `textInput`
-  // event — and Chromium fires `textInput` for CDP's `Input.insertText` as well
-  // as `beforeinput`. So in THIS browser both guards fire on this one line, and
-  // deleting the native listener would leave this assertion green. A browser
-  // that fires only `beforeinput` (Firefox) is what would tell them apart, and
-  // playwright.config.ts declares no `projects`, so this suite never opens one.
-  // That is not hypothetical: it is how wordle-teams-5n6n's real defect hid
-  // behind a test that looked like it covered this. Read this as "the node
-  // refuses native insertions in Chromium", nothing wider.
+  // shape predictive text, swipe-typing and dictation use.
   await page.keyboard.insertText('ZZZZZ')
   await expect(answer).toHaveText('')
   await expect(firstTile).toHaveText('')
 
-  // Real key events still work — proves the guard is SELECTIVE rather than the
-  // region simply being inert, which a broken one would also pass. And the
-  // fifth answer letter hands the caret to the board, so the guesses follow
-  // with NO click in between: that is the feature Task 8 shipped.
+  // A text/plain DROP aimed at a tile, which used to be a live insertion path
+  // into the React-owned board because the tile was inside the editing host.
+  await page.evaluate(() => {
+    const transfer = new DataTransfer()
+    transfer.setData('text/plain', 'QQQQQ')
+    document
+      .getElementById('1-1')!
+      .dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+    document.execCommand('insertText', false, 'QQQQQ')
+  })
+  await expect(answer).toHaveText('')
+  await expect(firstTile).toHaveText('')
+
+  // ─── THE IME, WHICH IS THE CASE THIS FILE USED TO DISCLAIM ─────────────────
+  const cdp = await context.newCDPSession(page)
+  // Capture phase on `document`, so nothing in the app can hide an event from
+  // this by stopping propagation.
+  await page.evaluate(() => {
+    const counts = { start: 0, end: 0 }
+    ;(window as unknown as { __wtComposition: typeof counts }).__wtComposition = counts
+    document.addEventListener('compositionstart', () => (counts.start += 1), true)
+    document.addEventListener('compositionend', () => (counts.end += 1), true)
+  })
+
+  // A composition while the caret is in the ANSWER zone.
+  await composeAndCommit(cdp, 'こんにちは')
+  await expect(answer).toHaveText('')
+  await expect(firstTile).toHaveText('')
+
+  /**
+   * THE LIFECYCLE IS THE SECOND ASSERTION AND IT IS NOT PADDING.
+   *
+   * form.tsx drains the input on `compositionend` and on a NON-COMPOSING `input`,
+   * never on every `input`. Draining on every one was measured to restart the
+   * composition — `compositionstart ×10` for a single ten-update word — which in a
+   * real CJK keyboard tears the candidate window down mid-choice. A player would
+   * see that; this suite would not, unless it counts.
+   */
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __wtComposition: { start: number; end: number } }).__wtComposition,
+    ),
+    'one composition must produce exactly one start and one end — draining on every input restarts it',
+  ).toEqual({ start: 1, end: 1 })
+
+  // Real key events still work — proves the input is SELECTIVE rather than the
+  // surface simply being inert, which a broken one would also pass. And the fifth
+  // answer letter hands the caret to the board, so the guesses follow with NO
+  // click in between: that is the feature Task 8 shipped and this must not cost.
   await page.keyboard.type('SPEED')
   await expect(answer).toHaveText('SPEED')
   await page.keyboard.type('CRANE')
   await expect(firstTile).toHaveText('C')
+
+  /**
+   * AND NOW THE CASE THAT WAS UNREPAIRABLE: A COMPOSITION AIMED AT A FILLED TILE.
+   *
+   * Clicking a tile used to move the caret INTO it, so composed text could land in
+   * any tile — and React only rewrites a tile's text node when that tile's LETTER
+   * changes, so text dropped into a tile the player does not retype survived every
+   * re-render. The click below is that gesture, and the forced DOM Range is
+   * stronger than the click: it puts the selection inside the tile explicitly,
+   * which is the state the old bug needed.
+   */
+  await firstTile.click()
+  await page.evaluate(() => {
+    const range = document.createRange()
+    range.selectNodeContents(document.getElementById('1-1')!)
+    const selection = getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+  })
+  for (const word of ['にほんご', 'かんじ', 'テスト']) {
+    await composeAndCommit(cdp, word)
+  }
+
+  // The board is byte-for-byte what was typed, and the hidden input is empty.
+  await expect(answer).toHaveText('SPEED')
+  await expect(firstTile).toHaveText('C')
+  await expect(page.locator('[id="1-5"]')).toHaveText('E')
+  expect(
+    await region.inputValue(),
+    'the throwaway input must be drained, or a stale composition sits in the accessibility tree',
+  ).toBe('')
+  // The tap on the tile did not take focus away either — form.tsx preventDefaults
+  // mousedown over the presentation precisely so a phone does not drop its
+  // keyboard when the player corrects a letter.
+  await expect(region).toBeFocused()
 })
 
 test('the mobile sheet has an accessible name', async ({ page }) => {
@@ -303,7 +421,7 @@ test('import a board from a screenshot, confirm it, and see the score land', asy
  * of it: opening the panel, and choosing typing over screenshot import. Step
  * one deliberately has nothing focusable in it (that is what stops a phone's
  * keyboard opening with the panel), so "Enter manually" is the gesture that
- * hands focus to the entry region — and it is the last gesture there is.
+ * hands focus to the entry input — and it is the last gesture there is.
  */
 test('a whole board, typed, with no click after the entry step opens', async ({ page }) => {
   await signInWithTeam(page)
@@ -333,9 +451,11 @@ test('a whole board, typed, with no click after the entry step opens', async ({ 
   })
 
   const region = page.getByRole('group', { name: 'Wordle board entry' })
-  // Choosing to type focused the region. If this ever stops being true the
+  // Choosing to type focused the input. If this ever stops being true the
   // keystrokes below go to <body> and every assertion after it fails for a
-  // reason that reads like a product bug, so it is asserted here by name.
+  // reason that reads like a product bug, so it is asserted here by name. It
+  // still answers to `getByRole('group', ...)` because form.tsx sets that role on
+  // the input deliberately — see the IME test above.
   await expect(region).toBeFocused()
 
   // The two zones are addressable independently, which is what lets this test

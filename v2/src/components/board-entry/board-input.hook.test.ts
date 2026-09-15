@@ -6,9 +6,10 @@
 //
 // WHAT LEFT THIS FILE, AND WHERE IT WENT. Every keystroke test here used to fire
 // at BoardInput's own contentEditable, because the board was a focus target with
-// a keydown handler of its own. form.tsx now wraps the answer slots AND the board
-// in ONE contentEditable region and owns the whole stream, so those tests moved
-// to form.hook.test.ts and fire at the region — the gapped-board backspace
+// a keydown handler of its own. form.tsx owns the whole stream now — on a hidden
+// `<input>` beside the board rather than on an editing host around it
+// (wordle-teams-5n6n) — so those tests moved to form.hook.test.ts and fire at
+// that input — the gapped-board backspace
 // (wordle-teams-lz3w), the last-row-only board, the Ctrl/Cmd combos and Enter
 // among them. They are asserted through the REAL board there rather than through
 // a `setGuesses` spy, which is a strictly better place for them: it is the board
@@ -73,6 +74,12 @@ describe('BoardInput cursor', () => {
  * keydown handler or a contentEditable of its own re-creates the second focus
  * target the whole feature exists to remove — and every gate in this repo would
  * stay green, because both stream handlers would still work in isolation.
+ *
+ * THE contentEditable HALF IS SHARPER THAN IT WAS. There is no editing host on
+ * the entry surface any more at all; putting one back HERE, around the tiles,
+ * would reopen wordle-teams-5n6n at its worst point — an IME commit is
+ * uncancelable, and composed text in a tile the player does not retype never goes
+ * away.
  */
 describe('BoardInput owns no keystrokes', () => {
   test('is not an editing host and takes no focus of its own', () => {
@@ -103,8 +110,11 @@ describe('BoardInput owns no keystrokes', () => {
 })
 
 /**
- * The desktop submit, which is a SEPARATE export precisely so form.tsx can put it
- * OUTSIDE the contentEditable region while the board goes inside it.
+ * The desktop submit, a SEPARATE export because form.tsx used to need it OUTSIDE
+ * the contentEditable region while the board went inside it. That region is not
+ * an editing host any more, so the split is now layout rather than safety — see
+ * board-input.tsx. What this pins is unaffected either way: the id form.tsx's
+ * Enter key reaches it by.
  */
 describe('BoardSubmit', () => {
   test('carries the id form.tsx’s Enter key reaches it by', () => {

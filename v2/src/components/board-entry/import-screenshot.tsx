@@ -26,19 +26,29 @@ import { cn } from '#/lib/utils.ts'
  *
  * THERE ARE TWO PASTE MECHANISMS HERE AND BOTH ARE NEEDED. The document
  * listener catches a desktop Cmd-V. The BUTTON is the only thing that works on
- * iOS at all: there is no Cmd-V there, and the only way to fire a paste event
- * is a long-press "Paste" on an editable element — which form.tsx's entry
- * region cancels on purpose. The button is listed first because
- * on a phone it is the common case, not the fallback: a screenshot taken with
- * "Copy and Delete" never reaches Photos, so the file picker finds nothing.
+ * iOS at all: there is no Cmd-V there, and the only way to fire a paste event is
+ * a long-press "Paste" on an editable element — AND THIS COMPONENT RENDERS ON A
+ * STEP THAT HAS NONE. Step one is the day and the method, deliberately with
+ * nothing focusable in it (that is what stops the keyboard opening with the
+ * panel), so on iOS there is simply nothing here to long-press and no route into
+ * the paste listener at all. The button is listed first because on a phone it is
+ * the common case, not the fallback: a screenshot taken with "Copy and Delete"
+ * never reaches Photos, so the file picker finds nothing.
  *
- * THE PASTE LISTENER IS ON THE DOCUMENT, and it has to be. A screenshot is
- * pasted with Cmd-V while the player is looking at the sheet, not while some
- * particular element has focus — and the entry surface itself is one big
- * contentEditable region that cancels every paste that reaches it (form.tsx:
- * the answer slots and the board are inside it since the keystroke stream was
- * collapsed into one), so a listener bound there would never fire. Capture
- * phase, for the same reason.
+ * THIS USED TO BE ARGUED FROM THE ENTRY REGION CANCELLING EVERY PASTE, AND THAT
+ * PREMISE IS NOW GONE TWICE OVER. The entry surface is no longer a
+ * contentEditable at all — form.tsx moved focus and the software keyboard onto a
+ * visually-hidden `<input>` so an IME could not write into the board
+ * (wordle-teams-5n6n), and nothing there cancels paste any more — and it was
+ * never on screen at the same time as this component anyway. The CONCLUSION is
+ * unchanged, which is why nothing below changed: both mechanisms are still
+ * needed, for the reason above.
+ *
+ * THE PASTE LISTENER IS ON THE DOCUMENT, and it still has to be. A screenshot is
+ * pasted with Cmd-V while the player is LOOKING at the sheet, not while some
+ * particular element has focus — and on this step nothing has focus, so a paste
+ * event has no target but the body. A listener bound to a control in here would
+ * never fire. Capture phase, for the same reason.
  */
 /** Each clipboard outcome reads as help, because none of them is really an error. */
 function clipboardMessage(reason: Extract<ClipboardImage, { ok: false }>['reason']): string {
