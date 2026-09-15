@@ -1198,6 +1198,25 @@ git commit -m "feat(board): an optional cursor on the entry board only"
 
 ## Task 7: `board-input.tsx` becomes a shell
 
+> **RESTRUCTURED 2026-09-14, because the original left a broken commit.**
+>
+> This task previously stripped `BoardInput`'s keydown handler and focus target, and the
+> plan said the resulting `form.tsx` type errors were "expected and Task 8 fixes it". That
+> is a commit where **all four gates are red and board entry does not work at all** —
+> unacceptable on a branch that deploys, and it defers the production bug fix by a task
+> for no gain.
+>
+> **The shell-ification is inseparable from Task 8's single region** — collapsing two focus
+> targets into one is one atomic change — so it moves there. What this task does instead is
+> swap the INTERNALS: `BoardInput` keeps its handler and focus target, but routes
+> keystrokes through `entry-cursor.ts` instead of its own `applyLetter`/`applyBackspace`,
+> and gains the `cursor` prop from Task 6.
+>
+> **This is what actually kills `wordle-teams-lz3w` in the code that ships.** The shipping
+> backspace becomes cursor-relative here, one task earlier than planned, and every commit
+> stays green with a working app.
+
+
 **Files:**
 - Modify: `v2/src/components/board-entry/board-input.tsx`
 - Modify: `v2/src/components/board-entry/board-input.test.ts`
