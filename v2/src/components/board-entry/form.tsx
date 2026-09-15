@@ -8,11 +8,15 @@ import { api } from '../../../convex/_generated/api'
 import { Button } from '#/components/ui/button.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { DatePicker } from '#/components/date-picker.tsx'
-import { BoardInput } from './board-input.tsx'
+import { BoardInput, BoardSubmit } from './board-input.tsx'
+import { AnswerSlots } from './answer-slots.tsx'
 import { ImportScreenshot } from './import-screenshot.tsx'
 import { ImportUpsell } from './import-upsell.tsx'
 import { correctionsFrom, importSummary, prefillFrom } from './import-prefill.ts'
 import { pickDefaultDay } from './pick-default-day.ts'
+import { ANSWER_LENGTH, backspace, cursorFor, moveZone, typeLetter } from './entry-cursor.ts'
+import type { EntryState, Refusal, Zone } from './entry-cursor.ts'
+import { coachFor } from './entry-coach.ts'
 import { boardErrorMessage } from '#/lib/convex-error.ts'
 import { cn } from '#/lib/utils.ts'
 import { boardIsValid, toRows } from '../../../convex/lib/board.ts'
@@ -23,6 +27,10 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { FunctionReturnType } from 'convex/server'
 
 const EMPTY_ROWS = ['', '', '', '', '', '']
+
+/** Row-by-row, because entry-cursor.ts always returns a FRESH array. See applyEntry. */
+const rowsEqual = (a: Array<string>, b: Array<string>) =>
+  a.length === b.length && a.every((row, index) => row === b[index])
 
 /**
  * One month of the caller's own scores.
@@ -90,6 +98,25 @@ function BoardEntryFields({
   const [day, setDay] = useState<string | undefined>(undefined)
   const [answer, setAnswer] = useState('')
   const [guesses, setGuesses] = useState<Array<string>>(EMPTY_ROWS)
+  /**
+   * WHICH HALF OF THE ONE ENTRY REGION THE NEXT KEYSTROKE LANDS IN.
+   *
+   * It is state rather than a derivation, because it is the one thing about the
+   * caret that is not a function of the board: a complete answer with an empty
+   * board is BOTH "the answer is finished" and "the player just clicked back to
+   * fix it", and only a remembered zone tells those apart. Everything else about
+   * the caret — which slot, which tile, whether there is one at all — comes from
+   * `cursorFor` below, which takes this as its third field.
+   */
+  const [zone, setZone] = useState<Zone>('answer')
+  /**
+   * WHY THE LAST KEYSTROKE DID NOTHING, WHEN IT DID NOTHING — and it is here
+   * rather than dropped on the floor because the dead end this feature exists to
+   * close is not closed by `entry-cursor.ts` refusing. It is closed by the coach
+   * line SAYING SO: a wiring that ignores `refused` leaves the player with the
+   * original silent no-op and a green unit suite.
+   */
+  const [refused, setRefused] = useState<Refusal | null>(null)
   const [submitting, setSubmitting] = useState(false)
   /**
    * The last screenshot parse, kept ONLY so the confirmed board can be diffed
@@ -133,9 +160,10 @@ function BoardEntryFields({
    * missing one.
    */
   const [derivedAnswer, setDerivedAnswer] = useState<string | null>(null)
-  /** Set when the player chose to TYPE, so the answer takes focus then and not before. */
+  /** Set when the player chose to TYPE, so the entry region takes focus then and not before. */
   const [focusAnswer, setFocusAnswer] = useState(false)
-  const answerRef = useRef<HTMLDivElement>(null)
+  /** The ONE focusable thing on the entry step: answer slots and board together. */
+  const regionRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Deferred to an effect rather than a useState initialiser: picking the
@@ -157,8 +185,25 @@ function BoardEntryFields({
   // Load whatever is already stored for the selected day.
   const existing = day ? myScores.find((score) => score.puzzleDay === day) : undefined
   useEffect(() => {
-    setAnswer(existing?.answer ?? '')
+    const prefilled = existing?.answer ?? ''
+    setAnswer(prefilled)
     setGuesses(toRows(existing?.guesses ?? []))
+    /**
+     * THE PREFILL MOVES THE CURSOR TOO, and through `moveZone` rather than by
+     * assignment so there is one rule about where a complete answer puts the
+     * caret. Editing a board that is already saved arrives here with five
+     * letters in hand and nothing left to type in the answer — leaving the zone
+     * at 'answer' would put the caret on a full answer and refuse the player's
+     * first keystroke. THE REFUSAL IS DISCARDED: the system moved, not the
+     * player, so nothing reaches the coach line.
+     */
+    setZone(
+      moveZone(
+        { answer: prefilled, guesses: toRows(existing?.guesses ?? []), zone: 'answer' },
+        prefilled.length === ANSWER_LENGTH ? 'board' : 'answer',
+      ).next.zone,
+    )
+    setRefused(null)
     // A parse belongs to the day it was read for. Carrying it across a date
     // change would diff the new day's board against the old day's screenshot
     // and log corrections for tiles nobody ever saw.
@@ -175,12 +220,45 @@ function BoardEntryFields({
    * step from an IMPORT must not focus anything: the board is already filled
    * in, and raising a keyboard over it to confirm it would be the original bug
    * with an extra step in front of it.
+   *
+   * IT FOCUSES THE REGION, NOT AN ANSWER FIELD. There is no longer an answer
+   * field to focus: one contentEditable holds both halves, and which half the
+   * keystroke lands in is `zone`, not focus.
    */
   useEffect(() => {
     if (!focusAnswer) return
-    answerRef.current?.focus()
+    regionRef.current?.focus()
     setFocusAnswer(false)
   }, [focusAnswer])
+
+  /**
+   * THE NATIVE `beforeinput` GUARD, AND IT IS NOT THE SAME EVENT AS THE
+   * `onBeforeInput` PROP ON THE REGION. This was found by dispatching a real
+   * `InputEvent('beforeinput')` at the region and watching it go through.
+   *
+   * React does NOT listen for `beforeinput`. `onBeforeInput` is SYNTHESIZED —
+   * react-dom's BeforeInputEventPlugin builds it from `textInput` where the
+   * browser has one (Chrome, Safari) and from a `compositionend`/`keypress`
+   * fallback where it does not (Firefox). So the prop cancels the legacy
+   * `textInput` event, which in Chrome does stop the insertion, and leaves a real
+   * `beforeinput` — the one dictation, swipe-typing and predictive text actually
+   * fire, and the only one Firefox has — untouched.
+   *
+   * That is the whole risk this region carries: a native insertion into an
+   * editing host wrapped around a React-owned subtree corrupts the DOM React
+   * thinks it owns, and the symptom is the WRONG BOARD ON SUBMIT or a
+   * `removeChild` reconciliation crash. So the real event is cancelled here, on
+   * the node itself, and the prop stays as the belt to this braces.
+   *
+   * KEYED ON `step` because the region does not exist on step one.
+   */
+  useEffect(() => {
+    const node = regionRef.current
+    if (node === null) return
+    const block = (event: Event) => event.preventDefault()
+    node.addEventListener('beforeinput', block)
+    return () => node.removeEventListener('beforeinput', block)
+  }, [step])
 
   /**
    * THE ANSWER AS A CONSTRAINT, THE MOMENT WE HAVE ONE.
@@ -212,9 +290,43 @@ function BoardEntryFields({
     setMissingRows(prefill.missingRows)
   }, [answer, parsed])
 
+  /**
+   * THE WHOLE OF THE CARET, IN ONE PLACE, and both halves of the region read it:
+   * `AnswerSlots` takes the answer variant's index, `BoardInput` narrows the
+   * board variant to a tile. Neither derives anything of its own, so the two
+   * renderings cannot disagree about where the next letter goes.
+   */
+  const entry: EntryState = { answer, guesses, zone }
+  const cursor = cursorFor(entry)
+
+  /**
+   * SCROLLED TO THE ROW THE CURSOR IS IN, DERIVED FROM THE SAME `cursor` THE
+   * RENDER USES (wordle-teams-mwbb).
+   *
+   * This used to read `guesses.findIndex((guess) => guess.length < 5)`, which is
+   * `nextSlot`'s body inlined — a THIRD answer to "which row is active", three
+   * lines from `cursorFor`'s canonical one. Two answers to that question is
+   * exactly wordle-teams-lz3w, where typing scanned forwards and backspace
+   * scanned backwards and a gapped import board lost a row the cursor was
+   * nowhere near. It only picked a scroll target here, so a disagreement scrolled
+   * to the wrong row rather than corrupting a board — but the next person to
+   * change one of them would not have known to change the other.
+   *
+   * THE ANSWER ZONE SCROLLS TO THE REGION, NOT TO A ROW. The answer slots live
+   * INSIDE the scroll container now, above the board, so "which row" is the wrong
+   * question while the caret is up there — and answering it with the last row
+   * (what a null cursor means, and what this fell back to) would scroll the thing
+   * the player is typing into off the top.
+   *
+   * A NULL CURSOR STILL MEANS THE LAST ROW, unchanged: null is a solved or full
+   * board, where the last row is the one being looked at.
+   */
   const scrollActiveRowIntoView = () => {
-    const active = guesses.findIndex((guess) => guess.length < 5)
-    const index = active === -1 ? guesses.length - 1 : active
+    if (cursor !== null && cursor.zone === 'answer') {
+      regionRef.current?.scrollIntoView({ block: 'nearest' })
+      return
+    }
+    const index = cursor === null ? guesses.length - 1 : cursor.row
     // An attribute selector, not `#${id}`: wordle-board.tsx's tile ids are
     // "1-1", "2-1", etc, and a CSS ID selector cannot start with a digit —
     // querySelector('#1-1') throws SyntaxError (getElementById has no such
@@ -224,31 +336,135 @@ function BoardEntryFields({
       ?.scrollIntoView({ block: 'nearest' })
   }
 
-  useEffect(scrollActiveRowIntoView, [guesses])
+  /**
+   * `zone` IS IN THE DEPS BECAUSE FOCUS NO LONGER MOVES. This effect used to ride
+   * on the board taking focus (BoardInput's `onBoardFocus`), and the hand-off
+   * from the answer to the board is now a state change with no focus event at
+   * all — so without `zone` here the first guess can be typed below the fold on a
+   * short viewport.
+   */
+  // `cursor` is NOT in the deps and must not be: it is a fresh object on every
+  // render, so depending on it would scroll on every render rather than on every
+  // MOVE. Its two inputs that can change the target are here instead — the third,
+  // `answer`, can only change the target through `isSolved`, which needs a row
+  // equal to it and therefore a `guesses` change too.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(scrollActiveRowIntoView, [guesses, zone])
 
   const submitDisabled = !day || !boardIsValid(answer, guesses, existing !== undefined)
 
-  const handleAnswerKeyDown: KeyboardEventHandler = (event: KeyboardEvent<HTMLDivElement>) => {
+  /**
+   * THE LINE UNDER THE TITLE, AND THE ONLY WAY THE HAND-OFF REACHES SOMEBODY WHO
+   * CANNOT SEE THE CURSOR MOVE. Collapsing two focus stops into one took away the
+   * event a screen reader announced; this live region is what replaces it.
+   *
+   * `valid` IS `submitDisabled === false`, NOT `boardIsValid(...)`. Two
+   * conditions make a board submittable here — a day AND a valid board — and
+   * passing only the second would tell a player with a complete board and no day
+   * "press Enter or Submit", out loud, while Submit sits disabled. Composing it
+   * from the same flag the button reads is what makes the line and the button
+   * unable to disagree.
+   */
+  const coach = coachFor({ state: entry, refused, valid: submitDisabled === false })
+
+  /**
+   * WRITE BACK ONLY WHAT CHANGED.
+   *
+   * Every operation in entry-cursor.ts returns its input NORMALISED — `toRows`,
+   * so a fresh six-element array — whether or not anything moved. Writing that
+   * back unconditionally re-fires `useEffect(scrollActiveRowIntoView, [guesses])`
+   * on every Shift press and on every letter typed into the ANSWER, where the
+   * board did not change at all. `rowsEqual` rather than `!==` for exactly that
+   * second case: the array is always new, its contents usually are not.
+   */
+  const applyEntry = (next: EntryState) => {
+    if (next.answer !== answer) setAnswer(next.answer)
+    if (!rowsEqual(next.guesses, guesses)) setGuesses(next.guesses)
+    if (next.zone !== zone) setZone(next.zone)
+  }
+
+  /**
+   * MOVE THE CARET BETWEEN THE HALVES, and the ONLY way a click does anything
+   * here. `moveZone` REFUSES a move into the board while the answer is short, and
+   * that refusal — surfaced through the coach line — is why the board renders at
+   * full strength with no lock and no dim.
+   */
+  const selectZone = (next: Zone) => {
+    const result = moveZone(entry, next)
+    setRefused(result.refused)
+    applyEntry(result.next)
+    regionRef.current?.focus()
+  }
+
+  /**
+   * ONE HANDLER, ONE REGION, BOTH ZONES. This replaces the pair that used to sit
+   * either side of the boundary — `handleAnswerKeyDown` here and BoardInput's own
+   * — which is the whole of what made a player click between them.
+   */
+  const handleKeyDown: KeyboardEventHandler = (event: KeyboardEvent<HTMLDivElement>) => {
     const key = event.key
-    // See board-input.tsx's handleKeyDown: Ctrl/Cmd combos (paste, copy,
-    // select-all, ...) must not be swallowed as plain letters — Ctrl+V's
-    // keydown carries event.key === 'v' with no modifier check otherwise.
+    // Tab must reach the browser to move focus. Ctrl/Cmd combos (paste, copy,
+    // select-all, ...) must NOT be treated as plain letters — Ctrl+V's keydown
+    // has event.key === 'v' with no modifier check, so without this a paste
+    // shortcut is typed as a literal "v" instead of ever reaching a real paste
+    // attempt. Returning without preventDefault lets the browser proceed with
+    // its native action, which is what onBeforeInput/onPaste below intercept.
     if (key === 'Tab' || event.ctrlKey || event.metaKey) return
     event.preventDefault()
+
     if (key === 'Backspace') {
-      setAnswer((current) => current.slice(0, -1))
+      // NO REFUSAL TO REPORT: every way a backspace can do nothing is a state
+      // `cursorFor` already draws (entry-cursor.ts's `backspace` doc), so it
+      // returns plain state — and whatever the player was last told about a
+      // keystroke is stale the moment they press it.
+      setRefused(null)
+      applyEntry(backspace(entry))
       return
     }
-    const isLetter = key.length === 1 && /[a-zA-Z]/.test(key)
-    if (isLetter) setAnswer((current) => (current.length < 5 ? current + key.toUpperCase() : current))
+
+    if (key === 'Enter') {
+      setRefused(null)
+      if (boardIsValid(answer, guesses, existing !== undefined)) {
+        document.getElementById('board-submit')?.click()
+      } else {
+        toast.warning('Board must be complete to submit')
+      }
+      return
+    }
+
+    const result = typeLetter(entry, key)
+    setRefused(result.refused)
+    if (result.refused === null) applyEntry(result.next)
   }
 
   const handleImport = (parse: BoardParse) => {
     const prefill = prefillFrom(parse)
     // The player's own typed answer wins: they were asked for it, and a parse
     // that disagrees is the thing being checked, not the authority.
-    if (answer.length !== 5 && prefill.answer.length === 5) setAnswer(prefill.answer)
+    const nextAnswer =
+      answer.length !== ANSWER_LENGTH && prefill.answer.length === ANSWER_LENGTH
+        ? prefill.answer
+        : answer
+    if (nextAnswer !== answer) setAnswer(nextAnswer)
     setGuesses(prefill.guesses)
+    /**
+     * WHERE AN IMPORT LEAVES THE CARET. An import that filled the answer in must
+     * not leave the cursor sitting on it — the only thing left to do is the
+     * board — and one that could not (an unsolved board carries no answer) must
+     * not put it on the board, where nothing can be typed until the answer is
+     * five letters long.
+     *
+     * ROUTED THROUGH `moveZone` SO THERE IS ONE RULE, AND ITS REFUSAL IS
+     * DISCARDED: the SYSTEM moved the caret, not the player, so there is nothing
+     * to explain and nothing should reach the coach line.
+     */
+    setZone(
+      moveZone(
+        { answer: nextAnswer, guesses: prefill.guesses, zone },
+        nextAnswer.length === ANSWER_LENGTH ? 'board' : 'answer',
+      ).next.zone,
+    )
+    setRefused(null)
     setParsed(parse)
     setDerivedAnswer(parse.answer)
     setImportNote(importSummary(parse))
@@ -380,8 +596,14 @@ function BoardEntryFields({
       onSubmit={handleSubmit}
       className={cn('flex min-h-0 flex-1 flex-col', submitting && 'animate-pulse')}
     >
+      {/* THE DAY ROW IS THE DAY ALONE NOW. The answer used to sit beside it in a
+          `w-[30%]` column — 108px on a 360px phone — which is where it had to
+          leave from: the five answer slots have a 216px intrinsic minimum
+          (answer-slots.tsx measured the overlap that happens below it), and the
+          answer belongs with the board anyway, because they are one keystroke
+          stream and the region has to wrap both. */}
       <div className="ml-2 flex w-full shrink-0 items-center space-x-4 md:px-4">
-        <div className="flex w-[54%] flex-col md:w-full">
+        <div className="flex w-full flex-col">
           <Button
             type="button"
             variant="ghost"
@@ -393,29 +615,29 @@ function BoardEntryFields({
             {day ?? 'Pick a day'}
           </Button>
         </div>
-        <div className="flex w-[30%] flex-col space-y-2 md:w-full">
-          <Label htmlFor="answer" className="text-xs sm:text-sm">
-            Wordle Answer
-          </Label>
-          <div
-            id="answer"
-            ref={answerRef}
-            contentEditable
-            suppressContentEditableWarning
-            tabIndex={2}
-            onKeyDown={handleAnswerKeyDown}
-            // See board-input.tsx's comment: keydown alone misses paste, IME
-            // commits, and mobile swipe-typing/predictive-text/dictation,
-            // which insert via beforeinput with no keydown at all.
-            // beforeinput (unlike input) IS cancelable.
-            onBeforeInput={(event) => event.preventDefault()}
-            onPaste={(event) => event.preventDefault()}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-2 py-2 text-base uppercase caret-transparent ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 md:px-3"
-          >
-            {answer}
-          </div>
-        </div>
       </div>
+
+      {/* THE COACH LINE, AND IT IS THE ENTIRE ACCESSIBILITY MITIGATION FOR
+          COLLAPSING TWO FOCUS STOPS INTO ONE. A sighted player watches the caret
+          hand itself from the answer to the board; a screen-reader user hears
+          THIS, and hears it because the region is `aria-live="polite"` and its
+          text changes at the hand-off. It is not decoration.
+
+          A testid as well as the role: sonner's toaster is a live region too, and
+          so is the import note above, so `getByRole('status')` is ambiguous the
+          moment either is on screen.
+
+          `min-h-8` IS TWO LINES AT THIS SIZE, RESERVED WHETHER OR NOT THEY ARE
+          USED. The line changes on almost every keystroke, and a line that grows
+          from one row to two would reflow the board underneath it mid-word. */}
+      <p
+        role="status"
+        aria-live="polite"
+        data-testid="entry-coach"
+        className="mx-2 min-h-8 shrink-0 text-xs text-muted-foreground md:mx-4"
+      >
+        {coach}
+      </p>
 
       {/* WHAT THE IMPORT DID, in the place the result of it is being looked at.
           It rides both steps: on confirm it says what was read, and on the
@@ -463,25 +685,80 @@ function BoardEntryFields({
       )}
 
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
-        <BoardInput
-          guesses={guesses}
-          setGuesses={setGuesses}
-          answer={answer}
-          hasExistingScore={existing !== undefined}
-          submitting={submitting}
-          submitDisabled={submitDisabled}
-          // No cursor to give yet: this form still owns two separate focus
-          // targets, so there is no single caret position to hand over. The
-          // continuous answer-into-board stream — one region, `cursorFor` wired
-          // through to here — is the next task.
-          cursor={null}
-          tabIndex={3}
-          onBoardFocus={scrollActiveRowIntoView}
-        />
+        {/**
+         * ONE REGION OVER BOTH ZONES — the feature, and it is atomic. Two
+         * contentEditables with a keydown handler each is what made a player who
+         * finished the answer discover that the board needed clicking, and lose
+         * the keystroke they discovered it with.
+         *
+         * `onBeforeInput` AND `onPaste` ARE NOT OPTIONAL, and they are the most
+         * dangerous thing on this element. keydown does not cover paste, IME
+         * composition commits, or mobile swipe-typing / predictive text /
+         * dictation — all of which insert with NO per-character keydown. This
+         * node is an editing host wrapped around a LARGER React-owned subtree
+         * than board-input's ever was (the slots as well as the board), so a
+         * native insertion here corrupts the DOM React thinks it owns: the wrong
+         * board on submit, or a `removeChild` reconciliation crash.
+         *
+         * `onBeforeInput` IS NOT THE NATIVE `beforeinput` EVENT — React
+         * synthesizes it from `textInput` — so it is HALF the guard, and the
+         * effect above adds the real listener. Both are kept: the prop cancels
+         * Chrome's legacy `textInput`, the listener cancels `beforeinput`, and
+         * `input` itself is not cancelable at all.
+         *
+         * NO BUTTON IS INSIDE IT. That is why board-input.tsx exports its desktop
+         * submit separately — see the note there — and why Cancel and Submit sit
+         * in the sheet footer below rather than anywhere in here.
+         *
+         * `w-fit` SO THE FOCUS RING HUGS THE CONTENT (wordle-teams-rpql). A
+         * full-width region draws a ring around the whole sheet, clipped at both
+         * edges by the scroll container's computed `overflow-x`.
+         */}
+        <div
+          ref={regionRef}
+          contentEditable
+          suppressContentEditableWarning
+          tabIndex={2}
+          role="group"
+          aria-label="Wordle board entry"
+          aria-describedby="entry-instructions"
+          onKeyDown={handleKeyDown}
+          onBeforeInput={(event) => event.preventDefault()}
+          onPaste={(event) => event.preventDefault()}
+          className="mx-auto mt-4 flex w-fit select-none flex-col items-center gap-2 rounded-lg caret-transparent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-4 focus:ring-offset-background md:my-2"
+        >
+          {/* `w-72 md:w-80` IS THE BOARD GRID'S OWN WIDTH (wordle-board.tsx), so
+              the five slots line up column-for-column with the five tiles under
+              them — and it is comfortably above the 216px floor below which the
+              slots overlap each other. */}
+          <AnswerSlots
+            answer={answer}
+            cursorIndex={cursor?.zone === 'answer' ? cursor.index : null}
+            onSelect={() => selectZone('answer')}
+            className="w-72 md:w-80"
+          />
+          <BoardInput
+            guesses={guesses}
+            answer={answer}
+            // UNADAPTED, both zones. BoardInput narrows it to a tile itself,
+            // which is the one place that narrowing may happen.
+            cursor={cursor}
+            onSelect={() => selectZone('board')}
+          />
+        </div>
+        <BoardSubmit submitting={submitting} disabled={submitDisabled} />
       </div>
 
+      {/* THE MODEL, STATED ONCE, FOR SOMEBODY WHO CANNOT SEE IT. The region names
+          itself "Wordle board entry"; this is what that name means. */}
+      <span id="entry-instructions" className="sr-only">
+        Type the day&apos;s five-letter answer, then keep typing your guesses. The cursor moves from
+        the answer to the board on its own, rows advance on their own, and backspace goes back a
+        letter.
+      </span>
+
       {/* Sticky so it pins above the mobile keyboard; hidden on desktop, where
-          BoardInput renders its own submit.
+          BoardSubmit above renders the desktop one.
 
           `pb-[env(safe-area-inset-bottom)]` (wordle-teams-8h2p). This row is
           the last thing in a `side="top"` Sheet whose `maxHeight` is bound to

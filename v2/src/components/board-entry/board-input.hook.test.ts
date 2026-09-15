@@ -1,232 +1,49 @@
 // @vitest-environment jsdom
 //
 // jsdom rather than the suite's default edge-runtime, because this renders the
-// real component and fires real keydowns at it. `.hook.test.ts` and
-// createElement by hand, matching every other component test in src/ and
-// vitest.config.ts's `src/**/*.test.ts` glob.
+// real component. `.hook.test.ts` and createElement by hand, matching every
+// other component test in src/ and vitest.config.ts's `src/**/*.test.ts` glob.
+//
+// WHAT LEFT THIS FILE, AND WHERE IT WENT. Every keystroke test here used to fire
+// at BoardInput's own contentEditable, because the board was a focus target with
+// a keydown handler of its own. form.tsx now wraps the answer slots AND the board
+// in ONE contentEditable region and owns the whole stream, so those tests moved
+// to form.hook.test.ts and fire at the region — the gapped-board backspace
+// (wordle-teams-lz3w), the last-row-only board, the Ctrl/Cmd combos and Enter
+// among them. They are asserted through the REAL board there rather than through
+// a `setGuesses` spy, which is a strictly better place for them: it is the board
+// a player sees.
+//
+// WHAT STAYS: the cursor adaptation, which is this component's alone to get right
+// and is invisible to a typecheck.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
-import { BoardInput } from './board-input.tsx'
+import { afterEach, describe, expect, test } from 'vitest'
+import { BoardInput, BoardSubmit } from './board-input.tsx'
 import type { Cursor } from './entry-cursor.ts'
-import { boardIsValid } from '../../../convex/lib/board.ts'
 
-/**
- * sonner is stubbed rather than rendered: the real toaster is a live region of
- * its own, so `getByRole('status')` in any test that shares this DOM would go
- * ambiguous the moment a toast appears (see form.hook.test.ts). `vi.hoisted`
- * because `vi.mock` is lifted above the const it would otherwise close over.
- */
-const { warnings } = vi.hoisted(() => ({ warnings: [] as Array<string> }))
-vi.mock('sonner', () => ({
-  toast: { warning: (message: string) => warnings.push(message) },
-}))
-
-afterEach(() => {
-  cleanup()
-  warnings.length = 0
-})
+afterEach(cleanup)
 
 const GAPPED = ['', '', 'SLATE', '', '', '']
-const EMPTY = ['', '', '', '', '', '']
 
-/** The contentEditable that owns the keystroke stream. */
+/** The board half of the entry region. */
 const board = () => screen.getByRole('region', { name: 'Wordle Board' })
 
-function mount(props: { guesses: Array<string>; answer: string; cursor?: Cursor | null }) {
-  const calls: Array<Array<string>> = []
+function mount(props: {
+  guesses: Array<string>
+  answer: string
+  cursor?: Cursor | null
+  onSelect?: () => void
+}) {
   render(
     createElement(BoardInput, {
       guesses: props.guesses,
-      setGuesses: (guesses: Array<string>) => calls.push(guesses),
       answer: props.answer,
-      hasExistingScore: false,
-      submitting: false,
-      submitDisabled: false,
       cursor: props.cursor ?? null,
+      onSelect: props.onSelect,
     }),
   )
-  return calls
 }
-
-/**
- * THE SHIPPING BUG (wordle-teams-lz3w), REACHED THE WAY A PLAYER REACHES IT.
- *
- * A gapped board is a designed-for shape: prefillFrom (import-prefill.ts)
- * assembles the board BY ROW INDEX from a screenshot parse and leaves a row it
- * could not read blank, reporting it through `missingRows`. So
- * ['', '', 'SLATE', '', '', ''] is what the form holds after an import that read
- * one row of six — and the first thing a player does there is start typing into
- * row 0, or press Backspace because they changed their mind.
- */
-describe('BoardInput backspace on a gapped board', () => {
-  test('never touches a row the cursor is not in', () => {
-    const calls = mount({ guesses: GAPPED, answer: 'CRANE' })
-    fireEvent.keyDown(board(), { key: 'Backspace' })
-    // THE BOARD IS WRITTEN BACK, UNCHANGED, rather than not written at all: the
-    // cursor is at row 0 column 0 with content below it, so there is nothing
-    // behind it to delete and nothing to walk back into. Asserted as a whole
-    // array, not just row 2 — an empty `calls` would satisfy a loop over it, and
-    // the point is that the row the reader got RIGHT still reads 'SLATE'.
-    expect(calls).toEqual([GAPPED])
-  })
-})
-
-/**
- * The rest of the keystroke stream through the real component. Until this file
- * existed, `board-input.test.ts` asserted the two pure helpers and NOTHING
- * asserted the handler that calls them — which is how a backwards scan and a
- * forwards scan shipped side by side in the same function pair.
- */
-describe('BoardInput typing', () => {
-  test('types into the first row with room, gap or no gap', () => {
-    const calls = mount({ guesses: GAPPED, answer: 'CRANE' })
-    fireEvent.keyDown(board(), { key: 'c' })
-    expect(calls).toHaveLength(1)
-    expect(calls[0]).toEqual(['C', '', 'SLATE', '', '', ''])
-  })
-
-  test('mid-row backspace deletes the letter behind the cursor', () => {
-    const calls = mount({ guesses: ['CRANE', 'SL', '', '', '', ''], answer: 'PIVOT' })
-    fireEvent.keyDown(board(), { key: 'Backspace' })
-    expect(calls[0]).toEqual(['CRANE', 'S', '', '', '', ''])
-  })
-
-  /**
-   * A SOLVED BOARD HAS NO CARET AND BACKSPACE STILL WORKS. `cursorFor` returns
-   * null here while `boardIsValid` is true, and that combination is how a player
-   * edits a board they mistyped into a solve — so a null cursor must not be read
-   * as "ignore every key" (entry-cursor.ts's `backspace` doc).
-   */
-  test('backspace stays live on a solved board', () => {
-    const calls = mount({ guesses: ['SLATE', 'CRANE', '', '', '', ''], answer: 'CRANE' })
-    fireEvent.keyDown(board(), { key: 'Backspace' })
-    expect(calls[0]).toEqual(['SLATE', 'CRAN', '', '', '', ''])
-  })
-
-  test('typing past a solved row writes nothing at all', () => {
-    const calls = mount({ guesses: ['SLATE', 'CRANE', '', '', '', ''], answer: 'CRANE' })
-    fireEvent.keyDown(board(), { key: 'x' })
-    expect(calls).toEqual([])
-  })
-
-  /**
-   * THE DIVERGENCE THAT JUSTIFIES REMOVING THE OLD GATE, and the reason it was
-   * not merely redundant. That gate asked `toRows(guesses)[5].length < 5` — "is
-   * the LAST row full" — where nextSlot asks "is the BOARD full". They agree only
-   * on a prefix board.
-   *
-   * This shape is reachable: prefillFrom assigns guesses[guess.row] by absolute
-   * lattice row index, so a failed board whose reader resolved only the last row
-   * arrives exactly like this. On it, cursorFor returns { row: 0, index: 0 } —
-   * so the old gate DREW A CARET ON ROW 0 AND MADE EVERY LETTER KEY DEAD THERE.
-   * That is wordle-teams-lz3w again: a question about the board answered by
-   * scanning a fixed row instead of asking where the cursor is.
-   */
-  test('types into row 0 when only the LAST row is filled', () => {
-    const calls = mount({ guesses: ['', '', '', '', '', 'SLATE'], answer: 'CRANE' })
-    fireEvent.keyDown(board(), { key: 'c' })
-    expect(calls).toEqual([['C', '', '', '', '', 'SLATE']])
-  })
-
-  /**
-   * THE BACKSPACE COUNTERPART ON THE SAME BOARD, and it moved too: the old
-   * backwards scan found row 5 and deleted to 'SLAT'. The cursor is at row 0 with
-   * nothing behind it and board content below, so nothing is deleted and nothing
-   * is walked back into.
-   */
-  test('backspace deletes nothing when only the LAST row is filled', () => {
-    const calls = mount({ guesses: ['', '', '', '', '', 'SLATE'], answer: 'CRANE' })
-    fireEvent.keyDown(board(), { key: 'Backspace' })
-    expect(calls).toEqual([['', '', '', '', '', 'SLATE']])
-  })
-
-  // The surprising one: boardIsValid is TRUE for this board — row 0 is five long,
-  // every row is 0 or 5, and row 5 is full — so the old gate blocked it outright,
-  // yet there is a gap at row 1 the player still has to fill.
-  test('keeps typing into the gap on a board boardIsValid already calls valid', () => {
-    const guesses = ['CRANE', '', 'SLATE', '', '', 'TRAIN']
-    expect(boardIsValid('PIVOT', guesses, false)).toBe(true)
-    const calls = mount({ guesses, answer: 'PIVOT' })
-    fireEvent.keyDown(board(), { key: 'x' })
-    expect(calls).toEqual([['CRANE', 'X', 'SLATE', '', '', 'TRAIN']])
-  })
-
-  /**
-   * THE ONE REFUSAL THAT IS NEW, pinned so it is a decision rather than a side
-   * effect. With a 1-to-4 character answer, board typing USED TO WORK and now
-   * does nothing.
-   *
-   * Not a regression against the target design — in the finished feature the
-   * board zone is unreachable on a short answer, since `moveZone` refuses the
-   * move and the hand-off only fires on the fifth letter. It is that rule landing
-   * one commit before the coach line that explains it, so until then a player who
-   * types a partial answer and clicks the board gets silence where they used to
-   * get letters.
-   *
-   * The FULLY EMPTY answer is genuinely unchanged: the old code swallowed that
-   * too, through the `'' === ''` collision that is wty4.1.6 itself.
-   */
-  test('a short answer refuses board typing — new, and the coach line is what will explain it', () => {
-    const calls = mount({ guesses: EMPTY, answer: 'CRA' })
-    fireEvent.keyDown(board(), { key: 'c' })
-    expect(calls).toEqual([])
-  })
-
-  /**
-   * NOT MERELY "TYPES NOTHING" — WRITES NOTHING. Every refusal returns the input
-   * normalised through `toRows`, so writing it back would hand form.tsx a fresh
-   * array and re-fire its `useEffect(…, [guesses])` scroll on every arrow key.
-   */
-  test('a non-letter key writes nothing', () => {
-    const calls = mount({ guesses: GAPPED, answer: 'CRANE' })
-    fireEvent.keyDown(board(), { key: 'ArrowLeft' })
-    fireEvent.keyDown(board(), { key: 'Shift' })
-    fireEvent.keyDown(board(), { key: '5' })
-    expect(calls).toEqual([])
-  })
-
-  // The paste shortcut, which had been typed as a literal "v" before the
-  // modifier check went in. Tab likewise has to reach the browser to move focus.
-  test('Tab and Ctrl/Cmd combos are left to the browser', () => {
-    const calls = mount({ guesses: GAPPED, answer: 'CRANE' })
-    const tab = fireEvent.keyDown(board(), { key: 'Tab' })
-    const paste = fireEvent.keyDown(board(), { key: 'v', ctrlKey: true })
-    // fireEvent returns false when the event was preventDefault'd.
-    expect(tab).toBe(true)
-    expect(paste).toBe(true)
-    expect(calls).toEqual([])
-  })
-
-  test('every other key is preventDefaulted, so nothing lands in the DOM', () => {
-    mount({ guesses: GAPPED, answer: 'CRANE' })
-    expect(fireEvent.keyDown(board(), { key: 'c' })).toBe(false)
-    expect(fireEvent.keyDown(board(), { key: 'Backspace' })).toBe(false)
-  })
-})
-
-describe('BoardInput Enter', () => {
-  test('clicks the submit button when the board is complete', () => {
-    mount({ guesses: ['SLATE', 'CRANE', '', '', '', ''], answer: 'CRANE' })
-    let clicks = 0
-    document.getElementById('board-submit')?.addEventListener('click', () => {
-      clicks += 1
-    })
-    fireEvent.keyDown(board(), { key: 'Enter' })
-    expect(clicks).toBe(1)
-  })
-
-  test('warns instead of submitting an incomplete board', () => {
-    mount({ guesses: GAPPED, answer: 'CRANE' })
-    let clicks = 0
-    document.getElementById('board-submit')?.addEventListener('click', () => {
-      clicks += 1
-    })
-    fireEvent.keyDown(board(), { key: 'Enter' })
-    expect(clicks).toBe(0)
-    expect(warnings).toEqual(['Board must be complete to submit'])
-  })
-})
 
 /**
  * THE ADAPTATION TO `<WordleBoard>`, WHICH IS THIS COMPONENT'S TO GET RIGHT.
@@ -248,5 +65,60 @@ describe('BoardInput cursor', () => {
   test('marks no tile when there is no cursor', () => {
     mount({ guesses: GAPPED, answer: 'CRANE' })
     expect(screen.queryByTestId('board-cursor')).toBeNull()
+  })
+})
+
+/**
+ * THE SHELL, PINNED AS A SHELL. A future change that gives this component back a
+ * keydown handler or a contentEditable of its own re-creates the second focus
+ * target the whole feature exists to remove — and every gate in this repo would
+ * stay green, because both stream handlers would still work in isolation.
+ */
+describe('BoardInput owns no keystrokes', () => {
+  test('is not an editing host and takes no focus of its own', () => {
+    mount({ guesses: GAPPED, answer: 'CRANE' })
+    expect(board().getAttribute('contenteditable')).toBeNull()
+    expect(board().getAttribute('tabindex')).toBeNull()
+  })
+
+  test('swallows no key: a keydown here is left for the region above to handle', () => {
+    mount({ guesses: GAPPED, answer: 'CRANE' })
+    // fireEvent returns false when the event was preventDefault'd. Nothing here
+    // prevents anything, so the key reaches form.tsx's handler by bubbling.
+    expect(fireEvent.keyDown(board(), { key: 'c' })).toBe(true)
+    expect(fireEvent.keyDown(board(), { key: 'Backspace' })).toBe(true)
+  })
+
+  /**
+   * MOUSEDOWN, NOT CLICK, for the reason AnswerSlots' own `onSelect` gives: it
+   * has to land before the focus/blur pair a click on the other zone would
+   * otherwise settle first.
+   */
+  test('reports a mousedown so the caller can move the caret here', () => {
+    let selected = 0
+    mount({ guesses: GAPPED, answer: 'CRANE', onSelect: () => (selected += 1) })
+    fireEvent.mouseDown(board())
+    expect(selected).toBe(1)
+  })
+})
+
+/**
+ * The desktop submit, which is a SEPARATE export precisely so form.tsx can put it
+ * OUTSIDE the contentEditable region while the board goes inside it.
+ */
+describe('BoardSubmit', () => {
+  test('carries the id form.tsx’s Enter key reaches it by', () => {
+    render(createElement(BoardSubmit, { submitting: false, disabled: false }))
+    const button = document.getElementById('board-submit')
+    expect(button).toBeTruthy()
+    expect(button?.getAttribute('type')).toBe('submit')
+    expect(button?.hasAttribute('disabled')).toBe(false)
+  })
+
+  test('is disabled while submitting, and says so to a screen reader too', () => {
+    render(createElement(BoardSubmit, { submitting: true, disabled: false }))
+    const button = document.getElementById('board-submit')
+    expect(button?.hasAttribute('disabled')).toBe(true)
+    expect(button?.getAttribute('aria-disabled')).toBe('true')
   })
 })

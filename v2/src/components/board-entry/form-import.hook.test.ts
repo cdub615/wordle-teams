@@ -42,14 +42,12 @@ let fired: Array<{ name: string; args: Record<string, unknown> }>
 let failingMutation: string | null
 /** What amIPro answers. `undefined` is the in-flight state, and it matters. */
 let proAnswer: boolean | undefined
-/** What BoardInput is currently showing, and how a test edits it. */
-let setGuessesFromTest: ((guesses: Array<string>) => void) | null
 
 /**
  * REACT'S PASSIVE EFFECTS, DRAINED — the thing a focus assertion has to wait
  * for and the reason three of them below are `await`ed rather than read.
  *
- * The form focuses the answer field from a `useEffect`, so the focus lands in a
+ * The form focuses the entry region from a `useEffect`, so the focus lands in a
  * SEPARATE turn from the render that shows the note. `await waitFor(...)` on
  * the note returns as soon as the note is in the DOM, which is inside that
  * render's commit and before the effect has run — every focus assertion made
@@ -64,7 +62,7 @@ let setGuessesFromTest: ((guesses: Array<string>) => void) | null
  * THE TWO NEGATIVE ONES ARE NOT MEASURED TO LOSE, and that is stated rather
  * than assumed: mutating the form to focus on EVERY import is still caught by
  * both of them today. What they share with the positive is the ordering
- * dependence — `not.toBe(answerField())` is equally satisfied by a focus that
+ * dependence — `not.toBe(region())` is equally satisfied by a focus that
  * simply has not happened YET — and the difference is only that losing it is
  * silent instead of red. The flush removes the dependence from all three
  * rather than waiting to find out which way each one falls.
@@ -112,11 +110,20 @@ vi.mock('#/components/date-picker.tsx', () => ({
  * offers the test a way to change one tile, which is what a CORRECTION is.
  */
 vi.mock('./board-input.tsx', () => ({
-  BoardInput: ({ guesses, setGuesses }: { guesses: Array<string>; setGuesses: (g: Array<string>) => void }) => {
-    setGuessesFromTest = setGuesses
-    return createElement('div', { 'data-testid': 'board', 'data-guesses': guesses.join(',') })
-  },
+  BoardInput: ({ guesses }: { guesses: Array<string> }) =>
+    createElement('div', { 'data-testid': 'board', 'data-guesses': guesses.join(',') }),
+  // Rendered OUTSIDE the contentEditable region, which is why it is a separate
+  // export at all — see board-input.tsx. Stubbed to nothing so `getByRole
+  // ('button', { name: /^submit$/ })` below stays the sheet footer's one button.
+  BoardSubmit: () => null,
 }))
+
+/**
+ * jsdom implements no scrolling at all, so `scrollIntoView` is absent and
+ * form.tsx's scrollActiveRowIntoView would throw on every render that moves the
+ * caret.
+ */
+Element.prototype.scrollIntoView = () => {}
 
 const UPSERT = getFunctionName(api.scores.upsertBoard)
 const LOG = getFunctionName(api.boardImport.logCorrections)
@@ -152,11 +159,42 @@ const board = () => screen.getByTestId('board').getAttribute('data-guesses')
 /** Board entry now opens on the step that asks which day and how. */
 const goToEntry = () => fireEvent.click(screen.getByRole('button', { name: /enter manually/i }))
 
+/**
+ * THE ONE FOCUS TARGET ON THE ENTRY STEP. The `#answer` box and the board's own
+ * contentEditable are gone: one region holds both halves, one handler serves
+ * both, and which half a keystroke lands in is state rather than focus.
+ */
+const region = () => screen.getByRole('group', { name: 'Wordle board entry' })
+/** The answer, read off the five slots that replaced the `#answer` box. */
+const answerText = () => screen.getAllByTestId('answer-slot').map((slot) => slot.textContent).join('')
+const typeKeys = (keys: string) => {
+  for (const key of keys) fireEvent.keyDown(region(), { key })
+}
+/**
+ * PUT THE CARET BACK ON THE ANSWER. An import that filled the answer in leaves
+ * it on the board — there is nothing left to type in the answer — so editing the
+ * answer afterwards is a click, which is exactly what a player does.
+ */
+const selectAnswer = () =>
+  fireEvent.mouseDown(screen.getByRole('group', { name: /Today's Wordle answer/i }))
+/**
+ * A HAND CORRECTION, TYPED. It used to be a `setGuesses` call handed out by the
+ * board probe; the board no longer owns a setter, because the form owns the
+ * stream. Backspacing the board empty and retyping it is what the interaction
+ * actually is — there is no click-to-position on this board — and it leaves the
+ * rows the player did not change byte-identical, which is what the correction
+ * log is diffed on.
+ */
+const retypeBoard = (rows: Array<string>) => {
+  const letters = (board() ?? '').split(',').join('').length
+  for (let index = 0; index < letters; index++) fireEvent.keyDown(region(), { key: 'Backspace' })
+  typeKeys(rows.join(''))
+}
+
 beforeEach(() => {
   fired = []
   failingMutation = null
   proAnswer = true
-  setGuessesFromTest = null
   vi.stubGlobal('console', { ...console, error: vi.fn() })
 })
 
@@ -174,7 +212,7 @@ describe('importing a screenshot into the entry form', () => {
     paste()
 
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
-    expect(document.getElementById('answer')?.textContent).toBe('CRANE')
+    expect(answerText()).toBe('CRANE')
   })
 
   // THE PROMISE THE WHOLE FEATURE RESTS ON. A parse that saved itself would
@@ -217,7 +255,7 @@ describe('importing a screenshot into the entry form', () => {
 
     // The player fixes one letter: SLATE was actually SLANE... no — they say
     // the first guess was SLIME, which differs in two tiles.
-    setGuessesFromTest?.(['SLIME', 'CRANE', '', '', '', ''])
+    retypeBoard(['SLIME', 'CRANE'])
     await waitFor(() => expect(board()).toBe('SLIME,CRANE,,,,'))
     fireEvent.click(screen.getByRole('button', { name: /^submit$/i }))
 
@@ -261,7 +299,7 @@ describe('importing a screenshot into the entry form', () => {
 
     paste()
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
-    setGuessesFromTest?.(['SLIME', 'CRANE', '', '', '', ''])
+    retypeBoard(['SLIME', 'CRANE'])
     await waitFor(() => expect(board()).toBe('SLIME,CRANE,,,,'))
     fireEvent.click(screen.getByRole('button', { name: /^submit$/i }))
 
@@ -281,11 +319,10 @@ describe('importing a screenshot into the entry form', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     goToEntry()
-    setGuessesFromTest?.(['SLATE', 'CRANE', '', '', '', ''])
-    const answerField = document.getElementById('answer')
-    if (answerField !== null) {
-      for (const key of 'CRANE') fireEvent.keyDown(answerField, { key })
-    }
+    // The answer first, then the board — which is the order the stream imposes
+    // now, and the order a player types in anyway.
+    typeKeys('CRANE')
+    typeKeys('SLATECRANE')
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
     fireEvent.click(screen.getByRole('button', { name: /^submit$/i }))
 
@@ -305,7 +342,7 @@ describe('the two-step flow', () => {
 
     expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
     expect(screen.queryByTestId('board')).toBeNull()
-    expect(document.getElementById('answer')).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Wordle board entry' })).toBeNull()
     // Nothing in the panel has taken focus off the body.
     expect(document.activeElement).toBe(document.body)
   })
@@ -331,7 +368,7 @@ describe('the two-step flow', () => {
     goToEntry()
 
     expect(screen.getByTestId('board')).toBeTruthy()
-    expect(document.activeElement).toBe(document.getElementById('answer'))
+    expect(document.activeElement).toBe(region())
   })
 
   // Arriving from an import must NOT focus: the board is already filled in, and
@@ -345,7 +382,7 @@ describe('the two-step flow', () => {
 
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
     await flushEffects()
-    expect(document.activeElement).not.toBe(document.getElementById('answer'))
+    expect(document.activeElement).not.toBe(region())
   })
 
   // Going back is free because `answer` and `guesses` are the form's own state,
@@ -355,7 +392,8 @@ describe('the two-step flow', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     goToEntry()
-    setGuessesFromTest?.(['SLATE', '', '', '', '', ''])
+    typeKeys('CRANE')
+    typeKeys('SLATE')
     fireEvent.click(screen.getByRole('button', { name: new RegExp(today) }))
 
     expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
@@ -365,7 +403,7 @@ describe('the two-step flow', () => {
 })
 
 describe('the import confirm step', () => {
-  const note = () => screen.getByRole('status').textContent ?? ''
+  const note = () => screen.getByTestId('board-import-note').textContent ?? ''
 
   test('confirms what it read, with the board filled in and a Submit', async () => {
     screenshotOf(ANSWER, GUESSES)
@@ -464,13 +502,7 @@ describe('the import confirm step', () => {
 })
 
 describe('the answer, asked for only when the board did not carry one', () => {
-  const note = () => screen.getByRole('status').textContent ?? ''
-  const answerField = () => document.getElementById('answer')
-  const typeAnswer = (word: string) => {
-    const field = answerField()
-    if (field === null) throw new Error('no answer field')
-    for (const key of word) fireEvent.keyDown(field, { key })
-  }
+  const note = () => screen.getByTestId('board-import-note').textContent ?? ''
 
   // A SOLVED BOARD CARRIES ITS OWN ANSWER in the winning row, and the parser
   // reads it there — 18 of 18 across the real corpus. Asking would be friction,
@@ -483,10 +515,15 @@ describe('the answer, asked for only when the board did not carry one', () => {
     paste()
 
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
-    expect(answerField()?.textContent).toBe('CRANE')
+    expect(answerText()).toBe('CRANE')
     expect(note()).not.toMatch(/not solved/i)
     await flushEffects()
-    expect(document.activeElement).not.toBe(answerField())
+    expect(document.activeElement).not.toBe(region())
+    // AND THE CARET IS ON THE BOARD, not on an answer with no letters left to
+    // take: the import filled it in, so the board is all that is left to do.
+    expect(
+      screen.getAllByTestId('answer-slot').some((slot) => slot.getAttribute('data-cursor') === 'true'),
+    ).toBe(false)
   })
 
   // AN UNSOLVED BOARD HAS NO WINNING ROW, so there is nothing to derive from —
@@ -500,11 +537,15 @@ describe('the answer, asked for only when the board did not carry one', () => {
     paste()
 
     await waitFor(() => expect(note()).toMatch(/not solved/i))
-    expect(answerField()?.textContent).toBe('')
+    expect(answerText()).toBe('')
     // `waitFor` rather than `flushEffects` for the one assertion that is
     // waiting for something to ARRIVE: it retries, so it holds whatever the
     // scheduler does, and a focus that never lands still fails on the ceiling.
-    await waitFor(() => expect(document.activeElement).toBe(answerField()))
+    await waitFor(() => expect(document.activeElement).toBe(region()))
+    // AND THE CARET IS IN THE ANSWER, where the five letters have to go: an
+    // import that could not read one must not leave it on the board, where
+    // nothing can be typed until the answer is complete.
+    expect(screen.getAllByTestId('answer-slot')[0].getAttribute('data-cursor')).toBe('true')
   })
 
   // THE WIRING, NOT THE CONSTRAINT. The answer is a constraint rather than a
@@ -521,7 +562,7 @@ describe('the answer, asked for only when the board did not carry one', () => {
     paste()
     await waitFor(() => expect(note()).toMatch(/not solved/i))
 
-    typeAnswer('DRYLY')
+    typeKeys('DRYLY')
 
     // The prompt goes once the constraint is in, and the board is the board.
     await waitFor(() => expect(note()).not.toMatch(/not solved/i))
@@ -537,31 +578,25 @@ describe('the answer, asked for only when the board did not carry one', () => {
 
     paste()
     await waitFor(() => expect(note()).toMatch(/not solved/i))
-    typeAnswer('DRYLY')
+    typeKeys('DRYLY')
     await waitFor(() => expect(board()).toBe('SLATE,BROIL,WRYLY,,,'))
 
-    setGuessesFromTest?.(['CRANE', 'BROIL', 'WRYLY', '', '', ''])
+    retypeBoard(['CRANE', 'BROIL', 'WRYLY'])
     await waitFor(() => expect(board()).toBe('CRANE,BROIL,WRYLY,,,'))
 
     // Retype the last letter of the answer: same answer, and the hand
-    // correction survives.
-    const field = answerField()
-    if (field !== null) {
-      fireEvent.keyDown(field, { key: 'Backspace' })
-      fireEvent.keyDown(field, { key: 'Y' })
-    }
-    await waitFor(() => expect(answerField()?.textContent).toBe('DRYLY'))
+    // correction survives. The caret is on the BOARD by now — completing the
+    // answer is what hands it over — so editing the answer is a click first,
+    // which is what a player does.
+    selectAnswer()
+    fireEvent.keyDown(region(), { key: 'Backspace' })
+    fireEvent.keyDown(region(), { key: 'Y' })
+    await waitFor(() => expect(answerText()).toBe('DRYLY'))
     expect(board()).toBe('CRANE,BROIL,WRYLY,,,')
   })
 })
 
 describe('what the correction log may and may not blame the parser for', () => {
-  const answerField = () => document.getElementById('answer')
-  const typeAnswer = (word: string) => {
-    const field = answerField()
-    if (field === null) throw new Error('no answer field')
-    for (const key of word) fireEvent.keyDown(field, { key })
-  }
   const submit = () => fireEvent.click(screen.getByRole('button', { name: /^submit$/i }))
 
   // THE LOG IS THE LABELLED CORPUS board import is measured against, so a false
@@ -577,17 +612,15 @@ describe('what the correction log may and may not blame the parser for', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
-    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/not solved/i))
+    await waitFor(() => expect(screen.getByTestId('board-import-note').textContent).toMatch(/not solved/i))
 
     // Type it, then change your mind about the last letter.
-    typeAnswer('DRYLY')
+    typeKeys('DRYLY')
     await waitFor(() => expect(board()).toBe(lost.join(',')))
-    const field = answerField()
-    if (field !== null) {
-      fireEvent.keyDown(field, { key: 'Backspace' })
-      fireEvent.keyDown(field, { key: 'S' })
-    }
-    await waitFor(() => expect(answerField()?.textContent).toBe('DRYLS'))
+    selectAnswer()
+    fireEvent.keyDown(region(), { key: 'Backspace' })
+    fireEvent.keyDown(region(), { key: 'S' })
+    await waitFor(() => expect(answerText()).toBe('DRYLS'))
 
     submit()
 
@@ -604,19 +637,17 @@ describe('what the correction log may and may not blame the parser for', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
-    await waitFor(() => expect(answerField()?.textContent).toBe('CRANE'))
+    await waitFor(() => expect(answerText()).toBe('CRANE'))
 
     // The winning row and the answer are the SAME row on a solved board, so a
     // misread there is a misread of both — correcting one without the other
     // would leave a board Wordle could not have produced, and boardIsValid
     // rightly refuses it.
-    const field = answerField()
-    if (field !== null) {
-      fireEvent.keyDown(field, { key: 'Backspace' })
-      fireEvent.keyDown(field, { key: 'K' })
-    }
-    await waitFor(() => expect(answerField()?.textContent).toBe('CRANK'))
-    setGuessesFromTest?.(['SLATE', 'CRANK', '', '', '', ''])
+    selectAnswer()
+    fireEvent.keyDown(region(), { key: 'Backspace' })
+    fireEvent.keyDown(region(), { key: 'K' })
+    await waitFor(() => expect(answerText()).toBe('CRANK'))
+    retypeBoard(['SLATE', 'CRANK'])
     await waitFor(() => expect(board()).toBe('SLATE,CRANK,,,,'))
 
     submit()

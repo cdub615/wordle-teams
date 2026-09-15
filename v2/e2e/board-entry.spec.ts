@@ -70,9 +70,10 @@ test('enter a board and see the score land', async ({ page }) => {
   const board = page.getByRole('region', { name: 'Wordle Board' })
   await board.waitFor()
 
-  // Choosing to type focuses the answer field; type the answer, then the guesses.
+  // Choosing to type focuses the ONE entry region; type the answer, and the
+  // guesses follow it with no click in between — the fifth answer letter hands
+  // the caret to the board itself.
   await page.keyboard.type('SPEED')
-  await board.click()
   await page.keyboard.type('CRANESPEED')
 
   await page.getByRole('button', { name: 'Submit' }).click()
@@ -104,15 +105,21 @@ test('native input paths cannot corrupt the board, but typing still can', async 
   // `beforeinput` with NO keydown at all — could reach the DOM without
   // React's state knowing, risking a board that disagrees with what gets
   // submitted or a reconciliation crash (WordleBoard renders INSIDE the
-  // board's contentEditable node). The fix is onBeforeInput + onPaste with
-  // preventDefault() on both fields (board-input.tsx, form.tsx). It is one
-  // deletable line per field and the failure it prevents is silent — this
-  // test exists so removing either line fails CI instead of nothing at all.
+  // board's contentEditable node). The fix is onPaste plus BOTH beforeinput
+  // guards on the one entry region (form.tsx) — React's `onBeforeInput` prop,
+  // which is synthesized from `textInput`, and a native `beforeinput` listener,
+  // which is the event dictation and swipe-typing actually fire. They are three
+  // deletable lines and the failure they prevent is silent — this test exists so
+  // removing any of them fails CI instead of nothing at all.
   await signInWithTeam(page)
   await page.getByRole('button', { name: 'Board Entry' }).click()
   await page.getByRole('button', { name: 'Enter manually' }).click()
 
-  const answer = page.locator('#answer')
+  // ONE REGION OVER BOTH HALVES since Task 8 — the answer slots and the board
+  // inside a single contentEditable — so there is one node to aim an insertion
+  // at, and it is a LARGER React-owned subtree than the board alone ever was.
+  const region = page.getByRole('group', { name: 'Wordle board entry' })
+  const answer = page.getByRole('group', { name: /Today's Wordle answer/ })
   const board = page.getByRole('region', { name: 'Wordle Board' })
   // Attribute selector, not `#1-1`: wordle-board.tsx's tile ids start with a
   // digit, which a CSS id selector cannot start with (form.tsx's own comment
@@ -123,35 +130,30 @@ test('native input paths cannot corrupt the board, but typing still can', async 
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.evaluate(() => navigator.clipboard.writeText('ZZZZZ'))
 
+  // Choosing to type focuses the region, so every insertion below lands on it
+  // with no click at all.
+  await expect(region).toBeFocused()
+
   // Paste — a real OS-level Ctrl/Cmd+V through the clipboard, the same path a
-  // user's paste takes. Neither field's content changes.
-  await answer.click()
+  // user's paste takes. Nothing in either half changes.
   await page.keyboard.press('ControlOrMeta+V')
   await expect(answer).toHaveText('')
-
-  await board.click()
-  await page.keyboard.press('ControlOrMeta+V')
   await expect(firstTile).toHaveText('')
 
   // insertText dispatches beforeinput/input WITHOUT keydown — the same event
-  // shape predictive text, swipe-typing and dictation use. Neither field's
-  // content changes.
-  await answer.click()
+  // shape predictive text, swipe-typing and dictation use. React's
+  // `onBeforeInput` is NOT that event (it is synthesized from `textInput`), so
+  // form.tsx also cancels the real one on the node; this is what proves it.
   await page.keyboard.insertText('ZZZZZ')
   await expect(answer).toHaveText('')
-
-  await board.click()
-  await page.keyboard.insertText('ZZZZZ')
   await expect(firstTile).toHaveText('')
 
-  // Real key events still work — proves the guard is SELECTIVE rather than
-  // the fields simply being inert, which a broken/removed field could also
-  // pass every assertion above.
-  await answer.click()
+  // Real key events still work — proves the guard is SELECTIVE rather than the
+  // region simply being inert, which a broken one would also pass. And the
+  // fifth answer letter hands the caret to the board, so the guesses follow
+  // with NO click in between: that is the feature Task 8 shipped.
   await page.keyboard.type('SPEED')
   await expect(answer).toHaveText('SPEED')
-
-  await board.click()
   await page.keyboard.type('CRANE')
   await expect(firstTile).toHaveText('C')
 })
@@ -217,7 +219,7 @@ test('import a board from a screenshot, confirm it, and see the score land', asy
   const board = page.getByRole('region', { name: 'Wordle Board' })
   await board.waitFor()
   await expect(page.getByTestId('board-import-note')).toContainText('Read 2 guesses')
-  await expect(page.locator('#answer')).toHaveText('SPEED')
+  await expect(page.getByRole('group', { name: /Today's Wordle answer/ })).toHaveText('SPEED')
   await expect(page.locator('[id="1-1"]')).toHaveText('C')
   await expect(page.locator('[id="2-1"]')).toHaveText('S')
 
