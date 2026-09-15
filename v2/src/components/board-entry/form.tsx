@@ -82,6 +82,35 @@ const rowsEqual = (a: Array<string>, b: Array<string>) =>
   a.length === b.length && a.every((row, index) => row === b[index])
 
 /**
+ * THE LAST ROW THE PLAYER HAS ACTUALLY TYPED IN, or -1 when none of them is.
+ *
+ * A SCROLL TARGET AND NOTHING ELSE. Read the warning in entry-cursor.ts's
+ * `backspace` before reaching for this: a reverse scan for "the last row with
+ * content" was DELETED from that function because it was being used to answer
+ * "where does the next letter go", which is a different question with one
+ * canonical answer (`nextSlot`). Those two disagreeing on a gapped import board
+ * is wordle-teams-lz3w — a live bug where backspace deleted from a row the
+ * cursor was nowhere near.
+ *
+ * So the rule is structural, not stylistic: this is module-private, it is
+ * UNEXPORTED, it has "content" rather than "next"/"active"/"cursor" in its name,
+ * and it is called from exactly one place — `scrollActiveRowIntoView`'s null-cursor
+ * fallback, where "which row is the player LOOKING at" genuinely is the question
+ * and `cursorFor` has, correctly, declined to answer. Nothing about letter
+ * placement may call it. If it ever wants to live in entry-cursor.ts, that is the
+ * signal it is being misused.
+ *
+ * WHY IT EXISTS AT ALL: `guesses` is `toRows`-normalised to six rows always, so
+ * the `guesses.length - 1` this replaced was the constant 5 (wordle-teams-3lmg).
+ */
+const lastRowWithContent = (guesses: Array<string>): number => {
+  for (let row = guesses.length - 1; row >= 0; row -= 1) {
+    if (guesses[row].length > 0) return row
+  }
+  return -1
+}
+
+/**
  * One month of the caller's own scores.
  *
  * Derived from getMyMonth's return type rather than written out, so the two
@@ -256,12 +285,17 @@ function BoardEntryFields({
    */
   const inputRef = useRef<HTMLInputElement>(null)
   /**
-   * The presentation PLUS the "Wordle Answer" label above it, and it exists to be
-   * SCROLLED rather than focused — nothing down there is focusable at all now.
-   * Scrolling the slots-and-board wrapper into view is what would push the label
-   * off the top of the scroll container — on the one viewport short enough for
-   * the scroll to do anything, which is the viewport where an unlabelled slots
-   * row is hardest to read.
+   * THE "Wordle Answer" LABEL AND THE FIVE SLOTS. THAT IS ALL, AND THE BOUNDARY
+   * IS THE POINT — it exists to be SCROLLED rather than focused, and a scroll
+   * target has to FIT in the scrollport to move it.
+   *
+   * THE LABEL IS IN because scrolling the slots alone would leave it above the
+   * scrolled-to edge, on the one viewport short enough for the scroll to do
+   * anything — which is the viewport where an unlabelled slots row is hardest to
+   * read. THE BOARD IS OUT because it is six rows tall: with it inside, this ref
+   * measured 440px against a 139px scroller on a phone and
+   * `scrollIntoView({ block: 'nearest' })` was specified to do nothing at all.
+   * See the render, and `scrollActiveRowIntoView`.
    */
   const answerZoneRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -452,18 +486,44 @@ function BoardEntryFields({
    * (what a null cursor means, and what this fell back to) would scroll the thing
    * the player is typing into off the top.
    *
-   * A NULL CURSOR STILL MEANS THE LAST ROW, unchanged: null is a solved or full
-   * board, where the last row is the one being looked at.
+   * A NULL CURSOR MEANS THE LAST ROW **WITH CONTENT**, AND THAT CORRECTION IS A
+   * BUG FIX, NOT A TIDY-UP. This read `guesses.length - 1`, and `guesses` is
+   * always `toRows`-normalised to SIX rows — so the fallback was always row 6,
+   * whatever the player had actually typed. `cursorFor` returns null exactly when
+   * nothing more can be typed, which includes a SOLVE: a board solved in two
+   * guesses lost its caret (correctly) and then scrolled to empty row 6
+   * (wrongly), taking both of the player's rows off the top of the scroller at
+   * the moment they were about to submit. Reported from a real iPhone. The same
+   * line broke opening a finished board to edit it, where the effect runs on
+   * mount with a null cursor. (wordle-teams-3lmg)
    */
   const scrollActiveRowIntoView = () => {
     if (cursor !== null && cursor.zone === 'answer') {
-      // THE LABEL COMES WITH IT — `answerZoneRef` wraps the label and the slots,
-      // and scrolling the slots alone would leave the label above the scrolled-to
-      // edge.
+      // `answerZoneRef` IS THE LABEL AND THE SLOTS AND NOTHING ELSE, and that is
+      // load-bearing rather than incidental. It used to wrap the board too —
+      // roughly 500px of content against a ~139px scroller on a phone with the
+      // keyboard up — and per CSSOM-View `scrollIntoView({ block: 'nearest' })`
+      // on a target TALLER than the scrollport that already overlaps it does
+      // NOTHING. Measured at 390x380: ref height 440 vs clientHeight 139, and the
+      // call moved scrollTop by 0. So this branch silently no-opped from the day
+      // it was written, and a player who backspaced the board empty got the caret
+      // back in an answer zone that was above the fold and unreachable. The board
+      // branch below never had the problem because it targets one tile.
+      // (wordle-teams-ddjl)
+      //
+      // `block: 'nearest'` RATHER THAN 'start', now that the target is small
+      // enough for either to work. The answer zone is the FIRST thing in the
+      // scroller, so when it is off the top 'nearest' and 'start' land in the
+      // same place — but 'nearest' is a no-op when the zone is already fully
+      // visible, where 'start' would yank the scroller to the top on a move the
+      // player can already see. Correct when it has to be, still when it does not.
       answerZoneRef.current?.scrollIntoView({ block: 'nearest' })
       return
     }
-    const index = cursor === null ? guesses.length - 1 : cursor.row
+    const index = cursor === null ? lastRowWithContent(guesses) : cursor.row
+    // Nothing typed and no caret — there is no board to look at, so leave the
+    // scroller where the player left it.
+    if (index < 0) return
     // An attribute selector, not `#${id}`: wordle-board.tsx's tile ids are
     // "1-1", "2-1", etc, and a CSS ID selector cannot start with a digit —
     // querySelector('#1-1') throws SyntaxError (getElementById has no such
@@ -989,14 +1049,99 @@ function BoardEntryFields({
         data-testid="entry-scroller"
         className="min-h-0 flex-1 overflow-y-auto"
       >
-        {/* THE ANSWER ZONE: the label and the presentation it names.
+        {/**
+         * BOTH ZONES, AND NOT A FOCUS TARGET — THE WHOLE POINT OF THIS SHAPE.
+         *
+         * This wrapper used to be the `contentEditable` region: one editing host
+         * over the answer slots AND the board, carrying `tabIndex`, the ARIA
+         * name, a keydown handler and two insertion guards. Collapsing two focus
+         * stops into one was right and is kept; putting React-owned content
+         * inside an editing host to do it was not. `beforeinput` for an IME
+         * commit is dispatched with `cancelable: false`, so the guards could
+         * never be complete — and because a click moved the caret into a tile,
+         * composed text could land in any tile and STAY (wordle-teams-5n6n).
+         *
+         * SO THIS IS NOW PLAIN PRESENTATION. No `contentEditable`, no
+         * `tabIndex`, no `onBeforeInput`, no `onPaste`, no native `beforeinput`
+         * listener — none of which has anything left to guard, because there is
+         * no insertion path into a non-editable subtree. Focus, the keyboard and
+         * any composition live on the `<input>` at the top of this form.
+         *
+         * `onMouseDown` PREVENTDEFAULT IS THE ONE HANDLER THAT SURVIVES, AND IT
+         * IS LOAD-BEARING. The thing a player taps is no longer the thing that
+         * holds focus, so without this a tap on a slot or a tile blurs the input,
+         * drops the keyboard on a phone and takes the caret off screen (the
+         * caret is gated on `focused`). Mousedown's default action IS the focus
+         * change, so cancelling it here means focus never leaves — and it is on
+         * the WRAPPER rather than on each half because mousedown bubbles, so one
+         * handler covers every slot and every tile. `AnswerSlots` and
+         * `BoardInput` still get their own mousedown for `selectZone`; those run
+         * first, on the way up, and this cancels the default afterwards.
+         *
+         * NO FOCUS RING AND NO `focus:outline-none`, BECAUSE THIS CANNOT BE
+         * FOCUSED. The ring was removed earlier — one ring around the answer AND
+         * the board said only "something here has focus" — and the caret is what
+         * replaced it: `cursorIndex` below and `cursor` on BoardInput are BOTH
+         * gated on `focused`, so a rendered caret implies a focused input and a
+         * blurred input draws none. That is the WCAG 2.4.7 indicator, and
+         * e2e/board-entry.spec.ts asserts it is PAINTED rather than merely
+         * classed, in both zones.
+         *
+         * `caret-transparent` IS GONE WITH THE EDITING HOST: a non-editable div
+         * has no native caret to suppress. (`AnswerSlots` keeps its own, which
+         * is that component's business, not this one's.) `select-none` STAYS —
+         * a drag across five letter cells selecting text is still meaningless.
+         *
+         * `w-fit` SO IT HUGS THE CONTENT (wordle-teams-rpql). It carried the
+         * focus ring when that note was written; the sizing outlives both the
+         * ring and the editing host, because this is still the thing the answer
+         * slots and the board are centred within.
+         *
+         * IT ALSO CARRIES THE MARGINS NOW, AND THAT IS THE SCROLLING FIX
+         * (wordle-teams-ddjl). There
+         * used to be an OUTER div here holding `mt-4 md:my-2` — and holding
+         * `answerZoneRef`, so the ref wrapped the label AND the slots AND this
+         * whole six-row board. Per CSSOM-View, `scrollIntoView({ block: 'nearest' })`
+         * on a target TALLER than the scrollport that already overlaps it does
+         * NOTHING, so the answer branch of `scrollActiveRowIntoView` silently
+         * no-opped from the day it was written: measured at 390x380, 440px of ref
+         * against a 139px scroller, scrollTop delta 0. A player who backspaced the
+         * board empty got the caret back in an answer zone that was above the fold
+         * and unreachable, which is the whole reason they could not fix a typo in
+         * the answer.
+         *
+         * SO THE REF MOVED INWARDS ONTO THE LABEL AND THE SLOTS ALONE, the board
+         * became their SIBLING, and the outer div's margins moved here — which
+         * leaves exactly one element where there were two.
+         *
+         * THE MOUSEDOWN GUARD'S COVERAGE IS UNCHANGED BY THAT AND MUST STAY SO.
+         * It has to be an ancestor of every slot AND every tile, which is the
+         * entire reason it is one handler up here rather than one per half. Do
+         * not move it down onto the answer zone; that would drop the board.
+         */}
+        <div
+          data-testid="entry-presentation"
+          onMouseDown={(event) => event.preventDefault()}
+          className="mx-auto mt-4 flex w-fit select-none flex-col items-center gap-4 md:my-2"
+        >
+          {/* THE ANSWER ZONE, AND IT IS EXACTLY WHAT `scrollActiveRowIntoView`
+              NEEDS TO BE ABLE TO SCROLL TO: the label and the slots, nothing else.
 
-            THE MARGINS LIVE HERE RATHER THAN ON THE PRESENTATION so the label
-            moves with it, and `scrollActiveRowIntoView` scrolls THIS — scrolling
-            the inner wrapper would push the label out of the scroll container
-            exactly when the player is typing the answer. */}
-        <div ref={answerZoneRef} className="mx-auto mt-4 w-fit md:my-2">
-          {/* THE LABEL, RESTORED.
+              THE LABEL COMES WITH THE SLOTS, which is what this div is for —
+              scrolling the slots alone would leave the label above the
+              scrolled-to edge, on the one viewport short enough for the scroll to
+              do anything, which is the viewport where an unlabelled slots row is
+              hardest to read.
+
+              THE BOARD IS A SIBLING, NOT A CHILD, and that is the fix. Anything
+              added inside here is added to the thing the scroller has to fit, so
+              keep it small.
+
+              `data-testid` so e2e can measure it against the scroller's client
+              rect; jsdom reports every box as 0x0, so the unit test asserts
+              CONTAINMENT (slots in, board out) instead. */}
+          <div ref={answerZoneRef} data-testid="entry-answer-zone" className="flex flex-col items-center">
+            {/* THE LABEL, RESTORED.
 
               It was in the original plan for this surface and was dropped when the
               old `#answer` input was deleted, which is most of why the slots row
@@ -1013,62 +1158,9 @@ function BoardEntryFields({
               reading "Today's Wordle answer, 2 of 5 letters: C R" — strictly more
               useful than a bare "Wordle Answer", because it carries the live
               count. This is the SIGHTED half of the same label. */}
-          <span aria-hidden="true" className="mb-1 block text-center text-xs font-medium sm:text-sm">
-            Wordle Answer
-          </span>
-          {/**
-           * BOTH ZONES, AND NOT A FOCUS TARGET — THE WHOLE POINT OF THIS SHAPE.
-           *
-           * This wrapper used to be the `contentEditable` region: one editing host
-           * over the answer slots AND the board, carrying `tabIndex`, the ARIA
-           * name, a keydown handler and two insertion guards. Collapsing two focus
-           * stops into one was right and is kept; putting React-owned content
-           * inside an editing host to do it was not. `beforeinput` for an IME
-           * commit is dispatched with `cancelable: false`, so the guards could
-           * never be complete — and because a click moved the caret into a tile,
-           * composed text could land in any tile and STAY (wordle-teams-5n6n).
-           *
-           * SO THIS IS NOW PLAIN PRESENTATION. No `contentEditable`, no
-           * `tabIndex`, no `onBeforeInput`, no `onPaste`, no native `beforeinput`
-           * listener — none of which has anything left to guard, because there is
-           * no insertion path into a non-editable subtree. Focus, the keyboard and
-           * any composition live on the `<input>` at the top of this form.
-           *
-           * `onMouseDown` PREVENTDEFAULT IS THE ONE HANDLER THAT SURVIVES, AND IT
-           * IS LOAD-BEARING. The thing a player taps is no longer the thing that
-           * holds focus, so without this a tap on a slot or a tile blurs the input,
-           * drops the keyboard on a phone and takes the caret off screen (the
-           * caret is gated on `focused`). Mousedown's default action IS the focus
-           * change, so cancelling it here means focus never leaves — and it is on
-           * the WRAPPER rather than on each half because mousedown bubbles, so one
-           * handler covers every slot and every tile. `AnswerSlots` and
-           * `BoardInput` still get their own mousedown for `selectZone`; those run
-           * first, on the way up, and this cancels the default afterwards.
-           *
-           * NO FOCUS RING AND NO `focus:outline-none`, BECAUSE THIS CANNOT BE
-           * FOCUSED. The ring was removed earlier — one ring around the answer AND
-           * the board said only "something here has focus" — and the caret is what
-           * replaced it: `cursorIndex` below and `cursor` on BoardInput are BOTH
-           * gated on `focused`, so a rendered caret implies a focused input and a
-           * blurred input draws none. That is the WCAG 2.4.7 indicator, and
-           * e2e/board-entry.spec.ts asserts it is PAINTED rather than merely
-           * classed, in both zones.
-           *
-           * `caret-transparent` IS GONE WITH THE EDITING HOST: a non-editable div
-           * has no native caret to suppress. (`AnswerSlots` keeps its own, which
-           * is that component's business, not this one's.) `select-none` STAYS —
-           * a drag across five letter cells selecting text is still meaningless.
-           *
-           * `w-fit` SO IT HUGS THE CONTENT (wordle-teams-rpql). It carried the
-           * focus ring when that note was written; the sizing outlives both the
-           * ring and the editing host, because this is still the thing the answer
-           * slots and the board are centred within.
-           */}
-          <div
-            data-testid="entry-presentation"
-            onMouseDown={(event) => event.preventDefault()}
-            className="mx-auto flex w-fit select-none flex-col items-center gap-4"
-          >
+            <span aria-hidden="true" className="mb-1 block text-center text-xs font-medium sm:text-sm">
+              Wordle Answer
+            </span>
             {/* `w-56` (224px) IS DELIBERATELY NARROWER THAN THE BOARD — 288px
                 (`w-72`) on a phone, 320px (`md:w-80`) from md — AND THAT IS THE
                 POINT. The slots used to be exactly the board grid's width, so they
@@ -1089,18 +1181,18 @@ function BoardEntryFields({
               onSelect={() => selectZone('answer')}
               className="w-56"
             />
-            <BoardInput
-              guesses={guesses}
-              answer={answer}
-              // UNADAPTED, both zones. BoardInput narrows it to a tile itself,
-              // which is the one place that narrowing may happen. NULL WHILE
-              // UNFOCUSED: a caret that cannot be typed into is a lie, and the
-              // scroll below still uses the ungated `cursor`, because where the
-              // board should be scrolled to does not depend on who has focus.
-              cursor={focused ? cursor : null}
-              onSelect={() => selectZone('board')}
-            />
           </div>
+          <BoardInput
+            guesses={guesses}
+            answer={answer}
+            // UNADAPTED, both zones. BoardInput narrows it to a tile itself,
+            // which is the one place that narrowing may happen. NULL WHILE
+            // UNFOCUSED: a caret that cannot be typed into is a lie, and the
+            // scroll below still uses the ungated `cursor`, because where the
+            // board should be scrolled to does not depend on who has focus.
+            cursor={focused ? cursor : null}
+            onSelect={() => selectZone('board')}
+          />
         </div>
         <BoardSubmit submitting={submitting} disabled={submitDisabled} />
       </div>

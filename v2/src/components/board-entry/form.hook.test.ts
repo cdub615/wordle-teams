@@ -154,8 +154,20 @@ vi.mock('#/components/date-picker.tsx', () => ({
  * leaves every test in the repo green.
  */
 let scrolls = 0
-Element.prototype.scrollIntoView = () => {
+/**
+ * AND WHICH ELEMENT IT WAS AIMED AT, which is the only geometry-free way to see
+ * either of the two scroll bugs this file now pins. jsdom reports every box as
+ * 0x0, so "is the answer visible" is unanswerable here — but "was the scroll
+ * aimed at the answer zone or at a board tile" is a fact about the DOM, and it
+ * is precisely the fact both bugs got wrong.
+ *
+ * A `function`, NOT AN ARROW, because `this` is the element scrollIntoView was
+ * called on and an arrow has none.
+ */
+let scrollTargets: Array<Element> = []
+Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
   scrolls += 1
+  scrollTargets.push(this)
 }
 
 beforeEach(() => {
@@ -166,6 +178,7 @@ beforeEach(() => {
   warnings.length = 0
   selectDay = null
   scrolls = 0
+  scrollTargets = []
 })
 
 afterEach(cleanup)
@@ -1114,5 +1127,109 @@ describe('the answer row is visibly not part of the board', () => {
     expect(answerText()).toBe('')
     expect(answerCursor()).toBe(0)
     expect(screen.getAllByTestId('answer-caret')).toHaveLength(1)
+  })
+})
+
+/**
+ * WHERE THE SCROLL IS AIMED — BOTH BUGS REPORTED FROM A REAL IPHONE, AND BOTH
+ * INVISIBLE TO EVERY OTHER TEST IN THIS REPO.
+ *
+ * `scrollActiveRowIntoView` picks an ELEMENT and calls `scrollIntoView` on it.
+ * jsdom has no layout, so what that does to a scrollport is unobservable here —
+ * but WHICH ELEMENT is a pure DOM fact, and in both bugs the element was wrong.
+ * That is the whole assertion surface of this block, and it is enough:
+ *
+ *   1. THE ANSWER ZONE WAS THE WHOLE SURFACE (wordle-teams-ddjl). `answerZoneRef` sat on a div that
+ *      wrapped the label AND the slots AND the six-row board — about 440px of it
+ *      against a 139px scroller on a phone with the keyboard up. Per CSSOM-View,
+ *      `scrollIntoView({ block: 'nearest' })` on a target taller than the
+ *      scrollport that already overlaps it does NOTHING, so the answer branch had
+ *      silently no-opped since the day it was written. Backspace the board empty,
+ *      the caret correctly returns to the answer, the coach line says so — and
+ *      the viewport stays on the board rows, with the answer above the fold and
+ *      unreachable. A player could not correct a typo in their own answer.
+ *      MEASURED in a real Chromium at 390x380: ref 440px vs clientHeight 139,
+ *      scrollTop delta 0 before, -301 after.
+ *
+ *   2. A NULL CURSOR MEANT ROW SIX (wordle-teams-3lmg). `guesses` is `toRows`-normalised to six rows
+ *      always, so the board branch's `guesses.length - 1` fallback was the
+ *      constant 5 — and `cursorFor` returns null exactly on a SOLVE. Solve in two
+ *      and the view jumped to empty row 6, taking both of the player's rows off
+ *      the top at the moment they were about to submit. MEASURED at 390x380:
+ *      scrollTop 73 -> 313 of a 317 maximum before, and unmoved at 73 after.
+ *
+ * WHY CONTAINMENT RATHER THAN A `data-testid` EQUALITY for the first one. The bug
+ * is not "the ref moved to a different div", it is "the ref's subtree is too
+ * big": what has to hold is that the slots are inside the scroll target and the
+ * BOARD IS NOT. Asserting that directly survives any future re-nesting that keeps
+ * the property, and fails every one that loses it. MUTATION-CHECKED both ways —
+ * moving the ref back onto `entry-presentation` fails the first test, restoring
+ * `guesses.length - 1` fails the second.
+ */
+describe('the scroll is aimed at the thing the player is looking at', () => {
+  const openEntry = () => {
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+  }
+
+  /** The element the LAST scroll was aimed at. */
+  const lastTarget = () => {
+    const target = scrollTargets.at(-1)
+    if (target === undefined) throw new Error('nothing was scrolled at all')
+    return target
+  }
+
+  test('backspacing the board empty scrolls the ANSWER ZONE, and it does not contain the board', () => {
+    openEntry()
+    type('CRANE')
+    type('SLATE')
+    // The board is where the scrolling has been aimed so far — assert it, or the
+    // difference this test is about is not a difference. Row 2, because filling
+    // row 1 moves `nextSlot` on.
+    expect(lastTarget().id).toBe('2-1')
+
+    // Five backspaces empty row 1; the sixth walks back into the answer zone,
+    // which is the moment the player is trying to reach.
+    for (let index = 0; index < 6; index += 1) fireEvent.keyDown(region(), { key: 'Backspace' })
+    expect(coach().textContent).toMatch(/type today's answer/i)
+    expect(answerCursor()).toBe(4)
+
+    const target = lastTarget()
+    // THE SLOTS ARE INSIDE IT — without this the test passes against a ref on any
+    // empty div, which scrolls the player nowhere useful.
+    const slots = screen.getAllByTestId('answer-slot')
+    expect(slots).toHaveLength(5)
+    for (const slot of slots) expect(target.contains(slot)).toBe(true)
+
+    // AND THE BOARD IS NOT. This is the bug: a target containing all six rows is
+    // taller than the scrollport and `block: 'nearest'` is specified to do
+    // nothing with it.
+    expect(target.contains(boardHalf())).toBe(false)
+    for (let row = 1; row <= 6; row += 1) {
+      expect(target.contains(document.getElementById(`${row}-1`))).toBe(false)
+    }
+  })
+
+  test('a board solved in two scrolls to row 2, not to empty row 6', () => {
+    openEntry()
+    type('CRANE')
+    type('SLATE')
+    // The solving guess. `cursorFor` returns null from here on, which is correct
+    // — there is nothing left to type — and is exactly when the fallback runs.
+    type('CRANE')
+
+    expect(boardRow(2)).toBe('CRANE')
+    expect(boardRow(3)).toBe('')
+    expect(answerCursor()).toBe(-1)
+    expect(lastTarget().id).toBe('2-1')
+  })
+
+  test('six full rows still scroll to row 6, which is where the content ends', () => {
+    openEntry()
+    type('CRANE')
+    type('SLATE'.repeat(6))
+
+    expect(boardRow(6)).toBe('SLATE')
+    expect(lastTarget().id).toBe('6-1')
   })
 })

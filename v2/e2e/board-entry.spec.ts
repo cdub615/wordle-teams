@@ -394,6 +394,108 @@ test('the scrolling keys scroll the board, not the dialog', async ({ page }) => 
   await expect(page.locator('[id="1-1"]')).toHaveText('')
 })
 
+/**
+ * WHERE THE AUTOMATIC SCROLL LANDS, WITH REAL RECTANGLES. Two bugs, both
+ * reported from a real iPhone, both of which need a layout engine to see at all.
+ *
+ *   1. THE ANSWER COULD NOT BE SCROLLED BACK TO (wordle-teams-ddjl). `answerZoneRef` wrapped the
+ *      label AND the slots AND the whole six-row board, and per CSSOM-View
+ *      `scrollIntoView({ block: 'nearest' })` on a target TALLER than the
+ *      scrollport that already overlaps it does NOTHING. So the answer branch of
+ *      `scrollActiveRowIntoView` no-opped from the day it was written: backspace
+ *      the board empty, the caret correctly returns to the answer, the coach line
+ *      says so — and the view stays on the board, with the answer above the fold
+ *      and the player unable to fix a typo in it. Measured here before the fix:
+ *      ref 440px against clientHeight 139, scrollTop delta 0.
+ *
+ *   2. A SOLVE JUMPED TO EMPTY ROW SIX (wordle-teams-3lmg). `guesses` is normalised to six rows
+ *      always, so the board branch's `guesses.length - 1` fallback was the
+ *      constant 5, and `cursorFor` returns null exactly when there is nothing
+ *      left to type — i.e. on a SOLVE. Solve in two and the view left both of the
+ *      player's rows above the fold at the moment they were about to submit.
+ *      Measured before the fix: scrollTop 73 -> 313 of a 317 maximum.
+ *
+ * THE VIEWPORT IS PART OF THE TEST, exactly as for the scrolling keys above: at
+ * a desktop size nothing overflows and every assertion below passes against a
+ * completely broken implementation. 380px tall stands in for a phone whose sheet
+ * has been shrunk by the software keyboard, which is the only condition either
+ * bug appears under. The `max > 0` guard is what stops that being silent.
+ *
+ * form.hook.test.ts pins WHICH ELEMENT each scroll is aimed at, which is all
+ * jsdom's 0x0 boxes can support. This is the half that asserts the player can
+ * actually SEE the thing afterwards.
+ */
+test('the answer scrolls back into view, and a solve does not jump past the played rows', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 380 })
+  await signInWithTeam(page)
+
+  await page.getByRole('button', { name: 'Board Entry' }).click()
+  await page.getByRole('button', { name: 'Enter manually' }).click()
+  await page.getByRole('region', { name: 'Wordle Board' }).waitFor()
+
+  const scroller = page.getByTestId('entry-scroller')
+  const top = () => scroller.evaluate((element) => element.scrollTop)
+  const max = await scroller.evaluate((element) => element.scrollHeight - element.clientHeight)
+  expect(max, 'the board must actually overflow here, or nothing below proves anything').toBeGreaterThan(0)
+
+  /** Is every one of these inside the scroller's own client rect? */
+  const allVisible = (selector: string) =>
+    page.evaluate((css) => {
+      const scrollerElement = document.querySelector('[data-testid="entry-scroller"]')!
+      const box = scrollerElement.getBoundingClientRect()
+      const targets = [...document.querySelectorAll(css)]
+      if (targets.length === 0) return false
+      return targets.every((target) => {
+        const rect = target.getBoundingClientRect()
+        return rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5
+      })
+    }, selector)
+
+  // THE SCROLL TARGET HAS TO FIT THE SCROLLPORT. This is bug 1 stated as the
+  // property that was violated, rather than as its symptom — a target taller
+  // than this cannot be scrolled to at all, whatever else is true.
+  const fit = await page.evaluate(() => {
+    const scrollerElement = document.querySelector('[data-testid="entry-scroller"]')!
+    const zone = document.querySelector('[data-testid="entry-answer-zone"]')!
+    return { zone: zone.getBoundingClientRect().height, scroller: scrollerElement.clientHeight }
+  })
+  expect(fit.zone, 'the answer zone must fit inside the scroller, or block:nearest is a no-op').toBeLessThan(
+    fit.scroller,
+  )
+
+  // Type the answer (which hands the caret to the board) and one guess, so the
+  // view is down on the board — assert that, or the return trip proves nothing.
+  await page.keyboard.type('CRANE')
+  await page.keyboard.type('SLATE')
+  expect(await top(), 'typing a guess must have scrolled down to the board').toBeGreaterThan(0)
+
+  // Now back it all out. Five empty row 1; the sixth walks the caret into the
+  // answer zone, which is the moment the player is trying to reach.
+  for (let index = 0; index < 6; index += 1) await page.keyboard.press('Backspace')
+  await expect(page.getByTestId('entry-coach')).toHaveText(/type today's answer/i)
+  expect(await allVisible('[data-testid="answer-slot"]'), 'the answer slots must be back on screen').toBe(
+    true,
+  )
+
+  // AND A SOLVE STAYS ON THE ROWS THAT WERE PLAYED. Four more backspaces empty
+  // the answer itself — the walk-back above already took its last letter, so
+  // `CRANE` would otherwise be appended to `CRAN` — and then the answer, a wrong
+  // guess and the answer again solve the board in two. The caret goes away at
+  // that point, which is the null-cursor fallback bug 2 lived in.
+  for (let index = 0; index < 4; index += 1) await page.keyboard.press('Backspace')
+  await expect(page.getByRole('group', { name: /Today's Wordle answer/ })).toHaveText('')
+  await page.keyboard.type('CRANE')
+  await page.keyboard.type('SLATE')
+  const beforeSolve = await top()
+  await page.keyboard.type('CRANE')
+  expect(await top(), 'solving must not jump the view to the empty rows below').toBeLessThanOrEqual(
+    beforeSolve,
+  )
+  expect(await allVisible('[id="1-1"], [id="2-1"]'), 'both played rows must still be visible').toBe(true)
+})
+
 test('the mobile sheet has an accessible name', async ({ page }) => {
   // Phase-close review: the desktop Dialog branch renders a DialogTitle, but
   // the mobile Sheet branch (button.tsx) had only a SheetDescription — no
