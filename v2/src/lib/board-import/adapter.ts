@@ -98,9 +98,10 @@ export function imageFromFiles(files: ArrayLike<File> | null | undefined): File 
  *
  * On iOS there is no route into the paste listener. There is no Cmd-V, and the
  * only way to fire a paste event is a long-press "Paste" on an editable
- * element — but board-input.tsx and the answer field both preventDefault every
- * paste that reaches them, deliberately, to stop a native insertion corrupting
- * the React-owned board. So the listener can never fire there.
+ * element — but form.tsx's entry region, the one editable element on the
+ * screen, preventDefaults every paste that reaches it, deliberately, to stop a
+ * native insertion corrupting the React-owned board inside it. So the listener
+ * can never fire there.
  *
  * That is not an edge case. Screenshots taken with iOS's "Copy and Delete" go
  * to the clipboard and are never written to Photos at all, so for that workflow

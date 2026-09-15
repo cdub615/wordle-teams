@@ -424,7 +424,20 @@ function BoardEntryFields({
 
     if (key === 'Enter') {
       setRefused(null)
-      if (boardIsValid(answer, guesses, existing !== undefined)) {
+      /**
+       * `submitDisabled`, NOT `boardIsValid(...)` — THE SAME COMPOSITION THE
+       * COACH LINE ABOVE INSISTS ON, and for a sharper reason.
+       *
+       * Two conditions make this form submittable: a day AND a valid board.
+       * Asking only the second sends a complete board with no day down the
+       * SUCCESS branch, where it clicks a `#board-submit` that is `disabled` —
+       * and `HTMLElement.click()` on a disabled button does NOTHING. No
+       * mutation, no toast, no sign that a key was pressed: A SILENTLY
+       * SWALLOWED KEYSTROKE, in the feature built to abolish silently swallowed
+       * keystrokes. Asking the same question the button asks means the two
+       * cannot disagree about what Enter does.
+       */
+      if (!submitDisabled) {
         document.getElementById('board-submit')?.click()
       } else {
         toast.warning('Board must be complete to submit')

@@ -588,6 +588,38 @@ describe('Enter, from anywhere in the region', () => {
     expect(fired[0]).toMatchObject({ answer: 'CRANE', puzzleDay: today })
   })
 
+  /**
+   * THE ENTER MIRROR OF THE COACH LINE'S no-day TEST, and the bug it pins is
+   * sharper than the coach line's.
+   *
+   * `boardIsValid` is TRUE here and `submitDisabled` is also true, because there
+   * is no day. Asking only `boardIsValid` sends this down the SUCCESS branch,
+   * which clicks a `#board-submit` that is `disabled` — and `click()` on a
+   * disabled button does nothing at all. No mutation, no toast, no sign the key
+   * was pressed: a silently swallowed keystroke in the feature built to abolish
+   * them. The warning is the honest answer, and it is what the button's own
+   * state says.
+   *
+   * Unreachable through the real picker today — date-picker.tsx guards
+   * `if (!picked) return` — which is the same standing as the coach-line case
+   * above, and the same reason to pin the composition rather than the path.
+   */
+  test('warns rather than silently doing nothing when the board is complete but the day is not', () => {
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    act(() => selectDay?.(undefined))
+    goToEntry()
+    type('CRANE')
+    type('CRANE')
+    // The BOARD is complete: this is not an incomplete-board test wearing a hat.
+    expect(boardIsValid('CRANE', ['CRANE', '', '', '', '', ''], false)).toBe(true)
+    expect(boardRow(1)).toBe('CRANE')
+
+    fireEvent.keyDown(region(), { key: 'Enter' })
+
+    expect(fired).toEqual([])
+    expect(warnings).toEqual(['Board must be complete to submit'])
+  })
+
   test('warns instead of submitting an incomplete one', () => {
     render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()

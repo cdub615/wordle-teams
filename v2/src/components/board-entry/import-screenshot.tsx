@@ -27,16 +27,18 @@ import { cn } from '#/lib/utils.ts'
  * THERE ARE TWO PASTE MECHANISMS HERE AND BOTH ARE NEEDED. The document
  * listener catches a desktop Cmd-V. The BUTTON is the only thing that works on
  * iOS at all: there is no Cmd-V there, and the only way to fire a paste event
- * is a long-press "Paste" on an editable element — which board-input.tsx and
- * the answer field both cancel on purpose. The button is listed first because
+ * is a long-press "Paste" on an editable element — which form.tsx's entry
+ * region cancels on purpose. The button is listed first because
  * on a phone it is the common case, not the fallback: a screenshot taken with
  * "Copy and Delete" never reaches Photos, so the file picker finds nothing.
  *
  * THE PASTE LISTENER IS ON THE DOCUMENT, and it has to be. A screenshot is
  * pasted with Cmd-V while the player is looking at the sheet, not while some
- * particular element has focus — and the board itself is a contentEditable that
- * cancels every paste that reaches it (board-input.tsx), so a listener bound
- * there would never fire. Capture phase, for the same reason.
+ * particular element has focus — and the entry surface itself is one big
+ * contentEditable region that cancels every paste that reaches it (form.tsx:
+ * the answer slots and the board are inside it since the keystroke stream was
+ * collapsed into one), so a listener bound there would never fire. Capture
+ * phase, for the same reason.
  */
 /** Each clipboard outcome reads as help, because none of them is really an error. */
 function clipboardMessage(reason: Extract<ClipboardImage, { ok: false }>['reason']): string {
@@ -68,7 +70,7 @@ export function ImportScreenshot({
   const fileInput = useRef<HTMLInputElement>(null)
 
   // The latest answer, without making the paste listener depend on it: a
-  // re-bound document listener on every keystroke in the answer field would
+  // re-bound document listener on every keystroke in the entry region would
   // detach and reattach thirty times a board.
   const answerRef = useRef(answer)
   answerRef.current = answer

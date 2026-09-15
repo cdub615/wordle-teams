@@ -76,8 +76,7 @@ export type AnswerSlotsProps = {
  * so a container narrower than that now OVERFLOWS rather than silently smudging.
  * That is the deliberate trade: the component is correct in any container and says
  * so loudly, instead of being correct only in the ones the caller happens to give
- * it. form.tsx's current `w-[30%]` is 108px and too narrow — Task 8 rebuilds that
- * row and must give this at least 216px.
+ * it.
  *
  * FIXED BY A WIDTH FLOOR RATHER THAN BY LEFT-ALIGNING THE GLYPH. Centred letters
  * in slots is the right look and is what ui/input-otp.tsx does; moving the letter
