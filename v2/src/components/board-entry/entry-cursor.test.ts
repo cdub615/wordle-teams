@@ -487,3 +487,117 @@ describe('solvedRow says WHICH row solved the board', () => {
     expect(solvedRow({ answer: 'CRANE', guesses: ['', '', 'CRANE'], zone: 'board' })).toBe(2)
   })
 })
+
+/**
+ * "NO GUESS AFTER THE SOLVE", NOT "NO LETTERS ON A SOLVED BOARD"
+ * (wordle-teams-1nvo). `openSlot` is `nextSlot` narrowed by `solvedRowIn`, and it
+ * is the one thing both typeLetter and cursorFor read.
+ *
+ * WHAT WENT WRONG. The rule was the bare predicate `isSolved`, which is true of a
+ * board solved on row 4 whose row 3 the screenshot reader missed — so every key
+ * aimed at row 3 was refused 'board-solved', `cursorFor` drew no caret, and
+ * backspace deleted from the row ABOVE the gap. wordle-teams-5w0t then correctly
+ * stopped that board being submittable, which left the player with a board they
+ * could not submit and could not fix: the only route out was to mistype the answer
+ * on purpose so that no row matched it any more.
+ *
+ * WHY THE DISTINCTION IS RIGHT RATHER THAN CONVENIENT. A blank row BEFORE the
+ * solve is a guess the player really made and we failed to read — import leaves it
+ * blank in position, on purpose, because the board is positional. A row AFTER the
+ * solve is a seventh guess in a game that ended. Only the second is impossible.
+ */
+describe('a gap before the solving row is the player\'s to fill', () => {
+  const gapped = (over: Partial<EntryState> = {}) =>
+    state({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', '', 'CRANE', '', '', ''], ...over })
+
+  test('takes a letter, in the gap, rather than refusing the board as solved', () => {
+    const { next, refused } = typeLetter(gapped(), 'B')
+    expect(refused).toBeNull()
+    expect(next.guesses).toEqual(['SLATE', 'B', 'CRANE', '', '', ''])
+  })
+
+  /**
+   * THE lz3w PROPERTY, RESTATED FOR THIS CASE and the reason cursorFor had to
+   * change with typeLetter: the caret must be where the letter goes. Drawing no
+   * caret on a row that now accepts keys is the same defect as drawing one on a row
+   * that refuses them, which is what lz3w was.
+   */
+  test('and the caret is drawn there, on the row the letter lands in', () => {
+    const cursor = cursorFor(gapped())
+    expect(cursor).toEqual({ zone: 'board', row: 1, index: 0 })
+    expect(typeLetter(gapped(), 'B').next.guesses[1]).toBe('B')
+  })
+
+  test('the whole gap fills in order, and then the board is done', () => {
+    let entry = gapped()
+    for (const key of 'BROIL') entry = typeLetter(entry, key).next
+    expect(entry.guesses).toEqual(['SLATE', 'BROIL', 'CRANE', '', '', ''])
+
+    // THE OTHER HALF OF THE RULE. With the gap gone the next slot is row 3, which
+    // is AFTER the solve — so the seventh guess is refused exactly as before.
+    // Without this the tests above pass against a rule that dropped the check.
+    const after = typeLetter(entry, 'X')
+    expect(after.refused).toBe('board-solved')
+    expect(after.next.guesses).toEqual(['SLATE', 'BROIL', 'CRANE', '', '', ''])
+    expect(cursorFor(entry)).toBeNull()
+  })
+
+  test('a gap AFTER the solving row is still refused', () => {
+    // Rows below a solve are not a gap, they are the rest of a game that ended.
+    const trailing = state({
+      answer: 'CRANE',
+      zone: 'board',
+      guesses: ['SLATE', 'CRANE', '', '', '', ''],
+    })
+    expect(typeLetter(trailing, 'X').refused).toBe('board-solved')
+    expect(cursorFor(trailing)).toBeNull()
+  })
+
+  /**
+   * THE BOUNDARY IS THE SOLVING ROW, NOT ROW ZERO. A gap two rows above the solve
+   * fills from the top down; naming the wrong boundary would either refuse this or
+   * accept the trailing case above.
+   */
+  test('the boundary is the solve, wherever it is', () => {
+    const early = state({ answer: 'CRANE', zone: 'board', guesses: ['', '', 'CRANE', '', '', ''] })
+    expect(cursorFor(early)).toEqual({ zone: 'board', row: 0, index: 0 })
+
+    let entry = early
+    for (const key of 'SLATEBROIL') entry = typeLetter(entry, key).next
+    expect(entry.guesses).toEqual(['SLATE', 'BROIL', 'CRANE', '', '', ''])
+  })
+
+  /**
+   * A FULL BOARD THAT IS ALSO SOLVED STILL REPORTS THE SOLVE. The refusal name is
+   * chosen after the fact now, rather than by the order of two checks, so this
+   * pins that the choice did not change with the rewiring.
+   */
+  test('full AND solved still names the solve, not the fullness', () => {
+    const full = ['CRANE', 'SLATE', 'TRAIN', 'HOUSE', 'PIVOT', 'BLIMP']
+    expect(typeLetter(state({ answer: 'CRANE', zone: 'board', guesses: full }), 'X').refused).toBe(
+      'board-solved',
+    )
+  })
+
+  /** And the boundary survives an uncanonical stored answer, like every other query here. */
+  test('a lowercase stored answer still bounds the gap', () => {
+    const lower = state({
+      answer: 'crane',
+      zone: 'board',
+      guesses: ['SLATE', 'CRANE', '', '', '', ''],
+    })
+    expect(typeLetter(lower, 'X').refused).toBe('board-solved')
+    expect(cursorFor(lower)).toBeNull()
+  })
+
+  /**
+   * BACKSPACE IS UNCHANGED, AND THAT IS THE POINT. wordle-teams-1nvo guessed it
+   * would need the same treatment; it does not. With the caret now drawn at the
+   * START of the gap row, "delete behind the cursor" means the last letter of the
+   * row above — which is what it already did, and what any text field does. It
+   * looked wrong only while the caret was absent and the deletion unexplained.
+   */
+  test('backspace still deletes behind the caret, which is the row above the gap', () => {
+    expect(backspace(gapped()).guesses).toEqual(['SLAT', '', 'CRANE', '', '', ''])
+  })
+})

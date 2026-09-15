@@ -12,6 +12,20 @@ import { toRows } from '../../../convex/lib/board.ts'
  * twice — forwards in typeLetter, backwards in backspace — which agree on a
  * prefix board and disagree on a gapped one. Hence `Refusal`, `isSolved`,
  * `nextSlot` and `normalise`: one site per question, each with its own argument.
+ *
+ * AND A FIFTH, `openSlot`, ADDED BY wordle-teams-1nvo — WHICH IS NOT lz3w
+ * REPEATING, and the distinction is worth having straight before changing
+ * anything here. There are TWO questions, not one asked twice:
+ *
+ *   "where would a LETTER land?"      -> `openSlot`, read by typeLetter AND
+ *                                        cursorFor, so the caret cannot be drawn
+ *                                        anywhere a key would be refused.
+ *   "what is BEHIND the cursor?"      -> `nextSlot` raw, read by backspace, which
+ *                                        stays live where no letter is accepted.
+ *
+ * lz3w was the FIRST question answered twice, by two scans that disagreed. These
+ * two differ on purpose, each has exactly one site, and `openSlot` is defined in
+ * terms of `nextSlot` rather than rescanning — so they cannot drift apart.
  */
 
 /** Which half of the entry surface the next keystroke lands in. */
@@ -139,6 +153,43 @@ export function solvedRow(state: EntryState): number | null {
   return row === -1 ? null : row
 }
 
+/**
+ * WHERE THE NEXT LETTER ACTUALLY LANDS: `nextSlot`, NARROWED BY THE SOLVE.
+ *
+ * `nextSlot` answers "which row has room". That is not the same question as
+ * "which row will take a LETTER", because a solved board takes no further
+ * guesses — and conflating the two is wordle-teams-1nvo, where a board solved on
+ * row 4 with row 3 unread refused every key aimed at row 3.
+ *
+ * THE RULE IS "NO GUESS AFTER THE SOLVE", NOT "NO LETTERS ON A SOLVED BOARD",
+ * and the difference is the whole fix. A row BEFORE the solving row is a guess
+ * the player really made and we failed to read — screenshot import leaves it
+ * blank in position — so it is theirs to fill, and boardIsValid now REFUSES the
+ * board until they do (wordle-teams-5w0t). A row after it is a seventh guess on a
+ * game that ended, which is what the refusal is for.
+ *
+ * ONE SITE, TWO INPUTS, AND THAT IS THE POINT. Both halves are already answered
+ * once each above — `nextSlot` for the row, `solvedRowIn` for the boundary — and
+ * this composes them rather than re-deriving either. typeLetter AND cursorFor
+ * both read THIS, which is what keeps "the caret is drawn where the letter goes"
+ * true (wordle-teams-lz3w). `backspace` deliberately does not: see its doc.
+ *
+ * THE SOLVING ROW IS NEVER THE TARGET, so `<` rather than `<=` is exact rather
+ * than lucky: a row that equals a five-letter answer is full, and `nextSlot` only
+ * ever returns a row with room. CHECKED rather than reasoned — over 62,500 boards
+ * drawn from {empty, answer, other five-letter, too short, too long} against four
+ * answers, `slot.row === solved` never occurs and the two spellings never
+ * disagree. So a mutant that swaps `<` for `<=` SURVIVES the suite, and that is
+ * expected rather than a hole in the tests; `<` stays because it is the rule
+ * stated exactly.
+ */
+function openSlot(rows: Array<string>, answer: string): { row: number; col: number } | null {
+  const slot = nextSlot(rows)
+  if (slot === null) return null
+  const solved = solvedRowIn(rows, answer)
+  return solved === -1 || slot.row < solved ? slot : null
+}
+
 export function typeLetter(state: EntryState, key: string): EntryResult {
   // One normalisation, so every exit below returns the same canonical shape.
   const normalised = normalise(state)
@@ -168,12 +219,14 @@ export function typeLetter(state: EntryState, key: string): EntryResult {
   if (normalised.answer.length !== ANSWER_LENGTH) return kept(normalised, 'answer-incomplete')
 
   const rows = normalised.guesses
-  // Below the guard above because 'answer-incomplete' is the more useful answer
-  // for a caller, NOT because the order is load-bearing: isSolved is order-safe.
-  if (isSolved(rows, normalised.answer)) return kept(normalised, 'board-solved')
-
-  const slot = nextSlot(rows)
-  if (slot === null) return kept(normalised, 'board-full')
+  const slot = openSlot(rows, normalised.answer)
+  if (slot === null) {
+    // WHICH refusal, when there is no open slot: 'board-solved' whenever a row
+    // has solved it, so a full-AND-solved board still reports the solve, exactly
+    // as it did when the solved check came first. `isSolved` is order-safe, so
+    // this is a naming choice rather than a load-bearing sequence.
+    return kept(normalised, isSolved(rows, normalised.answer) ? 'board-solved' : 'board-full')
+  }
 
   const guesses = [...rows]
   guesses[slot.row] = guesses[slot.row] + letter
@@ -202,10 +255,19 @@ export function typeLetter(state: EntryState, key: string): EntryResult {
  * a state `cursorFor` already draws, so there is no refusal worth naming.
  *
  * STAYS LIVE WHEN `cursorFor` IS NULL — the one place the "all three derive from
- * nextSlot" rule does not hold, since cursorFor short-circuits on `isSolved` and
- * this never asks it. A solved board has no caret yet backspace still deletes from
- * the solved row, which is how a player edits a board they mistyped into a solve.
- * Read a null cursor as "no slot that will take a LETTER", not "ignore every key".
+ * nextSlot" rule does not hold. typeLetter and cursorFor both read `openSlot`,
+ * which is nextSlot NARROWED BY THE SOLVE; this reads nextSlot RAW and asks
+ * nothing about the solve. So a solved board has no caret yet backspace still
+ * deletes from the solved row, which is how a player edits a board they mistyped
+ * into a solve. Read a null cursor as "no slot that will take a LETTER", not
+ * "ignore every key".
+ *
+ * AND IT NEEDED NO CHANGE FOR wordle-teams-1nvo, which is worth saying because
+ * that issue guessed it would. Once the caret is drawn on a gap before the solve,
+ * "delete behind the cursor" already does the right thing there: the caret sits
+ * at the START of the blank row, so the letter behind it is the last letter of
+ * the row above, and that is the row this deletes from. It looked like a bug only
+ * while the caret was absent and the deletion therefore unexplained.
  */
 export function backspace(state: EntryState): EntryState {
   // Same normalisation typeLetter opens with, for the same reason.
@@ -288,14 +350,24 @@ export function moveZone(state: EntryState, zone: Zone): EntryResult {
  * returns null while `boardIsValid` is still false, so 'SLATE' against
  * ['SLATE', 'CRANE', …] has no caret AND no submit. Null is not a cue that entry
  * is complete, and backspace stays live through it.
+ *
+ * "SOLVED" IS NOT ENOUGH TO MAKE IT NULL, SINCE wordle-teams-1nvo. A board solved
+ * on a LATER row than a blank one still has a caret, on that blank row, because
+ * `openSlot` will take a letter there — the guess was made, the reader missed it,
+ * and boardIsValid refuses the board until it is filled in. Null means the solve
+ * is at or before every remaining slot.
  */
 export function cursorFor(state: EntryState): Cursor | null {
   const { answer, guesses, zone } = normalise(state)
 
   if (zone === 'answer') return { zone: 'answer', index: answer.length }
 
-  if (isSolved(guesses, answer)) return null
-
-  const slot = nextSlot(guesses)
+  // `openSlot`, NOT `nextSlot` AND NOT A SOLVED CHECK OF ITS OWN. This used to
+  // short-circuit on `isSolved` and then read `nextSlot`, which drew no caret on
+  // a board solved later than an unread row — a row typeLetter now accepts, so
+  // the caret would have been missing from the one place a key works. Reading
+  // the same function typeLetter reads is what makes that impossible rather than
+  // merely fixed (wordle-teams-1nvo, and lz3w before it).
+  const slot = openSlot(guesses, answer)
   return slot === null ? null : { zone: 'board', row: slot.row, index: slot.col }
 }

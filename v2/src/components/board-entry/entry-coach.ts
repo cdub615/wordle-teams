@@ -1,4 +1,4 @@
-import { ANSWER_LENGTH, solvedRow } from './entry-cursor.ts'
+import { ANSWER_LENGTH, cursorFor, solvedRow } from './entry-cursor.ts'
 import type { EntryState, Refusal } from './entry-cursor.ts'
 
 /**
@@ -22,10 +22,16 @@ import type { EntryState, Refusal } from './entry-cursor.ts'
  *   - Tap a complete answer and the zone line said "Type today's answer — five
  *     letters". The `answer-full` refusal on the next keystroke said it again.
  *   - A partial import whose unread row sits above the solving row arrives on the
- *     confirm step reading "Keep typing. Backspace goes back a letter", where
- *     `typeLetter` refuses every key ('board-solved') AND `backspace` deletes
- *     nothing — row 0 column 0 with content below is not a walk-back. Both
- *     instructions were false before a key was touched.
+ *     confirm step with the caret in the MIDDLE of the board, which happens
+ *     nowhere else. The ordinary "Keep typing" line does not account for that, and
+ *     the rows below the caret being already filled makes it read like a mistake.
+ *
+ * THE SECOND CASE USED TO BE A DEAD END AND IS NOT ANY MORE (wordle-teams-1nvo).
+ * When x7ds wrote its copy, `typeLetter` refused every key on that board and
+ * `backspace` deleted nothing, so the line had to send the player to the answer
+ * zone to break the solve — the only escape there was. `openSlot` now accepts a
+ * letter in a gap BEFORE the solving row, so the fix is to type the row, and the
+ * line says so instead.
  *
  * So the branches are keyed on the state that makes the old line untrue. The
  * refusals stay silent, which is now the whole of the partition: see the note on
@@ -64,30 +70,34 @@ export function coachFor({
   }
 
   /**
-   * THE ONE STATE WHERE NEITHER TYPING NOR BACKSPACE DOES ANYTHING, so the line
-   * below it — which instructs both — is false twice over. Reached by a partial
-   * import: `prefillFrom` places each parsed row at its parsed position and
-   * leaves an unread one BLANK, so a board solved on row 3 whose first two rows
-   * the reader missed arrives as ['', '', 'CRANE'] with the answer the solve
-   * supplied — and one unread row above the solve is enough.
+   * THE CARET IN THE MIDDLE OF THE BOARD, WHICH HAPPENS NOWHERE ELSE. Reached by
+   * a partial import: `prefillFrom` places each parsed row at its parsed POSITION
+   * and leaves an unread one BLANK, so a board solved on row 4 whose third row
+   * the reader missed arrives with rows 1, 2 and 4 filled and the caret on row 3.
    *
-   * THE ROW IS NAMED because the player cannot act on this without knowing which
-   * row is missing, and because tapping the answer is the only gesture that
-   * unblocks it: editing the answer un-solves the board, which gives `nextSlot`
-   * its row back. The answer-zone line above then tells them how, so the two
-   * compose into a path out.
+   * WHY IT NEEDS ITS OWN LINE. "Keep typing" is true here but unhelpful: the rows
+   * BELOW the caret are already filled, which looks like the form has lost its
+   * place, and boardIsValid refuses the board until the gap is filled
+   * (wordle-teams-5w0t) so there is no submitting past it. Naming the row says
+   * both what is wrong and what to do about it.
    *
-   * IT FIRES ONLY WHEN THERE IS A ROW TO NAME, and the guard is the sentence
-   * being true rather than defensiveness — "a later row already solves this" is
-   * a claim about a blank row that PRECEDES the solve. A solved board with no
-   * blank row above it keeps the old line, and is not reachable anyway: a parse
-   * reads only PLAYED rows (parse.ts's `colours.rows`) and a solve ends the
-   * game, so there is never content after the solving row.
+   * IT ASKS `cursorFor`, NOT THE ROWS. "Which row is active" has exactly one
+   * answer in this codebase and that is it (wordle-teams-lz3w) — an earlier cut
+   * of this scanned `state.guesses` for the first blank row before the solve,
+   * which disagrees with the caret the moment a row is PARTIALLY typed.
+   *
+   * AND `index === 0` IS THE WORD "BLANK" BEING TRUE. The caret's index is the
+   * row's length, so a non-zero one means the player has started the row and it
+   * is no longer blank — from there the ordinary keep-typing line below is both
+   * true and the right thing to say.
+   *
+   * The `solvedRow` check is what makes this a GAP rather than the ordinary
+   * next row: `cursorFor` is `openSlot`, which returns null unless the slot
+   * precedes the solving row, so a board caret on a solved board is necessarily
+   * inside a gap and needs no second comparison here.
    */
-  const blank = blankRowBeforeSolve(state)
-  if (blank !== null) {
-    return `Row ${blank + 1} is blank, and a later row already solves this — tap the answer to edit it`
-  }
+  const gap = blankGapRow(state)
+  if (gap !== null) return `Row ${gap + 1} is blank — type the guess that goes there`
 
   const started = state.guesses.some((guess) => guess.length > 0)
   return started
@@ -96,26 +106,25 @@ export function coachFor({
 }
 
 /**
- * The first blank row above the row that solved the board, or null.
+ * The row the caret is on when it is sitting in a gap that is still blank, or
+ * null. 0-based; the copy adds one.
  *
- * COPY ONLY, AND THAT IS A STRUCTURAL RULE rather than a description — read the
- * warning on `lastRowWithContent` in form.tsx and the header of entry-cursor.ts
- * before reusing it. It is module-private, unexported, has "blank" rather than
- * "next"/"active" in its name, and is called from exactly one place: the sentence
- * above, which has to name a row. It answers NOTHING about where a letter goes;
- * `nextSlot` is the only answer to that, and wiring a second scan into that
- * question is wordle-teams-lz3w.
- *
- * `?? ''` BECAUSE THE INDEX AND THE ARRAY COME FROM DIFFERENT SHAPES:
- * `solvedRow` normalises to six rows, `state.guesses` is whatever form.tsx holds,
- * which for a board read straight out of Convex can be shorter.
+ * COPY ONLY, AND IT DERIVES RATHER THAN SCANS. It owns no opinion about where a
+ * letter goes: `cursorFor` answers that and this reads it, which is the rule the
+ * header of entry-cursor.ts exists to protect (wordle-teams-lz3w). The version
+ * this replaced walked `state.guesses` looking for the first blank row before the
+ * solve — a SECOND answer to "which row is active", and one that disagreed with
+ * the caret as soon as a gap row was half typed.
  */
-const blankRowBeforeSolve = (state: EntryState): number | null => {
-  const solved = solvedRow(state)
-  if (solved === null) return null
+const blankGapRow = (state: EntryState): number | null => {
+  // No solve means no gap: the caret is simply on the next row to play, and the
+  // ordinary lines cover that.
+  if (solvedRow(state) === null) return null
 
-  for (let row = 0; row < solved; row += 1) {
-    if ((state.guesses[row] ?? '').length === 0) return row
-  }
-  return null
+  const cursor = cursorFor(state)
+  if (cursor === null || cursor.zone !== 'board') return null
+
+  // The caret's index is the row's length, so anything above zero means the row
+  // has been started and calling it blank would be false.
+  return cursor.index === 0 ? cursor.row : null
 }

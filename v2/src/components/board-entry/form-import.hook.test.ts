@@ -536,45 +536,40 @@ describe('the import confirm step', () => {
     expect(note()).toMatch(/row 1 could not be read/i)
 
     /**
-     * AND THE COACH LINE SAYS SO TOO, BECAUSE THIS BOARD IS A DEAD END
-     * (wordle-teams-x7ds). The row the reader missed is row 1 and the row that
-     * SOLVED the board is row 2, so `cursorFor` returns null, `typeLetter`
-     * refuses every key as 'board-solved', and `backspace` — whose cursor is row
-     * 0 column 0 with content below it, which is a gapped board rather than the
-     * walk-back — deletes nothing. The player can neither type nor delete.
+     * AND THE COACH LINE NAMES THE ROW, WITH THE CARET ALREADY ON IT. The row the
+     * reader missed is row 1 and the row that SOLVED the board is row 2, which is
+     * the one shape that puts the caret above filled rows — so the ordinary
+     * "Keep typing" line would read like the form had lost its place.
      *
-     * THIS LINE USED TO READ "Keep typing. Backspace goes back a letter": two
-     * instructions, both false, on arrival and with no keystroke pressed. Only the
-     * import note above made the board recoverable at all.
-     *
-     * ASSERTED HERE RATHER THAN ONLY IN entry-coach.test.ts because the unit test
-     * can only show that coachFor answers this STATE correctly. That the state is
-     * reachable — by an ordinary partial parse of a real screenshot, not by a
-     * corrupt row — is a fact about this pipeline, and the test above already
-     * proves the pipeline produces it.
+     * THIS LINE HAS BEEN WRONG TWICE AND IS PINNED HERE FOR THAT REASON. It said
+     * "Keep typing. Backspace goes back a letter" while `typeLetter` refused every
+     * key and `backspace` deleted nothing (wordle-teams-x7ds), then it said "tap
+     * the answer to edit it" after wordle-teams-1nvo had removed the dead end that
+     * made the answer zone the only escape. A unit test can only show that
+     * coachFor answers a STATE; that this state arrives from an ordinary partial
+     * parse of a real screenshot is a fact about this pipeline, which is why the
+     * whole repair is driven here rather than asserted as a string.
      */
-    expect(coach()).toBe(
-      'Row 1 is blank, and a later row already solves this — tap the answer to edit it',
-    )
+    expect(coach()).toBe('Row 1 is blank — type the guess that goes there')
 
-    // THE TRAP ITSELF, so the line above is pinned as TRUE rather than merely as
-    // the current string. Both gestures the old copy named are no-ops here.
-    typeKeys('X')
-    expect(board()).toBe(',CRANE,,,,')
-    fireEvent.keyDown(region(), { key: 'Backspace' })
-    expect(board()).toBe(',CRANE,,,,')
+    // THE REPAIR, AS THE LINE DESCRIBES IT (wordle-teams-1nvo). `openSlot` accepts
+    // a letter in a gap BEFORE the solving row, so the row the parse missed is
+    // simply typed — no tapping the answer, and no un-solving the board.
+    typeKeys('SLATE')
+    expect(board()).toBe('SLATE,CRANE,,,,')
 
-    // AND THE WAY OUT COMPOSES: tapping the answer is what the line tells them to
-    // do, and the answer-zone line then tells them how to change it — which
-    // un-solves the board and gives row 1 back.
-    selectAnswer()
-    expect(coach()).toBe("Answer's in — backspace to change it")
-    fireEvent.keyDown(region(), { key: 'Backspace' })
-    expect(answerText()).toBe('CRAN')
+    // AND THE BOARD IS SUBMITTABLE THE MOMENT THE GAP IS GONE, which is the join
+    // with wordle-teams-5w0t: it is the gap alone that was holding Submit shut.
+    expect(coach()).toMatch(/press Enter or Submit/i)
+    for (const button of screen.getAllByRole('button', { name: /^submit$/i })) {
+      expect(button.hasAttribute('disabled')).toBe(false)
+    }
+
+    // AND A SEVENTH GUESS IS STILL REFUSED. The narrowing is "no guess AFTER the
+    // solve", not "a solved board takes letters now" — without this the test above
+    // would pass against a rule that simply dropped the solved check.
     typeKeys('X')
-    expect(answerText()).toBe('CRANX')
-    typeKeys('S')
-    expect(board()).toBe('S,CRANE,,,,')
+    expect(board()).toBe('SLATE,CRANE,,,,')
   })
 })
 
@@ -641,12 +636,9 @@ describe('a row the parse missed in the MIDDLE of the board', () => {
     expect(attemptsFor(['SLATE', 'BROIL', '', 'CRANE', '', ''], 'CRANE')).toBe(3)
     for (const button of submitButtons()) expect(button.hasAttribute('disabled')).toBe(true)
 
-    // And the line names the row rather than telling them to keep typing — the
-    // copy x7ds added, which turns out to cover this board too because it keys
-    // on "a blank row above the solve" rather than on the first row alone.
-    expect(coachLine()).toBe(
-      'Row 3 is blank, and a later row already solves this — tap the answer to edit it',
-    )
+    // And the line names the row the caret is on, and says to type it — the copy
+    // wordle-teams-1nvo settled on, once a gap before the solve became typeable.
+    expect(coachLine()).toBe('Row 3 is blank — type the guess that goes there')
   })
 })
 

@@ -132,57 +132,64 @@ describe('coachFor', () => {
   })
 
   /**
-   * THE STATE WHERE BOTH INSTRUCTIONS WERE FALSE (wordle-teams-x7ds), and the
-   * sharpest of the three. The old line was "Keep typing. Backspace goes back a
-   * letter", judged "good enough rather than inventing copy" for what was called
-   * a corrupt-import edge case. It is neither corrupt nor good enough:
+   * THE CARET IN THE MIDDLE OF THE BOARD, WHICH HAPPENS NOWHERE ELSE, and it is
+   * reached by an ordinary partial import: `prefillFrom` places each parsed row at
+   * its parsed POSITION and leaves an unread one blank, so a board solved on a
+   * later row arrives exactly like this, with the answer the solve supplied.
    *
-   *   REACHABLE BY AN ORDINARY PARTIAL IMPORT. `prefillFrom` places each parsed
-   *   row at its parsed POSITION and leaves an unread one blank, so a board solved
-   *   on row 2 whose row 1 the glyph reader missed arrives exactly like this, with
-   *   the answer the solve supplied. boardIsValid is false because it requires
-   *   rows[0] to be full.
-   *
-   *   AND BOTH HALVES OF THE LINE WERE UNTRUE. `typeLetter` refuses every key
-   *   ('board-solved', since a row equals the answer) and `backspace` deletes
-   *   NOTHING — nextSlot is row 0 column 0, and with content below that is a
-   *   gapped board rather than the walk-back, so entry-cursor.ts returns its input
-   *   unchanged. The player could neither type nor delete while being told to do
-   *   both.
+   * THE LINE HAS NOW BEEN WRONG TWICE, AND FOR OPPOSITE REASONS. x7ds found it
+   * saying "Keep typing. Backspace goes back a letter" when `typeLetter` refused
+   * every key and `backspace` deleted nothing — both instructions false — and
+   * replaced it with copy that sent the player to the answer zone, which was then
+   * the only escape. wordle-teams-1nvo removed the dead end: `openSlot` accepts a
+   * letter in a gap BEFORE the solving row, so the answer zone is no longer
+   * involved and the instruction is simply to type the row.
    *
    * ASSERTED WITHOUT THE REFUSAL FIRST, because that is the case that matters: the
-   * import lands on the confirm step with `refused` null and the line is already
-   * wrong there, before any key is pressed.
+   * import lands on the confirm step with `refused` null and the line has to be
+   * right there, before any key is pressed.
    */
-  test('a blank row above the solve is named, rather than told to keep typing', () => {
+  test('a blank gap row is named, with the instruction to type it', () => {
     const gapped = { answer: 'CRANE', zone: 'board' as const, guesses: ['', 'CRANE', '', '', '', ''] }
-    expect(line(gapped)).toBe(
-      'Row 1 is blank, and a later row already solves this — tap the answer to edit it',
-    )
-    expect(line(gapped, 'board-solved')).toBe(
-      'Row 1 is blank, and a later row already solves this — tap the answer to edit it',
-    )
+    expect(line(gapped)).toBe('Row 1 is blank — type the guess that goes there')
+    expect(line(gapped, 'board-solved')).toBe('Row 1 is blank — type the guess that goes there')
   })
 
   /**
-   * THE ROW NUMBER IS READ OFF THE BOARD, NOT HARDCODED. Without this the test
+   * THE ROW NUMBER IS READ OFF THE CARET, NOT HARDCODED. Without this the test
    * above passes against a function that says "Row 1" for every gapped board, and
    * row 1 is the only row the common case names — so the one assertion that can
    * tell the difference is a gap somewhere else.
    */
-  test('the named row is the first blank one above the solve', () => {
+  test('the named row is the one the caret is on', () => {
     expect(
       line({ answer: 'CRANE', zone: 'board', guesses: ['SLATE', '', 'CRANE', '', '', ''] }),
-    ).toBe('Row 2 is blank, and a later row already solves this — tap the answer to edit it')
+    ).toBe('Row 2 is blank — type the guess that goes there')
   })
 
   /**
-   * AND THE SENTENCE IS ONLY SAID WHEN IT IS TRUE. "A later row already solves
-   * this" is a claim about a blank row that PRECEDES the solve; a solve on row 1
-   * with the blanks after it keeps the ordinary line. That shape is unreachable
-   * through the app — a parse reads only played rows and a solve ends the game, so
-   * nothing follows the solving row — which is exactly why the guard is here
-   * rather than a comment asserting it cannot happen.
+   * AND "BLANK" HAS TO BE TRUE OF IT. Once the player starts the gap row it is no
+   * longer blank, and the ordinary keep-typing line is both accurate and the right
+   * thing to say — so the special line stands down rather than describing a row
+   * that now has letters in it.
+   *
+   * THIS IS ALSO THE CASE THAT FORCED THE SWITCH TO `cursorFor`. The scan this
+   * replaced looked for the first EMPTY row before the solve, which here is row 2
+   * — while the caret is on row 1, mid-word. It would have named the wrong row.
+   */
+  test('a gap row that is already started falls back to keep-typing', () => {
+    expect(
+      line({ answer: 'CRANE', zone: 'board', guesses: ['SLA', '', 'CRANE', '', '', ''] }),
+    ).toBe('Keep typing. Backspace goes back a letter')
+  })
+
+  /**
+   * AND IT IS ONLY SAID FOR A GAP. A solve with nothing blank before it has no
+   * caret at all (`openSlot` refuses every remaining slot), so there is no row to
+   * name and the ordinary line stands. That shape is unreachable through the app —
+   * a parse reads only played rows and a solve ends the game, so nothing follows
+   * the solving row — which is exactly why the guard is here rather than a comment
+   * asserting it cannot happen.
    */
   test('a solve with no blank row above it keeps the ordinary line', () => {
     expect(
@@ -192,14 +199,14 @@ describe('coachFor', () => {
 
   /**
    * A LOWERCASE STORED ANSWER STILL FINDS THE SOLVE. coachFor reads unnormalised
-   * state, so this goes through entry-cursor.ts's exported `solvedRow` — which
-   * normalises — rather than a second `row === answer` scan over here. A local
-   * scan would miss this and go back to telling the player to keep typing.
+   * state, so both queries it asks — `solvedRow` and `cursorFor` — normalise for
+   * it. A local `row === answer` scan over here would miss this and go back to
+   * telling the player to keep typing.
    */
   test('the solve is found through a lowercase stored answer', () => {
     expect(
       line({ answer: 'crane', zone: 'board', guesses: ['', 'CRANE', '', '', '', ''] }),
-    ).toBe('Row 1 is blank, and a later row already solves this — tap the answer to edit it')
+    ).toBe('Row 1 is blank — type the guess that goes there')
   })
 
   /**
