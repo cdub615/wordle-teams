@@ -32,10 +32,10 @@ export const getStatus = query({
     if (!player) return null
 
     // NON-EMPTY GUESSES, not mere row existence. The real guarantee is
-    // boardIsValid's `rows[0].length === 5` requirement for any non-empty
-    // submission (lib/board.ts:59-60, enforced at scores.ts:211) — a row with
+    // boardIsValid's rejection of a leading gap for any non-empty submission
+    // (see its gap rule in lib/board.ts, enforced in upsertBoardFor) — a row with
     // guesses but no first entry never passes that check, so it can never be
-    // written. scores.ts:233's delete-on-fully-empty rule is a secondary,
+    // written. upsertBoardFor's delete-on-fully-empty rule is a secondary,
     // narrower point: it only covers the case where BOTH guesses and answer
     // are empty, and would not by itself rule out a row like
     // `{ guesses: [], answer: 'crane' }`. Together they mean rows born in v2

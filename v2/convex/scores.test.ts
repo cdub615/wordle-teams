@@ -273,6 +273,36 @@ describe('upsertBoardFor', () => {
     })
   })
 
+  /**
+   * THE GAP, REFUSED AT THE WRITE (wordle-teams-5w0t). The client disables Submit
+   * on this same predicate now, so this is the only thing standing between a
+   * crafted request and a score one guess better than the board it came from —
+   * `attemptsFor` counts through `normalizeGuesses`, which drops the hole, so
+   * this board would have been stored as a three-guess win by a player who took
+   * four.
+   *
+   * SEPARATE FROM THE 'CRA' CASE ABOVE, which is caught by the "every guess is 0
+   * or 5 letters" rule. Every row here is a legal length; the hole is the whole
+   * defect, and before this rule the server accepted it.
+   */
+  test('rejects a board with a gap between the guesses', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await expect(
+        upsertBoardFor(ctx, playerId, {
+          puzzleDay: '2026-08-18',
+          answer: 'SPEED',
+          guesses: ['CRANE', '', 'SLATE', 'SPEED', '', ''],
+          today,
+        }),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_BOARD' } })
+
+      expect(await ctx.db.query('dailyScores').collect()).toHaveLength(0)
+    })
+  })
+
   test('rejects emptying a day that has no score', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

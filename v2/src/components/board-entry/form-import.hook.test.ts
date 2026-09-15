@@ -26,6 +26,7 @@ import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
 import { fillRect } from '#/lib/board-import/bitmap.ts'
+import { attemptsFor, boardIsValid } from '../../../convex/lib/board.ts'
 import { renderPlayedBoard } from '#/lib/board-import/testing/board-fixture.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import { BoardEntryForm } from './form.tsx'
@@ -574,6 +575,78 @@ describe('the import confirm step', () => {
     expect(answerText()).toBe('CRANX')
     typeKeys('S')
     expect(board()).toBe('S,CRANE,,,,')
+  })
+})
+
+/**
+ * A GAP THE PLAYER MUST FILL BEFORE SUBMITTING (wordle-teams-5w0t).
+ *
+ * The sibling above covers the unread row at the TOP, which boardIsValid always
+ * rejected. This is the unread row in the MIDDLE, which it used to ACCEPT: every
+ * row is a legal length and the first one is full, so the old rule saw nothing
+ * wrong — and `attemptsFor` scores through `normalizeGuesses`, which drops the
+ * blank, so a three-guess board was about to be written as a two-guess win with
+ * Submit enabled and nothing on screen to question it.
+ *
+ * ASSERTED THROUGH THE REAL PARSER because that is the claim worth defending:
+ * this shape is not corrupt data, it is what an ordinary partial read of a real
+ * screenshot produces, and board.test.ts can only say the predicate rejects it.
+ */
+describe('a row the parse missed in the MIDDLE of the board', () => {
+  const coachLine = () => screen.getByTestId('entry-coach').textContent
+  const submitButtons = () => screen.getAllByRole('button', { name: /^submit$/i })
+
+  test('leaves the board unsubmittable, and says which row is missing', async () => {
+    /**
+     * FOUR guesses with the THIRD flattened to a single grey — colours intact,
+     * letters gone, which is what an unreadable row looks like to Stage 2.
+     *
+     * FOUR RATHER THAN THREE IS LOAD-BEARING. Flattening the middle of a
+     * three-guess board loses row 1 as well (measured: `read 2:CRANE`,
+     * `unresolved 0,1`) — with one row destroyed there is too little left to pin
+     * the others down, and the result is a LEADING gap, which is the sibling
+     * test's case and was always rejected. Four leaves rows 1, 2 and 4 read and
+     * the hole strictly inside the board, which is the shape 5w0t is about.
+     */
+    const four = ['SLATE', 'BROIL', 'PUDGY', 'CRANE']
+    const rendered = renderPlayedBoard({ answer: ANSWER, guesses: four, tileSize: 62 })
+    for (let column = 0; column < 5; column++) {
+      fillRect(rendered.bitmap, rendered.tiles[2][column], [90, 90, 90])
+    }
+    vi.stubGlobal('createImageBitmap', async () => ({
+      width: rendered.bitmap.width,
+      height: rendered.bitmap.height,
+      close: () => {},
+    }))
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
+      if (tag !== 'canvas') return Object.getPrototypeOf(document).createElement.call(document, tag)
+      return {
+        width: 0,
+        height: 0,
+        getContext: () => ({ drawImage: () => {}, getImageData: () => rendered.bitmap }),
+      } as unknown as HTMLElement
+    }) as typeof document.createElement)
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    paste()
+
+    // The hole, in position — row 3 blank, with rows 1, 2 and 4 read.
+    await waitFor(() => expect(board()).toBe('SLATE,BROIL,,CRANE,,'))
+    expect(screen.getByTestId('board-import-note').textContent).toMatch(/row 3 could not be read/i)
+
+    // AND SUBMIT IS REFUSED. This is the whole of wordle-teams-5w0t: before the
+    // gap rule every one of these buttons was enabled, and the board would have
+    // been stored as a three-guess win by a player who took four.
+    expect(boardIsValid('CRANE', ['SLATE', 'BROIL', '', 'CRANE', '', ''], false)).toBe(false)
+    expect(attemptsFor(['SLATE', 'BROIL', '', 'CRANE', '', ''], 'CRANE')).toBe(3)
+    for (const button of submitButtons()) expect(button.hasAttribute('disabled')).toBe(true)
+
+    // And the line names the row rather than telling them to keep typing — the
+    // copy x7ds added, which turns out to cover this board too because it keys
+    // on "a blank row above the solve" rather than on the first row alone.
+    expect(coachLine()).toBe(
+      'Row 3 is blank, and a later row already solves this — tap the answer to edit it',
+    )
   })
 })
 

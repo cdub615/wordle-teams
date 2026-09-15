@@ -563,35 +563,95 @@ describe('the stream on a board that is not a prefix', () => {
   })
 
   /**
-   * THE GATE REMOVED IN T7, PINNED AT THE LEVEL THAT NOW OWNS THE KEYSTROKE.
+   * TYPING INTO THE GAP, WHICH IS `cursorFor`'S ANSWER AND NOT THE BOARD'S.
    *
-   * `boardIsValid` is TRUE for this board — answer PIVOT, rows 0, 2 and 5 filled,
-   * every row either empty or five long, last row full — and yet row 1 is a gap
-   * the player still has to type into. The old handler consulted `boardIsValid`
-   * and went dead here while `cursorFor` pointed the caret straight at row 1: A
-   * CARET ON A ROW YOU CANNOT TYPE INTO, which is wordle-teams-lz3w restated as a
-   * question about the board answered by whole-board validity instead of by
-   * asking where the cursor is.
+   * THIS TEST'S PREMISE INVERTED IN wordle-teams-5w0t AND THE BEHAVIOUR DID NOT.
+   * It used to open "on a board boardIsValid already calls valid", because a gap
+   * passed validity: the old row checks were "rows[0] is full" and "every guess
+   * is 0 or 5 letters", both true of this board. That was the 5w0t bug — the
+   * board scores through `normalizeGuesses`, which drops the hole — so the gap is
+   * now REJECTED, and the assertion below says so rather than the reverse.
    *
-   * An equivalent test existed at 764de0bf against BoardInput's own handler and
-   * was lost when the handler moved to form.tsx. MEASURED: re-adding the gate to
-   * form.tsx's handleKeyDown passed all 3192 tests in all 176 files.
+   * WHAT IT STILL PINS is the thing that was never about validity: the caret goes
+   * to row 2 and the keystroke lands there. `cursorFor` is the one answer to
+   * "which row is active" (wordle-teams-lz3w), and a handler that asked the board
+   * whether it was FINISHED instead went dead here with a caret drawn on the row
+   * it refused — which is the shape of bug lz3w was.
+   *
+   * THE MUTANT IT USED TO KILL HAS MOVED, and the test below it is where it went:
+   * a `boardIsValid` gate in handleKeyDown no longer blocks anything HERE, now
+   * that this board is invalid. It bites on a board that IS valid instead.
    */
-  test('keeps typing into the gap on a board boardIsValid already calls valid', () => {
+  test('keeps typing into the gap, which validity now rejects rather than accepts', () => {
     const guesses = ['CRANE', '', 'SLATE', '', '', 'TRAIN']
     // Both spellings, because the form passes `existing !== undefined` and this
-    // board arrives WITH an existing score — the gate would be just as wrong.
-    expect(boardIsValid('PIVOT', guesses, true)).toBe(true)
-    expect(boardIsValid('PIVOT', guesses, false)).toBe(true)
+    // board arrives WITH an existing score — the gap is what decides, not that.
+    expect(boardIsValid('PIVOT', guesses, true)).toBe(false)
+    expect(boardIsValid('PIVOT', guesses, false)).toBe(false)
 
     openWith(guesses, 'PIVOT')
 
-    // The caret is on the gap, not on the "finished" board.
+    // The caret is on the gap, and the letter follows it there.
     expect(screen.getByTestId('board-cursor').id).toBe('2-1')
     type('x')
     expect(boardRow(2)).toBe('X')
     expect(boardRow(1)).toBe('CRANE')
     expect(boardRow(6)).toBe('TRAIN')
+  })
+
+  /**
+   * AND THE GATE STAYS DEAD, PINNED WHERE IT CAN STILL BITE.
+   *
+   * The test above was the only thing killing "handleKeyDown consults
+   * `boardIsValid` before typing" — MEASURED when it was written: re-adding that
+   * gate passed all 3192 tests in all 176 files. wordle-teams-5w0t took its teeth
+   * by making its board invalid, so the mutant needs a board the gate would
+   * actually stop, and after 5w0t there is exactly one shape left: a COMPLETE
+   * board whose answer the player wants to change.
+   *
+   * That is reachable: a player who mistyped their own answer taps it and fixes
+   * it, and with the gate restored both keys are swallowed — they cannot correct
+   * it without clearing the whole board first.
+   *
+   * THE COACH LINE DOES NOT HELP THEM HERE, and this test asserts that rather
+   * than pretending otherwise: `valid` outranks every other branch in coachFor
+   * (deliberately — entry-coach.test.ts pins it), so a finished board goes on
+   * saying "Looks complete — press Enter or Submit" even with the caret in the
+   * answer. x7ds's "Answer's in — backspace to change it" is for a complete
+   * answer on an UNfinished board. So the gesture has to work unprompted, which
+   * is exactly why a silent gate on it would be so hard to find.
+   *
+   * WHY IT HAS TO BE THE ANSWER ZONE: after 5w0t, a valid board has no BOARD
+   * caret at all — validity requires either all six rows full (nextSlot is null)
+   * or a row equal to the answer (isSolved), and `cursorFor` returns null for
+   * both. The answer zone is the only place a caret and a valid board coexist.
+   */
+  test('a finished board can still have its answer corrected, gate or no gate', () => {
+    const guesses = ['SLATE', 'CRANE', '', '', '', '']
+    // The premise: this board IS submittable, which is what makes a validity
+    // gate fire here at all.
+    expect(boardIsValid('CRANE', guesses, true)).toBe(true)
+
+    openWith(guesses, 'CRANE')
+    expect(coach().textContent).toMatch(/press Enter or Submit/i)
+
+    // Tap the answer. The line does not change — the board is still submittable,
+    // and validity outranks the zone — so nothing on screen offers this gesture.
+    fireEvent.mouseDown(screen.getByRole('group', { name: /Today's Wordle answer/i }))
+    expect(coach().textContent).toMatch(/press Enter or Submit/i)
+    // The caret is in the answer, PAST its last letter — `cursorFor` returns
+    // index 5 and answer-slots.tsx draws that on slot 4 as a trailing caret, so
+    // the index alone would read the same as a caret sitting ON the 'E'.
+    const slots = screen.getAllByTestId('answer-slot')
+    expect(answerCursor()).toBe(4)
+    expect(slots[4].getAttribute('data-cursor-trailing')).toBe('true')
+
+    // And the correction lands. A `boardIsValid` gate in handleKeyDown would
+    // swallow both of these keys while the line went on offering the gesture.
+    fireEvent.keyDown(region(), { key: 'Backspace' })
+    expect(answerText()).toBe('CRAN')
+    type('K')
+    expect(answerText()).toBe('CRANK')
   })
 
   test('Tab and Ctrl/Cmd combos are left to the browser', () => {
