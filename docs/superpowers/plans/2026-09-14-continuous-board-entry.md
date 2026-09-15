@@ -1297,6 +1297,29 @@ git commit -m "refactor(entry): the board renders, it no longer decides"
 
 ## Task 8: `form.tsx` owns the keystroke stream
 
+> **From Task 6's review — three more things this task must handle.**
+>
+> 1. **`scrollActiveRowIntoView` is a THIRD derivation of "which row is active"**
+>    (`wordle-teams-mwbb`). It inlines `guesses.findIndex((guess) => guess.length < 5)`,
+>    which is `nextSlot`'s body. Harmless today because it only picks a scroll target — but
+>    this task puts `cursorFor`'s canonical answer in the same file, three lines away, and
+>    two answers to one question is precisely what `lz3w` was. **Derive the scroll target
+>    from the same `cursorFor` result the render uses.**
+>
+> 2. **`cursorFor`'s board variant is `{ zone, row, index }`, not `{ row, col }`.** The
+>    adaptation is `c?.zone === 'board' ? { row: c.row, col: c.index } : null`. Note the
+>    `null` in the answer zone: `cursorFor` returns a **non-null** answer-zone cursor whose
+>    caret belongs to `AnswerSlots`, so passing its result straight to `WordleBoard` would
+>    be wrong in a way TypeScript catches only because the field names differ.
+>
+> 3. **Eyeball the two rings together once.** The board wrapper's focus ring is
+>    `focus:ring-2 focus:ring-ring focus:ring-offset-4` — measured as 6px of `--ring` green
+>    plus a 4px page-coloured offset around the whole board — and the cursor ring is 2px of
+>    **the same green**. Geometrically distinct and not clipped, and `AnswerSlots` pairs
+>    identically, so it is consistent rather than wrong. But this task is the first time
+>    the two appear on screen together.
+
+
 > **From Task 5: the answer row needs at least 216px, and will OVERFLOW below it.**
 > `AnswerSlots` slots carry a `min-w-10` floor (40px, matching their own `h-10`, so each
 > slot is square like a board tile). Five of those plus four `gap-1` gutters is an
@@ -1651,6 +1674,13 @@ git commit -m "test(entry): the hand-off happens with no click"
 ---
 
 ## Task 10: The zero-click e2e spec
+
+> **From Task 6's review:** `getComputedStyle(tile).boxShadow` **is** assertable in
+> Playwright, and would catch the cursor ring vanishing at the visual level rather than
+> the className level — which no unit test in this repo can do. Cheap insurance to add
+> here, with the standing caveat that e2e does not run in the four gates, so it
+> supplements the unit coverage rather than replacing it.
+
 
 **Files:**
 - Modify: `v2/e2e/board-entry.spec.ts` (create if it does not exist)
