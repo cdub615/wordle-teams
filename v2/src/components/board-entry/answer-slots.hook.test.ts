@@ -56,3 +56,37 @@ describe('AnswerSlots', () => {
     expect(screen.getByLabelText("Today's Wordle answer, 2 of 5 letters: C R")).toBeDefined()
   })
 })
+
+/**
+ * THE CARET ITSELF, NOT THE ATTRIBUTE THAT DESCRIBES IT.
+ *
+ * Every test above asserts `data-cursor`, which a component that renders the
+ * attribute and no caret satisfies completely — and a draft of this very
+ * component did exactly that, passing all six. The rendered caret IS this
+ * component's reason to exist: the field it replaces was a shadcn Input with
+ * caret-transparent, and a focused box with no blinking caret is the standard
+ * signature of a DISABLED field, which is most of why players did not know to
+ * type (wty4.1.6). A suite that cannot tell the caret is missing cannot defend
+ * the fix.
+ */
+describe('AnswerSlots caret', () => {
+  test('the marked slot actually contains a caret element', () => {
+    render(createElement(AnswerSlots, { answer: 'CR', cursorIndex: 2, onSelect: () => {} }))
+    const marked = slots()[2]
+    const caret = marked.querySelector('[data-testid="answer-caret"]')
+    expect(caret).not.toBeNull()
+    expect(caret?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  test('and no caret is rendered anywhere when the cursor is on the board', () => {
+    render(createElement(AnswerSlots, { answer: 'CRANE', cursorIndex: null, onSelect: () => {} }))
+    expect(screen.queryByTestId('answer-caret')).toBeNull()
+  })
+
+  // The trailing case draws the caret in the LAST slot, not a sixth one.
+  test('a trailing cursor puts the caret inside the last slot', () => {
+    render(createElement(AnswerSlots, { answer: 'CRANE', cursorIndex: 5, onSelect: () => {} }))
+    expect(slots()[4].querySelector('[data-testid="answer-caret"]')).not.toBeNull()
+    expect(screen.getAllByTestId('answer-caret')).toHaveLength(1)
+  })
+})

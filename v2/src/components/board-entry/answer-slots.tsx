@@ -150,6 +150,7 @@ export function AnswerSlots({ answer, cursorIndex, onSelect, className }: Answer
                 letter", and the caret has to look like the difference. */}
             {isCursor && (
               <span
+                data-testid="answer-caret"
                 aria-hidden="true"
                 className={cn(
                   'pointer-events-none absolute inset-0 flex items-center',
