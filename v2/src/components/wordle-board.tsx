@@ -35,17 +35,32 @@ export type WordleBoardProps = {
   /** True on the entry view, where you always see your own letters. */
   boardEntry?: boolean
   /**
-   * WHERE THE NEXT LETTER LANDS, as zero-based row and column. Straight from
-   * `cursorFor` in board-entry/entry-cursor.ts, which is the SINGLE definition of
-   * that question, shared with the answer slots so the two renderings cannot
-   * disagree. Do not re-derive it here: a previous version of this feature computed
-   * the position a second way and the two diverged on import-prefilled boards,
-   * which shipped (wordle-teams-lz3w).
+   * WHERE THE NEXT LETTER LANDS, as zero-based row and column.
+   *
+   * DERIVED FROM `cursorFor` (board-entry/entry-cursor.ts) BUT NOT ITS RETURN TYPE.
+   * `cursorFor` is the SINGLE definition of "where does the next letter go",
+   * shared with the answer slots so the two renderings cannot disagree — do not
+   * re-derive the position here, because a previous version of this feature
+   * computed it a second way and the two diverged on import-prefilled boards,
+   * which shipped (wordle-teams-lz3w). ADAPT it, in one expression:
+   *
+   *   cursor={c?.zone === 'board' ? { row: c.row, col: c.index } : null}
+   *
+   * The board variant is `{ zone: 'board'; row: number; index: number }`, so a
+   * caller must discriminate on `zone` AND rename `index` to `col`. TypeScript
+   * rejects the naive spelling because the field names differ, which is the only
+   * reason that rename is safe to state in a comment rather than to enforce.
+   *
+   * NULL IN THREE CASES, AND THE THIRD IS THE ONE THAT SURPRISES: a solved board,
+   * six full rows, AND `zone === 'answer'` — where `cursorFor` returns a NON-null
+   * cursor whose caret belongs to answer-slots.tsx, not here. A non-null result
+   * from `cursorFor` does NOT mean "mark a tile"; only its board variant does.
+   * Two carets on screen at once is the failure this sentence exists to prevent.
    *
    * OPTIONAL, AND ABSENT ON THE DISPLAY BOARD. team-boards.tsx renders a
    * teammate's finished game, which is not an input and must never grow a caret.
-   * Null is the same as absent and is the honest value for a state `cursorFor`
-   * returns null for — a solved board, or six full rows.
+   * Null is the same as absent. `boardEntry` gates the mark as well, so passing
+   * this to a display board is inert rather than merely discouraged.
    */
   cursor?: { row: number; col: number } | null
   className?: string
@@ -89,7 +104,8 @@ const TILE_SIZE_ENTRY =
  * read as a different score. A Tailwind `ring` is a non-inset box-shadow: it draws
  * OUTSIDE the border box, leaving every state colour intact underneath.
  *
- * `ring-2 ring-ring` AND `z-10`, WHICH IS answer-slots.tsx:172 BYTE FOR BYTE. The
+ * `ring-2 ring-ring` AND `z-10`, WHICH IS THE CURSOR SLOT IN `AnswerSlots`
+ * (board-entry/answer-slots.tsx) BYTE FOR BYTE. The
  * two sit in the same dialog marking the same cursor as it hands itself from one
  * to the other; a differently-styled mark either side of the hand-off would read
  * as two different things happening. `--ring` is the accent (styles.css) and is
@@ -98,7 +114,8 @@ const TILE_SIZE_ENTRY =
  * NO `ring-offset-*`, AND THE GRID'S GAP IS WHY. MEASURED in headless Chromium
  * against the BUILT stylesheet, at a 360px viewport, inside the real nesting
  * (SheetContent `p-6` > form.tsx's `min-h-0 flex-1 overflow-y-auto` > board-input's
- * `mx-auto w-fit`), `boardEntry`, tiles 54.39x56px with `gap-1` (4px):
+ * `mx-auto w-fit`), `boardEntry`, tiles 54.39-54.41 x 56px with `gap-1` (4px —
+ * the columns alternate 54.391/54.406 on Chromium's 1/64px rounding):
  *
  *                       outward reach   gap to neighbour   slack at col 4
  *   ring-2                      2.0px              2.0px          10.0px
@@ -119,6 +136,13 @@ const TILE_SIZE_ENTRY =
  * CENTRED in it: the clip box measures [24, 336] against a ring outer edge at 326,
  * so 10.0px of slack against the 2.0px needed, and scrollWidth - clientWidth is
  * 0.0px — nothing overflows at all.
+ *
+ * VERTICALLY THE SAME 2.0px, AND THAT IS WHAT CHECKS THE CLAIM BELOW. Rows are
+ * separated by `mb-1`, also 4px, so the ring clears the tile above and below by
+ * 2.0px each. MEASURED against a scored tile directly above the cursor — a
+ * `correct` green, rgb(22,163,74) in light and rgb(21,128,61) in dark — which is
+ * the case that would expose a ring drawn on a state colour rather than on the
+ * page. It does not touch it in either theme.
  *
  * VISIBLE IN BOTH THEMES. `--ring` is `--accent-solid`, which forks: #15803d on the
  * #fafafa page in light (4.81:1) and #22c55e on #0a0a0a in dark (8.69:1), both well
