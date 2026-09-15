@@ -1300,10 +1300,13 @@ git commit -m "refactor(entry): the board renders, it no longer decides"
 > **From Task 5: the answer row needs at least 216px, and will OVERFLOW below it.**
 > `AnswerSlots` slots carry a `min-w-10` floor (40px, matching their own `h-10`, so each
 > slot is square like a board tile). Five of those plus four `gap-1` gutters is an
-> intrinsic minimum of **216px**. Below that the group overflows its container rather
-> than shrinking — deliberately, because shrinking is what put the trailing caret 5.81px
-> INSIDE a `W` at the 108px the current `w-[30%]` column gives it. Measured in Chromium
-> against the built stylesheet.
+> intrinsic minimum of **216px**. Below that, **the slots overlap each other** — measured
+> at 108px, slot 0 spans [0, 40] while slot 1 starts at 22.39, so letters stack on
+> letters. `grid-cols-5`'s `minmax(0,1fr)` tracks compress while each slot holds its 40px
+> floor; it is not a clean scrollable overflow. Ugly and obvious rather than subtle, which
+> is the trade for the floor — without it the trailing caret landed 5.81px INSIDE a `W` at
+> that same width, which is subtle and wrong. Both measured in Chromium against the built
+> stylesheet.
 >
 > The answer block therefore **must** leave that narrow header column, which this task
 > already does by moving it into the region above `<BoardInput>`. The region is
