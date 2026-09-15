@@ -47,8 +47,13 @@ const EMPTY_ROWS = ['', '', '', '', '', '']
  * rather than left to a browser that would otherwise scroll the dialog.
  *
  * ARROWLEFT/ARROWRIGHT ARE ABSENT AND THAT IS NOT AN OVERSIGHT: there is nothing
- * to scroll horizontally. They fall through to `typeLetter`, which refuses them as
- * 'not-a-letter' — the refusal the coach line ignores — exactly as before.
+ * to scroll horizontally. They are still in NAVIGATION_KEYS, so handleKeyDown
+ * enters that branch, finds no entry here and RETURNS — before `preventDefault`
+ * and before `typeLetter`. They therefore reach the browser (where an empty
+ * one-line input does nothing with them) and produce no refusal, so nothing
+ * reaches the coach line. That is unchanged from the old shape, which had the
+ * same early exit; an earlier draft of this comment claimed they fell through to
+ * `typeLetter` as 'not-a-letter', and they never have.
  *
  * `0.9` FOR A PAGE, matching what a browser does: a page-scroll overlaps a line or
  * two so the reader keeps their place. `40` IS ONE TILE ROW at the entry board's
@@ -334,6 +339,37 @@ function BoardEntryFields({
     inputRef.current?.focus()
     setFocusAnswer(false)
   }, [focusAnswer])
+
+  /**
+   * `focused` FALSE WHEN THE INPUT CEASES TO EXIST, WHICH IS WHAT MAKES "A
+   * RENDERED CARET IMPLIES A FOCUSED INPUT" AN INVARIANT RATHER THAN A HABIT.
+   *
+   * REACT DOES NOT FIRE `onBlur` WHEN A FOCUSED ELEMENT UNMOUNTS. The input
+   * exists only on the entry and confirm steps, so going BACK to step one takes
+   * focus to `<body>` with no blur event at all — and `focused` stayed true.
+   * Probed on the real form: after `goToEntry`, focused=true / activeElement=INPUT;
+   * after Back, activeElement=BODY; after an import, focused=true with
+   * activeElement=BODY.
+   *
+   * THAT WAS ALREADY TRUE OF THE OLD contentEditable — it carried the identical
+   * onFocus/onBlur pair — AND IT WAS HARMLESS ONLY BY COINCIDENCE: the one path
+   * that reaches the confirm step without focusing is an import the parser
+   * SOLVED, where `cursorFor` returns null anyway. It stops being a coincidence
+   * the moment a parse carries an answer for an UNSOLVED board, which it does
+   * whenever the player typed the answer before importing (parse.ts keeps a
+   * SUPPLIED answer that it would otherwise discard). Then the caret is drawn on
+   * a surface whose keyboard does not exist.
+   *
+   * THE EFFECT'S LIFETIME IS THE INPUT'S LIFETIME, which is why it is keyed on a
+   * BOOLEAN rather than on `step`: entry -> confirm keeps the same input mounted
+   * and focused, and clearing the flag there would blink the caret off for a
+   * player who never lost the keyboard.
+   */
+  const entryStepIsOpen = step !== 'choose'
+  useEffect(() => {
+    if (!entryStepIsOpen) return
+    return () => setFocused(false)
+  }, [entryStepIsOpen])
 
   /**
    * THROW AWAY WHATEVER LANDED IN THE INPUT, BECAUSE NOTHING READS IT.
@@ -942,7 +978,17 @@ function BoardEntryFields({
         </div>
       )}
 
-      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
+      {/* `data-testid` SO THE SCROLLING KEYS CAN BE MEASURED. jsdom reports every
+          box as 0x0, so `Home`, `End` and `PageUp`/`PageDown` all resolve to 0
+          there and only the fixed +/-40 step is observable — four of the six keys
+          are unprovable under vitest. e2e/board-entry.spec.ts presses them against
+          a real `clientHeight`, and needs a stable handle on this element to do
+          it; a Tailwind class is not one. */}
+      <div
+        ref={scrollContainerRef}
+        data-testid="entry-scroller"
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
         {/* THE ANSWER ZONE: the label and the presentation it names.
 
             THE MARGINS LIVE HERE RATHER THAN ON THE PRESENTATION so the label

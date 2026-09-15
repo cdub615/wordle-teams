@@ -99,9 +99,10 @@ export function imageFromFiles(files: ArrayLike<File> | null | undefined): File 
  * On iOS there is no route into the paste listener. There is no Cmd-V, and the
  * only way to fire a paste event is a long-press "Paste" ON AN EDITABLE ELEMENT —
  * and the screen that offers the import has none. import-screenshot.tsx renders
- * on board entry's step one, which is the day and the method and is deliberately
- * built with nothing focusable in it. There is nothing to long-press, so the
- * listener can never fire there.
+ * on board entry's step one: the day and the method, which is a date-picker
+ * trigger and three buttons. FOCUSABLE it has plenty of; EDITABLE it has none,
+ * and editable is the property a long-press paste needs. There is nothing to
+ * long-press, so the listener can never fire there.
  *
  * THE OLDER ARGUMENT HERE — that form.tsx's entry region was "the one editable
  * element on the screen" and preventDefaulted every paste — IS RETIRED, not

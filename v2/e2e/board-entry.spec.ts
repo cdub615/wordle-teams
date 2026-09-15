@@ -320,6 +320,73 @@ test('no native input path can reach the board — paste, drop, insertText or an
   await expect(region).toBeFocused()
 })
 
+/**
+ * THE SCROLLING KEYS, WHERE `clientHeight` IS A REAL NUMBER.
+ *
+ * The board sits in an `overflow-y-auto` container and a keyboard-only player has
+ * to reach the rows below the fold. That used to be the BROWSER's job — focus sat
+ * on a contentEditable INSIDE that container, so Chromium scrolled the nearest
+ * scrollable ancestor of the focused node. Moving focus onto an input OUTSIDE the
+ * container (which it has to be — see form.tsx) took that away: measured at
+ * 390x380 with the scroller's max scrollTop at 317, the old shape moved 0 -> 317
+ * and the new shape moved 0 -> 0. form.tsx therefore scrolls the container itself.
+ *
+ * WHY THIS IS HERE AND NOT IN form.hook.test.ts. That file presses all six keys
+ * and asserts they are prevented, but jsdom reports every box as 0x0 — so
+ * `Home`, `End`, `PageUp` and `PageDown` ALL resolve to 0 there and only the fixed
+ * +/-40 arrow step is observable. MEASURED: mutating `End` to `() => 0`, `Home` to
+ * `() => node.scrollHeight` or `PageDown` to `node.scrollTop` leaves the whole unit
+ * suite green. Four of the six keys are unprovable under vitest, which makes this
+ * the only place the fix for that regression can be defended at all.
+ *
+ * THE VIEWPORT IS PART OF THE TEST. At a desktop size the board fits and the
+ * scroller has nothing to scroll, so every assertion below would pass against a
+ * completely broken implementation. The `max > 0` guard is what stops that being
+ * silent.
+ */
+test('the scrolling keys scroll the board, not the dialog', async ({ page }) => {
+  // Short enough that the entry scroller genuinely overflows.
+  await page.setViewportSize({ width: 390, height: 380 })
+  await signInWithTeam(page)
+
+  await page.getByRole('button', { name: 'Board Entry' }).click()
+  await page.getByRole('button', { name: 'Enter manually' }).click()
+  await page.getByRole('region', { name: 'Wordle Board' }).waitFor()
+
+  const scroller = page.getByTestId('entry-scroller')
+  const top = () => scroller.evaluate((element) => element.scrollTop)
+  const max = await scroller.evaluate((element) => element.scrollHeight - element.clientHeight)
+  expect(max, 'the board must actually overflow here, or nothing below proves anything').toBeGreaterThan(0)
+
+  // Focus is on the hidden input, outside this container — the whole reason the
+  // form has to do the scrolling itself.
+  await expect(page.getByRole('group', { name: 'Wordle board entry' })).toBeFocused()
+
+  await scroller.evaluate((element) => (element.scrollTop = 0))
+  await page.keyboard.press('End')
+  expect(await top(), 'End must reach the bottom of the board').toBe(max)
+
+  await page.keyboard.press('Home')
+  expect(await top(), 'Home must return to the top').toBe(0)
+
+  await page.keyboard.press('PageDown')
+  const afterPageDown = await top()
+  expect(afterPageDown, 'PageDown must move down the board').toBeGreaterThan(0)
+
+  await page.keyboard.press('PageUp')
+  expect(await top(), 'PageUp must undo it').toBeLessThan(afterPageDown)
+
+  await scroller.evaluate((element) => (element.scrollTop = 0))
+  await page.keyboard.press('ArrowDown')
+  // One tile row — the unit this content has, and the only one jsdom can see.
+  expect(await top(), 'ArrowDown must move the board by one row').toBe(40)
+
+  // AND THE KEYS THAT SCROLL MUST NOT TYPE. The board is still empty, so the
+  // scrolling above cost no keystroke.
+  await expect(page.getByRole('group', { name: /Today's Wordle answer/ })).toHaveText('')
+  await expect(page.locator('[id="1-1"]')).toHaveText('')
+})
+
 test('the mobile sheet has an accessible name', async ({ page }) => {
   // Phase-close review: the desktop Dialog branch renders a DialogTitle, but
   // the mobile Sheet branch (button.tsx) had only a SheetDescription — no

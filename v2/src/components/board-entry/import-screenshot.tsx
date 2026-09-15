@@ -27,13 +27,14 @@ import { cn } from '#/lib/utils.ts'
  * THERE ARE TWO PASTE MECHANISMS HERE AND BOTH ARE NEEDED. The document
  * listener catches a desktop Cmd-V. The BUTTON is the only thing that works on
  * iOS at all: there is no Cmd-V there, and the only way to fire a paste event is
- * a long-press "Paste" on an editable element — AND THIS COMPONENT RENDERS ON A
- * STEP THAT HAS NONE. Step one is the day and the method, deliberately with
- * nothing focusable in it (that is what stops the keyboard opening with the
- * panel), so on iOS there is simply nothing here to long-press and no route into
- * the paste listener at all. The button is listed first because on a phone it is
- * the common case, not the fallback: a screenshot taken with "Copy and Delete"
- * never reaches Photos, so the file picker finds nothing.
+ * a long-press "Paste" on an EDITABLE element — AND THIS COMPONENT RENDERS ON A
+ * STEP THAT HAS NONE. Step one holds the date picker's trigger and three buttons,
+ * so it is not short of FOCUSABLE things; what it has none of is anything a
+ * long-press could offer to paste INTO. So on iOS there is nothing here to
+ * long-press and no route into the paste listener at all. The button is listed
+ * first because on a phone it is the common case, not the fallback: a screenshot
+ * taken with "Copy and Delete" never reaches Photos, so the file picker finds
+ * nothing.
  *
  * THIS USED TO BE ARGUED FROM THE ENTRY REGION CANCELLING EVERY PASTE, AND THAT
  * PREMISE IS NOW GONE TWICE OVER. The entry surface is no longer a

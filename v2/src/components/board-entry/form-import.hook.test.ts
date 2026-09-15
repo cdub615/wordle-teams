@@ -108,10 +108,27 @@ vi.mock('#/components/date-picker.tsx', () => ({
 /**
  * A probe for the board, not the real grid. It reports what it was handed and
  * offers the test a way to change one tile, which is what a CORRECTION is.
+ *
+ * IT REPORTS THE CURSOR TOO, which is not decoration. form.tsx hands this
+ * `cursor={focused ? cursor : null}`, so `data-cursor` is the only place in this
+ * file where the form's belief about FOCUS is visible — and the import paths are
+ * the ones that reach the entry surface without focusing it. See the stale-focus
+ * test at the bottom of this file.
  */
 vi.mock('./board-input.tsx', () => ({
-  BoardInput: ({ guesses }: { guesses: Array<string> }) =>
-    createElement('div', { 'data-testid': 'board', 'data-guesses': guesses.join(',') }),
+  BoardInput: ({
+    guesses,
+    cursor,
+  }: {
+    guesses: Array<string>
+    cursor?: { zone: string; row?: number; index: number } | null
+  }) =>
+    createElement('div', {
+      'data-testid': 'board',
+      'data-guesses': guesses.join(','),
+      'data-cursor':
+        cursor === null || cursor === undefined ? 'none' : `${cursor.zone}:${cursor.row ?? ''}:${cursor.index}`,
+    }),
   // A separate export from BoardInput — once because it had to live outside the
   // contentEditable region, now for layout; see board-input.tsx. Stubbed to
   // nothing so `getByRole('button', { name: /^submit$/ })` below stays the sheet
@@ -751,5 +768,72 @@ describe('the Pro gate on step one', () => {
     await waitFor(() => expect(screen.getByTestId('board-entry-choose')).toBeTruthy())
     expect(screen.queryByTestId('board')).toBeNull()
     expect(fired).toEqual([])
+  })
+})
+
+/**
+ * A CARET MUST NEVER OUTLIVE THE INPUT THAT MAKES IT TYPEABLE.
+ *
+ * form.tsx gates both carets on `focused`, and `focused` is set from the hidden
+ * input's own onFocus/onBlur. REACT DOES NOT FIRE `onBlur` WHEN A FOCUSED ELEMENT
+ * UNMOUNTS, so going back to step one — which unmounts the input — used to leave
+ * `focused` true with `document.activeElement` on `<body>`.
+ *
+ * THAT WAS HARMLESS ONLY BY COINCIDENCE, AND THIS IS THE PATH WHERE THE
+ * COINCIDENCE RUNS OUT. The one way to reach the confirm step WITHOUT focusing is
+ * an import whose parse carries an answer (form.tsx only asks for the answer when
+ * the parse has none). Normally that means the board was SOLVED, where `cursorFor`
+ * returns null and there is no caret to be wrong about. But parse.ts KEEPS a
+ * SUPPLIED answer that it would otherwise discard — "an answer derived from a row
+ * that then turned out to be unresolvable is not an answer" is guarded on
+ * `supplied === null` — and import-screenshot.tsx supplies whatever the player has
+ * already typed. So: type the answer, go back, paste an UNSOLVED board, and the
+ * form lands on confirm with an answer, an unsolved board, a real board cursor and
+ * nothing focused.
+ *
+ * WITHOUT THE FIX this renders a blinking caret on a tile with no keyboard behind
+ * it — the exact dead end wordle-teams-wty4.1.6 was about, with the cursor painted
+ * on top of it. The assertion is `data-cursor: 'none'`, which is what
+ * `cursor={focused ? cursor : null}` yields once `focused` tracks the input's
+ * existence.
+ */
+describe('focus does not outlive the input it belongs to', () => {
+  test('a caret drawn on an unfocused surface is impossible after going back', async () => {
+    // An UNSOLVED board: one guess, and it is not the answer.
+    screenshotOf('CRANE', ['SLATE'])
+    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+
+    // 1. The entry step, focused. The probe reports `cursorFor`'s result
+    //    UNADAPTED — form.tsx hands BoardInput the whole Cursor and the real
+    //    BoardInput is the one place it is narrowed to a tile — so the answer
+    //    zone reads 'answer::0'. This is the "before" that makes 'none' at the
+    //    end mean "no caret" rather than "no cursor was ever available".
+    goToEntry()
+    expect(document.activeElement).toBe(region())
+    expect(screen.getByTestId('board').getAttribute('data-cursor')).toBe('answer::0')
+
+    // 2. Type the answer. It is what makes the parse below keep an answer for an
+    //    unsolved board, and it hands the caret to the board.
+    typeKeys('CRANE')
+    expect(screen.getByTestId('board').getAttribute('data-cursor')).toBe('board:0:0')
+
+    // 3. Back to step one. The input unmounts, and NOTHING fires a blur.
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(today) }))
+    expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
+    expect(document.activeElement).toBe(document.body)
+
+    // 4. Paste an unsolved board. guesses > 0 and parse.answer is the SUPPLIED
+    //    answer, so form.tsx lands on confirm and focuses nothing.
+    paste()
+    await waitFor(() => expect(board()).toBe('SLATE,,,,,'))
+    await flushEffects()
+
+    // The state this test exists for: a real board cursor is available, and
+    // nothing is focused.
+    expect(answerText()).toBe('CRANE')
+    expect(document.activeElement).toBe(document.body)
+
+    // ...so no caret may be drawn. With a stale `focused` this reads 'board:1:0'.
+    expect(screen.getByTestId('board').getAttribute('data-cursor')).toBe('none')
   })
 })
