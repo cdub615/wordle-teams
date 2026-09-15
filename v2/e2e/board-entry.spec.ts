@@ -5,9 +5,31 @@ import { signIn } from './sign-in'
 import { toPuzzleDay } from '../convex/lib/puzzleDay.ts'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
+
+/**
+ * WHAT RUNS THIS, AND WHAT DOES NOT. Playwright is NOT one of the four quality
+ * gates (`lint`, `typecheck`, `test:once`, `build`) and no CI workflow runs
+ * this file, so nothing here protects anything automatically — it is only ever
+ * true of the moment somebody ran it by hand. Two consequences worth stating
+ * where they will be read: a regression this spec would catch can be merged
+ * green, and this file can itself rot for weeks without anyone noticing.
+ *
+ * IT ALSO NEEDS A LOCAL CONVEX BACKEND ON PORT 3210 — every test here seeds
+ * through `ConvexHttpClient` before the browser opens, so with nothing
+ * listening the whole file dies on `Network connection lost.` before a single
+ * assertion runs.
+ *
+ * CHROMIUM ONLY, AND THAT IS A REAL LIMIT RATHER THAN A DETAIL.
+ * playwright.config.ts declares no `projects`, so every test below is a fact
+ * about ONE engine. It has already hidden a defect exactly once — see the
+ * insertText comment in the guard test — because Chromium fires the legacy
+ * `textInput` event that React's `onBeforeInput` is synthesized from, and
+ * Firefox does not. A guard can therefore look proven here while being inert
+ * for half the web. Read every assertion below as "in Chromium".
+ */
 
 /**
  * Gives the freshly-created e2e account a team before signing in, so the
@@ -151,9 +173,21 @@ test('cancelable native input paths cannot corrupt the board, but typing still c
   await expect(firstTile).toHaveText('')
 
   // insertText dispatches beforeinput/input WITHOUT keydown — the same event
-  // shape predictive text, swipe-typing and dictation use. React's
-  // `onBeforeInput` is NOT that event (it is synthesized from `textInput`), so
-  // form.tsx also cancels the real one on the node; this is what proves it.
+  // shape predictive text, swipe-typing and dictation use. This proves that
+  // SOMETHING on the node cancels that insertion, which is the behaviour a
+  // player depends on.
+  //
+  // IT DOES *NOT* PROVE **WHICH** OF THE TWO GUARDS DID IT, and the difference
+  // is the whole reason both exist. React's `onBeforeInput` prop is not the
+  // native `beforeinput` event — it is synthesized from the legacy `textInput`
+  // event — and Chromium fires `textInput` for CDP's `Input.insertText` as well
+  // as `beforeinput`. So in THIS browser both guards fire on this one line, and
+  // deleting the native listener would leave this assertion green. A browser
+  // that fires only `beforeinput` (Firefox) is what would tell them apart, and
+  // playwright.config.ts declares no `projects`, so this suite never opens one.
+  // That is not hypothetical: it is how wordle-teams-5n6n's real defect hid
+  // behind a test that looked like it covered this. Read this as "the node
+  // refuses native insertions in Chromium", nothing wider.
   await page.keyboard.insertText('ZZZZZ')
   await expect(answer).toHaveText('')
   await expect(firstTile).toHaveText('')
@@ -242,4 +276,190 @@ test('import a board from a screenshot, confirm it, and see the score land', asy
   // or not anything was ever submitted.
   const row = page.getByRole('table').locator('tr').filter({ hasText: 'E2E' })
   await expect(row.locator(`[data-day="${day}"]`)).toHaveText('2')
+})
+
+/**
+ * THE ACCEPTANCE CRITERION FOR THE WHOLE FEATURE, IN EXECUTABLE FORM: a
+ * complete board entered with NO POINTER INTERACTION AT ALL once the entry step
+ * is open.
+ *
+ * `page.keyboard.type` WITH NOTHING BUT READ-ONLY ASSERTIONS BETWEEN THE CALLS
+ * **IS** THE ASSERTION. The feature is that the caret hands itself from the
+ * answer to the board on the fifth letter, so a `.click()` on the board
+ * anywhere below would not FIX this test, it would DELETE THE THING IT TESTS —
+ * a clicked board reaches the same end state whether or not the hand-off
+ * exists, and the spec would then be green against a broken product.
+ *
+ * SO THE RULE IS ENFORCED BY THE PAGE RATHER THAN BY WHOEVER READS THE DIFF.
+ * The counter installed below increments on any real `pointerdown`, `mousedown`
+ * or `touchstart`, and the last assertion is that it never moved. Playwright's
+ * `.click()` / `.tap()` / `.hover()` synthesise exactly those events through
+ * CDP, so a pointer interaction added later to make something pass turns this
+ * RED instead. `HTMLElement.click()` — which is how form.tsx's Enter reaches
+ * `#board-submit` — dispatches only a `click`, no pointer sequence, so the
+ * keyboard's own submit path stays honestly inside the budget.
+ *
+ * THE TWO CLICKS ABOVE THE GUARD ARE THE NAVIGATION INTO THE FEATURE, not part
+ * of it: opening the panel, and choosing typing over screenshot import. Step
+ * one deliberately has nothing focusable in it (that is what stops a phone's
+ * keyboard opening with the panel), so "Enter manually" is the gesture that
+ * hands focus to the entry region — and it is the last gesture there is.
+ */
+test('a whole board, typed, with no click after the entry step opens', async ({ page }) => {
+  await signInWithTeam(page)
+  const day = toPuzzleDay(new Date())
+
+  await page.getByRole('button', { name: 'Board Entry' }).click()
+  await page.getByRole('button', { name: 'Enter manually' }).click()
+
+  const board = page.getByRole('region', { name: 'Wordle Board' })
+  await board.waitFor()
+
+  // ─── NO POINTER INTERACTION BELOW THIS LINE ────────────────────────────────
+  await page.evaluate(() => {
+    const store = window as unknown as { __wtPointerEvents?: number }
+    store.__wtPointerEvents = 0
+    for (const type of ['pointerdown', 'mousedown', 'touchstart']) {
+      // Capture phase, on `window`: nothing in the app can stop propagation
+      // early enough to hide an event from this.
+      window.addEventListener(
+        type,
+        () => {
+          store.__wtPointerEvents = (store.__wtPointerEvents ?? 0) + 1
+        },
+        true,
+      )
+    }
+  })
+
+  const region = page.getByRole('group', { name: 'Wordle board entry' })
+  // Choosing to type focused the region. If this ever stops being true the
+  // keystrokes below go to <body> and every assertion after it fails for a
+  // reason that reads like a product bug, so it is asserted here by name.
+  await expect(region).toBeFocused()
+
+  // The two zones are addressable independently, which is what lets this test
+  // watch the caret CROSS rather than merely watch letters arrive. The answer
+  // slots spell data-cursor on every slot (answer-slots.tsx); the board marks
+  // only the one tile (wordle-board.tsx), hence the count-based reads.
+  const answerCursor = page.locator('[data-testid="answer-slot"][data-cursor="true"]')
+  const answerSlots = page.getByTestId('answer-slot')
+  const boardCursor = page.getByTestId('board-cursor')
+
+  // The caret starts in the ANSWER, at slot one, and the board has none.
+  await expect(answerSlots.nth(0)).toHaveAttribute('data-cursor', 'true')
+  await expect(boardCursor).toHaveCount(0)
+
+  // Four letters: still the answer's, now on the fifth slot.
+  await page.keyboard.type('SPEE')
+  await expect(answerSlots.nth(4)).toHaveAttribute('data-cursor', 'true')
+  await expect(boardCursor).toHaveCount(0)
+
+  // THE HAND-OFF, AND IT IS ONE KEYSTROKE. The fifth answer letter, and the
+  // caret is in the board — no click, no Tab, no focus() call between these two
+  // assertions. This pair is the feature.
+  await page.keyboard.type('D')
+  await expect(answerCursor).toHaveCount(0)
+  await expect(boardCursor).toHaveAttribute('id', '1-1')
+
+  // ...and the stream simply continues. Same keyboard, same focused node, the
+  // letters now landing in row one.
+  await page.keyboard.type('CRANE')
+  await expect(page.locator('[id="1-1"]')).toHaveText('C')
+  await expect(boardCursor).toHaveAttribute('id', '2-1')
+
+  // Row two solves it, which takes the caret away entirely — cursorFor returns
+  // null on a solved board, so there is no slot left that would accept a letter.
+  await page.keyboard.type('SPEED')
+  await expect(page.locator('[id="2-5"]')).toHaveText('D')
+  await expect(boardCursor).toHaveCount(0)
+  await expect(answerCursor).toHaveCount(0)
+
+  // Enter submits, because the keyboard has to be able to finish what it
+  // started; the dialog closes only on success, so its disappearance is the
+  // mutation landing.
+  await page.keyboard.press('Enter')
+  await expect(board).toBeHidden()
+
+  // Scoped to THIS player and THIS puzzle day by scores-table.tsx's data-day
+  // attribute, for the reason the first test in this file spells out: a bare
+  // '2' sits in the table on the 2nd of every month regardless.
+  const row = page.getByRole('table').locator('tr').filter({ hasText: 'E2E' })
+  await expect(row.locator(`[data-day="${day}"]`)).toHaveText('2')
+
+  // AND THE BUDGET WAS ZERO. Asserted last so a failure above reports itself
+  // first, but this is the assertion the test is named after.
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __wtPointerEvents?: number }).__wtPointerEvents ?? -1,
+    ),
+    'a whole board was entered, so no pointer event may have reached the page',
+  ).toBe(0)
+})
+
+/**
+ * THE CURSOR RING, AS A RENDERED THING — THE ONE ASSERTION NO UNIT TEST IN THIS
+ * REPO CAN MAKE.
+ *
+ * jsdom has a CSSOM but NO LAYOUT ENGINE AND NO TAILWIND, so a *.hook.test.ts
+ * can only ever assert that the element carries the class `ring-2 ring-ring`.
+ * That is a fact about a string. It survives the utility being renamed, the
+ * stylesheet dropping it, `ring` being shadowed by a later rule, or the ring
+ * being painted under an opaque sibling — every one of which leaves the player
+ * with no visible caret and every unit test green. A real Chromium has resolved
+ * the cascade, and Tailwind's `ring-*` compiles to a `box-shadow`, so
+ * `getComputedStyle(el).boxShadow` is the difference between "styled" and
+ * "has a className".
+ *
+ * BOTH HALVES OF THE ENTRY SURFACE, because they are two components drawing the
+ * same affordance from two copies of the same utility string — answer-slots.tsx
+ * inline, wordle-board.tsx via CURSOR_CLASS — and nothing but this test makes
+ * them agree about what a caret looks like.
+ *
+ * THE NEGATIVE HALF IS NOT PADDING. Without it, a rule that put a box-shadow on
+ * EVERY tile would pass: the assertion would then prove only that shadows
+ * exist, not that the cursor is distinguishable from its neighbour, which is
+ * the entire point of a cursor.
+ */
+test('the caret ring is painted, not merely classed, in both zones', async ({ page }) => {
+  await signInWithTeam(page)
+
+  await page.getByRole('button', { name: 'Board Entry' }).click()
+  await page.getByRole('button', { name: 'Enter manually' }).click()
+
+  const board = page.getByRole('region', { name: 'Wordle Board' })
+  await board.waitFor()
+
+  const ringOf = (locator: Locator) => locator.evaluate((el) => getComputedStyle(el).boxShadow)
+
+  /**
+   * BOTH 'none' AND '' ARE FAILURES, and the empty one is the sneakier. A
+   * computed `box-shadow` resolves to the string 'none' when the property is
+   * simply unset, but a property the engine does not recognise at all answers
+   * '' — so asserting only `not.toBe('none')` would go green on a ring that had
+   * been renamed out of existence, which is precisely the class of regression
+   * this test is here to catch.
+   */
+  const expectRing = (shadow: string, what: string) => {
+    expect(shadow, `${what} must paint a ring, and 'none' is no ring`).not.toBe('none')
+    expect(shadow, `${what} must paint a ring, and '' is no box-shadow at all`).not.toBe('')
+  }
+
+  const slots = page.getByTestId('answer-slot')
+  // Settle on the attribute FIRST — `evaluate` is a one-shot read with no
+  // auto-retry, so reading a computed style before React has committed the
+  // cursor would be a race that fails in whichever direction the timing fell.
+  await expect(slots.nth(0)).toHaveAttribute('data-cursor', 'true')
+
+  expectRing(await ringOf(slots.nth(0)), 'the answer caret slot')
+  expect(await ringOf(slots.nth(1)), 'a slot without the caret must paint none').toBe('none')
+
+  // Across the hand-off, so the board's ring is checked on the tile the caret
+  // actually reached rather than one this test picked.
+  await page.keyboard.type('SPEED')
+  const cursorTile = page.getByTestId('board-cursor')
+  await expect(cursorTile).toHaveAttribute('id', '1-1')
+
+  expectRing(await ringOf(cursorTile), 'the board caret tile')
+  expect(await ringOf(page.locator('[id="1-2"]')), 'its neighbour must paint none').toBe('none')
 })
