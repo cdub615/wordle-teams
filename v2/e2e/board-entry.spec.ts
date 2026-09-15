@@ -10,12 +10,19 @@ import type { CDPSession, Locator, Page } from '@playwright/test'
 const here = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * WHAT RUNS THIS, AND WHAT DOES NOT. Playwright is NOT one of the four quality
- * gates (`lint`, `typecheck`, `test:once`, `build`) and no CI workflow runs
- * this file, so nothing here protects anything automatically — it is only ever
- * true of the moment somebody ran it by hand. Two consequences worth stating
- * where they will be read: a regression this spec would catch can be merged
- * green, and this file can itself rot for weeks without anyone noticing.
+ * WHAT RUNS THIS. Playwright is NOT one of the four quality gates (`lint`,
+ * `typecheck`, `test:once`, `build`), so `pnpm test:once` passing says nothing
+ * about this file. But CI DOES run it: `.github/workflows/deploy-v2.yml`, step
+ * "End-to-end against a local Convex backend", on every push to dev, main and
+ * feat/v2-replatform — before the deploy steps, so a failure here blocks the
+ * deploy rather than following it.
+ *
+ * CORRECTED 2026-09-15. This comment previously said no CI workflow ran this
+ * file and that nothing here protected anything automatically. That was true
+ * when wt-ksh.8.49 was filed and has not been true since it was fixed; the
+ * claim was carried forward from a stale instruction rather than checked. It
+ * mattered: the IME test below was written believing it would never run, and it
+ * ran green in CI on its first push (34987176915).
  *
  * IT ALSO NEEDS A LOCAL CONVEX BACKEND ON PORT 3210 — every test here seeds
  * through `ConvexHttpClient` before the browser opens, so with nothing
