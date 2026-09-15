@@ -1316,6 +1316,14 @@ git commit -m "refactor(entry): the board renders, it no longer decides"
 
 ## Task 8: `form.tsx` owns the keystroke stream
 
+> **From Task 7: `BoardInput` now adapts the cursor itself.** Its `cursor` prop takes
+> `cursorFor`'s **unadapted** `Cursor | null`, and does the `zone` discrimination and the
+> `index` -> `col` rename internally at its own `<WordleBoard>` call. So pass
+> `cursorFor(entry)` straight through — no adaptation in this file. One place owns that
+> translation, which is the same reason `nextSlot` exists, and it means no caller can
+> forward an answer-zone cursor and get two carets on screen.
+
+
 > **From Task 6's review — three more things this task must handle.**
 >
 > 1. **`scrollActiveRowIntoView` is a THIRD derivation of "which row is active"**
@@ -1544,7 +1552,7 @@ Then wrap the answer block and the board in the single region. Replace the `<div
             <BoardInput
               guesses={guesses}
               answer={answer}
-              cursor={cursor?.zone === 'board' ? { row: cursor.row, col: cursor.index } : null}
+              cursor={cursor}
               submitting={submitting}
               submitDisabled={submitDisabled}
             />
