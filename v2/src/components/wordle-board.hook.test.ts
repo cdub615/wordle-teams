@@ -16,7 +16,7 @@
 // THAT SCOPING IS THE WHOLE POINT AND IT IS EXACTLY WHAT WOULD REGRESS. Both
 // boards render from this one component, so the tempting simplification is to
 // apply the height-aware sizing to all of it. These tests fail if anyone does.
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WordleBoard } from './wordle-board.tsx'
@@ -72,5 +72,135 @@ describe('tile sizing is height-aware ONLY on the entry board', () => {
 
     expect(entry).toContain('h-14')
     expect(display).toContain('h-14')
+  })
+})
+
+const EMPTY = ['', '', '', '', '', '']
+
+/**
+ * THE CURSOR — wordle-teams-wty4.1.6. All 30 tiles used to render identically, so
+ * nothing on screen said where the next letter would land and the fact that rows
+ * advance by themselves was invisible.
+ *
+ * THE POSITION IS NOT COMPUTED HERE. It arrives as a prop, from `cursorFor` in
+ * board-entry/entry-cursor.ts, which is the single definition shared with the
+ * answer slots. A previous version of this feature derived it a second way and the
+ * two disagreed on import-prefilled boards (wordle-teams-lz3w).
+ */
+describe('WordleBoard cursor', () => {
+  /**
+   * The display board (team-boards.tsx) is not an input and must never grow a
+   * caret. The prop is optional and absent there; this is what keeps it so.
+   */
+  test('renders no cursor when none is given', () => {
+    const { container } = render(createElement(WordleBoard, { guesses: EMPTY, answer: 'CRANE' }))
+    expect(container.querySelectorAll('[data-cursor="true"]')).toHaveLength(0)
+    expect(container.querySelectorAll('[data-testid="board-cursor"]')).toHaveLength(0)
+  })
+
+  test('marks exactly the tile the next letter lands in', () => {
+    render(
+      createElement(WordleBoard, {
+        guesses: ['SL', '', '', '', '', ''],
+        answer: 'CRANE',
+        boardEntry: true,
+        cursor: { row: 0, col: 2 },
+      }),
+    )
+    const marked = screen.getAllByTestId('board-cursor')
+    expect(marked).toHaveLength(1)
+    expect(marked[0].id).toBe('1-3')
+  })
+
+  /**
+   * THE MARK ITSELF, NOT THE ATTRIBUTE DESCRIBING IT. Task 5's first draft of the
+   * answer caret rendered its attribute and no caret and passed every test it had.
+   * Whatever makes the active tile visibly different must be asserted directly.
+   */
+  test('the marked tile is visibly distinguished from its neighbours', () => {
+    render(
+      createElement(WordleBoard, {
+        guesses: ['SL', '', '', '', '', ''],
+        answer: 'CRANE',
+        boardEntry: true,
+        cursor: { row: 0, col: 2 },
+      }),
+    )
+    const marked = screen.getByTestId('board-cursor')
+    const neighbour = document.getElementById('1-4')
+    expect(neighbour).not.toBeNull()
+    expect(marked.className).not.toBe(neighbour?.className)
+  })
+
+  /**
+   * AND THE DIFFERENCE IS THE RING, not the tile's own border colour. The border
+   * encodes the tile's RESULT (correct/present/absent/empty); overwriting it would
+   * make the active tile read as a different result. The ring draws outside it.
+   *
+   * Pinned by name because the test above only proves the two classNames differ —
+   * it would still pass if the mark were something invisible under jsdom.
+   */
+  test('the mark is a ring drawn outside the tile, and the border state is untouched', () => {
+    render(
+      createElement(WordleBoard, {
+        guesses: ['SL', '', '', '', '', ''],
+        answer: 'CRANE',
+        boardEntry: true,
+        cursor: { row: 0, col: 2 },
+      }),
+    )
+    const marked = screen.getByTestId('board-cursor')
+    const neighbour = document.getElementById('1-4') as HTMLElement
+    expect(marked.className).toMatch(/(^|\s)ring-2(\s|$)/)
+    expect(marked.className).toMatch(/(^|\s)ring-ring(\s|$)/)
+    expect(neighbour.className).not.toMatch(/(^|\s)ring-2(\s|$)/)
+    // The state colours are the other component of the tile's appearance and the
+    // cursor must not spend them: both tiles are still `empty`.
+    expect(marked.getAttribute('data-state')).toBe('empty')
+    expect(marked.className).toContain('border-wordle-tile-border')
+    expect(neighbour.className).toContain('border-wordle-tile-border')
+  })
+
+  test('a cursor on a later row marks a tile in that row', () => {
+    render(
+      createElement(WordleBoard, {
+        guesses: ['SLATE', 'TR', '', '', '', ''],
+        answer: 'CRANE',
+        boardEntry: true,
+        cursor: { row: 1, col: 2 },
+      }),
+    )
+    expect(screen.getByTestId('board-cursor').id).toBe('2-3')
+  })
+
+  /**
+   * THE SECOND LOCK. team-boards.tsx passes no cursor, but that is a convention a
+   * future caller can break by accident — forwarding props wholesale, say. The
+   * component gates on `boardEntry` as well, so a board that is only being READ
+   * cannot be given a caret by any argument. This is what holds that.
+   */
+  test('a cursor is ignored entirely unless the board is the entry board', () => {
+    const { container } = render(
+      createElement(WordleBoard, {
+        guesses: ['SL', '', '', '', '', ''],
+        answer: 'CRANE',
+        cursor: { row: 0, col: 2 },
+      }),
+    )
+    expect(container.querySelectorAll('[data-testid="board-cursor"]')).toHaveLength(0)
+    expect(container.querySelectorAll('[data-cursor="true"]')).toHaveLength(0)
+    expect(document.getElementById('1-3')?.className).not.toMatch(/(^|\s)ring-2(\s|$)/)
+  })
+
+  test('an explicit null cursor marks nothing', () => {
+    const { container } = render(
+      createElement(WordleBoard, {
+        guesses: ['SLATE', '', '', '', '', ''],
+        answer: 'CRANE',
+        boardEntry: true,
+        cursor: null,
+      }),
+    )
+    expect(container.querySelectorAll('[data-testid="board-cursor"]')).toHaveLength(0)
   })
 })

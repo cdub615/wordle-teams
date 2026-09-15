@@ -34,6 +34,20 @@ export type WordleBoardProps = {
   showLetters?: boolean
   /** True on the entry view, where you always see your own letters. */
   boardEntry?: boolean
+  /**
+   * WHERE THE NEXT LETTER LANDS, as zero-based row and column. Straight from
+   * `cursorFor` in board-entry/entry-cursor.ts, which is the SINGLE definition of
+   * that question, shared with the answer slots so the two renderings cannot
+   * disagree. Do not re-derive it here: a previous version of this feature computed
+   * the position a second way and the two diverged on import-prefilled boards,
+   * which shipped (wordle-teams-lz3w).
+   *
+   * OPTIONAL, AND ABSENT ON THE DISPLAY BOARD. team-boards.tsx renders a
+   * teammate's finished game, which is not an input and must never grow a caret.
+   * Null is the same as absent and is the honest value for a state `cursorFor`
+   * returns null for — a solved board, or six full rows.
+   */
+  cursor?: { row: number; col: number } | null
   className?: string
 }
 
@@ -66,11 +80,68 @@ const TILE_SIZE_DISPLAY = 'h-14 text-3xl md:h-16 md:text-4xl'
 const TILE_SIZE_ENTRY =
   'h-14 text-3xl [@media(min-width:48rem)_and_(min-height:44rem)]:h-16 [@media(min-width:48rem)_and_(min-height:44rem)]:text-4xl'
 
+/**
+ * THE CURSOR'S MARK: A RING OUTSIDE THE TILE, NOT A REPLACEMENT BORDER.
+ *
+ * `border-*` IS SPENT ALREADY AND SPENT ON SOMETHING ELSE. The tile's border
+ * colour encodes its own RESULT — correct / present / absent / empty, see
+ * tileClass — so recolouring it to say "you are here" would make the active tile
+ * read as a different score. A Tailwind `ring` is a non-inset box-shadow: it draws
+ * OUTSIDE the border box, leaving every state colour intact underneath.
+ *
+ * `ring-2 ring-ring` AND `z-10`, WHICH IS answer-slots.tsx:172 BYTE FOR BYTE. The
+ * two sit in the same dialog marking the same cursor as it hands itself from one
+ * to the other; a differently-styled mark either side of the hand-off would read
+ * as two different things happening. `--ring` is the accent (styles.css) and is
+ * defined in both themes.
+ *
+ * NO `ring-offset-*`, AND THE GRID'S GAP IS WHY. MEASURED in headless Chromium
+ * against the BUILT stylesheet, at a 360px viewport, inside the real nesting
+ * (SheetContent `p-6` > form.tsx's `min-h-0 flex-1 overflow-y-auto` > board-input's
+ * `mx-auto w-fit`), `boardEntry`, tiles 54.39x56px with `gap-1` (4px):
+ *
+ *                       outward reach   gap to neighbour   slack at col 4
+ *   ring-2                      2.0px              2.0px          10.0px
+ *   ring-2 ring-offset-2        4.0px              0.0px           8.0px
+ *
+ * `ring-offset-2` puts the ring's outer edge FLUSH against the next tile's border
+ * — 0.0px between them — so the mark and the neighbour fuse into one thick divider,
+ * the same failure mode as the answer caret that landed inside the 'W'. Plain
+ * `ring-2` keeps 2.0px of background either side, which is what reads as a ring.
+ * The box-shadow it computes to is `rgb(21,128,61) 0px 0px 0px 2px`, NOT inset, so
+ * it is genuinely outside the border box rather than painted over it.
+ *
+ * NOT CLIPPED IN THE LAST COLUMN, and that was the open question: the board sits
+ * inside form.tsx's `overflow-y-auto`, which computes `overflow-x` to `auto` too
+ * (wordle-teams-rpql clipped board-input's own ring on exactly this), so a ring on
+ * a col-4 tile draws outside the grid's content box. It survives because the grid
+ * (w-72, 288px) is narrower than that scroll container's 312px content box and is
+ * CENTRED in it: the clip box measures [24, 336] against a ring outer edge at 326,
+ * so 10.0px of slack against the 2.0px needed, and scrollWidth - clientWidth is
+ * 0.0px — nothing overflows at all.
+ *
+ * VISIBLE IN BOTH THEMES. `--ring` is `--accent-solid`, which forks: #15803d on the
+ * #fafafa page in light (4.81:1) and #22c55e on #0a0a0a in dark (8.69:1), both well
+ * clear of the 3:1 floor for a non-text graphical object. The ring always draws on
+ * the PAGE background rather than on a tile, because the cursor tile is by
+ * construction the EMPTY one — `cursorFor` returns the first slot with no letter in
+ * it — so `tileClass.empty` leaves it transparent and no state colour is behind it.
+ *
+ * NO GATE IN THIS REPO CAN SEE ANY OF THAT. vitest has no layout engine, so
+ * `getBoundingClientRect` is all zeros and a ring that was clipped, zero-sized or
+ * invisible against the tile would pass every test here. The numbers above came
+ * from rendering this component's real output in a real browser and screenshotting
+ * a strip straddling the tile edge to prove the pixels actually change, which is
+ * the only way a change to this line can be checked too.
+ */
+const CURSOR_CLASS = 'z-10 ring-2 ring-ring'
+
 export function WordleBoard({
   guesses,
   answer,
   showLetters = true,
   boardEntry = false,
+  cursor = null,
   className,
 }: WordleBoardProps) {
   const rows = toRows(guesses)
@@ -83,20 +154,46 @@ export function WordleBoard({
       {rows.map((guess, row) => (
         <div key={row} className="flex justify-center">
           <div className="mb-1 grid w-72 grid-cols-5 gap-1 md:w-80">
-            {tileStates(answer, guess).map((state, col) => (
-              <div
-                key={col}
-                id={`${row + 1}-${col + 1}`}
-                data-state={state}
-                className={cn(
-                  'flex items-center justify-center border uppercase caret-transparent',
-                  boardEntry ? TILE_SIZE_ENTRY : TILE_SIZE_DISPLAY,
-                  tileClass[state],
-                )}
-              >
-                {reveal ? (guess[col] ?? '') : ''}
-              </div>
-            ))}
+            {tileStates(answer, guess).map((state, col) => {
+              /**
+               * `boardEntry &&` IS A SECOND LOCK ON THE SAME DOOR, and it is
+               * deliberate belt-and-braces. The display board (team-boards.tsx) is
+               * not an input and must never grow a caret; today it simply passes no
+               * `cursor`, but that is a CONVENTION a future caller can break by
+               * accident — forwarding props wholesale, say. Gating on the flag that
+               * already means "this board is being typed into" makes it structural:
+               * there is no argument to this component that puts a cursor on a
+               * board that is only being read.
+               */
+              const isCursor =
+                boardEntry && cursor !== null && cursor.row === row && cursor.col === col
+              return (
+                <div
+                  key={col}
+                  // THE ID SCHEME IS LOAD-BEARING ELSEWHERE — form.tsx's
+                  // scrollActiveRowIntoView selects on it. Do not change it.
+                  id={`${row + 1}-${col + 1}`}
+                  data-state={state}
+                  /**
+                   * PRESENT ONLY ON THE CURSOR TILE, unlike answer-slots.tsx which
+                   * spells 'true'/'false' on every slot. There the attribute is how a
+                   * test counts marked slots; here `data-testid` does that, and the
+                   * display board should carry no trace of a concept it has no part
+                   * in — a grid of 30 `data-cursor="false"` tiles invites exactly the
+                   * "so make it configurable" change this prop exists to prevent.
+                   */
+                  {...(isCursor ? { 'data-cursor': 'true', 'data-testid': 'board-cursor' } : {})}
+                  className={cn(
+                    'flex items-center justify-center border uppercase caret-transparent',
+                    boardEntry ? TILE_SIZE_ENTRY : TILE_SIZE_DISPLAY,
+                    tileClass[state],
+                    isCursor && CURSOR_CLASS,
+                  )}
+                >
+                  {reveal ? (guess[col] ?? '') : ''}
+                </div>
+              )
+            })}
           </div>
         </div>
       ))}
