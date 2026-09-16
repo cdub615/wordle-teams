@@ -25,11 +25,11 @@ import { formatDayHeaderParts } from '#/lib/format-day'
  * unplayed month exists on the first of every one — so `null` from the statistics
  * renders as a sentence rather than as a dash or a zero.
  *
- * `teamName` IS A PROP, NOT A QUERY. TeamSection (routes/insights.tsx) already
- * holds the team's name from the same getMyTeams read it uses to resolve
- * `teamId` — adding a second read here to re-fetch what the caller already has
- * would be a database-bandwidth regression on the exact surface wordle-teams-dcu
- * exists to protect. `undefined` is treated the same as an unnamed team (the
+ * `teamName` IS A PROP, NOT A QUERY. routes/insights.tsx resolves `?team=`
+ * against the roster it has already read and hands the selected team down to
+ * TeamSection, name included — adding a second read here to re-fetch what the
+ * caller already holds would be a database-bandwidth regression on the exact
+ * surface wordle-teams-dcu exists to protect. `undefined` is treated the same as an unnamed team (the
  * caller genuinely has no name to give, e.g. between getMyTeams resolving and a
  * name landing) rather than as an error — the same two-state fallback
  * routes/chat.tsx's `chatHeading` applies to its own heading, collapsed here to
