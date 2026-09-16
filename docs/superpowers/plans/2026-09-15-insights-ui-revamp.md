@@ -98,14 +98,24 @@ with:
 
 ```tsx
   return (
-    <main className="page-max mt-2 max-w-3xl md:mt-6">
+    /* THE CAP IS NESTED INSIDE page-max, NOT COMBINED WITH IT ON ONE ELEMENT,
+       and this is not a style preference. `.page-max` is declared UNLAYERED in
+       styles.css while every Tailwind utility lives in `@layer utilities`, and
+       unlayered declarations beat layered ones outright regardless of source
+       order or specificity. `class="page-max max-w-3xl"` therefore renders at
+       --page-max's 1440px and the cap silently does nothing. wordle-teams-wty4.1.2
+       already paid to learn this on /team; team.tsx:195 is the shape to copy. */
+    <main className="page-max mt-2 md:mt-6">
+      <div className="mx-auto w-full max-w-3xl">
       {/* THE SHAPE IS team.tsx'S AND chat.tsx'S, DOWN TO THE aria-label. This
           page was the only one carrying a "Back" text label, and three pages
           that go back differently is a worse outcome than any one of the
-          shapes on its own. `-ml-2` pulls the 40px icon button back so the
-          glyph optically aligns with the h1's text edge below it. */}
+          shapes on its own. NO `-ml-2`: team.tsx and chat.tsx do not have one,
+          and adding it here would reintroduce an 8px difference between this
+          page's back arrow and /team's — the exact inconsistency this comment
+          claims to be removing. */}
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="-ml-2" aria-label="Back to dashboard" asChild>
+        <Button variant="ghost" size="icon" aria-label="Back to dashboard" asChild>
           <Link to="/app">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           </Link>
@@ -114,7 +124,7 @@ with:
       </div>
 ```
 
-Close the element: change the route component's final `</div>` to `</main>`.
+Close both: the route component's final `</div>` becomes `</div></main>`.
 
 - [ ] **Step 2: Add the scope line**
 
@@ -135,7 +145,7 @@ And add this component below `InsightsRoute`:
  * ABSENT RATHER THAN ZERO while the query is in flight or empty: "0 boards" is
  * a claim, and the loading and empty branches below already say the true thing.
  */
-function InsightsScope({ data }: { data: Boards | undefined }) {
+function InsightsScope({ data }: { data: Boards | null | undefined }) {
   if (!data || data.boards.length === 0) return null
   const earliest = data.boards.reduce(
     (min, board) => (board.puzzleDay < min ? board.puzzleDay : min),
@@ -151,6 +161,17 @@ function InsightsScope({ data }: { data: Boards | undefined }) {
 ```
 
 `formatMonthLabel` and `monthOf` are already imported by this file.
+
+**The prop type includes `null`, and must.** `myBenchmarkBoards` returns `null`
+when there is no player row (`convex/insights.ts`), so `useQuery`'s `data` is
+`Boards | null | undefined`. Narrowing it to `Boards | undefined` fails
+typecheck with TS2322. The existing guard already treats both identically.
+
+**Export `InsightsScope`** so it can be unit-tested, for exactly the reason the
+file's own comment gives for exporting `InsightsPanel`: the route's hidden
+queries are unreachable from a test, since the hook test's `useQuery` mock
+reports every query unresolved. A sibling export is safe; only the ROUTED
+identifier (`InsightsRoute`) must stay unexported.
 
 - [ ] **Step 3: Verify**
 
