@@ -4,24 +4,14 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '#/components/ui/button.tsx'
-import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+import { Card, CardContent } from '#/components/ui/card.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
 import { benchmarkCredit, loadInsightsBenchmark } from '#/lib/insights-benchmark.ts'
 import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
-import {
-  ALL,
-  benchmarkFor,
-  boardsForLayer1,
-  difficultySentence,
-  filterBoards,
-  monthOptionsFor,
-  openerOptionsFor,
-  openerRankSentence,
-  upsellFor,
-} from '#/lib/insights-panel.ts'
+import { upsellFor } from '#/lib/insights-panel.ts'
 import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
 import { formatMonthLabel } from '#/lib/format-day'
-import { formatDayHeaderParts } from '#/lib/format-day'
+import { DailyBenchmark } from '#/components/insights/daily-benchmark.tsx'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
 import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
 import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
@@ -370,149 +360,3 @@ function TeamSection({ layer3 }: { layer3: 'none' | 'free' | 'full' }) {
   return <TeamPanel data={data} />
 }
 
-/**
- * Layer 1's day-by-day list — bounded, scrollable, and filterable.
- *
- * BOUNDED HEIGHT IS THE POINT. Four hundred cards is not a list anybody reads; it
- * is a wall that pushes everything else off the page. Inside its own scroll
- * container it occupies a fixed, predictable slice of the screen however much
- * history sits behind it, so the sections below stay reachable.
- *
- * THE FILTERS ONLY APPEAR WHEN THERE IS SOMETHING TO FILTER. A free player has one
- * board and a trialist sees one; two selects above a single row would be furniture
- * that explains nothing.
- *
- * `overflow-y-auto` NEEDS AN EXPLICIT max-height to do anything, and the count
- * below the box is what tells a reader the list continues past the fold — a
- * scroll container with no such cue reads as a short list on a touch device,
- * where there is no visible scrollbar until you drag it.
- */
-function DailyBenchmark({
-  benchmark,
-  data,
-}: {
-  benchmark: InsightsBenchmark
-  data: Boards
-}) {
-  // NOT data.boards: the query returns full history whenever Layer 2 is unlocked,
-  // and the trial unlocks Layer 2 WITHOUT Layer 1. See boardsForLayer1.
-  const visible = boardsForLayer1(data.boards, data.access.layer1)
-  const [month, setMonth] = useState(ALL)
-  const [opener, setOpener] = useState(ALL)
-
-  const months = monthOptionsFor(visible)
-  const openers = openerOptionsFor(visible)
-  const shown = filterBoards(visible, { month, opener })
-  const filterable = visible.length > 1
-
-  return (
-    <Card data-testid="insights-daily">
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base">Day by day</CardTitle>
-          {filterable && (
-            <div className="flex gap-2">
-              <select
-                aria-label="Filter by month"
-                className="bg-background rounded border px-2 py-1 text-xs"
-                value={month}
-                onChange={(event) => setMonth(event.target.value)}
-                data-testid="insights-filter-month"
-              >
-                <option value={ALL}>All months</option>
-                {months.map((value) => (
-                  <option key={value} value={value}>
-                    {formatMonthLabel(value)}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Filter by opener"
-                className="bg-background rounded border px-2 py-1 text-xs"
-                value={opener}
-                onChange={(event) => setOpener(event.target.value)}
-                data-testid="insights-filter-opener"
-              >
-                <option value={ALL}>All openers</option>
-                {openers.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {shown.length === 0 ? (
-          <p className="text-muted-foreground text-sm" data-testid="insights-daily-none">
-            No boards match those filters.
-          </p>
-        ) : (
-          <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-1" data-testid="insights-daily-scroll">
-            {shown.map((board) => (
-              <BoardCard key={board.puzzleDay} benchmark={benchmark} board={board} />
-            ))}
-          </div>
-        )}
-        {filterable && (
-          <p className="text-muted-foreground pt-2 text-xs" data-testid="insights-daily-count">
-            Showing {shown.length} of {visible.length} boards
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function BoardCard({
-  benchmark,
-  board,
-}: {
-  benchmark: InsightsBenchmark
-  board: { puzzleDay: string; guesses: string[] }
-}) {
-  const result = benchmarkFor(benchmark, board)
-  const { weekday, ordinal } = formatDayHeaderParts(board.puzzleDay)
-
-  return (
-    <Card data-testid="insights-board">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">
-          {weekday} {ordinal}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <div>
-          <span className="text-muted-foreground">Opener </span>
-          {result.opener ? (
-            <>
-              <span className="font-medium">{result.opener.word}</span>
-              <span className="text-muted-foreground"> ranks </span>
-              <span className="font-medium">{openerRankSentence(result.opener)}</span>
-            </>
-          ) : (
-            /* A2's absent state. NEVER a zero — 'ranks 0th' reads as a real and
-               extreme result, and 26 of our boards have an opener the corpus
-               does not hold. */
-            <span className="text-muted-foreground">is not in the benchmark set</span>
-          )}
-        </div>
-        <div>
-          <span className="text-muted-foreground">Difficulty: </span>
-          {result.difficulty ? (
-            <>
-              <span className="font-medium">{result.difficulty.label}</span>
-              <span className="text-muted-foreground"> — {difficultySentence(result.difficulty)}</span>
-            </>
-          ) : (
-            /* The common miss rather than an edge case: the corpus publishes
-               only globally completed days, so today never has a row. */
-            <span className="text-muted-foreground">not rated yet</span>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
