@@ -37,6 +37,25 @@ export function AttemptDistribution({ rows }: { rows: DistributionRow[] }) {
               {row.label}
             </span>
             <div className="flex-1">
+              {/* h-3.5 rounded-sm, NOT the house h-2/h-1.5 rounded-full USED
+                  BY today-panel.tsx, unlock-prompt.tsx AND THIS SAME FILE'S
+                  NEIGHBOUR openers-panel.tsx. That is a deliberate departure,
+                  not a missed one: every one of those other bars is a FILL
+                  inside a full-width bg-muted TRACK — a bounded "how far
+                  toward one target" indicator, where the pill shape reads as
+                  a capsule being filled. This bar has no track at all; it is
+                  one row of a seven-row histogram, each bar's length an
+                  independent measurement compared against the others, not a
+                  share of a single bounded whole. A rounded-full cap on a
+                  trackless bar that can be a few percent wide (a rare
+                  outcome next to a tall modal bar) would round away into a
+                  blob rather than read as a short rectangle — exactly the
+                  case a bar CHART cannot afford, since relative length across
+                  rows is the entire point. rounded-sm keeps every row reading
+                  as a bar at any length; h-3.5, taller than the others' 6-8px,
+                  gives this list — which stands alone rather than sitting
+                  under other text the way the house bars do — enough visual
+                  weight to carry the row on its own. */}
               <div
                 className={cn(
                   'h-3.5 rounded-sm motion-safe:transition-[width]',
