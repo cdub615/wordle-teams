@@ -160,12 +160,7 @@ describe('openerRepertoire', () => {
    * it wrong is worse than not showing it.
    */
   test('a failed board counts as 7 attempts', () => {
-    const failed: PersonalBoard = {
-      puzzleDay: '2026-09-01',
-      answer: 'SPEED',
-      guesses: ['CRANE', 'MOIST', 'MOIST', 'MOIST', 'MOIST', 'MOIST'],
-    }
-    expect(openerRepertoire([failed], openers)[0].meanAttempts).toBe(7)
+    expect(openerRepertoire([failed('2026-09-01', 'CRANE')], openers)[0].meanAttempts).toBe(7)
   })
 
   test("and a copied v1 failure with its '' sentinel is still 7, not 8", () => {

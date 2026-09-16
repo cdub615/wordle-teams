@@ -246,6 +246,16 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10 + 0
 }
 
+/**
+ * Arithmetic mean. NO EMPTY-ARRAY GUARD HERE ON PURPOSE — every caller already
+ * guards against an empty array before reaching this (a length floor, a
+ * `boards.length === 0` early return), and adding one here would hide a caller
+ * bug behind a quiet 0/NaN instead of surfacing it.
+ */
+function mean(values: number[]): number {
+  return values.reduce((total, n) => total + n, 0) / values.length
+}
+
 export type DistributionRow = {
   label: '1' | '2' | '3' | '4' | '5' | '6' | 'X'
   count: number
@@ -341,14 +351,19 @@ export type TrailingForm = {
  * isBest USES A STRICT `<` so the final window never disqualifies itself: its
  * own mean compared against itself is equal, never less, so it always survives
  * the check that asks whether anything did better.
+ *
+ * COUNTS BOARD ROWS AND DOES NOT DEDUPLICATE BY DAY, UNLIKE streaks. That is
+ * not an oversight: streaks is inherently a statement about the calendar, so a
+ * duplicate (player, day) row has to collapse to one day or the run breaks.
+ * TRAILING_FORM_MIN_BOARDS and TRAILING_FORM_WINDOW are both defined in units
+ * of boards, so a genuine second row on the same day is a genuine second data
+ * point for this statistic, not noise to be folded away.
  */
 export function trailingForm(boards: PersonalBoard[]): TrailingForm | null {
   if (boards.length < TRAILING_FORM_MIN_BOARDS) return null
 
   const sorted = [...boards].sort((a, b) => a.puzzleDay.localeCompare(b.puzzleDay))
   const attempts = sorted.map((board) => attemptsFor(board.guesses, board.answer ?? ''))
-
-  const mean = (values: number[]) => values.reduce((total, n) => total + n, 0) / values.length
 
   const lifetime = mean(attempts)
   const recent = mean(attempts.slice(-TRAILING_FORM_WINDOW))
@@ -382,7 +397,14 @@ const MIN_OPENER_USES_FOR_ADVICE = 5
 export type OpenerAdvice = {
   from: string
   to: string
-  /** Mean attempts saved per board, to one decimal. Always positive. */
+  /**
+   * Mean attempts saved per board, to one decimal, always positive. Named
+   * `savingPerDay` for the product framing — a player normally plays exactly
+   * one board per calendar day, so "per board" reads as "per day" — but the
+   * figure itself is a per-board mean, not a per-day one. `streaks`' own
+   * comment records five production rows sharing a single puzzleDay, so "one
+   * board a day" is the common case here, not a guarantee.
+   */
   savingPerDay: number
 }
 
@@ -519,8 +541,6 @@ export function difficultySplit(
   if (hard.length < MIN_BOARDS_PER_BAND || rest.length < MIN_BOARDS_PER_BAND) {
     return { kind: 'thin', hardBoards: hard.length, restBoards: rest.length }
   }
-
-  const mean = (values: number[]) => values.reduce((total, n) => total + n, 0) / values.length
 
   return {
     kind: 'ready',
