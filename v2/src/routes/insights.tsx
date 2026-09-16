@@ -287,10 +287,18 @@ export function InsightsPanel({
 
       <DailyBenchmark benchmark={benchmark} data={data} />
 
+      {/* A CARD, NOT A MUTED LINE ABOVE THE FOOTER. The string is unchanged and
+          upsellFor is untouched — placement and conversion copy belong to
+          wordle-teams-iht. What changes is only this page's visual state, which
+          is what wty4.1.11 owns. THE ACCENT BORDER IS WHAT SEPARATES IT FROM AN
+          UnlockPrompt: this one asks for money, and an unlock prompt asks for
+          play, which is why those are deliberately muted. */}
       {upsell && (
-        <p className="text-muted-foreground text-sm" data-testid="insights-upsell">
-          {upsell}
-        </p>
+        <Card className="border-accent-solid/40">
+          <CardContent className="pt-6 text-sm" data-testid="insights-upsell">
+            {upsell}
+          </CardContent>
+        </Card>
       )}
 
       {/*
