@@ -319,8 +319,9 @@ export function InsightsPanel({
    * TeamSection would throw in every test that renders this panel.
    *
    * BOTH OPTIONAL, for the same reason they are undefined in the route: nothing
-   * fills them in until the post-hydration effect above navigates, and
-   * TeamSection already renders the no-team card for a team it cannot name.
+   * fills them in until the post-hydration effect above navigates. TeamSection
+   * renders nothing at all in that window — it does NOT show the no-team card,
+   * which would be a false statement to a player who has a team; see its guards.
    */
   teamParam?: string
   month?: string
@@ -444,8 +445,9 @@ export function InsightsPanel({
  * is a string anybody can type, and the effect that corrects a foreign or stale
  * one runs a render behind the URL. Looking the id up in getMyTeams means
  * `teamMonth` is only ever asked for a team the viewer is actually on, so a
- * bookmark for a team they have since left renders the no-team card for a moment
- * rather than throwing NOT_A_MEMBER out of Convex — requireTeamMemberFor throws
+ * bookmark for a team they have since left renders nothing for the moment before
+ * the effect corrects it, rather than throwing NOT_A_MEMBER out of Convex —
+ * requireTeamMemberFor throws
  * that for a team that does not exist as well as for one that is not yours (see
  * convex/insights.ts's own note on why the membership check comes first).
  *
@@ -499,25 +501,38 @@ function TeamSection({
   )
 
   /*
-    THE GUARD IS SPLIT ON PURPOSE — the two conditions it used to share
-    (`!teamId || !data`) mean different things and must not render the same
-    thing. "No team" is a STATE: the player has nothing here to load, ever,
-    until they act, and that is common enough (a v1 migrant can have left
-    every team) that wordle-teams-wty4.1.11.8 requires it be said rather than
-    silently absent — see no-team-card.tsx's own comment on why it is a card
-    with a link, not an UnlockPrompt with a bar. "No data yet" with a real
-    `teamId` is a LOADING FRAME: `teamMonth` is still in flight, and it will
-    resolve on this same render pass shortly — that is not a state worth
-    narrating, so it renders nothing, exactly as it always did.
+    THREE STATES, THREE LINES, AND THEY MUST NOT BE FOLDED INTO FEWER. The
+    original defect (wordle-teams-wty4.1.11.8) was one shared `!teamId || !data`
+    guard rendering an unexplained blank for a player on no team. Taking the team
+    from `?team=` opened a SECOND door onto the same conflation, because a
+    missing `teamId` now means either "this player has no team" or "we do not
+    know which team yet" — so the question NoTeamCard answers is asked of the
+    ROSTER, never of `teamId`.
 
-    `!teamId` IS NOT ONLY "NO TEAMS", AND WAS NOT BEFORE THIS PAGE TOOK PARAMS
-    EITHER: it is equally true while getMyTeams is in flight, and now also for
-    the render or two before the route's effect settles `?team=`. Both of those
-    windows close on their own and both show the no-team card meanwhile. Do not
-    "fix" that by folding a loading check into this line — the collapse that
-    costs is the other one, the shared guard above.
+    NOBODY TO SHOW — `teams` has loaded and is EMPTY. A state, not a wait: the
+    player has nothing here to load, ever, until they act, and that is common
+    enough (a v1 migrant can have left every team) that wordle-teams-wty4.1.11.8
+    requires it be said rather than silently absent. See no-team-card.tsx's own
+    comment on why it is a card with a link, not an UnlockPrompt with a bar.
+
+    WE DO NOT KNOW YET — `teams` is still in flight, or `?team=` has not been
+    settled by the effect above, or it names a team this player has left. THE
+    NO-TEAM CARD WOULD BE A FALSE STATEMENT IN ALL THREE: it tells a player who
+    has teams that they have none and links them away to go join one. So this
+    renders nothing. It is one render pass, and it deliberately gets no spinner
+    or skeleton of its own — nothing is what the loading frame below has always
+    rendered, and one pass of a spinner is worse than one pass of nothing.
+
+    NO DATA YET, with a real `teamId` — the loading frame it always was:
+    `teamMonth` is in flight and resolves shortly. Not a state worth narrating,
+    so it renders nothing, exactly as it always did.
+
+    THE FREE SLICE IS COVERED BY THE SAME THREE LINES. DailyTeamFact is only
+    reached with `data` in hand, so a free player mid-resolution sees nothing
+    rather than an empty or a wrong fact card.
   */
-  if (!teamId) return <NoTeamCard />
+  if (teams !== undefined && teams.length === 0) return <NoTeamCard />
+  if (!teamId) return null
   if (!data) return null
 
   /*

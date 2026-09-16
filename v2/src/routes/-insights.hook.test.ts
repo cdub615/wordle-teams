@@ -24,13 +24,15 @@ import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
 /*
   TeamSection (Layer 3) issues its own queries, so rendering the panel with
   layer3 'full' pulls react-query in. Mocked to report nothing loaded, which
-  makes `teams` (and so `teamId`) undefined on every render here — the SAME
-  branch TeamSection takes for a player on no team at all, so every test in
-  this file renders NoTeamCard for Layer 3, never `null`. This file is about
-  Layers 1 and 2, and Layer 3's own statistics are covered in
-  lib/insights-team.test.ts against fixtures; the no-team branch itself is
-  pinned directly in no-team-card.hook.test.ts and, for the guard split that
-  chooses it, below in this file.
+  makes `teams` — and so `teamId` — undefined on every render here. That is the
+  "we do not know yet" branch, NOT the "no team" one: an undefined roster is not
+  an empty roster, so Layer 3 renders NOTHING in every test in this file rather
+  than the no-team card. (It used to render the card, which is exactly the
+  conflation the third state below was added to stop.) This file is about Layers
+  1 and 2, and Layer 3's own statistics are covered in lib/insights-team.test.ts
+  against fixtures; the no-team card itself is pinned directly in
+  no-team-card.hook.test.ts and, for the guards that choose between the three
+  states, below in this file.
 */
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: undefined, isPending: false }),
@@ -463,36 +465,66 @@ describe('InsightsScope', () => {
   invent scaffolding around it).
 
   So this reads the real source instead, the same fallback today-panel.hook.test.ts
-  uses for a hazard a render cannot reach. What it guards is not "these two
-  branches exist" (no-team-card.hook.test.ts and the render tests above already
-  cover the shapes each branch produces) but that they stay SEPARATE — this is
-  the regression wordle-teams-wty4.1.11.8 fixed: `if (!teamId || !data) return
-  null` silently swallowed the "no team" case into the same null the "still
-  loading" case produces, and nothing here would fail if that collapse came
-  back, since a mocked `useQuery` that only ever returns `{ data: undefined }`
-  makes `!teamId` and `!data` true at the exact same time on every render.
+  uses for a hazard a render cannot reach. What it guards is not "these branches
+  exist" (no-team-card.hook.test.ts and the render tests above already cover the
+  shapes each branch produces) but that they stay SEPARATE — this is the
+  regression wordle-teams-wty4.1.11.8 fixed: `if (!teamId || !data) return null`
+  silently swallowed the "no team" case into the same null the "still loading"
+  case produces, and nothing here would fail if that collapse came back, since a
+  mocked `useQuery` that only ever returns `{ data: undefined }` makes `!teamId`
+  and `!data` true at the exact same time on every render.
+
+  THERE ARE THREE STATES NOW, NOT TWO, AND THE THIRD ARRIVED WITH `?team=`. Once
+  the team comes from a search param, a missing `teamId` stopped meaning "this
+  player has no team": it is equally true while getMyTeams is in flight and for
+  the render or two before the route's effect settles the param. Rendering the
+  no-team card for those — which is what the two-state shape did once the param
+  landed — tells a player who HAS a team that they have none and links them away
+  to go join one. That is the same conflation as the original defect coming back
+  through a new door, so the card is now gated on a LOADED, EMPTY roster and the
+  unresolved case renders nothing, like the loading frame beside it.
+
+  The assertions below therefore pin the SHAPE of all three guards, not just
+  their separateness: the first fails if NoTeamCard can render while the roster
+  is still unknown, and the last still fails for any recombination.
 */
-describe('TeamSection guards "no team" and "data not loaded yet" separately', () => {
+describe('TeamSection tells "no team", "not resolved yet" and "still loading" apart', () => {
   const source = readFileSync('src/routes/insights.tsx', 'utf8')
   // Isolate the function body — TeamSection is the last thing the module
   // defines, so slicing from its signature to end-of-file is exact and does
   // not risk matching an unrelated `if` elsewhere in the route.
   const teamSection = source.slice(source.indexOf('function TeamSection'))
 
-  test('a missing team renders NoTeamCard, on its own line', () => {
-    expect(teamSection).toContain('if (!teamId) return <NoTeamCard />')
+  test('NoTeamCard renders from one place only, and only for a LOADED, EMPTY roster', () => {
+    // The whole line, and every line that mentions the card, so this fails both
+    // ways: if the condition is weakened to something true while the roster is
+    // unknown (`!teams?.length`, `!teamId`), and if a second render site for the
+    // card appears anywhere else in the component.
+    expect(teamSection.split('\n').filter((line) => line.includes('<NoTeamCard />'))).toEqual([
+      '  if (teams !== undefined && teams.length === 0) return <NoTeamCard />',
+    ])
+  })
+
+  test('an unresolved team renders null, as a SEPARATE statement', () => {
+    // NOT the no-team card: a roster still in flight, or a `?team=` the effect
+    // has not settled, is not a player without a team.
+    expect(teamSection).toContain('if (!teamId) return null')
   })
 
   test('unresolved data renders null, as a SEPARATE statement, not folded into the team check', () => {
     expect(teamSection).toContain('if (!data) return null')
   })
 
-  test('the two conditions are never recombined into one guard', () => {
+  test('the conditions are never recombined into one guard', () => {
     // The exact regression this issue was filed for: collapsing back to the
     // pre-fix shared guard would render `null` — an unexplained gap — for a
     // player with no team at all, instead of NoTeamCard.
     expect(teamSection).not.toContain('if (!teamId || !data)')
     expect(teamSection).not.toContain('if (!data || !teamId)')
+    // And the shape this file pinned BEFORE the param arrived, which is the
+    // other way the three states collapse back to two — it answers "has this
+    // player a team" with a variable that is also undefined while nobody knows.
+    expect(teamSection).not.toContain('if (!teamId) return <NoTeamCard />')
   })
 })
 
