@@ -129,9 +129,9 @@ function listed(items: string[]): string {
  * flag — the access object already says what is withheld.
  *
  * THE TEAM CLAUSE IS CONDITIONAL ON HAVING A TEAM, not just on layer3.
- * TeamSection returns null for a player on no team (routes/insights.tsx), which
- * a v1 migrant can be, and promising team analytics to them promises something
- * they would not see after paying.
+ * TeamSection renders NoTeamCard, not the panel, for a player on no team
+ * (routes/insights.tsx), which a v1 migrant can be, and promising team
+ * analytics to them promises something they would not see after paying.
  *
  * Returns null when there is nothing to upsell — a pro player, a player with no
  * boards at all, who needs an empty state rather than a pitch, or a viewer

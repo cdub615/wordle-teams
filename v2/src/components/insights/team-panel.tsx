@@ -72,12 +72,21 @@ export function TeamPanel({ data, teamName }: { data: TeamPanelData; teamName?: 
   const { best, worst } = bestAndWorstDays(stats)
   const consistency = memberConsistency(stats)
 
-  // WORST OF THE DEFINED MEANS, NEVER THE WHOLE ROSTER'S RAW VALUES: a member
-  // with no boards has `meanAttempts: null`, and `Math.max` over an array
-  // containing `null` coerces it to `0` — which would make an absent player
-  // read as a perfect 0-guess month and win the scale. The trailing `, 1)`
-  // matches trend-panel.tsx's own guard: a single member at a mean of 0 would
-  // otherwise divide by zero and every bar would compute to NaN%.
+  // THE FILTER EXISTS FOR `tsc`, NOT FOR CORRECTNESS: `Math.max` over
+  // `(number | null)[]` fails to compile (TS2345, "Argument of type 'number |
+  // null' is not assignable to parameter of type 'number'"), so the `null`s
+  // have to be stripped before the spread type-checks at all. A member with no
+  // boards does have `meanAttempts: null`, and `null` really does coerce to
+  // `0` in arithmetic — but that coercion is inert here: attempts are always
+  // >= 1, so a coerced `0` can never win a MAXIMUM against any real mean, only
+  // ever lose to one. (It would matter for a minimum — `Math.min` would let an
+  // absent player's `0` win the scale — which is exactly why this is not one.)
+  // Removing the filter and feeding raw values through an `as number[]`
+  // produces byte-identical output in every test scenario here, no-boards
+  // fixture included; the filter earns its keep purely by satisfying the
+  // compiler. The trailing `, 1)` is a separate, genuine guard: it matches
+  // trend-panel.tsx's own — a single member at a mean of 0 would otherwise
+  // divide by zero and every bar would compute to NaN%.
   const definedMeans = averages.members
     .map((member) => member.meanAttempts)
     .filter((mean): mean is number => mean !== null)

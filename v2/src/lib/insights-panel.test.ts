@@ -128,9 +128,11 @@ describe('upsellFor', () => {
   })
 
   /**
-   * TeamSection RETURNS NULL FOR A PLAYER ON NO TEAM (routes/insights.tsx), and
-   * a v1 migrant can be exactly that. Promising team analytics to someone with
-   * no team promises something they cannot see even after paying.
+   * TeamSection RENDERS NoTeamCard FOR A PLAYER ON NO TEAM (routes/insights.tsx),
+   * and a v1 migrant can be exactly that. Promising team analytics to someone
+   * with no team promises something they cannot see even after paying — the
+   * card names the same three things (head-to-head, averages, best/worst days)
+   * as the reason to join one, not a reason to buy.
    */
   test('a free player on no team is never promised team analytics', () => {
     const copy = upsellFor({ ...free, boardCount: 1, onATeam: false })

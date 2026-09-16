@@ -22,9 +22,14 @@ import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
 
 /*
   TeamSection (Layer 3) issues its own queries, so rendering the panel with
-  layer3 'full' pulls react-query in. Mocked to report nothing loaded, which makes
-  TeamSection render null — this file is about Layers 1 and 2, and Layer 3's own
-  statistics are covered in lib/insights-team.test.ts against fixtures.
+  layer3 'full' pulls react-query in. Mocked to report nothing loaded, which
+  makes `teams` (and so `teamId`) undefined on every render here — the SAME
+  branch TeamSection takes for a player on no team at all, so every test in
+  this file renders NoTeamCard for Layer 3, never `null`. This file is about
+  Layers 1 and 2, and Layer 3's own statistics are covered in
+  lib/insights-team.test.ts against fixtures; the no-team branch itself is
+  pinned directly in no-team-card.hook.test.ts and, for the guard split that
+  chooses it, below in this file.
 */
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: undefined, isPending: false }),
