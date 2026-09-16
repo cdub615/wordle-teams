@@ -337,6 +337,59 @@
     box-sizing: border-box;
   }
 
+  /* THE POINTER CURSOR, RESTORED — THE SECOND v4 DEFAULT THIS FILE PUTS BACK
+   * (wordle-teams-wty4.1.13), and it sits beside the border-colour rule above
+   * for the same reason: this is not a component's business, it is a platform
+   * default that changed underneath the whole app at once.
+   *
+   * WHAT CHANGED. Tailwind v3's preflight shipped
+   *   button, [role="button"] { cursor: pointer; }
+   * v4 DELETED that rule outright — node_modules/tailwindcss/preflight.css
+   * contains no `cursor` declaration at all — so every button fell back to the
+   * UA default, `cursor: default`, the moment this project moved to v4. Nothing
+   * in components/ui/ put it back except switch.tsx. DO NOT delete this as
+   * redundant; it is load-bearing app-wide.
+   *
+   * WHY HERE AND NOT ON buttonVariants. A class on our Button reaches our
+   * Button. The pointer is equally missing on every Radix primitive that
+   * renders its own <button> (SelectTrigger, TabsTrigger, Switch,
+   * RadioGroupItem, DialogClose, the calendar's day cells) and on the two bare
+   * <button>s in insights/daily-team-fact.tsx and chat/message-list.tsx. One
+   * rule covers all of them and cannot be forgotten by the next component
+   * added; a base variant string has to be remembered every time.
+   *
+   * THE ROLE SELECTORS ARE NOT DECORATION. Radix's menu and listbox items are
+   * DIVs, not buttons, so the element selector never reaches the team picker,
+   * the month picker or the app menu — they are `role="menuitem"`,
+   * `role="menuitemcheckbox"`, `role="menuitemradio"` and `role="option"`.
+   * `[role="button"]` is v3's own second selector, kept for the div-as-button
+   * case even though nothing in the app uses it today.
+   *
+   * ANCHORS ARE ABSENT ON PURPOSE. `a[href]` still gets a pointer from the UA
+   * stylesheet and v4's preflight does not reset it — which is also what makes
+   * `<Button asChild><Link/></Button>` (every "Back to dashboard" control, the
+   * landing CTAs) correct without any help from here.
+   *
+   * DISABLED MUST NOT CLAIM TO BE CLICKABLE, hence the guards. Native controls
+   * expose `:disabled`; Radix marks its non-button items `data-disabled`.
+   *
+   * EVERY NEGATION IS WRAPPED IN :where(), FOR THE REASON THE ANCHOR RULE
+   * BELOW SPELLS OUT AT LENGTH. A bare `button:not(:disabled)` is (0,1,1),
+   * which BEATS a single-class utility at (0,1,0) — it would silently override
+   * `cursor-not-allowed`, `cursor-wait` or a deliberate `cursor-default`
+   * wherever a component sets one on purpose, and select.tsx's hover-scroll
+   * buttons are exactly that case. `:where()` contributes zero, holding each
+   * selector no stronger than the rule it restores. */
+  button:where(:not(:disabled)),
+  select:where(:not(:disabled)),
+  [role="button"]:where(:not([aria-disabled="true"])),
+  [role="menuitem"]:where(:not([data-disabled])),
+  [role="menuitemcheckbox"]:where(:not([data-disabled])),
+  [role="menuitemradio"]:where(:not([data-disabled])),
+  [role="option"]:where(:not([data-disabled])) {
+    cursor: pointer;
+  }
+
   html,
   body,
   #app {

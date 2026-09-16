@@ -39,6 +39,12 @@ const SelectScrollUpButton = React.forwardRef<
   <SelectPrimitive.ScrollUpButton
     ref={ref}
     className={cn(
+      /* `cursor-default` IS DELIBERATE AND IS THE ONE EXCEPTION to the pointer
+         rule styles.css restores in its base layer (wordle-teams-wty4.1.13).
+         Radix's scroll buttons scroll on HOVER; clicking one does nothing, so
+         a pointer would promise an action that is not there. A utility beats
+         the base layer, which is exactly why this still works — do not "tidy"
+         it away as inconsistent with the rest of the app's buttons. */
       "flex cursor-default items-center justify-center py-1",
       className
     )}
@@ -56,6 +62,12 @@ const SelectScrollDownButton = React.forwardRef<
   <SelectPrimitive.ScrollDownButton
     ref={ref}
     className={cn(
+      /* `cursor-default` IS DELIBERATE AND IS THE ONE EXCEPTION to the pointer
+         rule styles.css restores in its base layer (wordle-teams-wty4.1.13).
+         Radix's scroll buttons scroll on HOVER; clicking one does nothing, so
+         a pointer would promise an action that is not there. A utility beats
+         the base layer, which is exactly why this still works — do not "tidy"
+         it away as inconsistent with the rest of the app's buttons. */
       "flex cursor-default items-center justify-center py-1",
       className
     )}
@@ -126,7 +138,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex w-full select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}

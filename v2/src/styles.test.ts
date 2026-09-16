@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
+import { codeOf } from '#/test-support/source-ast.ts'
 
 /**
  * WCAG CONTRAST, MEASURED OUT OF styles.css ITSELF.
@@ -314,6 +315,88 @@ describe('the base anchor colour reaches prose links and not controls', () => {
     // `:where()` contributes zero, holding the selector at (0,0,1), exactly as
     // strong as the unscoped rule it replaced.
     expect(anchorRule).toMatch(/:where\(\s*:not\(\[role\]\)\s*\)/)
+  })
+})
+
+/**
+ * THE POINTER CURSOR, AND THE TWO WAYS IT CAN SILENTLY GO AWAY AGAIN
+ * (wordle-teams-wty4.1.13).
+ *
+ * THE DEFECT THIS PINS. Tailwind v3's preflight gave buttons a pointer cursor.
+ * v4 deleted that rule, so at the moment this project moved to v4 every button
+ * in the app fell back to the UA default and nothing failed — not tsc, not
+ * eslint, not the build, not a single test. It was found by the owner using
+ * the app, which is the thing this replaces. The same class of miss as the
+ * bare-custom-property block below.
+ *
+ * IT TAKES TWO ASSERTIONS, NOT ONE, because there are two independent ways to
+ * lose it. Deleting the base rule is the obvious one. The other is quieter: a
+ * `cursor-default` utility on a component beats the base layer no matter how
+ * the base selector is written, so re-adding the one shadcn ships would undo
+ * the fix for the menus while leaving the rule in styles.css looking correct.
+ */
+describe('the pointer cursor v4 removed is restored in exactly one place', () => {
+  // COMMENT-STRIPPED, and this is load-bearing rather than tidy: the rule's own
+  // comment in styles.css quotes v3's deleted preflight rule VERBATIM, braces
+  // and semicolon included. A match against the raw text would be satisfied by
+  // the prose explaining the fix even if the fix itself were gone.
+  const cssCode = css.replace(/\/\*[\s\S]*?\*\//g, '')
+
+  /** The selector list that opens the base layer's `cursor: pointer` rule. */
+  const pointerRule = (() => {
+    const at = cssCode.indexOf('cursor: pointer;')
+    expect(at, 'no rule setting `cursor: pointer` in styles.css').toBeGreaterThan(-1)
+    const opened = cssCode.lastIndexOf('{', at)
+    return cssCode.slice(cssCode.lastIndexOf('}', opened) + 1, opened).trim()
+  })()
+
+  test('it reaches real <button>s, which is what v4 stopped styling', () => {
+    expect(pointerRule).toContain('button:where(:not(:disabled))')
+  })
+
+  test('and the Radix items that are DIVs, which an element selector never would', () => {
+    // The team picker, the month picker and the app menu are all
+    // DropdownMenu; the select popover's rows are role="option". None of them
+    // is a <button>, so `button` alone would fix the app bar and leave every
+    // menu it opens without a pointer.
+    expect(pointerRule).toContain('[role="menuitem"]')
+    expect(pointerRule).toContain('[role="option"]')
+  })
+
+  test('disabled controls do not claim to be clickable', () => {
+    expect(pointerRule).toContain(':not(:disabled)')
+    expect(pointerRule).toContain(':not([data-disabled])')
+  })
+
+  test('every negation is wrapped in :where(), so the rule adds NO specificity', () => {
+    // THE SAME MUTATION THE ANCHOR RULE ABOVE GUARDS AGAINST. A bare
+    // `button:not(:disabled)` is (0,1,1) — stronger than a single-class utility
+    // at (0,1,0) — so it would start overriding `cursor-not-allowed`,
+    // `cursor-wait` and the deliberate `cursor-default` on select.tsx's
+    // hover-scroll buttons, turning a restored default into a rule that beats
+    // the components choosing otherwise.
+    expect(pointerRule.match(/(?<!:where\():not\(/g) ?? []).toEqual([])
+  })
+
+  test('no DropdownMenu item defeats it with a cursor-default utility', () => {
+    // All four (Item, CheckboxItem, RadioItem, SubTrigger) shipped with
+    // shadcn's `cursor-default`, which is why the menus were the worst of it.
+    expect(codeOf(readFileSync('src/components/ui/dropdown-menu.tsx', 'utf8'))).not.toContain(
+      'cursor-default',
+    )
+  })
+
+  test('SelectItem gave its up too, and only the hover-scroll buttons keep theirs', () => {
+    // NOT A BLANKET BAN, because `cursor-default` is CORRECT on Radix's scroll
+    // buttons: they scroll on hover and do nothing on click, so a pointer would
+    // promise an action that is not there. SelectItem is a real click target
+    // and had to give its up. Comment-stripped so the prose in select.tsx
+    // explaining that exception cannot satisfy this.
+    const code = codeOf(readFileSync('src/components/ui/select.tsx', 'utf8'))
+    const keeping = code.split('\n').filter((line) => line.includes('cursor-default'))
+    expect(keeping).toHaveLength(2)
+    // The scroll buttons are the only two centred one-line flex rows here.
+    for (const line of keeping) expect(line).toContain('items-center justify-center py-1')
   })
 })
 
