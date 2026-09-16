@@ -148,6 +148,15 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
         // carries no address, so the privacy property of this function is
         // unchanged. Do not widen this to the array.
         hasPendingInvite: team.invited.length > 0,
+        // ALREADY READ, NOT A NEW COST. The sort above (`mine.sort`) reads
+        // `team.createdAt` on every row before this map even starts, so
+        // putting it on the wire adds zero document reads — one number
+        // riding along with a field that was fetched anyway. The client
+        // needs it to derive a team's month window (teamMonthOptions,
+        // insights.tsx) without a second round trip; `v.optional` on the
+        // schema means it can be `undefined` for v1-migrated teams, and
+        // that undefined must survive here rather than being defaulted.
+        createdAt: team.createdAt,
         // Fields are picked explicitly rather than spreading the doc, so the
         // wire payload cannot carry `invited`, which holds real email addresses.
         members: resolved.filter((member): member is NonNullable<typeof member> => member !== null),

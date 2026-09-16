@@ -145,6 +145,26 @@ describe('getMyTeamsFor', () => {
       expect(teams.map((team) => team.name)).toEqual(['First', 'Second'])
     })
   })
+
+  test('carries createdAt on the payload, undefined and all', async () => {
+    // getMyTeamsFor already reads createdAt to sort `mine` before this map
+    // even runs, so putting it on the wire is free. What this test guards is
+    // that the explicit field pick (teams.ts:131-156) was not left off the
+    // list, AND that a v1-migrated team with no createdAt comes back as
+    // undefined rather than a defaulted 0 — the schema's `v.optional` says
+    // undefined is a real state, and a later month-window derivation
+    // (teamMonthOptions) needs to see it, not a stand-in.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ name: 'Dated', playerIds: [ada], owner: ada, createdAt: 1000 }))
+      await ctx.db.insert('teams', aTeam({ legacyId: 207, name: 'Undated', playerIds: [ada], owner: ada }))
+
+      const teams = await getMyTeamsFor(ctx, ada)
+      expect(teams.find((team) => team.name === 'Dated')?.createdAt).toBe(1000)
+      expect(teams.find((team) => team.name === 'Undated')?.createdAt).toBeUndefined()
+    })
+  })
 })
 
 describe('getMyTeamsFor avatars', () => {
