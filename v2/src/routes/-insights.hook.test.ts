@@ -245,12 +245,29 @@ describe('Layer 2 — personal history', () => {
     expect(repertoire).not.toContain('0th')
   })
 
-  /** The designed state for 368 of 392 accounts, per the spec — not a bug. */
+  /*
+    The designed state for 368 of 392 accounts, per the spec — not a bug.
+
+    THE COPY CHANGED FROM "Enter a few more boards and we will show you…" TO
+    UnlockPrompt's "X unlocks at N boards — value" FORM, as part of moving this
+    branch out of the old PersonalHistory into InsightsPanel (see
+    routes/insights.tsx's comment on that move). The old sentence named what
+    was coming but not how close the player was to it; UnlockPrompt adds the
+    distance (a "2 / 5" progress readout) on top of the same value clause,
+    carried over verbatim below. This assertion is updated to the new wording
+    rather than the old one because that is a deliberate copy change, not a
+    regression — it still proves the thin state names the concrete value AND
+    now also proves the floor and progress are stated, which the old assertion
+    could not check at all.
+  */
   test('a thin history says so instead of showing a mean over two boards', () => {
     panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(2) })
-    expect(screen.getByTestId('insights-personal-thin').textContent).toContain(
-      'Enter a few more boards',
+    const thin = screen.getByTestId('insights-personal-thin').textContent ?? ''
+    expect(thin).toContain('Your history unlocks at 5 boards')
+    expect(thin).toContain(
+      'your opening repertoire, your streaks and how your scores move month to month',
     )
+    expect(thin).toContain('2 / 5')
     expect(screen.queryByTestId('insights-personal')).toBeNull()
   })
 })

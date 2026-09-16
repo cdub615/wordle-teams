@@ -19,14 +19,16 @@ import {
   openerRankSentence,
   upsellFor,
 } from '#/lib/insights-panel.ts'
-import { attemptsByMonth, isThin } from '#/lib/insights-personal.ts'
+import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
 import { formatMonthLabel } from '#/lib/format-day'
 import { formatDayHeaderParts } from '#/lib/format-day'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
 import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
 import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
 import { TeamPanel } from '#/components/insights/team-panel.tsx'
+import { TrendPanel } from '#/components/insights/trend-panel.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
+import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
@@ -250,19 +252,43 @@ export function InsightsPanel({
     <div className="space-y-3">
       {data.access.layer2 === 'full' && (
         <>
-          {/* GATED BY isThin FOR THE SAME REASON PersonalHistory IS, just below.
-              consistency() and trailingForm() will happily compute a mean over
-              one or two boards; the whole point of isThin is that a mean over
-              that few boards is worse than no mean at all. Moving those stats
-              out of PersonalHistory's dl and into PersonalSummary must not
-              silently drop the gate that kept them off a thin history. */}
-          {!isThin(data.boards) && <PersonalSummary boards={data.boards} />}
-          {/* SAME GATE AS PersonalSummary, FOR THE SAME REASON: openerRepertoire
-              and difficultySplit both happily compute over a couple of boards,
-              and a repertoire of one opener or a difficulty split drawn from two
-              days is worse than no panel at all. */}
-          {!isThin(data.boards) && <OpenersPanel benchmark={benchmark} boards={data.boards} />}
-          <PersonalHistory boards={data.boards} />
+          {/*
+            THE THIN STATE IS A DESIGNED ONE, NOT A FAILURE — see isThin's own
+            comment: Layer 2 is empty for 368 of 392 accounts and that is
+            expected. It used to live inside PersonalHistory, which owned all
+            three of "insights-personal", "insights-personal-thin" and
+            "insights-months"; PersonalHistory is now deleted (OpenersPanel and
+            TrendPanel took the first and third of those testids over, and
+            PersonalSummary's Card now also answers to "insights-personal" —
+            see that component's own comment) and this is the one branch of it
+            that had nowhere else to go, since the tier check it depends on
+            (`data.access.layer2 === 'full'`) already lives here.
+          */}
+          {isThin(data.boards) ? (
+            <Card data-testid="insights-personal-thin">
+              <CardContent className="pt-6">
+                <UnlockPrompt
+                  what="Your history"
+                  need={MIN_BOARDS_FOR_STATS}
+                  have={data.boards.length}
+                  unit="boards"
+                  value="your opening repertoire, your streaks and how your scores move month to month"
+                  testId="insights-personal-thin-prompt"
+                />
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <PersonalSummary boards={data.boards} />
+              {/* SAME GATE AS PersonalSummary, FOR THE SAME REASON:
+                  openerRepertoire and difficultySplit both happily compute
+                  over a couple of boards, and a repertoire of one opener or a
+                  difficulty split drawn from two days is worse than no panel
+                  at all. */}
+              <OpenersPanel benchmark={benchmark} boards={data.boards} />
+              <TrendPanel boards={data.boards} />
+            </>
+          )}
         </>
       )}
 
@@ -296,69 +322,6 @@ export function InsightsPanel({
         . Difficulty snapshot {credit.snapshotId}.
       </footer>
     </div>
-  )
-}
-
-/**
- * Layer 2 — the player's own history, month by month.
- *
- * TRIMMED DOWN TO ITS MONTHS LIST, DELIBERATELY. This used to also own the
- * headline join and the opener repertoire — "insights-headline" and
- * "insights-repertoire" — but OpenersPanel (openers-panel.tsx) now owns both,
- * and a testid can resolve to only one element: rendering both here and there
- * would make every `getByTestId` call for either id throw. OpenersPanel's own
- * doc comment carries the fuller argument for why the join, the advice and the
- * repertoire belong together as one card. `benchmark` is no longer read here
- * as a result — the months list needs only `boards` — and this whole component
- * is a placeholder for a later task to remove outright, not a permanent home
- * for "by month".
- */
-function PersonalHistory({
-  boards,
-}: {
-  boards: { puzzleDay: string; guesses: string[]; answer?: string }[]
-}) {
-  /*
-    THIN IS A DESIGNED STATE, NOT A FAILURE. The spec is explicit that Layer 2 is
-    empty for 368 of 392 accounts and that this is acceptable — the players with
-    real history are the willingness-to-pay population. A mean over one board and
-    a streak of one would look like a product with nothing to say, rather than one
-    waiting for data.
-  */
-  if (isThin(boards)) {
-    return (
-      <Card data-testid="insights-personal-thin">
-        <CardContent className="text-muted-foreground pt-6 text-sm">
-          Enter a few more boards and we will show you your opening repertoire,
-          your streaks and how your scores move month to month.
-        </CardContent>
-      </Card>
-    )
-  }
-
-  const months = attemptsByMonth(boards)
-
-  return (
-    <Card data-testid="insights-personal">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Your history</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <div data-testid="insights-months">
-          <h3 className="mb-1 font-medium">By month</h3>
-          <ul className="space-y-1">
-            {months.map((row) => (
-              <li key={row.month} className="flex justify-between gap-2">
-                <span>{formatMonthLabel(row.month)}</span>
-                <span className="text-muted-foreground">
-                  {row.boards} boards · avg {row.meanAttempts}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 

@@ -24,14 +24,28 @@ import { UnlockPrompt } from './unlock-prompt.tsx'
  * its own. It compares against the player's OWN record because the corpus holds
  * no attempt averages to compare against — see trailingForm's comment.
  *
- * `data-testid="insights-summary"`, DELIBERATELY NOT "insights-personal". That
- * id already names PersonalHistory's own Card, and PersonalHistory (below this
- * one on the route) still uses it — src/routes/-insights.hook.test.ts asserts a
- * SINGLE element at that id in several places (a compareDocumentPosition check,
- * a plain getByTestId). Reusing it here would put two Cards on one id the
- * moment both render, and getByTestId throws on a duplicate rather than picking
- * one. The route wires this component in ABOVE PersonalHistory, not instead of
- * it, so the ids have to stay distinct.
+ * CARRIES BOTH "insights-summary" AND "insights-personal" NOW — on two
+ * DIFFERENT elements, deliberately, not one node wearing two ids. A DOM node
+ * has exactly one `data-testid` attribute, and Testing Library's
+ * `getByTestId` does an EXACT string match against it (see `matches()` in
+ * @testing-library/dom), so no single value satisfies both
+ * `getByTestId('insights-summary')` and `getByTestId('insights-personal')` at
+ * once. The two ids used to name two different Cards — this one and
+ * PersonalHistory's, which routes/insights.tsx has now deleted (see that
+ * file's diff for the handover) — and `insights-personal` is what
+ * -insights.hook.test.ts's layout check ("the summaries come before the
+ * day-by-day list") and its Layer-2 tests now expect to resolve to "the top of
+ * Layer 2's Card stack". So `insights-personal` lands on CardContent, the
+ * Card's own immediate child, rather than on a wrapping element: an extra
+ * wrapper would have to be `display: contents` to avoid changing this
+ * component's box structure, and a `contents` element generates no box at
+ * all — a margin this codebase relies on via Tailwind's `space-y-3` sibling
+ * combinator (see InsightsPanel's outer `<div className="space-y-3">`) would
+ * be computed for a box that is never painted, silently collapsing the gap
+ * above this card. Tagging the existing CardContent instead changes no box
+ * in the tree. The outer Card keeps `insights-summary`, since dropping it
+ * would break every test written against this component directly
+ * (personal-summary.hook.test.ts).
  */
 export function PersonalSummary({ boards }: { boards: PersonalBoard[] }) {
   const spread = consistency(boards)
@@ -41,7 +55,7 @@ export function PersonalSummary({ boards }: { boards: PersonalBoard[] }) {
 
   return (
     <Card data-testid="insights-summary">
-      <CardContent className="space-y-4 pt-6">
+      <CardContent className="space-y-4 pt-6" data-testid="insights-personal">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:gap-6">
           <div className="md:shrink-0">
             <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
