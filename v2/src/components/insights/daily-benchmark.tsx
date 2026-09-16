@@ -1,18 +1,16 @@
 import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
-import { ALL, boardsForLayer1, filterBoards, monthOptionsFor, openerOptionsFor } from '#/lib/insights-panel.ts'
-import { formatMonthLabel } from '#/lib/format-day'
+import {
+  ALL,
+  boardsForLayer1,
+  filterBoards,
+  monthOptionsFor,
+  openerOptionsFor,
+  type Boards,
+} from '#/lib/insights-panel.ts'
+import { formatMonthLabel } from '#/lib/format-day.ts'
 import { BoardRow } from './board-row.tsx'
-
-type Boards = {
-  access: {
-    layer1: 'none' | 'free' | 'full'
-    layer2: 'none' | 'free' | 'full'
-    layer3: 'none' | 'free' | 'full'
-  }
-  boards: { puzzleDay: string; guesses: string[]; answer?: string }[]
-}
 
 /**
  * Layer 1's day-by-day list — bounded, scrollable, and filterable.

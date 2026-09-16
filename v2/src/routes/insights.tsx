@@ -9,8 +9,9 @@ import { Skeleton } from '#/components/ui/skeleton.tsx'
 import { benchmarkCredit, loadInsightsBenchmark } from '#/lib/insights-benchmark.ts'
 import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
 import { upsellFor } from '#/lib/insights-panel.ts'
+import type { Boards } from '#/lib/insights-panel.ts'
 import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
-import { formatMonthLabel } from '#/lib/format-day'
+import { formatMonthLabel } from '#/lib/format-day.ts'
 import { DailyBenchmark } from '#/components/insights/daily-benchmark.tsx'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
 import { NoTeamCard } from '#/components/insights/no-team-card.tsx'
@@ -188,15 +189,6 @@ export function InsightsScope({ data }: { data: Boards | null | undefined }) {
       {formatMonthLabel(monthOf(earliest))}
     </p>
   )
-}
-
-type Boards = {
-  access: {
-    layer1: 'none' | 'free' | 'full'
-    layer2: 'none' | 'free' | 'full'
-    layer3: 'none' | 'free' | 'full'
-  }
-  boards: { puzzleDay: string; guesses: string[]; answer?: string }[]
 }
 
 /**

@@ -23,6 +23,25 @@ export type BoardBenchmark = {
 export type BoardInput = { puzzleDay: PuzzleDay; guesses: string[] }
 
 /**
+ * The shape the insights route's server query returns — the access tier for
+ * each layer plus the boards themselves.
+ *
+ * EXPORTED FROM HERE, NOT DECLARED PER-CONSUMER, because src/routes/insights.tsx
+ * and src/components/insights/daily-benchmark.tsx each held a byte-identical
+ * copy with no shared source: renaming a field in one silently left the other
+ * unchanged and the compiler said nothing. One declaration means one place to
+ * change it.
+ */
+export type Boards = {
+  access: {
+    layer1: 'none' | 'free' | 'full'
+    layer2: 'none' | 'free' | 'full'
+    layer3: 'none' | 'free' | 'full'
+  }
+  boards: { puzzleDay: string; guesses: string[]; answer?: string }[]
+}
+
+/**
  * NEITHER HALF DEPENDS ON THE OTHER, and that is the point of returning two
  * nullable fields rather than one nullable object. A board played today has no
  * difficulty row — the corpus publishes only globally completed days — but its
