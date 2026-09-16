@@ -503,9 +503,12 @@ export function InsightsPanel({
  * `today` IS READ FROM THE CLOCK HERE, AND ONLY `today`. The month comes from
  * `?month=` now, but the daily fact is a fact about TODAY and has no month to
  * choose; it stays the viewer's own day, never the server's, the rule winners.ts
- * states for the celebration dialog. CONSEQUENCE WORTH KNOWING: with a PAST
- * month selected `today` is not in that month's aggregate, so dailyTeamFact
- * returns 'no-board' and DailyTeamFact renders nothing.
+ * states for the celebration dialog.
+ *
+ * WHICH IS WHY THE TWO BRANCHES READ DIFFERENT MONTHS — see `queryMonth` below.
+ * The free card asks only about today, so it must always be handed TODAY'S
+ * month; the pro card is showing whichever month `?month=` names, and showing
+ * that month is the entire feature.
  */
 function TeamSection({
   layer3,
@@ -528,6 +531,31 @@ function TeamSection({
   const today = toPuzzleDay(new Date())
 
   /*
+    THE FREE BRANCH ALWAYS READS THE CURRENT MONTH, NEVER `?month=`, AND THAT IS
+    A BUG FIX RATHER THAN A PREFERENCE.
+
+    ONE QUERY SERVES BOTH BRANCHES, and it used to be keyed on the selected month
+    for both of them. But DailyTeamFact only ever asks about TODAY: `dailyTeamFact`
+    (lib/insights-team.ts) looks for `today` in `stats.days` and returns
+    'no-board' when it is not there. So `/insights?month=2026-08` fetched August's
+    aggregate, today was of course absent from it, and the free card rendered
+    `null` — AND WITH IT THE TEAM PICKER, which lives in that card's header and
+    only exists when the card does. A free player arriving on a shared link, or
+    whose trial ended while a past month sat in the URL, got a blank region with
+    nothing to click to get out of it.
+
+    IT MIRRORS THE RENDER BRANCH BELOW AND MUST KEEP MIRRORING IT: `layer3 ===
+    'full'` here, `layer3 !== 'full'` there. If one of the two ever learns a new
+    value of `layer3` without the other, a card will be rendered from a month it
+    did not ask for.
+
+    THE PRO BRANCH IS DELIBERATELY UNTOUCHED. A pro player picking a past month
+    and getting that month's card is the feature, and they have the month
+    dropdown to come back with.
+  */
+  const queryMonth = layer3 === 'full' ? month : monthOf(today)
+
+  /*
     'skip' IS THE ONLY THING THAT ACTUALLY STOPS THIS QUERY, WHICH IS WHY THE
     `enabled` THAT USED TO SIT BESIDE IT IS GONE RATHER THAN WIDENED TO COVER THE
     MONTH. @convex-dev/react-query opens the Convex watch from the query CACHE's
@@ -539,16 +567,32 @@ function TeamSection({
     ModifyQuerySet and took a refusal back, and the refusal is invisible in the
     console because the adapter writes it into query state instead of throwing.
 
-    BOTH HALVES HAVE TO BE RESOLVED, not just the team. `month` arrives from the
-    URL and is `undefined` until the route's post-hydration effect fills it in,
-    so a team-only check would issue a read with no month at all. A month that is
-    shaped right but outside the team's window needs no guard of its own, unlike
-    the team: `teamMonth` finds no aggregate row for it and returns `stats: null`,
-    which is the same "nobody played this month" the panels already state, and
-    the effect replaces it on the next pass anyway.
+    BOTH HALVES HAVE TO BE RESOLVED, not just the team. `queryMonth` is
+    `undefined` on the PRO branch until the route's post-hydration effect fills
+    `?month=` in, so a team-only check would issue a read with no month at all. A
+    month that is shaped right but outside the team's window needs no guard of
+    its own, unlike the team: `teamMonth` finds no aggregate row for it and
+    returns `stats: null`, which is the same "nobody played this month" the
+    panels already state, and the effect replaces it on the next pass anyway.
+
+    ON THE FREE BRANCH THE MONTH HALF IS ALWAYS SATISFIED, because `monthOf`
+    returns `day.slice(0, 7)` of a clock reading and can never be `undefined`. So
+    that branch waits on the TEAM alone and its fact can render a beat earlier
+    than it used to, before `?month=` has settled. THE TEAM HALF IS NOT
+    NEGOTIABLE AND MUST STAY THE FIRST OPERAND: `teamMonth` rejects a team the
+    viewer is not on, and the route's own note explains why such an id must never
+    reach Convex at all.
+
+    A SECOND CONSEQUENCE, AND IT IS A SAVING: `?month=` is no longer part of the
+    free branch's query key, so a navigation that changes it — the effect settling
+    the param on first load, most commonly — can no longer re-issue this read for
+    a month that branch does not use.
   */
   const { data } = useQuery(
-    convexQuery(api.insights.teamMonth, team && month ? { teamId: team.id, month } : 'skip'),
+    convexQuery(
+      api.insights.teamMonth,
+      team && queryMonth ? { teamId: team.id, month: queryMonth } : 'skip',
+    ),
   )
 
   /*
