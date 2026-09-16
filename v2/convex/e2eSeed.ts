@@ -131,10 +131,24 @@ export const ensureTeamFor = mutation({
  * Idempotent the same way ensureTeamFor is: found-or-created player rows, and
  * an existing team reused if one already holds both players, so repeated
  * local runs do not pile up teams.
+ *
+ * `name` IS OPTIONAL BECAUSE ONE CALLER NEEDS TWO TEAMS TOLD APART, AND THE UI
+ * TELLS THEM APART BY NAME AND NOTHING ELSE. e2e/team-insights.spec.ts seeds the
+ * SAME viewer onto two teams and then switches between them through the insights
+ * team dropdown, whose options and whose trigger `aria-label` are both the team's
+ * name (components/insights/team-scope-controls.tsx). Two rows sharing the
+ * default name would give that spec two identical menu items and one ambiguous
+ * trigger, and a locator that has to pick by index is a locator that cannot say
+ * which team it landed on. Every existing caller omits it and is unaffected.
+ *
+ * IT APPLIES AT CREATION ONLY. The reuse path above returns the existing row
+ * untouched, exactly as it already did for every other field — this seed finds or
+ * creates, it does not rewrite. Nothing depends on renaming, because the legacyId
+ * is keyed on the address pair and both callers stamp fresh addresses per run.
  */
 export const ensureSharedTeamFor = mutation({
-  args: { emailA: v.string(), emailB: v.string() },
-  handler: async (ctx, { emailA, emailB }) => {
+  args: { emailA: v.string(), emailB: v.string(), name: v.optional(v.string()) },
+  handler: async (ctx, { emailA, emailB, name }) => {
     if (
       !isE2eTraffic(emailA, process.env.E2E_TEST_MODE) ||
       !isE2eTraffic(emailB, process.env.E2E_TEST_MODE)
@@ -182,7 +196,7 @@ export const ensureSharedTeamFor = mutation({
 
     return await ctx.db.insert('teams', {
       legacyId,
-      name: 'E2E Live Update Team',
+      name: name ?? 'E2E Live Update Team',
       owner: playerA,
       playerIds: [playerA, playerB],
       invited: [],
