@@ -30,7 +30,13 @@ describe('AttemptDistribution', () => {
   test('only the modal row takes the accent', () => {
     render(createElement(AttemptDistribution, { rows }))
     expect(screen.getByTestId('insights-distribution-4-fill').className).toContain('bg-accent-solid')
-    expect(screen.getByTestId('insights-distribution-3-fill').className).toContain('bg-muted')
+    // bg-muted-FOREGROUND, asserted in full. `toContain('bg-muted')` is a
+    // SUBSTRING match, so it passes for both the fill colour and the track
+    // colour -- which is exactly how these bars shipped painted in
+    // `bg-muted`, invisible at ~1.05:1 against the Card behind them.
+    expect(screen.getByTestId('insights-distribution-3-fill').className).toContain(
+      'bg-muted-foreground',
+    )
   })
 
   test('bars are scaled against the largest row, not the total', () => {

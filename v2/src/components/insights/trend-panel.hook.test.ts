@@ -104,18 +104,20 @@ describe('the latest bar is accented only when it is also the best month', () =>
     const boards = [...monthBoards('2026-07', 3, 4), ...monthBoards('2026-08', 3, 2)]
     const { container } = render_(boards)
     const bars = [...container.querySelectorAll('[data-testid="insights-trend-bar"]')]
-    expect(bars[0]!.className).toContain('bg-muted')
+    // In full: `toContain('bg-muted')` also matches `bg-muted-foreground`, so
+    // the looser form cannot tell the visible fill from the invisible track.
+    expect(bars[0]!.className).toContain('bg-muted-foreground')
     expect(bars[0]!.className).not.toContain('bg-accent-solid')
     expect(bars[1]!.className).toContain('bg-accent-solid')
   })
 
-  test('a latest month that is worse than an earlier month stays bg-muted, not accented for being newest', () => {
+  test('a latest month that is worse than an earlier month stays unaccented, not accented for being newest', () => {
     // July mean 2 (the best). August (latest) mean 4 — worse than July, so
     // August must NOT get the accent just because it is the most recent bar.
     const boards = [...monthBoards('2026-07', 3, 2), ...monthBoards('2026-08', 3, 4)]
     const { container } = render_(boards)
     const bars = [...container.querySelectorAll('[data-testid="insights-trend-bar"]')]
-    expect(bars[1]!.className).toContain('bg-muted')
+    expect(bars[1]!.className).toContain('bg-muted-foreground')
     expect(bars[1]!.className).not.toContain('bg-accent-solid')
   })
 })

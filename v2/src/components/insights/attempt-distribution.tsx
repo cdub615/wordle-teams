@@ -56,10 +56,26 @@ export function AttemptDistribution({ rows }: { rows: DistributionRow[] }) {
                   gives this list — which stands alone rather than sitting
                   under other text the way the house bars do — enough visual
                   weight to carry the row on its own. */}
+              {/*
+                bg-muted-FOREGROUND, NOT bg-muted, AND THE DIFFERENCE IS
+                VISIBILITY RATHER THAN TASTE. `--muted` resolves to
+                `--surface-sunken` (#f4f4f5 light, #1c1c1c dark) and this bar
+                sits on a Card, which is `--surface` (#ffffff, #121212). That
+                is about 1.05:1 in light and 1.1:1 in dark — the non-modal bars
+                were effectively invisible, so the chart read as one green bar
+                floating in empty space. Caught in a screenshot; no test,
+                typecheck, lint or build can see it.
+
+                THE HOUSE PATTERN IS A TRACK PLUS A FILL — `bg-muted` for the
+                track and `bg-muted-foreground` for the fill (see
+                unlock-prompt.tsx and openers-panel.tsx). This chart has no
+                track, so it must use the FILL colour; taking the track colour
+                for a bar with nothing behind it is what produced the bug.
+              */}
               <div
                 className={cn(
                   'h-3.5 rounded-sm motion-safe:transition-[width]',
-                  row.isModal ? 'bg-accent-solid' : 'bg-muted',
+                  row.isModal ? 'bg-accent-solid' : 'bg-muted-foreground',
                 )}
                 style={{ width: `${Math.round((row.count / max) * 100)}%` }}
                 data-testid={`insights-distribution-${row.label}-fill`}

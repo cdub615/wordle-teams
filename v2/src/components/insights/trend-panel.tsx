@@ -133,7 +133,20 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
                     one route to this bar's data for assistive tech. */}
                 <div className="flex min-h-0 w-full flex-1 items-end" aria-hidden="true">
                   <div
-                    className={`w-full rounded-t-sm ${emphasise ? 'bg-accent-solid' : 'bg-muted'}`}
+                    /*
+                      bg-muted-FOREGROUND FOR THE UNEMPHASISED BAR. `--muted`
+                      is `--surface-sunken` and this sits on a Card, which is
+                      `--surface` — about 1.05:1 in light and 1.1:1 in dark, so
+                      every month that was not the best rendered as an empty
+                      box and the panel looked like an unfinished chart. The
+                      house pattern pairs a `bg-muted` TRACK with a
+                      `bg-muted-foreground` FILL (unlock-prompt.tsx,
+                      openers-panel.tsx); this chart has no track, so the fill
+                      colour is the one it needs. Same bug and same fix as
+                      attempt-distribution.tsx — both inherited it from the
+                      plan's own snippet.
+                    */
+                    className={`w-full rounded-t-sm ${emphasise ? 'bg-accent-solid' : 'bg-muted-foreground'}`}
                     style={{ height: `${(row.meanAttempts / worst) * 100}%` }}
                     data-testid="insights-trend-bar"
                   />
