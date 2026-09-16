@@ -118,16 +118,22 @@ function InsightsRoute() {
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
 
   return (
-    <div className="mx-auto w-full max-w-2xl p-4">
-      <div className="mb-4 flex items-center gap-2">
-        <Button variant="ghost" size="sm" asChild>
+    <main className="page-max mt-2 max-w-3xl md:mt-6">
+      {/* THE SHAPE IS team.tsx'S AND chat.tsx'S, DOWN TO THE aria-label. This
+          page was the only one carrying a "Back" text label, and three pages
+          that go back differently is a worse outcome than any one of the
+          shapes on its own. `-ml-2` pulls the 40px icon button back so the
+          glyph optically aligns with the h1's text edge below it. */}
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" className="-ml-2" aria-label="Back to dashboard" asChild>
           <Link to="/app">
-            <ArrowLeft className="mr-1 h-4 w-4" aria-hidden="true" />
-            Back
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Button>
-        <h1 className="text-xl font-semibold">Insights</h1>
+        <h1 className="text-2xl font-bold">Insights</h1>
       </div>
+
+      <InsightsScope data={data} />
 
       {/*
         FIRST THING IN THE MAIN CONTENT, ABOVE THE LOADING STATE AND THE PANELS
@@ -159,7 +165,29 @@ function InsightsRoute() {
           onATeam={teams === undefined ? undefined : teams.length > 0}
         />
       )}
-    </div>
+    </main>
+  )
+}
+
+/**
+ * What the page is computed from. Nothing on the page stated this before, so a
+ * player had no way to tell whether a number covered their whole history or
+ * only what the current tier unlocks.
+ *
+ * ABSENT RATHER THAN ZERO while the query is in flight or empty: "0 boards" is
+ * a claim, and the loading and empty branches below already say the true thing.
+ */
+function InsightsScope({ data }: { data: Boards | null | undefined }) {
+  if (!data || data.boards.length === 0) return null
+  const earliest = data.boards.reduce(
+    (min, board) => (board.puzzleDay < min ? board.puzzleDay : min),
+    data.boards[0].puzzleDay,
+  )
+  return (
+    <p className="text-muted-foreground mb-4 ml-8 text-xs" data-testid="insights-scope">
+      {data.boards.length} {data.boards.length === 1 ? 'board' : 'boards'} · since{' '}
+      {formatMonthLabel(monthOf(earliest))}
+    </p>
   )
 }
 
