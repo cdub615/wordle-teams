@@ -19,15 +19,11 @@ import {
   openerRankSentence,
   upsellFor,
 } from '#/lib/insights-panel.ts'
-import {
-  attemptsByMonth,
-  headlineComparison,
-  isThin,
-  openerRepertoire,
-} from '#/lib/insights-personal.ts'
+import { attemptsByMonth, isThin } from '#/lib/insights-personal.ts'
 import { formatMonthLabel } from '#/lib/format-day'
 import { formatDayHeaderParts } from '#/lib/format-day'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
+import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
 import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
 import { TeamPanel } from '#/components/insights/team-panel.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
@@ -261,7 +257,12 @@ export function InsightsPanel({
               out of PersonalHistory's dl and into PersonalSummary must not
               silently drop the gate that kept them off a thin history. */}
           {!isThin(data.boards) && <PersonalSummary boards={data.boards} />}
-          <PersonalHistory benchmark={benchmark} boards={data.boards} />
+          {/* SAME GATE AS PersonalSummary, FOR THE SAME REASON: openerRepertoire
+              and difficultySplit both happily compute over a couple of boards,
+              and a repertoire of one opener or a difficulty split drawn from two
+              days is worse than no panel at all. */}
+          {!isThin(data.boards) && <OpenersPanel benchmark={benchmark} boards={data.boards} />}
+          <PersonalHistory boards={data.boards} />
         </>
       )}
 
@@ -299,18 +300,22 @@ export function InsightsPanel({
 }
 
 /**
- * Layer 2 — the player's own history, and the join that is the product.
+ * Layer 2 — the player's own history, month by month.
  *
- * THE COMPARISON IS THE HEADLINE AND IT LEADS. "You have opened with MUSIC 41
- * times. It ranks 4,102nd. You average 4.6 guesses with it and 3.9 with CRANE" is
- * the sentence the spec says no other product can say, so it is a sentence at the
- * top rather than a rank column in the table below it.
+ * TRIMMED DOWN TO ITS MONTHS LIST, DELIBERATELY. This used to also own the
+ * headline join and the opener repertoire — "insights-headline" and
+ * "insights-repertoire" — but OpenersPanel (openers-panel.tsx) now owns both,
+ * and a testid can resolve to only one element: rendering both here and there
+ * would make every `getByTestId` call for either id throw. OpenersPanel's own
+ * doc comment carries the fuller argument for why the join, the advice and the
+ * repertoire belong together as one card. `benchmark` is no longer read here
+ * as a result — the months list needs only `boards` — and this whole component
+ * is a placeholder for a later task to remove outright, not a permanent home
+ * for "by month".
  */
 function PersonalHistory({
-  benchmark,
   boards,
 }: {
-  benchmark: InsightsBenchmark
   boards: { puzzleDay: string; guesses: string[]; answer?: string }[]
 }) {
   /*
@@ -331,8 +336,6 @@ function PersonalHistory({
     )
   }
 
-  const repertoire = openerRepertoire(boards, benchmark.openers)
-  const headline = headlineComparison(repertoire)
   const months = attemptsByMonth(boards)
 
   return (
@@ -341,36 +344,6 @@ function PersonalHistory({
         <CardTitle className="text-base">Your history</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
-        {headline && (
-          <p data-testid="insights-headline">
-            You have opened with <span className="font-medium">{headline.most.word}</span>{' '}
-            {headline.most.count} times.{' '}
-            {headline.most.rank !== null && (
-              <>It ranks {openerRankSentence({ ...headline.most, rank: headline.most.rank, outOf: benchmark.openers.count })}. </>
-            )}
-            You average {headline.most.meanAttempts} guesses with it and{' '}
-            {headline.other.meanAttempts} with{' '}
-            <span className="font-medium">{headline.other.word}</span>.
-          </p>
-        )}
-
-        <div data-testid="insights-repertoire">
-          <h3 className="mb-1 font-medium">Your openers</h3>
-          <ul className="space-y-1">
-            {repertoire.slice(0, 8).map((row) => (
-              <li key={row.word} className="flex justify-between gap-2">
-                <span className="font-medium">{row.word}</span>
-                <span className="text-muted-foreground">
-                  {row.count}x · avg {row.meanAttempts} ·{' '}
-                  {row.rank === null
-                    ? 'unranked'
-                    : openerRankSentence({ word: row.word, rank: row.rank, outOf: benchmark.openers.count })}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
         <div data-testid="insights-months">
           <h3 className="mb-1 font-medium">By month</h3>
           <ul className="space-y-1">
