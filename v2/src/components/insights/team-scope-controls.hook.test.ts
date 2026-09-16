@@ -89,10 +89,20 @@ describe('the team dropdown appears only when there is a team to choose', () => 
     // THERE IS NOW A SECOND CALLER IN THAT ROUTE, and it needs the same answer
     // for the opposite reason: TeamPanel's `teamNameInControls` drops its
     // VISIBLE title when the trigger below is rendering, so that the team name
-    // is not printed twice side by side (team-panel.hook.test.ts pins it). A
-    // separate `length > 1` written at either call site could drift from this
-    // one and put the duplicate back — or hide the title on a one-team account,
-    // where it is the card's only identifier.
+    // is not printed twice side by side. A separate `length > 1` written at
+    // either call site could drift from this one and put the duplicate back —
+    // or hide the title on a one-team account, where it is the card's only
+    // identifier.
+    //
+    // WHERE THAT IS PINNED, PRECISELY, because an earlier version of this
+    // comment said "team-panel.hook.test.ts pins it" and that was half true in
+    // the way that costs you a defect. team-panel.hook.test.ts pins the
+    // COMPONENT CONTRACT — what TeamPanel does with the boolean it is handed —
+    // and it hands itself that boolean, so it cannot see the route at all.
+    // Flipping `teamNameInControls` to a constant at the call site therefore
+    // left the whole suite green in BOTH directions. The WIRING is pinned in
+    // routes/-insights-scope.hook.test.ts, which renders the real branch at one
+    // team and at two and reads the header that came out.
     expect(showsTeamPicker([])).toBe(false)
     expect(showsTeamPicker([teams[0]])).toBe(false)
     expect(showsTeamPicker(teams)).toBe(true)

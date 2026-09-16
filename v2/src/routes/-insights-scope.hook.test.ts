@@ -21,10 +21,12 @@
 // directly and never sees who built it. Only a render of the panel through the
 // real branch can catch a month scope handed to the daily fact — or, the other
 // way, a pro card that lost its month dropdown to a refactor.
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
+import { formatMonthLabel } from '#/lib/format-day.ts'
+import { teamMonthOptions } from '#/lib/insights-months.ts'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -160,11 +162,62 @@ const teams = [
   { id: 'team_b' as Id<'teams'>, name: 'Turing Test' },
 ]
 
+/**
+ * A creation date two months before today's, so the team's month window is
+ * exactly THREE months long.
+ *
+ * THREE IS CHOSEN TO SIT BETWEEN THE TWO WRONG ANSWERS, which is the whole
+ * reason this constant is not just `undefined`. A dropdown fed `[month]`
+ * offers ONE; a dropdown that forgot to pass `createdAt` gets the 12-month cap
+ * and offers TWELVE. Only a list built from THIS team's window is three long,
+ * so the assertion below can tell all three apart.
+ *
+ * BUILT FROM LOCAL PARTS BECAUSE `toPuzzleDay` READS LOCAL PARTS
+ * (convex/lib/puzzleDay.ts uses getFullYear/getMonth/getDate), and
+ * `teamMonthOptions` puts this timestamp through it. Constructing it the same
+ * way round-trips exactly in every zone; day 15 keeps it clear of both month
+ * boundaries regardless.
+ */
+const createdAt = new Date(
+  Number(today.slice(0, 4)),
+  Number(today.slice(5, 7)) - 1 - 2,
+  15,
+).getTime()
+
+/**
+ * Radix opens a DropdownMenu on POINTERDOWN, not on click — `fireEvent.click`
+ * alone leaves the menu shut and every assertion about its contents trivially
+ * passing against an empty list. Same helper, same lesson, as
+ * team-scope-controls.hook.test.ts and app-menu.hook.test.ts.
+ */
+const open = (name: string) =>
+  fireEvent.pointerDown(screen.getByRole('button', { name }), {
+    button: 0,
+    ctrlKey: false,
+    pointerType: 'mouse',
+  })
+
+/** The pro card's CardHeader — `Card`'s first child. */
+const teamCardHeader = () => screen.getByTestId('insights-team').firstElementChild!
+
+/**
+ * The VISIBLE title, or null when the header has none.
+ *
+ * `:scope > div.truncate` IS PRECISE, NOT APPROXIMATE. CardTitle is the only
+ * DIRECT child of the header carrying `truncate` (team-panel.tsx gives it
+ * `min-w-0 truncate`); the controls wrapper has no `truncate`, and the team
+ * trigger's own truncating span is nested two levels down inside it, so
+ * neither can be mistaken for the title. Without the `:scope >` this would
+ * match that span and the two-team assertion would pass on the duplicate it
+ * exists to forbid.
+ */
+const visibleTitle = () => teamCardHeader().querySelector(':scope > div.truncate')?.textContent ?? null
+
 const panel = (options: {
   layer3: 'free' | 'full'
   teamCount: 1 | 2
   month?: string
-  team?: { id: Id<'teams'>; name: string }
+  team?: { id: Id<'teams'>; name: string; createdAt?: number }
 }) => {
   const { layer3, teamCount } = options
   // `in` RATHER THAN A DEFAULT PARAMETER, and the difference is the whole point
@@ -291,5 +344,70 @@ describe('the month each branch reads', () => {
     // Its month genuinely is absent for a render or two after hydration.
     panel({ layer3: 'full', teamCount: 2, month: undefined })
     expect(asked).toEqual(['skip'])
+  })
+})
+
+/*
+  THE WIRING OF THE PRO CARD'S HEADER, WHICH IS NOT THE SAME THING AS ITS
+  CONTRACT.
+
+  team-panel.hook.test.ts pins what TeamPanel DOES with `teamNameInControls` —
+  both shapes, given the boolean. It renders the component directly and passes
+  the flag itself, so it can say nothing about whether the ROUTE passes the
+  right one. That gap is not theoretical: with it open, flipping the prop at the
+  call site to a constant — in EITHER direction — left the whole suite green.
+  `false` put back the duplicated team name this task was raised to remove, and
+  `true` took the only visible identifier off a one-team account.
+
+  THE ROUTE IS THE ONLY PLACE THAT KNOWS THE TEAM COUNT, so the route is where
+  the question has to be asked. These assertions render through the real branch
+  at both counts and read the header that actually came out.
+*/
+describe('the pro header names the team exactly once, whatever the team count', () => {
+  test('at TWO teams the visible title is gone and an sr-only heading carries the name', () => {
+    panel({ layer3: 'full', teamCount: 2 })
+    // The trigger is showing the name, so the title must not also.
+    expect(visibleTitle()).toBeNull()
+    // But the card must still HAVE a heading — invisible, not deleted.
+    const heading = screen.getByRole('heading', { level: 2, name: 'Ada’s Analysts' })
+    expect(heading.className).toContain('sr-only')
+    expect(teamCardHeader().contains(heading)).toBe(true)
+  })
+
+  test('at ONE team the visible title stays, because nothing else names the team', () => {
+    panel({ layer3: 'full', teamCount: 1 })
+    expect(visibleTitle()).toBe('Ada’s Analysts')
+    expect(screen.queryByTestId('insights-scope-team')).toBeNull()
+    // No hidden duplicate either: one name, in one place, visible.
+    expect(screen.queryByRole('heading', { level: 2, name: 'Ada’s Analysts' })).toBeNull()
+  })
+
+  test('the free card is unaffected — it never had a title to drop', () => {
+    // Stated here so a future editor who "harmonises" the two cards has to
+    // delete an assertion rather than quietly give the fact card a heading its
+    // design does not have. daily-team-fact.tsx has no CardTitle at all.
+    panel({ layer3: 'free', teamCount: 2 })
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
+    expect(screen.queryByTestId('insights-scope-team')).not.toBeNull()
+  })
+})
+
+describe('the month dropdown offers the team’s own window', () => {
+  test('the options come from teamMonthOptions and this team’s createdAt', () => {
+    // WHY THE LIST AND NOT JUST ITS PRESENCE: "a month dropdown is rendered"
+    // says nothing about WHERE its months came from, so a call site handing it
+    // `[month]` — the selected month and nothing else — left the suite green
+    // while the control became unusable, offering only what was already chosen.
+    //
+    // THREE ENTRIES IS THE DISCRIMINATING FACT (see `createdAt` above): one
+    // means the list was fabricated from the selection, twelve means
+    // `createdAt` was dropped and the cap took over, three means it came from
+    // this team's real window.
+    panel({ layer3: 'full', teamCount: 2, team: { ...teams[0], createdAt } })
+    open(`Month: ${formatMonthLabel(monthOf(today))}`)
+
+    const offered = screen.queryAllByRole('menuitemradio').map((item) => item.textContent)
+    expect(offered).toHaveLength(3)
+    expect(offered).toEqual(teamMonthOptions(monthOf(today), createdAt).map(formatMonthLabel))
   })
 })

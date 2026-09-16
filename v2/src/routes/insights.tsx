@@ -697,6 +697,15 @@ function TeamSection({
         second spelling of "more than one team" here could drift from
         `showsTeamPicker` and put the duplicate back, or hide the title on a
         one-team account where it is the card's only identifier.
+
+        THIS LINE IS PINNED IN -insights-scope.hook.test.ts, NOT IN
+        team-panel.hook.test.ts. That distinction is worth the sentence: the
+        component test hands TeamPanel the boolean itself, so it covers both
+        shapes thoroughly and covers this call site not at all. Replacing this
+        expression with either constant once left the entire suite green — one
+        of them reinstating the duplicated name this prop exists to remove. The
+        route test renders this branch at one team and at two and asserts on the
+        header that actually came out.
       */
       teamNameInControls={showsTeamPicker(teamOptions)}
       controls={
