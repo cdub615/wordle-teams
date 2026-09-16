@@ -23,7 +23,7 @@ import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
 import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
 import { TeamPanel } from '#/components/insights/team-panel.tsx'
 import {
-  showsTeamPicker,
+  showsTeamDropdown,
   TeamScopeControls,
 } from '#/components/insights/team-scope-controls.tsx'
 import { TrendPanel } from '#/components/insights/trend-panel.tsx'
@@ -370,7 +370,7 @@ export function InsightsPanel({
    * THE TEAM DROPDOWN'S OPTIONS, the same roster `onATeam` is derived from and
    * read in the same one place. `undefined` while getMyTeams is in flight, and
    * a one-team roster is not a choice — team-scope-controls.tsx's
-   * `showsTeamPicker` owns that rule, and TeamSection below asks it rather than
+   * `showsTeamDropdown` owns that rule, and TeamSection below asks it rather than
    * spelling `length > 1` a second time.
    */
   teams?: Array<{ id: Id<'teams'>; name: string }>
@@ -666,6 +666,8 @@ function TeamSection({
         stats={data.stats}
         viewerId={data.viewerId}
         today={today}
+        /* For the card's sr-only heading — it has no painted title. */
+        teamName={team.name}
         /*
           NO MONTH SCOPE ON THIS BRANCH — a fact about today has no month to
           choose (see this component's own note on `today`).
@@ -677,7 +679,7 @@ function TeamSection({
           no such check — its header holds the title either way.
         */
         controls={
-          showsTeamPicker(teamOptions) ? (
+          showsTeamDropdown(teamOptions) ? (
             <TeamScopeControls teams={teamOptions} teamId={team.id} onTeamChange={onTeamChange} />
           ) : undefined
         }
@@ -695,10 +697,10 @@ function TeamSection({
         panel drops its VISIBLE title and keeps an `sr-only` heading instead —
         otherwise the header reads "Ada's Analysts  [Ada's Analysts v]". A
         second spelling of "more than one team" here could drift from
-        `showsTeamPicker` and put the duplicate back, or hide the title on a
+        `showsTeamDropdown` and put the duplicate back, or hide the title on a
         one-team account where it is the card's only identifier.
 
-        THIS LINE IS PINNED IN -insights-scope.hook.test.ts, NOT IN
+        THIS LINE IS PINNED IN -insights-team-scope.hook.test.ts, NOT IN
         team-panel.hook.test.ts. That distinction is worth the sentence: the
         component test hands TeamPanel the boolean itself, so it covers both
         shapes thoroughly and covers this call site not at all. Replacing this
@@ -707,17 +709,20 @@ function TeamSection({
         route test renders this branch at one team and at two and asserts on the
         header that actually came out.
       */
-      teamNameInControls={showsTeamPicker(teamOptions)}
+      titleVisuallyHidden={showsTeamDropdown(teamOptions)}
       controls={
         <TeamScopeControls
           teams={teamOptions}
           teamId={team.id}
           onTeamChange={onTeamChange}
           /*
-            NO MONTH, NO MONTH DROPDOWN — the same "nothing to choose" answer
-            `showsTeamPicker` gives at one team. `?month=` is filled in by the
-            post-hydration effect above, so this is the same unsettled window
-            the guards above already render nothing through.
+            THE `undefined` ARM IS UNREACHABLE TODAY, AND IS KEPT ONLY BECAUSE
+            `month` IS TYPED OPTIONAL. Trace it: an undefined `month` makes
+            `queryMonth` undefined on this branch, which makes the query args
+            'skip', which leaves `data` undefined, which returns at
+            `if (!data) return null` well above here. So this is a type
+            obligation, not a live case — do not cite it as the reason anything
+            renders, and do not delete it without narrowing the prop.
 
             THE WINDOW IS THIS TEAM'S OWN, from its `createdAt` — the rule and
             every one of its edges (the 12-month cap, the absent creation date,

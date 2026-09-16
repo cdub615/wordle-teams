@@ -591,14 +591,11 @@ describe('the guards and the query, read from the route source', () => {
     // the sentinel alone. Both halves are checked because the month arrives from
     // the URL and is undefined until the effect lands.
     //
-    // `queryMonth`, NOT `month`, AND THE DIFFERENCE IS A FIXED BUG. The free
-    // card asks only about TODAY, so keying this read on `?month=` for both
-    // branches made `/insights?month=<past>` fetch a month with no entry for
-    // today — the fact rendered nothing, and the team picker in its header went
-    // with it. What each branch reads is pinned behaviourally, mutant-checked in
-    // both directions, in -insights-scope.hook.test.ts; this line is here so
-    // that a refactor which reaches for the bare `month` again has to walk past
-    // a second failure.
+    // `queryMonth`, NOT `month`, AND THE DIFFERENCE IS A FIXED BUG — stated at
+    // `queryMonth` in the route itself, and pinned behaviourally (mutant-checked
+    // both ways) in -insights-team-scope.hook.test.ts. This line is here so that
+    // a refactor reaching for the bare `month` again has to walk past a second
+    // failure.
     expect(teamSectionCode).toContain(
       "team && queryMonth ? { teamId: team.id, month: queryMonth } : 'skip'",
     )

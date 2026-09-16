@@ -203,15 +203,18 @@ const teamCardHeader = () => screen.getByTestId('insights-team').firstElementChi
 /**
  * The VISIBLE title, or null when the header has none.
  *
- * `:scope > div.truncate` IS PRECISE, NOT APPROXIMATE. CardTitle is the only
- * DIRECT child of the header carrying `truncate` (team-panel.tsx gives it
- * `min-w-0 truncate`); the controls wrapper has no `truncate`, and the team
- * trigger's own truncating span is nested two levels down inside it, so
- * neither can be mistaken for the title. Without the `:scope >` this would
- * match that span and the two-team assertion would pass on the duplicate it
- * exists to forbid.
+ * `:scope > .truncate` IS PRECISE, NOT APPROXIMATE. The title is the only DIRECT
+ * child of the header carrying `truncate` (team-panel.tsx gives it
+ * `min-w-0 truncate`, and `sr-only` when hidden — never both); the controls
+ * wrapper has no `truncate`, and the team trigger's own truncating span is
+ * nested inside it. Without the `:scope >` this would match that span and the
+ * two-team assertion would pass on the duplicate it exists to forbid.
+ *
+ * ELEMENT-AGNOSTIC ON PURPOSE: the title is a CardTitle rendered `asChild` over
+ * an `h2`, and a test that named the tag would have to change again the next
+ * time the heading level moves.
  */
-const visibleTitle = () => teamCardHeader().querySelector(':scope > div.truncate')?.textContent ?? null
+const visibleTitle = () => teamCardHeader().querySelector(':scope > .truncate')?.textContent ?? null
 
 const panel = (options: {
   layer3: 'free' | 'full'
@@ -254,19 +257,19 @@ describe('the pro branch — the full team card', () => {
   test('gets a month dropdown, because a month is what it is showing', () => {
     panel({ layer3: 'full', teamCount: 2 })
     expect(screen.queryByTestId('insights-team')).not.toBeNull()
-    expect(screen.queryByTestId('insights-scope-month')).not.toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-month')).not.toBeNull()
   })
 
   test('and the team dropdown at two teams', () => {
     panel({ layer3: 'full', teamCount: 2 })
-    expect(screen.queryByTestId('insights-scope-team')).not.toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-team')).not.toBeNull()
   })
 
   test('but no team dropdown at one', () => {
     panel({ layer3: 'full', teamCount: 1 })
-    expect(screen.queryByTestId('insights-scope-team')).toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-team')).toBeNull()
     // The month one is unaffected — the two rules are independent.
-    expect(screen.queryByTestId('insights-scope-month')).not.toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-month')).not.toBeNull()
   })
 })
 
@@ -278,28 +281,23 @@ describe('the free branch — the daily fact', () => {
     // that is still reading the clock.
     panel({ layer3: 'free', teamCount: 2 })
     expect(screen.queryByTestId('insights-daily-fact')).not.toBeNull()
-    expect(screen.queryByTestId('insights-scope-team')).not.toBeNull()
-    expect(screen.queryByTestId('insights-scope-month')).toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-team')).not.toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-month')).toBeNull()
   })
 
   test('and no controls at all at one team', () => {
     panel({ layer3: 'free', teamCount: 1 })
     expect(screen.queryByTestId('insights-daily-fact')).not.toBeNull()
-    expect(screen.queryByTestId('insights-scope-controls')).toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-controls')).toBeNull()
   })
 })
 
 /*
   THE MONTH EACH BRANCH READS, WHICH IS NOT THE MONTH EACH BRANCH SHOWS.
 
-  ONE QUERY SERVES BOTH CARDS, and keying it on `?month=` for both was a
-  regression this epic introduced: before the month was selectable at all it was
-  always `monthOf(today)`, so the free fact always had the aggregate it needed.
-  Once `?month=` moved it, `/insights?month=<past>` fetched a month with no
-  entry for today, `dailyTeamFact` returned 'no-board', DailyTeamFact rendered
-  `null` — AND THE TEAM PICKER WENT WITH IT, because that picker lives in the
-  card's header and only exists when the card does. A free player on a shared
-  link got a blank region and nothing to click.
+  The bug these pin, and why the two branches differ at all, is stated once at
+  `queryMonth` in routes/insights.tsx. In short: the free card asks only about
+  TODAY, so a `?month=` in the past used to leave it with no card and no picker.
 
   THE ASSERTIONS ARE ON THE ARGS, NOT ONLY ON THE RENDER, because the args are
   what the fix changes; the render follows from them only while the mock above
@@ -311,7 +309,7 @@ describe('the month each branch reads', () => {
     // card, and therefore no way to reach the other team either.
     panel({ layer3: 'free', teamCount: 2, month: pastMonth })
     expect(screen.queryByTestId('insights-daily-fact')).not.toBeNull()
-    expect(screen.queryByTestId('insights-scope-team')).not.toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-team')).not.toBeNull()
   })
 
   test('and it asks for the CURRENT month, whatever ?month= says', () => {
@@ -351,7 +349,7 @@ describe('the month each branch reads', () => {
   THE WIRING OF THE PRO CARD'S HEADER, WHICH IS NOT THE SAME THING AS ITS
   CONTRACT.
 
-  team-panel.hook.test.ts pins what TeamPanel DOES with `teamNameInControls` —
+  team-panel.hook.test.ts pins what TeamPanel DOES with `titleVisuallyHidden` —
   both shapes, given the boolean. It renders the component directly and passes
   the flag itself, so it can say nothing about whether the ROUTE passes the
   right one. That gap is not theoretical: with it open, flipping the prop at the
@@ -377,18 +375,33 @@ describe('the pro header names the team exactly once, whatever the team count', 
   test('at ONE team the visible title stays, because nothing else names the team', () => {
     panel({ layer3: 'full', teamCount: 1 })
     expect(visibleTitle()).toBe('Ada’s Analysts')
-    expect(screen.queryByTestId('insights-scope-team')).toBeNull()
-    // No hidden duplicate either: one name, in one place, visible.
-    expect(screen.queryByRole('heading', { level: 2, name: 'Ada’s Analysts' })).toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-team')).toBeNull()
+    // SAME HEADING, PAINTED. Both shapes put the team name in an h2; only
+    // `sr-only` differs, so the document outline does not depend on the team
+    // count. One name, one element, no hidden duplicate beside it.
+    const heading = screen.getByRole('heading', { level: 2, name: 'Ada’s Analysts' })
+    expect(heading.className).not.toContain('sr-only')
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(1)
   })
 
-  test('the free card is unaffected — it never had a title to drop', () => {
-    // Stated here so a future editor who "harmonises" the two cards has to
-    // delete an assertion rather than quietly give the fact card a heading its
-    // design does not have. daily-team-fact.tsx has no CardTitle at all.
+  test('the free card gets the same heading, and still paints no title', () => {
+    // IT HOSTS AN INTERACTIVE CONTROL AND HAD NO HEADING AT ALL, so a reader
+    // navigating by heading skipped the region and landed on a bare
+    // "Team: ..." button with nothing to say what it belonged to. The fix is
+    // the heading, NOT a painted title — the card's design is one sentence.
     panel({ layer3: 'free', teamCount: 2 })
-    expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
-    expect(screen.queryByTestId('insights-scope-team')).not.toBeNull()
+    const heading = screen.getByRole('heading', { level: 2, name: 'Ada’s Analysts' })
+    expect(heading.className).toContain('sr-only')
+    expect(screen.getByTestId('insights-daily-fact').contains(heading)).toBe(true)
+    expect(screen.queryByTestId('insights-team-scope-team')).not.toBeNull()
+  })
+
+  test('and it keeps that heading at ONE team, where it draws no header at all', () => {
+    // The header is conditional on the controls; the heading must not be, or the
+    // commonest free account is the one left with no heading.
+    panel({ layer3: 'free', teamCount: 1 })
+    expect(screen.queryByTestId('insights-team-scope-controls')).toBeNull()
+    expect(screen.getByRole('heading', { level: 2, name: 'Ada’s Analysts' })).not.toBeNull()
   })
 })
 

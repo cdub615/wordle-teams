@@ -177,7 +177,7 @@ describe('the card title names the team', () => {
 
 /*
   WHY THIS BLOCK EXISTS: THE DEFECT IT PINS IS A DUPLICATE, AND A DUPLICATE IS
-  INVISIBLE TO EVERY OTHER ASSERTION IN THIS FILE. Before `teamNameInControls`,
+  INVISIBLE TO EVERY OTHER ASSERTION IN THIS FILE. Before `titleVisuallyHidden`,
   a pro account on two teams got a header reading "Ada's Analysts  [Ada's
   Analysts v] [Sep 2026 v]" — the title and the team trigger printing one name
   side by side. Every test above passes either way, because `getByText` is
@@ -190,7 +190,7 @@ describe('the card title names the team', () => {
 */
 describe('the visible title yields to the team dropdown; the heading does not', () => {
   const hidden = (teamName?: string, data_ = data) =>
-    render(createElement(TeamPanel, { data: data_, teamName, teamNameInControls: true }))
+    render(createElement(TeamPanel, { data: data_, teamName, titleVisuallyHidden: true }))
 
   /** The CardHeader — `Card`'s first child in both of TeamPanel's returns. */
   const headerOf = (container: HTMLElement) =>
@@ -208,9 +208,9 @@ describe('the visible title yields to the team dropdown; the heading does not', 
 
   test('an h2, so the card keeps a heading between the page h1 and its own h3s', () => {
     // routes/insights.tsx renders `<h1>Insights</h1>`; this card's four
-    // sections are h3s ("Head to head" and its siblings, above). A `div` —
-    // which is what CardTitle renders (components/ui/card.tsx) — would leave
-    // those h3s hanging off the page title with nothing in between.
+    // sections are h3s ("Head to head" and its siblings, above). CardTitle
+    // renders a `div` by default, which would leave those h3s hanging off the
+    // page title with nothing in between — hence its `asChild`.
     hidden('The Wordlers')
     expect(screen.getByRole('heading', { level: 2 }).tagName).toBe('H2')
   })
@@ -227,26 +227,29 @@ describe('the visible title yields to the team dropdown; the heading does not', 
   })
 
   test('the controls stay right-aligned once the title is gone', () => {
-    // `sr-only` IS `position: absolute`, so the heading is NOT a flex item and
-    // the header has exactly ONE in-flow child. `justify-between` puts a lone
-    // item at the START — the dropdowns would sit hard left, on the opposite
-    // side from every other width and from daily-team-fact.tsx's header. jsdom
-    // computes no layout, so the class is the only thing a test can hold onto;
-    // the geometry itself is checked in a browser over the built stylesheet.
+    // WHY `justify-end` IS NOT OPTIONAL: see CONTROLS_ONLY_HEADER in
+    // team-scope-controls.tsx, which states it once. jsdom computes no layout,
+    // so the class is the only thing a test can hold onto; the geometry itself
+    // is checked in a browser over the built stylesheet.
     const { container } = hidden('The Wordlers')
     const header = headerOf(container)
     expect(header.className).toContain('justify-end')
     expect(header.className).not.toContain('justify-between')
   })
 
-  test('at ONE team the title stays visible and there is no sr-only heading', () => {
+  test('at ONE team the same heading stays, painted rather than hidden', () => {
     // The case most pro accounts are in, and the one this must not touch: no
     // team dropdown renders, so the title is the card's ONLY identifier.
+    //
+    // THE HEADING IS AN h2 IN BOTH SHAPES. Only `sr-only` differs, so the card's
+    // place in the document outline does not depend on the team count — before
+    // this, the shape MOST accounts see was the one with no heading at all.
     const { container } = render(
       createElement(TeamPanel, { data, teamName: 'The Wordlers' }),
     )
-    expect(screen.getByText('The Wordlers').className).not.toContain('sr-only')
-    expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
+    const heading = screen.getByRole('heading', { level: 2, name: 'The Wordlers' })
+    expect(heading.className).not.toContain('sr-only')
+    expect(screen.getAllByText('The Wordlers')).toHaveLength(1)
     // And the header keeps the responsive split it has always had.
     expect(headerOf(container).className).toContain('md:justify-between')
   })

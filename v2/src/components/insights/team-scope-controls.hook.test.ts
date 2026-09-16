@@ -20,7 +20,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { TeamScopeControls, showsTeamPicker } from './team-scope-controls.tsx'
+import { TeamScopeControls, showsTeamDropdown } from './team-scope-controls.tsx'
 
 afterEach(cleanup)
 
@@ -65,29 +65,29 @@ describe('the team dropdown appears only when there is a team to choose', () => 
     // already selected is furniture, and this card is small enough that a
     // control nobody can use costs real width in the header.
     controls({ teams: [teams[0]], teamId: 'team_a' })
-    expect(screen.queryByTestId('insights-scope-team')).toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-team')).toBeNull()
   })
 
   test('one team and no month renders the whole component as nothing', () => {
     // Not merely an empty row: the header this sits in must collapse to exactly
     // the title it had before this component existed.
     const { container } = controls({ teams: [teams[0]], teamId: 'team_a' })
-    expect(screen.queryByTestId('insights-scope-controls')).toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-controls')).toBeNull()
     expect(container.innerHTML).toBe('')
   })
 
   test('two teams renders it', () => {
     controls()
-    expect(screen.queryByTestId('insights-scope-team')).not.toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-team')).not.toBeNull()
   })
 
-  test('showsTeamPicker states the same rule once, for the callers that need it', () => {
+  test('showsTeamDropdown states the same rule once, for the callers that need it', () => {
     // daily-team-fact.tsx has no title, so its header exists only when there is
     // a control to put in it — which means routes/insights.tsx has to ask this
     // question too. Exported so `length > 1` has one spelling rather than two.
     //
     // THERE IS NOW A SECOND CALLER IN THAT ROUTE, and it needs the same answer
-    // for the opposite reason: TeamPanel's `teamNameInControls` drops its
+    // for the opposite reason: TeamPanel's `titleVisuallyHidden` drops its
     // VISIBLE title when the trigger below is rendering, so that the team name
     // is not printed twice side by side. A separate `length > 1` written at
     // either call site could drift from this one and put the duplicate back —
@@ -99,33 +99,33 @@ describe('the team dropdown appears only when there is a team to choose', () => 
     // the way that costs you a defect. team-panel.hook.test.ts pins the
     // COMPONENT CONTRACT — what TeamPanel does with the boolean it is handed —
     // and it hands itself that boolean, so it cannot see the route at all.
-    // Flipping `teamNameInControls` to a constant at the call site therefore
+    // Flipping `titleVisuallyHidden` to a constant at the call site therefore
     // left the whole suite green in BOTH directions. The WIRING is pinned in
-    // routes/-insights-scope.hook.test.ts, which renders the real branch at one
+    // routes/-insights-team-scope.hook.test.ts, which renders the real branch at one
     // team and at two and reads the header that came out.
-    expect(showsTeamPicker([])).toBe(false)
-    expect(showsTeamPicker([teams[0]])).toBe(false)
-    expect(showsTeamPicker(teams)).toBe(true)
+    expect(showsTeamDropdown([])).toBe(false)
+    expect(showsTeamDropdown([teams[0]])).toBe(false)
+    expect(showsTeamDropdown(teams)).toBe(true)
   })
 })
 
 describe('the month dropdown appears only when a month scope is passed', () => {
   test('absent by default — the free branch, where today has no month to choose', () => {
     controls()
-    expect(screen.queryByTestId('insights-scope-month')).toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-month')).toBeNull()
   })
 
   test('present when scoped — the pro branch', () => {
     controls({ month: monthScope() })
-    expect(screen.queryByTestId('insights-scope-month')).not.toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-month')).not.toBeNull()
   })
 
   test('a one-team pro account still gets the month dropdown, and no team one', () => {
     // The two rules are independent, which is the whole reason they are two
     // `&&`s rather than one branch: a solo team has months to look through.
     controls({ teams: [teams[0]], teamId: 'team_a', month: monthScope() })
-    expect(screen.queryByTestId('insights-scope-team')).toBeNull()
-    expect(screen.queryByTestId('insights-scope-month')).not.toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-team')).toBeNull()
+    expect(screen.queryByTestId('insights-team-scope-month')).not.toBeNull()
   })
 
   test('offers every month it is given, in the order it is given them', () => {
@@ -157,7 +157,7 @@ describe('the accessible name carries the current selection', () => {
     const long = { id: 'team_c', name: 'The Wednesday Afternoon Wordle Society' }
     controls({ teams: [...teams, long], teamId: 'team_c' })
 
-    const trigger = screen.getByTestId('insights-scope-team')
+    const trigger = screen.getByTestId('insights-team-scope-team')
     expect(trigger.textContent).toContain('The Wednesday A...')
     expect(trigger.getAttribute('aria-label')).toBe(
       'Team: The Wednesday Afternoon Wordle Society',

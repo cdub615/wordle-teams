@@ -35,8 +35,10 @@ const statsOf = (entries: Record<string, number>, memberIds: string[]): TeamMont
   ],
 })
 
-const fact = (stats: TeamMonth | null, onSeeFullMonth?: () => void) =>
-  render(createElement(DailyTeamFact, { stats, viewerId: 'me', today: TODAY, onSeeFullMonth }))
+const fact = (stats: TeamMonth | null, onSeeFullMonth?: () => void, teamName?: string) =>
+  render(
+    createElement(DailyTeamFact, { stats, viewerId: 'me', today: TODAY, onSeeFullMonth, teamName }),
+  )
 
 describe('the free daily team fact', () => {
   test('says how many teammates the viewer beat, in words', () => {
@@ -105,5 +107,34 @@ describe('the paywall hook', () => {
   test('and does not offer it when nobody else has played', () => {
     fact(statsOf({ me: 3 }, ['me', 'a']))
     expect(screen.queryByTestId('insights-see-full-month')).toBeNull()
+  })
+})
+
+/*
+  THE CARD'S HEADING, WHICH IS NOT ITS TITLE.
+
+  This card paints no title — its design is one sentence — but it hosts the team
+  dropdown, and it had no heading at all. A reader navigating by heading skipped
+  the region entirely and landed on a bare "Team: ..." button with nothing to
+  say what it belonged to. The heading is the fix; a painted title is not.
+
+  The ROUTE's half of this — that the real team name is what gets passed — is in
+  routes/-insights-team-scope.hook.test.ts. What lives here is the contract:
+  present in every shape, and never empty.
+*/
+describe('the sr-only heading', () => {
+  test('names the team, hidden, whether or not the card draws a header', () => {
+    fact(statsOf({ me: 3, a: 4 }, ['me', 'a']), undefined, 'The Wordlers')
+    const heading = screen.getByRole('heading', { level: 2, name: 'The Wordlers' })
+    expect(heading.className).toContain('sr-only')
+    // No controls in this render, so there is no CardHeader — the heading must
+    // not have been tucked inside one.
+    expect(screen.getByTestId('insights-daily-fact').contains(heading)).toBe(true)
+  })
+
+  test('falls back rather than coming out empty, the same way TeamPanel does', () => {
+    // `teamName` is optional, and an empty heading is worse than a vague one.
+    fact(statsOf({ me: 3, a: 4 }, ['me', 'a']))
+    expect(screen.getByRole('heading', { level: 2, name: 'Your team' })).not.toBeNull()
   })
 })

@@ -33,7 +33,26 @@ import type { PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
  * this page already holds, in local state, and never touch the URL. These two
  * change WHICH MONTH AND WHICH TEAM the page reads, through `?team=` and
  * `?month=` — the same job month-picker.tsx and team-picker.tsx do on the
- * dashboard, in the same shape, so that one job keeps one appearance.
+ * dashboard, in the same IDIOM: an outline Button trigger with a chevron, over a
+ * DropdownMenuRadioGroup.
+ *
+ * THE IDIOM, NOT THE METRICS, AND THE DIFFERENCE IS DELIBERATE. MonthPicker's
+ * trigger takes the Button's default size — `h-10 px-4 py-2` — plus `md:px-4`;
+ * these take `size="sm"`, so `h-9 px-3` plus `md:px-3`. The product therefore has
+ * two month dropdowns of different heights, and that is the right trade here
+ * rather than an oversight: 36px is the target height daily-benchmark.tsx states
+ * for its own controls, and that card sits ON THIS PAGE one card below these. A
+ * control matching the dashboard's height while mismatching its own page's would
+ * be the worse inconsistency. Do not "fix" this by dropping `size="sm"` without
+ * moving daily-benchmark.tsx too.
+ *
+ * MonthPicker WAS THE NEAR-MISS, and it deserves the note this file's long
+ * argument about TeamPicker does not give it: MonthDropdown below is close to a
+ * clone of it. What stops the reuse is one thing — `monthOptions(currentMonth)`
+ * is computed INSIDE that component and hardcodes a three-month window, while
+ * this dropdown's list is the team's own (`teamMonthOptions`, from its
+ * `createdAt`). An `options` prop on MonthPicker would have closed the gap, and
+ * is the obvious move if a third caller ever wants a month dropdown.
  *
  * NO QUERY OF ITS OWN, AND NEITHER FOR THE CARDS THAT HOST IT. Everything here
  * arrives as a prop from routes/insights.tsx, which already holds the roster and
@@ -64,6 +83,27 @@ export type MonthScope = {
 }
 
 /**
+ * The header a Layer 3 card wears when it holds NOTHING BUT these controls —
+ * team-panel.tsx with its title hidden, and daily-team-fact.tsx, which never had
+ * a title at all. A CONSTANT RATHER THAN A CLAIM IN PROSE: the two headers used
+ * to assert in comments that they matched, with nothing holding them to it.
+ *
+ * ONE WHOLE LITERAL, NEVER ASSEMBLED FROM FRAGMENTS. Tailwind scans source text
+ * for candidate class names, so a class name built by concatenation is one it
+ * never sees and never emits — this project has already shipped an invisible
+ * component and a zero-height one that way, with every gate green. Each card
+ * appends its own `pb-*`, also as a literal token, for the same reason.
+ *
+ * `justify-end` IS THE LOAD-BEARING MEMBER, AND THIS IS THE CANONICAL STATEMENT
+ * OF WHY. An `sr-only` title is `position: absolute` and therefore NOT a flex
+ * item, so a header in this shape has exactly ONE in-flow child — and
+ * `justify-between` puts a lone item at the START. Without this the controls
+ * would sit hard left, on the opposite side from every other shape on the page.
+ * Anywhere else that reasoning is needed, cite this rather than restating it.
+ */
+export const CONTROLS_ONLY_HEADER = 'flex-row items-center justify-end space-y-0'
+
+/**
  * Whether the team dropdown has anything to offer.
  *
  * ONE TEAM IS NOT A CHOICE. A dropdown whose only option is the one already
@@ -73,7 +113,7 @@ export type MonthScope = {
  * same question, and the rule must have one spelling: daily-team-fact.tsx has no
  * title, so its header exists ONLY when there is a control to put in it.
  */
-export function showsTeamPicker(teams: Array<TeamScopeTeam>): boolean {
+export function showsTeamDropdown(teams: Array<TeamScopeTeam>): boolean {
   return teams.length > 1
 }
 
@@ -89,11 +129,17 @@ export function TeamScopeControls({
   onTeamChange: (teamId: string) => void
   month?: MonthScope
 }) {
-  const showTeams = showsTeamPicker(teams)
+  const showTeams = showsTeamDropdown(teams)
 
-  // Nothing to choose on either axis: one team and no month scope. Renders
-  // nothing rather than an empty row, so the header it sits in collapses to
-  // exactly the title it had before this file existed.
+  // Nothing to choose on either axis: one team and no month scope.
+  //
+  // A SAFETY NET, NOT A LIVE PATH, and it was once described as one. No caller
+  // can reach it today: routes/insights.tsx's free branch asks
+  // `showsTeamDropdown` BEFORE it builds this at all, and its pro branch always
+  // passes a month scope. Nor would reaching it collapse a header — TeamPanel
+  // draws its own either way. It stays because a component that can render an
+  // empty padded row is worse than one that cannot, and the next caller need not
+  // know the rule to be safe.
   if (!showTeams && !month) return null
 
   return (
@@ -113,7 +159,7 @@ export function TeamScopeControls({
     // opposite side from where every other width puts them.
     <div
       className="flex shrink-0 items-center justify-end gap-1.5"
-      data-testid="insights-scope-controls"
+      data-testid="insights-team-scope-controls"
     >
       {showTeams && <TeamDropdown teams={teams} teamId={teamId} onChange={onTeamChange} />}
       {month && <MonthDropdown month={month} />}
@@ -146,31 +192,17 @@ function TeamDropdown({
           // reader user should have to sit through. Same wording as
           // teamPickerLabel's unread-free form (components/chat/use-chat-sync.ts).
           aria-label={`Team: ${name}`}
-          // A CAP, FOR TeamPicker'S REASON: this is the only control in the
-          // header whose width is somebody's data rather than a fixed label, so
-          // it is the one that has to be bounded, or a long team name decides
-          // how wide the header is and the title beside it pays for the room.
-          //
-          // NO EXTRA SQUEEZE ON A PHONE, UNLIKE TeamPicker, and that is a
-          // consequence of the header rather than a disagreement with it. That
-          // trigger drops 9.5rem -> 7.5rem below `sm` because it shares ONE ROW
-          // with four other controls at 390px (see routes/app.tsx's width
-          // table). This one never shares a row that tight: team-panel.tsx
-          // stacks its header below `md`, so the controls get the card's full
-          // width, and daily-team-fact.tsx has no title to share a row with at
-          // all. Measured in headless chromium over the BUILT stylesheet — at
-          // 390px the card's header is 324px wide inside its padding, and a
-          // name long enough to hold this at its cap makes the pair 263 of it.
-          //
-          // 12rem FROM `md`, WHERE THE TYPE AND THE PADDING BOTH GROW.
-          // `md:text-sm` and `md:px-3` together cost enough of 9.5rem that a
-          // name as ordinary as "Ada's Analysts" ellipsed on a 1280px screen
-          // with 300px of unused header beside it — measured the same way.
-          // Bounded rather than TeamPicker's `md:max-w-none`: uncapping here
-          // would let a long name shrink the TITLE, which is showing that same
-          // name in full.
+          // CAPPED BECAUSE THIS IS THE ONE CONTROL WHOSE WIDTH IS SOMEBODY'S
+          // DATA rather than a fixed label — uncapped, a long team name decides
+          // how wide the header is. No `sm` step, unlike TeamPicker's
+          // 9.5rem -> 7.5rem: that trigger shares one 390px row with four other
+          // controls (routes/app.tsx's width table) and this one never shares a
+          // row that tight. The `md` step up to 12rem pays for `md:text-sm` and
+          // `md:px-3`, which without it ellipsed a name as ordinary as "Ada's
+          // Analysts" on a 1280px screen. Both measured in headless chromium
+          // over the BUILT stylesheet, which is the only thing that can see it.
           className="max-w-[9.5rem] px-2 text-xs md:max-w-[12rem] md:px-3 md:text-sm"
-          data-testid="insights-scope-team"
+          data-testid="insights-team-scope-team"
         >
           {/* `truncate` BECAUSE `label` SHORTENS BY CHARACTERS, WHICH IS NOT A
               WIDTH. Fifteen wide characters still exceed the cap above, and
@@ -214,7 +246,7 @@ function MonthDropdown({ month }: { month: MonthScope }) {
           // the label above it is the override, not the addition.
           aria-label={`Month: ${formatMonthLabel(month.value)}`}
           className="px-2 text-xs md:px-3 md:text-sm"
-          data-testid="insights-scope-month"
+          data-testid="insights-team-scope-month"
         >
           {/* 'Aug 2026' — formatMonthLabel's short form (lib/format-day.ts), so
               this needs no cap of its own: every label it can produce is the

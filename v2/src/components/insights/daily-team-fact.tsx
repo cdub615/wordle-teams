@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { Card, CardContent, CardHeader } from '#/components/ui/card.tsx'
+import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+import { CONTROLS_ONLY_HEADER } from '#/components/insights/team-scope-controls.tsx'
 import { dailyTeamFact, type TeamMonth } from '#/lib/insights-team.ts'
 
 /**
@@ -26,12 +27,27 @@ export function DailyTeamFact({
   stats,
   viewerId,
   today,
+  teamName,
   onSeeFullMonth,
   controls,
 }: {
   stats: TeamMonth | null
   viewerId: string
   today: string
+  /**
+   * The team this fact is about, for the card's SCREEN-READER-ONLY heading.
+   *
+   * THIS CARD HAS NO PAINTED TITLE AND IS NOT GETTING ONE — the design is one
+   * sentence, and the dropdown above it already names the team on screen. What
+   * it was missing is a heading in the DOCUMENT: a reader navigating by heading
+   * skipped this region entirely and landed on a bare "Team: ..." button with
+   * nothing to say what it belonged to. Same fix, and the same `h2`, as
+   * team-panel.tsx — see PanelHeader there for why that level.
+   *
+   * Optional with the same `?? 'Your team'` fallback TeamPanel applies, so the
+   * heading can never come out empty.
+   */
+  teamName?: string
   onSeeFullMonth?: () => void
   /**
    * The team dropdown (components/insights/team-scope-controls.tsx), as a node
@@ -55,18 +71,32 @@ export function DailyTeamFact({
   // Nothing to say yet. Deliberately renders nothing at all rather than an empty
   // card: a player who has not entered today is being asked for a board, and the
   // dashboard already asks.
+  //
+  // THIS NOW TAKES THE TEAM DROPDOWN WITH IT, which it did not when the rule was
+  // written: the picker lives in this card's header, so a free player on two
+  // teams who has not played today gets no card AND no way to switch teams. That
+  // is wordle-teams-cwmf, filed rather than fixed here — undoing it means
+  // deciding what this card SAYS to somebody who has not played, and the spec
+  // pins this card to one fact about a board they have entered. Do not "fix" it
+  // by rendering an empty card; that is the state this return exists to avoid.
   if (fact.kind === 'no-board') return null
 
   return (
     <Card data-testid="insights-daily-fact">
-      {/* NO TITLE TO SIT BESIDE, so the control takes the header on its own and
-          the header exists only when the control does. `justify-end` puts it
-          where team-panel.tsx's controls are, so the two Layer 3 cards put the
-          same dropdown in the same place. */}
+      {/* OUTSIDE THE HEADER, because the header is conditional and the heading
+          must not be: a one-team account gets no controls, and a card with no
+          heading at all is the defect this fixes. `sr-only` is out of flow, so
+          it costs no layout wherever it sits. */}
+      <CardTitle asChild className="sr-only">
+        <h2>{teamName ?? 'Your team'}</h2>
+      </CardTitle>
+      {/* NO PAINTED TITLE TO SIT BESIDE, so the control takes the header on its
+          own — and the header exists only when the control does, since an
+          always-drawn one would be an empty padded row for a one-team account.
+          CONTROLS_ONLY_HEADER is the shape team-panel.tsx's hidden-title header
+          shares, so the two cards put the same dropdown in the same place. */}
       {controls && (
-        <CardHeader className="flex-row items-center justify-end space-y-0 pb-3">
-          {controls}
-        </CardHeader>
+        <CardHeader className={`${CONTROLS_ONLY_HEADER} pb-3`}>{controls}</CardHeader>
       )}
       {/* CardContent's own `pt-0` IS CORRECT WHEN A HEADER IS ABOVE IT, and the
           `pt-6` that overrides it is what this card needed while it had none.
