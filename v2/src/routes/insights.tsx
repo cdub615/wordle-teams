@@ -13,6 +13,7 @@ import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
 import { formatMonthLabel } from '#/lib/format-day'
 import { DailyBenchmark } from '#/components/insights/daily-benchmark.tsx'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
+import { NoTeamCard } from '#/components/insights/no-team-card.tsx'
 import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
 import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
 import { TeamPanel } from '#/components/insights/team-panel.tsx'
@@ -333,6 +334,7 @@ export function InsightsPanel({
 function TeamSection({ layer3 }: { layer3: 'none' | 'free' | 'full' }) {
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
   const teamId = teams?.[0]?.id
+  const teamName = teams?.[0]?.name
   // The viewer's own day and month, never the server's — Convex runs in UTC and
   // "today" is a question about the viewer's calendar.
   const today = toPuzzleDay(new Date())
@@ -343,9 +345,20 @@ function TeamSection({ layer3 }: { layer3: 'none' | 'free' | 'full' }) {
     enabled: teamId !== undefined,
   })
 
-  // A player on no team has no team analytics, which is a state rather than a
-  // failure — and a common one, since a v1 migrant can have left every team.
-  if (!teamId || !data) return null
+  /*
+    THE GUARD IS SPLIT ON PURPOSE — the two conditions it used to share
+    (`!teamId || !data`) mean different things and must not render the same
+    thing. "No team" is a STATE: the player has nothing here to load, ever,
+    until they act, and that is common enough (a v1 migrant can have left
+    every team) that wordle-teams-wty4.1.11.8 requires it be said rather than
+    silently absent — see no-team-card.tsx's own comment on why it is a card
+    with a link, not an UnlockPrompt with a bar. "No data yet" with a real
+    `teamId` is a LOADING FRAME: `teamMonth` is still in flight, and it will
+    resolve on this same render pass shortly — that is not a state worth
+    narrating, so it renders nothing, exactly as it always did.
+  */
+  if (!teamId) return <NoTeamCard />
+  if (!data) return null
 
   /*
     THE FREE SLICE IS A DIFFERENT COMPONENT, NOT A CUT-DOWN PANEL. The spec pins
@@ -357,6 +370,6 @@ function TeamSection({ layer3 }: { layer3: 'none' | 'free' | 'full' }) {
     return <DailyTeamFact stats={data.stats} viewerId={data.viewerId} today={today} />
   }
 
-  return <TeamPanel data={data} />
+  return <TeamPanel data={data} teamName={teamName} />
 }
 
