@@ -62,6 +62,28 @@ test('each bar carries an sr-only sentence with its month, board count and mean'
   expect(sentence!.textContent).toContain('4')
 })
 
+test('the mean is printed as VISIBLE text next to the bar, not only inside the sr-only sentence', () => {
+  // One board at 4 guesses and one at 5 gives a mean of exactly 4.5 — a
+  // number that appears nowhere else in this render (not the board count,
+  // not the month), so finding "4.5" among the visible text proves this
+  // label specifically, rather than coincidentally matching something else.
+  const boards = [board('2026-08-01', 4), board('2026-08-02', 5)]
+  const { container } = render_(boards)
+  const months = screen.getByTestId('insights-months')
+  const bar = container.querySelector('[data-testid="insights-trend-bar"]')!
+  // bar -> its aria-hidden wrapper -> the column div holding the wrapper,
+  // the sr-only sentence and both month-name spans as siblings.
+  const column = bar.parentElement!.parentElement!
+  const visibleText = [...column.children]
+    .filter((el) => !el.classList.contains('sr-only'))
+    .map((el) => el.textContent)
+    .join(' ')
+  expect(visibleText).toContain('4.5')
+  // The sr-only sentence still carries it too, in prose — this assertion is
+  // about the VISIBLE label existing in addition, not replacing it.
+  expect(months.querySelector('.sr-only')!.textContent).toContain('4.5')
+})
+
 describe('the bars scale from zero against the worst mean, not from the minimum', () => {
   test('a month at half the worst mean renders at half height, not zero', () => {
     // July: mean 2 (the best). August: mean 4 (the worst, and the window's

@@ -71,7 +71,22 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
         <p className="text-muted-foreground text-xs">avg guesses · lower is better</p>
       </CardHeader>
       <CardContent data-testid="insights-months">
-        <div className="flex h-28 items-end gap-1.5 md:gap-3">
+        {/*
+          STRETCH, NOT items-end, ON THIS ROW. It used to be `items-end`, which
+          reads as "bottom-align the short columns inside the tall row" but
+          actually means every column keeps its own content-driven (`auto`)
+          height instead of the row's fixed h-28 — and a CSS percentage height
+          resolves against an `auto`-height containing block by falling back to
+          `auto` itself (CSS2.1 §10.5). That is not a styling nitpick: it made
+          the bar below collapse to 0px in every real browser, silently,
+          regardless of `meanAttempts` — verified with headless Chromium against
+          this exact markup (wordle-teams-16l9). `flex-1 min-h-0` on the bar
+          wrapper below is the other half of the fix: with the column now
+          actually stretched to 112px, the wrapper's flex-grow gives it a
+          layout-resolved (not percentage-of-auto) height that `height: X%` on
+          the fill div can size against.
+        */}
+        <div className="flex h-28 gap-1.5 md:gap-3">
           {trend.months.map((row) => {
             const emphasise = row.month === latestMonth && trend.latestIsBest
             const label = formatMonthLabel(row.month)
@@ -86,10 +101,37 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
 
             return (
               <div key={row.month} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                {/*
+                  THE MEAN, VISIBLE — NOT ONLY INSIDE THE sr-only SENTENCE
+                  BELOW. Before this label existed, bar height was a sighted
+                  user's ONLY route to this number, and for a consistent
+                  player — whose monthly means cluster inside a few tenths of
+                  a guess, which is exactly what "consistent" looks like —
+                  every bar lands within a handful of percentage points of the
+                  tallest. That reads as a nearly flat, uninformative row for
+                  precisely the player the chart is supposed to flatter, while
+                  a screen-reader user got the exact figure every time from the
+                  sentence below. This label closes that parity gap; see
+                  attempt-distribution.tsx's "COLOUR IS NEVER THE ONLY CARRIER"
+                  comment for the sibling component that already lives by this
+                  rule. Always `text-muted-foreground`, NEVER the accent, even
+                  on the emphasised month — green marks an achievement in this
+                  design system (see `emphasise` below), and if every month's
+                  number turned green the colour would stop meaning anything.
+                  `tabular-nums` keeps the digit width steady as the value
+                  moves between, say, 4.0 and 4.4, so bars don't visibly
+                  jitter sideways as the numbers above them change width.
+                */}
+                <span
+                  className="text-muted-foreground text-[10px] tabular-nums"
+                  aria-hidden="true"
+                >
+                  {row.meanAttempts}
+                </span>
                 {/* aria-hidden: the visible rectangle carries no accessible
                     shape of its own — the sr-only sentence just below is the
                     one route to this bar's data for assistive tech. */}
-                <div className="flex h-full w-full items-end" aria-hidden="true">
+                <div className="flex min-h-0 w-full flex-1 items-end" aria-hidden="true">
                   <div
                     className={`w-full rounded-t-sm ${emphasise ? 'bg-accent-solid' : 'bg-muted'}`}
                     style={{ height: `${(row.meanAttempts / worst) * 100}%` }}
@@ -100,9 +142,14 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
                   THE CHART MUST REACH A SCREEN READER AS NUMBERS, NOT AS A
                   SHRUG. The bar itself is `aria-hidden` (it is a decorative
                   rectangle with no accessible shape), so this sentence is the
-                  only route to the month's data for assistive tech — it is
-                  not a duplicate of anything visible, since the visible label
-                  below is only the month name.
+                  only route to the month's data for assistive tech. Its
+                  PIECES now each also appear visibly elsewhere — the mean
+                  above the bar, the month name below it — but this sentence
+                  is still the only place a screen-reader user gets the board
+                  COUNT, and the only place any of the three arrive joined as
+                  one fact ("August 2026, 28 boards, average 4.2") rather than
+                  three separate visual fragments a sighted reader has to
+                  assemble themselves.
                 */}
                 <span className="sr-only">
                   {`${label}: ${row.boards} ${boardsWord}, average ${row.meanAttempts} guesses.`}
