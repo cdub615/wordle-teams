@@ -1547,7 +1547,12 @@ export function PersonalSummary({ boards }: { boards: PersonalBoard[] }) {
   const solvedRate = Math.round((spread.solved / Math.max(spread.solved + spread.failed, 1)) * 100)
 
   return (
-    <Card data-testid="insights-personal">
+    /* `insights-summary`, NOT `insights-personal`. PersonalHistory still owns
+       that id at this stage and the two render SIDE BY SIDE, so reusing it
+       would give getByTestId two matches and throw in the existing tests
+       rather than fail informatively. Task 16 hands `insights-personal` over
+       to this card once PersonalHistory is deleted. */
+    <Card data-testid="insights-summary">
       <CardContent className="space-y-4 pt-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:gap-6">
           <div className="md:shrink-0">
@@ -1631,7 +1636,12 @@ In `src/routes/insights.tsx`:
 ```tsx
       {data.access.layer2 === 'full' && (
         <>
-          <PersonalSummary boards={data.boards} />
+          {/* GATED ON isThin FOR THE REASON isThin EXISTS. Rendering the hero
+              unconditionally puts a mean over two boards at 48px — the exact
+              state MIN_BOARDS_FOR_STATS was introduced to prevent, and the one
+              the spec calls "worse than empty: a product that has nothing to
+              say rather than one waiting for data." */}
+          {!isThin(data.boards) && <PersonalSummary boards={data.boards} />}
           <PersonalHistory benchmark={benchmark} boards={data.boards} />
         </>
       )}
@@ -2532,6 +2542,19 @@ link rather than a progress bar."
 
 **Files:**
 - Modify: `src/routes/insights.tsx`
+
+- [ ] **Step 0: `insights-personal` changes owner, and must not be dropped**
+
+Deleting `PersonalHistory` removes the element carrying `data-testid="insights-personal"`,
+and **nine assertions across `e2e/` and `-insights.hook.test.ts` depend on it.**
+`PersonalSummary` currently carries `insights-summary` precisely because both
+rendered at once; once `PersonalHistory` is gone that collision is gone too.
+
+Move `insights-personal` onto `PersonalSummary`'s `Card` — it is now *the*
+personal card and inherits the id's meaning. Keep `insights-summary` as well so
+the tests written against it in Task 10 keep passing. Verify with
+`grep -rn 'insights-personal' e2e/ src/` that every existing reference still
+resolves; a dropped testid is a silently skipped assertion, not a failure.
 
 - [ ] **Step 1: Restore the thin state at the route**
 
