@@ -513,7 +513,7 @@ describe('telling the dashboard it is on screen (wordle-teams-wty4.1.7.10)', () 
      * THE CASE THE DISMISS TEST CANNOT REACH. This component is mounted on the
      * DASHBOARD branch of routes/app.tsx; the passkey offer is mounted on all
      * three. A branch swap — the params skeleton that every load passes
-     * through, and that `useDashboardSearchSync` can return the route to —
+     * through, and that `useSearchSync` can return the route to —
      * therefore unmounts this while the offer stays. With no cleanup the
      * parent's flag stays `true` for the rest of the session and the offer is
      * held back by a dialog that is no longer anywhere.

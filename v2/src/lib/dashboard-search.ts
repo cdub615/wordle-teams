@@ -39,9 +39,10 @@
  * The localStorage key that remembers the caller's last-selected team.
  *
  * Single source of truth — import this rather than repeating the string.
- * Read and written by useDashboardSearchSync (fills `?team=` from it, then
- * keeps it in sync with the URL), and by routes/insights.tsx, which has a team
- * control of its own so a pick there follows the player back to the dashboard.
+ * Read and written by useSearchSync (lib/use-search-sync.ts), which fills
+ * `?team=` from it and then keeps it in sync with the URL. BOTH pages that have
+ * a team control share that one hook — /app and /insights — which is why a pick
+ * on either follows the player to the other.
  *
  * routes/team.tsx NEVER SELECTS WITH IT, which is the distinction worth keeping
  * straight: it READS the key in its own fallback effect through

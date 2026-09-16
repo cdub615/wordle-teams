@@ -15,7 +15,7 @@ import { mutationErrorMessage } from '#/lib/convex-error.ts'
  *
  * A HOOK RATHER THAN A PLAIN FUNCTION because `useConvexAction` is one, and the
  * pending flag it pairs with is React state. Sibling of use-local-capture.ts
- * and use-dashboard-search-sync.ts, in the same directory for the same reason.
+ * and use-search-sync.ts, in the same directory for the same reason.
  *
  * ONE COPY, NOT TWO, AND THAT IS THE WHOLE POINT OF THE LIFT. wordle-teams-9fm
  * was this logic getting a failure branch wrong in one place; a second

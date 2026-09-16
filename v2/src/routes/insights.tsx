@@ -12,8 +12,7 @@ import { onATeamFrom, upsellFor } from '#/lib/insights-panel.ts'
 import type { Boards } from '#/lib/insights-panel.ts'
 import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
 import { resolveInsightsSearch } from '#/lib/insights-search.ts'
-import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
-import { useHydrated } from '#/lib/use-hydrated.ts'
+import { useSearchSync } from '#/lib/use-search-sync.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { DailyBenchmark } from '#/components/insights/daily-benchmark.tsx'
 import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
@@ -22,7 +21,7 @@ import { TeamSection } from '#/components/insights/team-section.tsx'
 import { TrendPanel } from '#/components/insights/trend-panel.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
-import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import { monthOf } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -114,7 +113,6 @@ function useBenchmark() {
 function InsightsRoute() {
   const { team: teamParam, month: monthParam } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const hydrated = useHydrated()
   const { data, isPending } = useQuery(convexQuery(api.insights.myBenchmarkBoards, {}))
   const { benchmark, failed } = useBenchmark()
 
@@ -154,54 +152,26 @@ function InsightsRoute() {
   const selectedTeam = teams?.find((team) => team.id === teamParam)
 
   /*
-    FILLS IN OR CORRECTS `?team=` AND `?month=`, through the pure
-    resolveInsightsSearch rather than inline: that function has a test asserting
-    it is idempotent — feed it its own output and it returns null — and that
-    property is the only thing standing between this effect and an infinite
-    redirect. Read its header before changing what it is fed.
+    FILLS IN OR CORRECTS `?team=` AND `?month=`, AND REMEMBERS THE TEAM. Both
+    effects moved into lib/use-search-sync.ts (wordle-teams-1ubk), which /app
+    shares — the second half of this was byte-identical there, and the first
+    differed only in the resolver. The hydration rule, the `teams ?? []`, and the
+    remembered-team write all have their reasoning in that hook's header now,
+    where there is one copy of each.
 
-    AFTER HYDRATION ONLY — the clock read below is a local one and the server
-    renders in UTC. lib/use-dashboard-search-sync.ts's header states that rule in
-    full, and routes/team.tsx's effect states why it needs no such guard (it
-    reads localStorage and never the clock).
-
-    `teams ?? []` RATHER THAN AN EARLY RETURN. With the team list still in
-    flight the resolver has nothing to select and returns null, which is exactly
-    the "do nothing" an early return would produce. The DEPENDENCY stays `teams`
-    itself — the reference react-query hands back, which holds while the data is
-    unchanged — because `teams ?? []` in the dependency array would be a fresh
-    array on every render and re-run the effect on each one.
+    `navigate` IS PASSED RAW, AND THAT IS LOAD-BEARING. See the hook's `navigate`
+    prop: a closure built here would be a fresh function every render sitting in
+    the effect's dependency array. This page never had that flaw; /app did, and
+    the shared hook is what fixes it there rather than spreading it here.
   */
-  useEffect(() => {
-    if (!hydrated) return
-    const next = resolveInsightsSearch({
-      teamParam,
-      monthParam,
-      teams: teams ?? [],
-      storedTeam: localStorage.getItem(STORAGE_KEY),
-      currentMonth: monthOf(toPuzzleDay(new Date())),
-    })
-    if (next) void navigate({ to: Route.fullPath, search: next, replace: true })
-  }, [hydrated, teamParam, monthParam, teams, navigate])
-
-  /*
-    THIS PAGE SETS THE REMEMBERED TEAM; `/team` ONLY READS AND CLEARS IT. That
-    asymmetry is deliberate on both sides and STORAGE_KEY's own doc in
-    lib/dashboard-search.ts says which page does what — the short version is that
-    /team has no team control of its own to keep the key in sync with and this
-    page is getting one, so a pick here follows the player back to the dashboard.
-
-    NOT CONDITIONAL ON THE PARAM BEING VALID, matching useDashboardSearchSync
-    line for line. A stale or foreign `?team=` is written for the render or two
-    before the effect above replaces it — EXCEPT for a viewer with no teams at
-    all, where the resolver returns null, nothing navigates, and the foreign id
-    stays. Harmless: every reader of this key re-validates it against the roster
-    before selecting anything (resolveDashboardSearch, resolveTeamSettingsSearch,
-    resolveInsightsSearch all do), so a value nobody can use is inert.
-  */
-  useEffect(() => {
-    if (teamParam) localStorage.setItem(STORAGE_KEY, teamParam)
-  }, [teamParam])
+  useSearchSync({
+    teamParam,
+    monthParam,
+    teams,
+    resolve: resolveInsightsSearch,
+    navigate,
+    to: Route.fullPath,
+  })
 
   return (
     /* THE CAP IS NESTED INSIDE page-max, NOT COMBINED WITH IT ON ONE ELEMENT,

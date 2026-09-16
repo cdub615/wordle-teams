@@ -137,7 +137,7 @@ function TeamSettingsPage() {
    * mirrors: this page has no `?month=` to also settle, so there is nothing
    * for the pair-shaped resolver to return once the team half is right.
    *
-   * NO `hydrated` GUARD, UNLIKE useDashboardSearchSync. That hook waits on
+   * NO `hydrated` GUARD, UNLIKE useSearchSync. That hook waits on
    * hydration because its decision depends on the local CLOCK, which the
    * server cannot read — this one only depends on `localStorage`, which
    * `useEffect` already keeps off the server for free (effects do not run

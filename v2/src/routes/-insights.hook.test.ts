@@ -15,7 +15,6 @@
 // is a licence obligation rather than a courtesy, so it gets its own assertion
 // here instead of riding along inside somebody's snapshot — a snapshot would go
 // on passing with the credit deleted as long as it was regenerated.
-import { readFileSync } from 'node:fs'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
@@ -493,45 +492,27 @@ describe('InsightsScope', () => {
   cannot be rendered under vitest at all.
 */
 
-/**
- * The route's source with comments removed. EVERY source assertion below matches
- * against this rather than the raw text, and that is not tidiness.
- *
- * A MATCHER THAT CAN MATCH A COMMENT CAN GO SILENTLY DEAD. This project's house
- * style names components and options in prose, so a matcher looking for a call
- * or a guard will happily find a sentence describing one and go on passing while
- * the code it was watching is gone. A test that fails noisily is recoverable;
- * one that passes for the wrong reason is not.
- *
- * Crude by design — a strip over one known file, not a parser. It also eats a
- * `//` inside a string (the one href literal in this route), which no assertion
- * reads. A new string that a matcher must see is a reason to reach for a parser,
- * not to loosen the assertion.
- */
-const stripComments = (code: string) =>
-  code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+/*
+  THE SEARCH-PARAM SYNC IS NOT READ OUT OF THIS FILE'S SOURCE ANY MORE
+  (wordle-teams-1ubk).
 
-const routeCode = stripComments(readFileSync('src/routes/insights.tsx', 'utf8'))
+  Three assertions used to live here as `expect(routeCode).toContain(...)` over
+  the route's text — that the effect waits for hydration, that the fallback month
+  comes from the local clock, and that the selected team is written to
+  STORAGE_KEY — with a paragraph explaining why: InsightsRoute cannot be rendered
+  under vitest at all, so there was nothing to render.
 
-describe('the search params the route settles, read from its source', () => {
-  test('the search effect waits for hydration before reading the clock', () => {
-    // wordle-teams-uc5: the fallback month comes from the viewer's LOCAL clock
-    // and the server renders in UTC, so on the first and last day of a month an
-    // unguarded read disagrees with itself across hydration.
-    expect(routeCode).toContain('if (!hydrated) return')
-    expect(routeCode).toContain('currentMonth: monthOf(toPuzzleDay(new Date()))')
-  })
+  A HOOK CAN BE RENDERED. The effect is lib/use-search-sync.ts now, shared with
+  /app, and lib/use-search-sync.hook.test.ts DRIVES it through renderHook: it
+  asserts that nothing navigates before hydration, that the month the resolver is
+  handed is the browser's own, and that the key is actually written. Three
+  source-text matchers became three behavioural tests, and a rename of a local
+  can no longer fail them — nor a restructure pass them while the property is
+  gone.
 
-  test('the selected team is written to the dashboard’s remembered-team key', () => {
-    // THE DIFFERENCE FROM routes/team.tsx IS DELIBERATE — that page reads and
-    // clears this key but never selects with it, having no team control of its
-    // own. A future editor who "harmonises" the two by deleting this write loses
-    // the property it exists for: a team picked here follows the player back to
-    // the dashboard. The KEY being set is the property; which variable holds the
-    // id is not.
-    expect(routeCode).toMatch(/localStorage\.setItem\(STORAGE_KEY,/)
-  })
-})
+  What is left below is `validateSearch`, which is a plain function on the route
+  object and was never a source assertion.
+*/
 
 /**
  * THE SHAPE GATE ON THE TWO PARAMS. `validateSearch` is the FIRST of the two

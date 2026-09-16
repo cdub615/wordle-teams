@@ -12,7 +12,8 @@ import { promoteLoginAttempt } from '#/lib/last-login.ts'
 import { shouldOfferPasskey } from '#/lib/passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
-import { useDashboardSearchSync } from '#/lib/use-dashboard-search-sync.ts'
+import { resolveDashboardSearch } from '#/lib/dashboard-search.ts'
+import { useSearchSync } from '#/lib/use-search-sync.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { usePendingInvite } from '#/lib/use-pending-invite.ts'
 import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
@@ -321,7 +322,7 @@ function Dashboard() {
   /**
    * The return leg from checkout (wordle-teams-wxg, decision L).
    *
-   * DECLARED BEFORE useDashboardSearchSync, WHICH IS NOT COSMETIC: effects run
+   * DECLARED BEFORE useSearchSync, WHICH IS NOT COSMETIC: effects run
    * in the order their hooks are called, and the sync effect navigates —
    * rewriting the URL to `?team=&month=` and dropping every param it does not
    * know about, `checkout` included. Reading the marker after that would find
@@ -410,7 +411,7 @@ function Dashboard() {
    *
    * WHAT IS STILL THIS FILE'S: spending the token, and the two toasts.
    *
-   * CALLED BEFORE useDashboardSearchSync, AND THAT STILL MATTERS. Effects run
+   * CALLED BEFORE useSearchSync, AND THAT STILL MATTERS. Effects run
    * in the order their hooks are called, and the sync effect navigates with
    * `{ team, month }` — a whole new search object, so `join` is gone from the
    * router's search after it runs. Moving this below it would find nothing on
@@ -428,11 +429,27 @@ function Dashboard() {
       )
   })
 
-  useDashboardSearchSync({
+  /*
+    `navigate` IS PASSED RAW, AND THAT IS THE BUG THIS LINE USED TO BE
+    (wordle-teams-1ubk). It read
+    `navigate: (search) => void navigate({ to: Route.fullPath, search, replace: true })`
+    — a FRESH CLOSURE on every render, sitting in the sync effect's dependency
+    array, so that effect re-ran on EVERY render of the dashboard rather than
+    when a param actually moved. /insights never had the flaw, because it passed
+    useNavigate's own result, which is useCallback-stable (memoised on
+    `_defaultOpts?.from`, a stable string).
+
+    So the hook takes the stable function plus a `to` and builds the argument
+    itself. Generalising it the other way — keeping the closure — would have
+    handed this flaw to /insights instead of taking it off this page.
+  */
+  useSearchSync({
     teamParam,
     monthParam,
     teams,
-    navigate: (search) => void navigate({ to: Route.fullPath, search, replace: true }),
+    resolve: resolveDashboardSearch,
+    navigate,
+    to: Route.fullPath,
   })
 
   const onboardingFacts = onboardingFactsFrom(teams, onboardingStatus)
@@ -556,7 +573,7 @@ function Dashboard() {
    *
    * ALL THREE, because the effect that opens it fires on mount and cannot know
    * which branch will be rendering by the time it does. A team-less player and
-   * one waiting for `useDashboardSearchSync` to fill the params in have both
+   * one waiting for `useSearchSync` to fill the params in have both
    * just signed in, and the offer exists for exactly the returning player whose
    * first screen is one of those.
    *
@@ -591,7 +608,7 @@ function Dashboard() {
   // have created a single team, and that is the case where they would
   // otherwise be looking at a page with nothing on it that acknowledges the
   // payment they just made. The skeleton branch matters too — it is what every
-  // load shows until useDashboardSearchSync fills the params in.
+  // load shows until useSearchSync fills the params in.
   if (teams.length === 0) {
     return (
       <main className="page-max mt-2 md:mt-6">
@@ -882,7 +899,7 @@ function Dashboard() {
         {/* Gated on `selectedTeam`, matching the convention every other
             selectedTeam-dependent block in this file uses: a stale or invalid
             `?team=` renders `selectedTeam` undefined for the renders before
-            useDashboardSearchSync's post-hydration effect corrects it, and
+            useSearchSync's post-hydration effect corrects it, and
             there is no team yet to hand `/team` a valid `?team=` for.
             Rendering this control unconditionally would leave it on screen,
             clickable, navigating to a page with nothing to show. */}
@@ -1086,7 +1103,7 @@ function Dashboard() {
           // its own grid child — see the Suspense comment above this block.
           // Gated on `selectedTeam` for the same reason "Team settings" above
           // is: a stale `?team=` renders it undefined for the few renders
-          // before useDashboardSearchSync corrects it.
+          // before useSearchSync corrects it.
           footer={
             selectedTeam && (
               <ScoringLegend

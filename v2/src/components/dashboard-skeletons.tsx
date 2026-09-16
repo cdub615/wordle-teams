@@ -301,7 +301,7 @@ export function ScoringSystemCardSkeleton({ className }: { className?: string })
  *
  * NO `month` TO SIZE THE TABLE WITH, which is why the top block is a plain
  * rectangle rather than ScoresTableSkeleton: at this point the route has not
- * resolved its search params, and useDashboardSearchSync has not yet filled
+ * resolved its search params, and useSearchSync has not yet filled
  * them in. Guessing a column count here would be a guess about a month nobody
  * has chosen.
  *

@@ -1235,7 +1235,7 @@ export function hasUnread(
  *
  * `selected` MAY BE `undefined`, and that is a real state rather than
  * defensiveness: routes/app.tsx renders TeamPicker for the renders before
- * useDashboardSearchSync has filled `?team=` in, and a stale param can name a
+ * useSearchSync has filled `?team=` in, and a stale param can name a
  * team the player is no longer on. With nothing selected, every unread team is
  * an "other" one, which is the honest answer.
  */

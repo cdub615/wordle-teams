@@ -417,7 +417,7 @@ describe('hasUnreadElsewhere', () => {
 
   it('counts every unread team as an "other" when nothing is selected', () => {
     // A real state, not a defensive one: routes/app.tsx renders TeamPicker for
-    // the renders before useDashboardSearchSync fills `?team=` in, and a stale
+    // the renders before useSearchSync fills `?team=` in, and a stale
     // param can name a team the player has left.
     expect(hasUnreadElsewhere([alpha, beta], undefined)).toBe(true)
   })
