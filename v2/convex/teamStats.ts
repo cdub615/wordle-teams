@@ -1,3 +1,5 @@
+import { v } from 'convex/values'
+import { internal } from './_generated/api'
 import { internalMutation } from './_generated/server'
 import { aggregateTeamMonth, sameStats } from './lib/teamStats.ts'
 import { monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
@@ -19,7 +21,7 @@ import type { TeamMonthStats } from './lib/teamStats.ts'
  *      trigger for exactly this (team, month) pair, so the aggregate rides the
  *      path that already exists rather than inventing a second notion of "a
  *      board changed".
- *   2. HOURLY, for the CURRENT month only. This is a safety net rather than the
+ *   2. DAILY, for the CURRENT month only. This is a safety net rather than the
  *      mechanism: it catches a month whose boundary has just passed, and any
  *      write path that ever forgets trigger 1. It does not walk history, because
  *      history cannot change without a board write, which is trigger 1.
@@ -40,9 +42,9 @@ function yearAndMonth(month: PuzzleMonth): { year: number; monthNum: number } {
 /**
  * Recompute and store one team's month. Idempotent by construction.
  *
- * WRITES ONLY WHEN THE NUMBERS MOVED. The hourly sweep recomputes every team's
- * current month, and on most hours nothing has changed — a team that has not
- * played since yesterday would otherwise be rewritten 24 times a day. Writes are
+ * WRITES ONLY WHEN THE NUMBERS MOVED. The daily sweep recomputes every team's
+ * current month, and on most days nothing has changed — a team that has not
+ * played since the last run would otherwise be rewritten for nothing. Writes are
  * the expensive half of the budget this table exists to protect, so spending them
  * to store an identical document would undo the saving on the read side. The
  * equality is safe because aggregateTeamMonth is deterministic in every ordering;
@@ -132,7 +134,7 @@ function toStats(row: Doc<'teamMonthStats'>): TeamMonthStats<Id<'players'>> {
 }
 
 /**
- * Every team's CURRENT month, hourly.
+ * Every team's CURRENT month, daily, one scheduled execution per team.
  *
  * THE CURRENT MONTH IS RESOLVED IN UTC, and that is acceptable here where it
  * would not be elsewhere. Convex runs in UTC and this sweep only decides WHICH
@@ -151,7 +153,59 @@ export const sweep = internalMutation({
   handler: async (ctx) => {
     const month = monthOf(toPuzzleDay(new Date()))
     const teams = await ctx.db.query('teams').collect()
-    for (const team of teams) await rollupTeamMonth(ctx, team, month)
+    /*
+      ONE SCHEDULED MUTATION PER TEAM, NOT ONE MUTATION FOR ALL OF THEM, and the
+      limit this respects is not the one wordle-teams-yhii fixed.
+
+      yhii cut this cron from hourly to daily, which divided the MONTHLY
+      database-I/O total by 24. That is a budget measured in bytes per month.
+      Convex also enforces a hard cap of 4,096 document reads inside a SINGLE
+      function execution, and frequency cannot touch that one: the old shape read
+      every team plus every member's dailyScores for the month in one mutation,
+      so its per-call cost was O(teams x members x boards) with no ceiling. yhii's
+      own arithmetic put that at roughly 2,300 documents — about 56% of the cap,
+      with the launch email aimed at reactivating 322 dormant accounts.
+
+      Scheduling bounds each execution to ONE team. What remains in this mutation
+      is the `teams` scan itself, so the ceiling moves from
+      teams x members x boards to teams alone — from a few hundred to a few
+      thousand, and it degrades by growing rather than by failing.
+
+      THE SCAN IS STILL THE NEXT THING TO PAGINATE if teams ever approach the
+      cap; countTable in migrate.ts is the shape to copy. Measured on the local
+      e2e backend, which nothing prunes: 5,203 team rows, 5,007 of them
+      fixtures — enough to blow the cap on the scan alone, which is how
+      wordle-teams-ndgx was found.
+    */
+    for (const team of teams) {
+      await ctx.scheduler.runAfter(0, internal.teamStats.rollupOne, {
+        teamId: team._id,
+        month,
+      })
+    }
     return { teams: teams.length, month }
+  },
+})
+
+/**
+ * One team's current month, as its own execution. Scheduled by `sweep`.
+ *
+ * RE-READS THE TEAM RATHER THAN TAKING IT AS AN ARGUMENT, because a scheduled
+ * mutation runs after the one that scheduled it and the row can change or
+ * disappear in between — cascadeDeleteTeam is a real path. Passing the document
+ * would hand this a snapshot that was already stale on arrival.
+ *
+ * A MISSING TEAM IS AN ORDINARY OUTCOME, NOT AN ERROR. It means the team was
+ * deleted between the sweep and this run, in which case cascadeDeleteTeam has
+ * already removed its aggregates and there is nothing here to do. Throwing would
+ * turn a normal race into a failed function and a log entry nobody can action.
+ */
+export const rollupOne = internalMutation({
+  args: { teamId: v.id('teams'), month: v.string() },
+  handler: async (ctx, { teamId, month }) => {
+    const team = await ctx.db.get(teamId)
+    if (!team) return { rolled: false as const }
+    await rollupTeamMonth(ctx, team, month)
+    return { rolled: true as const }
   },
 })

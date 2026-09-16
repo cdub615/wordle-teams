@@ -1,5 +1,6 @@
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+import { internal } from './_generated/api'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { rollupTeamMonth } from './teamStats'
@@ -193,6 +194,92 @@ describe('cascadeDeleteTeam', () => {
       await cascadeDeleteTeam(ctx, team)
 
       expect(await ctx.db.query('teamMonthStats').collect()).toEqual([])
+    })
+  })
+})
+
+/**
+ * wordle-teams-ndgx. The sweep used to roll every team up INLINE, so one
+ * execution read O(teams x members x boards) documents against Convex's hard
+ * 4,096-read-per-call cap. wordle-teams-yhii's hourly-to-daily cut addressed a
+ * different ceiling entirely — the MONTHLY byte budget — and frequency cannot
+ * touch what one call reads.
+ *
+ * These pin the shape, not the arithmetic: that the sweep DELEGATES rather than
+ * rolls up, and that the delegated mutation still produces the same aggregate.
+ */
+describe('sweep delegates one execution per team', () => {
+  test('it schedules a rollup per team instead of doing the work inline', async () => {
+    const t = convexTest(schema, modules)
+
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 3; i++) {
+        const p = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('teams', aTeam({ playerIds: [p] }))
+        await ctx.db.insert('dailyScores', aBoard(p, today, 3))
+      }
+    })
+
+    vi.useFakeTimers()
+    const result = await t.mutation(internal.teamStats.sweep, {})
+    expect(result.teams).toBe(3)
+
+    // THE POINT OF THE CHANGE: the sweep itself writes nothing. If it rolled up
+    // inline these would already exist before the scheduler ran.
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query('teamMonthStats').collect()).toHaveLength(0)
+    })
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query('teamMonthStats').collect()).toHaveLength(3)
+    })
+    vi.useRealTimers()
+  })
+
+  test('a team deleted between the sweep and its rollup is an ordinary outcome', async () => {
+    const t = convexTest(schema, modules)
+
+    const teamId = await t.run(async (ctx) => {
+      const p = await ctx.db.insert('players', aPlayer())
+      const id = await ctx.db.insert('teams', aTeam({ playerIds: [p] }))
+      await ctx.db.insert('dailyScores', aBoard(p, today, 3))
+      return id
+    })
+
+    await t.run(async (ctx) => {
+      await ctx.db.delete(teamId)
+    })
+
+    // Not a throw: cascadeDeleteTeam is a real path, and turning a normal race
+    // into a failed function produces a log line nobody can action.
+    const result = await t.mutation(internal.teamStats.rollupOne, {
+      teamId,
+      month: today.slice(0, 7),
+    })
+    expect(result.rolled).toBe(false)
+  })
+
+  test('the delegated rollup produces the aggregate the inline one did', async () => {
+    const t = convexTest(schema, modules)
+
+    const { teamId, playerId } = await t.run(async (ctx) => {
+      const p = await ctx.db.insert('players', aPlayer())
+      const id = await ctx.db.insert('teams', aTeam({ playerIds: [p] }))
+      await ctx.db.insert('dailyScores', aBoard(p, today, 4))
+      return { teamId: id, playerId: p }
+    })
+
+    const month = today.slice(0, 7)
+    const result = await t.mutation(internal.teamStats.rollupOne, { teamId, month })
+    expect(result.rolled).toBe(true)
+
+    await t.run(async (ctx) => {
+      const [year, monthNum] = month.split('-').map(Number)
+      const row = await statsFor(ctx, teamId, year!, monthNum!)
+      expect(row).not.toBeNull()
+      expect(row!.members.map((m) => m.playerId)).toContain(playerId)
     })
   })
 })
