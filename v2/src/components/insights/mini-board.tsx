@@ -64,13 +64,25 @@ export function MiniBoard({
  * would give green and yellow a second meaning, and in this product they mean
  * exactly one thing. The tiles carry the shape; the numbers beside them carry
  * the result.
+ *
+ * WHY THIS NEEDS A LABEL AND MiniBoard DOES NOT: MiniBoard is aria-hidden
+ * because a screen reader has a plain-text fallback sitting right beside it —
+ * the score ("3/6") — so hiding the tiles loses nothing. WordTiles has no such
+ * fallback: in the openers panel this is the ONLY place the word appears, as
+ * five independent `<span>`s in a flex row with nothing tying them together.
+ * Adjacent inline elements like that are commonly exposed to assistive tech as
+ * separate nodes, so without an aggregate label a screen reader would spell
+ * "CRANE" out letter by letter with no route to the whole word. The letters
+ * are hidden individually and the word is restated once, in full, as the
+ * accessible name.
  */
 export function WordTiles({ word, testId }: { word: string; testId?: string }) {
   return (
-    <div className="flex w-fit gap-[2px]" data-testid={testId}>
+    <div className="flex w-fit gap-[2px]" role="img" aria-label={word} data-testid={testId}>
       {word.split('').map((letter, index) => (
         <span
           key={index}
+          aria-hidden="true"
           className="border-wordle-tile-border text-foreground flex size-[19px] items-center justify-center border text-[11px] font-bold"
         >
           {letter}

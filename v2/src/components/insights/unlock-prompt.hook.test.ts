@@ -36,6 +36,16 @@ describe('UnlockPrompt', () => {
     expect(screen.getByTestId('insights-unlock-form-fill').style.width).toBe('100%')
   })
 
+  test('aria-valuenow never exceeds aria-valuemax on overshoot, but the visible count stays honest', () => {
+    render(createElement(UnlockPrompt, { ...props, have: 99 }))
+    const bar = screen.getByRole('progressbar')
+    expect(Number(bar.getAttribute('aria-valuenow'))).toBeLessThanOrEqual(
+      Number(bar.getAttribute('aria-valuemax')),
+    )
+    expect(bar.getAttribute('aria-valuenow')).toBe('40')
+    expect(screen.getByTestId('insights-unlock-form').textContent).toContain('99 / 40')
+  })
+
   test('the fill asks for play, not money, so it never wears the achievement/upsell accent colour', () => {
     render(createElement(UnlockPrompt, props))
     const fill = screen.getByTestId('insights-unlock-form-fill')

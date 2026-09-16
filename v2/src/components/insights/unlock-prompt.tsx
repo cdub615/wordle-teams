@@ -29,7 +29,14 @@ export function UnlockPrompt({
   what: string
   need: number
   have: number
-  /** Pluralised by the caller — "boards", "hard days". */
+  /**
+   * Pluralised by the caller — "boards", "hard days". NEVER INTERPOLATED
+   * AGAINST `have`, only against `need` in the "unlocks at N unit" line above —
+   * so the only way this reads wrong is a caller passing `need: 1` ("1
+   * boards"). Every floor today is a constant of 5, 10 or 40; if that ever
+   * changes to a floor of 1, this prop is where the plural breaks, not here.
+   * Not worth a pluralisation helper for a case no caller has.
+   */
   unit: string
   /** One clause of actual value, no leading capital. */
   value: string
@@ -38,6 +45,13 @@ export function UnlockPrompt({
   // Clamped because a caller may hold a count past the floor for a render or two
   // while another condition gates the insight, and a bar wider than its track
   // would overflow the card.
+  //
+  // NEED IS ASSUMED POSITIVE, MATCHING mean()'S STANCE IN insights-personal.ts:
+  // every caller passes a floor constant (5, 10, 40), never zero, so a
+  // `Math.max(1, need)` guard here would only paper over a caller bug that
+  // does not exist today. `need: 0` would produce `NaN` and a silently
+  // zero-width bar rather than a crash — the harder failure to notice — but
+  // that is the honest cost of not inventing a guard for an unreachable input.
   const pct = Math.min(100, Math.round((have / need) * 100))
 
   return (
@@ -52,7 +66,15 @@ export function UnlockPrompt({
         <div
           className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full"
           role="progressbar"
-          aria-valuenow={have}
+          // CLAMPED LIKE `pct`, AND FOR THE SAME OVERSHOOT REASON — but this is
+          // a second, deliberate divergence from the visible "{have} / {need}"
+          // text below, not a duplicate of it. aria-valuenow describes the BAR
+          // (it must never exceed aria-valuemax, or the progressbar role is an
+          // invalid ARIA state and fails axe's aria-valid-attr-value); the
+          // text describes the PLAYER, who has genuinely played `have` boards
+          // and should see that true count even past the floor. Clamping the
+          // text too would understate their play.
+          aria-valuenow={Math.min(have, need)}
           aria-valuemin={0}
           aria-valuemax={need}
           aria-label={`${what} progress`}

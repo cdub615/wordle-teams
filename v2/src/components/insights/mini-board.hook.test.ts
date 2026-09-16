@@ -52,4 +52,13 @@ describe('WordTiles', () => {
     expect(tiles[0].className).not.toContain('bg-wordle-correct')
     expect(tiles[0].className).not.toContain('bg-wordle-present')
   })
+
+  test('the word is exposed to assistive tech as one string, not five separate letters', () => {
+    render(createElement(WordTiles, { word: 'CRANE', testId: 'word' }))
+    // getByRole('img', { name: 'CRANE' }) only succeeds if there is a single
+    // accessible name for the whole word — if the letter spans leaked through
+    // as their own accessible nodes instead, this lookup fails.
+    const node = screen.getByRole('img', { name: 'CRANE' })
+    expect(node).toBe(screen.getByTestId('word'))
+  })
 })
