@@ -21,15 +21,14 @@ import {
 } from '#/lib/insights-panel.ts'
 import {
   attemptsByMonth,
-  consistency,
   headlineComparison,
   isThin,
   openerRepertoire,
-  streaks,
 } from '#/lib/insights-personal.ts'
 import { formatMonthLabel } from '#/lib/format-day'
 import { formatDayHeaderParts } from '#/lib/format-day'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
+import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
 import { TeamPanel } from '#/components/insights/team-panel.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
@@ -254,7 +253,16 @@ export function InsightsPanel({
   return (
     <div className="space-y-3">
       {data.access.layer2 === 'full' && (
-        <PersonalHistory benchmark={benchmark} boards={data.boards} />
+        <>
+          {/* GATED BY isThin FOR THE SAME REASON PersonalHistory IS, just below.
+              consistency() and trailingForm() will happily compute a mean over
+              one or two boards; the whole point of isThin is that a mean over
+              that few boards is worse than no mean at all. Moving those stats
+              out of PersonalHistory's dl and into PersonalSummary must not
+              silently drop the gate that kept them off a thin history. */}
+          {!isThin(data.boards) && <PersonalSummary boards={data.boards} />}
+          <PersonalHistory benchmark={benchmark} boards={data.boards} />
+        </>
       )}
 
       <TeamSection layer3={data.access.layer3} />
@@ -325,8 +333,6 @@ function PersonalHistory({
 
   const repertoire = openerRepertoire(boards, benchmark.openers)
   const headline = headlineComparison(repertoire)
-  const runs = streaks(boards)
-  const spread = consistency(boards)
   const months = attemptsByMonth(boards)
 
   return (
@@ -347,15 +353,6 @@ function PersonalHistory({
             <span className="font-medium">{headline.other.word}</span>.
           </p>
         )}
-
-        <dl className="grid grid-cols-2 gap-2" data-testid="insights-consistency">
-          <Stat label="Average guesses" value={String(spread.meanAttempts)} />
-          <Stat label="Consistency (±)" value={String(spread.spread)} />
-          <Stat label="Current streak" value={String(runs.current)} />
-          <Stat label="Longest streak" value={String(runs.longest)} />
-          <Stat label="Solved" value={String(spread.solved)} />
-          <Stat label="Missed" value={String(spread.failed)} />
-        </dl>
 
         <div data-testid="insights-repertoire">
           <h3 className="mb-1 font-medium">Your openers</h3>
@@ -435,15 +432,6 @@ function TeamSection({ layer3 }: { layer3: 'none' | 'free' | 'full' }) {
   }
 
   return <TeamPanel data={data} />
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-muted-foreground text-xs">{label}</dt>
-      <dd className="font-medium">{value}</dd>
-    </div>
-  )
 }
 
 /**
