@@ -97,7 +97,7 @@ export function OpenersPanel({
             {advice && (
               <>
                 Opening <span className="font-medium">{advice.to}</span> instead would save you
-                about <span className="text-success font-semibold">{advice.savingPerDay}</span>{' '}
+                about <span className="text-accent-solid font-semibold">{advice.savingPerDay}</span>{' '}
                 guesses a day.
               </>
             )}

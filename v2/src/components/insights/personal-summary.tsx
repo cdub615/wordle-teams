@@ -59,10 +59,35 @@ export function PersonalSummary({ boards }: { boards: PersonalBoard[] }) {
             {form ? (
               /* NEVER text-destructive ON A WORSE STRETCH. A page someone pays
                  for should not scold them for a bad fortnight; the neutral
-                 treatment states the fact without the judgement. */
+                 treatment states the fact without the judgement.
+
+                 text-accent-solid, NOT text-success, FOR THE IMPROVING CASE.
+                 --success is a BACKGROUND token — it is paired with
+                 --success-foreground and travels with it (see badge.tsx's
+                 `bg-success text-success-foreground`), per this design
+                 system's rule that a background/foreground pair is set
+                 together or not at all. Using it as a TEXT colour on the
+                 dark surface put 14px semibold text at 3.74:1, below AA's
+                 4.5:1 (WCAG-9F). --accent-solid is the established green
+                 FOREGROUND token instead (maintenance.tsx,
+                 feature-cards.tsx, pull-to-refresh.tsx already use it this
+                 way) — identical to --success in light mode (5.02:1,
+                 unchanged) and 8.22:1 in dark. Do not "fix" this by giving
+                 --success a dark-mode value; that changes the badge instead
+                 of this text. */
               <p className="text-sm" data-testid="insights-trailing-form">
-                <span className={form.delta > 0 ? 'text-success font-semibold' : 'font-semibold'}>
-                  {form.delta > 0 ? '▲' : form.delta < 0 ? '▼' : '—'}{' '}
+                <span className={form.delta > 0 ? 'text-accent-solid font-semibold' : 'font-semibold'}>
+                  {/* THE GLYPH IS DECORATION, NOT THE MESSAGE. A screen reader
+                      announces a bare ▲/▼/— as its Unicode name ("black
+                      up-pointing triangle"), which says nothing, and colour
+                      is never the only carrier in this codebase (see
+                      AttemptDistribution's own comment) — so it is the sole
+                      OTHER signal here too. aria-hidden the glyph and say the
+                      same thing in words via sr-only instead. */}
+                  <span aria-hidden="true">{form.delta > 0 ? '▲' : form.delta < 0 ? '▼' : '—'}</span>
+                  <span className="sr-only">
+                    {form.delta > 0 ? 'Improved' : form.delta < 0 ? 'Worsened' : 'No change'}
+                  </span>{' '}
                   {Math.abs(form.delta).toFixed(1)}
                 </span>{' '}
                 <span className="text-muted-foreground">

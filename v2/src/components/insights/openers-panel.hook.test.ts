@@ -73,8 +73,10 @@ describe('the advice callout', () => {
     // The subtraction the spec says is the part worth paying for.
     expect(headline.textContent).toContain('Opening CRANE instead would save you about 1 guesses a day')
 
-    // The saving figure carries the one success accent in the card.
-    const figure = headline.querySelector('.text-success')
+    // The saving figure carries the one accent colour in the card — via
+    // text-accent-solid, not text-success, which is a background token (see
+    // personal-summary.tsx's comment on this same fix).
+    const figure = headline.querySelector('.text-accent-solid')
     expect(figure?.textContent).toBe('1')
   })
 
@@ -87,7 +89,7 @@ describe('the advice callout', () => {
     const headline = screen.getByTestId('insights-headline')
     expect(headline.textContent).toContain('You average 5 guesses with it and 4 with CRANE')
     expect(headline.textContent).not.toContain('Opening')
-    expect(headline.querySelector('.text-success')).toBeNull()
+    expect(headline.querySelector('.text-accent-solid')).toBeNull()
   })
 
   test('is the only accent-coloured element the card renders', () => {
