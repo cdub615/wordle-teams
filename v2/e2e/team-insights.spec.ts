@@ -358,14 +358,29 @@ test.describe('a pro member of two teams', () => {
    * was edited to pass `teams?.[0]` and this test failed on the Beta figures,
    * then passed again when it was restored.
    *
-   * THE FIRST SWITCH MAY BE A NO-OP, AND IS KEPT ANYWAY. Which team is selected
-   * on arrival is not this spec's to decide — routes/insights.tsx falls back
-   * through `?team=`, then localStorage's remembered team (which /app wrote on
-   * the way through sign-in), then the first of the roster — so the run starts
-   * on Alpha or Beta depending on that chain. Selecting Alpha explicitly makes
-   * the sequence the same either way rather than asserting whichever it found,
-   * and Radix fires `onValueChange` for an already-checked radio item, so the
-   * no-op case still navigates and still settles.
+   * THE FIRST LEG PROVES NOTHING, AND MUST NOT BE READ AS IF IT DID. Which team
+   * is selected on arrival is not this spec's to decide — routes/insights.tsx
+   * falls back through `?team=`, then localStorage's remembered team (which /app
+   * wrote on the way through sign-in), then the first of the roster — so a run
+   * starts on Alpha or Beta depending on that chain, and NOTHING HERE PINS
+   * WHICH. When it starts on Alpha the first `switchTeam` selects the team that
+   * is already selected: the assertions still hold, but they hold over a card
+   * that never changed.
+   *
+   * So this test is deterministic in WHAT IT ASSERTS and not in WHAT THE FIRST
+   * LEG EXERCISES. A green first leg is not evidence that switching works —
+   * THE BETA LEG AND THE RETURN ARE THE TWO THAT ARE ALWAYS REAL SWITCHES, and
+   * they are what failed under the `teams[0]` revert. Do not "simplify" this by
+   * dropping either of them, and do not move an assertion up here on the theory
+   * that the first leg already covered it.
+   *
+   * IT IS KEPT ANYWAY, because the alternative is asserting whatever the chain
+   * above happened to pick, which is a test whose meaning changes with
+   * localStorage. Selecting Alpha explicitly makes the sequence identical either
+   * way. The no-op case still navigates and still settles: Radix's MenuRadioItem
+   * composes `onValueChange` into `onSelect` with NO check against the current
+   * value (@radix-ui/react-menu), so an already-checked item fires like any
+   * other.
    */
   test('switches team, and the panel switches its figures with it', async ({ page }) => {
     const { alphaId, betaId } = await seedProOnTwoTeams(page)
@@ -376,7 +391,8 @@ test.describe('a pro member of two teams', () => {
     await expect(page.getByTestId('insights-team')).toBeVisible(FIRST_PAINT)
 
     // Against Alpha's teammate, who took 5 to the viewer's 3: a win, and a team
-    // mean of (3 + 5) / 2.
+    // mean of (3 + 5) / 2. THIS LEG MAY SELECT THE TEAM THAT IS ALREADY
+    // SELECTED and prove nothing on its own — see the block comment above.
     await switchTeam(page, { name: ALPHA, id: alphaId })
     await expectTeamFigures(page, { name: ALPHA, wins: '1', losses: '0', teamMean: 'team 4' })
 
