@@ -40,11 +40,16 @@
  *
  * Single source of truth — import this rather than repeating the string.
  * Read and written by useDashboardSearchSync (fills `?team=` from it, then
- * keeps it in sync with the URL); also READ (never written) by routes/team.tsx's
- * own fallback effect, through resolveTeamSettingsSearch — that route has no
- * team picker of its own to keep this in sync with, so it only ever consults
- * the dashboard's preference, never sets it. Cleared by DashboardError's retry
- * button (so a stale team can't immediately repopulate the URL after a throw).
+ * keeps it in sync with the URL), and by routes/insights.tsx, which has a team
+ * control of its own so a pick there follows the player back to the dashboard.
+ *
+ * routes/team.tsx NEVER SELECTS WITH IT, which is the distinction worth keeping
+ * straight: it READS the key in its own fallback effect through
+ * resolveTeamSettingsSearch, and CLEARS it in two handlers — on leaving and on
+ * deleting the selected team — so a dead id cannot repopulate the URL. What it
+ * has no business doing is writing a selection, because it has no team control
+ * to keep in sync. Also cleared by DashboardError's retry button (so a stale
+ * team can't immediately repopulate the URL after a throw).
  */
 export const STORAGE_KEY = 'selectedTeam'
 

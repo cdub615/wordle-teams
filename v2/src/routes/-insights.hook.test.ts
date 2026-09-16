@@ -493,7 +493,7 @@ describe('InsightsScope', () => {
  * fails noisily is recoverable; one that passes for the wrong reason is not.
  *
  * Crude by design — a strip over one known file, not a parser. It also eats a
- * `//` inside a string (the two href literals in this route), which no assertion
+ * `//` inside a string (the one href literal in this route), which no assertion
  * reads. A new string that a matcher must see is a reason to reach for a parser,
  * not to loosen the assertion.
  */

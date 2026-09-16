@@ -29,9 +29,13 @@ import { formatDayHeaderParts } from '#/lib/format-day'
  * against the roster it has already read and hands the selected team down to
  * TeamSection, name included — adding a second read here to re-fetch what the
  * caller already holds would be a database-bandwidth regression on the exact
- * surface wordle-teams-dcu exists to protect. `undefined` is treated the same as an unnamed team (the
- * caller genuinely has no name to give, e.g. between getMyTeams resolving and a
- * name landing) rather than as an error — the same two-state fallback
+ * surface wordle-teams-dcu exists to protect.
+ *
+ * `undefined` is treated the same as an unnamed team rather than as an error.
+ * NO PRODUCTION CALLER CAN PASS IT TODAY — TeamSection reaches this only past
+ * `if (!team) return null`, and `team.name` is non-optional — so the fallback
+ * exists for the prop's own contract, which team-panel.hook.test.ts exercises
+ * directly, not for a loading window. It is the same two-state fallback
  * routes/chat.tsx's `chatHeading` applies to its own heading, collapsed here to
  * one optional prop because this component, unlike ChatHeader, never itself
  * distinguishes "still loading" from "no name" — that distinction is TeamSection's
