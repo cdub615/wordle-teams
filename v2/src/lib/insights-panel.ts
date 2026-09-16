@@ -99,7 +99,7 @@ function listed(items: string[]): string {
  * rather than an elaboration of it. This used to take `layer1` alone and return
  * one fixed sentence about the board list, which made it STRUCTURALLY unable to
  * mention the two upper layers — the largest invisible Pro benefits on the page.
- * PersonalHistory does not render at all for a free player (layer2 'none') and
+ * Layer 2 does not render at all for a free player (layer2 'none') and
  * TeamSection gives them one daily fact instead of the panel.
  *
  * AND THE SAME SIGNATURE GOT THE TRIAL WRONG IN THE OTHER DIRECTION. A trial
