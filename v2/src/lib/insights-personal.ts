@@ -412,3 +412,44 @@ export function openerAdvice(rows: OpenerRow[]): OpenerAdvice | null {
 
   return { from: most.word, to: other.word, savingPerDay }
 }
+
+export const TREND_MONTHS = 12
+
+export type Trend = {
+  /** The last TREND_MONTHS rows, oldest first. */
+  months: MonthRow[]
+  /** The best month across their WHOLE history, which may predate the window. */
+  best: MonthRow | null
+  latestIsBest: boolean
+}
+
+/**
+ * Bounds `attemptsByMonth`'s ever-growing list at a year, for a chart that must
+ * fit a panel rather than scroll forever — while still being honest about a
+ * best month that happened before the window started.
+ *
+ * `best` LOOKS AT ALL ROWS, NOT JUST `months`. A caption reading "your best
+ * month yet" has to be true of their whole history, not true-of-the-last-twelve
+ * dressed up as a superlative — and a player who peaked thirteen months ago
+ * should see that, not a chart that quietly forgets it happened.
+ *
+ * TIES GO TO THE MOST RECENT MONTH, because the scan uses `<=` (not `<`) so a
+ * later row with an equal mean replaces the running best. Between two months a
+ * player played identically well, the more recent one is the more useful thing
+ * to call out.
+ */
+export function trendWindow(rows: MonthRow[], limit = TREND_MONTHS): Trend {
+  if (rows.length === 0) return { months: [], best: null, latestIsBest: false }
+
+  let best = rows[0]!
+  for (const row of rows) {
+    // `<=`, not `<`: a later month with an equal mean must replace the running
+    // best so a tie resolves to the more recent month.
+    if (row.meanAttempts <= best.meanAttempts) best = row
+  }
+
+  const months = rows.slice(-limit)
+  const latest = rows[rows.length - 1]!
+
+  return { months, best, latestIsBest: latest === best }
+}

@@ -3,6 +3,7 @@ import {
   MIN_BOARDS_FOR_STATS,
   TRAILING_FORM_MIN_BOARDS,
   TRAILING_FORM_WINDOW,
+  TREND_MONTHS,
   attemptDistribution,
   attemptsByMonth,
   consistency,
@@ -12,6 +13,8 @@ import {
   openerRepertoire,
   streaks,
   trailingForm,
+  trendWindow,
+  type MonthRow,
   type OpenerRow,
   type PersonalBoard,
 } from './insights-personal'
@@ -51,6 +54,18 @@ const openerRow = (word: string, count: number, meanAttempts: number): OpenerRow
   count,
   meanAttempts,
   rank: null,
+})
+
+/** The i-th month after 2025-01, as a 'YYYY-MM' string. */
+const monthAt = (i: number): string => {
+  const d = new Date(Date.UTC(2025, i, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+const monthRow = (i: number, meanAttempts: number): MonthRow => ({
+  month: monthAt(i),
+  boards: 1,
+  meanAttempts,
 })
 
 describe('isThin', () => {
@@ -418,5 +433,47 @@ describe('openerAdvice', () => {
     // "would save you about 0 guesses a day" is a sentence no product should print.
     const rows = [openerRow('MUSIC', 10, 4.04), openerRow('CRANE', 6, 4.0)]
     expect(openerAdvice(rows)).toBeNull()
+  })
+})
+
+describe('trendWindow', () => {
+  test('never more than TREND_MONTHS, even with a longer history', () => {
+    const rows = Array.from({ length: 15 }, (_, i) => monthRow(i, 4))
+    const trend = trendWindow(rows)
+    expect(trend.months).toHaveLength(TREND_MONTHS)
+    expect(trend.months).toEqual(rows.slice(-TREND_MONTHS))
+  })
+
+  test('a short history is returned whole', () => {
+    const rows = Array.from({ length: 5 }, (_, i) => monthRow(i, 4))
+    expect(trendWindow(rows).months).toEqual(rows)
+  })
+
+  test('best is found outside the window, and latestIsBest is false in that case', () => {
+    // Thirteen months: the very first (outside the last-twelve window) is the
+    // best the player has ever had. Everything inside the window is worse.
+    const rows = [monthRow(0, 2), ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1, 4))]
+    const trend = trendWindow(rows)
+    expect(trend.months).toEqual(rows.slice(1)) // the window excludes month 0
+    expect(trend.best).toEqual(rows[0])
+    expect(trend.latestIsBest).toBe(false)
+  })
+
+  test('latestIsBest is true when the most recent month is the best one', () => {
+    const rows = [monthRow(0, 5), monthRow(1, 4), monthRow(2, 3)]
+    const trend = trendWindow(rows)
+    expect(trend.best).toEqual(rows[2])
+    expect(trend.latestIsBest).toBe(true)
+  })
+
+  test('a tie for best goes to the most recent month', () => {
+    const rows = [monthRow(0, 3), monthRow(1, 5), monthRow(2, 3)]
+    const trend = trendWindow(rows)
+    expect(trend.best).toEqual(rows[2])
+    expect(trend.latestIsBest).toBe(true)
+  })
+
+  test('empty input is empty, not a crash', () => {
+    expect(trendWindow([])).toEqual({ months: [], best: null, latestIsBest: false })
   })
 })
