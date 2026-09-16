@@ -108,7 +108,31 @@ export function DailyBenchmark({
             No boards match those filters.
           </p>
         ) : (
-          <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-1" data-testid="insights-daily-scroll">
+          <div
+            /* `relative` IS LOAD-BEARING AND IS NOT A POSITIONING TWEAK
+               (wordle-teams-m08r). It makes this box the containing block for
+               its absolutely positioned descendants, which is what lets
+               `overflow-y` clip them.
+
+               WITHOUT IT THE PAGE SCROLLED 7160px PAST ITS OWN FOOTER, and
+               the max-height below was never the problem: this box stayed
+               416px tall with 7732px of content inside it, exactly as
+               intended -- five rows visible, the rest scrolling. What
+               escaped was board-row.tsx's `sr-only` span. `sr-only` is
+               `position: absolute`, and an absolutely positioned element is
+               clipped by an ancestor's overflow ONLY when that ancestor is its
+               containing block -- a `static` one is not. So all ninety spans
+               sat at their unclipped layout positions, the last at 8984px,
+               which was precisely the document's scrollHeight. body's own
+               height stayed correct at 2125px the whole time, which is why
+               every "find the tall element" sweep came up empty.
+
+               DO NOT REMOVE THIS AS UNUSED. Nothing here is positioned against
+               it, so it reads as dead. e2e/insights.spec.ts is what fails if it
+               goes; jsdom computes no layout and cannot see this. */
+            className="relative max-h-[26rem] space-y-2 overflow-y-auto pr-1"
+            data-testid="insights-daily-scroll"
+          >
             {shown.map((board) => (
               <BoardRow key={board.puzzleDay} benchmark={benchmark} board={board} />
             ))}

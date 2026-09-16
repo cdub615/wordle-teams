@@ -340,6 +340,21 @@ describe('the layout, so nothing is buried', () => {
     expect(scroller.className).toContain('overflow-y-auto')
     expect(scroller.className).toContain('max-h-')
     expect(screen.getAllByTestId('insights-board')).toHaveLength(30)
+
+    // AND `relative`, WHICH IS THE ONE THAT LOOKS REMOVABLE (wordle-teams-m08r).
+    // Nothing in the list is positioned against this box, so the class reads as
+    // dead weight -- but board-row.tsx renders an `sr-only` span per row, and
+    // `sr-only` is `position: absolute`. An absolutely positioned element is
+    // clipped by an ancestor's overflow only if that ancestor is its containing
+    // block, so with a `static` scroller every one of these escapes the bound
+    // above and extends the DOCUMENT instead -- 7160px past the footer, on the
+    // ninety boards e2e seeds.
+    //
+    // THIS ASSERTION CANNOT SEE THAT, and says so rather than implying
+    // otherwise: jsdom computes no layout, so it pins the CLASS and
+    // e2e/insights.spec.ts pins the CONSEQUENCE. It is here because the class
+    // is the thing a later reader would delete as unused.
+    expect(scroller.className).toContain('relative')
   })
 
   test('and says how many it is showing, since a touch device has no scrollbar', () => {

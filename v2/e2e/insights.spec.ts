@@ -194,4 +194,56 @@ test.describe('the route itself', () => {
     await page.goto('/insights')
     await expect(page).toHaveURL(/\/login/)
   })
+
+  /**
+   * THE PAGE MUST NOT SCROLL PAST ITS OWN CONTENT (wordle-teams-m08r).
+   *
+   * MEASURED BEFORE THE FIX, with the 90 boards this test seeds: 7160px of
+   * scrolling below the last thing on the page — the footer ended at 1824px
+   * and the document kept going to 8984px. On a phone that is a lot of
+   * inertial scrolling to recover from, and it is a page we charge for.
+   *
+   * THE CAUSE WAS NOT THE DAY LIST ESCAPING ITS BOUND, which is what it looks
+   * like and is what the issue first assumed. daily-benchmark.tsx's scroller
+   * kept its `max-h-[26rem]` perfectly: 416px tall, 7732px of content inside
+   * it, five rows visible. What escaped was board-row.tsx's `sr-only` span —
+   * `sr-only` is `position: absolute`, the scroller was `position: static`, so
+   * the scroller was not those spans' containing block and its `overflow-y`
+   * therefore did not clip them. Ninety of them, the last sitting at exactly
+   * 8984px, which was exactly the document's scrollHeight. `relative` on the
+   * scroller makes it their containing block and the clip starts applying.
+   *
+   * IT IS AN E2E TEST BECAUSE NOTHING ELSE CAN SEE IT. jsdom computes no
+   * layout, so a unit test cannot tell a clipped span from an escaping one;
+   * all four gates were green the whole time this shipped. The companion unit
+   * assertion in routes/-insights.hook.test.ts pins the CLASS so the fix is
+   * not tidied away, but only this can see the CONSEQUENCE.
+   *
+   * ASSERTED AGAINST THE FOOTER RATHER THAN A PIXEL BUDGET, so it keeps
+   * meaning the same thing as the page grows: whatever the document's height
+   * turns out to be, the last thing in it must be the last thing you scroll
+   * to.
+   */
+  test('does not scroll thousands of pixels past the footer', async ({ page }) => {
+    await signInWithInsights(page, { boards: 90, pro: true })
+    await openInsights(page)
+
+    const overshoot = await page.evaluate(() => {
+      window.scrollTo(0, 1e6)
+      const footer = document.querySelector('footer')
+      if (!footer) throw new Error('no footer on /insights')
+      const footerBottom = footer.getBoundingClientRect().bottom + window.scrollY
+      return {
+        past: Math.round(window.scrollY + window.innerHeight - footerBottom),
+        scrollHeight: document.documentElement.scrollHeight,
+        bodyHeight: document.body.offsetHeight,
+      }
+    })
+
+    // A little slack for the footer's own bottom padding and the safe-area
+    // inset; the defect this guards against was 7160px, so the bar is nowhere
+    // near tight enough to be fragile.
+    expect(overshoot.past).toBeLessThan(400)
+    expect(overshoot.scrollHeight).toBeLessThan(overshoot.bodyHeight + 400)
+  })
 })
