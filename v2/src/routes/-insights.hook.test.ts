@@ -41,7 +41,7 @@ vi.mock('@tanstack/react-router', () => ({
     createElement('a', { href: to, ...rest }, children),
 }))
 
-const { InsightsPanel } = await import('./insights.tsx')
+const { InsightsPanel, InsightsScope } = await import('./insights.tsx')
 
 afterEach(cleanup)
 
@@ -363,5 +363,61 @@ describe('the trial must not see Layer 1’s full history', () => {
 
     expect(screen.getAllByTestId('insights-board')).toHaveLength(1)
     expect(screen.getByTestId('insights-personal')).not.toBeNull()
+  })
+})
+
+describe('InsightsScope', () => {
+  const scope = (data: Parameters<typeof InsightsScope>[0]['data']) =>
+    render(createElement(InsightsScope, { data }))
+
+  test('renders nothing for undefined', () => {
+    scope(undefined)
+    expect(screen.queryByTestId('insights-scope')).toBeNull()
+  })
+
+  test('renders nothing for null', () => {
+    scope(null)
+    expect(screen.queryByTestId('insights-scope')).toBeNull()
+  })
+
+  test('renders nothing for an empty boards array', () => {
+    scope({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: [] })
+    expect(screen.queryByTestId('insights-scope')).toBeNull()
+  })
+
+  /*
+    THE BOARDS ARE DELIBERATELY OUT OF CHRONOLOGICAL ORDER. This is the case that
+    catches a wrong reduce seed or a flipped `<` comparator — either bug would
+    still pass if the fixture happened to already be sorted earliest-first.
+  */
+  test('finds the earliest board’s month, given boards not in chronological order', () => {
+    scope({
+      access: { layer1: 'full', layer2: 'full', layer3: 'full' },
+      boards: [
+        { puzzleDay: '2026-09-03', guesses: ['CRANE'] },
+        { puzzleDay: '2026-08-15', guesses: ['ORATE'] },
+        { puzzleDay: '2026-09-01', guesses: ['SLANT'] },
+      ],
+    })
+    expect(screen.getByTestId('insights-scope').textContent).toContain('since Aug 2026')
+  })
+
+  test('singular "board" for exactly one', () => {
+    scope({
+      access: { layer1: 'free', layer2: 'none', layer3: 'free' },
+      boards: [{ puzzleDay: '2026-09-03', guesses: ['CRANE'] }],
+    })
+    expect(screen.getByTestId('insights-scope').textContent).toContain('1 board ·')
+  })
+
+  test('plural "boards" otherwise', () => {
+    scope({
+      access: { layer1: 'full', layer2: 'full', layer3: 'full' },
+      boards: [
+        { puzzleDay: '2026-09-03', guesses: ['CRANE'] },
+        { puzzleDay: '2026-09-02', guesses: ['ORATE'] },
+      ],
+    })
+    expect(screen.getByTestId('insights-scope').textContent).toContain('2 boards ·')
   })
 })

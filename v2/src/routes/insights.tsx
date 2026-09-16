@@ -118,24 +118,34 @@ function InsightsRoute() {
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
 
   return (
-    <main className="page-max mt-2 max-w-3xl md:mt-6">
-      {/* THE SHAPE IS team.tsx'S AND chat.tsx'S, DOWN TO THE aria-label. This
+    /* THE CAP IS NESTED INSIDE page-max, NOT COMBINED WITH IT ON ONE ELEMENT,
+       and this is not a style preference. `.page-max` is declared UNLAYERED in
+       styles.css while every Tailwind utility lives in `@layer utilities`, and
+       unlayered declarations beat layered ones outright regardless of source
+       order or specificity. `class="page-max max-w-3xl"` therefore renders at
+       --page-max's 1440px and the cap silently does nothing. wordle-teams-wty4.1.2
+       already paid to learn this on /team; team.tsx:195 is the shape to copy. */
+    <main className="page-max mt-2 md:mt-6">
+      <div className="mx-auto w-full max-w-3xl">
+        {/* THE SHAPE IS team.tsx'S AND chat.tsx'S, DOWN TO THE aria-label. This
           page was the only one carrying a "Back" text label, and three pages
           that go back differently is a worse outcome than any one of the
-          shapes on its own. `-ml-2` pulls the 40px icon button back so the
-          glyph optically aligns with the h1's text edge below it. */}
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="-ml-2" aria-label="Back to dashboard" asChild>
-          <Link to="/app">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          </Link>
-        </Button>
-        <h1 className="text-2xl font-bold">Insights</h1>
-      </div>
+          shapes on its own. NO `-ml-2`: team.tsx and chat.tsx do not have one,
+          and adding it here would reintroduce an 8px difference between this
+          page's back arrow and /team's — the exact inconsistency this comment
+          claims to be removing. */}
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" aria-label="Back to dashboard" asChild>
+            <Link to="/app">
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
+          <h1 className="text-2xl font-bold">Insights</h1>
+        </div>
 
-      <InsightsScope data={data} />
+        <InsightsScope data={data} />
 
-      {/*
+        {/*
         FIRST THING IN THE MAIN CONTENT, ABOVE THE LOADING STATE AND THE PANELS
         IT EXPLAINS. `myAccess` is its own query, independent of the benchmark
         corpus and myBenchmarkBoards below — a player whose trial ended still
@@ -143,28 +153,29 @@ function InsightsRoute() {
         failed, or empty this render, so it does not live inside any of those
         branches.
       */}
-      <TrialEndedCard />
+        <TrialEndedCard />
 
-      {isPending || (!benchmark && !failed) ? (
-        <div className="space-y-3" data-testid="insights-loading">
-          <Skeleton className="h-28 w-full" />
-          <Skeleton className="h-28 w-full" />
-        </div>
-      ) : failed ? (
-        <p className="text-muted-foreground">
-          The benchmark data could not be loaded. Try again in a moment.
-        </p>
-      ) : !data || data.boards.length === 0 ? (
-        <p className="text-muted-foreground">
-          Enter a board and we will show you how it compares.
-        </p>
-      ) : (
-        <InsightsPanel
-          benchmark={benchmark!}
-          data={data}
-          onATeam={teams === undefined ? undefined : teams.length > 0}
-        />
-      )}
+        {isPending || (!benchmark && !failed) ? (
+          <div className="space-y-3" data-testid="insights-loading">
+            <Skeleton className="h-28 w-full" />
+            <Skeleton className="h-28 w-full" />
+          </div>
+        ) : failed ? (
+          <p className="text-muted-foreground">
+            The benchmark data could not be loaded. Try again in a moment.
+          </p>
+        ) : !data || data.boards.length === 0 ? (
+          <p className="text-muted-foreground">
+            Enter a board and we will show you how it compares.
+          </p>
+        ) : (
+          <InsightsPanel
+            benchmark={benchmark!}
+            data={data}
+            onATeam={teams === undefined ? undefined : teams.length > 0}
+          />
+        )}
+      </div>
     </main>
   )
 }
@@ -177,7 +188,7 @@ function InsightsRoute() {
  * ABSENT RATHER THAN ZERO while the query is in flight or empty: "0 boards" is
  * a claim, and the loading and empty branches below already say the true thing.
  */
-function InsightsScope({ data }: { data: Boards | null | undefined }) {
+export function InsightsScope({ data }: { data: Boards | null | undefined }) {
   if (!data || data.boards.length === 0) return null
   const earliest = data.boards.reduce(
     (min, board) => (board.puzzleDay < min ? board.puzzleDay : min),
