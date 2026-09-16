@@ -392,6 +392,48 @@ describe('completeProfileFor', () => {
     })
   })
 
+  test("puts a claimed team's aggregate right for a month it never crowned (wordle-teams-c5ry)", async () => {
+    // THE WIDER OF THE TWO BOUNDS recomputeForJoiner carries, exercised on the
+    // EMAIL path rather than the link one. monthsWithWinners cannot reach this
+    // month — the team has no row for it — but `teamMonthStats` is still WRONG
+    // rather than merely uncrowned, because aggregateTeamMonth builds a team's
+    // days from the boards of everyone currently on the roster and Ada is on it
+    // now. insights.ts's teamMonth reads that document and nothing else, and
+    // renders a missing one as an empty month, so without this Ada's June reads
+    // as "nobody played" on a team she played all of.
+    //
+    // A FIXED PAST MONTH, for the reason the two tests above give: dated today,
+    // the daily teamStats.sweep would make an implementation that only ever
+    // touched the current month indistinguishable from a correct one.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [bob], owner: bob, invited: [ADA] }),
+      )
+      await ctx.db.insert('dailyScores', aScore(ada, '2025-06-03', ['SPEED']))
+      // No monthlyWinners row for June 2025, deliberately — this is the month
+      // the narrow bound cannot see.
+      expect(await ctx.db.query('monthlyWinners').collect()).toHaveLength(0)
+
+      await completeProfileFor(ctx, ADA, NAMES, today)
+
+      const stats = await ctx.db
+        .query('teamMonthStats')
+        .withIndex('by_team_year_month', (q) =>
+          q.eq('teamId', teamId).eq('year', 2025).eq('month', 6),
+        )
+        .unique()
+      expect(stats).not.toBeNull()
+      const day = stats!.days.find((entry) => entry.puzzleDay === '2025-06-03')
+      expect(day?.entries.map((entry) => entry.playerId)).toEqual([ada])
+      // And still no trophy: the winner bound stayed narrow.
+      expect(await ctx.db.query('monthlyWinners').collect()).toHaveLength(0)
+    })
+  })
+
   /**
    * THE NON-PRO TEAM CAP AT SIGNUP — v1's handle_invited_signup
    * (20240426201800), the other half of the rule teams.ts's invitePlayerFor

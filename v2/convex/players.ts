@@ -13,7 +13,7 @@ import {
 import { isCompleteName } from './lib/invite.ts'
 import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
-import { monthsWithWinners, recomputeTeamMonths } from './winners.ts'
+import { monthsWithBoards, recomputeForJoiner } from './winners.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter, StorageWriter } from 'convex/server'
 import type { WriterCtx } from './winners.ts'
@@ -303,8 +303,19 @@ export async function completeProfileFor(
   // it on this one. Phase 3's removeMember and setScoringSystem carry the
   // identical bound, and nothing in src/ reads monthlyWinners today, so widening
   // it is a product decision rather than a bug fix.
+  //
+  // THE STATISTICS HALF IS WIDER THAN THE WINNER HALF, and that is the change
+  // wordle-teams-c5ry made here: `teamMonthStats` is not a title nobody
+  // contested, it is a total that no longer matches what aggregateTeamMonth
+  // would answer for the current roster, so every month the joiner has boards in
+  // is wrong on this team rather than merely uncrowned. recomputeForJoiner owns
+  // both bounds and the argument for keeping them different.
+  //
+  // READ ONCE, OUTSIDE THE LOOP. A signup can claim several invites in one pass
+  // and the joiner's history is the same set for every one of them.
+  const joinerMonths = await monthsWithBoards(ctx, playerId)
   for (const team of claimed) {
-    await recomputeTeamMonths(ctx, team, await monthsWithWinners(ctx, team._id), today)
+    await recomputeForJoiner(ctx, team, joinerMonths, today)
   }
 
   return playerId

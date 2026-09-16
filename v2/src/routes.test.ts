@@ -991,7 +991,14 @@ describe('/join/$token, the route shared invite links point at', () => {
     // The token the hook hands over is the one consumed, rather than some other
     // value in scope. `joinParam` here would compile and would reinstate the
     // exact double-consume the hook exists to prevent.
-    expect(code).toMatch(/\.mutateAsync\(\{ token \}\)/)
+    //
+    // THE SHORTHAND IS THE ASSERTION. `{ token,` can only be the parameter this
+    // callback was handed; `{ token: joinParam,` would not match. The trailing
+    // comma rather than a closing brace is because the call now also carries
+    // `today` — consumeLink recomputes the joined team's months and bounds the
+    // date it does it with (wordle-teams-c5ry).
+    expect(code).toMatch(/\.mutateAsync\(\{ token,/)
+    expect(code).toMatch(/today: toPuzzleDay\(new Date\(\)\)/)
     // ONE mutateAsync in the file, so the assertion above is about this call and
     // not another that happens to match.
     expect(code.match(/\.mutateAsync\(/g) ?? []).toHaveLength(1)

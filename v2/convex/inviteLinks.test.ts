@@ -4,8 +4,17 @@ import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { consumeLinkFor, createLinkFor, revokeLinkFor } from './inviteLinks.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
+import { toPuzzleDay } from './lib/puzzleDay.ts'
 
 const modules = import.meta.glob('./**/*.ts')
+
+/**
+ * `consumeLinkFor` recomputes the joined team's months, so it needs a date the
+ * same way every other membership change does. The helper itself does not bound
+ * it — `consumeLink`, the mutation, does that with requirePlausibleToday — so
+ * these tests hand it whatever day they mean.
+ */
+const today = toPuzzleDay(new Date())
 
 describe('createLinkFor', () => {
   test('stores a live row and returns its token', async () => {
@@ -124,7 +133,7 @@ describe('consumeLinkFor', () => {
       const token = await createLinkFor(ctx, ada, teamId)
       const joiner = await ctx.db.insert('players', aPlayer({ email: 'joiner@example.com' }))
 
-      await consumeLinkFor(ctx, joiner, token)
+      await consumeLinkFor(ctx, joiner, token, today)
 
       const team = await ctx.db.get(teamId)
       expect(team?.playerIds).toEqual([ada, joiner])
@@ -141,8 +150,8 @@ describe('consumeLinkFor', () => {
       // The owner following their own link must not be added twice — a duplicate
       // id shows the person twice on the team card and enters them twice in the
       // month recompute. teams.ts:266 records the same hazard on the email path.
-      await consumeLinkFor(ctx, ada, token)
-      await consumeLinkFor(ctx, ada, token)
+      await consumeLinkFor(ctx, ada, token, today)
+      await consumeLinkFor(ctx, ada, token, today)
 
       const team = await ctx.db.get(teamId)
       expect(team?.playerIds).toEqual([ada])
@@ -161,7 +170,7 @@ describe('consumeLinkFor', () => {
       const token = await createLinkFor(ctx, ada, teamId)
       await ctx.db.insert('chatReads', { playerId: ada, teamId, lastReadAt: 1234 })
 
-      await consumeLinkFor(ctx, ada, token)
+      await consumeLinkFor(ctx, ada, token, today)
 
       const cursors = await ctx.db.query('chatReads').collect()
       expect(cursors).toHaveLength(1)
@@ -183,7 +192,7 @@ describe('consumeLinkFor', () => {
       const returner = await ctx.db.insert('players', aPlayer({ email: 'back@example.com' }))
       await ctx.db.insert('chatReads', { playerId: returner, teamId, lastReadAt: 1234 })
 
-      await consumeLinkFor(ctx, returner, token)
+      await consumeLinkFor(ctx, returner, token, today)
 
       expect(await ctx.db.query('chatReads').collect()).toHaveLength(0)
     })
@@ -199,7 +208,7 @@ describe('consumeLinkFor', () => {
       await ctx.db.patch(link._id, { expiresAt: Date.now() - 1 })
       const late = await ctx.db.insert('players', aPlayer({ email: 'late@example.com' }))
 
-      await expect(consumeLinkFor(ctx, late, token)).rejects.toMatchObject({
+      await expect(consumeLinkFor(ctx, late, token, today)).rejects.toMatchObject({
         data: { code: 'INVITE_LINK_INVALID' },
       })
       expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada])
@@ -215,7 +224,7 @@ describe('consumeLinkFor', () => {
       await revokeLinkFor(ctx, ada, token)
       const who = await ctx.db.insert('players', aPlayer({ email: 'revoked@example.com' }))
 
-      await expect(consumeLinkFor(ctx, who, token)).rejects.toMatchObject({
+      await expect(consumeLinkFor(ctx, who, token, today)).rejects.toMatchObject({
         data: { code: 'INVITE_LINK_INVALID' },
       })
       expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada])
@@ -226,7 +235,7 @@ describe('consumeLinkFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const nobody = await ctx.db.insert('players', aPlayer({ email: 'nobody@example.com' }))
-      await expect(consumeLinkFor(ctx, nobody, 'deadbeef')).rejects.toMatchObject({
+      await expect(consumeLinkFor(ctx, nobody, 'deadbeef', today)).rejects.toMatchObject({
         data: { code: 'INVITE_LINK_INVALID' },
       })
     })
@@ -253,7 +262,7 @@ describe('consumeLinkFor', () => {
       await ctx.db.delete(teamId)
       const who = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
 
-      await expect(consumeLinkFor(ctx, who, token)).rejects.toMatchObject({
+      await expect(consumeLinkFor(ctx, who, token, today)).rejects.toMatchObject({
         data: { code: 'INVITE_LINK_INVALID' },
       })
     })
@@ -295,7 +304,7 @@ describe('consumeLinkFor', () => {
 
       const refusalFor = async (token: string) => {
         try {
-          await consumeLinkFor(ctx, stranger, token)
+          await consumeLinkFor(ctx, stranger, token, today)
         } catch (error) {
           return (error as { data: unknown }).data
         }
@@ -339,7 +348,7 @@ describe('consumeLinkFor', () => {
         await ctx.db.insert('teams', aTeam({ name: `existing ${i}`, playerIds: [capped] }))
       }
 
-      await expect(consumeLinkFor(ctx, capped, token)).rejects.toMatchObject({
+      await expect(consumeLinkFor(ctx, capped, token, today)).rejects.toMatchObject({
         data: { code: 'TEAM_LIMIT_REACHED' },
       })
       expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada])
@@ -360,7 +369,7 @@ describe('consumeLinkFor', () => {
         await ctx.db.insert('teams', aTeam({ name: `existing ${i}`, playerIds: [joiner] }))
       }
 
-      await consumeLinkFor(ctx, joiner, token)
+      await consumeLinkFor(ctx, joiner, token, today)
       expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada, joiner])
     })
   })
@@ -378,8 +387,167 @@ describe('consumeLinkFor', () => {
         await ctx.db.insert('teams', aTeam({ name: `existing ${i}`, playerIds: [pro] }))
       }
 
-      await consumeLinkFor(ctx, pro, token)
+      await consumeLinkFor(ctx, pro, token, today)
       expect((await ctx.db.get(teamId))?.playerIds).toEqual([ada, pro])
+    })
+  })
+})
+
+describe('consumeLinkFor — the joined team’s aggregate (wordle-teams-c5ry)', () => {
+  /** A board scoring `guesses.length` attempts, on the given day. */
+  const aScore = (playerId: string, puzzleDay: string, guesses: Array<string>) => ({
+    playerId: playerId as never,
+    puzzleDay,
+    date: 1_755_500_000_000,
+    answer: 'SPEED',
+    guesses,
+  })
+
+  test('a board entered BEFORE the join is in the team’s aggregate immediately after it', async () => {
+    // THE USER-VISIBLE SHAPE OF THE BUG, and the reason this is a join-then-read
+    // test rather than a sweep test. A free player enters today's board, then
+    // follows an invite link. /insights resolves to the new team, reads exactly
+    // one document — teamMonthStats — and dailyTeamFact answers 'no-board' if
+    // the joiner is not in it, so DailyTeamFact renders NOTHING: no card, and
+    // therefore no team picker either, on a brand-new member's first visit.
+    //
+    // It used to heal on the next board write by any member, or at the 00:45 UTC
+    // teamStats.sweep. Neither is a fix; both are a window that can last most of
+    // a day.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+
+      const joiner = await ctx.db.insert('players', aPlayer({ email: 'joiner@example.com' }))
+      await ctx.db.insert('dailyScores', aScore(joiner, today, ['CRANE', 'SPEED']))
+
+      await consumeLinkFor(ctx, joiner, token, today)
+
+      const month = today.slice(0, 7)
+      const [year, monthNum] = month.split('-').map(Number)
+      const stats = await ctx.db
+        .query('teamMonthStats')
+        .withIndex('by_team_year_month', (q) =>
+          q.eq('teamId', teamId).eq('year', year).eq('month', monthNum),
+        )
+        .unique()
+
+      expect(stats).not.toBeNull()
+      expect(stats!.members.map((m) => m.playerId)).toContain(joiner)
+      const day = stats!.days.find((d) => d.puzzleDay === today)
+      expect(day?.entries.map((e) => e.playerId)).toContain(joiner)
+    })
+  })
+
+  test('a month the team has NO winner row for still gets its aggregate', async () => {
+    // monthsWithWinners alone does not answer this, which is why the join
+    // recompute carries a second, wider bound. A team that never crowned a month
+    // has no row to enumerate, so a joiner who played all of that month would
+    // have stayed invisible in it forever — and insights.ts's teamMonth treats a
+    // missing aggregate as an EMPTY MONTH, so it reads as "nobody played".
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+
+      const joiner = await ctx.db.insert('players', aPlayer({ email: 'history@example.com' }))
+      await ctx.db.insert('dailyScores', aScore(joiner, '2026-03-04', ['CRANE', 'SPEED']))
+
+      expect(await ctx.db.query('monthlyWinners').collect()).toHaveLength(0)
+
+      await consumeLinkFor(ctx, joiner, token, today)
+
+      const stats = await ctx.db
+        .query('teamMonthStats')
+        .withIndex('by_team_year_month', (q) =>
+          q.eq('teamId', teamId).eq('year', 2026).eq('month', 3),
+        )
+        .unique()
+      expect(stats).not.toBeNull()
+      const day = stats!.days.find((d) => d.puzzleDay === '2026-03-04')
+      expect(day?.entries.map((e) => e.playerId)).toEqual([joiner])
+    })
+  })
+
+  test('does NOT crown the joiner in a month the team never had a winner for', async () => {
+    // THE OTHER HALF OF THAT ASYMMETRY, and the one that keeps this a bug fix
+    // rather than a product change. Statistics are recomputed wide because the
+    // stored total is simply wrong; WINNERS keep the narrow monthsWithWinners
+    // bound the email path has always had, so a brand-new member does not walk
+    // in holding last March's trophy. players.ts records the same rule.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+
+      const joiner = await ctx.db.insert('players', aPlayer({ email: 'ringer@example.com' }))
+      await ctx.db.insert('dailyScores', aScore(joiner, '2026-03-04', ['SPEED']))
+
+      await consumeLinkFor(ctx, joiner, token, today)
+
+      expect(await ctx.db.query('monthlyWinners').collect()).toHaveLength(0)
+    })
+  })
+
+  test('recomputes a month the team DOES have a winner row for, joiner included', async () => {
+    // The narrow bound is not nothing: a month already crowned is recomputed in
+    // full, winner and statistics both, because the joiner was excluded from
+    // every computation that produced the existing row.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+
+      // Ada owns March with a four-guess solve (1 point).
+      await ctx.db.insert('dailyScores', aScore(ada, '2026-03-04', ['CRANE', 'SLATE', 'SPELL', 'SPEED']))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        year: 2026,
+        month: 3,
+        hasSeenCelebration: [],
+      })
+
+      // The joiner solved the same day in one (5 points), so the recompute must
+      // hand them the month once they are on the roster.
+      const joiner = await ctx.db.insert('players', aPlayer({ email: 'better@example.com' }))
+      await ctx.db.insert('dailyScores', aScore(joiner, '2026-03-04', ['SPEED']))
+
+      await consumeLinkFor(ctx, joiner, token, today)
+
+      const rows = await ctx.db.query('monthlyWinners').collect()
+      expect(rows).toHaveLength(1)
+      expect(rows[0].playerId).toBe(joiner)
+    })
+  })
+
+  test('an already-member pass recomputes nothing', async () => {
+    // The idempotent early return is ABOVE the recompute, and has to stay there:
+    // the owner following their own link must not pay a full month rollup per
+    // click. A stale aggregate planted here survives untouched.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const token = await createLinkFor(ctx, ada, teamId)
+      await ctx.db.insert('dailyScores', aScore(ada, '2026-03-04', ['SPEED']))
+      const stale = await ctx.db.insert('teamMonthStats', {
+        teamId,
+        year: 2026,
+        month: 3,
+        members: [],
+        days: [],
+        computedAt: 1,
+      })
+
+      await consumeLinkFor(ctx, ada, token, today)
+
+      expect(await ctx.db.get(stale)).toMatchObject({ members: [], days: [], computedAt: 1 })
     })
   })
 })

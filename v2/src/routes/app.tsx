@@ -418,7 +418,10 @@ function Dashboard() {
    */
   usePendingInvite(joinParam, (token) => {
     void consumeInvite
-      .mutateAsync({ token })
+      // `today` is what the join's month recompute is bounded by — the server
+      // refuses an implausible one rather than writing it into a monthlyWinners
+      // row, exactly as every other clock-bounded mutation here does.
+      .mutateAsync({ token, today: toPuzzleDay(new Date()) })
       .then(() => toast.success('You joined the team'))
       .catch((error: unknown) =>
         toast.error(mutationErrorMessage(error, 'That invite link is no longer valid')),

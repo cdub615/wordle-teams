@@ -1,9 +1,11 @@
 import { v } from 'convex/values'
 import { mutation } from './_generated/server'
-import { accessError, isProFor, requirePlayer, requireTeamOwnerFor } from './access'
+import { accessError, isProFor, requirePlayer, requirePlausibleToday, requireTeamOwnerFor } from './access'
 import { resetChatCursorFor } from './chat.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
+import { monthsWithBoards, recomputeForJoiner } from './winners.ts'
 import type { Id } from './_generated/dataModel'
+import type { PuzzleDay } from './lib/puzzleDay.ts'
 import type { WriterCtx } from './winners.ts'
 
 /** Seven days. Long enough to sit unread in a chat, short enough to expire. */
@@ -102,6 +104,7 @@ export async function consumeLinkFor(
   ctx: WriterCtx,
   playerId: Id<'players'>,
   token: string,
+  today: PuzzleDay,
 ): Promise<void> {
   const link = await ctx.db
     .query('inviteLinks')
@@ -176,6 +179,22 @@ export async function consumeLinkFor(
   // revokeLinkFor's comment records about its own unobservable check order.
   await resetChatCursorFor(ctx, playerId, team._id)
   await ctx.db.patch(team._id, { playerIds: [...team.playerIds, playerId] })
+
+  // THE ROSTER PATCH IS NOT THE WHOLE JOIN, and for a long time this function
+  // behaved as though it were (wordle-teams-c5ry). `teamMonthStats` is built
+  // from the boards of everyone currently in `playerIds`, so the instant that
+  // line lands, every month the joiner has played is stale on this team — and
+  // the one that bites is TODAY: a free player who entered their board and then
+  // followed a link got no daily-fact card at all on their first visit, because
+  // the aggregate the card reads did not contain them yet.
+  //
+  // recomputeForJoiner owns the two bounds and the reasoning for both; the
+  // months are read here so a caller claiming SEVERAL teams at once reads the
+  // joiner's history once (players.ts does exactly that). Re-read the team
+  // first: both loops inside read `playerIds` off the document handed to them,
+  // and `team` above is the pre-patch snapshot.
+  const joined = (await ctx.db.get(team._id))!
+  await recomputeForJoiner(ctx, joined, await monthsWithBoards(ctx, playerId), today)
 }
 
 export const createLink = mutation({
@@ -194,10 +213,19 @@ export const revokeLink = mutation({
   },
 })
 
+/**
+ * `today` IS BOUNDED, NOT TRUSTED, for the reason every mutation that feeds a
+ * client date into winner recomputation bounds it: the value decides which days
+ * are already due for every member of the team being joined and is written into
+ * a monthlyWinners row the whole team reads. The STRICT bound, the same one
+ * teams.ts and scores.ts take — this refuses one ACTION and the holder can
+ * retry, unlike completeProfileFor, which falls back rather than locking a
+ * wrong-clocked device out of the product at signup.
+ */
 export const consumeLink = mutation({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
+  args: { token: v.string(), today: v.string() },
+  handler: async (ctx, { token, today }) => {
     const player = await requirePlayer(ctx)
-    await consumeLinkFor(ctx, player._id, token)
+    await consumeLinkFor(ctx, player._id, token, requirePlausibleToday(today))
   },
 })

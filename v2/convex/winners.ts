@@ -1,8 +1,8 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requirePlayer, requireTeamMemberFor } from './access'
-import { storeTeamMonthStats, type MonthScore } from './teamStats.ts'
-import { monthRange } from './lib/puzzleDay.ts'
+import { rollupTeamMonth, storeTeamMonthStats, type MonthScore } from './teamStats.ts'
+import { monthOf, monthRange } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { systemFor } from './lib/scoringSystem.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
@@ -286,6 +286,93 @@ export async function monthsWithWinners(
     .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId))
     .collect()
   return rows.map((row) => `${row.year}-${String(row.month).padStart(2, '0')}`)
+}
+
+/**
+ * Every month this player has a board in, as 'YYYY-MM', without duplicates.
+ *
+ * THE COMPANION BOUND TO monthsWithWinners ABOVE, AND DELIBERATELY A DIFFERENT
+ * QUESTION. That one asks what the TEAM has already computed; this asks what the
+ * PLAYER brings with them. A joiner's history is precisely the set of months a
+ * team's stored aggregates can be wrong about the moment they arrive, because
+ * `dailyScores` carries no teamId — a board belongs to the player globally, and
+ * aggregateTeamMonth builds a team's days from the boards of everyone currently
+ * in `team.playerIds`. So the new member's existing boards ARE part of the
+ * correct answer for that team from the instant the roster patch lands; only the
+ * stored document lags.
+ *
+ * ONE INDEXED SCAN OF ONE PLAYER'S BOARDS, unbounded in time on purpose — an
+ * arriving v1 player carries their whole history and any month of it can be the
+ * stale one. Bounded by that player's own play, not by the table: roughly 700
+ * rows for the most prolific account in production. Read ONCE by the caller and
+ * passed to recomputeForJoiner, rather than re-read per team, because a signup
+ * can claim several invites at once (players.ts's completeProfileFor).
+ */
+export async function monthsWithBoards(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+): Promise<Array<PuzzleMonth>> {
+  const rows = await ctx.db
+    .query('dailyScores')
+    .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', playerId))
+    .collect()
+  return [...new Set(rows.map((row) => monthOf(row.puzzleDay)))]
+}
+
+/**
+ * Bring one team's stored months back in step after somebody JOINED it.
+ *
+ * Every add path owes this, and until wordle-teams-c5ry the link path paid
+ * nothing at all: `consumeLinkFor` ended at the roster patch and recomputed
+ * nothing, so a player who had already entered today's board and then joined by
+ * link was missing from that team's `teamMonthStats` until the next board write
+ * by ANY member, or the 00:45 UTC teamStats.sweep. /insights resolved to the new
+ * team, `dailyTeamFact` answered 'no-board', and the card — and therefore the
+ * team picker living in its header — did not render at all. A window rather than
+ * a permanent state, but one that can last most of a day and that lands on a
+ * brand-new member's FIRST visit.
+ *
+ * TWO BOUNDS, NOT ONE, AND THE ASYMMETRY IS THE WHOLE DESIGN:
+ *
+ *   WINNERS are recomputed only for months the team ALREADY has a row for
+ *   (`monthsWithWinners`). That is the bound the email path has always carried
+ *   and it is a PRODUCT decision, not a cost one — see completeProfileFor's
+ *   note: a joiner who played a month on some other team does not retroactively
+ *   win it on this one. Widening it would hand a brand-new member last
+ *   September's trophy. Phase 3's removeMember and setScoringSystem draw the
+ *   same line.
+ *
+ *   STATISTICS are recomputed for every month the joiner has boards in, because
+ *   there the stored document is simply WRONG — not a title that was never
+ *   contested, but a total that no longer matches what aggregateTeamMonth would
+ *   answer for the current roster. insights.ts's teamMonth reads that document
+ *   and nothing else, and treats a missing row as an empty month, so a month the
+ *   team never had a winner row for reads as "nobody played" to the joiner who
+ *   in fact played all of it.
+ *
+ * recomputeTeamMonth does BOTH halves, so the months in the winner set are
+ * already finished and are skipped by the second loop rather than rolled up
+ * twice. rollupTeamMonth is the reading variant — the caller has no scores in
+ * hand here, unlike the board-write path.
+ *
+ * `team` MUST BE THE POST-PATCH DOCUMENT. Both loops read `team.playerIds` off
+ * the doc they are handed, and the pre-patch snapshot does not contain the
+ * joiner — which would recompute every month to exactly the value it already
+ * had. players.ts re-reads for this reason and says so.
+ */
+export async function recomputeForJoiner(
+  ctx: WriterCtx,
+  team: Doc<'teams'>,
+  joinerMonths: ReadonlyArray<PuzzleMonth>,
+  today: PuzzleDay,
+): Promise<void> {
+  const winnerMonths = await monthsWithWinners(ctx, team._id)
+  await recomputeTeamMonths(ctx, team, winnerMonths, today)
+
+  for (const month of joinerMonths) {
+    if (winnerMonths.includes(month)) continue
+    await rollupTeamMonth(ctx, team, month)
+  }
 }
 
 /**
