@@ -46,8 +46,8 @@ import { api } from '../../convex/_generated/api'
 /**
  * `?team=` AND `?month=` NAME WHAT THE PAGE IS SHOWING, the same two params the
  * dashboard carries and for the same reason: the URL is the source of truth, so
- * a link to a particular team's month is shareable and the back button steps
- * back through picks rather than out of the page.
+ * a link to a particular team's month is shareable and a reload lands back on
+ * the same view rather than on a default one.
  *
  * SHAPE ONLY — VALIDITY IS NOT THIS FUNCTION'S JOB. validateSearch runs before
  * anything is loaded: it has no team list and no clock, so all it can do is drop
@@ -165,9 +165,9 @@ function InsightsRoute() {
     `teams ?? []` RATHER THAN AN EARLY RETURN. With the team list still in
     flight the resolver has nothing to select and returns null, which is exactly
     the "do nothing" an early return would produce. The DEPENDENCY stays `teams`
-    itself — the reference react-query hands back, stable between renders —
-    because `teams ?? []` in the dependency array would be a fresh array every
-    render and re-run the effect on each one.
+    itself — the reference react-query hands back, which holds while the data is
+    unchanged — because `teams ?? []` in the dependency array would be a fresh
+    array on every render and re-run the effect on each one.
   */
   useEffect(() => {
     if (!hydrated) return
@@ -182,15 +182,20 @@ function InsightsRoute() {
   }, [hydrated, teamParam, monthParam, teams, navigate])
 
   /*
-    THIS PAGE WRITES THE DASHBOARD'S REMEMBERED TEAM; `/team` DELIBERATELY ONLY
-    READS IT. An editor comparing the two files will otherwise conclude that one
-    of them is wrong, so: routes/team.tsx never writes the key because it has no
-    team control of its own to keep the key in sync WITH — it only ever consults
-    the preference the dashboard set (STORAGE_KEY's own comment in
-    lib/dashboard-search.ts states that). This page is different: it is getting a
-    team control of its own, so `?team=` here becomes a deliberate pick rather
-    than a fallback, and a pick made here should follow the player back to the
-    dashboard instead of being forgotten at the page boundary.
+    THIS PAGE SETS THE DASHBOARD'S REMEMBERED TEAM; `/team` NEVER SETS A
+    SELECTION. An editor comparing the two files will otherwise conclude that one
+    of them is wrong, so, precisely: routes/team.tsx READS the key in its own
+    fallback effect (through resolveTeamSettingsSearch) and CLEARS it in two
+    handlers — leaving the selected team, and deleting it — so that a dead id
+    cannot repopulate the URL. What it never does is SELECT a team with it,
+    because it has no team control of its own to keep the key in sync WITH.
+    STORAGE_KEY's own note in lib/dashboard-search.ts scopes the claim the same
+    careful way, to that page's fallback effect rather than to the whole file.
+
+    THIS PAGE IS DIFFERENT: it is getting a team control of its own, so `?team=`
+    here becomes a deliberate pick rather than a fallback, and a pick made here
+    should follow the player back to the dashboard instead of being forgotten at
+    the page boundary.
 
     NOT CONDITIONAL ON THE PARAM BEING VALID, matching useDashboardSearchSync
     line for line: a stale or foreign `?team=` can be written for the render or
@@ -482,8 +487,9 @@ function TeamSection({
     `enabled` THAT USED TO SIT BESIDE IT IS GONE RATHER THAN WIDENED TO COVER THE
     MONTH. @convex-dev/react-query opens the Convex watch from the query CACHE's
     `added` event (ConvexQueryClient#subscribeInner), which TanStack fires for a
-    disabled query too, and that handler bails on exactly one thing: a query key
-    whose args are the string 'skip'. It never consults `enabled`. Measured at
+    disabled query too. That handler ignores keys that are not Convex queries at
+    all, and then, for one that is, bails on exactly one thing: a query key whose
+    args are the string 'skip'. It never consults `enabled`. Measured at
     the websocket on this project — under `enabled` alone the browser still sent
     ModifyQuerySet and took a refusal back, and the refusal is invisible in the
     console because the adapter writes it into query state instead of throwing.
@@ -519,9 +525,10 @@ function TeamSection({
     settled by the effect above, or it names a team this player has left. THE
     NO-TEAM CARD WOULD BE A FALSE STATEMENT IN ALL THREE: it tells a player who
     has teams that they have none and links them away to go join one. So this
-    renders nothing. It is one render pass, and it deliberately gets no spinner
-    or skeleton of its own — nothing is what the loading frame below has always
-    rendered, and one pass of a spinner is worse than one pass of nothing.
+    renders nothing. It closes on its own within a render or two — the roster
+    lands, the effect navigates — and it deliberately gets no spinner or skeleton
+    of its own: nothing is what the loading frame below has always rendered here,
+    and a spinner that flashes for two renders is worse than nothing at all.
 
     NO DATA YET, with a real `teamId` — the loading frame it always was:
     `teamMonth` is in flight and resolves shortly. Not a state worth narrating,

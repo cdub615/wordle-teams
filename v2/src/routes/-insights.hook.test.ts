@@ -453,16 +453,17 @@ describe('InsightsScope', () => {
 
 /*
   TeamSection ITSELF IS NOT EXPORTED, AND RENDERING IT DIRECTLY THROUGH
-  InsightsPanel CANNOT REACH BOTH ITS BRANCHES — the global `@tanstack/react-query`
+  InsightsPanel CANNOT REACH ITS BRANCHES — the global `@tanstack/react-query`
   mock above answers every `useQuery` call, from both `getMyTeams` and
-  `teamMonth`, with the SAME `{ data: undefined }`, so `teamId` is always
-  undefined in this file (see the comment on that mock) and only the "no team"
-  branch is ever reachable by rendering. The "real teamId, data still loading"
-  branch needs `teamId` truthy and `data` falsy at once, which this mock cannot
-  produce without becoming call-aware — a bigger, riskier change than this
-  coverage gap justifies (today-panel.hook.test.ts's own comment documents the
-  same jsdom-cwd tradeoff for the same reason: read the real source rather than
-  invent scaffolding around it).
+  `teamMonth`, with the SAME `{ data: undefined }`, so `teams` and `teamId` are
+  both always undefined in this file (see the comment on that mock) and the ONLY
+  branch reachable by rendering here is "we do not know yet", which renders
+  nothing. The no-team card needs a LOADED, EMPTY roster and the loading frame
+  needs `teamId` truthy with `data` falsy; neither is producible from a mock that
+  answers every call the same way, and making it call-aware is a bigger, riskier
+  change than this coverage gap justifies (today-panel.hook.test.ts's own comment
+  documents the same jsdom-cwd tradeoff for the same reason: read the real source
+  rather than invent scaffolding around it).
 
   So this reads the real source instead, the same fallback today-panel.hook.test.ts
   uses for a hazard a render cannot reach. What it guards is not "these branches
@@ -487,6 +488,15 @@ describe('InsightsScope', () => {
   The assertions below therefore pin the SHAPE of all three guards, not just
   their separateness: the first fails if NoTeamCard can render while the roster
   is still unknown, and the last still fails for any recombination.
+
+  AND THEIR ORDER, WHICH IS LOAD-BEARING AND IS NOT OBVIOUS FROM READING THREE
+  ADJACENT ONE-LINE GUARDS. The roster question must be asked BEFORE the param
+  question: an empty roster also yields `teamId === undefined`, so moving
+  `if (!teamId) return null` above the card makes the card UNREACHABLE and hands
+  a player on no team the blank page wordle-teams-wty4.1.11.8 was filed for —
+  the same regression, reached by reordering rather than by recombining. Every
+  content assertion here passes under that swap, which is why the order gets an
+  assertion of its own.
 */
 describe('TeamSection tells "no team", "not resolved yet" and "still loading" apart', () => {
   const source = readFileSync('src/routes/insights.tsx', 'utf8')
@@ -509,6 +519,17 @@ describe('TeamSection tells "no team", "not resolved yet" and "still loading" ap
     // NOT the no-team card: a roster still in flight, or a `?team=` the effect
     // has not settled, is not a player without a team.
     expect(teamSection).toContain('if (!teamId) return null')
+  })
+
+  test('the roster question is asked BEFORE the param question, or the card is dead code', () => {
+    // An empty roster leaves `teamId` undefined too, so a `!teamId` guard placed
+    // first swallows the state NoTeamCard exists to name — the card still reads
+    // correctly, it simply never runs. Index comparison rather than a regex over
+    // the whole block: it says the one thing that matters and keeps saying it if
+    // a fourth guard is added between these two.
+    expect(teamSection.indexOf('<NoTeamCard />')).toBeLessThan(
+      teamSection.indexOf('if (!teamId) return null'),
+    )
   })
 
   test('unresolved data renders null, as a SEPARATE statement, not folded into the team check', () => {
