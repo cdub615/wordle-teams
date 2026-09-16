@@ -1,4 +1,5 @@
-import { Card, CardContent } from '#/components/ui/card.tsx'
+import type { ReactNode } from 'react'
+import { Card, CardContent, CardHeader } from '#/components/ui/card.tsx'
 import { dailyTeamFact, type TeamMonth } from '#/lib/insights-team.ts'
 
 /**
@@ -26,11 +27,28 @@ export function DailyTeamFact({
   viewerId,
   today,
   onSeeFullMonth,
+  controls,
 }: {
   stats: TeamMonth | null
   viewerId: string
   today: string
   onSeeFullMonth?: () => void
+  /**
+   * The team dropdown (components/insights/team-scope-controls.tsx), as a node
+   * rather than as its props — team-panel.tsx's `controls` states the reasoning
+   * and it is the same here.
+   *
+   * THE TEAM DROPDOWN ONLY, NEVER A MONTH ONE. This card states a fact about
+   * TODAY, so there is no month to choose; routes/insights.tsx builds the free
+   * branch's controls without a month scope, and team-scope-controls.tsx's
+   * `MonthScope` says the same thing from the other side.
+   *
+   * ABSENT IS THE COMMON CASE, which is why the header below is conditional
+   * rather than always drawn. A player on ONE team has nothing to pick, so
+   * there is no control, and a card whose only header was an empty padded row
+   * would be worse than the card this has always been.
+   */
+  controls?: ReactNode
 }) {
   const fact = dailyTeamFact(stats, viewerId, today)
 
@@ -41,7 +59,20 @@ export function DailyTeamFact({
 
   return (
     <Card data-testid="insights-daily-fact">
-      <CardContent className="space-y-2 pt-6 text-sm">
+      {/* NO TITLE TO SIT BESIDE, so the control takes the header on its own and
+          the header exists only when the control does. `justify-end` puts it
+          where team-panel.tsx's controls are, so the two Layer 3 cards put the
+          same dropdown in the same place. */}
+      {controls && (
+        <CardHeader className="flex-row items-center justify-end space-y-0 pb-3">
+          {controls}
+        </CardHeader>
+      )}
+      {/* CardContent's own `pt-0` IS CORRECT WHEN A HEADER IS ABOVE IT, and the
+          `pt-6` that overrides it is what this card needed while it had none.
+          Keeping the override in both cases would double the gap under the
+          dropdown. */}
+      <CardContent className={`space-y-2 text-sm ${controls ? '' : 'pt-6'}`}>
         <p data-testid="insights-daily-fact-text">{sentenceFor(fact)}</p>
         {fact.kind === 'beat' && (
           <button

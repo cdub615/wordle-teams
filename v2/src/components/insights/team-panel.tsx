@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import {
   bestAndWorstDays,
@@ -48,7 +49,30 @@ export type TeamPanelData = {
   stats: TeamMonth | null
 }
 
-export function TeamPanel({ data, teamName }: { data: TeamPanelData; teamName?: string }) {
+export function TeamPanel({
+  data,
+  teamName,
+  controls,
+}: {
+  data: TeamPanelData
+  teamName?: string
+  /**
+   * The team and month dropdowns (components/insights/team-scope-controls.tsx),
+   * as a rendered node rather than as the four props they take.
+   *
+   * A NODE, SO THIS COMPONENT LEARNS NOTHING NEW. What the dropdowns offer is
+   * the roster and the team's month window — two facts this panel has no use
+   * for and, per `teamName` above, must not fetch. Taking the rendered control
+   * keeps that true: the panel owns WHERE the controls sit in its header, and
+   * routes/insights.tsx owns what they say and what they do.
+   *
+   * IN BOTH RETURNS BELOW, INCLUDING THE EMPTY ONE. An unplayed month is
+   * exactly when somebody needs the month dropdown most — a card that said
+   * "nobody played this month" with no way to pick another month would be a
+   * dead end.
+   */
+  controls?: ReactNode
+}) {
   const title = teamName ?? 'Your team'
 
   const nameOf = (playerId: string) => {
@@ -60,9 +84,7 @@ export function TeamPanel({ data, teamName }: { data: TeamPanelData; teamName?: 
   if (!data.stats || data.stats.days.length === 0) {
     return (
       <Card data-testid="insights-team-empty">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg md:text-xl">{title}</CardTitle>
-        </CardHeader>
+        <PanelHeader title={title} controls={controls} />
         <CardContent className="text-muted-foreground text-sm">
           Nobody on this team has entered a board this month yet.
         </CardContent>
@@ -98,9 +120,7 @@ export function TeamPanel({ data, teamName }: { data: TeamPanelData; teamName?: 
 
   return (
     <Card data-testid="insights-team">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-lg md:text-xl">{title}</CardTitle>
-      </CardHeader>
+      <PanelHeader title={title} controls={controls} />
       <CardContent className="space-y-4 text-sm">
         {/*
           HEAD TO HEAD LEADS THE CARD, and this is a reorder rather than a new
@@ -226,6 +246,54 @@ export function TeamPanel({ data, teamName }: { data: TeamPanelData; teamName?: 
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * The card header both of TeamPanel's returns share — the team's name, and the
+ * controls that change what the card is scoped to.
+ *
+ * TITLE ABOVE THE CONTROLS BELOW `md`, BESIDE THEM FROM `md` UP, AND THE SPLIT
+ * IS MEASURED RATHER THAN PREFERRED. One row at 390px leaves the title 109px of
+ * the header's 324px, which ellipses a name as ordinary as "Ada's Analysts" —
+ * while the team trigger BESIDE it is showing that same name, also truncated.
+ * Two clipped copies of one string is a worse header than a taller one. From
+ * `md` the card is wide enough that neither truncates and the row is the better
+ * shape. Measured in headless chromium over the BUILT stylesheet, which is the
+ * only thing that can see this: Tailwind emits nothing for a class no source
+ * file contains, so a stale sheet renders the header with these rules silently
+ * absent and it still looks plausible.
+ *
+ * `md` RATHER THAN `sm` TO MATCH daily-benchmark.tsx, whose own title-plus-two-
+ * controls header one card further down the same page is
+ * `flex-col gap-2 md:flex-row md:items-center md:justify-between`. The row does
+ * fit at `sm` here — these two triggers are far narrower than that card's two
+ * selects — but two cards on one page changing shape at different widths is a
+ * worse outcome than one line of unused room between 640 and 768.
+ *
+ * `space-y-0` IS NOT TIDYING. CardHeader's own `flex flex-col space-y-1.5` is
+ * still there in the `md:flex-row` — tailwind-merge only drops it because this
+ * className names the same utility — and `space-y-*` is a MARGIN on every child
+ * after the first, which in a row is a vertical offset on the controls rather
+ * than the gap between stacked rows it was written to be. `gap-2` is the gap in
+ * both directions instead.
+ *
+ * ONE COMPONENT RATHER THAN THE SAME MARKUP TWICE, because the empty state and
+ * the full card must not drift apart: an unplayed month is exactly when
+ * somebody reaches for the month dropdown, and a header that got these classes
+ * in only one of the two returns would be the emptier card losing them.
+ */
+function PanelHeader({ title, controls }: { title: string; controls?: ReactNode }) {
+  return (
+    <CardHeader className="flex-col gap-2 space-y-0 pb-2 md:flex-row md:items-center md:justify-between">
+      {/* `min-w-0 truncate` IS WHAT KEEPS THE `md` ROW INSIDE THE CARD. A flex
+          item's automatic minimum size is its content, so without `min-w-0` a
+          long team name refuses to shrink and pushes the controls out of the
+          card instead of ellipsing. The controls carry the matching
+          `shrink-0`. */}
+      <CardTitle className="min-w-0 truncate text-lg md:text-xl">{title}</CardTitle>
+      {controls}
+    </CardHeader>
   )
 }
 

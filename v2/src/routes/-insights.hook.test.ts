@@ -83,10 +83,26 @@ const benchmark: InsightsBenchmark = {
   than the panel can say and let a regression in the team clause through. Each
   test that is about the other two states passes it explicitly.
 */
+/*
+  THE PANEL NAVIGATES NOW. routes/insights.tsx hands the scope controls their two
+  callbacks rather than letting the controls reach for a router of their own —
+  see that route's note at the call site — so both are REQUIRED props here.
+
+  NO-OPS ARE THE WHOLE TRUTH IN THIS FILE: nothing below operates a control, and
+  the global react-query mock leaves `data` undefined on every render, so Layer
+  3 never reaches a card that could hold one. That a change actually reaches its
+  handler is asserted where the control lives, in
+  components/insights/team-scope-controls.hook.test.ts.
+*/
+const navigation = {
+  onTeamChange: () => undefined,
+  onMonthChange: () => undefined,
+}
+
 const panel = (
   data: Parameters<typeof InsightsPanel>[0]['data'],
   onATeam: boolean | undefined = true,
-) => render(createElement(InsightsPanel, { benchmark, data, onATeam }))
+) => render(createElement(InsightsPanel, { benchmark, data, onATeam, ...navigation }))
 
 describe('a free player on their first board', () => {
   const freeFirstBoard = {
@@ -156,7 +172,7 @@ describe('a free player on their first board', () => {
     // an argument that IS undefined, so the helper would silently hand the panel
     // `true` and this test would assert the opposite of its name. Rendered
     // directly so the unresolved value is the one that reaches the component.
-    render(createElement(InsightsPanel, { benchmark, data: freeFirstBoard, onATeam: undefined }))
+    render(createElement(InsightsPanel, { benchmark, data: freeFirstBoard, onATeam: undefined, ...navigation }))
     expect(screen.queryByTestId('insights-upsell')).toBeNull()
   })
 })
@@ -512,7 +528,7 @@ describe('Layer 3 tells "no team" and "not resolved yet" apart, on the page', ()
   }
 
   test('a player whose roster has loaded EMPTY is told they have no team', () => {
-    render(createElement(InsightsPanel, { benchmark, data: freeBoard, onATeam: false }))
+    render(createElement(InsightsPanel, { benchmark, data: freeBoard, onATeam: false, ...navigation }))
     expect(screen.getByTestId('insights-no-team')).not.toBeNull()
   })
 
@@ -521,7 +537,7 @@ describe('Layer 3 tells "no team" and "not resolved yet" apart, on the page', ()
     // `false`: telling a player who may well have teams that they have none, and
     // linking them away to go join one, is a false statement on the page. Any
     // truthiness test in that guard (`!onATeam`) fails here.
-    render(createElement(InsightsPanel, { benchmark, data: freeBoard, onATeam: undefined }))
+    render(createElement(InsightsPanel, { benchmark, data: freeBoard, onATeam: undefined, ...navigation }))
     expect(screen.queryByTestId('insights-no-team')).toBeNull()
   })
 })
