@@ -4,6 +4,7 @@ import {
   TRAILING_FORM_WINDOW,
   attemptDistribution,
   consistency,
+  solvedRate,
   streaks,
   trailingForm,
   type PersonalBoard,
@@ -37,7 +38,6 @@ export function PersonalSummary({ boards }: { boards: PersonalBoard[] }) {
   const runs = streaks(boards)
   const form = trailingForm(boards)
   const distribution = attemptDistribution(boards)
-  const solvedRate = Math.round((spread.solved / Math.max(spread.solved + spread.failed, 1)) * 100)
 
   return (
     <Card data-testid="insights-summary">
@@ -120,7 +120,7 @@ export function PersonalSummary({ boards }: { boards: PersonalBoard[] }) {
         >
           <Stat label="Streak" value={String(runs.current)} />
           <Stat label="Best ever" value={String(runs.longest)} />
-          <Stat label="Solved" value={`${solvedRate}%`} />
+          <Stat label="Solved" value={`${solvedRate(spread)}%`} />
           <Stat label="Spread" value={`±${spread.spread}`} />
         </dl>
       </CardContent>

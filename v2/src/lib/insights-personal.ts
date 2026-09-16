@@ -241,6 +241,48 @@ export function consistency(boards: PersonalBoard[]): {
   }
 }
 
+/**
+ * The share of a player's boards they solved, as a whole-number percentage.
+ *
+ * MOVED OUT OF PersonalSummary'S RENDER BODY, where it lived as inline
+ * arithmetic while every other figure that component shows — meanAttempts,
+ * spread, streaks, trailingForm, attemptDistribution — already came from a
+ * tested pure function here. This was the one number in that component with
+ * no unit coverage, and it happened to be sitting right next to Finding 1's
+ * contrast bug.
+ *
+ * TAKES `consistency()`'S RESULT, NOT `boards`. `consistency` already walks
+ * every board once to produce `solved`/`failed`, and PersonalSummary already
+ * calls `consistency` for `meanAttempts` and `spread` — recomputing attempts
+ * a second time here to re-derive the same two counts would be wasted work
+ * over the same array for no benefit.
+ *
+ * THE Math.max(..., 1) GUARD IS KEPT, DELIBERATELY UNLIKE `mean`'S EQUALLY
+ * DELIBERATE LACK OF ONE, AND THE TWO ARE NOT THE SAME QUESTION. `mean` has
+ * no honest answer for an empty input — 0 would read as a perfect record
+ * that never happened — so every one of its callers already guards, and a
+ * guard here would only hide a bug in one of them. `solvedRate` is
+ * different: "0% solved" is a true, non-misleading statement about zero
+ * boards, and `consistency` itself already treats the empty case exactly
+ * that way (its own `boards.length === 0` branch returns zeroed stats
+ * rather than dividing by zero). This function is exported for general use,
+ * not called only from behind PersonalSummary's `isThin` gate the way it
+ * was as inline arithmetic, so it cannot assume a caller has already ruled
+ * out `solved + failed === 0` the way `mean`'s callers do. The reviewer is
+ * right that today's one call site can never actually reach the guard —
+ * PersonalSummary only renders past `isThin` (boards.length >= 5), and
+ * `consistency` guarantees `solved + failed === boards.length` for
+ * non-empty input — but "unreachable from the one caller today" is a weaker
+ * claim than "safe for every caller", which is the bar an exported utility
+ * has to clear.
+ */
+export function solvedRate({
+  solved,
+  failed,
+}: Pick<ReturnType<typeof consistency>, 'solved' | 'failed'>): number {
+  return Math.round((solved / Math.max(solved + failed, 1)) * 100)
+}
+
 /** One decimal, and never `-0`, which renders as "-0.0". */
 function round1(value: number): number {
   return Math.round(value * 10) / 10 + 0

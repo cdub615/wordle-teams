@@ -13,6 +13,7 @@ import {
   isThin,
   openerAdvice,
   openerRepertoire,
+  solvedRate,
   streaks,
   trailingForm,
   trendWindow,
@@ -336,6 +337,31 @@ describe('consistency', () => {
   test('never reports -0', () => {
     // Math.round(-0.04 * 10) / 10 is -0, which renders as "-0.0".
     expect(Object.is(consistency([board('2026-09-01', 'CRANE', 4)]).spread, -0)).toBe(false)
+  })
+})
+
+describe('solvedRate', () => {
+  test('rounds solved-over-total to a whole-number percentage', () => {
+    expect(solvedRate({ solved: 3, failed: 1 })).toBe(75)
+  })
+
+  test('a perfect record is 100', () => {
+    expect(solvedRate({ solved: 4, failed: 0 })).toBe(100)
+  })
+
+  test('an all-unsolved history is 0, not a crash', () => {
+    expect(solvedRate({ solved: 0, failed: 6 })).toBe(0)
+  })
+
+  // Unreachable from PersonalSummary's one call site today (isThin gates it
+  // to boards.length >= MIN_BOARDS_FOR_STATS, and consistency() guarantees
+  // solved + failed === boards.length for non-empty input) — but this is an
+  // exported utility, not private render-body arithmetic, so it has to be
+  // safe for a caller that has not made those same guarantees. See this
+  // function's own comment for why that guard is kept here and NOT copied
+  // from mean()'s deliberate lack of one.
+  test('zero boards is 0, not a divide-by-zero NaN', () => {
+    expect(solvedRate({ solved: 0, failed: 0 })).toBe(0)
   })
 })
 
