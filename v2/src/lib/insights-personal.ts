@@ -1,6 +1,6 @@
 import { attemptsFor } from '../../convex/lib/board.ts'
 import { monthOf } from '../../convex/lib/puzzleDay.ts'
-import { openerRank, type OpenerBenchmark } from './insights-benchmark.ts'
+import { dayDifficulty, openerRank, type DifficultyBenchmark, type OpenerBenchmark } from './insights-benchmark.ts'
 import type { PuzzleDay, PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
 
 /**
@@ -452,4 +452,71 @@ export function trendWindow(rows: MonthRow[], limit = TREND_MONTHS): Trend {
   const latest = rows[rows.length - 1]!
 
   return { months, best, latestIsBest: latest === best }
+}
+
+/**
+ * Where "hard" starts.
+ *
+ * THE CORPUS'S OWN BOUNDARY, NOT ONE INVENTED HERE. difficultyLabel puts
+ * "Tricky" at 65-89 and "Hard for the solver" above 89, so >= 65 is exactly
+ * "the two harder bands" and this page cannot drift from the label the day-by-
+ * day list prints beside it.
+ */
+export const HARD_DAY_PERCENTILE = 65
+
+/** Boards required in EACH band before the split is stable enough to print. */
+export const MIN_BOARDS_PER_BAND = 10
+
+export type DifficultySplitResult =
+  | { kind: 'ready'; hard: number; rest: number; hardBoards: number; restBoards: number }
+  | { kind: 'thin'; hardBoards: number; restBoards: number }
+
+/**
+ * How much harder days hit them, compared to every other day — the one
+ * insight in this whole module that no player-side computation could produce
+ * on its own, because it needs the corpus's per-day difficulty percentiles.
+ *
+ * A NULL FROM dayDifficulty MEANS "UNRATED", NOT "EASY", AND IS SKIPPED FROM
+ * BOTH BANDS RATHER THAN DEFAULTED INTO ONE. This is the common case, not the
+ * edge case: the corpus publishes only globally completed days, so today is
+ * always unrated and so is every day since the artifact was last refreshed.
+ * Defaulting an unrated day into "rest" would quietly load that band with days
+ * that were never actually assessed as easy.
+ *
+ * THIN REPORTS COUNTS, NOT JUST A BOOLEAN, because the caller renders a
+ * progress prompt ("6 more hard-day boards needed") that has to say how far
+ * away the insight is, not just that it is not ready yet.
+ */
+export function difficultySplit(
+  boards: PersonalBoard[],
+  difficulty: DifficultyBenchmark,
+): DifficultySplitResult {
+  const hard: number[] = []
+  const rest: number[] = []
+
+  for (const board of boards) {
+    const rated = dayDifficulty(difficulty, board.puzzleDay)
+    if (rated === null) continue
+
+    const attempts = attemptsFor(board.guesses, board.answer ?? '')
+    if (rated.percentile >= HARD_DAY_PERCENTILE) {
+      hard.push(attempts)
+    } else {
+      rest.push(attempts)
+    }
+  }
+
+  if (hard.length < MIN_BOARDS_PER_BAND || rest.length < MIN_BOARDS_PER_BAND) {
+    return { kind: 'thin', hardBoards: hard.length, restBoards: rest.length }
+  }
+
+  const mean = (values: number[]) => values.reduce((total, n) => total + n, 0) / values.length
+
+  return {
+    kind: 'ready',
+    hard: round1(mean(hard)),
+    rest: round1(mean(rest)),
+    hardBoards: hard.length,
+    restBoards: rest.length,
+  }
 }

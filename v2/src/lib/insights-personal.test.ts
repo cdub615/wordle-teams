@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'vitest'
 import {
   MIN_BOARDS_FOR_STATS,
+  MIN_BOARDS_PER_BAND,
   TRAILING_FORM_MIN_BOARDS,
   TRAILING_FORM_WINDOW,
   TREND_MONTHS,
   attemptDistribution,
   attemptsByMonth,
   consistency,
+  difficultySplit,
   headlineComparison,
   isThin,
   openerAdvice,
@@ -18,7 +20,7 @@ import {
   type OpenerRow,
   type PersonalBoard,
 } from './insights-personal'
-import type { OpenerBenchmark } from './insights-benchmark'
+import type { DifficultyBenchmark, OpenerBenchmark } from './insights-benchmark'
 
 const openers: OpenerBenchmark = {
   attribution: 'FiveLetterWords.io, research release v2026-09-01',
@@ -66,6 +68,18 @@ const monthRow = (i: number, meanAttempts: number): MonthRow => ({
   month: monthAt(i),
   boards: 1,
   meanAttempts,
+})
+
+const difficultyBenchmark = (firstDay: string, percentiles: number[]): DifficultyBenchmark => ({
+  release: 'v2026-09-01',
+  snapshotId: 'snap-1',
+  attribution: 'NYT Wordle stats, research release',
+  licence: 'CC BY 4.0',
+  licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
+  citation: 'x',
+  firstDay,
+  count: percentiles.length,
+  percentiles,
 })
 
 describe('isThin', () => {
@@ -475,5 +489,65 @@ describe('trendWindow', () => {
 
   test('empty input is empty, not a crash', () => {
     expect(trendWindow([])).toEqual({ months: [], best: null, latestIsBest: false })
+  })
+})
+
+describe('difficultySplit', () => {
+  // Days 0-9 are percentile 40 (rest); days 10 through 10+N-1 are percentile 65
+  // (hard, deliberately AT the boundary — see the dedicated boundary test below).
+  const restDays = MIN_BOARDS_PER_BAND
+  const hardDays = MIN_BOARDS_PER_BAND
+  const readyPercentiles = [
+    ...Array.from({ length: restDays }, () => 40),
+    ...Array.from({ length: hardDays }, () => 65),
+  ]
+  const readyDifficulty = difficultyBenchmark('2026-01-01', readyPercentiles)
+  const readyRestBoards = Array.from({ length: restDays }, (_, i) =>
+    board(dateAt(i), 'CRANE', 3),
+  )
+  const readyHardBoards = Array.from({ length: hardDays }, (_, i) =>
+    board(dateAt(restDays + i), 'CRANE', 5),
+  )
+
+  test('splits on the band boundary and reports both means', () => {
+    const result = difficultySplit([...readyRestBoards, ...readyHardBoards], readyDifficulty)
+    expect(result).toEqual({ kind: 'ready', hard: 5, rest: 3, hardBoards: hardDays, restBoards: restDays })
+  })
+
+  test('withholds the split, with counts, when a band is short', () => {
+    const thinHardBoards = readyHardBoards.slice(0, MIN_BOARDS_PER_BAND - 1)
+    const result = difficultySplit([...readyRestBoards, ...thinHardBoards], readyDifficulty)
+    expect(result).toEqual({
+      kind: 'thin',
+      hardBoards: MIN_BOARDS_PER_BAND - 1,
+      restBoards: restDays,
+    })
+  })
+
+  test('a day the artifact does not cover is excluded from both bands', () => {
+    const uncovered = [
+      // One day past the artifact's coverage (percentiles has readyPercentiles.length entries).
+      board(dateAt(readyPercentiles.length), 'CRANE', 1),
+      // Before the artifact's firstDay.
+      board('2025-12-31', 'CRANE', 6),
+    ]
+    const result = difficultySplit(
+      [...readyRestBoards, ...readyHardBoards, ...uncovered],
+      readyDifficulty,
+    )
+    // Identical to the fully-covered case: the uncovered boards contribute to
+    // neither band's count nor its mean.
+    expect(result).toEqual({ kind: 'ready', hard: 5, rest: 3, hardBoards: hardDays, restBoards: restDays })
+  })
+
+  test('percentile 65 exactly is banded as hard, not rest', () => {
+    const difficulty = difficultyBenchmark('2026-01-01', [64, 65])
+    const result = difficultySplit(
+      [board(dateAt(0), 'CRANE', 2), board(dateAt(1), 'CRANE', 6)],
+      difficulty,
+    ) as { kind: 'thin'; hardBoards: number; restBoards: number }
+    expect(result.kind).toBe('thin')
+    expect(result.hardBoards).toBe(1)
+    expect(result.restBoards).toBe(1)
   })
 })
