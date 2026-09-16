@@ -34,7 +34,12 @@ describe('MiniBoard', () => {
   test('without an answer it renders neutral tiles rather than guessing colours', () => {
     render(createElement(MiniBoard, { guesses: ['CRANE'], testId: 'board' }))
     const tiles = screen.getByTestId('board').querySelectorAll('span')
+    expect(tiles[0].className).toContain('border-wordle-tile-border')
+    expect(tiles[0].className).toContain('border')
+    expect(tiles[0].className).toContain('bg-transparent')
     expect(tiles[0].className).not.toContain('bg-wordle-correct')
+    expect(tiles[0].className).not.toContain('bg-wordle-present')
+    expect(tiles[0].className).not.toContain('bg-wordle-absent')
   })
 })
 

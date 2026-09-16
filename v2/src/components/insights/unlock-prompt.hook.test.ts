@@ -35,4 +35,14 @@ describe('UnlockPrompt', () => {
     render(createElement(UnlockPrompt, { ...props, have: 99 }))
     expect(screen.getByTestId('insights-unlock-form-fill').style.width).toBe('100%')
   })
+
+  test('the fill asks for play, not money, so it never wears the achievement/upsell accent colour', () => {
+    render(createElement(UnlockPrompt, props))
+    const fill = screen.getByTestId('insights-unlock-form-fill')
+    expect(fill.className).toContain('bg-muted-foreground')
+    expect(fill.className).not.toContain('bg-accent-solid')
+    expect(fill.className).not.toContain('text-success')
+    expect(fill.className).not.toContain('bg-success')
+    expect(fill.className).not.toContain('bg-wordle-correct')
+  })
 })
