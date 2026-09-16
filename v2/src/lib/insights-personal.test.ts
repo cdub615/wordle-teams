@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import {
   MIN_BOARDS_FOR_STATS,
+  TRAILING_FORM_MIN_BOARDS,
+  TRAILING_FORM_WINDOW,
   attemptDistribution,
   attemptsByMonth,
   consistency,
@@ -8,6 +10,7 @@ import {
   isThin,
   openerRepertoire,
   streaks,
+  trailingForm,
   type PersonalBoard,
 } from './insights-personal'
 import type { OpenerBenchmark } from './insights-benchmark'
@@ -35,6 +38,10 @@ const failed = (day: string, opener: string): PersonalBoard => ({
   answer: 'SPEED',
   guesses: [opener, 'MOIST', 'MOIST', 'MOIST', 'MOIST', 'MOIST'],
 })
+
+/** The i-th day after 2026-01-01, as a puzzleDay string. */
+const dateAt = (i: number): string =>
+  new Date(Date.UTC(2026, 0, 1) + i * 86_400_000).toISOString().slice(0, 10)
 
 describe('isThin', () => {
   test('under the minimum is thin, at it is not', () => {
@@ -325,5 +332,52 @@ describe('attemptDistribution', () => {
     const rows = attemptDistribution([])
     expect(rows.every((r) => r.count === 0)).toBe(true)
     expect(rows.some((r) => r.isModal)).toBe(false)
+  })
+})
+
+describe('trailingForm', () => {
+  test('null below the floor', () => {
+    const boards = Array.from({ length: TRAILING_FORM_MIN_BOARDS - 1 }, (_, i) =>
+      board(dateAt(i), 'CRANE', 4),
+    )
+    expect(trailingForm(boards)).toBeNull()
+  })
+
+  test('at exactly the floor it reports', () => {
+    const boards = Array.from({ length: TRAILING_FORM_MIN_BOARDS }, (_, i) =>
+      board(dateAt(i), 'CRANE', 4),
+    )
+    expect(trailingForm(boards)).toEqual({ lifetime: 4, recent: 4, delta: 0, isBest: true })
+  })
+
+  test('a better recent window gives positive delta and isBest true', () => {
+    const boards = [
+      ...Array.from({ length: 11 }, (_, i) => board(dateAt(i), 'CRANE', 5)),
+      ...Array.from({ length: TRAILING_FORM_WINDOW }, (_, i) =>
+        board(dateAt(11 + i), 'CRANE', 3),
+      ),
+    ]
+    expect(trailingForm(boards)).toEqual({ lifetime: 3.5, recent: 3, delta: 0.5, isBest: true })
+  })
+
+  test('a worse recent window gives negative delta and isBest false', () => {
+    const boards = [
+      ...Array.from({ length: 11 }, (_, i) => board(dateAt(i), 'CRANE', 2)),
+      ...Array.from({ length: TRAILING_FORM_WINDOW }, (_, i) =>
+        board(dateAt(11 + i), 'CRANE', 4),
+      ),
+    ]
+    expect(trailingForm(boards)).toEqual({ lifetime: 3.5, recent: 4, delta: -0.5, isBest: false })
+  })
+
+  test('the window is the most recent by puzzle day, even when the input array is out of chronological order', () => {
+    const older = Array.from({ length: 11 }, (_, i) => board(dateAt(i), 'CRANE', 5))
+    const recentBoards = Array.from({ length: TRAILING_FORM_WINDOW }, (_, i) =>
+      board(dateAt(11 + i), 'CRANE', 3),
+    )
+    // Deliberately not in puzzle-day order: recent boards first, older boards
+    // last, both internally reversed too.
+    const shuffled = [...recentBoards].reverse().concat([...older].reverse())
+    expect(trailingForm(shuffled)).toEqual({ lifetime: 3.5, recent: 3, delta: 0.5, isBest: true })
   })
 })

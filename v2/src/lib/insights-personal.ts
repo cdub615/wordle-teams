@@ -300,3 +300,72 @@ export function attemptDistribution(boards: PersonalBoard[]): DistributionRow[] 
     isModal: label === modal,
   }))
 }
+
+export const TRAILING_FORM_WINDOW = 30
+
+/**
+ * The floor below which there is no comparison to make.
+ *
+ * AT EXACTLY TRAILING_FORM_WINDOW THE WINDOW IS THE LIFETIME and the delta is
+ * necessarily zero — a comparison of a set against itself, dressed up as a
+ * result. Forty leaves at least ten boards outside the window, so the figure is
+ * measured against something.
+ */
+export const TRAILING_FORM_MIN_BOARDS = 40
+
+export type TrailingForm = {
+  lifetime: number
+  recent: number
+  /** lifetime - recent. POSITIVE MEANS IMPROVING, because lower is better. */
+  delta: number
+  /** Whether no earlier window of the same size was better. */
+  isBest: boolean
+}
+
+/**
+ * "Are you getting better lately?" — the comparison the benchmark corpus cannot
+ * make, so it is made against the player's own history instead.
+ *
+ * THIS REPLACES A COMPARISON AGAINST THE BENCHMARK CORPUS THAT CANNOT BE BUILT.
+ * The corpus (insights-benchmark.ts) holds opener ranks and per-day difficulty
+ * percentiles — no attempt averages at all. There is no "par" score to be
+ * better or worse than, so "recent form vs. lifetime form" is the nearest
+ * honest substitute: it needs no external data and no player is exempt from
+ * having a history to compare against.
+ *
+ * SORTED BY puzzleDay, NOT ARRAY ORDER. The query's ordering is not part of its
+ * contract, and "recent" is a claim about the calendar — a caller that happens
+ * to fetch newest-first today must not silently break this if it changes
+ * tomorrow.
+ *
+ * isBest USES A STRICT `<` so the final window never disqualifies itself: its
+ * own mean compared against itself is equal, never less, so it always survives
+ * the check that asks whether anything did better.
+ */
+export function trailingForm(boards: PersonalBoard[]): TrailingForm | null {
+  if (boards.length < TRAILING_FORM_MIN_BOARDS) return null
+
+  const sorted = [...boards].sort((a, b) => a.puzzleDay.localeCompare(b.puzzleDay))
+  const attempts = sorted.map((board) => attemptsFor(board.guesses, board.answer ?? ''))
+
+  const mean = (values: number[]) => values.reduce((total, n) => total + n, 0) / values.length
+
+  const lifetime = mean(attempts)
+  const recent = mean(attempts.slice(-TRAILING_FORM_WINDOW))
+
+  let isBest = true
+  for (let start = 0; start + TRAILING_FORM_WINDOW <= attempts.length; start++) {
+    const windowMean = mean(attempts.slice(start, start + TRAILING_FORM_WINDOW))
+    if (windowMean < recent) {
+      isBest = false
+      break
+    }
+  }
+
+  return {
+    lifetime: round1(lifetime),
+    recent: round1(recent),
+    delta: round1(lifetime - recent),
+    isBest,
+  }
+}
