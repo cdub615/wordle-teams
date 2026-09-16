@@ -22,10 +22,24 @@ describe('teamMonthOptions', () => {
   })
 
   test('a team older than the cap is capped at 12, not the true age', () => {
-    const options = teamMonthOptions(CURRENT, at(2020, 1, 1))
-    expect(options).toHaveLength(12)
-    expect(options[0]).toBe('2026-09')
-    expect(options[11]).toBe('2025-10')
+    // Literal, not built from addMonths -- a test that recomputes the answer
+    // the same way the source does would not catch the source getting it
+    // wrong. Full array, not just the endpoints, so a mutant that corrupts
+    // one of the middle ten months cannot hide between two correct edges.
+    expect(teamMonthOptions(CURRENT, at(2020, 1, 1))).toEqual([
+      '2026-09',
+      '2026-08',
+      '2026-07',
+      '2026-06',
+      '2026-05',
+      '2026-04',
+      '2026-03',
+      '2026-02',
+      '2026-01',
+      '2025-12',
+      '2025-11',
+      '2025-10',
+    ])
   })
 
   /**
@@ -36,10 +50,22 @@ describe('teamMonthOptions', () => {
    * in.
    */
   test('createdAt undefined (a v1-migrated team) gets the full 12', () => {
-    const options = teamMonthOptions(CURRENT)
-    expect(options).toHaveLength(12)
-    expect(options[0]).toBe('2026-09')
-    expect(options[11]).toBe('2025-10')
+    // Literal for the same reason as the "older than the cap" case above:
+    // the full array, not just the endpoints.
+    expect(teamMonthOptions(CURRENT)).toEqual([
+      '2026-09',
+      '2026-08',
+      '2026-07',
+      '2026-06',
+      '2026-05',
+      '2026-04',
+      '2026-03',
+      '2026-02',
+      '2026-01',
+      '2025-12',
+      '2025-11',
+      '2025-10',
+    ])
   })
 
   /**
