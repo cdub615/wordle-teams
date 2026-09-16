@@ -134,6 +134,29 @@ export function OpenersPanel({
         )}
 
         <div data-testid="insights-repertoire">
+          {/*
+            THE DIRECTION STATED OUTRIGHT, IN WORDS — copied from trend-panel.tsx's
+            own comment on the identical problem, because it is the identical
+            problem. This bar uses the exact same recipe (bg-muted track,
+            bg-muted-foreground fill, rounded-full) as every other bar in this
+            codebase — unlock-prompt.tsx's progress bar, today-panel.tsx's
+            played-count bar, attempt-distribution.tsx's frequency bar — and in
+            EVERY one of those, a longer bar means more or better. Here a longer
+            bar means WORSE (more guesses), because it is literally
+            `meanAttempts / worstMean`. Worse still, `UnlockPrompt` (see the
+            difficulty-split branch just above) can render its own bar in THIS
+            SAME CARD, so a reader can have two identical-looking bars a few
+            inches apart meaning opposite things. No amount of visual design
+            disambiguates that on its own — hence the sentence, not a colour or
+            an arrow.
+            INVERTING THE BAR WAS CONSIDERED AND REJECTED. Making the bar grow
+            as the mean shrinks would fix the skim-read but break the honest
+            read: the bar sits directly beside the number it represents
+            (`row.meanAttempts`, printed to its right), and a bar that grows
+            while the adjacent number shrinks is its own, worse confusion. The
+            caption is the fix; the plot stays exactly what it was.
+          */}
+          <p className="text-muted-foreground mb-2 text-xs">avg guesses · shorter bar is better</p>
           <ul className="space-y-2">
             {shown.map((row) => (
               <RepertoireRow

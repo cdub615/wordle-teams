@@ -240,4 +240,28 @@ describe('the repertoire list', () => {
     const mean = screen.getByText('3', { selector: '.tabular-nums' })
     expect(mean).not.toBeNull()
   })
+
+  test('states the bar direction, inside the repertoire region and before the rows', () => {
+    // Same ambiguity trend-panel.tsx solves with a stated caption: this bar's
+    // recipe (bg-muted / bg-muted-foreground / rounded-full) reads as
+    // "more/better" everywhere else it appears in this codebase, but here a
+    // longer bar means worse. The caption is the only thing that disambiguates
+    // it, so it has to actually be there — and inside the repertoire region,
+    // not floating elsewhere in the card, so it reads before the bars rather
+    // than after or not at all.
+    const boards = openerBoards('CRANE', 6, 3)
+    render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
+
+    const repertoire = screen.getByTestId('insights-repertoire')
+    const caption = screen.getByText('avg guesses · shorter bar is better')
+    expect(repertoire.contains(caption)).toBe(true)
+
+    // "Before the rows" as markup order, not just DOM containment — a caption
+    // appended after the <ul> would still satisfy `.contains()` but would be
+    // read by a skimmer only after the bars it is meant to disambiguate.
+    const rows = repertoire.querySelectorAll('li')
+    expect(
+      caption.compareDocumentPosition(rows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
 })
