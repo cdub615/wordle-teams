@@ -110,7 +110,7 @@ describe('a free player on their first board', () => {
     RENDERED, NOT JUST RETURNED. lib/insights-panel.test.ts pins what `upsellFor`
     says for each tier; this pins that the panel actually puts it on the page for
     the tier that most needs it, and that the two benefits a free player CANNOT
-    SEE AT ALL are the ones named — PersonalHistory does not render for them
+    SEE AT ALL are the ones named — Layer 2 does not render for them at all
     (layer2 'none') and TeamSection gives them one daily fact instead of the
     panel, so nothing else on their screen hints that either exists.
   */

@@ -142,7 +142,7 @@ describe('upsellFor', () => {
 
   /**
    * THE REGRESSION THIS ISSUE WAS FILED FOR, in the other direction. A trialist
-   * already sees PersonalHistory and the full TeamPanel; the only thing still
+   * already sees their Layer 2 history and the full TeamPanel; the only thing still
    * withheld from them is the board list.
    */
   test('a trialist is pitched only the boards, not the history and team they already see', () => {
