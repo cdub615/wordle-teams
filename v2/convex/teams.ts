@@ -154,8 +154,13 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
         // riding along with a field that was fetched anyway. The client
         // needs it to derive a team's month window (teamMonthOptions,
         // insights.tsx) without a second round trip; `v.optional` on the
-        // schema means it can be `undefined` for v1-migrated teams, and
-        // that undefined must survive here rather than being defaulted.
+        // schema means it can be `undefined` for v1-migrated teams, whose v1
+        // `created_at` column is itself nullable.
+        //
+        // DO NOT DEFAULT THIS. A reflexive `?? 0` or `?? Date.now()` here
+        // would turn "this team has no creation date" into a false one, and
+        // teamMonthOptions reads that absence as a real state with its own
+        // answer (the full 12-month window) rather than as a missing value.
         createdAt: team.createdAt,
         // Fields are picked explicitly rather than spreading the doc, so the
         // wire payload cannot carry `invited`, which holds real email addresses.

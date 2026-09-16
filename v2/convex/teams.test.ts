@@ -149,8 +149,8 @@ describe('getMyTeamsFor', () => {
   test('carries createdAt on the payload, undefined and all', async () => {
     // getMyTeamsFor already reads createdAt to sort `mine` before this map
     // even runs, so putting it on the wire is free. What this test guards is
-    // that the explicit field pick (teams.ts:131-156) was not left off the
-    // list, AND that a v1-migrated team with no createdAt comes back as
+    // that the hand-picked field list in getMyTeamsFor was not left without
+    // it, AND that a v1-migrated team with no createdAt comes back as
     // undefined rather than a defaulted 0 — the schema's `v.optional` says
     // undefined is a real state, and a later month-window derivation
     // (teamMonthOptions) needs to see it, not a stand-in.
