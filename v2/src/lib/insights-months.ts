@@ -27,14 +27,11 @@ const CAP = 12
  * accepted limitation of a free-form list, not a bug to route around here.
  *
  * `createdAt` IS OPTIONAL BECAUSE THE SCHEMA SAYS SO, not because it is
- * commonly absent. The schema field is `v.optional`, and getMyTeams
- * (convex/teams.ts) deliberately refuses to substitute a stand-in for a
- * missing value -- see its own comment on why a reflexive `?? 0` there would
- * be worse than the absence it papers over. That leaves a real, if rare, case
- * this module must not crash on: v1's `created_at` column was itself
- * nullable, so a NULL that slipped through migration, or any future row
- * written without a date, arrives here as `undefined` rather than a number.
- * Convex also strips undefined-valued object keys on the wire, so a browser
+ * commonly absent -- convex/teams.ts owns that decision and its `DO NOT
+ * DEFAULT THIS` note explains it. What matters here is only that the absent
+ * case is real and must not crash.
+ *
+ * Convex strips undefined-valued object keys on the wire, so a browser
  * caller sees the key simply absent where a convex-test caller sees it
  * present with value `undefined`; keying off `createdAt === undefined` (or
  * the parameter being omitted) handles both, and is why this must never be
@@ -82,16 +79,8 @@ const CAP = 12
  * value is itself always a member. A change like "do not offer the current
  * month until the team has a board in it" would read as entirely reasonable
  * here and reintroduce an infinite redirect in a file its author had no
- * reason to open.
- *
- * THE TEST BELOW IS REDUNDANT WITH THE LITERAL ARRAYS, DELIBERATELY SO. Every
- * class of `createdAt` already has a full expected list, so no mutation of
- * today's source can break this property without failing one of those too --
- * measured, not assumed. What the named test buys is the NEXT change: an
- * editor who alters a branch and updates the literal arrays to match their new
- * intent must then delete a test that states this rule outright, rather than
- * watching an array quietly change shape. The property is this module's to
- * keep, so the test that names it lives here.
+ * reason to open. The test that names this rule lives in insights-months.test.ts
+ * and says there why it is worth having.
  */
 export function teamMonthOptions(
   currentMonth: PuzzleMonth,

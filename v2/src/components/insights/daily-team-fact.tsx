@@ -75,7 +75,7 @@ export function DailyTeamFact({
   // THIS NOW TAKES THE TEAM DROPDOWN WITH IT, which it did not when the rule was
   // written: the picker lives in this card's header, so a free player on two
   // teams who has not played today gets no card AND no way to switch teams. That
-  // is wordle-teams-cwmf, filed rather than fixed here — undoing it means
+  // is wordle-teams-4b0m, filed rather than fixed here — undoing it means
   // deciding what this card SAYS to somebody who has not played, and the spec
   // pins this card to one fact about a board they have entered. Do not "fix" it
   // by rendering an empty card; that is the state this return exists to avoid.
