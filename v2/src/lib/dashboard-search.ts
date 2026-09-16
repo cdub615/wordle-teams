@@ -16,6 +16,22 @@
  * `resolveDashboardSearch`, which returns `null` only when BOTH params are
  * settled and would never return null for `/team` on a valid team with no
  * month to check.
+ *
+ * THERE IS A THIRD MEMBER AND IT IS DELIBERATELY NOT IN THIS FILE:
+ * `resolveInsightsSearch` in lib/insights-search.ts, which settles
+ * `/insights?team=&month=`. Its team half follows exactly the fallback order
+ * the two here do, but which MONTHS it accepts is `teamMonthOptions`'s rule
+ * (lib/insights-months.ts), so it lives next to that rule rather than here.
+ * See its own header for the full reasoning.
+ *
+ * KEEP THIS FILE IMPORT-FREE — it has no imports today and that is worth
+ * something. Both resolvers take every fact they need as a plain argument
+ * (the teams, the stored team, the current month), which is what lets them be
+ * tested with no router, no clock and no fixtures, and app-menu.tsx and
+ * dashboard-error.tsx import this module for `STORAGE_KEY` and nothing else.
+ * A new rule that needs a date library, a Convex call, or the insights month
+ * window belongs in its own module beside what it depends on, the way
+ * insights-search.ts does.
  */
 
 /**

@@ -44,6 +44,30 @@ describe('resolveInsightsSearch', () => {
     ).toEqual({ team: 'a', month: '2026-09' })
   })
 
+  /**
+   * A VALID `?team=` OUTRANKS A DIFFERENT REMEMBERED TEAM. The URL is the
+   * more specific request — a shared link, or a pick not yet written back to
+   * localStorage — so the stored preference must not win over it.
+   *
+   * THE MONTH MUST STILL BE MISSING FOR THIS TO TEST ANYTHING. With both
+   * params already settled the function returns null before the fallback
+   * order is consulted at all, which is exactly how an inverted order
+   * (stored team first, param second) hides from every other case in this
+   * file — including the "prefers the stored team" one directly below, which
+   * it would also pass.
+   */
+  test('a valid team param beats a different stored team', () => {
+    expect(
+      resolveInsightsSearch({
+        teamParam: 'a',
+        monthParam: undefined,
+        teams,
+        storedTeam: 'b',
+        currentMonth: CURRENT,
+      }),
+    ).toEqual({ team: 'a', month: '2026-09' })
+  })
+
   test('prefers the stored team when the URL has none', () => {
     expect(
       resolveInsightsSearch({
@@ -177,15 +201,30 @@ describe('resolveInsightsSearch', () => {
    * still selectable for it.
    */
   test('a team with no createdAt gets the full window rather than only this month', () => {
+    const undated = [{ id: 'c' }]
+    // Inside the full 12-month cap: accepted as it stands, nothing to do.
     expect(
       resolveInsightsSearch({
         teamParam: 'c',
         monthParam: '2025-12',
-        teams: [{ id: 'c' }],
+        teams: undated,
         storedTeam: null,
         currentMonth: CURRENT,
       }),
     ).toBeNull()
+    // BOTH EDGES, OR THIS TEST ONLY SAYS "SOMETHING WAS ACCEPTED". 2025-09 is
+    // one month past the cap's floor of 2025-10, so it must still be
+    // corrected: a missing creation date means the FULL window, never an
+    // unbounded one.
+    expect(
+      resolveInsightsSearch({
+        teamParam: 'c',
+        monthParam: '2025-09',
+        teams: undated,
+        storedTeam: null,
+        currentMonth: CURRENT,
+      }),
+    ).toEqual({ team: 'c', month: '2026-09' })
   })
 
   /**

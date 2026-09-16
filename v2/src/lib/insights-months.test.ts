@@ -110,6 +110,27 @@ describe('teamMonthOptions', () => {
     expect(teamMonthOptions(CURRENT, at(2026, 12, 1))).toEqual(['2026-09'])
   })
 
+  /**
+   * THE CURRENT MONTH IS ALWAYS THE FIRST OPTION, WHATEVER `createdAt` SAYS.
+   * Every case above pins a concrete array, so this property follows from
+   * them -- but it is never named by them, and a change that dropped the
+   * current month for one kind of team would break it while leaving most of
+   * those arrays plausible.
+   *
+   * It is named here because insights-search.ts's resolveInsightsSearch
+   * depends on it to terminate: it falls back to `currentMonth` when a
+   * `?month=` is not in this list, and that only settles because the fallback
+   * is itself always in the list. If this test ever fails, do not relax it --
+   * the effect that consumes that resolver will navigate forever.
+   */
+  test('the current month is always the first option, for every createdAt', () => {
+    expect(teamMonthOptions(CURRENT)[0]).toBe(CURRENT) // absent
+    expect(teamMonthOptions(CURRENT, at(2026, 9, 5))[0]).toBe(CURRENT) // created this month
+    expect(teamMonthOptions(CURRENT, at(2026, 6, 12))[0]).toBe(CURRENT) // inside the cap
+    expect(teamMonthOptions(CURRENT, at(2020, 1, 1))[0]).toBe(CURRENT) // older than the cap
+    expect(teamMonthOptions(CURRENT, at(2027, 3, 4))[0]).toBe(CURRENT) // future, clock skew
+  })
+
   test('is always newest first', () => {
     const options = teamMonthOptions(CURRENT, at(2026, 5, 1))
     expect(options).toEqual([...options].sort().reverse())

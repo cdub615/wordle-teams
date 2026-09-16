@@ -68,6 +68,22 @@ const CAP = 12
  * `currentMonth` rather than producing a negative-length or empty list -- the
  * one sure thing about any team is that it can be viewed for the current
  * month.
+ *
+ * `currentMonth` IS ALWAYS ELEMENT 0 OF THE RESULT, FOR EVERY `createdAt` --
+ * absent, ancient, this month, or in the future. Both clamps above bound
+ * where the range STARTS, and the list is then built by counting BACK from
+ * `currentMonth`, so the span is never less than one and the first element is
+ * `currentMonth` itself.
+ *
+ * DO NOT BREAK THAT PROPERTY. insights-search.ts's termination depends on it
+ * by name: resolveInsightsSearch falls back to `currentMonth` whenever a
+ * `?month=` is not a member of this list, and that fallback settles -- rather
+ * than the effect behind it navigating forever -- only because the fallback
+ * value is itself always a member. A change like "do not offer the current
+ * month until the team has a board in it" would read as entirely reasonable
+ * here and reintroduce an infinite redirect in a file its author had no
+ * reason to open. insights-months.test.ts pins this on its own; that test is
+ * not decoration, and the property is this module's to keep.
  */
 export function teamMonthOptions(
   currentMonth: PuzzleMonth,
