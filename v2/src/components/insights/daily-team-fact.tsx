@@ -55,8 +55,9 @@ export function DailyTeamFact({
    * and it is the same here.
    *
    * THE TEAM DROPDOWN ONLY, NEVER A MONTH ONE. This card states a fact about
-   * TODAY, so there is no month to choose; routes/insights.tsx builds the free
-   * branch's controls without a month scope, and team-scope-controls.tsx's
+   * TODAY, so there is no month to choose; components/insights/team-section.tsx
+   * builds the free branch's controls without a month scope, and
+   * team-scope-controls.tsx's
    * `MonthScope` says the same thing from the other side.
    *
    * ABSENT IS THE COMMON CASE, which is why the header below is conditional
@@ -81,8 +82,8 @@ export function DailyTeamFact({
   // the free tier nothing else on the page is team-scoped, so `?team=` and the
   // localStorage key /insights writes were both frozen for the whole window.
   //
-  // SO THE CARD IS DRAWN EXACTLY WHEN IT CARRIES A CONTROL, and routes/
-  // insights.tsx passes one exactly when `showsTeamDropdown` is true. A player
+  // SO THE CARD IS DRAWN EXACTLY WHEN IT CARRIES A CONTROL, and team-section.tsx
+  // passes one exactly when `showsTeamDropdown` is true. A player
   // on ONE team still gets nothing at all, which keeps the original rule wherever
   // it still applies: there is no picker to strand, so the card would be a bare
   // request for a board and nothing else. The asymmetry is deliberate and was

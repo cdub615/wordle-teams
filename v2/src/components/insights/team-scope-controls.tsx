@@ -19,7 +19,7 @@ import type { PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
  * A SIMPLER SIBLING OF team-picker.tsx, NOT A REUSE OF IT, and the difference is
  * affordances rather than styling. TeamPicker's menu ends in "New Team" or
  * "Upgrade for more"; neither belongs inside a card about last month's guessing
- * averages. It also takes `isPro` and `unread` props, and routes/insights.tsx
+ * averages. It also takes `isPro` and `unread` props, and team-section.tsx
  * reads NEITHER today — wiring them up would mean adding `teams.amIPro` and the
  * chat unread subscription to a page whose whole design note is that it reads
  * the roster once and nothing else (see that route's comment on
@@ -55,7 +55,7 @@ import type { PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
  * is the obvious move if a third caller ever wants a month dropdown.
  *
  * NO QUERY OF ITS OWN, AND NEITHER FOR THE CARDS THAT HOST IT. Everything here
- * arrives as a prop from routes/insights.tsx, which already holds the roster and
+ * arrives as a prop from team-section.tsx, which already holds the roster and
  * `navigate`. team-panel.tsx's header states the same rule for its `teamName`
  * prop and gives the bandwidth reason; this follows it rather than reopening it.
  */
@@ -72,7 +72,7 @@ export type TeamScopeTeam = { id: string; name: string }
  * control the reader can click. One object makes it all-or-nothing.
  *
  * ABSENT IS THE FREE BRANCH. daily-team-fact.tsx states a fact about TODAY, and
- * today has no month to choose — see routes/insights.tsx's note on `today` for
+ * today has no month to choose — see team-section.tsx's note on `today` for
  * why that component reads the clock and not `?month=`.
  */
 export type MonthScope = {
@@ -134,7 +134,7 @@ export function TeamScopeControls({
   // Nothing to choose on either axis: one team and no month scope.
   //
   // A SAFETY NET, NOT A LIVE PATH, and it was once described as one. No caller
-  // can reach it today: routes/insights.tsx's free branch asks
+  // can reach it today: team-section.tsx's free branch asks
   // `showsTeamDropdown` BEFORE it builds this at all, and its pro branch always
   // passes a month scope. Nor would reaching it collapse a header — TeamPanel
   // draws its own either way. It stays because a component that can render an

@@ -29,8 +29,8 @@ import { formatDayHeaderParts } from '#/lib/format-day'
  *
  * `teamName` IS A PROP, NOT A QUERY. routes/insights.tsx resolves `?team=`
  * against the roster it has already read and hands the selected team down to
- * TeamSection, name included — adding a second read here to re-fetch what the
- * caller already holds would be a database-bandwidth regression on the exact
+ * team-section.tsx, name included — adding a second read here to re-fetch what
+ * the caller already holds would be a database-bandwidth regression on the exact
  * surface wordle-teams-dcu exists to protect.
  *
  * `undefined` is treated the same as an unnamed team rather than as an error.
@@ -66,7 +66,7 @@ export function TeamPanel({
    * the roster and the team's month window — two facts this panel has no use
    * for and, per `teamName` above, must not fetch. Taking the rendered control
    * keeps that true: the panel owns WHERE the controls sit in its header, and
-   * routes/insights.tsx owns what they say and what they do.
+   * team-section.tsx owns what they say and what they do.
    *
    * IN BOTH RETURNS BELOW, INCLUDING THE EMPTY ONE. An unplayed month is
    * exactly when somebody needs the month dropdown most — a card that said
@@ -80,7 +80,7 @@ export function TeamPanel({
    *
    * THE CALLER DECIDES BECAUSE ONLY THE CALLER CAN. `controls` is an opaque node
    * (see above), so this panel cannot tell whether the team dropdown inside it is
-   * already showing this same name; routes/insights.tsx can, and the reason lives
+   * already showing this same name; team-section.tsx can, and the reason lives
    * at that call site. Defaults to visible, which is the shape a one-team account
    * gets — there, nothing else names the team.
    */
@@ -268,7 +268,7 @@ export function TeamPanel({
  *
  * TWO SHAPES, DECIDED BY `titleVisuallyHidden` ALONE — painted title beside the
  * controls, or controls alone with the title hidden. TeamPanel's prop says what
- * it means; routes/insights.tsx answers it.
+ * it means; team-section.tsx answers it.
  *
  * THE HEADING IS AN `h2` IN BOTH SHAPES, and this is the canonical statement of
  * that rule. `CardTitle` renders a `<div>` by default, so both branches take its

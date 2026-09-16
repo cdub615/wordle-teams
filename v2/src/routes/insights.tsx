@@ -2,34 +2,27 @@ import { createFileRoute, redirect, useNavigate, Link } from '@tanstack/react-ro
 import { convexQuery } from '@convex-dev/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent } from '#/components/ui/card.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
 import { benchmarkCredit, loadInsightsBenchmark } from '#/lib/insights-benchmark.ts'
 import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
-import { upsellFor } from '#/lib/insights-panel.ts'
+import { onATeamFrom, upsellFor } from '#/lib/insights-panel.ts'
 import type { Boards } from '#/lib/insights-panel.ts'
 import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
-import { teamMonthOptions } from '#/lib/insights-months.ts'
 import { resolveInsightsSearch } from '#/lib/insights-search.ts'
 import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { DailyBenchmark } from '#/components/insights/daily-benchmark.tsx'
-import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
-import { NoTeamCard } from '#/components/insights/no-team-card.tsx'
 import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
 import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
-import { TeamPanel } from '#/components/insights/team-panel.tsx'
-import {
-  showsTeamDropdown,
-  TeamScopeControls,
-} from '#/components/insights/team-scope-controls.tsx'
+import { TeamSection } from '#/components/insights/team-section.tsx'
 import { TrendPanel } from '#/components/insights/trend-panel.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
-import { monthOf, toPuzzleDay, type PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
+import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -265,38 +258,51 @@ function InsightsRoute() {
           <InsightsPanel
             benchmark={benchmark!}
             data={data}
-            onATeam={teams === undefined ? undefined : teams.length > 0}
             teams={teams}
-            team={selectedTeam}
-            month={monthParam}
             /*
-              THE NAVIGATION LIVES HERE, WHERE `navigate` DOES, AND IS HANDED
-              DOWN AS A CALLBACK — the same shape routes/app.tsx uses for
-              TeamPicker and MonthPicker, and for a second reason on top of
-              consistency: a control that called `useNavigate()` for itself
-              could not be rendered in a jsdom component test without a router
-              around it, and every component test in this project renders the
-              component bare.
-
-              A TEAM CHANGE KEEPS THE CURRENT MONTH, which is what the
-              dashboard's own picker does. It can name a month the NEW team's
-              window does not reach (a younger team, or one created after that
-              month); nothing here has to guard for it, because the effect
-              above re-runs on the new `?team=` and resolveInsightsSearch
-              judges `?month=` against the SELECTED team's window — see its own
-              comment on why the window is the selected team's and not the
-              requested one's.
-
-              NO `replace`, UNLIKE THE CORRECTING EFFECT ABOVE. Picking a team
-              or a month is somewhere the reader chose to go, so Back should
-              return them to where they were; the effect's navigations are
-              corrections nobody asked for and would be a Back trap.
+              LAYER 3 IS BUILT HERE AND HANDED OVER AS A NODE, because
+              everything it needs is settled here: the selected team, the
+              month, and `navigate`. InsightsPanel decides only WHERE it goes
+              — see its `teamSection` prop, and wordle-teams-kkhj for why four
+              props stopped being drilled through it.
             */
-            onTeamChange={(team) =>
-              void navigate({ to: Route.fullPath, search: { team, month: monthParam } })
-            }
-            onMonthChange={(month) =>
-              void navigate({ to: Route.fullPath, search: { team: teamParam, month } })
+            teamSection={
+              <TeamSection
+                layer3={data.access.layer3}
+                teams={teams}
+                team={selectedTeam}
+                month={monthParam}
+                /*
+                  THE NAVIGATION LIVES HERE, WHERE `navigate` DOES, AND IS
+                  HANDED DOWN AS A CALLBACK — the same shape routes/app.tsx
+                  uses for TeamPicker and MonthPicker, and for a second reason
+                  on top of consistency: a control that called `useNavigate()`
+                  for itself could not be rendered in a jsdom component test
+                  without a router around it, and every component test in this
+                  project renders the component bare.
+
+                  A TEAM CHANGE KEEPS THE CURRENT MONTH, which is what the
+                  dashboard's own picker does. It can name a month the NEW
+                  team's window does not reach (a younger team, or one created
+                  after that month); nothing here has to guard for it, because
+                  the effect above re-runs on the new `?team=` and
+                  resolveInsightsSearch judges `?month=` against the SELECTED
+                  team's window — see its own comment on why the window is the
+                  selected team's and not the requested one's.
+
+                  NO `replace`, UNLIKE THE CORRECTING EFFECT ABOVE. Picking a
+                  team or a month is somewhere the reader chose to go, so Back
+                  should return them to where they were; the effect's
+                  navigations are corrections nobody asked for and would be a
+                  Back trap.
+                */
+                onTeamChange={(team) =>
+                  void navigate({ to: Route.fullPath, search: { team, month: monthParam } })
+                }
+                onMonthChange={(month) =>
+                  void navigate({ to: Route.fullPath, search: { team: teamParam, month } })
+                }
+              />
             }
           />
         )}
@@ -340,43 +346,40 @@ export function InsightsScope({ data }: { data: Boards | null | undefined }) {
 export function InsightsPanel({
   benchmark,
   data,
-  onATeam,
   teams,
-  team,
-  month,
-  onTeamChange,
-  onMonthChange,
+  teamSection,
 }: {
   benchmark: InsightsBenchmark
   data: Boards
   /**
-   * `undefined` until getMyTeams resolves — the upsell withholds rather than
-   * guessing, and TeamSection below reads the SAME three-valued answer for its
-   * own no-team card, so the two cannot disagree about an empty roster.
-   */
-  onATeam: boolean | undefined
-  /**
-   * THE SELECTED TEAM AND MONTH, HANDED DOWN RATHER THAN READ HERE: TeamSection
-   * cannot call `Route.useSearch()` for itself, because -insights.hook.test.ts
-   * renders this panel under a router mock whose `Route` carries no hooks.
+   * THE ROSTER, AND THE ONLY THING THIS PANEL ASKS OF IT: whether it is empty,
+   * for the upsell. `undefined` while getMyTeams is in flight, which `upsellFor`
+   * treats as its own answer — it withholds the pitch rather than guessing that
+   * a viewer has no team.
    *
-   * BOTH OPTIONAL — genuinely absent until the post-hydration effect settles the
-   * params, and TeamSection renders nothing in that window (NOT the no-team
-   * card, which would be a false statement to a player who has a team).
-   */
-  team?: { id: Id<'teams'>; name: string; createdAt?: number }
-  month?: string
-  /**
-   * THE TEAM DROPDOWN'S OPTIONS, the same roster `onATeam` is derived from and
-   * read in the same one place. `undefined` while getMyTeams is in flight, and
-   * a one-team roster is not a choice — team-scope-controls.tsx's
-   * `showsTeamDropdown` owns that rule, and TeamSection below asks it rather than
-   * spelling `length > 1` a second time.
+   * IT USED TO ARRIVE AS A SECOND PROP AS WELL. The route computed `onATeam`
+   * from this same list two lines away and passed both, and nothing enforced
+   * that they agreed. `onATeamFrom` is now the one derivation, shared with
+   * TeamSection, which asks it for its own no-team card (wordle-teams-kkhj).
    */
   teams?: Array<{ id: Id<'teams'>; name: string }>
-  /** Both required: the route always has `navigate`. See the call site above. */
-  onTeamChange: (teamId: string) => void
-  onMonthChange: (month: PuzzleMonth) => void
+  /**
+   * LAYER 3, ALREADY BUILT, as a node rather than as its props — the same shape
+   * TeamPanel and DailyTeamFact take their `controls` in, and for the same
+   * reason here as there.
+   *
+   * WHAT IT REPLACES: `team`, `month`, `onTeamChange` and `onMonthChange`, four
+   * props this component never read. They existed only to be handed on to
+   * TeamSection, which lives in its own file now — a four-prop drill through a
+   * component that does not care, and exactly what wordle-teams-kkhj asked to be
+   * removed. The route holds `navigate` and the settled params, so the route is
+   * where the section is built.
+   *
+   * OPTIONAL, because the panel's layout is the panel's own: a caller with no
+   * Layer 3 to show (every component test that is not about Layer 3) renders
+   * everything else unchanged rather than having to construct one.
+   */
+  teamSection?: ReactNode
 }) {
   const credit = benchmarkCredit(benchmark)
   const upsell = upsellFor({
@@ -384,7 +387,7 @@ export function InsightsPanel({
     layer2: data.access.layer2,
     layer3: data.access.layer3,
     boardCount: data.boards.length,
-    onATeam,
+    onATeam: onATeamFrom(teams),
   })
 
   /*
@@ -442,15 +445,11 @@ export function InsightsPanel({
         </>
       )}
 
-      <TeamSection
-        layer3={data.access.layer3}
-        onATeam={onATeam}
-        teams={teams}
-        team={team}
-        month={month}
-        onTeamChange={onTeamChange}
-        onMonthChange={onMonthChange}
-      />
+      {/* LAYER 3 SITS HERE, between the personal panels and the daily benchmark,
+          and that position is this component's to own even though the section
+          itself is built by the route — the same division `controls` draws
+          inside TeamPanel. */}
+      {teamSection}
 
       <DailyBenchmark benchmark={benchmark} data={data} />
 
@@ -488,260 +487,5 @@ export function InsightsPanel({
         . Difficulty snapshot {credit.snapshotId}.
       </footer>
     </div>
-  )
-}
-
-/**
- * Layer 3, for the team and month the URL names — both settled by InsightsRoute
- * above and handed down, so this component asks no question of its own about
- * which team it is showing.
- *
- * THE SELECTED TEAM ARRIVES AS AN OBJECT OR NOT AT ALL, which is what keeps
- * `teamMonth` from being asked for a team the viewer is not on — see the route's
- * own note on the lookup, and why an id that misses it must never reach Convex.
- *
- * `today` IS READ FROM THE CLOCK HERE, AND ONLY `today`. The month comes from
- * `?month=` now, but the daily fact is a fact about TODAY and has no month to
- * choose; it stays the viewer's own day, never the server's, the rule winners.ts
- * states for the celebration dialog.
- *
- * WHICH IS WHY THE TWO BRANCHES READ DIFFERENT MONTHS — see `queryMonth` below.
- * The free card asks only about today, so it must always be handed TODAY'S
- * month; the pro card is showing whichever month `?month=` names, and showing
- * that month is the entire feature.
- */
-function TeamSection({
-  layer3,
-  onATeam,
-  teams,
-  team,
-  month,
-  onTeamChange,
-  onMonthChange,
-}: {
-  layer3: 'none' | 'free' | 'full'
-  /** Three-valued: undefined while the roster loads, then whether it has anything in it. */
-  onATeam: boolean | undefined
-  teams: Array<{ id: Id<'teams'>; name: string }> | undefined
-  team: { id: Id<'teams'>; name: string; createdAt?: number } | undefined
-  month: string | undefined
-  onTeamChange: (teamId: string) => void
-  onMonthChange: (month: PuzzleMonth) => void
-}) {
-  const today = toPuzzleDay(new Date())
-
-  /*
-    THE FREE BRANCH ALWAYS READS THE CURRENT MONTH, NEVER `?month=`, AND THAT IS
-    A BUG FIX RATHER THAN A PREFERENCE.
-
-    ONE QUERY SERVES BOTH BRANCHES, and it used to be keyed on the selected month
-    for both of them. But DailyTeamFact only ever asks about TODAY: `dailyTeamFact`
-    (lib/insights-team.ts) looks for `today` in `stats.days` and returns
-    'no-board' when it is not there. So `/insights?month=2026-08` fetched August's
-    aggregate, today was of course absent from it, and the free card rendered
-    `null` — AND WITH IT THE TEAM PICKER, which lives in that card's header and
-    only exists when the card does. A free player arriving on a shared link, or
-    whose trial ended while a past month sat in the URL, got a blank region with
-    nothing to click to get out of it.
-
-    IT MIRRORS THE RENDER BRANCH BELOW AND MUST KEEP MIRRORING IT: `layer3 ===
-    'full'` here, `layer3 !== 'full'` there. If one of the two ever learns a new
-    value of `layer3` without the other, a card will be rendered from a month it
-    did not ask for.
-
-    THE PRO BRANCH IS DELIBERATELY UNTOUCHED. A pro player picking a past month
-    and getting that month's card is the feature, and they have the month
-    dropdown to come back with.
-  */
-  const queryMonth = layer3 === 'full' ? month : monthOf(today)
-
-  /*
-    'skip' IS THE ONLY THING THAT ACTUALLY STOPS THIS QUERY, WHICH IS WHY THE
-    `enabled` THAT USED TO SIT BESIDE IT IS GONE RATHER THAN WIDENED TO COVER THE
-    MONTH. @convex-dev/react-query opens the Convex watch from the query CACHE's
-    `added` event (ConvexQueryClient#subscribeInner), which TanStack fires for a
-    disabled query too. That handler ignores keys that are not Convex queries at
-    all, and then, for one that is, bails on exactly one thing: a query key whose
-    args are the string 'skip'. It never consults `enabled`. Measured at the
-    websocket on this project — under `enabled` alone the browser still sent
-    ModifyQuerySet and took a refusal back, and the refusal is invisible in the
-    console because the adapter writes it into query state instead of throwing.
-
-    BOTH HALVES HAVE TO BE RESOLVED, not just the team. `queryMonth` is
-    `undefined` on the PRO branch until the route's post-hydration effect fills
-    `?month=` in, so a team-only check would issue a read with no month at all. A
-    month that is shaped right but outside the team's window needs no guard of
-    its own, unlike the team: `teamMonth` finds no aggregate row for it and
-    returns `stats: null`, which is the same "nobody played this month" the
-    panels already state, and the effect replaces it on the next pass anyway.
-
-    ON THE FREE BRANCH THE MONTH HALF IS ALWAYS SATISFIED, because `monthOf`
-    returns `day.slice(0, 7)` of a clock reading and can never be `undefined`. So
-    that branch waits on the TEAM alone and its fact can render a beat earlier
-    than it used to, before `?month=` has settled. THE TEAM HALF IS NOT
-    NEGOTIABLE AND MUST STAY THE FIRST OPERAND: `teamMonth` rejects a team the
-    viewer is not on, and the route's own note explains why such an id must never
-    reach Convex at all.
-
-    A SECOND CONSEQUENCE, AND IT IS A SAVING: `?month=` is no longer part of the
-    free branch's query key, so a navigation that changes it — the effect settling
-    the param on first load, most commonly — can no longer re-issue this read for
-    a month that branch does not use.
-  */
-  const { data } = useQuery(
-    convexQuery(
-      api.insights.teamMonth,
-      team && queryMonth ? { teamId: team.id, month: queryMonth } : 'skip',
-    ),
-  )
-
-  /*
-    THREE STATES, THREE LINES, AND THEY MUST NOT BE FOLDED INTO FEWER — nor
-    REORDERED, which is the same defect by another route (see below). The
-    original defect (wordle-teams-wty4.1.11.8) was one shared `!teamId || !data`
-    guard rendering an unexplained blank for a player on no team. Taking the team
-    from `?team=` opened a SECOND door onto that same conflation, because a
-    missing team now means either "this player has no team" or "we do not know
-    which team yet". So the question the no-team card answers is asked of
-    `onATeam`, which is THREE-VALUED, and never of `team`, which is not.
-
-    NOBODY TO SHOW — `onATeam === false`: the roster has loaded and is EMPTY. A
-    state, not a wait: the player has nothing here to load, ever, until they act,
-    and that is common enough (a v1 migrant can have left every team) that
-    wordle-teams-wty4.1.11.8 requires it be said rather than silently absent. See
-    no-team-card.tsx's own comment on why it is a card with a link, not an
-    UnlockPrompt with a bar. COMPARED TO `false`, NEVER TESTED FOR TRUTHINESS:
-    `!onATeam` is also true while the roster is UNKNOWN, which is the conflation
-    itself.
-
-    WE DO NOT KNOW YET — no `team`: the roster is still in flight, or `?team=`
-    has not been settled by the effect above, or it names a team this player has
-    left. THE NO-TEAM CARD WOULD BE A FALSE STATEMENT IN ALL THREE: it tells a
-    player who has teams that they have none and links them away to go join one.
-    So this renders nothing. It closes on its own within a render or two — the
-    roster lands, the effect navigates — and it deliberately gets no spinner or
-    skeleton of its own: nothing is what the loading frame below has always
-    rendered here, and a spinner that flashes for two renders is worse than
-    nothing at all.
-
-    ORDER IS LOAD-BEARING. The roster question must be asked BEFORE the team
-    question, because an empty roster also leaves `team` undefined — swap these
-    two lines and the card becomes unreachable, which is wty4.1.11.8's blank page
-    again, reached by reordering instead of by recombining.
-
-    NO DATA YET, with a real `team` — the loading frame it always was:
-    `teamMonth` is in flight and resolves shortly. Not a state worth narrating,
-    so it renders nothing, exactly as it always did.
-
-    THE FREE SLICE IS COVERED BY THE SAME THREE LINES. DailyTeamFact is only
-    reached with `data` in hand, so a free player mid-resolution sees nothing
-    rather than an empty or a wrong fact card.
-  */
-  if (onATeam === false) return <NoTeamCard />
-  if (!team) return null
-  if (!data) return null
-
-  /*
-    THE SCOPE CONTROLS ARE BUILT HERE AND HANDED TO WHICHEVER CARD RENDERS,
-    because this is the one place that knows WHICH BRANCH it is — and the branch
-    is what decides whether there is a month to choose. Neither card may ask for
-    itself: team-panel.tsx's `teamName` header states the bandwidth rule, and
-    both `controls` props follow it.
-
-    BELOW ALL THREE GUARDS, DELIBERATELY. A control needs a resolved `team` to
-    say which team is selected and to name the id a change navigates AWAY from,
-    and the no-team card has nothing to scope at all.
-  */
-  const teamOptions = teams ?? []
-
-  /*
-    THE FREE SLICE IS A DIFFERENT COMPONENT, NOT A CUT-DOWN PANEL. The spec pins
-    the free tier to one daily fact rather than a reduced version of the paid
-    surface, so there is nothing here to "unlock" — the two render different
-    things from the same one aggregate read.
-  */
-  if (layer3 !== 'full') {
-    return (
-      <DailyTeamFact
-        stats={data.stats}
-        viewerId={data.viewerId}
-        today={today}
-        /* For the card's sr-only heading — it has no painted title. */
-        teamName={team.name}
-        /*
-          NO MONTH SCOPE ON THIS BRANCH — a fact about today has no month to
-          choose (see this component's own note on `today`).
-
-          AND NO HEADER AT ALL WHEN THERE IS NO TEAM TO PICK, which is why this
-          is `undefined` rather than a TeamScopeControls that would render
-          nothing: that card has no title, so an always-drawn header would be
-          an empty padded row for an account on a single team. TeamPanel needs
-          no such check — its header holds the title either way.
-        */
-        controls={
-          showsTeamDropdown(teamOptions) ? (
-            <TeamScopeControls teams={teamOptions} teamId={team.id} onTeamChange={onTeamChange} />
-          ) : undefined
-        }
-      />
-    )
-  }
-
-  return (
-    <TeamPanel
-      data={data}
-      teamName={team.name}
-      /*
-        THE SAME QUESTION THE FREE BRANCH ASKS ABOVE, AND IT MUST STAY THE SAME
-        CALL. When the team dropdown renders it shows the team's name, so the
-        panel drops its VISIBLE title and keeps an `sr-only` heading instead —
-        otherwise the header reads "Ada's Analysts  [Ada's Analysts v]". A
-        second spelling of "more than one team" here could drift from
-        `showsTeamDropdown` and put the duplicate back, or hide the title on a
-        one-team account where it is the card's only identifier.
-
-        THIS LINE IS PINNED IN -insights-team-scope.hook.test.ts, NOT IN
-        team-panel.hook.test.ts. That distinction is worth the sentence: the
-        component test hands TeamPanel the boolean itself, so it covers both
-        shapes thoroughly and covers this call site not at all. Replacing this
-        expression with either constant once left the entire suite green — one
-        of them reinstating the duplicated name this prop exists to remove. The
-        route test renders this branch at one team and at two and asserts on the
-        header that actually came out.
-      */
-      titleVisuallyHidden={showsTeamDropdown(teamOptions)}
-      controls={
-        <TeamScopeControls
-          teams={teamOptions}
-          teamId={team.id}
-          onTeamChange={onTeamChange}
-          /*
-            THE `undefined` ARM IS UNREACHABLE TODAY, AND IS KEPT ONLY BECAUSE
-            `month` IS TYPED OPTIONAL. Trace it: an undefined `month` makes
-            `queryMonth` undefined on this branch, which makes the query args
-            'skip', which leaves `data` undefined, which returns at
-            `if (!data) return null` well above here. So this is a type
-            obligation, not a live case — do not cite it as the reason anything
-            renders, and do not delete it without narrowing the prop.
-
-            THE WINDOW IS THIS TEAM'S OWN, from its `createdAt` — the rule and
-            every one of its edges (the 12-month cap, the absent creation date,
-            the timezone consequences) live in lib/insights-months.ts, which is
-            also where resolveInsightsSearch reads it from. One list, judged and
-            offered by the same function, so the dropdown cannot offer a month
-            the resolver would navigate straight back out of.
-          */
-          month={
-            month === undefined
-              ? undefined
-              : {
-                  value: month,
-                  options: teamMonthOptions(monthOf(today), team.createdAt),
-                  onChange: onMonthChange,
-                }
-          }
-        />
-      }
-    />
   )
 }

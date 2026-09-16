@@ -54,7 +54,7 @@ const fact = (
   )
 
 /**
- * A stand-in for the team dropdown routes/insights.tsx passes when — and only
+ * A stand-in for the team dropdown team-section.tsx passes when — and only
  * when — the viewer is on two or more teams. What the card branches on is the
  * PRESENCE of a control, never its contents, so a bare element is the honest
  * fixture: coupling these tests to TeamScopeControls would test that component

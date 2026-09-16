@@ -7,6 +7,7 @@ import {
   monthOptionsFor,
   openerOptionsFor,
   difficultySentence,
+  onATeamFrom,
   openerRankSentence,
   upsellFor,
 } from './insights-panel'
@@ -32,6 +33,38 @@ const benchmark = (words: string[], firstDay: string, percentiles: number[]): In
 })
 
 const set = benchmark(['slant', 'crane', 'orate'], '2026-09-01', [10, 50, 95])
+
+describe('onATeamFrom', () => {
+  /*
+    THREE VALUES, AND THE THIRD IS THE WHOLE REASON THIS IS A FUNCTION. It used
+    to be an expression inline in routes/insights.tsx, computed from `teams` and
+    then passed down BESIDE `teams` — two spellings of one fact with nothing
+    holding them together (wordle-teams-kkhj). Both callers ask this now:
+    `upsellFor` below, which withholds the pitch on `undefined`, and TeamSection,
+    whose no-team card is keyed on `false` and must never be shown for a roster
+    that has simply not loaded.
+  */
+  test('undefined while the roster is in flight', () => {
+    expect(onATeamFrom(undefined)).toBeUndefined()
+  })
+
+  test('false for a roster that has loaded EMPTY', () => {
+    expect(onATeamFrom([])).toBe(false)
+  })
+
+  test('true for a roster with anything in it', () => {
+    expect(onATeamFrom([{ id: 'a' }])).toBe(true)
+  })
+
+  test('an unloaded roster is NOT false — the optional-chain spelling is the bug', () => {
+    // `teams?.length > 0` evaluates to `false` for undefined and puts back the
+    // exact conflation this function exists to remove: a player who may well
+    // have teams gets told they have none and is linked away to go join one.
+    // Asserted as an identity rather than with toBeFalsy, which `undefined`
+    // would satisfy too.
+    expect(onATeamFrom(undefined)).not.toBe(false)
+  })
+})
 
 describe('benchmarkFor', () => {
   test('reports the opener rank and the day difficulty together', () => {
@@ -128,7 +161,7 @@ describe('upsellFor', () => {
   })
 
   /**
-   * TeamSection RENDERS NoTeamCard FOR A PLAYER ON NO TEAM (routes/insights.tsx),
+   * TeamSection RENDERS NoTeamCard FOR A PLAYER ON NO TEAM,
    * and a v1 migrant can be exactly that. Promising team analytics to someone
    * with no team promises something they cannot see even after paying — the
    * card names the same three things (head-to-head, averages, best/worst days)

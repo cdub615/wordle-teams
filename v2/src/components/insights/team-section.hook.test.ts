@@ -1,34 +1,37 @@
 // @vitest-environment jsdom
 //
-// THE LEADING DASH IS REQUIRED, not a style choice: TanStack Router treats every
-// file under src/routes/ as a route and warns on each build that this one exports
-// no Route. `routeFileIgnorePrefix` is "-", so the dash is the documented way to
-// keep a non-route file next to the route it tests.
+// IT LIVES BESIDE ITS SUBJECT NOW, AND NO LONGER NEEDS A LEADING DASH
+// (wordle-teams-kkhj). This was src/routes/-insights-team-scope.hook.test.ts,
+// where the dash was mandatory — TanStack Router treats every file under
+// src/routes/ as a route and warns on each build about one that exports no
+// Route. TeamSection is its own component now, so the test sits in
+// components/insights/ with every other component test and renders the
+// component DIRECTLY rather than reaching it through InsightsPanel.
 //
-// A SECOND FILE BESIDE -insights.hook.test.ts, AND THE MOCK IS WHY. That file
-// answers EVERY react-query call with `{ data: undefined }`, which is exactly
-// what its own subject needs — the three-state guard and the absent states —
-// and it means Layer 3 there never gets past `if (!data) return null`. So it
-// cannot see a rendered team card at all, and the branch this file is about
-// (which controls the PRO card gets versus the FREE one) is unreachable from
-// it. Rather than make that file's mock call-aware and put every assertion in
-// it at the mercy of the change, the mock that answers is here.
+// A SECOND FILE BESIDE routes/-insights.hook.test.ts, AND THE MOCK IS WHY. That
+// file answers EVERY react-query call with `{ data: undefined }`, which is
+// exactly what its own subject needs, and it means Layer 3 there never gets past
+// `if (!data) return null`. So it cannot see a rendered team card at all, and
+// the branch this file is about (which controls the PRO card gets versus the
+// FREE one) is unreachable from it. Rather than make that file's mock call-aware
+// and put every assertion in it at the mercy of the change, the mock that
+// answers is here.
 //
 // WHY THIS FILE EXISTS: THE FREE BRANCH MUST NOT GET A MONTH DROPDOWN. That is
 // a one-line difference inside TeamSection between two sibling calls, it is
 // invisible to type-checking (the prop is optional on purpose), and it is
 // invisible to team-scope-controls.hook.test.ts, which renders the control
-// directly and never sees who built it. Only a render of the panel through the
-// real branch can catch a month scope handed to the daily fact — or, the other
-// way, a pro card that lost its month dropdown to a refactor.
+// directly and never sees who built it. Only a render through the real branch
+// can catch a month scope handed to the daily fact — or, the other way, a pro
+// card that lost its month dropdown to a refactor.
+import { readFileSync } from 'node:fs'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { teamMonthOptions } from '#/lib/insights-months.ts'
-import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
-import type { Id } from '../../convex/_generated/dataModel'
+import { monthOf, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
  * TODAY, FROM THE SAME FUNCTION TeamSection READS IT FROM. The daily fact is a
@@ -124,36 +127,19 @@ vi.mock('@convex-dev/react-query', () => ({
   },
 }))
 
+// NoTeamCard LINKS TO /app, AND THAT IS THE ONLY REASON THIS MOCK SURVIVED THE
+// MOVE. While this file rendered the route's panel it replaced the whole router
+// module — createFileRoute, redirect, useNavigate and Link. TeamSection reaches
+// for none of those itself; the one thing still in its render tree that does is
+// no-team-card.tsx's `Link`, which throws outside a RouterProvider.
 vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: () => (options: unknown) => options,
-  redirect: () => undefined,
-  useNavigate: () => () => undefined,
   Link: ({ to, children, ...rest }: { to: string; children?: ReactNode }) =>
     createElement('a', { href: to, ...rest }, children),
 }))
 
-const { InsightsPanel } = await import('./insights.tsx')
+const { TeamSection } = await import('./team-section.tsx')
 
 afterEach(cleanup)
-
-const credit = {
-  attribution: 'FiveLetterWords.io, research release v2026-09-01',
-  licence: 'CC BY 4.0',
-  licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
-  citation: 'FiveLetterWords.io (2026-09-01). [Data set].',
-}
-
-const benchmark: InsightsBenchmark = {
-  openers: { ...credit, release: 'v2026-09-01', count: 14855, words: 'slantcraneorate' },
-  difficulty: {
-    ...credit,
-    release: 'current',
-    snapshotId: 'current-2026-09-07-abc',
-    firstDay: '2026-09-01',
-    count: 3,
-    percentiles: [10, 50, 95],
-  },
-}
 
 // `Id<'teams'>` is a branded string, so a literal needs the cast to stand in
 // for one. The ids are never dereferenced here — the query is mocked.
@@ -216,7 +202,14 @@ const teamCardHeader = () => screen.getByTestId('insights-team').firstElementChi
  */
 const visibleTitle = () => teamCardHeader().querySelector(':scope > .truncate')?.textContent ?? null
 
-const panel = (options: {
+/**
+ * Renders TeamSection itself, which is what this file could not do while it was
+ * the last 235 lines of routes/insights.tsx — it went through InsightsPanel, and
+ * carried a benchmark fixture and a router mock that had nothing to do with its
+ * subject. The helper is still called `section` rather than `panel` for that
+ * reason: what it mounts is the component under test.
+ */
+const section = (options: {
   layer3: 'free' | 'full'
   teamCount: 1 | 2
   month?: string
@@ -225,7 +218,7 @@ const panel = (options: {
   const { layer3, teamCount } = options
   // `in` RATHER THAN A DEFAULT PARAMETER, and the difference is the whole point
   // of two of the tests below: a default fires on an explicit `undefined` too,
-  // so `panel({ month: undefined })` would silently get the current month and
+  // so `section({ month: undefined })` would silently get the current month and
   // the "reads nothing until it is settled" assertions would test nothing. Both
   // props are genuinely absent for a render or two after hydration, so a test
   // has to be able to say ABSENT rather than merely not say anything.
@@ -237,13 +230,12 @@ const panel = (options: {
   const team = 'team' in options ? options.team : teams[0]
   asked.length = 0
   return render(
-    createElement(InsightsPanel, {
-      benchmark,
-      data: {
-        access: { layer1: 'free', layer2: 'none', layer3 },
-        boards: [{ puzzleDay: today, guesses: ['CRANE'] }],
-      },
-      onATeam: true,
+    createElement(TeamSection, {
+      layer3,
+      // THE ROSTER IS NOW THE ONLY SPELLING OF "ON A TEAM" (wordle-teams-kkhj).
+      // This helper used to pass `onATeam: true` alongside a `teams` it varied
+      // from 1 to 2 — the two were independent, and a non-empty roster with
+      // `onATeam: false` was constructible here and is not any more.
       teams: teams.slice(0, teamCount),
       team,
       month,
@@ -255,18 +247,18 @@ const panel = (options: {
 
 describe('the pro branch — the full team card', () => {
   test('gets a month dropdown, because a month is what it is showing', () => {
-    panel({ layer3: 'full', teamCount: 2 })
+    section({ layer3: 'full', teamCount: 2 })
     expect(screen.queryByTestId('insights-team')).not.toBeNull()
     expect(screen.queryByTestId('insights-team-scope-month')).not.toBeNull()
   })
 
   test('and the team dropdown at two teams', () => {
-    panel({ layer3: 'full', teamCount: 2 })
+    section({ layer3: 'full', teamCount: 2 })
     expect(screen.queryByTestId('insights-team-scope-team')).not.toBeNull()
   })
 
   test('but no team dropdown at one', () => {
-    panel({ layer3: 'full', teamCount: 1 })
+    section({ layer3: 'full', teamCount: 1 })
     expect(screen.queryByTestId('insights-team-scope-team')).toBeNull()
     // The month one is unaffected — the two rules are independent.
     expect(screen.queryByTestId('insights-team-scope-month')).not.toBeNull()
@@ -279,14 +271,14 @@ describe('the free branch — the daily fact', () => {
     // choose, so offering one would be a control that cannot change what is on
     // screen — and, with a past month picked, `?month=` would move under a card
     // that is still reading the clock.
-    panel({ layer3: 'free', teamCount: 2 })
+    section({ layer3: 'free', teamCount: 2 })
     expect(screen.queryByTestId('insights-daily-fact')).not.toBeNull()
     expect(screen.queryByTestId('insights-team-scope-team')).not.toBeNull()
     expect(screen.queryByTestId('insights-team-scope-month')).toBeNull()
   })
 
   test('and no controls at all at one team', () => {
-    panel({ layer3: 'free', teamCount: 1 })
+    section({ layer3: 'free', teamCount: 1 })
     expect(screen.queryByTestId('insights-daily-fact')).not.toBeNull()
     expect(screen.queryByTestId('insights-team-scope-controls')).toBeNull()
   })
@@ -296,7 +288,7 @@ describe('the free branch — the daily fact', () => {
   THE MONTH EACH BRANCH READS, WHICH IS NOT THE MONTH EACH BRANCH SHOWS.
 
   The bug these pin, and why the two branches differ at all, is stated once at
-  `queryMonth` in routes/insights.tsx. In short: the free card asks only about
+  `queryMonth` in team-section.tsx. In short: the free card asks only about
   TODAY, so a `?month=` in the past used to leave it with no card and no picker.
 
   THE ASSERTIONS ARE ON THE ARGS, NOT ONLY ON THE RENDER, because the args are
@@ -307,13 +299,13 @@ describe('the month each branch reads', () => {
   test('a free player with a PAST ?month= still gets their fact about today', () => {
     // THE REGRESSION TEST. Before the fix this rendered nothing at all — no
     // card, and therefore no way to reach the other team either.
-    panel({ layer3: 'free', teamCount: 2, month: pastMonth })
+    section({ layer3: 'free', teamCount: 2, month: pastMonth })
     expect(screen.queryByTestId('insights-daily-fact')).not.toBeNull()
     expect(screen.queryByTestId('insights-team-scope-team')).not.toBeNull()
   })
 
   test('and it asks for the CURRENT month, whatever ?month= says', () => {
-    panel({ layer3: 'free', teamCount: 2, month: pastMonth })
+    section({ layer3: 'free', teamCount: 2, month: pastMonth })
     expect(asked).toEqual([{ teamId: 'team_a', month: monthOf(today) }])
   })
 
@@ -321,7 +313,7 @@ describe('the month each branch reads', () => {
     // NOT COLLATERAL DAMAGE FROM THE FIX ABOVE: a pro player choosing a past
     // month and seeing that month's card is the entire feature, and they have
     // the month dropdown to come back with.
-    panel({ layer3: 'full', teamCount: 2, month: pastMonth })
+    section({ layer3: 'full', teamCount: 2, month: pastMonth })
     expect(asked).toEqual([{ teamId: 'team_a', month: pastMonth }])
     expect(screen.queryByTestId('insights-team')).not.toBeNull()
   })
@@ -332,15 +324,15 @@ describe('the month each branch reads', () => {
     // still holding this query back on that branch. A refactor that dropped the
     // team half would send an id-less read, or worse an id for a team the
     // viewer is not on, which `insights.teamMonth` refuses server-side.
-    panel({ layer3: 'free', teamCount: 2, month: pastMonth, team: undefined })
+    section({ layer3: 'free', teamCount: 2, month: pastMonth, team: undefined })
     expect(asked).toEqual(['skip'])
-    panel({ layer3: 'full', teamCount: 2, month: pastMonth, team: undefined })
+    section({ layer3: 'full', teamCount: 2, month: pastMonth, team: undefined })
     expect(asked).toEqual(['skip'])
   })
 
   test('the pro branch reads nothing until ?month= is settled either', () => {
     // Its month genuinely is absent for a render or two after hydration.
-    panel({ layer3: 'full', teamCount: 2, month: undefined })
+    section({ layer3: 'full', teamCount: 2, month: undefined })
     expect(asked).toEqual(['skip'])
   })
 })
@@ -363,7 +355,7 @@ describe('the month each branch reads', () => {
 */
 describe('the pro header names the team exactly once, whatever the team count', () => {
   test('at TWO teams the visible title is gone and an sr-only heading carries the name', () => {
-    panel({ layer3: 'full', teamCount: 2 })
+    section({ layer3: 'full', teamCount: 2 })
     // The trigger is showing the name, so the title must not also.
     expect(visibleTitle()).toBeNull()
     // But the card must still HAVE a heading — invisible, not deleted.
@@ -373,7 +365,7 @@ describe('the pro header names the team exactly once, whatever the team count', 
   })
 
   test('at ONE team the visible title stays, because nothing else names the team', () => {
-    panel({ layer3: 'full', teamCount: 1 })
+    section({ layer3: 'full', teamCount: 1 })
     expect(visibleTitle()).toBe('Ada’s Analysts')
     expect(screen.queryByTestId('insights-team-scope-team')).toBeNull()
     // SAME HEADING, PAINTED. Both shapes put the team name in an h2; only
@@ -389,7 +381,7 @@ describe('the pro header names the team exactly once, whatever the team count', 
     // navigating by heading skipped the region and landed on a bare
     // "Team: ..." button with nothing to say what it belonged to. The fix is
     // the heading, NOT a painted title — the card's design is one sentence.
-    panel({ layer3: 'free', teamCount: 2 })
+    section({ layer3: 'free', teamCount: 2 })
     const heading = screen.getByRole('heading', { level: 2, name: 'Ada’s Analysts' })
     expect(heading.className).toContain('sr-only')
     expect(screen.getByTestId('insights-daily-fact').contains(heading)).toBe(true)
@@ -399,7 +391,7 @@ describe('the pro header names the team exactly once, whatever the team count', 
   test('and it keeps that heading at ONE team, where it draws no header at all', () => {
     // The header is conditional on the controls; the heading must not be, or the
     // commonest free account is the one left with no heading.
-    panel({ layer3: 'free', teamCount: 1 })
+    section({ layer3: 'free', teamCount: 1 })
     expect(screen.queryByTestId('insights-team-scope-controls')).toBeNull()
     expect(screen.getByRole('heading', { level: 2, name: 'Ada’s Analysts' })).not.toBeNull()
   })
@@ -416,11 +408,166 @@ describe('the month dropdown offers the team’s own window', () => {
     // means the list was fabricated from the selection, twelve means
     // `createdAt` was dropped and the cap took over, three means it came from
     // this team's real window.
-    panel({ layer3: 'full', teamCount: 2, team: { ...teams[0], createdAt } })
+    section({ layer3: 'full', teamCount: 2, team: { ...teams[0], createdAt } })
     open(`Month: ${formatMonthLabel(monthOf(today))}`)
 
     const offered = screen.queryAllByRole('menuitemradio').map((item) => item.textContent)
     expect(offered).toHaveLength(3)
     expect(offered).toEqual(teamMonthOptions(monthOf(today), createdAt).map(formatMonthLabel))
+  })
+})
+
+/*
+  THE THREE-STATE GUARD, HALF BY RENDER AND HALF BY SOURCE.
+
+  MOVED HERE WITH THE COMPONENT (wordle-teams-kkhj). These used to render
+  InsightsPanel from routes/-insights.hook.test.ts and read TeamSection's source
+  out of the middle of the route file. Both halves now address the component
+  directly: the renders mount TeamSection, and the source slice is a whole file
+  rather than a `slice(indexOf('function TeamSection'))` that depended on it
+  being the last thing routes/insights.tsx defined.
+
+  RENDERED WHERE IT CAN BE. The roster is a prop, so "loaded and empty" and "not
+  known yet" are both constructible, and the two tests below are real renders of
+  the exact confusion this guard exists to prevent. That was impossible while
+  TeamSection read the roster itself — every state collapsed into the one answer
+  the query mock gave.
+
+  READ FROM SOURCE WHERE IT CANNOT BE. A render cannot see the ORDER of the
+  guards, nor that the query is skipped through the sentinel rather than
+  disabled. (today-panel.hook.test.ts documents the same tradeoff: read the real
+  source rather than invent scaffolding around it.)
+
+  WHAT ALL OF IT GUARDS is wordle-teams-wty4.1.11.8: one shared
+  `if (!teamId || !data) return null` rendered an unexplained blank for a player
+  on no team, where the card belonged. Taking the team from `?team=` opened a
+  second door onto the same conflation — a missing team now means "has no team"
+  OR "we do not know which team yet" — and a third, since asking the roster
+  question AFTER the team question makes the card unreachable.
+*/
+
+/**
+ * The component's source with comments removed. EVERY source assertion below
+ * matches against this rather than the raw text, and that is not tidiness.
+ *
+ * A MATCHER THAT CAN MATCH A COMMENT CAN GO SILENTLY DEAD. This project's house
+ * style names components and options in prose, and the block directly ABOVE the
+ * guards mentions the no-team card repeatedly. The day one of those sentences is
+ * written with angle brackets, `indexOf('<NoTeamCard />')` starts finding the
+ * COMMENT — which sits above the guards — and the ordering assertion goes on
+ * passing while no longer detecting the reorder it exists to detect. A test that
+ * fails noisily is recoverable; one that passes for the wrong reason is not.
+ *
+ * Crude by design — a strip over one known file, not a parser.
+ *
+ * THE WHOLE FILE, NOT A SLICE OF ONE. While TeamSection lived in the route this
+ * read `routeCode.slice(indexOf('function TeamSection'))` and carried a comment
+ * asserting it was the last thing that module defined — true when written, and
+ * exactly the kind of claim that stops being true silently. It is its own module
+ * now, so the slice is the file.
+ */
+const stripComments = (code: string) =>
+  code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+
+const teamSectionCode = stripComments(
+  readFileSync('src/components/insights/team-section.tsx', 'utf8'),
+)
+
+describe('Layer 3 tells "no team" and "not resolved yet" apart, on the page', () => {
+  test('a player whose roster has loaded EMPTY is told they have no team', () => {
+    render(
+      createElement(TeamSection, {
+        layer3: 'free',
+        teams: [],
+        team: undefined,
+        month: monthOf(today),
+        onTeamChange: () => undefined,
+        onMonthChange: () => undefined,
+      }),
+    )
+    expect(screen.getByTestId('insights-no-team')).not.toBeNull()
+  })
+
+  test('a player whose roster has not loaded yet is told nothing', () => {
+    // THE REGRESSION THIS CATCHES BY RENDERING. `undefined` is not `false`:
+    // telling a player who may well have teams that they have none, and linking
+    // them away to go join one, is a false statement on the page. Any truthiness
+    // test in that guard (`!onATeam`) fails here — and so does an `onATeamFrom`
+    // written with an optional chain, which is the same defect one module over.
+    render(
+      createElement(TeamSection, {
+        layer3: 'free',
+        teams: undefined,
+        team: undefined,
+        month: monthOf(today),
+        onTeamChange: () => undefined,
+        onMonthChange: () => undefined,
+      }),
+    )
+    expect(screen.queryByTestId('insights-no-team')).toBeNull()
+  })
+})
+
+describe('the guards and the query, read from the component source', () => {
+  test('the card renders from one place only, keyed on the three-valued answer', () => {
+    const cardLines = teamSectionCode.split('\n').filter((line) => line.includes('<NoTeamCard />'))
+    expect(cardLines).toHaveLength(1)
+    expect(cardLines[0]).toContain('onATeam === false')
+  })
+
+  test('the three-valued answer is DERIVED, never taken as a second prop', () => {
+    // wordle-teams-kkhj. `onATeam` and `teams` were two spellings of one fact
+    // arriving down the same call, and nothing enforced that they agreed — this
+    // file's own helper used to hardcode `onATeam: true` while varying `teams`.
+    // The derivation is `onATeamFrom`, whose three-valued contract has its own
+    // tests in lib/insights-panel.test.ts.
+    expect(teamSectionCode).toContain('const onATeam = onATeamFrom(teams)')
+    expect(teamSectionCode).not.toMatch(/onATeam: boolean/)
+  })
+
+  test('an unresolved team renders null, as a SEPARATE statement', () => {
+    expect(teamSectionCode).toContain('if (!team) return null')
+  })
+
+  test('unresolved data renders null, as a SEPARATE statement', () => {
+    expect(teamSectionCode).toContain('if (!data) return null')
+  })
+
+  test('the roster question is asked BEFORE the team question', () => {
+    // Swap the two and the card is dead code: an empty roster leaves `team`
+    // undefined too, so the null return fires first and a player on no team gets
+    // wty4.1.11.8's blank page again. The render test above fails on this as
+    // well; this one says which line is at fault.
+    expect(teamSectionCode.indexOf('<NoTeamCard />')).toBeLessThan(
+      teamSectionCode.indexOf('if (!team) return null'),
+    )
+  })
+
+  test('the three conditions are never recombined into one guard', () => {
+    expect(teamSectionCode).not.toContain('if (!team || !data)')
+    expect(teamSectionCode).not.toContain('if (!data || !team)')
+    // The truthiness spelling of the first guard, which is the conflation with a
+    // different face rather than a style choice.
+    expect(teamSectionCode).not.toContain('if (!onATeam)')
+  })
+
+  test('teamMonth is skipped through the sentinel, never through `enabled`', () => {
+    // `enabled` DOES NOT GATE A CONVEX QUERY. @convex-dev/react-query opens the
+    // watch from the query cache's `added` event, which TanStack fires for a
+    // disabled query too, and its handler bails only on a query key whose args
+    // are the string 'skip'. An `enabled` spread after convexQuery also OVERRIDES
+    // the `enabled: false` the sentinel sets, so the two together are worse than
+    // the sentinel alone. Both halves are checked because the month arrives from
+    // the URL and is undefined until the route's effect lands.
+    //
+    // `queryMonth`, NOT `month`, AND THE DIFFERENCE IS A FIXED BUG — stated at
+    // `queryMonth` in the component itself, and pinned behaviourally
+    // (mutant-checked both ways) by "the month each branch reads" above. This
+    // line is here so that a refactor reaching for the bare `month` again has to
+    // walk past a second failure.
+    expect(teamSectionCode).toContain(
+      "team && queryMonth ? { teamId: team.id, month: queryMonth } : 'skip'",
+    )
+    expect(teamSectionCode).not.toContain('enabled')
   })
 })

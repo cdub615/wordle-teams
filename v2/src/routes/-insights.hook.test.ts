@@ -20,19 +20,20 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
+import type { Id } from '../../convex/_generated/dataModel'
 
 /*
-  TeamSection (Layer 3) still issues the `teamMonth` query, so rendering the panel
-  pulls react-query in. Mocked to report nothing loaded, which leaves `data`
-  undefined on every render here.
+  THE ROUTE MODULE IMPORTS react-query FOR ITS OWN TWO QUERIES — the benchmark
+  boards and the roster — so importing it here pulls the library in whether or
+  not anything below renders. Mocked to report nothing loaded.
 
-  WHAT LAYER 3 RENDERS IN THIS FILE IS NOW A FUNCTION OF THE `onATeam` PROP, not
-  of the mock: the roster is read once in the route and handed down, so `false`
-  reaches the no-team card and `undefined` reaches the "we do not know yet"
-  branch, which renders nothing. That is why the card is testable by RENDERING
-  below, where it used to need a source-text assertion. Layer 3's own statistics
-  stay covered in lib/insights-team.test.ts against fixtures, and the card's own
-  shape in no-team-card.hook.test.ts.
+  LAYER 3 NO LONGER COMES IN WITH IT (wordle-teams-kkhj). TeamSection is a
+  separate module now and is handed to InsightsPanel as a node, which nothing in
+  this file passes — so the `teamMonth` query this mock used to have to answer is
+  not issued here at all. Layer 3's branches are covered in
+  components/insights/team-section.hook.test.ts, its statistics in
+  lib/insights-team.test.ts, and the no-team card's own shape in
+  no-team-card.hook.test.ts.
 */
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: undefined, isPending: false }),
@@ -77,32 +78,33 @@ const benchmark: InsightsBenchmark = {
 }
 
 /*
-  `onATeam` DEFAULTS TO TRUE HERE, which is the case that renders the most copy
-  rather than the least: the upsell names the team layer only for a player who
-  has a team, so a default of `false` or `undefined` would quietly assert less
-  than the panel can say and let a regression in the team clause through. Each
-  test that is about the other two states passes it explicitly.
+  THE PANEL NO LONGER NAVIGATES, AND NO LONGER BUILDS LAYER 3 (wordle-teams-kkhj).
+  TeamSection is its own component in components/insights/, handed to this panel
+  as a node by the route, so `team`, `month`, `onTeamChange` and `onMonthChange`
+  — four props this component never read — are gone from its surface. Nothing in
+  this file passes a `teamSection`, because nothing in this file is about Layer 3
+  any more: those assertions moved to components/insights/team-section.hook.test.ts,
+  where they render the component directly.
 */
-/*
-  THE PANEL NAVIGATES NOW. routes/insights.tsx hands the scope controls their two
-  callbacks rather than letting the controls reach for a router of their own —
-  see that route's note at the call site — so both are REQUIRED props here.
 
-  NO-OPS ARE THE WHOLE TRUTH IN THIS FILE: nothing below operates a control, and
-  the global react-query mock leaves `data` undefined on every render, so Layer
-  3 never reaches a card that could hold one. That a change actually reaches its
-  handler is asserted where the control lives, in
-  components/insights/team-scope-controls.hook.test.ts.
-*/
-const navigation = {
-  onTeamChange: () => undefined,
-  onMonthChange: () => undefined,
-}
+/**
+ * A one-team roster, which is what `onATeam: true` used to be spelled as.
+ *
+ * THE MOST COPY, NOT THE LEAST, and that is why it is the default: the upsell
+ * names the team layer only for a player who HAS a team, so a default of `[]` or
+ * `undefined` would quietly assert less than the panel can say and let a
+ * regression in the team clause through. Each test about the other two states
+ * passes its own roster explicitly.
+ *
+ * `Id<'teams'>` is a branded string, so a literal needs the cast. Nothing here
+ * dereferences it.
+ */
+const ONE_TEAM = [{ id: 'team_a' as Id<'teams'>, name: 'Ada’s Analysts' }]
 
 const panel = (
   data: Parameters<typeof InsightsPanel>[0]['data'],
-  onATeam: boolean | undefined = true,
-) => render(createElement(InsightsPanel, { benchmark, data, onATeam, ...navigation }))
+  teams: Array<{ id: Id<'teams'>; name: string }> | undefined = ONE_TEAM,
+) => render(createElement(InsightsPanel, { benchmark, data, teams }))
 
 describe('a free player on their first board', () => {
   const freeFirstBoard = {
@@ -155,7 +157,11 @@ describe('a free player on their first board', () => {
   })
 
   test('and is not promised team analytics when they are on no team', () => {
-    panel(freeFirstBoard, false)
+    // AN EMPTY ROSTER, WHICH IS WHAT `onATeam: false` USED TO BE SPELLED AS.
+    // `onATeamFrom` is the one derivation now, so a loaded-and-empty roster is
+    // the only way to reach this branch — and `undefined` (below) cannot be
+    // mistaken for it.
+    panel(freeFirstBoard, [])
     const copy = screen.getByTestId('insights-upsell').textContent
     expect(copy).toContain('your full playing history')
     expect(copy).not.toMatch(/team/i)
@@ -172,7 +178,7 @@ describe('a free player on their first board', () => {
     // an argument that IS undefined, so the helper would silently hand the panel
     // `true` and this test would assert the opposite of its name. Rendered
     // directly so the unresolved value is the one that reaches the component.
-    render(createElement(InsightsPanel, { benchmark, data: freeFirstBoard, onATeam: undefined, ...navigation }))
+    render(createElement(InsightsPanel, { benchmark, data: freeFirstBoard, teams: undefined }))
     expect(screen.queryByTestId('insights-upsell')).toBeNull()
   })
 })
@@ -472,28 +478,19 @@ describe('InsightsScope', () => {
 })
 
 /*
-  THE THREE-STATE GUARD, HALF BY RENDER AND HALF BY SOURCE.
+  LAYER 3 IS NOT THIS FILE'S SUBJECT ANY MORE (wordle-teams-kkhj).
 
-  RENDERED WHERE IT CAN BE. `onATeam` is a prop now — the roster is read once in
-  the route and handed down — so "loaded and empty" and "not known yet" are both
-  reachable through InsightsPanel, and the two tests below are real renders of
-  the exact confusion this guard exists to prevent. That was impossible while
-  TeamSection read the roster itself: the global react-query mock answers every
-  call with the same `{ data: undefined }`, so every state collapsed into one.
+  The three-state guard — "no team" versus "not resolved yet" versus "the
+  aggregate is still in flight" — and the source assertions that hold the order
+  of those guards moved WITH TeamSection, to
+  components/insights/team-section.hook.test.ts. They render the component
+  directly there, which is strictly better than reaching it through this panel:
+  the two states that were reachable here still are, and the file that owns them
+  is the file named after them.
 
-  READ FROM SOURCE WHERE IT CANNOT BE. The third state (a real team, `teamMonth`
-  still in flight) needs `team` truthy and `data` falsy at once, which this mock
-  cannot produce without becoming call-aware — a bigger, riskier change than the
-  gap justifies (today-panel.hook.test.ts documents the same tradeoff: read the
-  real source rather than invent scaffolding around it). Neither can a render see
-  the ORDER of the guards, or that the query is skipped rather than disabled.
-
-  WHAT ALL OF IT GUARDS is wordle-teams-wty4.1.11.8: one shared
-  `if (!teamId || !data) return null` rendered an unexplained blank for a player
-  on no team, where the card belonged. Taking the team from `?team=` opened a
-  second door onto the same conflation — a missing team now means "has no team"
-  OR "we do not know which team yet" — and a third, since asking the roster
-  question AFTER the team question makes the card unreachable.
+  WHAT STAYS BELOW is the route's own: the two params this page fills in, and
+  the remembered team it writes. Those are properties of InsightsRoute, which
+  cannot be rendered under vitest at all.
 */
 
 /**
@@ -501,12 +498,10 @@ describe('InsightsScope', () => {
  * against this rather than the raw text, and that is not tidiness.
  *
  * A MATCHER THAT CAN MATCH A COMMENT CAN GO SILENTLY DEAD. This project's house
- * style names components and options in prose, and the block directly ABOVE the
- * guards mentions the no-team card repeatedly. The day one of those sentences is
- * written with angle brackets, `indexOf('<NoTeamCard />')` starts finding the
- * COMMENT — which sits above the guards — and the ordering assertion goes on
- * passing while no longer detecting the reorder it exists to detect. A test that
- * fails noisily is recoverable; one that passes for the wrong reason is not.
+ * style names components and options in prose, so a matcher looking for a call
+ * or a guard will happily find a sentence describing one and go on passing while
+ * the code it was watching is gone. A test that fails noisily is recoverable;
+ * one that passes for the wrong reason is not.
  *
  * Crude by design — a strip over one known file, not a parser. It also eats a
  * `//` inside a string (the one href literal in this route), which no assertion
@@ -517,91 +512,8 @@ const stripComments = (code: string) =>
   code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 
 const routeCode = stripComments(readFileSync('src/routes/insights.tsx', 'utf8'))
-// TeamSection is the last thing the module defines, so slicing from its
-// signature to end-of-file is exact and cannot match an `if` from elsewhere.
-const teamSectionCode = routeCode.slice(routeCode.indexOf('function TeamSection'))
 
-describe('Layer 3 tells "no team" and "not resolved yet" apart, on the page', () => {
-  const freeBoard = {
-    access: { layer1: 'free' as const, layer2: 'none' as const, layer3: 'free' as const },
-    boards: [{ puzzleDay: '2026-09-03', guesses: ['CRANE'] }],
-  }
-
-  test('a player whose roster has loaded EMPTY is told they have no team', () => {
-    render(createElement(InsightsPanel, { benchmark, data: freeBoard, onATeam: false, ...navigation }))
-    expect(screen.getByTestId('insights-no-team')).not.toBeNull()
-  })
-
-  test('a player whose roster has not loaded yet is told nothing', () => {
-    // THE REGRESSION THIS FILE NOW CATCHES BY RENDERING. `undefined` is not
-    // `false`: telling a player who may well have teams that they have none, and
-    // linking them away to go join one, is a false statement on the page. Any
-    // truthiness test in that guard (`!onATeam`) fails here.
-    render(createElement(InsightsPanel, { benchmark, data: freeBoard, onATeam: undefined, ...navigation }))
-    expect(screen.queryByTestId('insights-no-team')).toBeNull()
-  })
-})
-
-describe('the guards and the query, read from the route source', () => {
-  test('the card renders from one place only, keyed on the three-valued answer', () => {
-    const cardLines = teamSectionCode.split('\n').filter((line) => line.includes('<NoTeamCard />'))
-    expect(cardLines).toHaveLength(1)
-    expect(cardLines[0]).toContain('onATeam === false')
-  })
-
-  test('onATeam itself stays three-valued, since the card is keyed on it', () => {
-    // The other half of that property, and it lives in the route: `teams?.length
-    // > 0` would collapse "unknown" into `false` and hand the card back the
-    // conflation the guard just removed.
-    expect(routeCode).toContain('teams === undefined ? undefined : teams.length > 0')
-  })
-
-  test('an unresolved team renders null, as a SEPARATE statement', () => {
-    expect(teamSectionCode).toContain('if (!team) return null')
-  })
-
-  test('unresolved data renders null, as a SEPARATE statement', () => {
-    expect(teamSectionCode).toContain('if (!data) return null')
-  })
-
-  test('the roster question is asked BEFORE the team question', () => {
-    // Swap the two and the card is dead code: an empty roster leaves `team`
-    // undefined too, so the null return fires first and a player on no team gets
-    // wty4.1.11.8's blank page again. The render test above fails on this as
-    // well; this one says which line is at fault.
-    expect(teamSectionCode.indexOf('<NoTeamCard />')).toBeLessThan(
-      teamSectionCode.indexOf('if (!team) return null'),
-    )
-  })
-
-  test('the three conditions are never recombined into one guard', () => {
-    expect(teamSectionCode).not.toContain('if (!team || !data)')
-    expect(teamSectionCode).not.toContain('if (!data || !team)')
-    // The truthiness spelling of the first guard, which is the conflation with a
-    // different face rather than a style choice.
-    expect(teamSectionCode).not.toContain('if (!onATeam)')
-  })
-
-  test('teamMonth is skipped through the sentinel, never through `enabled`', () => {
-    // `enabled` DOES NOT GATE A CONVEX QUERY. @convex-dev/react-query opens the
-    // watch from the query cache's `added` event, which TanStack fires for a
-    // disabled query too, and its handler bails only on a query key whose args
-    // are the string 'skip'. An `enabled` spread after convexQuery also OVERRIDES
-    // the `enabled: false` the sentinel sets, so the two together are worse than
-    // the sentinel alone. Both halves are checked because the month arrives from
-    // the URL and is undefined until the effect lands.
-    //
-    // `queryMonth`, NOT `month`, AND THE DIFFERENCE IS A FIXED BUG — stated at
-    // `queryMonth` in the route itself, and pinned behaviourally (mutant-checked
-    // both ways) in -insights-team-scope.hook.test.ts. This line is here so that
-    // a refactor reaching for the bare `month` again has to walk past a second
-    // failure.
-    expect(teamSectionCode).toContain(
-      "team && queryMonth ? { teamId: team.id, month: queryMonth } : 'skip'",
-    )
-    expect(teamSectionCode).not.toContain('enabled')
-  })
-
+describe('the search params the route settles, read from its source', () => {
   test('the search effect waits for hydration before reading the clock', () => {
     // wordle-teams-uc5: the fallback month comes from the viewer's LOCAL clock
     // and the server renders in UTC, so on the first and last day of a month an

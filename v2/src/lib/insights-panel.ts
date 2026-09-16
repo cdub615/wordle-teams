@@ -112,6 +112,30 @@ function listed(items: string[]): string {
 }
 
 /**
+ * Is this player on a team? Three-valued, and the ONE spelling of it.
+ *
+ * `undefined` until the roster query resolves, and every caller has to treat
+ * that as its own answer rather than as a `false` — `upsellFor` below withholds
+ * the pitch on it, and TeamSection compares to `false` explicitly so the
+ * no-team card cannot be shown to somebody who merely has not loaded yet.
+ *
+ * WHY IT IS A FUNCTION AND NOT A PROP (wordle-teams-kkhj). This expression used
+ * to live inline in routes/insights.tsx, which computed it from `teams` and then
+ * passed BOTH down the same call — two spellings of one fact, with nothing
+ * enforcing that `onATeam === false` and `teams.length === 0` agreed. They were
+ * independent in test, too: the route test's helper hardcoded `onATeam: true`
+ * while varying `teams`. One function, called by the two components that need
+ * the answer, is what collapses that.
+ *
+ * `teams.length > 0` RATHER THAN `teams?.length > 0`, and the optional chain is
+ * the bug this shape exists to refuse: it evaluates to `false` for an unloaded
+ * roster and puts the conflation straight back.
+ */
+export function onATeamFrom(teams: ReadonlyArray<unknown> | undefined): boolean | undefined {
+  return teams === undefined ? undefined : teams.length > 0
+}
+
+/**
  * Whether this player is seeing everything or a sample, and what to say about it.
  *
  * COMPOSED FROM WHAT IS LOCKED, NOT BRANCHED ON A TIER, and that is the fix
@@ -130,7 +154,7 @@ function listed(items: string[]): string {
  *
  * THE TEAM CLAUSE IS CONDITIONAL ON HAVING A TEAM, not just on layer3.
  * TeamSection renders NoTeamCard, not the panel, for a player on no team
- * (routes/insights.tsx), which a v1 migrant can be, and promising team
+ * (components/insights/team-section.tsx), which a v1 migrant can be, and promising team
  * analytics to them promises something they would not see after paying.
  *
  * Returns null when there is nothing to upsell — a pro player, a player with no

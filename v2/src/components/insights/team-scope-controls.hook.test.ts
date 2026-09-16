@@ -83,7 +83,7 @@ describe('the team dropdown appears only when there is a team to choose', () => 
 
   test('showsTeamDropdown states the same rule once, for the callers that need it', () => {
     // daily-team-fact.tsx has no title, so its header exists only when there is
-    // a control to put in it — which means routes/insights.tsx has to ask this
+    // a control to put in it — which means team-section.tsx has to ask this
     // question too. Exported so `length > 1` has one spelling rather than two.
     //
     // THERE IS NOW A SECOND CALLER IN THAT ROUTE, and it needs the same answer
