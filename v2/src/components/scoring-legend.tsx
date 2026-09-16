@@ -121,11 +121,15 @@ export function ScoringLegend({
               <dt className="whitespace-nowrap text-xs text-muted-foreground">
                 {SYSTEM_FIELD_LABELS[field]}
               </dt>
-              {/* The sign is kept, so -1 and -3 read as penalties rather than
-                  as bare numbers. A leading + on positives makes the two
-                  visually symmetrical; 0 stays unsigned. */}
+              {/* ONLY THE MINUS SIGN SURVIVES (wordle-teams-wty4.1.12). A
+                  bare number already reads as positive, the <dt> above says
+                  what the number is, and most rows are positive — so a
+                  leading + was a marker on nearly every row that carried no
+                  information. `-` does carry it: it is what separates a
+                  penalty from a reward. String(value) is enough for both,
+                  since negatives keep their own sign for free. */}
               <dd className="m-0 whitespace-nowrap text-sm font-medium tabular-nums">
-                {value > 0 ? `+${value}` : String(value)}
+                {String(value)}
               </dd>
             </div>
           )

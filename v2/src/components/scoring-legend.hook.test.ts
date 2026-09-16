@@ -60,4 +60,14 @@ describe('the legend is derived, never hand-listed', () => {
   test('all eight fields are covered by the derived list', () => {
     expect(SYSTEM_FIELDS).toHaveLength(8)
   })
+
+  test('positive values render bare — only the minus sign survives', () => {
+    // wordle-teams-wty4.1.12. The `+` was a marker on nearly every row that
+    // said nothing a bare number does not; `-` is the sign that distinguishes
+    // a penalty from a reward, and String() keeps it for free. Comment-
+    // stripped, because the <dd>'s own comment explains the decision and
+    // quotes the very literal being ruled out.
+    expect(code).not.toContain('`+${value}`')
+    expect(code).toContain('{String(value)}')
+  })
 })
