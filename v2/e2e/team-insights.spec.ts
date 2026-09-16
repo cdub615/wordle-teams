@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
-import { toPuzzleDay } from '../convex/lib/puzzleDay.ts'
+import { addDays, toPuzzleDay } from '../convex/lib/puzzleDay.ts'
 import type { Page } from '@playwright/test'
 
 /**
@@ -190,6 +190,77 @@ async function seedProOnTwoTeams(page: Page) {
 }
 
 /**
+ * The same two teams, a FREE viewer, and — the whole point — NO BOARD OF THEIR
+ * OWN TODAY.
+ *
+ * THE VIEWER HAS PLAYED BEFORE, AND THAT IS NOT DECORATION. A player who has
+ * never entered a board at all never reaches Layer 3 on this page: the route
+ * answers `!data || data.boards.length === 0` with "Enter a board and we will
+ * show you how it compares" and renders no panel, so TeamSection — and the card
+ * this test is about — is not on the page for any reason. Measured: the first
+ * version of this fixture seeded zero boards and failed here for exactly that.
+ * wordle-teams-4b0m's window is "has played before, not TODAY", and the history
+ * ending YESTERDAY is what puts the viewer in it.
+ *
+ * SEEDED BEFORE THE TEAMMATES, because seedTeamDayFor rolls each team's month up
+ * from scratch and seedInsightsFor only writes rows. Doing the viewer first
+ * means both rollups see their whole month; doing it after would leave the
+ * viewer's history out of the aggregates until something else wrote.
+ *
+ * WHY THE TEAMMATES ARE SEEDED AT ALL. Both aggregates exist and both contain a
+ * board for today; the only thing missing from them is the VIEWER's. That is
+ * what makes this a test of `dailyTeamFact`'s 'no-board' outcome rather than of
+ * an empty month, which would reach the card by a different route and would pass
+ * against code that only handled the empty one.
+ *
+ * Otherwise identical to seedProOnTwoTeams, including why ensureSharedTeamFor is
+ * called twice with the same viewer — see that helper's comment.
+ */
+async function seedFreeOnTwoTeamsUnplayed(page: Page) {
+  const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+  const mine = `e2e+${stamp}a@wordleteams.com`
+  const alphaMate = `e2e+${stamp}b@wordleteams.com`
+  const betaMate = `e2e+${stamp}c@wordleteams.com`
+  const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+
+  const alphaId = await convex.mutation(api.e2eSeed.ensureSharedTeamFor, {
+    emailA: mine,
+    emailB: alphaMate,
+    name: ALPHA,
+  })
+  const betaId = await convex.mutation(api.e2eSeed.ensureSharedTeamFor, {
+    emailA: mine,
+    emailB: betaMate,
+    name: BETA,
+  })
+
+  // A history ending YESTERDAY: enough boards to get past the route's
+  // "enter a board" branch, and not one of them dated today.
+  await convex.mutation(api.e2eSeed.seedInsightsFor, {
+    email: mine,
+    boards: 3,
+    lastDay: addDays(today, -1),
+    pro: false,
+  })
+  // The teammates play TODAY; the viewer does not. No seedTeamDayFor for `mine`
+  // on today's date, and its absence is the fixture.
+  await convex.mutation(api.e2eSeed.seedTeamDayFor, {
+    email: alphaMate,
+    puzzleDay: today,
+    attempts: 5,
+  })
+  await convex.mutation(api.e2eSeed.seedTeamDayFor, {
+    email: betaMate,
+    puzzleDay: today,
+    attempts: 2,
+  })
+
+  await signIn(page, mine)
+  await page.goto('/insights')
+  return { alphaId, betaId }
+}
+
+/**
  * Pick a team from the panel's own dropdown, and return once the URL names it.
  *
  * SCOPED TO THE CARD, THOUGH THE ROLE QUERY WOULD PROBABLY RESOLVE WITHOUT IT.
@@ -210,9 +281,20 @@ async function seedProOnTwoTeams(page: Page) {
  * RETRIES FOREVER and the test dies on its own 30s timeout somewhere else
  * entirely. Callers must have asserted the panel visible before the first call.
  */
-async function switchTeam(page: Page, team: { name: string; id: string }) {
+async function switchTeam(
+  page: Page,
+  team: { name: string; id: string },
+  /**
+   * WHICH CARD IS HOSTING THE DROPDOWN, because there are two and they are the
+   * two sides of the paywall: the pro panel (`insights-team`) and the free daily
+   * fact (`insights-daily-fact`), which carries the same control in its header.
+   * The default is the pro one, so the caller that predates the free case reads
+   * exactly as it did.
+   */
+  card: 'insights-team' | 'insights-daily-fact' = 'insights-team',
+) {
   await page
-    .getByTestId('insights-team')
+    .getByTestId(card)
     .getByRole('button', { name: /^Team: / })
     .click()
   // The menu is portalled out of the card, so this one is NOT scoped to it.
@@ -267,7 +349,11 @@ test.describe('a free member of a team', () => {
 
     const fact = page.getByTestId('insights-daily-fact-text')
     await expect(fact).toBeVisible(FIRST_PAINT)
-    await expect(fact).toContainText('You beat one of one teammate')
+    // NOUN AND VERB BOTH SINGULAR (wordle-teams-f441). This used to read "one
+    // teammate who HAVE played today" — the component switched the noun on a
+    // count of one and left the verb plural, on the single most shareable string
+    // in the product.
+    await expect(fact).toContainText('You beat one of one teammate who has played today')
     await expect(page.getByTestId('insights-see-full-month')).toBeVisible()
 
     // And NOT the paid surface.
@@ -286,7 +372,11 @@ test.describe('a free member of a team', () => {
 
     const fact = page.getByTestId('insights-daily-fact-text')
     await expect(fact).toBeVisible(FIRST_PAINT)
-    await expect(fact).toContainText('none of your 1 teammates have played yet')
+    // The mirror of the same bug: this phrased a count of one as a plural with a
+    // numeral, "none of your 1 teammates have played yet". At one teammate the
+    // sentence drops the quantifier rather than trying to inflect it.
+    await expect(fact).toContainText('your teammate has not played yet')
+    await expect(fact).not.toContainText('none of')
     await expect(fact).not.toContainText('beat')
     // No hook off an empty comparison — that would advertise the paid surface
     // from a surface with nothing on it.
@@ -403,5 +493,50 @@ test.describe('a pro member of two teams', () => {
     // And back, which is the half a one-way switch cannot cover.
     await switchTeam(page, { name: ALPHA, id: alphaId })
     await expectTeamFigures(page, { name: ALPHA, wins: '1', losses: '0', teamMean: 'team 4' })
+  })
+})
+
+test.describe('a free member of two teams who has not played today', () => {
+  /**
+   * wordle-teams-4b0m, AND A GATE THE FOUR LOCAL ONES CANNOT STAND IN FOR. The
+   * card used to render nothing at all for 'no-board', and since the team
+   * dropdown moved into its header that took the PICKER with it — so a free
+   * player on two teams could not change which team /insights was scoped to
+   * until they had played. That is the default state every morning, and on the
+   * free tier nothing else on the page is team-scoped, so `?team=` and the
+   * remembered team were both frozen for the whole window.
+   *
+   * daily-team-fact.hook.test.ts proves the component renders the empty state
+   * when it is handed a control. What it cannot see is that the ROUTE hands it
+   * one on this branch, that the control is reachable, and that clicking it
+   * actually re-scopes the page — which is this file's subject.
+   *
+   * THE ASSERTIONS ARE THE TRIGGER LABEL AND THE URL, not figures, because an
+   * unplayed free card has no figures by construction: every team says the same
+   * sentence. `switchTeam` already waits for `?team=` to name the chosen team,
+   * so reaching each assertion is itself the proof the navigation happened; the
+   * label is the coherence check that the control agrees with it.
+   *
+   * BOTH LEGS ARE REAL SWITCHES BECAUSE NEITHER TEAM IS PINNED ON ARRIVAL — the
+   * same reasoning as the pro test above, and the same remedy: go to Beta, then
+   * back to Alpha, so whichever the fallback chain picked, at least one leg
+   * moved.
+   */
+  test('still gets the card, and can still change which team it is about', async ({ page }) => {
+    const { alphaId, betaId } = await seedFreeOnTwoTeamsUnplayed(page)
+
+    const card = page.getByTestId('insights-daily-fact')
+    await expect(card).toBeVisible(FIRST_PAINT)
+    await expect(page.getByTestId('insights-daily-fact-text')).toHaveText(
+      'Enter today’s board to see how you compare.',
+    )
+    // The empty state is an empty state, not a teaser for the paid surface.
+    await expect(page.getByTestId('insights-see-full-month')).toHaveCount(0)
+
+    await switchTeam(page, { name: BETA, id: betaId }, 'insights-daily-fact')
+    await expect(card.getByRole('button', { name: `Team: ${BETA}` })).toBeVisible()
+
+    await switchTeam(page, { name: ALPHA, id: alphaId }, 'insights-daily-fact')
+    await expect(card.getByRole('button', { name: `Team: ${ALPHA}` })).toBeVisible()
   })
 })
