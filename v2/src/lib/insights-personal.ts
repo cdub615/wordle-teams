@@ -369,3 +369,46 @@ export function trailingForm(boards: PersonalBoard[]): TrailingForm | null {
     isBest,
   }
 }
+
+/**
+ * Uses required of the alternative before it is worth recommending.
+ *
+ * A GUARD, NOT A FEATURE FLOOR. The spec pins two sample-size floors and this is
+ * neither; it exists because "switch to CRANE" drawn from two lucky boards is
+ * advice this page should not give.
+ */
+const MIN_OPENER_USES_FOR_ADVICE = 5
+
+export type OpenerAdvice = {
+  from: string
+  to: string
+  /** Mean attempts saved per board, to one decimal. Always positive. */
+  savingPerDay: number
+}
+
+/**
+ * "Switch from X to Y and save N guesses a day" — the one piece of advice this
+ * page can back with the player's own numbers.
+ *
+ * BUILT ON headlineComparison, DELIBERATELY, NOT THE GLOBALLY BEST OPENER.
+ * headlineComparison's own comment records why: the comparison is about the
+ * player's HABITS — their two most-used openers — not about their best result
+ * tried twice. Advice built on a lucky outlier is not advice worth printing.
+ *
+ * `<= 0`, NOT `< 0`. A saving that rounds to zero is not a reason to switch
+ * either — "would save you about 0 guesses a day" is a sentence no product
+ * should print, so the same guard that rules out negative savings rules out a
+ * rounded-away one.
+ */
+export function openerAdvice(rows: OpenerRow[]): OpenerAdvice | null {
+  const pair = headlineComparison(rows)
+  if (pair === null) return null
+
+  const { most, other } = pair
+  if (other.count < MIN_OPENER_USES_FOR_ADVICE) return null
+
+  const savingPerDay = round1(most.meanAttempts - other.meanAttempts)
+  if (savingPerDay <= 0) return null
+
+  return { from: most.word, to: other.word, savingPerDay }
+}

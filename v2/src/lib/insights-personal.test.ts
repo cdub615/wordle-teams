@@ -8,9 +8,11 @@ import {
   consistency,
   headlineComparison,
   isThin,
+  openerAdvice,
   openerRepertoire,
   streaks,
   trailingForm,
+  type OpenerRow,
   type PersonalBoard,
 } from './insights-personal'
 import type { OpenerBenchmark } from './insights-benchmark'
@@ -42,6 +44,14 @@ const failed = (day: string, opener: string): PersonalBoard => ({
 /** The i-th day after 2026-01-01, as a puzzleDay string. */
 const dateAt = (i: number): string =>
   new Date(Date.UTC(2026, 0, 1) + i * 86_400_000).toISOString().slice(0, 10)
+
+/** An OpenerRow with the fields openerAdvice actually reads. Rank is unused here. */
+const openerRow = (word: string, count: number, meanAttempts: number): OpenerRow => ({
+  word,
+  count,
+  meanAttempts,
+  rank: null,
+})
 
 describe('isThin', () => {
   test('under the minimum is thin, at it is not', () => {
@@ -379,5 +389,34 @@ describe('trailingForm', () => {
     // last, both internally reversed too.
     const shuffled = [...recentBoards].reverse().concat([...older].reverse())
     expect(trailingForm(shuffled)).toEqual({ lifetime: 3.5, recent: 3, delta: 0.5, isBest: true })
+  })
+})
+
+describe('openerAdvice', () => {
+  test('names the saving between the two most-used openers', () => {
+    const rows = [openerRow('MUSIC', 10, 4.6), openerRow('CRANE', 6, 3.9)]
+    expect(openerAdvice(rows)).toEqual({ from: 'MUSIC', to: 'CRANE', savingPerDay: 0.7 })
+  })
+
+  test('no advice when the most-used opener is already better', () => {
+    const rows = [openerRow('CRANE', 10, 3.5), openerRow('MUSIC', 6, 4.0)]
+    expect(openerAdvice(rows)).toBeNull()
+  })
+
+  test('no advice from a barely-used alternative', () => {
+    // CRANE would be great advice by the numbers, but four uses is below the floor.
+    const rows = [openerRow('MUSIC', 10, 4.6), openerRow('CRANE', 4, 3.0)]
+    expect(openerAdvice(rows)).toBeNull()
+  })
+
+  test('no advice without two openers, and none for an empty array', () => {
+    expect(openerAdvice([openerRow('MUSIC', 10, 4.6)])).toBeNull()
+    expect(openerAdvice([])).toBeNull()
+  })
+
+  test('no advice when the saving rounds to zero, not just when it is negative', () => {
+    // "would save you about 0 guesses a day" is a sentence no product should print.
+    const rows = [openerRow('MUSIC', 10, 4.04), openerRow('CRANE', 6, 4.0)]
+    expect(openerAdvice(rows)).toBeNull()
   })
 })
