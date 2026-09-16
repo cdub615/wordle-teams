@@ -245,3 +245,58 @@ export function consistency(boards: PersonalBoard[]): {
 function round1(value: number): number {
   return Math.round(value * 10) / 10 + 0
 }
+
+export type DistributionRow = {
+  label: '1' | '2' | '3' | '4' | '5' | '6' | 'X'
+  count: number
+  /** The most common outcome. At most one row carries it. */
+  isModal: boolean
+}
+
+const DISTRIBUTION_LABELS = ['1', '2', '3', '4', '5', '6', 'X'] as const
+
+/**
+ * How often they solve in each number of guesses — the statistic every Wordle
+ * player already knows how to read, and the one this page was missing entirely.
+ *
+ * SEVEN IS X, NOT A SEVENTH BAR. attemptsFor scores an unsolved board 7, which
+ * is a sentinel rather than a count: nobody takes seven guesses. Rendering it as
+ * "7" would invent a rule the game does not have.
+ *
+ * ALL SEVEN ROWS ALWAYS RENDER, including the empty ones. A distribution with
+ * missing rows is not a distribution — the gap at 2 is information, and an axis
+ * that changes shape between players cannot be compared at a glance.
+ *
+ * NO MODAL ROW ON AN EMPTY HISTORY. Taking the max of seven zeroes would paint
+ * the accent on "1" and claim a most-common outcome that does not exist.
+ */
+export function attemptDistribution(boards: PersonalBoard[]): DistributionRow[] {
+  const counts = new Map<DistributionRow['label'], number>(
+    DISTRIBUTION_LABELS.map((label) => [label, 0]),
+  )
+
+  for (const board of boards) {
+    const attempts = attemptsFor(board.guesses, board.answer ?? '')
+    const label: DistributionRow['label'] =
+      attempts >= 7 ? 'X' : (String(attempts) as DistributionRow['label'])
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+
+  // Ties go to the lower attempt count because DISTRIBUTION_LABELS is in order
+  // and `>` never displaces an equal earlier row.
+  let modal: DistributionRow['label'] | null = null
+  let best = 0
+  for (const label of DISTRIBUTION_LABELS) {
+    const count = counts.get(label) ?? 0
+    if (count > best) {
+      best = count
+      modal = label
+    }
+  }
+
+  return DISTRIBUTION_LABELS.map((label) => ({
+    label,
+    count: counts.get(label) ?? 0,
+    isModal: label === modal,
+  }))
+}

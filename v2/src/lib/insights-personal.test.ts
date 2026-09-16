@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   MIN_BOARDS_FOR_STATS,
+  attemptDistribution,
   attemptsByMonth,
   consistency,
   headlineComparison,
@@ -26,6 +27,13 @@ const board = (day: string, opener: string, n: number): PersonalBoard => ({
   puzzleDay: day,
   answer: 'SPEED',
   guesses: [opener, ...Array.from({ length: n - 2 }, () => 'MOIST'), 'SPEED'].slice(0, n),
+})
+
+/** An unsolved board: six guesses, none the answer. */
+const failed = (day: string, opener: string): PersonalBoard => ({
+  puzzleDay: day,
+  answer: 'SPEED',
+  guesses: [opener, 'MOIST', 'MOIST', 'MOIST', 'MOIST', 'MOIST'],
 })
 
 describe('isThin', () => {
@@ -287,5 +295,35 @@ describe('consistency', () => {
   test('never reports -0', () => {
     // Math.round(-0.04 * 10) / 10 is -0, which renders as "-0.0".
     expect(Object.is(consistency([board('2026-09-01', 'CRANE', 4)]).spread, -0)).toBe(false)
+  })
+})
+
+describe('attemptDistribution', () => {
+  test('it counts 1 through 6 and folds the failure sentinel into X', () => {
+    const rows = attemptDistribution([
+      board('2026-08-01', 'CRANE', 3),
+      board('2026-08-02', 'CRANE', 3),
+      board('2026-08-03', 'CRANE', 4),
+      failed('2026-08-04', 'CRANE'),
+    ])
+    expect(rows.map((r) => r.label)).toEqual(['1', '2', '3', '4', '5', '6', 'X'])
+    expect(rows.find((r) => r.label === '3')!.count).toBe(2)
+    expect(rows.find((r) => r.label === '4')!.count).toBe(1)
+    expect(rows.find((r) => r.label === 'X')!.count).toBe(1)
+  })
+
+  test('the modal row is the most common, and ties go to the lower attempt count', () => {
+    const rows = attemptDistribution([
+      board('2026-08-01', 'CRANE', 3),
+      board('2026-08-02', 'CRANE', 4),
+    ])
+    expect(rows.find((r) => r.isModal)!.label).toBe('3')
+    expect(rows.filter((r) => r.isModal)).toHaveLength(1)
+  })
+
+  test('no history means no modal row, rather than a spurious one at 1', () => {
+    const rows = attemptDistribution([])
+    expect(rows.every((r) => r.count === 0)).toBe(true)
+    expect(rows.some((r) => r.isModal)).toBe(false)
   })
 })
