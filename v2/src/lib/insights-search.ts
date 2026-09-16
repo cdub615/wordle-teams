@@ -7,11 +7,11 @@ import { teamMonthOptions } from './insights-months.ts'
  *
  * THE THIRD MEMBER OF THE dashboard-search.ts FAMILY, IN ITS OWN FILE SO THAT
  * THE INSIGHTS MONTH RULE STAYS IN ONE PLACE. Which months are selectable is
- * not this module's rule to state: it belongs to `teamMonthOptions` next door
- * in insights-months.ts, along with the 12-month cap, the creation-month
- * floor, and several paragraphs of timezone reasoning behind them. The only
- * caller of that rule sits beside it, so changing the window means reading
- * two adjacent files rather than one here and one across the directory.
+ * not this module's rule to state: it belongs to `teamMonthOptions` in
+ * insights-months.ts, along with the 12-month cap, the creation-month floor,
+ * and several paragraphs of timezone reasoning behind them. Its caller sits
+ * in this file, so changing the window means reading these two modules rather
+ * than these two plus dashboard-search.ts.
  *
  * Keeping it out of dashboard-search.ts has a second benefit: that file's own
  * header asks to be kept import-free, because its two resolvers take every

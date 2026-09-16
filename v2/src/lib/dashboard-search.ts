@@ -27,8 +27,9 @@
  * KEEP THIS FILE IMPORT-FREE — it has no imports today and that is worth
  * something. Both resolvers take every fact they need as a plain argument
  * (the teams, the stored team, the current month), which is what lets them be
- * tested with no router, no clock and no fixtures, and app-menu.tsx and
- * dashboard-error.tsx import this module for `STORAGE_KEY` and nothing else.
+ * tested with no router, no clock and no fixtures. It also keeps the reach of
+ * an incidental import small: app-menu.tsx and dashboard-error.tsx import this
+ * module for `STORAGE_KEY` alone, and pull in whatever it pulls in.
  * A new rule that needs a date library, a Convex call, or the insights month
  * window belongs in its own module beside what it depends on, the way
  * insights-search.ts does.

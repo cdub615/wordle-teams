@@ -50,8 +50,9 @@ describe('resolveInsightsSearch', () => {
    * localStorage — so the stored preference must not win over it.
    *
    * THE MONTH MUST STILL BE MISSING FOR THIS TO TEST ANYTHING. With both
-   * params already settled the function returns null before the fallback
-   * order is consulted at all, which is exactly how an inverted order
+   * params already settled the function returns null without the fallback
+   * order affecting the answer — the chain still runs, its result is simply
+   * discarded — which is exactly how an inverted order
    * (stored team first, param second) hides from every other case in this
    * file — including the "prefers the stored team" one directly below, which
    * it would also pass.

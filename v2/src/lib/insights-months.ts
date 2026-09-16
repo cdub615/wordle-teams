@@ -82,8 +82,16 @@ const CAP = 12
  * value is itself always a member. A change like "do not offer the current
  * month until the team has a board in it" would read as entirely reasonable
  * here and reintroduce an infinite redirect in a file its author had no
- * reason to open. insights-months.test.ts pins this on its own; that test is
- * not decoration, and the property is this module's to keep.
+ * reason to open.
+ *
+ * THE TEST BELOW IS REDUNDANT WITH THE LITERAL ARRAYS, DELIBERATELY SO. Every
+ * class of `createdAt` already has a full expected list, so no mutation of
+ * today's source can break this property without failing one of those too --
+ * measured, not assumed. What the named test buys is the NEXT change: an
+ * editor who alters a branch and updates the literal arrays to match their new
+ * intent must then delete a test that states this rule outright, rather than
+ * watching an array quietly change shape. The property is this module's to
+ * keep, so the test that names it lives here.
  */
 export function teamMonthOptions(
   currentMonth: PuzzleMonth,
