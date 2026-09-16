@@ -2078,10 +2078,30 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
 }
 ```
 
-- [ ] **Step 4: Wire it in and delete `PersonalHistory`**
+- [ ] **Step 4: Wire it in and delete `PersonalHistory` — THREE testids change owner**
+
+`PersonalHistory` currently carries **three** load-bearing testids, and deleting it
+orphans all three at once. An orphaned testid does not fail loudly: the assertion
+simply never matches anything, and the suite can stay green while the coverage is
+gone. All three handovers happen in THIS commit, so no task leaves a red or
+falsely-green window behind it.
+
+| testid | was on | moves to |
+| --- | --- | --- |
+| `insights-months` | `PersonalHistory`'s month list | `TrendPanel`'s `CardContent` |
+| `insights-personal` | `PersonalHistory`'s non-thin `Card` | `PersonalSummary`'s `Card` (keep `insights-summary` too — Task 10's tests use it) |
+| `insights-personal-thin` | `PersonalHistory`'s thin branch | a thin-state block in `InsightsPanel`, built now rather than deferred |
+
+Build the thin state here, using the `UnlockPrompt` shape Task 16 describes and
+keeping the existing copy verbatim — it already names what is coming and only
+lacked the distance.
+
+**Before committing, prove every id still resolves exactly once in production
+code:** `grep -rn 'insights-months\|insights-personal\|insights-personal-thin' src/ --include='*.tsx'`.
+Zero matches is as much a failure as two.
 
 In `src/routes/insights.tsx`:
-1. Delete the entire `PersonalHistory` function, including its thin-state branch — the thin state moves to the route in Task 16.
+1. Delete the entire `PersonalHistory` function, having moved all three testids per the table above.
 2. Replace its call site:
 
 ```tsx
@@ -2102,7 +2122,11 @@ In `src/routes/insights.tsx`:
 pnpm test:once && pnpm typecheck && pnpm lint
 ```
 
-Expected: `src/routes/-insights.hook.test.ts` may fail on `insights-personal-thin`, which Task 16 restores. If it does, note it and continue — do not delete the assertion.
+Expected: everything green. `-insights.hook.test.ts`'s assertions on
+`insights-personal`, `insights-personal-thin` and `insights-months` must all
+still pass, because all three ids moved in this commit rather than being
+deferred. **If any of them fails, the handover is incomplete — fix the handover,
+never the assertion.**
 
 - [ ] **Step 6: Commit**
 
@@ -2555,7 +2579,15 @@ link rather than a progress bar."
 **Files:**
 - Modify: `src/routes/insights.tsx`
 
-- [ ] **Step 0: `insights-personal` changes owner, and must not be dropped**
+- [ ] **Step 0: confirm the testid handovers Task 12 already made**
+
+Task 12 moved `insights-personal`, `insights-personal-thin` and `insights-months`
+off `PersonalHistory` before deleting it. Re-run the proof rather than assuming:
+`grep -rn 'insights-personal\|insights-personal-thin\|insights-months' src/ --include='*.tsx'`
+— each must resolve to exactly one production element. If Task 12 was done
+correctly there is nothing to do here.
+
+- [ ] **Step 0b: the original note, kept for the reasoning**
 
 Deleting `PersonalHistory` removes the element carrying `data-testid="insights-personal"`,
 and **nine assertions across `e2e/` and `-insights.hook.test.ts` depend on it.**
