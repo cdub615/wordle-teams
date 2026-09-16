@@ -437,19 +437,29 @@ export type Trend = {
  * later row with an equal mean replaces the running best. Between two months a
  * player played identically well, the more recent one is the more useful thing
  * to call out.
+ *
+ * SORTED DEFENSIVELY, ON A COPY, FOR THE SAME REASON trailingForm IS: ordering
+ * is not part of `MonthRow[]`'s contract, and this function's one caller today
+ * (`attemptsByMonth`) happening to sort ascending is not a guarantee a future
+ * caller inherits. `month` is a 'YYYY-MM' string, which sorts lexicographically
+ * exactly like `puzzleDay` does (see convex/lib/puzzleDay.ts), so a plain
+ * string sort is correct here too. The cost is trivial next to trailingForm's:
+ * this array is a player's months, at most a couple hundred, not their boards.
  */
 export function trendWindow(rows: MonthRow[], limit = TREND_MONTHS): Trend {
   if (rows.length === 0) return { months: [], best: null, latestIsBest: false }
 
-  let best = rows[0]!
-  for (const row of rows) {
+  const sorted = [...rows].sort((a, b) => a.month.localeCompare(b.month))
+
+  let best = sorted[0]!
+  for (const row of sorted) {
     // `<=`, not `<`: a later month with an equal mean must replace the running
     // best so a tie resolves to the more recent month.
     if (row.meanAttempts <= best.meanAttempts) best = row
   }
 
-  const months = rows.slice(-limit)
-  const latest = rows[rows.length - 1]!
+  const months = sorted.slice(-limit)
+  const latest = sorted[sorted.length - 1]!
 
   return { months, best, latestIsBest: latest === best }
 }

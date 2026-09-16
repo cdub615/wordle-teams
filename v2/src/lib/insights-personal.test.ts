@@ -490,6 +490,27 @@ describe('trendWindow', () => {
   test('empty input is empty, not a crash', () => {
     expect(trendWindow([])).toEqual({ months: [], best: null, latestIsBest: false })
   })
+
+  /**
+   * `rows` ARRIVES UNSORTED HERE ON PURPOSE, mirroring trailingForm's own
+   * out-of-order test — trendWindow takes a plain MonthRow[] and must not trust
+   * that a future caller sorts it the way attemptsByMonth happens to today.
+   *
+   * Chronologically this is month0 (mean 3), month1 (mean 5), month2 (mean 3):
+   * a tie for best between month0 and month2, which the tie-break rule resolves
+   * to the more recent, month2. Fed in as [month2, month1, month0] — month0
+   * (the wrong tie winner) placed AFTER month2 in the array, and NOT last — so a
+   * version of this function that scanned raw array order instead of sorting
+   * first would tie-break to month0 and report the wrong `best` and a
+   * last-in-array `latest` that is not actually the latest month.
+   */
+  test('sorts unsorted months before computing months, best, and latestIsBest', () => {
+    const rows = [monthRow(2, 3), monthRow(1, 5), monthRow(0, 3)]
+    const trend = trendWindow(rows)
+    expect(trend.months).toEqual([monthRow(0, 3), monthRow(1, 5), monthRow(2, 3)])
+    expect(trend.best).toEqual(monthRow(2, 3))
+    expect(trend.latestIsBest).toBe(true)
+  })
 })
 
 describe('difficultySplit', () => {
