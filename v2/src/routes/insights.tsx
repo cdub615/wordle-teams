@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, Link } from '@tanstack/react-router'
+import { createFileRoute, redirect, useNavigate, Link } from '@tanstack/react-router'
 import { convexQuery } from '@convex-dev/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
@@ -11,6 +11,9 @@ import type { InsightsBenchmark } from '#/lib/insights-benchmark.ts'
 import { upsellFor } from '#/lib/insights-panel.ts'
 import type { Boards } from '#/lib/insights-panel.ts'
 import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
+import { resolveInsightsSearch } from '#/lib/insights-search.ts'
+import { STORAGE_KEY } from '#/lib/dashboard-search.ts'
+import { useHydrated } from '#/lib/use-hydrated.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { DailyBenchmark } from '#/components/insights/daily-benchmark.tsx'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
@@ -40,8 +43,37 @@ import { api } from '../../convex/_generated/api'
  * is the whole cost decision, and CI greps dist/client to keep it.
  */
 
+/**
+ * `?team=` AND `?month=` NAME WHAT THE PAGE IS SHOWING, the same two params the
+ * dashboard carries and for the same reason: the URL is the source of truth, so
+ * a link to a particular team's month is shareable and the back button steps
+ * back through picks rather than out of the page.
+ *
+ * SHAPE ONLY — VALIDITY IS NOT THIS FUNCTION'S JOB. validateSearch runs before
+ * anything is loaded: it has no team list and no clock, so all it can do is drop
+ * what is not even a string, or not shaped like a month. Whether the team is one
+ * the viewer belongs to, and whether the month is inside that team's window, are
+ * resolveInsightsSearch's questions (lib/insights-search.ts), answered by the
+ * effect in InsightsRoute below.
+ *
+ * `validateSearch` IS EXHAUSTIVE: a param this function does not return is
+ * dropped on the way in, so a future link that needs to carry something else
+ * must declare it here — routes/app.tsx makes the same point about its `?join=`,
+ * which is not a filter at all and still has to be listed.
+ */
+type InsightsSearch = { team?: string; month?: string }
+
 export const Route = createFileRoute('/insights')({
   head: () => ({ meta: [{ title: pageTitle('Insights') }] }),
+  validateSearch: (search: Record<string, unknown>): InsightsSearch => ({
+    team: typeof search.team === 'string' ? search.team : undefined,
+    // Anything not shaped like a month is dropped rather than trusted; the
+    // effect below then fills in the local current month.
+    month:
+      typeof search.month === 'string' && /^\d{4}-\d{2}$/.test(search.month)
+        ? search.month
+        : undefined,
+  }),
   // The same guard as /chat, /team and /app, for the same reason: every query
   // this page renders goes through requirePlayer on the server, so a visitor
   // without a session or without a player row lands on an error state rather
@@ -84,6 +116,9 @@ function useBenchmark() {
 }
 
 function InsightsRoute() {
+  const { team: teamParam, month: monthParam } = Route.useSearch()
+  const navigate = useNavigate({ from: Route.fullPath })
+  const hydrated = useHydrated()
   const { data, isPending } = useQuery(convexQuery(api.insights.myBenchmarkBoards, {}))
   const { benchmark, failed } = useBenchmark()
 
@@ -103,8 +138,68 @@ function InsightsRoute() {
     not function calls is the binding free-tier limit. The client already holds
     this for TeamSection; paying for it again on the server to save a prop is the
     wrong trade in this project.
+
+    THE EFFECT BELOW IS A SECOND READER OF THE SAME ONE SUBSCRIPTION, not a
+    reason to add a query: resolveInsightsSearch checks `?team=` against the
+    teams the viewer is actually on, and reaches each team's `createdAt` for the
+    month window it judges `?month=` by.
   */
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
+
+  /*
+    FILLS IN OR CORRECTS `?team=` AND `?month=`, through the pure
+    resolveInsightsSearch rather than inline: that function has a test asserting
+    it is idempotent — feed it its own output and it returns null — and that
+    property is the only thing standing between this effect and an infinite
+    redirect. Read its header before changing what it is fed.
+
+    AFTER HYDRATION ONLY, THE SAME GUARD useDashboardSearchSync CARRIES AND FOR
+    THE SAME REASON. The month fallback is the viewer's LOCAL current month and
+    the server renders in UTC, so on the first and last day of a month the two
+    disagree; reading the clock before hydration is the mismatch class
+    wordle-teams-uc5 was. routes/team.tsx's own one-param effect deliberately
+    has NO such guard, and that is not an inconsistency: it consults only
+    localStorage, which useEffect already keeps off the server for free. This
+    one reads the clock, so it waits.
+
+    `teams ?? []` RATHER THAN AN EARLY RETURN. With the team list still in
+    flight the resolver has nothing to select and returns null, which is exactly
+    the "do nothing" an early return would produce. The DEPENDENCY stays `teams`
+    itself — the reference react-query hands back, stable between renders —
+    because `teams ?? []` in the dependency array would be a fresh array every
+    render and re-run the effect on each one.
+  */
+  useEffect(() => {
+    if (!hydrated) return
+    const next = resolveInsightsSearch({
+      teamParam,
+      monthParam,
+      teams: teams ?? [],
+      storedTeam: localStorage.getItem(STORAGE_KEY),
+      currentMonth: monthOf(toPuzzleDay(new Date())),
+    })
+    if (next) void navigate({ to: Route.fullPath, search: next, replace: true })
+  }, [hydrated, teamParam, monthParam, teams, navigate])
+
+  /*
+    THIS PAGE WRITES THE DASHBOARD'S REMEMBERED TEAM; `/team` DELIBERATELY ONLY
+    READS IT. An editor comparing the two files will otherwise conclude that one
+    of them is wrong, so: routes/team.tsx never writes the key because it has no
+    team control of its own to keep the key in sync WITH — it only ever consults
+    the preference the dashboard set (STORAGE_KEY's own comment in
+    lib/dashboard-search.ts states that). This page is different: it is getting a
+    team control of its own, so `?team=` here becomes a deliberate pick rather
+    than a fallback, and a pick made here should follow the player back to the
+    dashboard instead of being forgotten at the page boundary.
+
+    NOT CONDITIONAL ON THE PARAM BEING VALID, matching useDashboardSearchSync
+    line for line: a stale or foreign `?team=` can be written for the render or
+    two before the effect above replaces it, and the corrected value is then
+    written straight over it.
+  */
+  useEffect(() => {
+    if (teamParam) localStorage.setItem(STORAGE_KEY, teamParam)
+  }, [teamParam])
 
   return (
     /* THE CAP IS NESTED INSIDE page-max, NOT COMBINED WITH IT ON ONE ELEMENT,
@@ -162,6 +257,8 @@ function InsightsRoute() {
             benchmark={benchmark!}
             data={data}
             onATeam={teams === undefined ? undefined : teams.length > 0}
+            teamParam={teamParam}
+            month={monthParam}
           />
         )}
       </div>
@@ -205,11 +302,28 @@ export function InsightsPanel({
   benchmark,
   data,
   onATeam,
+  teamParam,
+  month,
 }: {
   benchmark: InsightsBenchmark
   data: Boards
   /** `undefined` until getMyTeams resolves — the upsell withholds rather than guessing. */
   onATeam: boolean | undefined
+  /**
+   * `?team=` and `?month=`, HANDED DOWN TO TeamSection RATHER THAN READ THERE.
+   * TeamSection cannot call `Route.useSearch()` for itself: this panel is
+   * rendered directly by src/routes/-insights.hook.test.ts, whose
+   * @tanstack/react-router mock replaces `createFileRoute` with a function that
+   * returns its own options object, so `Route` in that file is that options
+   * object and carries no hooks at all — a `Route.useSearch()` inside
+   * TeamSection would throw in every test that renders this panel.
+   *
+   * BOTH OPTIONAL, for the same reason they are undefined in the route: nothing
+   * fills them in until the post-hydration effect above navigates, and
+   * TeamSection already renders the no-team card for a team it cannot name.
+   */
+  teamParam?: string
+  month?: string
 }) {
   const credit = benchmarkCredit(benchmark)
   const upsell = upsellFor({
@@ -275,7 +389,7 @@ export function InsightsPanel({
         </>
       )}
 
-      <TeamSection layer3={data.access.layer3} />
+      <TeamSection layer3={data.access.layer3} teamParam={teamParam} month={month} />
 
       <DailyBenchmark benchmark={benchmark} data={data} />
 
@@ -317,33 +431,72 @@ export function InsightsPanel({
 }
 
 /**
- * Layer 3, for the viewer's first team and the current month.
+ * Layer 3, for the team and month the URL names.
  *
- * ONE TEAM AND THIS MONTH, WHICH IS A SCOPE DECISION RATHER THAN AN OVERSIGHT.
- * The spec's Layer 3 is "six view types multiplied by teammates and months", and
- * a picker for both is a surface of its own — it belongs with the paywall
- * placement work (wordle-teams-iht) that owns how this is navigated, not here.
- * What this task owed was that every view reads the aggregate and that the empty
- * cases are stated, and both hold for any (team, month) the picker later passes.
+ * STILL ONE TEAM AND ONE MONTH AT A TIME, BUT NO LONGER THE FIRST TEAM AND THIS
+ * MONTH. This comment used to record the opposite — that a picker for either
+ * belonged with the paywall placement work and not here — and that deferral is
+ * over: `?team=` and `?month=` choose them now, settled by InsightsRoute's
+ * effect above and handed down as props. Nothing about the views themselves
+ * changed; they always read whatever (team, month) they were given.
  *
- * THE MONTH IS RESOLVED IN THE VIEWER'S OWN ZONE, never on the server: "this
- * month" is a question about the viewer's calendar and Convex runs in UTC. That
- * is the same rule winners.ts states for the celebration dialog, and the reason
- * puzzleDay exists at all.
+ * THE PARAM IS RESOLVED AGAINST THE ROSTER HERE RATHER THAN TRUSTED. `teamParam`
+ * is a string anybody can type, and the effect that corrects a foreign or stale
+ * one runs a render behind the URL. Looking the id up in getMyTeams means
+ * `teamMonth` is only ever asked for a team the viewer is actually on, so a
+ * bookmark for a team they have since left renders the no-team card for a moment
+ * rather than throwing NOT_A_MEMBER out of Convex — requireTeamMemberFor throws
+ * that for a team that does not exist as well as for one that is not yours (see
+ * convex/insights.ts's own note on why the membership check comes first).
+ *
+ * `today` IS STILL READ FROM THE CLOCK HERE, AND ONLY `today`. The month came
+ * from `monthOf(today)` before and comes from `?month=` now, but the daily fact
+ * is a fact about TODAY and so has no month to choose. It stays the viewer's own
+ * day, never the server's — Convex runs in UTC and "what day is it" is a
+ * question about the viewer's calendar; that is the rule winners.ts states for
+ * the celebration dialog and the reason puzzleDay exists at all. A consequence
+ * worth knowing: with a PAST month selected, `today` is not in that month's
+ * aggregate, so dailyTeamFact returns 'no-board' and DailyTeamFact renders
+ * nothing — which is the honest answer to "how did you do today" asked of
+ * August.
  */
-function TeamSection({ layer3 }: { layer3: 'none' | 'free' | 'full' }) {
+function TeamSection({
+  layer3,
+  teamParam,
+  month,
+}: {
+  layer3: 'none' | 'free' | 'full'
+  teamParam: string | undefined
+  month: string | undefined
+}) {
   const { data: teams } = useQuery(convexQuery(api.teams.getMyTeams, {}))
-  const teamId = teams?.[0]?.id
-  const teamName = teams?.[0]?.name
-  // The viewer's own day and month, never the server's — Convex runs in UTC and
-  // "today" is a question about the viewer's calendar.
+  const selected = teams?.find((team) => team.id === teamParam)
+  const teamId = selected?.id
+  const teamName = selected?.name
   const today = toPuzzleDay(new Date())
-  const month = monthOf(today)
 
-  const { data } = useQuery({
-    ...convexQuery(api.insights.teamMonth, teamId ? { teamId, month } : 'skip'),
-    enabled: teamId !== undefined,
-  })
+  /*
+    'skip' IS THE ONLY THING THAT ACTUALLY STOPS THIS QUERY, WHICH IS WHY THE
+    `enabled` THAT USED TO SIT BESIDE IT IS GONE RATHER THAN WIDENED TO COVER THE
+    MONTH. @convex-dev/react-query opens the Convex watch from the query CACHE's
+    `added` event (ConvexQueryClient#subscribeInner), which TanStack fires for a
+    disabled query too, and that handler bails on exactly one thing: a query key
+    whose args are the string 'skip'. It never consults `enabled`. Measured at
+    the websocket on this project — under `enabled` alone the browser still sent
+    ModifyQuerySet and took a refusal back, and the refusal is invisible in the
+    console because the adapter writes it into query state instead of throwing.
+
+    BOTH HALVES HAVE TO BE RESOLVED, not just the team. `month` arrives from the
+    URL and is `undefined` until the route's post-hydration effect fills it in,
+    so a team-only check would issue a read with no month at all. A month that is
+    shaped right but outside the team's window needs no guard of its own, unlike
+    the team: `teamMonth` finds no aggregate row for it and returns `stats: null`,
+    which is the same "nobody played this month" the panels already state, and
+    the effect replaces it on the next pass anyway.
+  */
+  const { data } = useQuery(
+    convexQuery(api.insights.teamMonth, teamId && month ? { teamId, month } : 'skip'),
+  )
 
   /*
     THE GUARD IS SPLIT ON PURPOSE — the two conditions it used to share
@@ -356,6 +509,13 @@ function TeamSection({ layer3 }: { layer3: 'none' | 'free' | 'full' }) {
     `teamId` is a LOADING FRAME: `teamMonth` is still in flight, and it will
     resolve on this same render pass shortly — that is not a state worth
     narrating, so it renders nothing, exactly as it always did.
+
+    `!teamId` IS NOT ONLY "NO TEAMS", AND WAS NOT BEFORE THIS PAGE TOOK PARAMS
+    EITHER: it is equally true while getMyTeams is in flight, and now also for
+    the render or two before the route's effect settles `?team=`. Both of those
+    windows close on their own and both show the no-team card meanwhile. Do not
+    "fix" that by folding a loading check into this line — the collapse that
+    costs is the other one, the shared guard above.
   */
   if (!teamId) return <NoTeamCard />
   if (!data) return null

@@ -47,7 +47,7 @@ vi.mock('@tanstack/react-router', () => ({
     createElement('a', { href: to, ...rest }, children),
 }))
 
-const { InsightsPanel, InsightsScope } = await import('./insights.tsx')
+const { InsightsPanel, InsightsScope, Route } = await import('./insights.tsx')
 
 afterEach(cleanup)
 
@@ -493,5 +493,109 @@ describe('TeamSection guards "no team" and "data not loaded yet" separately', ()
     // player with no team at all, instead of NoTeamCard.
     expect(teamSection).not.toContain('if (!teamId || !data)')
     expect(teamSection).not.toContain('if (!data || !teamId)')
+  })
+})
+
+/**
+ * THE SHAPE GATE ON THE TWO PARAMS. `validateSearch` is the FIRST of the two
+ * gates a query string anybody can write has to cross before this page acts on
+ * it — the second is resolveInsightsSearch, which has its own tests — so it is
+ * asserted directly rather than only through what it lets past, the same
+ * treatment login-error.test.ts gives its own allowlist.
+ *
+ * REACHED WITHOUT THE `.options` HOP THAT FILE NEEDS: `createFileRoute` is
+ * mocked at the top of this file to return its options object as-is, so `Route`
+ * here IS that object. The cast is only to say so — tsc sees the real router's
+ * types for this import, not the mock's.
+ */
+describe('validateSearch, the shape gate on ?team= and ?month=', () => {
+  const validate = (
+    Route as unknown as {
+      validateSearch: (search: Record<string, unknown>) => { team?: string; month?: string }
+    }
+  ).validateSearch
+
+  test('a string team and a well-formed month are kept exactly as spelled', () => {
+    expect(validate({ team: 'k17abc', month: '2026-08' })).toEqual({
+      team: 'k17abc',
+      month: '2026-08',
+    })
+  })
+
+  test('a non-string param is dropped rather than passed through', () => {
+    // `?team=a&team=b` parses to an array, which is not a team id.
+    expect(validate({ team: ['a', 'b'], month: 1 })).toEqual({ team: undefined, month: undefined })
+  })
+
+  test('a month that is not shaped like one is dropped', () => {
+    // NOT VALIDITY — only shape. Whether '1999-01' is a month this team can be
+    // viewed for is resolveInsightsSearch's question (it is not: the window is
+    // capped at 12 months), and it is answered in the route's effect, which has
+    // the team list and the viewer's clock that this function does not.
+    expect(validate({ month: 'August' })).toEqual({ team: undefined, month: undefined })
+    expect(validate({ month: '2026-8' })).toEqual({ team: undefined, month: undefined })
+    expect(validate({ month: '2026-08-01' })).toEqual({ team: undefined, month: undefined })
+  })
+
+  test('an undeclared param does not survive validation at all', () => {
+    // `validateSearch` is exhaustive, so this is not really a test of an `if`
+    // anywhere — it pins the CONSEQUENCE, which is what a future editor needs to
+    // know before adding a param to a link into this page. toStrictEqual rather
+    // than toEqual: toEqual would treat a `join: undefined` key as absent, and
+    // the point is that no third key comes out the other side.
+    expect(validate({ team: 'k17abc', month: '2026-08', join: 'tok' })).toStrictEqual({
+      team: 'k17abc',
+      month: '2026-08',
+    })
+  })
+})
+
+/*
+  THE PARAM WIRING IS READ FROM THE SOURCE, FOR THE REASON THE TeamSection BLOCK
+  ABOVE ALREADY GIVES. `InsightsRoute` is deliberately unexported (src/routes.test.ts
+  pins that the vite plugin stops code-splitting a route file whose routed
+  identifier is exported), and the `@tanstack/react-router` mock in this file has
+  no router in it, so the effect that fills the params in cannot be rendered at
+  all — not "is awkward to render". What the decision itself does is covered by
+  real tests in lib/insights-search.test.ts, against the pure resolver; these
+  three tests cover only the WIRING around it, each of which has a specific,
+  silent failure mode.
+*/
+describe('the route wires the params up without reopening old holes', () => {
+  const routeSource = readFileSync('src/routes/insights.tsx', 'utf8')
+
+  test('the search effect waits for hydration before reading the clock', () => {
+    // wordle-teams-uc5: the fallback month comes from the viewer's LOCAL clock
+    // and the server renders in UTC, so on the first and last day of a month an
+    // unguarded read disagrees with itself across hydration. Deleting the guard
+    // breaks nothing a render here would notice.
+    expect(routeSource).toContain('if (!hydrated) return')
+    expect(routeSource).toContain('currentMonth: monthOf(toPuzzleDay(new Date()))')
+  })
+
+  test('teamMonth is skipped through the sentinel, never through `enabled`', () => {
+    // `enabled` DOES NOT GATE A CONVEX QUERY. @convex-dev/react-query opens the
+    // watch from the query cache's `added` event, which TanStack fires for a
+    // disabled query too, and its handler bails only on a query key whose args
+    // are the string 'skip'. An `enabled` spread after convexQuery also
+    // OVERRIDES the `enabled: false` the sentinel sets, so the two together are
+    // worse than the sentinel alone. Both halves are checked because the month
+    // arrives from the URL and is undefined until the effect lands.
+    const teamSection = routeSource.slice(routeSource.indexOf('function TeamSection'))
+    // The colon is load-bearing in the second assertion, not sloppiness: the
+    // paragraph above this query in the source has to NAME `enabled` to explain
+    // why it is absent, so the bare word is in the file either way. What must
+    // not come back is the option.
+    expect(teamSection).toContain("teamId && month ? { teamId, month } : 'skip'")
+    expect(teamSection).not.toContain('enabled:')
+  })
+
+  test('the selected team is written to the dashboard’s remembered-team key', () => {
+    // THE DIFFERENCE FROM routes/team.tsx IS DELIBERATE — that page only READS
+    // this key, having no team control of its own to keep it in sync with. A
+    // future editor who "harmonises" the two by deleting this write would lose
+    // the property it exists for: a team picked on /insights follows the player
+    // back to the dashboard.
+    expect(routeSource).toContain('localStorage.setItem(STORAGE_KEY, teamParam)')
   })
 })
