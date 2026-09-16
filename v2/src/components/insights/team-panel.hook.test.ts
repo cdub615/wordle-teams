@@ -175,6 +175,83 @@ describe('the card title names the team', () => {
   })
 })
 
+/*
+  WHY THIS BLOCK EXISTS: THE DEFECT IT PINS IS A DUPLICATE, AND A DUPLICATE IS
+  INVISIBLE TO EVERY OTHER ASSERTION IN THIS FILE. Before `teamNameInControls`,
+  a pro account on two teams got a header reading "Ada's Analysts  [Ada's
+  Analysts v] [Sep 2026 v]" — the title and the team trigger printing one name
+  side by side. Every test above passes either way, because `getByText` is
+  happy with one copy and says nothing about a second.
+
+  THE TRIGGER IS NOT THE HALF THAT MAY GO. daily-team-fact.tsx has no title at
+  all, so there the trigger is the only thing naming the team the fact is
+  about — see team-scope-controls.hook.test.ts on the accessible names. So the
+  visible title is what yields, and only when the trigger is actually there.
+*/
+describe('the visible title yields to the team dropdown; the heading does not', () => {
+  const hidden = (teamName?: string, data_ = data) =>
+    render(createElement(TeamPanel, { data: data_, teamName, teamNameInControls: true }))
+
+  /** The CardHeader — `Card`'s first child in both of TeamPanel's returns. */
+  const headerOf = (container: HTMLElement) =>
+    container.querySelector('[data-testid="insights-team"] > div, [data-testid="insights-team-empty"] > div')!
+
+  test('the name becomes an sr-only heading and nothing visible', () => {
+    hidden('The Wordlers')
+    const heading = screen.getByRole('heading', { level: 2, name: 'The Wordlers' })
+    expect(heading.className).toContain('sr-only')
+    // EXACTLY ONE COPY. The card renders no `controls` in this test, so the
+    // heading is the only thing that can carry the name — a second element
+    // here would be the duplicate this whole block exists to forbid.
+    expect(screen.getAllByText('The Wordlers')).toHaveLength(1)
+  })
+
+  test('an h2, so the card keeps a heading between the page h1 and its own h3s', () => {
+    // routes/insights.tsx renders `<h1>Insights</h1>`; this card's four
+    // sections are h3s ("Head to head" and its siblings, above). A `div` —
+    // which is what CardTitle renders (components/ui/card.tsx) — would leave
+    // those h3s hanging off the page title with nothing in between.
+    hidden('The Wordlers')
+    expect(screen.getByRole('heading', { level: 2 }).tagName).toBe('H2')
+  })
+
+  test('the "Your team" fallback is hidden the same way, not lost', () => {
+    hidden()
+    expect(screen.getByRole('heading', { level: 2, name: 'Your team' })).not.toBeNull()
+  })
+
+  test('the empty state hides it too — both returns share one header', () => {
+    hidden('The Wordlers', { viewerId: 'me', roster, stats: null })
+    expect(screen.getByTestId('insights-team-empty')).not.toBeNull()
+    expect(screen.getByRole('heading', { level: 2, name: 'The Wordlers' })).not.toBeNull()
+  })
+
+  test('the controls stay right-aligned once the title is gone', () => {
+    // `sr-only` IS `position: absolute`, so the heading is NOT a flex item and
+    // the header has exactly ONE in-flow child. `justify-between` puts a lone
+    // item at the START — the dropdowns would sit hard left, on the opposite
+    // side from every other width and from daily-team-fact.tsx's header. jsdom
+    // computes no layout, so the class is the only thing a test can hold onto;
+    // the geometry itself is checked in a browser over the built stylesheet.
+    const { container } = hidden('The Wordlers')
+    const header = headerOf(container)
+    expect(header.className).toContain('justify-end')
+    expect(header.className).not.toContain('justify-between')
+  })
+
+  test('at ONE team the title stays visible and there is no sr-only heading', () => {
+    // The case most pro accounts are in, and the one this must not touch: no
+    // team dropdown renders, so the title is the card's ONLY identifier.
+    const { container } = render(
+      createElement(TeamPanel, { data, teamName: 'The Wordlers' }),
+    )
+    expect(screen.getByText('The Wordlers').className).not.toContain('sr-only')
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
+    // And the header keeps the responsive split it has always had.
+    expect(headerOf(container).className).toContain('md:justify-between')
+  })
+})
+
 describe('averages render as bars, scaled against the worst mean', () => {
   test('states the direction, since a shorter bar is the good outcome here', () => {
     panel(data)

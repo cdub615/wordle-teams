@@ -53,6 +53,7 @@ export function TeamPanel({
   data,
   teamName,
   controls,
+  teamNameInControls = false,
 }: {
   data: TeamPanelData
   teamName?: string
@@ -72,6 +73,33 @@ export function TeamPanel({
    * dead end.
    */
   controls?: ReactNode
+  /**
+   * Whether `controls` is ALREADY SHOWING THIS TEAM'S NAME — that is, whether
+   * the team dropdown renders. When it does, the visible title below is dropped
+   * and the name is carried by the trigger alone.
+   *
+   * WITHOUT THIS THE HEADER PRINTS THE TEAM NAME TWICE, side by side: "Ada's
+   * Analysts   [Ada's Analysts v] [Sep 2026 v]". That reads as a bug rather than
+   * as a design, and the trigger is not the half that can go — daily-team-fact.tsx
+   * has NO title at all, so there the trigger is the only thing saying which team
+   * the fact is about, and the two cards must not label the same dropdown
+   * differently.
+   *
+   * A BOOLEAN RATHER THAN SOMETHING THIS COMPONENT COULD WORK OUT. `controls` is
+   * an opaque node on purpose (see above): this panel is not allowed to know the
+   * roster, so it cannot ask `showsTeamPicker` itself, and inspecting a ReactNode
+   * for a testid would be worse than being told. routes/insights.tsx already calls
+   * `showsTeamPicker(teamOptions)` for the free branch and passes the same answer
+   * here, so the rule still has exactly one spelling.
+   *
+   * DEFAULTS TO FALSE, so a caller that supplies no controls — every test in
+   * team-panel.hook.test.ts, and the `teamName ?? 'Your team'` fallback they
+   * exercise — keeps the visible title it has always had. AT ONE TEAM THERE IS NO
+   * DROPDOWN AND THE TITLE IS THE ONLY IDENTIFIER: do not hide it whenever
+   * `controls` is merely present, since a one-team pro account still gets a
+   * controls node for the MONTH dropdown alone.
+   */
+  teamNameInControls?: boolean
 }) {
   const title = teamName ?? 'Your team'
 
@@ -84,7 +112,7 @@ export function TeamPanel({
   if (!data.stats || data.stats.days.length === 0) {
     return (
       <Card data-testid="insights-team-empty">
-        <PanelHeader title={title} controls={controls} />
+        <PanelHeader title={title} controls={controls} nameInControls={teamNameInControls} />
         <CardContent className="text-muted-foreground text-sm">
           Nobody on this team has entered a board this month yet.
         </CardContent>
@@ -120,7 +148,7 @@ export function TeamPanel({
 
   return (
     <Card data-testid="insights-team">
-      <PanelHeader title={title} controls={controls} />
+      <PanelHeader title={title} controls={controls} nameInControls={teamNameInControls} />
       <CardContent className="space-y-4 text-sm">
         {/*
           HEAD TO HEAD LEADS THE CARD, and this is a reorder rather than a new
@@ -253,23 +281,41 @@ export function TeamPanel({
  * The card header both of TeamPanel's returns share — the team's name, and the
  * controls that change what the card is scoped to.
  *
- * TITLE ABOVE THE CONTROLS BELOW `md`, BESIDE THEM FROM `md` UP, AND THE SPLIT
- * IS MEASURED RATHER THAN PREFERRED. One row at 390px leaves the title 109px of
- * the header's 324px, which ellipses a name as ordinary as "Ada's Analysts" —
- * while the team trigger BESIDE it is showing that same name, also truncated.
- * Two clipped copies of one string is a worse header than a taller one. From
- * `md` the card is wide enough that neither truncates and the row is the better
- * shape. Measured in headless chromium over the BUILT stylesheet, which is the
- * only thing that can see this: Tailwind emits nothing for a class no source
- * file contains, so a stale sheet renders the header with these rules silently
- * absent and it still looks plausible.
+ * TWO SHAPES, AND WHICH ONE IS DECIDED BY `nameInControls` ALONE. When the team
+ * dropdown renders it is already showing the team's name, so the visible title
+ * goes and the header becomes controls-only; otherwise the title stays and is
+ * the card's only identifier. TeamPanel's own `teamNameInControls` prop states
+ * why, and routes/insights.tsx is what answers the question.
+ *
+ * TITLE ABOVE THE CONTROLS BELOW `md`, BESIDE THEM FROM `md` UP, IN THE VISIBLE-
+ * TITLE SHAPE. The reason this stack was originally introduced is now
+ * UNREACHABLE and must not be re-cited: it was that one row at 390px left the
+ * title 109px of the header's 324px and ellipsed a name as ordinary as "Ada's
+ * Analysts" WHILE THE TEAM TRIGGER BESIDE IT SHOWED THAT SAME NAME, also
+ * truncated — two clipped copies of one string. A visible title and the team
+ * trigger can no longer appear together at all, so that pairing is gone by
+ * construction rather than by layout.
+ *
+ * WHAT IS MEASURED TODAY, in headless chromium over the BUILT stylesheet and
+ * with only the MONTH trigger beside the title: at 390px "Ada's Analysts" is not
+ * clipped in the stacked header, and a 37-character name IS clipped there — the
+ * card is 374px wide, so a name that long exceeds the header's 324px of content
+ * box whether it is stacked or in a row. The stack is therefore not what saves a
+ * long name; nothing at this width does. It is kept for the `md` reason below,
+ * which is about the PAGE rather than about this card.
+ *
+ * MEASURE, NEVER INFER, WHEN YOU CHANGE THESE CLASSES. Tailwind emits nothing
+ * for a class no source file contains, so a stale stylesheet renders this header
+ * with its rules silently absent and it still looks plausible — the gates cannot
+ * see it and neither can a screenshot taken against an old `dist`.
  *
  * `md` RATHER THAN `sm` TO MATCH daily-benchmark.tsx, whose own title-plus-two-
  * controls header one card further down the same page is
  * `flex-col gap-2 md:flex-row md:items-center md:justify-between`. The row does
- * fit at `sm` here — these two triggers are far narrower than that card's two
- * selects — but two cards on one page changing shape at different widths is a
- * worse outcome than one line of unused room between 640 and 768.
+ * fit at `sm` here — the lone month trigger this shape can hold is far narrower
+ * than that card's two selects — but two cards on one page changing shape at
+ * different widths is a worse outcome than one line of unused room between 640
+ * and 768.
  *
  * `space-y-0` IS NOT TIDYING. CardHeader's own `flex flex-col space-y-1.5` is
  * still there in the `md:flex-row` — tailwind-merge only drops it because this
@@ -283,7 +329,60 @@ export function TeamPanel({
  * somebody reaches for the month dropdown, and a header that got these classes
  * in only one of the two returns would be the emptier card losing them.
  */
-function PanelHeader({ title, controls }: { title: string; controls?: ReactNode }) {
+function PanelHeader({
+  title,
+  controls,
+  nameInControls,
+}: {
+  title: string
+  controls?: ReactNode
+  nameInControls: boolean
+}) {
+  if (nameInControls) {
+    return (
+      // `flex-row items-center justify-end space-y-0` — THE SAME FOUR CLASSES
+      // daily-team-fact.tsx's HEADER CARRIES, and that is the point rather than
+      // a coincidence: in this branch both Layer 3 cards are a header holding
+      // nothing but the scope controls, so they must put them in the same
+      // place. `pb-2` rather than that card's `pb-3` is the one difference, and
+      // it is this card's own existing spacing, unchanged.
+      //
+      // `justify-end`, NEVER THE `md:justify-between` BELOW. An `sr-only`
+      // heading is `position: absolute`, so it is NOT a flex item — this
+      // container has exactly ONE in-flow child, and `justify-between` puts a
+      // lone item at the START. The controls would sit hard left, on the
+      // opposite side from every other width and from the free card.
+      //
+      // NO RESPONSIVE STACK EITHER, because there is nothing to stack: the
+      // column below exists to keep a title off the controls' row, and there is
+      // no visible title here at any width.
+      <CardHeader className="flex-row items-center justify-end space-y-0 pb-2">
+        {/*
+          AN INVISIBLE HEADING, NOT A DELETED ONE. The team dropdown beside this
+          already shows the name, so a visible CardTitle would print it twice
+          side by side — but dropping it outright would leave this card with no
+          heading at all in the document, and the team's name reachable only as
+          a button's label. `sr-only` keeps the structure and the announcement
+          while costing no pixels.
+
+          `h2` BECAUSE THE PAGE'S OWN HEADING IS AN `h1` ("Insights", in
+          routes/insights.tsx) AND THIS CARD'S SECTIONS ARE `h3`s — "Head to
+          head", "Averages", "Best and worst days", "Consistency", below. This
+          is the level between them, so the card's four sections stop hanging
+          off the page title directly.
+
+          A REAL `h2` RATHER THAN `CardTitle`: that component renders a plain
+          `<div>` (components/ui/card.tsx — `asChild` exists there precisely
+          because it does), so `CardTitle` alone would be an announcement
+          without a heading, which is the half of this that matters. Its
+          typographic classes would be inert under `sr-only` anyway.
+        */}
+        <h2 className="sr-only">{title}</h2>
+        {controls}
+      </CardHeader>
+    )
+  }
+
   return (
     <CardHeader className="flex-col gap-2 space-y-0 pb-2 md:flex-row md:items-center md:justify-between">
       {/* `min-w-0 truncate` IS WHAT KEEPS THE `md` ROW INSIDE THE CARD. A flex

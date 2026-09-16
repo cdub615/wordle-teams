@@ -85,6 +85,14 @@ describe('the team dropdown appears only when there is a team to choose', () => 
     // daily-team-fact.tsx has no title, so its header exists only when there is
     // a control to put in it — which means routes/insights.tsx has to ask this
     // question too. Exported so `length > 1` has one spelling rather than two.
+    //
+    // THERE IS NOW A SECOND CALLER IN THAT ROUTE, and it needs the same answer
+    // for the opposite reason: TeamPanel's `teamNameInControls` drops its
+    // VISIBLE title when the trigger below is rendering, so that the team name
+    // is not printed twice side by side (team-panel.hook.test.ts pins it). A
+    // separate `length > 1` written at either call site could drift from this
+    // one and put the duplicate back — or hide the title on a one-team account,
+    // where it is the card's only identifier.
     expect(showsTeamPicker([])).toBe(false)
     expect(showsTeamPicker([teams[0]])).toBe(false)
     expect(showsTeamPicker(teams)).toBe(true)

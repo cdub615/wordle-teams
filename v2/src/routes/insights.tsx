@@ -645,6 +645,16 @@ function TeamSection({
     <TeamPanel
       data={data}
       teamName={team.name}
+      /*
+        THE SAME QUESTION THE FREE BRANCH ASKS ABOVE, AND IT MUST STAY THE SAME
+        CALL. When the team dropdown renders it shows the team's name, so the
+        panel drops its VISIBLE title and keeps an `sr-only` heading instead —
+        otherwise the header reads "Ada's Analysts  [Ada's Analysts v]". A
+        second spelling of "more than one team" here could drift from
+        `showsTeamPicker` and put the duplicate back, or hide the title on a
+        one-team account where it is the card's only identifier.
+      */
+      teamNameInControls={showsTeamPicker(teamOptions)}
       controls={
         <TeamScopeControls
           teams={teamOptions}
