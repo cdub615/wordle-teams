@@ -15,6 +15,7 @@
 // is a licence obligation rather than a courtesy, so it gets its own assertion
 // here instead of riding along inside somebody's snapshot — a snapshot would go
 // on passing with the credit deleted as long as it was regenerated.
+import { readFileSync } from 'node:fs'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
@@ -441,5 +442,52 @@ describe('InsightsScope', () => {
       ],
     })
     expect(screen.getByTestId('insights-scope').textContent).toContain('2 boards ·')
+  })
+})
+
+/*
+  TeamSection ITSELF IS NOT EXPORTED, AND RENDERING IT DIRECTLY THROUGH
+  InsightsPanel CANNOT REACH BOTH ITS BRANCHES — the global `@tanstack/react-query`
+  mock above answers every `useQuery` call, from both `getMyTeams` and
+  `teamMonth`, with the SAME `{ data: undefined }`, so `teamId` is always
+  undefined in this file (see the comment on that mock) and only the "no team"
+  branch is ever reachable by rendering. The "real teamId, data still loading"
+  branch needs `teamId` truthy and `data` falsy at once, which this mock cannot
+  produce without becoming call-aware — a bigger, riskier change than this
+  coverage gap justifies (today-panel.hook.test.ts's own comment documents the
+  same jsdom-cwd tradeoff for the same reason: read the real source rather than
+  invent scaffolding around it).
+
+  So this reads the real source instead, the same fallback today-panel.hook.test.ts
+  uses for a hazard a render cannot reach. What it guards is not "these two
+  branches exist" (no-team-card.hook.test.ts and the render tests above already
+  cover the shapes each branch produces) but that they stay SEPARATE — this is
+  the regression wordle-teams-wty4.1.11.8 fixed: `if (!teamId || !data) return
+  null` silently swallowed the "no team" case into the same null the "still
+  loading" case produces, and nothing here would fail if that collapse came
+  back, since a mocked `useQuery` that only ever returns `{ data: undefined }`
+  makes `!teamId` and `!data` true at the exact same time on every render.
+*/
+describe('TeamSection guards "no team" and "data not loaded yet" separately', () => {
+  const source = readFileSync('src/routes/insights.tsx', 'utf8')
+  // Isolate the function body — TeamSection is the last thing the module
+  // defines, so slicing from its signature to end-of-file is exact and does
+  // not risk matching an unrelated `if` elsewhere in the route.
+  const teamSection = source.slice(source.indexOf('function TeamSection'))
+
+  test('a missing team renders NoTeamCard, on its own line', () => {
+    expect(teamSection).toContain('if (!teamId) return <NoTeamCard />')
+  })
+
+  test('unresolved data renders null, as a SEPARATE statement, not folded into the team check', () => {
+    expect(teamSection).toContain('if (!data) return null')
+  })
+
+  test('the two conditions are never recombined into one guard', () => {
+    // The exact regression this issue was filed for: collapsing back to the
+    // pre-fix shared guard would render `null` — an unexplained gap — for a
+    // player with no team at all, instead of NoTeamCard.
+    expect(teamSection).not.toContain('if (!teamId || !data)')
+    expect(teamSection).not.toContain('if (!data || !teamId)')
   })
 })

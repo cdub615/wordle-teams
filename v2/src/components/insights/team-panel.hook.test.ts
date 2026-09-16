@@ -86,6 +86,25 @@ describe('a month with boards', () => {
     expect(figures[1]?.textContent).toBe('1')
   })
 
+  // `text-accent-solid`, never `text-success`, on the viewer's figure — see
+  // VersusBlock's own comment (team-panel.tsx) and its siblings' identical
+  // guards (unlock-prompt.hook.test.ts, personal-summary.hook.test.ts,
+  // openers-panel.hook.test.ts): `--success` is a BACKGROUND token that
+  // measures 3.74:1 as text on a dark card, below WCAG AA's 4.5:1, where
+  // `--accent-solid` clears it. Mutation testing found this component was the
+  // one sibling with no test standing between the two classes, so swapping
+  // them here passed every existing assertion.
+  test('the viewer figure carries the safe accent colour, never the failing one', () => {
+    panel(data)
+    const figures = screen.getAllByTestId('insights-versus-figure')
+    // figures[0] is the viewer's ("You"); figures[1] is the opponent's, which
+    // gets no colour class at all (see the second <span> in VersusBlock).
+    expect(figures[0]?.className).toContain('text-accent-solid')
+    expect(figures[0]?.className).not.toContain('text-success')
+    expect(figures[1]?.className).not.toContain('text-accent-solid')
+    expect(figures[1]?.className).not.toContain('text-success')
+  })
+
   test('does not compare the viewer with themselves', () => {
     // The viewer's side of the versus block is labelled "You", matching the
     // rest of this feature's voice (daily-team-fact.tsx), so their own name
