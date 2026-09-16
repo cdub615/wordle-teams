@@ -148,8 +148,8 @@ Replaces the six-cell `<dl>` of equal-weight statistics.
 > **4.32** lifetime · last 30 boards **4.02** ▲ *your best stretch yet*
 
 Derived from the player's own boards — needs neither the corpus nor a team. Shown
-once the player has 40 boards (§6); below that the lead figure stands alone rather
-than carrying a comparison against itself. The delta is coloured `text-success`
+once the player has 40 boards (§6); below that the slot carries an unlock prompt
+(§6.1) rather than a comparison against itself. The delta is coloured `text-success`
 when the recent window is better and left neutral (`text-muted-foreground`) when it
 is not — never `text-destructive`. This page is not for scolding.
 
@@ -181,7 +181,8 @@ thing the corpus is actually good for:
 
 > You average **4.61** on days the world found hard, and **3.94** on the rest.
 
-Rendered only when both bands hold enough boards to be stable (see §6).
+Rendered only when both bands hold enough boards to be stable (§6); otherwise the
+slot carries an unlock prompt (§6.1).
 
 **Opener rows.** Per opener: the word as tiles, a bar showing relative mean
 attempts, the mean `tabular-nums`, rank as a `Badge`, and use count.
@@ -300,13 +301,13 @@ per the parent epic's acceptance criteria.
 | Loading | `isPending` or corpus unresolved | Existing skeletons, restyled to the new panel shapes |
 | Corpus failed | `loadInsightsBenchmark()` rejected | Existing message, unchanged wording |
 | No boards | `data.boards.length === 0` | Existing message, unchanged wording |
-| Thin history | `isThin(boards)` — fewer than `MIN_BOARDS_FOR_STATS` (5) | Existing designed message, restyled. **Not a failure** — the 4s0 spec is explicit that Layer 2 is empty for 368 of 392 accounts and that this is acceptable |
+| Thin history | `isThin(boards)` — fewer than `MIN_BOARDS_FOR_STATS` (5) | Unlock prompt (§6.1), carrying the existing message's value clause. **Not a failure** — the 4s0 spec is explicit that Layer 2 is empty for 368 of 392 accounts and that this is acceptable |
 | Free tier | `access.layer2 !== 'full'` | Personal panels absent; page is team fact + day-by-day + upsell card |
 | No team | `getMyTeams()` empty | **New** stated empty state (§4.5) |
 | Team, no boards this month | `stats === null` or `days.length === 0` | Existing message, restyled |
 | Solo team | No opponents in `headToHead` | Existing message, restyled |
-| Trailing form unavailable | Fewer than 40 boards | Hero shows the lead figure with no comparison line. Never a fabricated or partial-window comparison |
-| Difficulty split unstable | Either band holds fewer than 10 boards | The §4.3 difficulty line is omitted entirely |
+| Trailing form unavailable | Fewer than 40 boards | Hero shows the lead figure, with an unlock prompt (§6.1) where the comparison would sit. Never a fabricated or partial-window comparison |
+| Difficulty split unstable | Either band holds fewer than 10 boards | The §4.3 difficulty line is replaced by an unlock prompt (§6.1) |
 
 ### The two sample-size floors, fixed here
 
@@ -328,6 +329,56 @@ excluded from both bands, not defaulted into either.
 Neither floor is the ≥30-contributor cohort rule. That is Layer 4's *privacy*
 threshold and belongs to 4s0. These are sample-size floors on the viewer's own
 data, where no privacy question arises.
+
+### 6.1 Unlock prompts — an unmet floor is an invitation, not a blank
+
+Wherever a floor is unmet, the slot the insight would have occupied renders an
+**unlock prompt** instead of collapsing. The owner's reasoning, taken 2026-09-15:
+a player should know that more is coming, what specifically it is, and how close
+they are — so the floor becomes an incentive to keep entering boards rather than a
+silent absence.
+
+The pattern already exists in one place and is being generalised rather than
+invented: the current thin-history message names exactly what is coming ("your
+opening repertoire, your streaks and how your scores move month to month"). What it
+lacks is the distance.
+
+**Every unlock prompt states three things, in this order:**
+
+1. **What unlocks** — named concretely, never "more insights"
+2. **What it will tell them** — one clause of actual value
+3. **How far away it is** — a count *and* a progress bar, so the distance is
+   readable at a glance
+
+| Slot | Floor | Renders |
+| --- | --- | --- |
+| The whole personal card | 5 boards (`isThin`) | "Your history unlocks at 5 boards" · repertoire, streaks, month-to-month · `3 / 5` |
+| The hero's comparison line | 40 boards | "Your form trend unlocks at 40 boards" · how your last 30 compare with your all-time average · `12 / 40` |
+| The openers card's difficulty line | 10 boards in each band | "Your difficulty breakdown unlocks at 10 hard days" · how you score when the world struggles · `4 / 10` |
+
+For the difficulty prompt, the count shown is **the band that is actually short**.
+When both are short it names the hard band, which is the rarer of the two — the
+corpus puts roughly 35% of days at percentile ≥ 65, so it is the binding one.
+
+**Rules, so this cannot turn into nagging:**
+
+- **At most one unlock prompt per card.** If a card's whole contents are gated
+  (the thin state), that prompt *is* the card and no inner prompt renders.
+- **An unlock prompt is visually distinct from the upsell.** The upsell asks for
+  money; this asks for play. The upsell keeps the accent treatment of §4.7; unlock
+  prompts are muted — `text-muted-foreground`, a `bg-muted` progress track, and the
+  filled portion in `bg-muted-foreground` rather than the accent. Green is reserved
+  for what the player has *achieved*, which is the §4.2 and §4.4 usage.
+- **Never a countdown to something they cannot reach.** These floors are all
+  reachable by playing. Nothing that depends on tier, team membership or corpus
+  coverage gets an unlock prompt — a free player sees the upsell, a player on no
+  team sees §4.5's invitation, and a day the artifact does not cover keeps its
+  existing "not rated yet".
+- **The prompt disappears the moment the floor is met.** No "just unlocked" state,
+  no persistence — the insight itself appearing is the reward.
+
+This is one shared component, `unlock-prompt.tsx`, taking the label, the value
+clause, and `{ have, need }`. It is not three bespoke messages.
 
 ---
 
@@ -373,6 +424,7 @@ them. It gets split:
 | `src/components/insights/daily-benchmark.tsx` | Filters, bounded scroller, count |
 | `src/components/insights/board-row.tsx` | One day's row |
 | `src/components/insights/mini-board.tsx` | The tile grid, shared by `board-row` |
+| `src/components/insights/unlock-prompt.tsx` | The §6.1 prompt — one component, three call sites |
 | `src/components/insights/team-panel.tsx` | Existing file, reworked |
 
 Two constraints on the route file survive the split and are recorded in its current
@@ -443,11 +495,15 @@ toolchain cannot see this class of bug.
 7. The team panel leads with head-to-head and names the team.
 8. A player on no team sees a stated empty state.
 9. Day-by-day rows render real coloured tiles; the list stays bounded and counted.
-10. Every state in §6 renders deliberately.
-11. No new Convex query is added.
-12. `src/routes/insights.tsx` renders no panel itself; every panel is its own
+10. Every state in §6 renders deliberately, and every unmet floor renders an
+    unlock prompt naming what unlocks, what it will tell them, and how far away it
+    is — never a blank and never a bare "not enough data".
+11. Unlock prompts are visually distinct from the upsell, and at most one renders
+    per card.
+12. No new Convex query is added.
+13. `src/routes/insights.tsx` renders no panel itself; every panel is its own
     component under `src/components/insights/`.
-13. All four quality gates pass, the insights e2e specs pass, and the page has been
+14. All four quality gates pass, the insights e2e specs pass, and the page has been
     screenshotted in both themes at both widths.
 
 ## 12. Decisions recorded
@@ -460,6 +516,7 @@ toolchain cannot see this class of bug.
 | Difficulty insight | Kept, as a line in the openers card | Dropping it wastes the corpus's one real strength |
 | Opener tiles | Uncoloured, border-only | A per-use colouring does not exist; a hit-rate colouring would overload green/yellow |
 | Card titles | `text-lg md:text-xl` | `DESIGN_SYSTEM.md` §7 says `text-2xl font-semibold`. **A stated deviation:** five 24px titles on a page this dense out-shout the numbers, which are the content. `today-panel.tsx` already deviates the same direction with `text-sm md:text-base`. Approved as shown in the mockup on 2026-09-15 |
+| Unmet sample floors | An unlock prompt naming the insight, its value and the distance | A blank slot, or a bare "not enough data", both of which spend a chance to give the player a reason to keep entering boards. Owner's call, 2026-09-15 |
 | Trend window | Last 12 months | Unbounded growth; 24 bars at ~11px on a phone |
 | New queries | None | Bandwidth is the binding Convex limit (wordle-teams-dcu) |
 
