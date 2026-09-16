@@ -92,7 +92,11 @@ describe('a free player on their first board', () => {
     panel(freeFirstBoard)
     expect(screen.getAllByTestId('insights-board')).toHaveLength(1)
     expect(screen.getByText('CRANE')).not.toBeNull()
-    expect(screen.getByText('2nd of 14,855')).not.toBeNull()
+    // The compact badge AND the full sentence. Asserting only the sentence is
+    // how the row silently lost the word "ranks" — see board-row.hook.test.ts's
+    // comment on the same pair.
+    expect(screen.getByText('#2')).not.toBeNull()
+    expect(screen.getByText('ranks 2nd of 14,855')).not.toBeNull()
     expect(screen.getByText('Hard for the solver')).not.toBeNull()
   })
 

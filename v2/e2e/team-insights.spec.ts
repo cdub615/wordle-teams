@@ -131,7 +131,24 @@ test.describe('a pro member of a team', () => {
     await seedTeamOfTwo(page, { mine: 3, theirs: 5, pro: true })
 
     const record = page.getByTestId('insights-head-to-head')
-    await expect(record).toContainText('1-0', FIRST_PAINT)
+
+    /*
+      THE TWO FIGURES SEPARATELY, NOT THE OLD "1-0" STRING. A two-person team
+      renders the versus block rather than the list, so wins and losses are two
+      elements and the dash-joined form no longer exists in the DOM — the same
+      change team-panel.hook.test.ts made for the same reason.
+
+      THIS IS NOT A WEAKENED ASSERTION. It pins an exact element count, which
+      the substring never did, and it still checks both halves of what this
+      test's name promises: the teammate is named, and the shared-day
+      denominator is stated. A record of 1-0 over one shared day is what the
+      seed produces.
+    */
+    await expect(record).toContainText('PlayerB', FIRST_PAINT)
+    const figures = record.getByTestId('insights-versus-figure')
+    await expect(figures).toHaveCount(2)
+    await expect(figures.nth(0)).toHaveText('1')
+    await expect(figures.nth(1)).toHaveText('0')
     await expect(record).toContainText('1 shared day')
   })
 })

@@ -70,7 +70,25 @@ export function BoardRow({
           {result.opener ? (
             <>
               <span className="font-medium">{result.opener.word}</span>{' '}
-              <Badge variant="secondary">{openerRankSentence(result.opener)}</Badge>
+              <Badge variant="secondary" className="tabular-nums">
+                #{result.opener.rank.toLocaleString('en-US')}
+              </Badge>
+              {/*
+                THE PROSE THE BADGE REPLACED, AND IT IS NOT DECORATION. Dropping
+                the connective when this became a Badge was an unintended copy
+                regression: the row went from "Opener ORATE ranks 448th of
+                14,855" to "Opener ORATE 448th of 14,855". Every unit test
+                passed, because they only asserted the sentence EXISTED, not its
+                phrasing — e2e/insights.spec.ts caught it and nothing else did.
+
+                IT CARRIES THE DENOMINATOR, TOO. "#448" alone drops the "of
+                14,855" that makes a rank mean anything, and that spec's
+                positive assertion is what proves the corpus really arrived over
+                HTTP rather than the panel degrading quietly to its absent
+                state. The spec reads textContent, so an sr-only span satisfies
+                it and the reader both.
+              */}
+              <span className="sr-only">ranks {openerRankSentence(result.opener)}</span>
             </>
           ) : (
             /* A2's absent state, copied verbatim from BoardCard. NEVER a zero

@@ -91,10 +91,20 @@ describe('the day', () => {
 })
 
 describe('the opener', () => {
-  test('names the word and its rank as a Badge', () => {
+  /*
+   * BOTH HALVES, BECAUSE ASSERTING ONLY ONE IS HOW THE REGRESSION GOT THROUGH.
+   * This previously checked that the sentence "2nd of 14,855" existed somewhere
+   * and passed while the row silently lost the word "ranks" — the visible copy
+   * went from "Opener CRANE ranks 2nd of 14,855" to "Opener CRANE 2nd of
+   * 14,855". Only e2e/insights.spec.ts, which matches the whole phrase, caught
+   * it. So: the compact badge a sighted reader sees, AND the full sentence that
+   * carries the denominator for assistive tech, pinned separately.
+   */
+  test('names the word, a compact rank badge, and the full sentence for assistive tech', () => {
     row({ puzzleDay: '2026-09-03', guesses: ['CRANE'], answer: 'SPEED' })
     expect(screen.getByText('CRANE')).not.toBeNull()
-    expect(screen.getByText('2nd of 14,855')).not.toBeNull()
+    expect(screen.getByText('#2')).not.toBeNull()
+    expect(screen.getByText('ranks 2nd of 14,855')).not.toBeNull()
   })
 
   /*
