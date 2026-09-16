@@ -149,7 +149,7 @@ Replaces the six-cell `<dl>` of equal-weight statistics.
 
 Derived from the player's own boards — needs neither the corpus nor a team. Shown
 once the player has 40 boards (§6); below that the slot carries an unlock prompt
-(§6.1) rather than a comparison against itself. The delta is coloured `text-success`
+(§6.1) rather than a comparison against itself. The delta is coloured `text-accent-solid`
 when the recent window is better and left neutral (`text-muted-foreground`) when it
 is not — never `text-destructive`. This page is not for scolding.
 
@@ -211,7 +211,7 @@ Reworked `TeamPanel`. Head-to-head leads, because it is the most engaging conten
 on the page and currently renders as a list row.
 
 - **Two-person team:** a versus block — the viewer's wins against the opponent's, at
-  `text-3xl tabular-nums`, viewer's figure in `text-success`, ties and shared days
+  `text-3xl tabular-nums`, viewer's figure in `text-accent-solid`, ties and shared days
   stated beneath.
 - **Larger team:** a standings table of the same records with the viewer's row
   pinned and carrying `bg-pinned-self` (the existing helper class, which exists
@@ -457,6 +457,14 @@ query inside the panel is unreachable from that test.
 - Bar widths animate only under `motion-safe:`.
 
 ## 9. Theme
+
+**Green text is `text-accent-solid`, never `text-success`.** `--success` is a
+background token that travels with `--success-foreground`, and it is `#15803d` in
+both themes — as a text colour on a dark card that is 3.74:1, failing WCAG AA.
+`--accent-solid` is the established green foreground and has a dark-mode value,
+giving 8.22:1 there and an identical 5.02:1 in light. An earlier draft of this
+spec said `text-success` in two places; both were wrong, and the mistake reached
+two shipped components before a contrast check caught it.
 
 Every colour is a token. No hardcoded hex, no `dark:` forks outside the token
 layer. The page must be screenshotted in **both** themes before it is called done —

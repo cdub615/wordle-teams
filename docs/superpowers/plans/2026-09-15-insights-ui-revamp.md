@@ -38,6 +38,18 @@
 1. `InsightsRoute` must stay **unexported**. The vite plugin silently declines to code-split a route file whose routed identifier is also exported. `src/routes.test.ts` pins this.
 2. `loadInsightsBenchmark()` must not be lifted into a shared module. The corpus is ~79 KB and must stay on this code-split route only. CI greps `dist/client`.
 
+**Green TEXT is `text-accent-solid`, never `text-success`.** `--success` is a
+BACKGROUND token: it travels with `--success-foreground` (design principle #3 —
+"background and foreground travel together, never set one without the other from
+the same pair"), and every legitimate use pairs them, as `badge.tsx` does with
+`bg-success text-success-foreground`. Critically `--success` is `#15803d` in BOTH
+themes, so as a text colour on a dark card it measures **3.74:1 and fails WCAG
+AA**. `--accent-solid` is the established green foreground — `maintenance.tsx`,
+`feature-cards.tsx` and `pull-to-refresh.tsx` all use it — and it carries a
+dark-mode value (`#22c55e`), measuring 5.02:1 light and **8.22:1 dark**. Light is
+identical either way; only dark differs. This plan originally specified
+`text-success` in three places and every one was wrong.
+
 **Every existing `data-testid` is load-bearing** — all 27 appear in `e2e/`, `src/routes/-insights.hook.test.ts`, or a component test. Preserve each one on the element that keeps its meaning. Where a meaning genuinely changes, update the test in the same commit and say so in the commit message. Never silently drop one.
 
 ---
@@ -1573,7 +1585,7 @@ export function PersonalSummary({ boards }: { boards: PersonalBoard[] }) {
                  for should not scold them for a bad fortnight; the neutral
                  treatment states the fact without the judgement. */
               <p className="text-sm" data-testid="insights-trailing-form">
-                <span className={form.delta > 0 ? 'text-success font-semibold' : 'font-semibold'}>
+                <span className={form.delta > 0 ? 'text-accent-solid font-semibold' : 'font-semibold'}>
                   {form.delta > 0 ? '▲' : form.delta < 0 ? '▼' : '—'}{' '}
                   {Math.abs(form.delta).toFixed(1)}
                 </span>{' '}
@@ -1825,7 +1837,7 @@ export function OpenersPanel({
             {advice && (
               <p className="mt-1 font-semibold">
                 Opening {advice.to} instead would save you about{' '}
-                <span className="text-success tabular-nums">{advice.savingPerDay}</span> guesses a
+                <span className="text-accent-solid tabular-nums">{advice.savingPerDay}</span> guesses a
                 day.
               </p>
             )}
@@ -2383,7 +2395,7 @@ export function TeamPanel({ data, teamName }: { data: TeamPanelData; teamName?: 
               <div className="bg-muted flex items-center gap-3 rounded-md p-3">
                 <div className="flex-1 text-center">
                   <p className="text-sm font-semibold">You</p>
-                  <p className="text-success text-3xl leading-tight font-bold tabular-nums">
+                  <p className="text-accent-solid text-3xl leading-tight font-bold tabular-nums">
                     {records[0].wins}
                   </p>
                 </div>
