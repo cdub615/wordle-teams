@@ -13,6 +13,7 @@ import type { Boards } from '#/lib/insights-panel.ts'
 import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
 import { resolveInsightsSearch } from '#/lib/insights-search.ts'
 import { useSearchSync } from '#/lib/use-search-sync.ts'
+import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { DailyBenchmark } from '#/components/insights/daily-benchmark.tsx'
 import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
@@ -113,6 +114,7 @@ function useBenchmark() {
 function InsightsRoute() {
   const { team: teamParam, month: monthParam } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
+  const { startUpgrade } = useStartUpgrade()
   const { data, isPending } = useQuery(convexQuery(api.insights.myBenchmarkBoards, {}))
   const { benchmark, failed } = useBenchmark()
 
@@ -299,6 +301,10 @@ function InsightsRoute() {
                     search: { team: teamParam, month },
                     resetScroll: false,
                   })
+                }
+                onUpgrade={() => void startUpgrade()}
+                onInvite={() =>
+                  void navigate({ to: '/team', search: { team: teamParam } })
                 }
               />
             }

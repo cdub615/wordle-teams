@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { DailyTeamFact } from '#/components/insights/daily-team-fact.tsx'
 import { NoTeamCard } from '#/components/insights/no-team-card.tsx'
+import { TeamLockedCard } from '#/components/insights/team-locked-card.tsx'
 import { TeamPanel } from '#/components/insights/team-panel.tsx'
 import {
   showsTeamDropdown,
@@ -47,6 +48,8 @@ export function TeamSection({
   month,
   onTeamChange,
   onMonthChange,
+  onUpgrade,
+  onInvite,
 }: {
   layer3: 'none' | 'free' | 'full'
   /**
@@ -68,6 +71,16 @@ export function TeamSection({
   month: string | undefined
   onTeamChange: (teamId: string) => void
   onMonthChange: (month: PuzzleMonth) => void
+  /**
+   * Straight to checkout, for now. wordle-teams-iht.2 says this should route
+   * through iht.1's interstitial instead, and it will — that issue's whole
+   * premise is one shared component behind one call site, so it re-points every
+   * caller including this one. Wiring it now is what makes the card shippable
+   * before that conversation has happened.
+   */
+  onUpgrade: () => void
+  /** Only reachable from a solo team's card. See TeamLockedCard on why. */
+  onInvite: () => void
 }) {
   const today = toPuzzleDay(new Date())
   /*
@@ -225,34 +238,64 @@ export function TeamSection({
   */
   if (!hasFullTeamMonth(layer3)) {
     return (
-      <DailyTeamFact
-        /*
-          `teaser`, NOT `stats`. The server sends this branch identities and
-          today's entry only, and leaves `stats` null for a free viewer
-          (wordle-teams-iht.3.2) — so reading `stats` here would render the
-          empty state rather than the fact.
-        */
-        stats={data.teaser}
-        viewerId={data.viewerId}
-        today={today}
-        /* For the card's sr-only heading — it has no painted title. */
-        teamName={team.name}
-        /*
-          NO MONTH SCOPE ON THIS BRANCH — a fact about today has no month to
-          choose (see this component's own note on `today`).
+      <>
+        <DailyTeamFact
+          /*
+            `teaser`, NOT `stats`. The server sends this branch identities and
+            today's entry only, and leaves `stats` null for a free viewer
+            (wordle-teams-iht.3.2) — so reading `stats` here would render the
+            empty state rather than the fact.
+          */
+          stats={data.teaser}
+          viewerId={data.viewerId}
+          today={today}
+          /* For the card's sr-only heading — it has no painted title. */
+          teamName={team.name}
+          /*
+            NO MONTH SCOPE ON THIS BRANCH — a fact about today has no month to
+            choose (see this component's own note on `today`).
 
-          AND NO HEADER AT ALL WHEN THERE IS NO TEAM TO PICK, which is why this
-          is `undefined` rather than a TeamScopeControls that would render
-          nothing: that card has no title, so an always-drawn header would be
-          an empty padded row for an account on a single team. TeamPanel needs
-          no such check — its header holds the title either way.
-        */
-        controls={
-          showsTeamDropdown(teamOptions) ? (
-            <TeamScopeControls teams={teamOptions} teamId={team.id} onTeamChange={onTeamChange} />
-          ) : undefined
-        }
-      />
+            AND NO HEADER AT ALL WHEN THERE IS NO TEAM TO PICK, which is why this
+            is `undefined` rather than a TeamScopeControls that would render
+            nothing: that card has no title, so an always-drawn header would be
+            an empty padded row for an account on a single team. TeamPanel needs
+            no such check — its header holds the title either way.
+          */
+          controls={
+            showsTeamDropdown(teamOptions) ? (
+              <TeamScopeControls teams={teamOptions} teamId={team.id} onTeamChange={onTeamChange} />
+            ) : undefined
+          }
+        />
+        {/*
+          BENEATH THE FACT, NEVER MERGED INTO IT (wordle-teams-iht.2). The line
+          between "what you have" and "what you don't have but would" is the
+          owner's stated reason for two cards rather than one grown card.
+
+          `monthOf(today)` RATHER THAN `queryMonth`. `PuzzleMonth` is a bare
+          alias for `string`, so the type is not the obstacle — the `| undefined`
+          is: TeamSection's `month` prop is `string | undefined` and `queryMonth`
+          inherits it. And on this branch `queryMonth` IS `monthOf(today)`
+          already (see its own note above), because the free card is always about
+          the current month. Saying so directly drops the undefined and states
+          the fact rather than re-deriving it.
+
+          `data.rank` IS NON-NULL ON THIS BRANCH by construction: teamMonth
+          returns the tag for exactly the tier this branch serves, and `null`
+          only for pro and trial. The fallback keeps the types honest without
+          inventing a state — a viewer who somehow arrives here without one is
+          told the truth, that there is nothing to rank yet.
+        */}
+        <TeamLockedCard
+          teamName={team.name}
+          month={monthOf(today)}
+          roster={data.roster}
+          viewerId={data.viewerId}
+          rank={data.rank ?? { kind: 'not-played' }}
+          onUpgrade={onUpgrade}
+          onInvite={onInvite}
+        />
+      </>
     )
   }
 

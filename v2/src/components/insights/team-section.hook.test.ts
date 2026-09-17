@@ -129,7 +129,7 @@ const answerFor = (args: unknown) => {
     cannot drift from the gate it is standing in for.
   */
   if (hasFullTeamMonth(renderedTier)) {
-    return { ...answer, stats: answer.stats, teaser: null }
+    return { ...answer, stats: answer.stats, teaser: null, rank: null }
   }
   return {
     ...answer,
@@ -141,6 +141,12 @@ const answerFor = (args: unknown) => {
       members: answer.stats.members.map(({ playerId }) => ({ playerId })),
       days: answer.stats.days.filter((entry) => entry.puzzleDay === today),
     },
+    // `solo` RATHER THAN A `ranked` TAG, because this fixture's `roster` holds
+    // one member — `ranked` would contradict it, and `{ rank: 1, of: 1 }` is not
+    // a value `teamRank` can produce at all (it returns `nobody-else` there). A
+    // fixture that cannot occur is how a component gets tested against a state
+    // it will never see.
+    rank: { kind: 'solo' } as const,
   }
 }
 
@@ -281,6 +287,8 @@ const section = (options: {
       month,
       onTeamChange: () => undefined,
       onMonthChange: () => undefined,
+      onUpgrade: vi.fn(),
+      onInvite: vi.fn(),
     }),
   )
 }
@@ -321,6 +329,23 @@ describe('the free branch — the daily fact', () => {
     section({ layer3: 'free', teamCount: 1 })
     expect(screen.queryByTestId('insights-daily-fact')).not.toBeNull()
     expect(screen.queryByTestId('insights-team-scope-controls')).toBeNull()
+  })
+})
+
+describe('the locked card', () => {
+  test('renders for a free viewer, beneath the daily fact', () => {
+    section({ layer3: 'free', teamCount: 2 })
+    const fact = screen.getByTestId('insights-daily-fact')
+    const locked = screen.getByTestId('insights-team-locked')
+    // Node.compareDocumentPosition: 4 means `locked` FOLLOWS `fact`. The order is
+    // the design — what you have above, what you do not have below.
+    expect(fact.compareDocumentPosition(locked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test('and NEVER for pro, who already has the real panel', () => {
+    section({ layer3: 'full', teamCount: 2 })
+    expect(screen.queryByTestId('insights-team-locked')).toBeNull()
+    expect(screen.queryByTestId('insights-team')).not.toBeNull()
   })
 })
 
@@ -523,6 +548,8 @@ describe('Layer 3 tells "no team" and "not resolved yet" apart, on the page', ()
         month: monthOf(today),
         onTeamChange: () => undefined,
         onMonthChange: () => undefined,
+        onUpgrade: () => undefined,
+        onInvite: () => undefined,
       }),
     )
     expect(screen.getByTestId('insights-no-team')).not.toBeNull()
@@ -542,6 +569,8 @@ describe('Layer 3 tells "no team" and "not resolved yet" apart, on the page', ()
         month: monthOf(today),
         onTeamChange: () => undefined,
         onMonthChange: () => undefined,
+        onUpgrade: () => undefined,
+        onInvite: () => undefined,
       }),
     )
     expect(screen.queryByTestId('insights-no-team')).toBeNull()
