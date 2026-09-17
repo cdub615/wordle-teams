@@ -709,11 +709,19 @@ describe('monthWindowInputsFor', () => {
     })
   })
 
-  test('ignores a roster entry whose player row is gone, without losing the others', () => {
+  test('a roster entry whose player row is gone does not widen the window', () => {
     // Convex ids are not foreign keys, so nothing guarantees every id in
     // playerIds resolves. ASSERTED WITH THE GHOST HOLDING THE OLDEST BOARD —
     // a ghost with no boards would be indistinguishable from a member with none,
     // and would prove nothing about what happens to a dangling id.
+    //
+    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching scores.ts:71
+    // (getTeamMonthFor): that function drops a dangling roster id before it ever
+    // reads a score for it, so the ghost's 2023-03 board can never reach the
+    // scoreboard either. A window that offered 2023-03 anyway would let a viewer
+    // pick a month getTeamMonthFor renders as empty — worse than a window that
+    // simply forgets the departed player's history, which is what this asserts:
+    // the survivor's own 2026-05 is the earliest that counts.
     return convexTest(schema, modules).run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const ghostId = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
@@ -734,10 +742,61 @@ describe('monthWindowInputsFor', () => {
       })
       await ctx.db.delete(ghostId)
 
-      // The ghost's boards still exist and still count: the window is about what
-      // the scoreboard can show, and getTeamMonthFor reads by playerId too. What
-      // must not happen is a throw.
-      expect((await monthWindowInputsFor(ctx, playerId, teamId)).earliestMonth).toBe('2023-03')
+      expect((await monthWindowInputsFor(ctx, playerId, teamId)).earliestMonth).toBe('2026-05')
+    })
+  })
+
+  test('reads a bounded number of documents — a bandwidth regression guard', () => {
+    // The sibling of the guard on getTeamMonthFor above (scores.test.ts:89-101):
+    // swapping earliestMonthFor's index `.first()` for
+    // `.collect().then((rows) => rows[0] ?? null)` returns an IDENTICAL
+    // `earliestMonth` — every other test in this block would still pass — while
+    // reading every board the member has ever entered instead of one.
+    // `transactionLimits.documentsRead` is what catches that regardless of what
+    // the query returns. DO NOT "simplify" this into an assertion on the result.
+    return convexTest({
+      schema,
+      modules,
+      // One member, holding 60 boards. A bounded read costs 1 (team) +
+      // 1 (ctx.db.get, the ghost guard added for the test above) +
+      // 1 (dailyScores .first()) = 3 documents. 15 leaves comfortable headroom
+      // above that while staying far below the 60+ a `.collect()` of this
+      // member's whole history would read.
+      transactionLimits: { documentsRead: 15 },
+    }).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+
+      for (let i = 0; i < 60; i++) {
+        await ctx.db.insert('dailyScores', {
+          playerId,
+          puzzleDay: `2020-01-${String((i % 28) + 1).padStart(2, '0')}`,
+          date: 1_700_000_000_000 + i,
+          answer: 'SPEED',
+          guesses: ['SPEED'],
+        })
+      }
+
+      expect(await monthWindowInputsFor(ctx, playerId, teamId)).toEqual({ earliestMonth: '2020-01' })
+    })
+  })
+})
+
+describe('monthWindow', () => {
+  test('refuses an unauthenticated caller', async () => {
+    // NOT `{ code: 'UNAUTHENTICATED' }`, even though that is an AccessCode and
+    // access.ts's requirePlayer has a line that throws it — see the identical
+    // note on chat.ts's public-surface test (chat.test.ts): for a caller with
+    // no identity at all, `authComponent.getAuthUser(ctx)` throws its own bare
+    // string ConvexError before requirePlayer's own check ever runs.
+    const t = convexTest(schema, modules)
+    const teamId = await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      return await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+    })
+
+    await expect(t.query(api.scores.monthWindow, { teamId })).rejects.toMatchObject({
+      data: 'Unauthenticated',
     })
   })
 })
