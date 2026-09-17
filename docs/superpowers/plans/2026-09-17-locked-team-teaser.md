@@ -1010,9 +1010,10 @@ is a defect of its own. Two edits:
  * THE PAYWALL HOOK LEFT THIS FILE (wordle-teams-iht.2). It used to render a
  * "See the full month →" button whose handler was deliberately never wired —
  * the affordance was this card's to own and the destination was iht's. iht
- * answered with a card instead: team-locked-card.tsx now sits directly beneath
- * this one and shows the full month, locked. Two calls to action in one region
- * is why the link went rather than gained a handler.
+ * answered with a card instead: team-locked-card.tsx now renders beneath this
+ * one on the free branch and shows the paid panel's shape for the month,
+ * redacted. Two calls to action in one region is why the link went rather than
+ * gained a handler.
 ```
 
 - [ ] **Step 4: Run it**
