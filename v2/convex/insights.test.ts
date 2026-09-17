@@ -277,16 +277,46 @@ describe('teamMonth — a trial', () => {
 })
 
 describe('teamMonth — why there is no rank', () => {
-  test('a solo team is solo, decided from the ROSTER not the aggregate', async () => {
-    // THE AGGREGATE CAN LAG THE ROSTER. teamMonthStats.members is written at
-    // rollup time, so a member who joined since the last rollup is missing from
-    // it — and "how many people are on this team" is a question about the team,
-    // not about who has played. Decided from team.playerIds for that reason.
+  test('a solo team is solo, even with no teamMonthStats row at all', async () => {
+    // This fixture has no aggregate, so it cannot tell a ROSTER-derived `solo`
+    // apart from an aggregate-derived one — both would agree here. The test
+    // that actually forces the choice, because the aggregate disagrees with
+    // the roster, is the one right below.
     const t = convexTest(schema, modules)
     registerBetterAuth(t)
     const teamId = await t.run(async (ctx) => {
       const me = await ctx.db.insert('players', aPlayer({ email: ME }))
       return await ctx.db.insert('teams', aTeam({ playerIds: [me], owner: me }))
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month, today })
+
+    expect(res?.rank).toEqual({ kind: 'solo' })
+  })
+
+  test('a solo team who HAS played is still solo, not nobody-else', async () => {
+    // THE CASE THE PRECEDENCE EXISTS FOR (rationale on `rank` in
+    // convex/insights.ts). Fed this exact aggregate directly, teamRank would
+    // answer `nobody-else` — one player, nobody to compare against. teamMonth
+    // checks `roster.length < 2` FIRST and never reaches teamRank, because
+    // "is this a team of one" is a question about the team, not about who
+    // played — and it is the most common shape in the product
+    // (lib/insights-team.ts's header), not an edge case to get wrong.
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const teamId = await t.run(async (ctx) => {
+      const me = await ctx.db.insert('players', aPlayer({ email: ME }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [me], owner: me }))
+      await ctx.db.insert('teamMonthStats', {
+        teamId,
+        year: Number(month.slice(0, 4)),
+        month: Number(month.slice(5, 7)),
+        members: [{ playerId: me, boards: 3, attempts: 11, solved: 3, failed: 0 }],
+        days: [],
+        computedAt: Date.now(),
+      })
+      return teamId
     })
 
     const asMe = await authenticatedAs(t, ME)
@@ -318,5 +348,41 @@ describe('teamMonth — why there is no rank', () => {
 
     expect(res?.teaser).toBeNull()
     expect(res?.rank).toEqual({ kind: 'not-played' })
+  })
+
+  test('nobody-else, when the aggregate exists but only the viewer has boards', async () => {
+    // Cheap from `seed`'s shape: the same two-player team, but the mate's
+    // totals zeroed, so teamRank sees exactly one player who has played.
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const teamId = await t.run(async (ctx) => {
+      const me = await ctx.db.insert('players', aPlayer({ email: ME }))
+      const mate = await ctx.db.insert(
+        'players',
+        aPlayer({
+          legacyId: '55555555-5555-4555-8555-555555555555',
+          email: MATE,
+          firstName: 'Grace',
+        }),
+      )
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [me, mate], owner: me }))
+      await ctx.db.insert('teamMonthStats', {
+        teamId,
+        year: Number(month.slice(0, 4)),
+        month: Number(month.slice(5, 7)),
+        members: [
+          { playerId: me, boards: 3, attempts: 11, solved: 3, failed: 0 },
+          { playerId: mate, boards: 0, attempts: 0, solved: 0, failed: 0 },
+        ],
+        days: [],
+        computedAt: Date.now(),
+      })
+      return teamId
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month, today })
+
+    expect(res?.rank).toEqual({ kind: 'nobody-else' })
   })
 })

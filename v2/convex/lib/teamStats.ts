@@ -277,11 +277,16 @@ export type TeamRankTeaser =
  *     an achievement is the kind of thing a reader notices and stops trusting.
  *     lib/insights-team.ts's header makes the point that a solo team is the most
  *     common shape in this product, so this is the ordinary case, not an edge.
+ *
+ * NEVER RETURNS `solo` — this function only ever sees the aggregate, and a team
+ * of one is a fact about the ROSTER (see teamMonth). Excluding it from the
+ * return type means a future exhaustive `switch` on the result here has no dead
+ * branch to (not) handle.
  */
 export function teamRank<PlayerId extends string>(
   members: MemberTotals<PlayerId>[],
   viewerId: PlayerId,
-): TeamRankTeaser {
+): Exclude<TeamRankTeaser, { kind: 'solo' }> {
   const played = members
     .map((member) => ({ playerId: member.playerId, mean: meanAttemptsOf(member) }))
     .filter((member): member is { playerId: PlayerId; mean: number } => member.mean !== null)

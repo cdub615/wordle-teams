@@ -2,7 +2,7 @@ import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { currentPlayer, insightsAccessFor, requireTeamMemberFor } from './access'
 import { attemptsFor } from './lib/board.ts'
-import { teamRank } from './lib/teamStats.ts'
+import { teamRank, type TeamRankTeaser } from './lib/teamStats.ts'
 import { visibleSlice } from './lib/globalThreshold.ts'
 import { hasFullTeamMonth, type InsightsAccess } from './lib/insightsAccess.ts'
 import { isPlausibleToday, toPuzzleDay, type PuzzleDay } from './lib/puzzleDay.ts'
@@ -234,6 +234,38 @@ export const teamMonth = query({
       const serverToday = toPuzzleDay(new Date())
       const day = isPlausibleToday(today as PuzzleDay, serverToday) ? today : serverToday
 
+      /*
+        THE ONE REAL FIGURE THE FREE TIER GAINS (wordle-teams-iht.3.3), now
+        carrying its own reason when there is no figure (wordle-teams-iht.2).
+
+        A SIBLING OF `teaser`, NOT A FIELD INSIDE IT, so `teaser` stays exactly
+        the reduced STATS that dailyTeamFact consumes and keeps satisfying
+        TeamMonthTeaser. A rank is a conclusion, not an aggregate.
+
+        COMPUTED HERE BECAUSE IT CANNOT BE COMPUTED THERE. Ranking needs every
+        member's totals, which is precisely what the branch above stops
+        sending — so a client-side rank would undo the gate it sits beside.
+
+        `solo` IS DECIDED FROM `roster` (ABOVE), NOT THE AGGREGATE, and the two
+        can disagree: teamMonthStats.members is written at rollup time, so a
+        teammate who joined since the last rollup is absent from it, while
+        `roster` reflects team.playerIds right now (trimmed only of an id whose
+        player document is gone). "Is this a team of one" is a question about
+        the team, not about who has played — and it is checked BEFORE the
+        aggregate for exactly that reason: a lone player who HAS played this
+        month still reads `solo`, not `nobody-else` (see the response test
+        that pins this in insights.test.ts).
+
+        A MISSING AGGREGATE IS `not-played` rather than `nobody-else`. Nobody
+        has played the month, the viewer included, so the ask is on them.
+      */
+      const rank: TeamRankTeaser =
+        roster.length < 2
+          ? { kind: 'solo' }
+          : stats
+            ? teamRank(stats.members, player._id)
+            : { kind: 'not-played' }
+
       return {
         access,
         viewerId: player._id,
@@ -248,32 +280,7 @@ export const teamMonth = query({
               days: stats.days.filter((entry) => entry.puzzleDay === day),
             }
           : null,
-        /*
-          THE ONE REAL FIGURE THE FREE TIER GAINS (wordle-teams-iht.3.3), now
-          carrying its own reason when there is no figure (wordle-teams-iht.2).
-
-          A SIBLING OF `teaser`, NOT A FIELD INSIDE IT, so `teaser` stays exactly
-          the reduced STATS that dailyTeamFact consumes and keeps satisfying
-          TeamMonthTeaser. A rank is a conclusion, not an aggregate.
-
-          COMPUTED HERE BECAUSE IT CANNOT BE COMPUTED THERE. Ranking needs every
-          member's totals, which is precisely what the branch above stops
-          sending — so a client-side rank would undo the gate it sits beside.
-
-          `solo` IS DECIDED FROM THE ROSTER, NOT THE AGGREGATE, and the two can
-          disagree: teamMonthStats.members is written at rollup time, so a
-          teammate who joined since the last rollup is absent from it. "Is this
-          a team of one" is a question about the team.
-
-          A MISSING AGGREGATE IS `not-played` rather than `nobody-else`. Nobody
-          has played the month, the viewer included, so the ask is on them.
-        */
-        rank:
-          roster.length < 2
-            ? ({ kind: 'solo' } as const)
-            : stats
-              ? teamRank(stats.members, player._id)
-              : ({ kind: 'not-played' } as const),
+        rank,
       }
     }
 
