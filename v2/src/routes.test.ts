@@ -126,6 +126,45 @@ describe('/insights keeps the reader where they were', () => {
   })
 })
 
+/**
+ * THE LOCKED CARD'S INVITE CTA OPENS THE INVITE DIALOG ON /insights, AND DOES
+ * NOT NAVIGATE TO /team.
+ *
+ * The same defect and the same fix as the "onboarding invite task" block
+ * above, on a second call site: a locked card's whole job is showing a solo
+ * player what a team would give them, so sending them to /team to act on it
+ * takes them off the screen they were converting on, and `navigate({ to:
+ * '/team', search: { team: teamParam } })` type-checks, lints, builds and
+ * passes every unit test either way. See that block for why a `toMatch` over
+ * the file cannot do this job — it is the PROP that has to be pinned: neither
+ * "this string is in the file" nor its absence can tell a correctly-wired
+ * `onInvite` from one that merely stopped mentioning `/team`.
+ *
+ * BOTH ENDS, FOR THE SAME REASON: a prop reading `() => setInviteOpen(true)`
+ * with no dialog mounted anywhere is a button that does nothing at all, and
+ * that is a worse outcome than the navigation it replaced.
+ */
+describe('the locked card opens the invite dialog in place', () => {
+  test("TeamSection's onInvite opens the dialog rather than leaving the page", () => {
+    expect(jsxProps(INSIGHTS, 'TeamSection').get('onInvite')).toBe('() => setInviteOpen(true)')
+  })
+
+  test('and /insights actually mounts an InvitePlayerDialog for it to open', () => {
+    // `jsxElements` rather than a text match: a bare import left behind by a
+    // deleted element keeps the identifier in the file.
+    const dialogs = jsxElements(INSIGHTS, 'InvitePlayerDialog')
+    expect(dialogs, 'routes/insights.tsx mounts no InvitePlayerDialog').toHaveLength(1)
+    const props = dialogs[0]
+    expect(props.get('open')).toBe('inviteOpen')
+    expect(props.get('onOpenChange')).toBe('setInviteOpen')
+    // The team it is addressed to, named rather than defaulted — same reason
+    // as routes/app.tsx's own mount: a `?? ''` here would render a dialog
+    // titled "Invite Player to " for a team that is not on the payload.
+    expect(props.get('teamName')).toBe('selectedTeam.name')
+    expect(props.get('teamId')).toBe('selectedTeam.id')
+  })
+})
+
 describe('/me, the route v1 PWA installs open on', () => {
   // Read inside each test rather than at describe scope, so a deleted file is
   // a named assertion failure instead of a bare ENOENT during collection.

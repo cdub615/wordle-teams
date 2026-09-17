@@ -22,6 +22,7 @@ import { TeamSection } from '#/components/insights/team-section.tsx'
 import { TrendPanel } from '#/components/insights/trend-panel.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
+import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
 import { monthOf } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
@@ -115,6 +116,17 @@ function InsightsRoute() {
   const { team: teamParam, month: monthParam } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const { startUpgrade } = useStartUpgrade()
+  /**
+   * The locked card's invite CTA, which opens a dialog IN PLACE rather than
+   * navigating to /team — routes.test.ts's "onboarding invite task" block
+   * states why for the shape this is a copy of: leaving the screen a player is
+   * converting on is a regression `navigate()` type-checks and builds clean.
+   *
+   * A THIRD MOUNT OF InvitePlayerDialog, NOT A MOVE — current-team-card.tsx and
+   * routes/app.tsx keep theirs. Safe for the same reason app.tsx's is: each
+   * mount lives on its own route and none of the three can render together.
+   */
+  const [inviteOpen, setInviteOpen] = useState(false)
   const { data, isPending } = useQuery(convexQuery(api.insights.myBenchmarkBoards, {}))
   const { benchmark, failed } = useBenchmark()
 
@@ -303,11 +315,25 @@ function InsightsRoute() {
                   })
                 }
                 onUpgrade={() => void startUpgrade()}
-                onInvite={() =>
-                  void navigate({ to: '/team', search: { team: teamParam } })
-                }
+                onInvite={() => setInviteOpen(true)}
               />
             }
+          />
+        )}
+        {/*
+          selectedTeam GUARDS THE MOUNT RATHER THAN A `!`, and it is a type
+          obligation rather than a live case: the locked card's invite button
+          only exists on the free branch of a member's own team, so by the time
+          it can be pressed `selectedTeam` has already resolved. See
+          routes/app.tsx:768's own InvitePlayerDialog mount for the same guard
+          on the same type, for a different trigger.
+        */}
+        {selectedTeam && (
+          <InvitePlayerDialog
+            open={inviteOpen}
+            onOpenChange={setInviteOpen}
+            teamId={selectedTeam.id}
+            teamName={selectedTeam.name}
           />
         )}
       </div>
