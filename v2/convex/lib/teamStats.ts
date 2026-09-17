@@ -227,6 +227,28 @@ export function meanAttemptsOf(member: { boards: number; attempts: number }): nu
 }
 
 /**
+ * Why the viewer has a standing, or why they do not.
+ *
+ * A TAG RATHER THAN A NULLABLE PAIR, because the free client cannot work the
+ * reason out for itself any more (wordle-teams-iht.2). Since iht.3 it holds
+ * identities and today's entry; "have I played this month" and "has anybody
+ * else" are both facts about the per-member totals that the payload gate
+ * deliberately withholds. The server knows, so the server says.
+ *
+ * IT LEAKS NOTHING NEW. Each tag is something the viewer can already establish:
+ * they know whether they have played, the roster is on the dashboard, and
+ * "nobody else has played" is visible in the scores table.
+ *
+ * `solo` IS NOT DECIDED HERE — see teamMonth. It is a fact about the ROSTER,
+ * and this function only sees the aggregate, which can lag a roster change.
+ */
+export type TeamRankTeaser =
+  | { kind: 'ranked'; rank: number; of: number }
+  | { kind: 'not-played' }
+  | { kind: 'nobody-else' }
+  | { kind: 'solo' }
+
+/**
  * Where the viewer stands among the teammates who have actually played.
  *
  * THE ONE REAL FIGURE THE FREE TIER GETS (wordle-teams-iht.3.3). It is the hook
@@ -246,7 +268,7 @@ export function meanAttemptsOf(member: { boards: number; attempts: number }): nu
  * the number a careless implementation reaches for first. Members with no boards
  * cannot be placed and are not counted.
  *
- * NULL RATHER THAN A FLATTERING ANSWER, in the two cases where there is no
+ * A TAG RATHER THAN A FLATTERING ANSWER, in the two cases where there is no
  * position to report:
  *   - THE VIEWER HAS NOT PLAYED. They cannot be ranked. Absent, never last —
  *     "last of 5" for someone who simply has not started is the opposite of a
@@ -259,16 +281,19 @@ export function meanAttemptsOf(member: { boards: number; attempts: number }): nu
 export function teamRank<PlayerId extends string>(
   members: MemberTotals<PlayerId>[],
   viewerId: PlayerId,
-): { rank: number; of: number } | null {
+): TeamRankTeaser {
   const played = members
     .map((member) => ({ playerId: member.playerId, mean: meanAttemptsOf(member) }))
     .filter((member): member is { playerId: PlayerId; mean: number } => member.mean !== null)
 
   const mine = played.find((member) => member.playerId === viewerId)
-  if (!mine) return null
-  if (played.length < 2) return null
+  // THE ASK IS ON THEM. Also covers a viewer absent from the aggregate entirely,
+  // which is the same thing from the reader's side: no boards this month.
+  if (!mine) return { kind: 'not-played' }
+  // THEY TURNED UP AND NOBODY ELSE DID. Not their fault, and the copy says so.
+  if (played.length < 2) return { kind: 'nobody-else' }
 
   // Competition ranking: one plus however many are strictly better.
   const ahead = played.filter((member) => member.mean < mine.mean).length
-  return { rank: ahead + 1, of: played.length }
+  return { kind: 'ranked', rank: ahead + 1, of: played.length }
 }

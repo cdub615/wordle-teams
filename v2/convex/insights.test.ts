@@ -172,10 +172,10 @@ describe('teamMonth — the free tier', () => {
     const asMe = await authenticatedAs(t, ME)
     const res = await asMe.query(api.insights.teamMonth, { teamId, month, today })
 
-    expect(res?.rank).toEqual({ rank: 1, of: 2 })
+    expect(res?.rank).toEqual({ kind: 'ranked', rank: 1, of: 2 })
     // And it is a CONCLUSION, not an aggregate: nothing in it can be run
     // backwards into the averages it came from.
-    expect(Object.keys(res?.rank ?? {}).sort()).toEqual(['of', 'rank'])
+    expect(Object.keys(res?.rank ?? {}).sort()).toEqual(['kind', 'of', 'rank'])
   })
 
   test('cannot walk the month a day at a time by lying about today', async () => {
@@ -273,5 +273,50 @@ describe('teamMonth — a trial', () => {
     expect(res?.access.trialExpired).toBe(true)
     expect(res?.stats).toBeNull()
     expect(res?.teaser?.days).toHaveLength(1)
+  })
+})
+
+describe('teamMonth — why there is no rank', () => {
+  test('a solo team is solo, decided from the ROSTER not the aggregate', async () => {
+    // THE AGGREGATE CAN LAG THE ROSTER. teamMonthStats.members is written at
+    // rollup time, so a member who joined since the last rollup is missing from
+    // it — and "how many people are on this team" is a question about the team,
+    // not about who has played. Decided from team.playerIds for that reason.
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const teamId = await t.run(async (ctx) => {
+      const me = await ctx.db.insert('players', aPlayer({ email: ME }))
+      return await ctx.db.insert('teams', aTeam({ playerIds: [me], owner: me }))
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month, today })
+
+    expect(res?.rank).toEqual({ kind: 'solo' })
+  })
+
+  test('a month nobody has played at all is not-played, not nobody-else', async () => {
+    // No teamMonthStats document exists for the month. The viewer has no boards
+    // in it either, so the ask is genuinely on them.
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const teamId = await t.run(async (ctx) => {
+      const me = await ctx.db.insert('players', aPlayer({ email: ME }))
+      const mate = await ctx.db.insert(
+        'players',
+        aPlayer({
+          legacyId: '44444444-4444-4444-8444-444444444444',
+          email: MATE,
+          firstName: 'Grace',
+        }),
+      )
+      return await ctx.db.insert('teams', aTeam({ playerIds: [me, mate], owner: me }))
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month, today })
+
+    expect(res?.teaser).toBeNull()
+    expect(res?.rank).toEqual({ kind: 'not-played' })
   })
 })

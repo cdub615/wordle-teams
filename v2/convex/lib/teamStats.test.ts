@@ -189,7 +189,7 @@ describe('teamRank', () => {
       'me',
     )
     // 3.5 against 3.0 and 4.0: one ahead, three ranked.
-    expect(rank).toEqual({ rank: 2, of: 3 })
+    expect(rank).toEqual({ kind: 'ranked', rank: 2, of: 3 })
   })
 
   test('the denominator counts who PLAYED, not the roster', () => {
@@ -199,25 +199,29 @@ describe('teamRank', () => {
       [member('me', 10, 35), member('a', 10, 30), member('idle', 0, 0), member('idle2', 0, 0)],
       'me',
     )
-    expect(rank).toEqual({ rank: 2, of: 2 })
+    expect(rank).toEqual({ kind: 'ranked', rank: 2, of: 2 })
   })
 
   test('a viewer who has not played is absent, never last', () => {
     // "Last of 5" for someone who simply has not started is the opposite of a
     // reason to come back, and this is the free tier's re-engagement hook.
-    expect(teamRank([member('me', 0, 0), member('a', 10, 30)], 'me')).toBeNull()
+    expect(teamRank([member('me', 0, 0), member('a', 10, 30)], 'me')).toEqual({
+      kind: 'not-played',
+    })
   })
 
-  test('a lone player is absent rather than "1st of 1"', () => {
+  test('a lone player is nobody-else, never "1st of 1"', () => {
     // True and worthless. lib/insights-team.ts's header calls a solo team the
     // most common shape in this product, so this is the ordinary case.
-    expect(teamRank([member('me', 10, 35)], 'me')).toBeNull()
+    expect(teamRank([member('me', 10, 35)], 'me')).toEqual({ kind: 'nobody-else' })
     // And the same when the others exist but have not played: nobody to rank against.
-    expect(teamRank([member('me', 10, 35), member('idle', 0, 0)], 'me')).toBeNull()
+    expect(teamRank([member('me', 10, 35), member('idle', 0, 0)], 'me')).toEqual({
+      kind: 'nobody-else',
+    })
   })
 
   test('a viewer who is not on the roster at all gets nothing', () => {
-    expect(teamRank([member('a', 10, 30)], 'me')).toBeNull()
+    expect(teamRank([member('a', 10, 30)], 'me')).toEqual({ kind: 'not-played' })
   })
 
   describe('ties', () => {
@@ -230,14 +234,15 @@ describe('teamRank', () => {
       const best = member('best', 10, 20)
       const me = member('me', 10, 40)
 
-      expect(teamRank([best, tiedA, tiedB, me], 'a')).toEqual({ rank: 2, of: 4 })
-      expect(teamRank([best, tiedA, tiedB, me], 'b')).toEqual({ rank: 2, of: 4 })
+      expect(teamRank([best, tiedA, tiedB, me], 'a')).toEqual({ kind: 'ranked', rank: 2, of: 4 })
+      expect(teamRank([best, tiedA, tiedB, me], 'b')).toEqual({ kind: 'ranked', rank: 2, of: 4 })
       // The tie CONSUMES rank 3: the next player is 4th, not 3rd.
-      expect(teamRank([best, tiedA, tiedB, me], 'me')).toEqual({ rank: 4, of: 4 })
+      expect(teamRank([best, tiedA, tiedB, me], 'me')).toEqual({ kind: 'ranked', rank: 4, of: 4 })
     })
 
     test('everyone level is 1st, not last', () => {
       expect(teamRank([member('me', 10, 30), member('a', 10, 30)], 'me')).toEqual({
+        kind: 'ranked',
         rank: 1,
         of: 2,
       })
@@ -252,7 +257,20 @@ describe('teamRank', () => {
     const rank = teamRank([member('me', 100, 341), member('a', 10, 34)], 'me')
     expect(meanAttemptsOf(member('me', 100, 341))).toBe(3.4)
     expect(meanAttemptsOf(member('a', 10, 34))).toBe(3.4)
-    expect(rank).toEqual({ rank: 1, of: 2 })
+    expect(rank).toEqual({ kind: 'ranked', rank: 1, of: 2 })
+  })
+
+  test('says WHY there is no rank, because the browser cannot work it out', () => {
+    // THE WHOLE REASON THIS RETURNS A TAG. Both of these were `null` before, and
+    // they need opposite sentences: one asks the reader for a board, the other
+    // tells a diligent player their teammates have not shown up. Collapsing them
+    // would blame the wrong person.
+    expect(teamRank([member('me', 0, 0), member('a', 10, 30)], 'me')).toEqual({
+      kind: 'not-played',
+    })
+    expect(teamRank([member('me', 10, 30), member('a', 0, 0)], 'me')).toEqual({
+      kind: 'nobody-else',
+    })
   })
 })
 

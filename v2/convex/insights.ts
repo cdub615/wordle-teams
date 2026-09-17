@@ -249,9 +249,8 @@ export const teamMonth = query({
             }
           : null,
         /*
-          THE ONE REAL FIGURE THE FREE TIER GAINS (wordle-teams-iht.3.3), and the
-          reason this whole change is not merely a takeaway. "You're 3rd of 5
-          this month" is what the locked panel is sold on.
+          THE ONE REAL FIGURE THE FREE TIER GAINS (wordle-teams-iht.3.3), now
+          carrying its own reason when there is no figure (wordle-teams-iht.2).
 
           A SIBLING OF `teaser`, NOT A FIELD INSIDE IT, so `teaser` stays exactly
           the reduced STATS that dailyTeamFact consumes and keeps satisfying
@@ -260,8 +259,21 @@ export const teamMonth = query({
           COMPUTED HERE BECAUSE IT CANNOT BE COMPUTED THERE. Ranking needs every
           member's totals, which is precisely what the branch above stops
           sending — so a client-side rank would undo the gate it sits beside.
+
+          `solo` IS DECIDED FROM THE ROSTER, NOT THE AGGREGATE, and the two can
+          disagree: teamMonthStats.members is written at rollup time, so a
+          teammate who joined since the last rollup is absent from it. "Is this
+          a team of one" is a question about the team.
+
+          A MISSING AGGREGATE IS `not-played` rather than `nobody-else`. Nobody
+          has played the month, the viewer included, so the ask is on them.
         */
-        rank: stats ? teamRank(stats.members, player._id) : null,
+        rank:
+          roster.length < 2
+            ? ({ kind: 'solo' } as const)
+            : stats
+              ? teamRank(stats.members, player._id)
+              : ({ kind: 'not-played' } as const),
       }
     }
 
