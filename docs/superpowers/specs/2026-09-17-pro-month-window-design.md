@@ -181,12 +181,39 @@ also already bypassable today: `getTeamMonthFor` gates on membership alone
 (`convex/scores.ts:37`), and `dashboard-search.ts` — unlike `insights-search.ts` —
 does not clamp `?month=` at all, so any member can reach any month by typing a URL.
 
-**THE CLIENT CLAMPS TOO, SO THE ERROR IS NOT A ROUTINE PATH.**
-`dashboard-search.ts` gains the out-of-window fallback `insights-search.ts` already
-has. A stale bookmark, a shared link, or a `?month=` invalidated by switching to a
-younger team resolves back into the window rather than hitting an error boundary.
-After that the thrown error is reachable only by a direct call from devtools. It
-exists so the tier is real, not so players meet it.
+**THE TWO WAYS TO REACH AN OUT-OF-WINDOW MONTH ARE HANDLED DIFFERENTLY, BECAUSE
+THEY ARE NOT THE SAME EVENT.** An earlier draft of this section said
+`dashboard-search.ts` would clamp `?month=` the way `insights-search.ts` does.
+That is not available here, and the reason is worth recording so nobody tries it
+again: `useSearchSync`'s `resolve` must be a module-level function — a call-site
+closure re-ran the effect on every render, which is the bug wordle-teams-1ubk
+existed to fix (`use-search-sync.ts:47-56`) — so the resolver cannot close over
+per-team data. `resolveInsightsSearch` escapes this only because `createdAt` rides
+along on every entry of the `teams` array it is already handed. `earliestMonth`
+does not, and putting it there would mean computing a window for every team the
+viewer is not looking at, on a query already doing ~60 reads at its stated ceiling
+(`getMyTeamsFor`).
+
+So:
+
+- **Switching to a team whose window does not reach the month on screen** is
+  corrected. `routes/app.tsx` already holds the selected team's window for the
+  dropdown; when `?month=` is not in it, the route navigates to `window[0]` with
+  `replace: true, resetScroll: false`, matching `useSearchSync`'s own correction.
+  The player did nothing wrong here and must not meet an error.
+- **A URL naming a month the viewer cannot see** — a bookmark kept across a
+  downgrade, a link shared by a Pro teammate — reaches the typed error, and the
+  dashboard's existing error boundary explains it. That is the better outcome:
+  silently bouncing them to the current month tells them nothing, while the error
+  says why the month they asked for stopped working. It is also the natural place
+  for wordle-teams-iht.1's interstitial to be offered.
+
+**THE CORRECTIVE NAVIGATION IS THE HIGHEST-RISK CODE IN THIS SPEC** and must be
+treated as such: it navigates from an effect, which is the shape an infinite
+redirect takes. It terminates only because `window[0]` is always `currentMonth`
+(§3) and `currentMonth` is always a member of the window it is judged against — the
+same property `resolveInsightsSearch` depends on by name. It gets the idempotence
+test both resolvers already have: feed it its own output and it must do nothing.
 
 **THE GATE MUST COVER EVERY PATH THAT SERVES A MONTH, OR IT IS NOT A GATE.**
 `convex/winners.ts` reads month-scoped data and is audited as a task of this work,
@@ -353,8 +380,10 @@ this is called done.
    team has no boards earlier than the free window.
 3. `getTeamMonth` refuses an out-of-window month with a typed error, provably, in a
    convex-test that fails when the guard is deleted.
-4. `dashboard-search.ts` resolves an out-of-window `?month=` back into the window,
-   so the error is not reachable from the URL bar.
+4. Switching to a team whose window does not reach the month on screen corrects
+   `?month=` rather than erroring, and that correction is proven idempotent by a
+   test — fed its own output, it does nothing. A URL naming an unreachable month
+   reaches the typed error and the error boundary explains it.
 5. The window rule exists exactly once, in an import-free file imported by both the
    browser and the server. `monthOptions`' three-month literal does not survive
    anywhere as a second copy.
