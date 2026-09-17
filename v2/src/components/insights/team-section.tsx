@@ -283,8 +283,13 @@ export function TeamSection({
           `data.rank` IS NON-NULL ON THIS BRANCH by construction: teamMonth
           returns the tag for exactly the tier this branch serves, and `null`
           only for pro and trial. The fallback keeps the types honest without
-          inventing a state — a viewer who somehow arrives here without one is
-          told the truth, that there is nothing to rank yet.
+          inventing a state — but it is NOT a true statement about a viewer who
+          actually reaches it. The realistic way in is query skew: `layer3`
+          comes from myBenchmarkBoards and `rank` from teamMonth, two reads
+          that resolve independently across an upgrade or a trial expiring, and
+          in that window the viewer can already HAVE a rank this particular
+          read did not carry. 'not-played' is the least-wrong copy available
+          for that window, not the truth.
         */}
         <TeamLockedCard
           teamName={team.name}

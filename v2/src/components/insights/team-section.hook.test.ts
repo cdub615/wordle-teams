@@ -275,22 +275,35 @@ const section = (options: {
   const team = 'team' in options ? options.team : teams[0]
   renderedTier = layer3
   asked.length = 0
-  return render(
-    createElement(TeamSection, {
-      layer3,
-      // THE ROSTER IS NOW THE ONLY SPELLING OF "ON A TEAM" (wordle-teams-kkhj).
-      // This helper used to pass `onATeam: true` alongside a `teams` it varied
-      // from 1 to 2 — the two were independent, and a non-empty roster with
-      // `onATeam: false` was constructible here and is not any more.
-      teams: teams.slice(0, teamCount),
-      team,
-      month,
-      onTeamChange: () => undefined,
-      onMonthChange: () => undefined,
-      onUpgrade: vi.fn(),
-      onInvite: vi.fn(),
-    }),
-  )
+  // NAMED HERE AND RETURNED, RATHER THAN BUILT INLINE AND DISCARDED. Every
+  // caller before the locked card only needed the render, so the mocks used to
+  // die at the end of this function — which meant nothing anywhere asserted
+  // that TeamSection hands ITS `onUpgrade` to the card's `onUpgrade` (and not
+  // to `onInvite`, or to a callback that swapped the two). `onUpgrade={onInvite}`
+  // / `onInvite={onUpgrade}` in the component type-checked and passed every
+  // test in this file until the callers below started reading these back.
+  const onUpgrade = vi.fn()
+  const onInvite = vi.fn()
+  return {
+    ...render(
+      createElement(TeamSection, {
+        layer3,
+        // THE ROSTER IS NOW THE ONLY SPELLING OF "ON A TEAM" (wordle-teams-kkhj).
+        // This helper used to pass `onATeam: true` alongside a `teams` it varied
+        // from 1 to 2 — the two were independent, and a non-empty roster with
+        // `onATeam: false` was constructible here and is not any more.
+        teams: teams.slice(0, teamCount),
+        team,
+        month,
+        onTeamChange: () => undefined,
+        onMonthChange: () => undefined,
+        onUpgrade,
+        onInvite,
+      }),
+    ),
+    onUpgrade,
+    onInvite,
+  }
 }
 
 describe('the pro branch — the full team card', () => {
@@ -333,19 +346,47 @@ describe('the free branch — the daily fact', () => {
 })
 
 describe('the locked card', () => {
-  test('renders for a free viewer, beneath the daily fact', () => {
+  test('renders for a free viewer, beneath the daily fact — a sibling, not a merge', () => {
     section({ layer3: 'free', teamCount: 2 })
     const fact = screen.getByTestId('insights-daily-fact')
     const locked = screen.getByTestId('insights-team-locked')
     // Node.compareDocumentPosition: 4 means `locked` FOLLOWS `fact`. The order is
     // the design — what you have above, what you do not have below.
     expect(fact.compareDocumentPosition(locked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // THE MASK ABOVE ALONE CANNOT SEE team-section.tsx's OWN RULE: "BENEATH THE
+    // FACT, NEVER MERGED INTO IT". Moving `locked` INSIDE `fact`'s `<Card>`
+    // sets DOCUMENT_POSITION_CONTAINED_BY (16) alongside FOLLOWING (4), and
+    // `20 & 4` is still truthy — a merge would pass the assertion above. This
+    // is the one line that actually forbids it.
+    expect(fact.contains(locked)).toBe(false)
   })
 
   test('and NEVER for pro, who already has the real panel', () => {
     section({ layer3: 'full', teamCount: 2 })
     expect(screen.queryByTestId('insights-team-locked')).toBeNull()
     expect(screen.queryByTestId('insights-team')).not.toBeNull()
+  })
+
+  test('its CTA reaches the prop it was actually given, and rank reaches the card', () => {
+    // THE ONE LINK NOTHING ELSE ON THIS PAGE COVERS. The card's own dispatch
+    // (solo picks `onInvite`, never `onUpgrade`) is pinned in
+    // team-locked-card.hook.test.ts, and the route's `onInvite` is pinned in
+    // routes.test.ts — but nothing before this test rendered TeamSection with
+    // callbacks it could tell apart, so `onUpgrade={onInvite}` and
+    // `onInvite={onUpgrade}` in the component's JSX type-checked and passed
+    // every test here. The free fixture's roster holds one member, so `rank`
+    // is `solo` and the CTA is Invite (team-locked-card.tsx's `revealedBy`).
+    const { onInvite, onUpgrade } = section({ layer3: 'free', teamCount: 2 })
+    fireEvent.click(screen.getByTestId('insights-locked-cta'))
+    expect(onInvite).toHaveBeenCalledOnce()
+    expect(onUpgrade).not.toHaveBeenCalled()
+    // AND THIS IS WHAT PINS `rank` ACTUALLY REACHING THE CARD, rather than the
+    // `?? { kind: 'not-played' }` fallback rendering regardless of `data.rank`:
+    // 'not-played' reads "See where you rank this month", so a hardcoded
+    // fallback would still turn this test green on the CTA alone.
+    expect(screen.getByTestId('insights-locked-headline').textContent).toBe(
+      'Team insights need a team',
+    )
   })
 })
 

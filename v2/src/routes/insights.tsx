@@ -23,6 +23,7 @@ import { TrendPanel } from '#/components/insights/trend-panel.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
 import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
+import { hasFullTeamMonth } from '../../convex/lib/insightsAccess.ts'
 import { monthOf } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
@@ -125,6 +126,14 @@ function InsightsRoute() {
    * A THIRD MOUNT OF InvitePlayerDialog, NOT A MOVE — current-team-card.tsx and
    * routes/app.tsx keep theirs. Safe for the same reason app.tsx's is: each
    * mount lives on its own route and none of the three can render together.
+   *
+   * NOT RESET WHEN `?team=` CHANGES — the same shape app.tsx's own `inviteOpen`
+   * has, and this does not change that. But /insights adds a path app.tsx does
+   * not have: the team dropdown lives in the SAME CARD that opens this dialog,
+   * so retargeting it while the dialog is open either unmounts the dialog
+   * mid-invite (selectedTeam becomes momentarily undefined) or leaves it open
+   * and addressed to a team the reader no longer has selected. A real gap,
+   * left open here exactly as it is on /app.
    */
   const [inviteOpen, setInviteOpen] = useState(false)
   const { data, isPending } = useQuery(convexQuery(api.insights.myBenchmarkBoards, {}))
@@ -239,102 +248,123 @@ function InsightsRoute() {
             Enter a board and we will show you how it compares.
           </p>
         ) : (
-          <InsightsPanel
-            benchmark={benchmark!}
-            data={data}
-            teams={teams}
-            /*
-              LAYER 3 IS BUILT HERE AND HANDED OVER AS A NODE, because
-              everything it needs is settled here: the selected team, the
-              month, and `navigate`. InsightsPanel decides only WHERE it goes
-              — see its `teamSection` prop, and wordle-teams-kkhj for why four
-              props stopped being drilled through it.
-            */
-            teamSection={
-              <TeamSection
-                layer3={data.access.layer3}
-                teams={teams}
-                team={selectedTeam}
-                month={monthParam}
-                /*
-                  THE NAVIGATION LIVES HERE, WHERE `navigate` DOES, AND IS
-                  HANDED DOWN AS A CALLBACK — the same shape routes/app.tsx
-                  uses for TeamPicker and MonthPicker, and for a second reason
-                  on top of consistency: a control that called `useNavigate()`
-                  for itself could not be rendered in a jsdom component test
-                  without a router around it, and every component test in this
-                  project renders the component bare.
+          <>
+            <InsightsPanel
+              benchmark={benchmark!}
+              data={data}
+              teams={teams}
+              /*
+                LAYER 3 IS BUILT HERE AND HANDED OVER AS A NODE, because
+                everything it needs is settled here: the selected team, the
+                month, and `navigate`. InsightsPanel decides only WHERE it goes
+                — see its `teamSection` prop, and wordle-teams-kkhj for why four
+                props stopped being drilled through it.
+              */
+              teamSection={
+                <TeamSection
+                  layer3={data.access.layer3}
+                  teams={teams}
+                  team={selectedTeam}
+                  month={monthParam}
+                  /*
+                    THE NAVIGATION LIVES HERE, WHERE `navigate` DOES, AND IS
+                    HANDED DOWN AS A CALLBACK — the same shape routes/app.tsx
+                    uses for TeamPicker and MonthPicker, and for a second reason
+                    on top of consistency: a control that called `useNavigate()`
+                    for itself could not be rendered in a jsdom component test
+                    without a router around it, and every component test in this
+                    project renders the component bare.
 
-                  A TEAM CHANGE KEEPS THE CURRENT MONTH, which is what the
-                  dashboard's own picker does. It can name a month the NEW
-                  team's window does not reach (a younger team, or one created
-                  after that month); nothing here has to guard for it, because
-                  the effect above re-runs on the new `?team=` and
-                  resolveInsightsSearch judges `?month=` against the SELECTED
-                  team's window — see its own comment on why the window is the
-                  selected team's and not the requested one's.
+                    A TEAM CHANGE KEEPS THE CURRENT MONTH, which is what the
+                    dashboard's own picker does. It can name a month the NEW
+                    team's window does not reach (a younger team, or one created
+                    after that month); nothing here has to guard for it, because
+                    the effect above re-runs on the new `?team=` and
+                    resolveInsightsSearch judges `?month=` against the SELECTED
+                    team's window — see its own comment on why the window is the
+                    selected team's and not the requested one's.
 
-                  NO `replace`, UNLIKE THE CORRECTING EFFECT ABOVE. Picking a
-                  team or a month is somewhere the reader chose to go, so Back
-                  should return them to where they were; the effect's
-                  navigations are corrections nobody asked for and would be a
-                  Back trap.
+                    NO `replace`, UNLIKE THE CORRECTING EFFECT ABOVE. Picking a
+                    team or a month is somewhere the reader chose to go, so Back
+                    should return them to where they were; the effect's
+                    navigations are corrections nobody asked for and would be a
+                    Back trap.
 
-                  `resetScroll: false` ON BOTH, AND THIS IS THE EXACT OPPOSITE
-                  OF WHAT routes/app.tsx DOES WITH ITS OWN PICKERS
-                  (wordle-teams-wty4.1.16). That is deliberate on both sides,
-                  not a drift between two pages, and the reason is simply WHERE
-                  THE CONTROL SITS. app.tsx's comment says its TeamPicker and
-                  MonthPicker "sit at the top of the grid and can only be
-                  operated from there, so resetting scroll costs nothing" —
-                  true there, and false here. InsightsPanel renders personal,
-                  then openers, THEN this section, then the day list: insights-
-                  daily was measured at 1233px from the top of the document
-                  (wordle-teams-m08r), so these controls are well below a 720px
-                  fold. A reader operating them has scrolled to reach them, and
-                  the router's `scrollRestoration: true` was throwing them back
-                  to the top of a page they had just scrolled down.
+                    `resetScroll: false` ON BOTH, AND THIS IS THE EXACT OPPOSITE
+                    OF WHAT routes/app.tsx DOES WITH ITS OWN PICKERS
+                    (wordle-teams-wty4.1.16). That is deliberate on both sides,
+                    not a drift between two pages, and the reason is simply WHERE
+                    THE CONTROL SITS. app.tsx's comment says its TeamPicker and
+                    MonthPicker "sit at the top of the grid and can only be
+                    operated from there, so resetting scroll costs nothing" —
+                    true there, and false here. InsightsPanel renders personal,
+                    then openers, THEN this section, then the day list: insights-
+                    daily was measured at 1233px from the top of the document
+                    (wordle-teams-m08r), so these controls are well below a 720px
+                    fold. A reader operating them has scrolled to reach them, and
+                    the router's `scrollRestoration: true` was throwing them back
+                    to the top of a page they had just scrolled down.
 
-                  THE CORRECTING EFFECT CARRIES THE SAME FLAG, and it has to:
-                  changing to a younger team can invalidate `?month=` and fire a
-                  SECOND navigation out of use-search-sync.ts, which would undo
-                  this one. See that hook for why the flag is right for /app too.
-                */
-                onTeamChange={(team) =>
-                  void navigate({
-                    to: Route.fullPath,
-                    search: { team, month: monthParam },
-                    resetScroll: false,
-                  })
-                }
-                onMonthChange={(month) =>
-                  void navigate({
-                    to: Route.fullPath,
-                    search: { team: teamParam, month },
-                    resetScroll: false,
-                  })
-                }
-                onUpgrade={() => void startUpgrade()}
-                onInvite={() => setInviteOpen(true)}
+                    THE CORRECTING EFFECT CARRIES THE SAME FLAG, and it has to:
+                    changing to a younger team can invalidate `?month=` and fire a
+                    SECOND navigation out of use-search-sync.ts, which would undo
+                    this one. See that hook for why the flag is right for /app too.
+                  */
+                  onTeamChange={(team) =>
+                    void navigate({
+                      to: Route.fullPath,
+                      search: { team, month: monthParam },
+                      resetScroll: false,
+                    })
+                  }
+                  onMonthChange={(month) =>
+                    void navigate({
+                      to: Route.fullPath,
+                      search: { team: teamParam, month },
+                      resetScroll: false,
+                    })
+                  }
+                  onUpgrade={() => void startUpgrade()}
+                  onInvite={() => setInviteOpen(true)}
+                />
+              }
+            />
+            {/*
+              selectedTeam GUARDS THE MOUNT RATHER THAN A `!`, and it is a type
+              obligation rather than a live case: the locked card's invite
+              button only exists on the free branch of a member's own team, so
+              by the time it can be pressed `selectedTeam` has already
+              resolved. See app.tsx's own `{selectedTeam && <InvitePlayerDialog>}`
+              mount at :768 for the same guard on the same type, for a
+              different trigger.
+
+              `!hasFullTeamMonth(data.access.layer3)` NARROWS FURTHER, for the
+              same reason current-team-card.tsx:326 gates its own mount on
+              `isOwner`: InvitePlayerDialog calls useVisualViewport
+              unconditionally (invite-player-dialog.tsx:66), and that hook's
+              effect attaches `resize` and `scroll` listeners on MOUNT, not on
+              open — so mounting it for a pro or trial viewer, who never sees
+              the locked card at all, would pay that cost for a dialog that can
+              never open.
+
+              THIS DOES NOT NARROW ALL THE WAY TO "CAN ACTUALLY OPEN IT". A free
+              member of a team with more than one player is still inside this
+              branch — the CTA that reaches them is Upgrade, not Invite — and
+              gets the dialog mounted anyway. Narrowing that far means reading
+              the roster here too, which duplicates the one query TeamSection
+              already owns (this route's own note on that query, above) to
+              save listeners on a dialog most viewers will never render this
+              card next to in the first place — not the right trade for it.
+            */}
+            {selectedTeam && !hasFullTeamMonth(data.access.layer3) && (
+              <InvitePlayerDialog
+                open={inviteOpen}
+                onOpenChange={setInviteOpen}
+                teamId={selectedTeam.id}
+                teamName={selectedTeam.name}
               />
-            }
-          />
-        )}
-        {/*
-          selectedTeam GUARDS THE MOUNT RATHER THAN A `!`, and it is a type
-          obligation rather than a live case: the locked card's invite button
-          only exists on the free branch of a member's own team, so by the time
-          it can be pressed `selectedTeam` has already resolved. See
-          routes/app.tsx:768's own InvitePlayerDialog mount for the same guard
-          on the same type, for a different trigger.
-        */}
-        {selectedTeam && (
-          <InvitePlayerDialog
-            open={inviteOpen}
-            onOpenChange={setInviteOpen}
-            teamId={selectedTeam.id}
-            teamName={selectedTeam.name}
-          />
+            )}
+          </>
         )}
       </div>
     </main>

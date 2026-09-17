@@ -131,14 +131,14 @@ describe('/insights keeps the reader where they were', () => {
  * NOT NAVIGATE TO /team.
  *
  * The same defect and the same fix as the "onboarding invite task" block
- * above, on a second call site: a locked card's whole job is showing a solo
+ * below, on a second call site: a locked card's whole job is showing a solo
  * player what a team would give them, so sending them to /team to act on it
  * takes them off the screen they were converting on, and `navigate({ to:
  * '/team', search: { team: teamParam } })` type-checks, lints, builds and
- * passes every unit test either way. See that block for why a `toMatch` over
- * the file cannot do this job — it is the PROP that has to be pinned: neither
- * "this string is in the file" nor its absence can tell a correctly-wired
- * `onInvite` from one that merely stopped mentioning `/team`.
+ * passes every unit test either way. It is the PROP that has to be pinned: a
+ * prop repointed at `() => undefined` defeats presence and absence alike —
+ * the file would still compile, still build, and still say nothing about
+ * `/team`, which is exactly what a passing `toMatch` either way would miss.
  *
  * BOTH ENDS, FOR THE SAME REASON: a prop reading `() => setInviteOpen(true)`
  * with no dialog mounted anywhere is a button that does nothing at all, and
@@ -162,6 +162,17 @@ describe('the locked card opens the invite dialog in place', () => {
     // titled "Invite Player to " for a team that is not on the payload.
     expect(props.get('teamName')).toBe('selectedTeam.name')
     expect(props.get('teamId')).toBe('selectedTeam.id')
+  })
+
+  test('and onUpgrade reaches checkout, not a dead handler or the wrong action', () => {
+    // THE SAME MEASUREMENT AS THE "dashboard CTA" BLOCK BELOW, applied to the
+    // call site that block does not cover: /insights' locked card is the
+    // upsell for every free member of a team with more than one player — the
+    // majority case — and until this test existed its `onUpgrade` had no
+    // route-level pin at all, unlike /app's identical expression.
+    expect(jsxProps(INSIGHTS, 'TeamSection').get('onUpgrade')).toBe('() => void startUpgrade()')
+    expect(codeOf(read(INSIGHTS))).toMatch(/const \{ startUpgrade \} = useStartUpgrade\(\)/)
+    expect(codeOf(read(INSIGHTS))).not.toMatch(/getCustomerPortalUrl/)
   })
 })
 
