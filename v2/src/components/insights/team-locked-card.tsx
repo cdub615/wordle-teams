@@ -17,8 +17,14 @@ import type { TeamRankTeaser } from '../../../convex/lib/teamStats.ts'
  * of a value that genuinely is not here.
  *
  * IT IS THE SHAPE OF THE THING BEING BOUGHT, which is why this beat a list of
- * section names with padlocks: after upgrading, the bars become numbers and
- * nothing else on the card moves.
+ * section names with padlocks: the rows that are here stay put, and their bars
+ * become numbers. THAT IS NOT THE WHOLE STORY ON UPGRADE, though (an earlier
+ * draft of this comment claimed it was, and the spec's Decision 2 was corrected
+ * on the same finding) — team-panel.tsx expands the single "You vs team" row
+ * into one row per member, turns a two-person head-to-head into a `VersusBlock`
+ * of display figures rather than a row, and adds two further sections below
+ * (Best & worst days, Consistency). What is on THIS card does not reshape
+ * itself; what surrounds it does.
  *
  * IT ALWAYS RENDERS, and only the headline changes. The owner's reason overrides
  * the tidier rule of hiding it when there is no rank: the players with too little
@@ -29,10 +35,14 @@ import type { TeamRankTeaser } from '../../../convex/lib/teamStats.ts'
  * team-section.tsx decides whether it renders at all.
  *
  * THE CALLBACKS ARE PROPS BECAUSE OF `onInvite`, NOT `onUpgrade`. Calling
- * useStartUpgrade in a component is fine and three components do it. useNavigate
- * is the one that cannot: without a RouterProvider it throws, and every component
- * test in this directory renders its component bare. Taking both as props keeps
- * the pair symmetrical.
+ * useStartUpgrade in a component is fine and three components do it. A
+ * router-dependent hook is not literally impossible here either —
+ * no-team-card.tsx calls one directly (`Link`), and team-section.hook.test.ts
+ * copes with it by mocking `@tanstack/react-router`. But every test in THIS
+ * file renders the card bare, so a prop avoids adding that module mock just to
+ * route on click. Taking `onUpgrade` as a prop too, and not only `onInvite`,
+ * keeps the pair symmetrical instead of splitting them over an implementation
+ * detail.
  */
 export function TeamLockedCard({
   teamName,
@@ -58,6 +68,15 @@ export function TeamLockedCard({
   const solo = rank.kind === 'solo'
   const headline = headlineFor(rank)
   const teammates = roster.filter((member) => member.playerId !== viewerId)
+  // SOLO GETS A DIFFERENT PROMISE, BECAUSE "UPGRADE" ISN'T WHAT FIXES IT FOR
+  // THEM. In the other three states the numbers really are one upgrade away.
+  // A solo team's numbers are missing because there is nobody to compare
+  // against — upgrading buys them nothing until that changes, which is the
+  // same reason the CTA below offers them Invite instead of Upgrade. A
+  // screen reader hearing "hidden until you upgrade" on every slot while the
+  // sighted card says "Team insights need a team" and offers no upgrade
+  // button would be told something the card does not deliver.
+  const revealedBy = solo ? 'once you have a teammate' : 'hidden until you upgrade'
 
   return (
     <Card data-testid="insights-team-locked">
@@ -75,11 +94,11 @@ export function TeamLockedCard({
             {teamName} · {formatMonthLabel(month)}
           </h2>
         </CardTitle>
-        <p className="m-0 text-base font-semibold" data-testid="insights-locked-headline">
+        <p className="text-base font-semibold" data-testid="insights-locked-headline">
           {headline.title}
         </p>
         {headline.note && (
-          <p className="text-muted-foreground m-0 text-xs" data-testid="insights-locked-note">
+          <p className="text-muted-foreground text-xs" data-testid="insights-locked-note">
             {headline.note}
           </p>
         )}
@@ -88,15 +107,20 @@ export function TeamLockedCard({
       <CardContent className="space-y-4 text-sm">
         <div data-testid="insights-locked-h2h">
           <h3 className="mb-1 font-medium">Head to head</h3>
-          <ul className="m-0 list-none space-y-1 p-0">
+          <ul className="space-y-1">
             {solo || teammates.length === 0 ? (
-              <LockedRow label="Your teammates" hidden="your record against each teammate" />
+              <LockedRow
+                label="Your teammates"
+                hidden="your record against each teammate"
+                suffix={revealedBy}
+              />
             ) : (
               teammates.map((member) => (
                 <LockedRow
                   key={member.playerId}
                   label={`${member.firstName} ${member.lastName}`}
                   hidden={`your record against ${member.firstName}`}
+                  suffix={revealedBy}
                 />
               ))
             )}
@@ -105,8 +129,12 @@ export function TeamLockedCard({
 
         <div data-testid="insights-locked-averages">
           <h3 className="mb-1 font-medium">Averages</h3>
-          <ul className="m-0 list-none space-y-1 p-0">
-            <LockedRow label="You vs team" hidden="your average and the team’s" />
+          <ul className="space-y-1">
+            <LockedRow
+              label="You vs team"
+              hidden="your average and the team’s"
+              suffix={revealedBy}
+            />
           </ul>
         </div>
 
@@ -127,20 +155,39 @@ export function TeamLockedCard({
  * One row: a real label, and a bar where the number is not.
  *
  * `hidden` IS NOT DECORATION. A grey bar conveys nothing without sight, so each
- * slot carries an sr-only sentence naming what is being withheld. The bar itself
- * is aria-hidden so a screen reader gets the sentence and not both.
+ * slot carries an sr-only sentence naming what is being withheld, and `suffix`
+ * says WHY it is withheld — TeamLockedCard varies that by state, because
+ * "upgrade" is not the answer for a solo team (see `revealedBy` there).
+ *
+ * `aria-hidden="true"` ON THE BAR IS CHEAP INSURANCE, NOT A FIX FOR SOMETHING
+ * IT WOULD OTHERWISE ANNOUNCE. The bar is an empty span with no text node, so
+ * a screen reader has nothing to read from it either way. team-panel.tsx marks
+ * its own averages bar the same way, but for a different reason — there the
+ * bar duplicates a number already visible a line above it. Here there is no
+ * number for it to duplicate; the attribute is worn anyway because it costs
+ * nothing and guards against the day this bar gains content of its own.
  *
  * NOT `ui/skeleton.tsx`, WHICH WOULD BE THE OBVIOUS REACH. Skeleton is
  * `animate-pulse`: a shimmer reads as "this is loading and will arrive in a
  * moment", which is the opposite of what is true here.
  */
-function LockedRow({ label, hidden }: { label: string; hidden: string }) {
+function LockedRow({
+  label,
+  hidden,
+  suffix,
+}: {
+  label: string
+  hidden: string
+  suffix: string
+}) {
   return (
     <li className="flex items-center justify-between gap-2">
       <span className="text-muted-foreground">{label}</span>
       <span data-testid="insights-locked-value">
-        <span className="sr-only">{hidden} — hidden until you upgrade</span>
-        <span aria-hidden className="bg-muted inline-block h-3 w-16 rounded" />
+        <span className="sr-only">
+          {hidden} — {suffix}
+        </span>
+        <span aria-hidden="true" className="bg-muted inline-block h-3 w-16 rounded" />
       </span>
     </li>
   )

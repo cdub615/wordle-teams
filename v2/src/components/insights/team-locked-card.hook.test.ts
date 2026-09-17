@@ -16,7 +16,12 @@ const ROSTER = [
   { playerId: 'b', firstName: 'Alan', lastName: 'Turing' },
 ]
 
-const card = (rank: TeamRankTeaser, over: { roster?: typeof ROSTER } = {}) =>
+// Creates AND RETURNS its two callback mocks, so a test asserting who got
+// called (or didn't) does not need to re-inline the whole createElement call
+// just to keep its own vi.fn() references.
+const card = (rank: TeamRankTeaser, over: { roster?: typeof ROSTER } = {}) => {
+  const onUpgrade = vi.fn()
+  const onInvite = vi.fn()
   render(
     createElement(TeamLockedCard, {
       teamName: 'Alpha Analysts',
@@ -24,10 +29,12 @@ const card = (rank: TeamRankTeaser, over: { roster?: typeof ROSTER } = {}) =>
       roster: over.roster ?? ROSTER,
       viewerId: 'me',
       rank,
-      onUpgrade: vi.fn(),
-      onInvite: vi.fn(),
+      onUpgrade,
+      onInvite,
     }),
   )
+  return { onUpgrade, onInvite }
+}
 
 describe('the headline says what would make the numbers appear', () => {
   test('ranked: the standing itself', () => {
@@ -91,6 +98,16 @@ describe('the rows', () => {
     expect(rows.textContent).toContain('Alan Turing')
     // You do not play yourself.
     expect(rows.textContent).not.toContain('Ada Lovelace')
+    // Each teammate's row names THAT teammate, not a shared generic sentence —
+    // pinning this catches a `hidden` string that stopped varying by member.
+    expect(rows.textContent).toContain('your record against Grace')
+    expect(rows.textContent).toContain('your record against Alan')
+    // Two teammates plus the Averages row is three redacted slots. Deleting
+    // the Averages section, or slicing the roster down before mapping it,
+    // both leave every other assertion here green — this length is what
+    // catches either.
+    expect(screen.getAllByTestId('insights-locked-value')).toHaveLength(3) // 2 teammates + averages
+    expect(screen.getByTestId('insights-locked-averages').textContent).toContain('You vs team')
   })
 
   test('a solo team gets a generic row instead, since there are no names', () => {
@@ -110,14 +127,28 @@ describe('the rows', () => {
     }
   })
 
-  test('every redacted slot says something to a screen reader', () => {
+  test('every redacted slot says something to a screen reader, behind a real bar', () => {
     // A grey bar conveys nothing without sight. Each slot carries its own
-    // sr-only label naming what is hidden.
+    // sr-only label naming what is hidden, AND an actual bar element — without
+    // the second assertion, deleting the bar span entirely still passes every
+    // other test in this file.
     card({ kind: 'ranked', rank: 3, of: 5 })
     const slots = screen.getAllByTestId('insights-locked-value')
     expect(slots.length).toBeGreaterThan(0)
     for (const slot of slots) {
       expect((slot.textContent ?? '').trim().length).toBeGreaterThan(0)
+      expect(slot.querySelector('[aria-hidden="true"]')).not.toBeNull()
+    }
+  })
+
+  test('solo state promises what actually helps, never the upgrade it does not need', () => {
+    // The sighted card already tells a solo team the honest reason (headline:
+    // "Team insights need a team"; CTA: "Invite a teammate", not "Unlock").
+    // The screen-reader-only text in every slot must agree with that, not
+    // repeat the other three states' "hidden until you upgrade" promise.
+    card({ kind: 'solo' }, { roster: [ROSTER[0]!] })
+    for (const slot of screen.getAllByTestId('insights-locked-value')) {
+      expect(slot.textContent ?? '').not.toMatch(/upgrade/i)
     }
   })
 })
@@ -130,40 +161,18 @@ describe('the call to action', () => {
       { kind: 'nobody-else' },
     ] as TeamRankTeaser[]) {
       cleanup()
-      const onUpgrade = vi.fn()
-      render(
-        createElement(TeamLockedCard, {
-          teamName: 'Alpha Analysts',
-          month: '2026-09',
-          roster: ROSTER,
-          viewerId: 'me',
-          rank,
-          onUpgrade,
-          onInvite: vi.fn(),
-        }),
-      )
+      const { onUpgrade, onInvite } = card(rank)
       fireEvent.click(screen.getByTestId('insights-locked-cta'))
       expect(onUpgrade).toHaveBeenCalledOnce()
-      expect(screen.queryByTestId('insights-locked-cta')!.textContent).toContain('Unlock')
+      expect(onInvite).not.toHaveBeenCalled()
+      expect(screen.getByTestId('insights-locked-cta').textContent).toContain('Unlock')
     }
   })
 
   test('but asks a SOLO team to invite instead, because upgrading buys them nothing', () => {
     // team-panel.tsx tells a solo player outright that there is "nobody to
     // compare with". Selling the upgrade here would be selling a dud.
-    const onUpgrade = vi.fn()
-    const onInvite = vi.fn()
-    render(
-      createElement(TeamLockedCard, {
-        teamName: 'Alpha Analysts',
-        month: '2026-09' as const,
-        roster: [ROSTER[0]!],
-        viewerId: 'me',
-        rank: { kind: 'solo' },
-        onUpgrade,
-        onInvite,
-      }),
-    )
+    const { onUpgrade, onInvite } = card({ kind: 'solo' }, { roster: [ROSTER[0]!] })
     const cta = screen.getByTestId('insights-locked-cta')
     expect(cta.textContent).toContain('Invite')
     fireEvent.click(cta)
