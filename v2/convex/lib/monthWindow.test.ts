@@ -199,9 +199,13 @@ describe('serverFloorFor', () => {
       // floor getTeamMonthFor enforces must sit exactly one month below what
       // the dropdown built from monthWindowFor actually offers, for every
       // input, or the gate refuses a month the client just showed. After the
-      // Fix 1 refactor this holds by construction — both functions compute
-      // through the same oldestOfferedFor seam — so this test is a guard
-      // against that seam being split apart again, not a fresh assertion.
+      // Fix 1 refactor this holds because both sides derive their length from
+      // the same `spanFor` seam — serverFloorFor via oldestOfferedFor, and
+      // monthWindowFor by walking countBack over spanFor(input) - 1 months, so
+      // its last element lands on that same value. The two do NOT share a call
+      // to oldestOfferedFor, which is why this is worth pinning: the agreement
+      // is structural rather than literal, and splitting spanFor would break it
+      // silently.
       const months = monthWindowFor(input)
       const oldest = months[months.length - 1]
 

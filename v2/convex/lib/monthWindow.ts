@@ -135,8 +135,11 @@ export function serverFloorFor(input: MonthWindowInput): PuzzleMonth {
  * player who is already Pro, and for a malformed earliestMonth.
  *
  * NAMES THE OLDEST MONTH PRO ACTUALLY REACHES — `oldestOfferedFor` with `pro:
- * true` — NOT `earliestMonth` itself. The two differ exactly when `spanFor`'s
- * MAX_MONTHS cap bites: an ancient, unvalidated `earliestMonth` (upsertBoard,
+ * true` — NOT `earliestMonth` itself. The two VALUES differ whenever either of
+ * `spanFor`'s bounds bites — an `earliestMonth` of `currentMonth - 1` already
+ * differs from the floored window's oldest month — but the ANSWER this function
+ * returns only differs when the MAX_MONTHS cap does, because below the floor
+ * both comparisons land on null anyway. The cap is the case that mattered: an ancient, unvalidated `earliestMonth` (upsertBoard,
  * wordle-teams-qvqi) used to be handed back verbatim, so a team with a stored
  * '1000-01' could be teased a month decades before what Pro's own capped window
  * reaches — advertising history the upgrade cannot deliver. Comparing the two
@@ -204,6 +207,15 @@ function oldestOfferedFor(input: MonthWindowInput): PuzzleMonth {
  * NEEDED BECAUSE NOTHING UPSTREAM GUARANTEES IT. `upsertBoard` stores `puzzleDay`
  * as an unvalidated `v.string()` (wordle-teams-qvqi), so `monthOf('')` is `''` and
  * `monthIndex('')` is NaN — which would make the span NaN and the window empty.
+ *
+ * SHAPE ONLY, AND IT ADMITS MONTH 00 AND 99. '2026-00' and '2026-99' both pass
+ * here: the first yields a nine-month window and the second clamps to three.
+ * Neither is harmful — a cosmetically long dropdown is not a crash, and since
+ * Fix 1 every month this module hands out is `addMonths`-derived rather than
+ * echoed back, so a nonsense input can no longer reach a label ('2026-00' teases
+ * '2025-12'). Left shape-only deliberately: the real fix belongs upstream in
+ * wordle-teams-qvqi, and a stricter check here would imply a validation
+ * guarantee this module cannot make.
  */
 function isMonth(value: string): boolean {
   return /^\d{4}-\d{2}$/.test(value)
