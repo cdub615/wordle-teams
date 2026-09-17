@@ -106,7 +106,7 @@ export function TeamLockedCard({
         <div data-testid="insights-locked-averages">
           <h3 className="mb-1 font-medium">Averages</h3>
           <ul className="m-0 list-none space-y-1 p-0">
-            <LockedRow label="You vs team" hidden="your average and the team's" />
+            <LockedRow label="You vs team" hidden="your average and the team’s" />
           </ul>
         </div>
 
