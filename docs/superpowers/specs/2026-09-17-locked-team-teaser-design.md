@@ -80,8 +80,17 @@ option the first finding rules out.
 prose what you would learn.*
 
 The redacted treatment is the only one of the three that **looks like the thing
-being bought**: after upgrading, the bars become numbers and nothing else on the
-card moves. The locks-only list is a feature list that says nothing about the
+being bought**: the rows that are here stay put, and their bars become numbers.
+
+**Corrected 2026-09-17, in code review.** This decision originally read "nothing
+else on the card moves", which is not true of the real paid panel and was checked
+against it too late. On upgrade the single "You vs team" row expands into one row
+per member with a `avg guesses · lower is better` caption; a two-person team's
+head-to-head becomes a `VersusBlock` of display figures rather than a row; and two
+further sections appear below (Best & worst days, Consistency). The decision
+stands — redaction is still the closest of the three to the paid surface, and the
+only one that neither invents figures nor degrades into a feature list — but the
+claim supporting it was overstated. The locks-only list is a feature list that says nothing about the
 viewer, and so persuades about as well as the landing page already does. The prose
 option carries the exact staleness risk this issue was written to avoid — sentences
 describing the panel age silently when the panel changes.
