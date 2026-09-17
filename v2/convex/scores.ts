@@ -162,14 +162,16 @@ export const getTeamMonth = query({
  * leaving takes theirs and narrows it. Both are correct, and both are already
  * visible on the scoreboard the same way.
  *
- * A DANGLING ROSTER ID CONTRIBUTES NOTHING, for the identical reason getTeamMonthFor
- * drops one (scores.ts:71) and getMyTeamsFor drops one (teams.ts:93): dailyScores
- * has no referential integrity, so `team.playerIds` can outlive the player row it
- * names, and that ghost's boards can never reach the scoreboard because
- * getTeamMonthFor filters the id out before it ever reads a score for it. Counting
- * the ghost's boards here would let a departed member's ancient history widen a
- * paying member's window into months the scoreboard renders as empty — worse than
- * a window that stays narrow.
+ * A DANGLING ROSTER ID IS SKIPPED, on the same premise getTeamMonthFor
+ * (scores.ts:84) and getMyTeamsFor (teams.ts:105) share — Convex ids are not
+ * foreign keys, so `teams.playerIds` can outlive the `players` row it names —
+ * but for a DIFFERENT REASON. Those two guard against throwing on
+ * `member.firstName`; nothing here would throw on a ghost, which is exactly why
+ * the pre-fix version of this function had no guard at all. This guard exists so
+ * a ghost's boards cannot widen the window past what getTeamMonthFor can ever
+ * render for this team — it drops the same id before reading a single score for
+ * it, so counting the ghost's boards here would offer a paying member a month
+ * the scoreboard renders as empty.
  *
  * A LEAVING MEMBER CAN THEREFORE SHRINK THE WINDOW UNDER A VIEWER SITTING ON AN
  * OLD MONTH. NOTHING CORRECTS FOR THAT YET: routes/app.tsx will move `?month=`
@@ -194,7 +196,7 @@ async function earliestMonthFor(
   const firsts = await Promise.all(
     playerIds.map(async (memberId) => {
       // A ROSTER ENTRY WITH NO PLAYER ROW, skipped BEFORE the index read rather
-      // than after — the same guard scores.ts:71 (getTeamMonthFor) and teams.ts:93
+      // than after — the same guard scores.ts:84 (getTeamMonthFor) and teams.ts:105
       // (getMyTeamsFor) apply, for a related but distinct reason: those two guard
       // against throwing on `member.firstName`, while this one exists so a ghost's
       // boards cannot widen the window past what getTeamMonthFor can ever render

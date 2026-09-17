@@ -715,7 +715,7 @@ describe('monthWindowInputsFor', () => {
     // a ghost with no boards would be indistinguishable from a member with none,
     // and would prove nothing about what happens to a dangling id.
     //
-    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching scores.ts:71
+    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching scores.ts:84
     // (getTeamMonthFor): that function drops a dangling roster id before it ever
     // reads a score for it, so the ghost's 2023-03 board can never reach the
     // scoreboard either. A window that offered 2023-03 anyway would let a viewer
@@ -751,33 +751,53 @@ describe('monthWindowInputsFor', () => {
     // swapping earliestMonthFor's index `.first()` for
     // `.collect().then((rows) => rows[0] ?? null)` returns an IDENTICAL
     // `earliestMonth` — every other test in this block would still pass — while
-    // reading every board the member has ever entered instead of one.
+    // reading every board each member has ever entered instead of one.
     // `transactionLimits.documentsRead` is what catches that regardless of what
     // the query returns. DO NOT "simplify" this into an assertion on the result.
+    //
+    // A TWO-MEMBER ROSTER, NOT ONE — a single-member fixture cannot observe
+    // per-member growth, and the cost here scales with the roster: for M
+    // members the correct read is 1 (team) + M * (1 `ctx.db.get` + 1 indexed
+    // `.first()`) = 2M + 1 documents. At M=2 that is 5, verified by
+    // bisecting `transactionLimits.documentsRead` against the real
+    // implementation (4 throws, 5 passes). THE BUDGET IS SCOPED TO THIS
+    // FIXTURE'S ROSTER SIZE, not a general headroom multiple — widening the
+    // fixture to a third member means raising this number to 2*3+1 = 7, not
+    // leaving it as "comfortable slack" that happens to still pass.
     return convexTest({
       schema,
       modules,
-      // One member, holding 60 boards. A bounded read costs 1 (team) +
-      // 1 (ctx.db.get, the ghost guard added for the test above) +
-      // 1 (dailyScores .first()) = 3 documents. 15 leaves comfortable headroom
-      // above that while staying far below the 60+ a `.collect()` of this
-      // member's whole history would read.
-      transactionLimits: { documentsRead: 15 },
+      transactionLimits: { documentsRead: 5 },
     }).run(async (ctx) => {
-      const playerId = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      const earliest = await ctx.db.insert('players', aPlayer())
+      const other = await ctx.db.insert('players', aPlayer({ email: 'other@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [earliest, other] }))
 
+      // `earliest` holds 60 boards, the oldest starting 2020-01-01 — large
+      // enough that the `.collect()` mutant's cost (60 for this member alone,
+      // on top of the bounded reads above) blows the budget by an order of
+      // magnitude rather than by one or two documents.
       for (let i = 0; i < 60; i++) {
         await ctx.db.insert('dailyScores', {
-          playerId,
+          playerId: earliest,
           puzzleDay: `2020-01-${String((i % 28) + 1).padStart(2, '0')}`,
           date: 1_700_000_000_000 + i,
           answer: 'SPEED',
           guesses: ['SPEED'],
         })
       }
+      // `other` holds one later board — present so the roster is genuinely
+      // two members, not decoration; its own `.first()` still costs the same
+      // one document regardless of how few boards it has.
+      await ctx.db.insert('dailyScores', {
+        playerId: other,
+        puzzleDay: '2021-06-15',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
 
-      expect(await monthWindowInputsFor(ctx, playerId, teamId)).toEqual({ earliestMonth: '2020-01' })
+      expect(await monthWindowInputsFor(ctx, earliest, teamId)).toEqual({ earliestMonth: '2020-01' })
     })
   })
 })
