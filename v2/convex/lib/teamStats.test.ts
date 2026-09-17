@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { aggregateTeamMonth, sameStats } from './teamStats.ts'
+import { aggregateTeamMonth, meanAttemptsOf, sameStats, teamRank } from './teamStats.ts'
 import type { StatsInput } from './teamStats.ts'
 
 const solved = (playerId: string, puzzleDay: string, n: number): StatsInput => ({
@@ -160,5 +160,111 @@ describe('sameStats', () => {
     const before = aggregateTeamMonth({ memberIds: ['a'], scores: [] })
     const after = aggregateTeamMonth({ memberIds: ['a', 'b'], scores: [] })
     expect(sameStats(before, after)).toBe(false)
+  })
+})
+
+/**
+ * teamRank — THE FREE TIER'S ONE REAL FIGURE (wordle-teams-iht.3.3).
+ *
+ * "You're 3rd of 5 this month", computed on the server because ranking needs
+ * every member's totals and those are exactly what teamMonth stops sending to a
+ * free viewer (wordle-teams-iht.3.2). A client-side rank would undo that gate.
+ *
+ * WHAT THESE PIN IS MOSTLY THE EDGES, and deliberately so: the happy path is one
+ * comparison, while every way this sentence can quietly LIE to a reader is a
+ * case somebody has to choose an answer for.
+ */
+const member = (playerId: string, boards: number, attempts: number) => ({
+  playerId,
+  boards,
+  attempts,
+  solved: boards,
+  failed: 0,
+})
+
+describe('teamRank', () => {
+  test('fewer attempts is better, and the reader is counted from the front', () => {
+    const rank = teamRank(
+      [member('me', 10, 35), member('a', 10, 30), member('b', 10, 40)],
+      'me',
+    )
+    // 3.5 against 3.0 and 4.0: one ahead, three ranked.
+    expect(rank).toEqual({ rank: 2, of: 3 })
+  })
+
+  test('the denominator counts who PLAYED, not the roster', () => {
+    // "3rd of 5" on a team where only two people have played is a lie about the
+    // reader, and roster size is the number a careless version reaches for.
+    const rank = teamRank(
+      [member('me', 10, 35), member('a', 10, 30), member('idle', 0, 0), member('idle2', 0, 0)],
+      'me',
+    )
+    expect(rank).toEqual({ rank: 2, of: 2 })
+  })
+
+  test('a viewer who has not played is absent, never last', () => {
+    // "Last of 5" for someone who simply has not started is the opposite of a
+    // reason to come back, and this is the free tier's re-engagement hook.
+    expect(teamRank([member('me', 0, 0), member('a', 10, 30)], 'me')).toBeNull()
+  })
+
+  test('a lone player is absent rather than "1st of 1"', () => {
+    // True and worthless. lib/insights-team.ts's header calls a solo team the
+    // most common shape in this product, so this is the ordinary case.
+    expect(teamRank([member('me', 10, 35)], 'me')).toBeNull()
+    // And the same when the others exist but have not played: nobody to rank against.
+    expect(teamRank([member('me', 10, 35), member('idle', 0, 0)], 'me')).toBeNull()
+  })
+
+  test('a viewer who is not on the roster at all gets nothing', () => {
+    expect(teamRank([member('a', 10, 30)], 'me')).toBeNull()
+  })
+
+  describe('ties', () => {
+    test('share a rank, COMPETITION style (1, 2, 2, 4) rather than dense', () => {
+      // "4th of 4" has to mean three people are ahead, because that is how a
+      // reader counts it. Under dense ranking they would read "3rd" with three
+      // ahead of them, which makes the sentence quietly false.
+      const tiedA = member('a', 10, 30)
+      const tiedB = member('b', 10, 30)
+      const best = member('best', 10, 20)
+      const me = member('me', 10, 40)
+
+      expect(teamRank([best, tiedA, tiedB, me], 'a')).toEqual({ rank: 2, of: 4 })
+      expect(teamRank([best, tiedA, tiedB, me], 'b')).toEqual({ rank: 2, of: 4 })
+      // The tie CONSUMES rank 3: the next player is 4th, not 3rd.
+      expect(teamRank([best, tiedA, tiedB, me], 'me')).toEqual({ rank: 4, of: 4 })
+    })
+
+    test('everyone level is 1st, not last', () => {
+      expect(teamRank([member('me', 10, 30), member('a', 10, 30)], 'me')).toEqual({
+        rank: 1,
+        of: 2,
+      })
+    })
+  })
+
+  test('RANKS THE ROUNDED AVERAGE, the one the paid panel prints', () => {
+    // THE SUBTLE ONE. 34/10 = 3.4 and 341/100 = 3.41 both DISPLAY as 3.4
+    // (memberAverages rounds to one decimal), so ranking the raw quotient would
+    // put one of them ahead while the panel showed the pair as equal — the
+    // teaser and the panel telling different stories about the same two people.
+    const rank = teamRank([member('me', 100, 341), member('a', 10, 34)], 'me')
+    expect(meanAttemptsOf(member('me', 100, 341))).toBe(3.4)
+    expect(meanAttemptsOf(member('a', 10, 34))).toBe(3.4)
+    expect(rank).toEqual({ rank: 1, of: 2 })
+  })
+})
+
+describe('meanAttemptsOf', () => {
+  test('is null for a member with no boards, never zero', () => {
+    // A zero mean would rank as the best possible score in the product.
+    expect(meanAttemptsOf({ boards: 0, attempts: 0 })).toBeNull()
+  })
+
+  test('rounds to one decimal, and never to -0', () => {
+    expect(meanAttemptsOf({ boards: 3, attempts: 10 })).toBe(3.3)
+    expect(meanAttemptsOf({ boards: 0.5, attempts: -0.01 })).toBe(0)
+    expect(Object.is(meanAttemptsOf({ boards: 0.5, attempts: -0.01 }), -0)).toBe(false)
   })
 })

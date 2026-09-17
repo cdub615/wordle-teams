@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { currentPlayer, insightsAccessFor, requireTeamMemberFor } from './access'
 import { attemptsFor } from './lib/board.ts'
+import { teamRank } from './lib/teamStats.ts'
 import { visibleSlice } from './lib/globalThreshold.ts'
 import { hasFullTeamMonth, type InsightsAccess } from './lib/insightsAccess.ts'
 import { isPlausibleToday, toPuzzleDay, type PuzzleDay } from './lib/puzzleDay.ts'
@@ -247,6 +248,20 @@ export const teamMonth = query({
               days: stats.days.filter((entry) => entry.puzzleDay === day),
             }
           : null,
+        /*
+          THE ONE REAL FIGURE THE FREE TIER GAINS (wordle-teams-iht.3.3), and the
+          reason this whole change is not merely a takeaway. "You're 3rd of 5
+          this month" is what the locked panel is sold on.
+
+          A SIBLING OF `teaser`, NOT A FIELD INSIDE IT, so `teaser` stays exactly
+          the reduced STATS that dailyTeamFact consumes and keeps satisfying
+          TeamMonthTeaser. A rank is a conclusion, not an aggregate.
+
+          COMPUTED HERE BECAUSE IT CANNOT BE COMPUTED THERE. Ranking needs every
+          member's totals, which is precisely what the branch above stops
+          sending — so a client-side rank would undo the gate it sits beside.
+        */
+        rank: stats ? teamRank(stats.members, player._id) : null,
       }
     }
 
@@ -255,9 +270,11 @@ export const teamMonth = query({
       viewerId: player._id,
       roster,
       stats: stats ? { members: stats.members, days: stats.days } : null,
-      // Pro and trial read `stats`; this is here so both branches return the
-      // same KEYS and the client never has to test for a missing field.
+      // Pro and trial read `stats`; these are here so both branches return the
+      // same KEYS and the client never has to test for a missing field. The
+      // rank is a teaser for a panel they already have in full.
       teaser: null,
+      rank: null,
     }
   },
 })

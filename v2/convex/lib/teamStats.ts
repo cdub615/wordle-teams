@@ -202,3 +202,73 @@ export function sameStats(a: TeamMonthStats<string>, b: TeamMonthStats<string>):
 
   return true
 }
+
+/**
+ * One member's mean attempts for the month, rounded the way it is DISPLAYED, or
+ * null when they have not played.
+ *
+ * THE SINGLE DEFINITION OF "HOW WELL DID THEY DO" (wordle-teams-iht.3.3). It
+ * lives here rather than in src/lib/insights-team.ts because BOTH sides need it
+ * now: that module's `memberAverages` renders it in the paid panel, and
+ * `teamRank` below sends the free tier a position derived from it. Two
+ * implementations of the same average is how the teaser and the panel come to
+ * disagree about who is ahead, in front of the person being asked to pay.
+ *
+ * ROUNDED BEFORE COMPARISON, WHICH IS THE PART THAT IS EASY TO GET WRONG. Rank
+ * on the raw quotient and two members can sit one ten-thousandth apart, rank
+ * differently, and DISPLAY the identical average — a panel saying two people
+ * scored 3.4 while the teaser puts one of them ahead of the other. Ranking the
+ * rounded value is what keeps the two surfaces telling the same story.
+ */
+export function meanAttemptsOf(member: { boards: number; attempts: number }): number | null {
+  if (member.boards === 0) return null
+  // `+ 0` normalises -0, which would otherwise print as "-0".
+  return Math.round((member.attempts / member.boards) * 10) / 10 + 0
+}
+
+/**
+ * Where the viewer stands among the teammates who have actually played.
+ *
+ * THE ONE REAL FIGURE THE FREE TIER GETS (wordle-teams-iht.3.3). It is the hook
+ * the locked panel is built around — "You're 3rd of 5 this month" — and it is
+ * safe to send precisely because it does not decompose: a rank does not yield
+ * the averages it came from, so it points at the paid surface without being it.
+ *
+ * FEWER ATTEMPTS IS BETTER, the same direction headToHead uses.
+ *
+ * COMPETITION RANKING (1, 2, 2, 4), NOT DENSE (1, 2, 2, 3). "3rd of 5" has to
+ * mean two people are ahead, because that is how a reader counts it. Under dense
+ * ranking a reader can be "3rd" with three people ahead of them, which makes the
+ * sentence quietly false.
+ *
+ * THE DENOMINATOR IS RANKED MEMBERS, NOT THE ROSTER. "5th of 5" on a team where
+ * only two people have played is a lie about the reader, and the roster size is
+ * the number a careless implementation reaches for first. Members with no boards
+ * cannot be placed and are not counted.
+ *
+ * NULL RATHER THAN A FLATTERING ANSWER, in the two cases where there is no
+ * position to report:
+ *   - THE VIEWER HAS NOT PLAYED. They cannot be ranked. Absent, never last —
+ *     "last of 5" for someone who simply has not started is the opposite of a
+ *     reason to come back.
+ *   - NOBODY ELSE HAS. "1st of 1" is true and worthless, and dressing it up as
+ *     an achievement is the kind of thing a reader notices and stops trusting.
+ *     lib/insights-team.ts's header makes the point that a solo team is the most
+ *     common shape in this product, so this is the ordinary case, not an edge.
+ */
+export function teamRank<PlayerId extends string>(
+  members: MemberTotals<PlayerId>[],
+  viewerId: PlayerId,
+): { rank: number; of: number } | null {
+  const played = members
+    .map((member) => ({ playerId: member.playerId, mean: meanAttemptsOf(member) }))
+    .filter((member): member is { playerId: PlayerId; mean: number } => member.mean !== null)
+
+  const mine = played.find((member) => member.playerId === viewerId)
+  if (!mine) return null
+  if (played.length < 2) return null
+
+  // Competition ranking: one plus however many are strictly better.
+  const ahead = played.filter((member) => member.mean < mine.mean).length
+  return { rank: ahead + 1, of: played.length }
+}

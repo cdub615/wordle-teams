@@ -156,6 +156,28 @@ describe('teamMonth — the free tier', () => {
     expect(res?.roster).toHaveLength(2)
   })
 
+  test('gets the rank headline, which is the one real figure it gains', async () => {
+    // THE OTHER SIDE OF THE PAYWALL LEDGER (wordle-teams-iht.3.3). The free tier
+    // loses the month and gains a position it could not otherwise compute --
+    // the seed puts the viewer on 11 attempts over 3 boards (3.7) against their
+    // teammate's 14 (4.7), so they are 1st of 2.
+    //
+    // IT HAS TO COME FROM THE SERVER: ranking needs every member's totals, and
+    // those are exactly what this query now withholds. A client-side rank would
+    // undo the gate it sits beside.
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { teamId } = await seed(t)
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month, today })
+
+    expect(res?.rank).toEqual({ rank: 1, of: 2 })
+    // And it is a CONCLUSION, not an aggregate: nothing in it can be run
+    // backwards into the averages it came from.
+    expect(Object.keys(res?.rank ?? {}).sort()).toEqual(['of', 'rank'])
+  })
+
   test('cannot walk the month a day at a time by lying about today', async () => {
     // THE HARVESTING HOLE THIS GATE WOULD OTHERWISE HAVE. `today` is a client
     // fact and has to be taken from the client — a backend that imposed its own
@@ -210,6 +232,9 @@ describe('teamMonth — pro', () => {
     expect(res?.stats?.members).toHaveLength(2)
     // The totals the free tier does not get, present here in full.
     expect(res?.stats?.members.map((member) => member.attempts).sort()).toEqual([11, 14])
+    // NO RANK FOR PRO, because it is a teaser for a panel they already have
+    // whole -- memberAverages tells them the same thing and more.
+    expect(res?.rank).toBeNull()
   })
 })
 

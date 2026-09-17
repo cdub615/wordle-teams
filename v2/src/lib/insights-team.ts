@@ -1,3 +1,4 @@
+import { meanAttemptsOf } from '../../convex/lib/teamStats.ts'
 import type { TeamMonthStats, TeamMonthTeaser } from '../../convex/lib/teamStats.ts'
 import type { PuzzleDay, PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
 
@@ -100,7 +101,14 @@ export function memberAverages(stats: TeamMonth): {
   const members = stats.members.map((member) => ({
     playerId: member.playerId,
     boards: member.boards,
-    meanAttempts: member.boards === 0 ? null : round1(member.attempts / member.boards),
+    /*
+      `meanAttemptsOf` RATHER THAN THE ARITHMETIC INLINE (wordle-teams-iht.3.3).
+      The free tier's rank is derived from this same average on the SERVER, and
+      two implementations of it is how the teaser and this panel come to
+      disagree about who is ahead — in front of the person being asked to pay
+      for the panel. One definition, in convex/lib/teamStats.ts, used by both.
+    */
+    meanAttempts: meanAttemptsOf(member),
   }))
 
   const played = stats.members.filter((member) => member.boards > 0)
