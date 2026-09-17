@@ -1,5 +1,23 @@
 import { describe, expect, test } from 'vitest'
 import { FREE_MONTHS, monthWindowFor, proTeaserMonth, serverFloorFor } from './monthWindow.ts'
+import { addMonths } from './puzzleDay.ts'
+
+/**
+ * Shared between the element-0 invariant below and the serverFloorFor /
+ * monthWindowFor relationship test at the bottom of the file — both need the
+ * same spread of pro/free, with/without earliestMonth, and in- and
+ * out-of-range inputs, and a second copy drifting from this one is exactly
+ * how the two tests would stop agreeing on what "every input" means.
+ */
+const inputs: Array<{ currentMonth: string; earliestMonth: string | null; pro: boolean }> = [
+  { currentMonth: '2026-08', earliestMonth: null, pro: false },
+  { currentMonth: '2026-08', earliestMonth: null, pro: true },
+  { currentMonth: '2026-08', earliestMonth: '2023-03', pro: true },
+  { currentMonth: '2026-08', earliestMonth: '2026-08', pro: true },
+  { currentMonth: '2026-08', earliestMonth: '2099-01', pro: true },
+  { currentMonth: '2026-08', earliestMonth: '', pro: true },
+  { currentMonth: '2026-01', earliestMonth: '2025-11', pro: false },
+]
 
 describe('monthWindowFor — free', () => {
   test('is the current month and the two before it, newest first', () => {
@@ -72,7 +90,13 @@ describe('monthWindowFor — pro', () => {
     ])
   })
 
-  test('clamps an earliestMonth in the future rather than producing a negative span', () => {
+  test('a future earliestMonth yields the free window', () => {
+    // NAMED FOR WHAT ACTUALLY KILLS IT. spanFor also clamps a future
+    // earliestMonth to currentMonth before subtracting, but that clamp is
+    // belt-and-braces and unobservable on its own: without it the span would
+    // go negative, and the Math.max(span, FREE_MONTHS) floor lifts that back
+    // up to FREE_MONTHS regardless, landing on exactly this result either way.
+    // This test dies to the FLOOR, not the clamp — see spanFor's comment.
     expect(monthWindowFor({ currentMonth: '2026-08', earliestMonth: '2026-11', pro: true })).toEqual([
       '2026-08',
       '2026-07',
@@ -85,9 +109,10 @@ describe('monthWindowFor — pro', () => {
     // (wordle-teams-qvqi), so '' is a storable puzzle day and monthOf('') is ''.
     // That makes the span NaN, Array.from({length: NaN}) returns [], and the
     // element-0 invariant below is violated for a REACHABLE input — with
-    // serverFloorFor then reading months[-1] and throwing inside getTeamMonth,
-    // taking the dashboard down for every Pro member of the team rather than for
-    // the author. The cause is filed separately; this is the blast shield.
+    // serverFloorFor then reading months[-1] and throwing inside
+    // getTeamMonthFor (scores.ts:37), taking the dashboard down for every Pro
+    // member of the team rather than for the author. The cause is filed
+    // separately; this is the blast shield.
     for (const earliestMonth of ['', '1', 'x', '2026', 'not-a-month']) {
       const months = monthWindowFor({ currentMonth: '2026-08', earliestMonth, pro: true })
 
@@ -105,20 +130,12 @@ describe('monthWindowFor — pro', () => {
 })
 
 describe('the element-0 invariant', () => {
-  // DO NOT BREAK THIS. dashboard-months.ts falls back to element 0 for an
-  // out-of-window ?month=, and that fallback settles — rather than the effect
-  // behind it navigating forever — only because the fallback value is itself
-  // always a member of the window it is judged against. insights-months.ts
-  // records the identical property for resolveInsightsSearch, in the same words.
-  const inputs = [
-    { currentMonth: '2026-08', earliestMonth: null, pro: false },
-    { currentMonth: '2026-08', earliestMonth: null, pro: true },
-    { currentMonth: '2026-08', earliestMonth: '2023-03', pro: true },
-    { currentMonth: '2026-08', earliestMonth: '2026-08', pro: true },
-    { currentMonth: '2026-08', earliestMonth: '2099-01', pro: true },
-    { currentMonth: '2026-08', earliestMonth: '', pro: true },
-    { currentMonth: '2026-01', earliestMonth: '2025-11', pro: false },
-  ]
+  // DO NOT BREAK THIS. dashboard-months.ts does not exist yet (Task 6 creates
+  // it), but it will fall back to element 0 for an out-of-window ?month=, and
+  // that fallback will settle — rather than the effect behind it navigating
+  // forever — only because the fallback value is itself always a member of
+  // the window it is judged against. insights-months.ts records the identical
+  // property for resolveInsightsSearch, in the same words.
 
   test.each(inputs)('currentMonth is element 0, and the window is never empty, for %j', (input) => {
     const months = monthWindowFor(input)
@@ -157,14 +174,40 @@ describe('serverFloorFor', () => {
   })
 
   test('never returns undefined, whatever the earliestMonth', () => {
-    // It must not be implemented as monthWindowFor(...).at(-1): an empty window
-    // would make that undefined and addMonths(undefined, -1) throws.
+    // NOT a catch for `monthWindowFor(...).at(-1)` — with the FREE_MONTHS floor
+    // in place, no window this function can build is ever empty, so `.at(-1)`
+    // would return a well-formed month here too and this test would pass
+    // either way. (The first test in this describe block is what actually
+    // pins that: a naive `.at(-1)` implementation reads the CLIENT window's
+    // oldest month directly, with no SERVER_SLACK_MONTHS subtracted, so it
+    // would return '2026-06' there instead of the asserted '2026-05'.) What
+    // this test pins is the return TYPE across a spread of malformed and
+    // out-of-range earliestMonth values — that the result is always a
+    // well-formed 'YYYY-MM' string, never undefined, so a caller can rely on
+    // that shape without a null check.
     for (const earliestMonth of ['', 'x', null, '2099-01', '1000-01']) {
       expect(serverFloorFor({ currentMonth: '2026-08', earliestMonth, pro: true })).toMatch(
         /^\d{4}-\d{2}$/,
       )
     }
   })
+
+  test.each(inputs)(
+    'is exactly one month below the oldest month monthWindowFor reaches, for %j',
+    (input) => {
+      // THE CONTRACT wordle-teams-kusd's TASK 3 SERVER GATE DEPENDS ON: the
+      // floor getTeamMonthFor enforces must sit exactly one month below what
+      // the dropdown built from monthWindowFor actually offers, for every
+      // input, or the gate refuses a month the client just showed. After the
+      // Fix 1 refactor this holds by construction — both functions compute
+      // through the same oldestOfferedFor seam — so this test is a guard
+      // against that seam being split apart again, not a fresh assertion.
+      const months = monthWindowFor(input)
+      const oldest = months[months.length - 1]
+
+      expect(serverFloorFor(input)).toBe(addMonths(oldest, -1))
+    },
+  )
 })
 
 describe('proTeaserMonth', () => {
@@ -172,6 +215,24 @@ describe('proTeaserMonth', () => {
     expect(proTeaserMonth({ currentMonth: '2026-08', earliestMonth: '2023-03', pro: false })).toBe(
       '2023-03',
     )
+  })
+
+  test('names a month the Pro window can actually deliver, even for an ancient earliestMonth', () => {
+    // THE DEFECT THIS GUARDS AGAINST. This function used to hand back
+    // `earliestMonth` verbatim, so a team with an old, unvalidated
+    // earliestMonth (upsertBoard, wordle-teams-qvqi) — '1000-01' here — could
+    // be teased a month far older than what spanFor's MAX_MONTHS cap lets the
+    // Pro window itself reach: a free player upgrades and gets 2016-09, not
+    // the 1000-01 they were promised. Asserted as a RELATIONSHIP, not a
+    // hardcoded month, so this keeps holding as MAX_MONTHS or the calendar
+    // move: whatever the teaser names must be a month Pro's own window
+    // contains.
+    const input = { currentMonth: '2026-08', earliestMonth: '1000-01', pro: false }
+    const teased = proTeaserMonth(input)
+    const proWindow = monthWindowFor({ ...input, pro: true })
+
+    expect(teased).not.toBeNull()
+    expect(proWindow).toContain(teased)
   })
 
   test('is null for a pro player — there is nothing left to tease', () => {
