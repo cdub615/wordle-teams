@@ -7,9 +7,9 @@
 // file is about the SENTENCES, because the requirement wordle-teams-jqs4 puts
 // first is a copy requirement: when nobody else has played, it must say so rather
 // than claim a win over zero people.
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import { DailyTeamFact } from './daily-team-fact.tsx'
 import type { ReactNode } from 'react'
 import type { TeamMonth } from '#/lib/insights-team.ts'
@@ -36,18 +36,12 @@ const statsOf = (entries: Record<string, number>, memberIds: string[]): TeamMont
   ],
 })
 
-const fact = (
-  stats: TeamMonth | null,
-  onSeeFullMonth?: () => void,
-  teamName?: string,
-  controls?: ReactNode,
-) =>
+const fact = (stats: TeamMonth | null, teamName?: string, controls?: ReactNode) =>
   render(
     createElement(DailyTeamFact, {
       stats,
       viewerId: 'me',
       today: TODAY,
-      onSeeFullMonth,
       teamName,
       controls,
     }),
@@ -143,7 +137,7 @@ describe('the free daily team fact', () => {
 */
 describe('the empty state, when the card is also the team picker', () => {
   test('renders the card, the header and the dropdown before the viewer has played', () => {
-    fact(statsOf({ a: 4 }, ['me', 'a']), undefined, undefined, aDropdown)
+    fact(statsOf({ a: 4 }, ['me', 'a']), undefined, aDropdown)
 
     expect(screen.queryByTestId('insights-daily-fact')).not.toBeNull()
     expect(screen.queryByTestId('a-dropdown')).not.toBeNull()
@@ -156,21 +150,14 @@ describe('the empty state, when the card is also the team picker', () => {
     // `stats: null` is a month nobody on the team has played. It reaches
     // dailyTeamFact as the same 'no-board' outcome, and the picker has to
     // survive it for the same reason.
-    fact(null, undefined, undefined, aDropdown)
+    fact(null, undefined, aDropdown)
     expect(screen.queryByTestId('a-dropdown')).not.toBeNull()
-  })
-
-  test('and offers no paywall hook off an empty state', () => {
-    // The affordance belongs on a comparison. Advertising the paid surface from
-    // a card that says "you have not played" is the opposite of the pitch.
-    fact(statsOf({ a: 4 }, ['me', 'a']), vi.fn(), undefined, aDropdown)
-    expect(screen.queryByTestId('insights-see-full-month')).toBeNull()
   })
 
   test('still carries the sr-only heading naming the team', () => {
     // The heading is what gives the dropdown something to belong to in the
     // document, and this is the shape where the dropdown is ALL there is.
-    fact(statsOf({ a: 4 }, ['me', 'a']), undefined, 'The Wordlers', aDropdown)
+    fact(statsOf({ a: 4 }, ['me', 'a']), 'The Wordlers', aDropdown)
     expect(screen.getByRole('heading', { level: 2, name: 'The Wordlers' })).not.toBeNull()
   })
 
@@ -179,28 +166,6 @@ describe('the empty state, when the card is also the team picker', () => {
     // which is the rule this whole block is the exception to.
     fact(statsOf({ a: 4 }, ['me', 'a']))
     expect(screen.queryByTestId('insights-daily-fact')).toBeNull()
-  })
-})
-
-describe('the paywall hook', () => {
-  test('offers "see the full month" once there is a comparison to expand', () => {
-    const onSeeFullMonth = vi.fn()
-    fact(statsOf({ me: 3, a: 4 }, ['me', 'a']), onSeeFullMonth)
-
-    const link = screen.getByTestId('insights-see-full-month')
-    expect(link.textContent).toContain('See the full month')
-    fireEvent.click(link)
-    expect(onSeeFullMonth).toHaveBeenCalledOnce()
-  })
-
-  /**
-   * The affordance is what this task owes; the destination belongs to
-   * wordle-teams-iht. Offering it where there is nothing to expand would be
-   * advertising the paid surface off an empty one.
-   */
-  test('and does not offer it when nobody else has played', () => {
-    fact(statsOf({ me: 3 }, ['me', 'a']))
-    expect(screen.queryByTestId('insights-see-full-month')).toBeNull()
   })
 })
 
@@ -218,7 +183,7 @@ describe('the paywall hook', () => {
 */
 describe('the sr-only heading', () => {
   test('names the team, hidden, whether or not the card draws a header', () => {
-    fact(statsOf({ me: 3, a: 4 }, ['me', 'a']), undefined, 'The Wordlers')
+    fact(statsOf({ me: 3, a: 4 }, ['me', 'a']), 'The Wordlers')
     const heading = screen.getByRole('heading', { level: 2, name: 'The Wordlers' })
     expect(heading.className).toContain('sr-only')
     // No controls in this render, so there is no CardHeader — the heading must

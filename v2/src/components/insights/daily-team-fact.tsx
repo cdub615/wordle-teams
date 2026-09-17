@@ -5,7 +5,7 @@ import { dailyTeamFact } from '#/lib/insights-team.ts'
 import type { TeamMonthTeaser } from '../../../convex/lib/teamStats.ts'
 
 /**
- * Layer 3's FREE slice — one fact a day, and the hook to the paid surface.
+ * Layer 3's FREE slice — one fact a day.
  *
  * ONE FACT, PINNED. The spec rejects "one free fact per month" with the
  * arithmetic: the paid surface is six view types times teammates times months, so
@@ -18,18 +18,18 @@ import type { TeamMonthTeaser } from '../../../convex/lib/teamStats.ts'
  * sentence — on a small team early in the day it is the COMMON state, and "you
  * beat 0 of 0 teammates" reads as a loss and a bug at the same time.
  *
- * THE "SEE THE FULL MONTH" TARGET IS A PLACEHOLDER AND MUST STAY ONE. Paywall
- * placement and copy are explicitly out of scope in the spec and belong to
- * wordle-teams-iht. What this task owes is the AFFORDANCE — that there is a hook
- * here, in the right place, at the right moment — not the pitch. Whoever owns iht
- * replaces the handler and the wording; nothing else here needs to move.
+ * THE PAYWALL HOOK LEFT THIS FILE (wordle-teams-iht.2). It used to render a
+ * "See the full month →" button whose handler was deliberately never wired —
+ * the affordance was this card's to own and the destination was iht's. iht
+ * answered with a card instead: team-locked-card.tsx now sits directly beneath
+ * this one and shows the full month, locked. Two calls to action in one region
+ * is why the link went rather than gained a handler.
  */
 export function DailyTeamFact({
   stats,
   viewerId,
   today,
   teamName,
-  onSeeFullMonth,
   controls,
 }: {
   stats: TeamMonthTeaser | null
@@ -49,7 +49,6 @@ export function DailyTeamFact({
    * heading can never come out empty.
    */
   teamName?: string
-  onSeeFullMonth?: () => void
   /**
    * The team dropdown (components/insights/team-scope-controls.tsx), as a node
    * rather than as its props — team-panel.tsx's `controls` states the reasoning
@@ -118,16 +117,6 @@ export function DailyTeamFact({
           dropdown. */}
       <CardContent className={`space-y-2 text-sm ${controls ? '' : 'pt-6'}`}>
         <p data-testid="insights-daily-fact-text">{sentenceFor(fact)}</p>
-        {fact.kind === 'beat' && (
-          <button
-            type="button"
-            className="text-muted-foreground underline"
-            onClick={onSeeFullMonth}
-            data-testid="insights-see-full-month"
-          >
-            See the full month →
-          </button>
-        )}
       </CardContent>
     </Card>
   )

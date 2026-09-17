@@ -343,7 +343,7 @@ async function expectTeamFigures(
 }
 
 test.describe('a free member of a team', () => {
-  test('sees the daily fact and the "see the full month" hook', async ({ page }) => {
+  test('sees the daily fact and the locked team card beneath it', async ({ page }) => {
     // They scored 3, their teammate 5, so they beat one of one.
     await seedTeamOfTwo(page, { mine: 3, theirs: 5, pro: false })
 
@@ -354,7 +354,10 @@ test.describe('a free member of a team', () => {
     // count of one and left the verb plural, on the single most shareable string
     // in the product.
     await expect(fact).toContainText('You beat one of one teammate who has played today')
-    await expect(page.getByTestId('insights-see-full-month')).toBeVisible()
+    // THE TEASER, wordle-teams-iht.2. It replaces a "see the full month" link
+    // that rendered with no handler and did nothing when clicked.
+    await expect(page.getByTestId('insights-team-locked')).toBeVisible()
+    await expect(page.getByTestId('insights-locked-cta')).toContainText('Unlock')
 
     // And NOT the paid surface.
     await expect(page.getByTestId('insights-team')).toHaveCount(0)
@@ -378,9 +381,10 @@ test.describe('a free member of a team', () => {
     await expect(fact).toContainText('your teammate has not played yet')
     await expect(fact).not.toContainText('none of')
     await expect(fact).not.toContainText('beat')
-    // No hook off an empty comparison — that would advertise the paid surface
-    // from a surface with nothing on it.
-    await expect(page.getByTestId('insights-see-full-month')).toHaveCount(0)
+    // The card is present even here — the owner's rule is that it ALWAYS shows,
+    // because a player with too little engagement to be ranked is exactly who
+    // needs to see what is possible. Only its headline changes.
+    await expect(page.getByTestId('insights-team-locked')).toBeVisible()
   })
 })
 
@@ -530,8 +534,10 @@ test.describe('a free member of two teams who has not played today', () => {
     await expect(page.getByTestId('insights-daily-fact-text')).toHaveText(
       'Enter today’s board to see how you compare.',
     )
-    // The empty state is an empty state, not a teaser for the paid surface.
-    await expect(page.getByTestId('insights-see-full-month')).toHaveCount(0)
+    // The card is present even here — the owner's rule is that it ALWAYS shows,
+    // because a player with too little engagement to be ranked is exactly who
+    // needs to see what is possible. Only its headline changes.
+    await expect(page.getByTestId('insights-team-locked')).toBeVisible()
 
     await switchTeam(page, { name: BETA, id: betaId }, 'insights-daily-fact')
     await expect(card.getByRole('button', { name: `Team: ${BETA}` })).toBeVisible()
