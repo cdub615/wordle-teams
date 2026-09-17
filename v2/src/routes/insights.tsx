@@ -265,12 +265,40 @@ function InsightsRoute() {
                   should return them to where they were; the effect's
                   navigations are corrections nobody asked for and would be a
                   Back trap.
+
+                  `resetScroll: false` ON BOTH, AND THIS IS THE EXACT OPPOSITE
+                  OF WHAT routes/app.tsx DOES WITH ITS OWN PICKERS
+                  (wordle-teams-wty4.1.16). That is deliberate on both sides,
+                  not a drift between two pages, and the reason is simply WHERE
+                  THE CONTROL SITS. app.tsx's comment says its TeamPicker and
+                  MonthPicker "sit at the top of the grid and can only be
+                  operated from there, so resetting scroll costs nothing" —
+                  true there, and false here. InsightsPanel renders personal,
+                  then openers, THEN this section, then the day list: insights-
+                  daily was measured at 1233px from the top of the document
+                  (wordle-teams-m08r), so these controls are well below a 720px
+                  fold. A reader operating them has scrolled to reach them, and
+                  the router's `scrollRestoration: true` was throwing them back
+                  to the top of a page they had just scrolled down.
+
+                  THE CORRECTING EFFECT CARRIES THE SAME FLAG, and it has to:
+                  changing to a younger team can invalidate `?month=` and fire a
+                  SECOND navigation out of use-search-sync.ts, which would undo
+                  this one. See that hook for why the flag is right for /app too.
                 */
                 onTeamChange={(team) =>
-                  void navigate({ to: Route.fullPath, search: { team, month: monthParam } })
+                  void navigate({
+                    to: Route.fullPath,
+                    search: { team, month: monthParam },
+                    resetScroll: false,
+                  })
                 }
                 onMonthChange={(month) =>
-                  void navigate({ to: Route.fullPath, search: { team: teamParam, month } })
+                  void navigate({
+                    to: Route.fullPath,
+                    search: { team: teamParam, month },
+                    resetScroll: false,
+                  })
                 }
               />
             }

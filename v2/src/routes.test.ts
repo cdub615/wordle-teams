@@ -76,6 +76,56 @@ const jsxElements = (path: string, tag: string) => jsxElementsOf(path, read(path
 
 const ME = './routes/me.tsx'
 
+const INSIGHTS = './routes/insights.tsx'
+
+/**
+ * THE READER IS NOT THROWN TO THE TOP WHEN THEY CHANGE TEAM OR MONTH
+ * (wordle-teams-wty4.1.16).
+ *
+ * Owner-reported: "changing team or month on the insights page jumps you back
+ * up to the top". The router runs with `scrollRestoration: true` (router.tsx),
+ * so every navigation resets scroll unless it says otherwise, and these two
+ * did not.
+ *
+ * THE ASYMMETRY WITH /app IS THE POINT, AND IS WHY THIS IS PINNED RATHER THAN
+ * LEFT TO READ AS OBVIOUS. routes/app.tsx deliberately does NOT pass this flag
+ * on its own TeamPicker and MonthPicker, and says so: those sit at the top of
+ * the grid, so resetting scroll costs nothing. InsightsPanel renders its team
+ * section below the personal and openers panels — insights-daily measured at
+ * 1233px (wordle-teams-m08r) — so the same rule gives the opposite answer here.
+ * Someone reconciling the two pages could "fix" the inconsistency in either
+ * direction; this is what makes doing it in the wrong one fail.
+ *
+ * ASSERTED BY CONTENT, NOT AS ONE EXACT STRING, exactly as
+ * team-boards.hook.test.ts does for the dashboard's day navigation: the
+ * handlers are multi-line object literals and pinning their formatting would
+ * make this fail on a prettier run.
+ *
+ * IT CANNOT SEE THE CONSEQUENCE AND DOES NOT PRETEND TO. jsdom has no scroll
+ * restoration and no router here. app.tsx:1150 records that an e2e for this was
+ * written, found not to discriminate, and deleted rather than left looking like
+ * coverage — Playwright scrolls a target into view before clicking it and
+ * treats anything near the top as obscured by the sticky header, so the
+ * before/after positions are the harness's own. The behaviour was verified by
+ * intercepting `window.scrollTo`, which is the technique that comment
+ * recommends; this pins the flag so it cannot quietly go away afterwards.
+ */
+describe('/insights keeps the reader where they were', () => {
+  test('both the team and the month navigation opt out of scroll reset', () => {
+    const props = jsxProps(INSIGHTS, 'TeamSection')
+
+    const onTeamChange = props.get('onTeamChange') ?? ''
+    expect(onTeamChange).toContain('navigate(')
+    expect(onTeamChange).toContain('search: { team, month: monthParam }')
+    expect(onTeamChange).toContain('resetScroll: false')
+
+    const onMonthChange = props.get('onMonthChange') ?? ''
+    expect(onMonthChange).toContain('navigate(')
+    expect(onMonthChange).toContain('search: { team: teamParam, month }')
+    expect(onMonthChange).toContain('resetScroll: false')
+  })
+})
+
 describe('/me, the route v1 PWA installs open on', () => {
   // Read inside each test rather than at describe scope, so a deleted file is
   // a named assertion failure instead of a bare ENOENT during collection.

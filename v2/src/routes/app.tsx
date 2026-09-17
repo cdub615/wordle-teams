@@ -1173,6 +1173,15 @@ function Dashboard() {
               // controls sit at the top of the grid and can only be operated
               // from there, so resetting scroll costs nothing and the default
               // is what every other navigation in the app does.
+              //
+              // /insights SETS IT ON ITS OWN TEAM AND MONTH PICKERS, and that
+              // is not this page drifting from that one (wordle-teams-wty4.1.16).
+              // The rule is the same on both — keep the reader where they are
+              // when the control they used is somewhere they had to scroll to —
+              // and it produces opposite answers because InsightsPanel renders
+              // its team section below the personal and openers panels, around
+              // 1200px down, while these two sit at the top. If a picker ever
+              // moves down this page, the flag should follow it.
               resetScroll: false,
             })
           }

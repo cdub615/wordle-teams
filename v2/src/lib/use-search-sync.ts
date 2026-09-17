@@ -75,6 +75,7 @@ export function useSearchSync({
     to: string
     search: { team: string; month: string }
     replace: boolean
+    resetScroll: boolean
   }) => unknown
   /** The route to navigate within — `Route.fullPath` at both call sites. */
   to: string
@@ -99,7 +100,26 @@ export function useSearchSync({
       storedTeam: localStorage.getItem(STORAGE_KEY),
       currentMonth: monthOf(toPuzzleDay(new Date())),
     })
-    if (next) void navigate({ to, search: next, replace: true })
+    /*
+      `resetScroll: false` BECAUSE THIS NAVIGATION IS A CORRECTION NOBODY ASKED
+      FOR (wordle-teams-wty4.1.16). The router's `scrollRestoration: true`
+      (router.tsx) scrolls to top on every navigation, and throwing a reader to
+      the top of the page is a reasonable thing to do when they asked to go
+      somewhere — but this effect fires when the URL they arrived with, or the
+      one a team change just produced, names a month the selected team's window
+      does not reach. They did not ask for it and should not be moved by it.
+
+      IT IS WHAT MAKES THE /insights FIX COMPLETE rather than a separate tidy-up.
+      A team change there already passes `resetScroll: false`, but switching to a
+      YOUNGER team while viewing an old month invalidates `?month=` and lands
+      here, so without this the reader is thrown to the top anyway on exactly
+      the case the fix was about.
+
+      ON /app THIS IS ALL BUT INVISIBLE, which is why one flag serves both
+      callers: its team and month pickers sit at the top of the grid, so a
+      reader operating them is already at the top and has no scroll to keep.
+    */
+    if (next) void navigate({ to, search: next, replace: true, resetScroll: false })
   }, [hydrated, teamParam, monthParam, teams, resolve, navigate, to])
 
   /*

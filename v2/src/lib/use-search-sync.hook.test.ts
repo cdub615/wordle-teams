@@ -98,8 +98,44 @@ const mount = (
 describe('when the effect runs', () => {
   test('navigates once the resolver asks for it', () => {
     const { went } = mount({ teamParam: undefined, monthParam: undefined })
-    expect(went).toEqual([{ to: '/app', search: { team: 'team_a', month: '2026-09' }, replace: true }])
+    // The WHOLE argument object, deliberately — `toEqual` on the array is what
+    // makes an added or dropped option fail here rather than pass quietly. It
+    // is how `resetScroll` arrived with a failing test rather than a green one.
+    expect(went).toEqual([
+      {
+        to: '/app',
+        search: { team: 'team_a', month: '2026-09' },
+        replace: true,
+        resetScroll: false,
+      },
+    ])
   })
+
+  test('and does NOT reset scroll, because this is a correction nobody asked for',
+    () => {
+      /*
+       * wordle-teams-wty4.1.16. The router runs `scrollRestoration: true`
+       * (router.tsx), so every navigation throws the reader to the top unless it
+       * opts out. This effect fires when the URL the reader arrived with — or
+       * the one a team change just produced — names a month the selected team's
+       * window does not reach. They did not ask to go anywhere, so they should
+       * not be moved.
+       *
+       * IT IS WHAT MAKES THE /insights FIX HOLD. That page passes
+       * `resetScroll: false` on its own team and month pickers, which sit ~1200px
+       * down the page; but switching to a YOUNGER team invalidates `?month=` and
+       * lands here, so without this the second navigation would undo the first on
+       * exactly the case the fix was about.
+       *
+       * ASSERTED SEPARATELY FROM THE toEqual ABOVE even though that already
+       * covers it, because that test's subject is "it navigates at all" and this
+       * one names the property and the reason — a later reader trimming the
+       * argument object has to delete an assertion whose comment says why.
+       */
+      const { went } = mount({ teamParam: undefined, monthParam: undefined })
+      expect(went).toHaveLength(1)
+      expect((went[0] as { resetScroll: boolean }).resetScroll).toBe(false)
+    })
 
   test('REPLACES rather than pushes, because nobody asked to come here', () => {
     // The effect's navigations are corrections. Pushing them would make Back a
