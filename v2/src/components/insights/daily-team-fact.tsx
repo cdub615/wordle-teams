@@ -148,7 +148,29 @@ function sentenceFor(fact: ReturnType<typeof dailyTeamFact>): string {
     case 'no-board':
       return 'Enter today’s board to see how you compare.'
     case 'alone':
-      return 'You entered today’s board. Invite a teammate to compare scores.'
+      /*
+         NO INVITE ASK HERE, AND ITS ABSENCE IS THE POINT (wordle-teams-iht.2).
+         This used to read "... Invite a teammate to compare scores." — inert
+         prose asking for something, sitting directly above team-locked-card's
+         live "Invite a teammate" BUTTON. That is the same shape this file was
+         just cleaned of: a dead affordance above the working one that replaced
+         it, four asks inside six lines (six for a screen reader, since the
+         card's redacted slots each say "once you have a teammate").
+
+         THE SPEC'S TWO-CARD RULE DECIDES WHO OWNS IT: this card is "what you
+         have", the card below is "what you don't have but would". An ask
+         belongs only in the second, and belongs there as a control rather than
+         a sentence. So this sentence does the one job left to it — confirming
+         the board landed.
+
+         IT DOES NOT FOLLOW that the card below is always showing its own solo
+         state when this branch renders: this reads the AGGREGATE's member count
+         and the card's `solo` comes from the ROSTER, which can disagree in the
+         window after a join or a leave. That divergence is wordle-teams-iht.4
+         and is not fixed here. Dropping the ask makes it quieter either way —
+         two cards that say different things is worse when both are asking.
+      */
+      return 'You entered today’s board.'
     // ONE TEAMMATE IS NOT "none of your one teammates". The singular drops the
     // quantifier entirely rather than trying to inflect it, which is what every
     // attempt to keep "none of" at a count of one reads like.

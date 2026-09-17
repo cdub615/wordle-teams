@@ -101,10 +101,20 @@ describe('the free daily team fact', () => {
     expect(text).not.toContain('1 teammates')
   })
 
-  test('a solo team is asked to invite somebody, not told they won', () => {
+  test('a solo team is told their board landed, and is NOT asked to invite here', () => {
+    // THE ASK BELONGS TO THE CARD BELOW (wordle-teams-iht.2), as a button
+    // rather than a sentence. This assertion is the stronger half of the swap
+    // it replaced: the old one pinned that the ask was present, so it could not
+    // have caught the duplication — an inert "Invite a teammate" sentence
+    // sitting directly above team-locked-card's live Invite button, which is
+    // the dead-affordance-above-the-working-one shape this file was just
+    // cleaned of. This one fails if it comes back.
     fact(statsOf({ me: 3 }, ['me']))
     const text = screen.getByTestId('insights-daily-fact-text').textContent ?? ''
-    expect(text).toContain('Invite a teammate')
+    expect(text).toContain('You entered today’s board')
+    expect(text).not.toContain('Invite')
+    // Still never a claim of victory over nobody, which is what this test was
+    // originally written for.
     expect(text).not.toContain('beat')
   })
 
