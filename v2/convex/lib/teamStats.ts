@@ -46,6 +46,33 @@ export type TeamMonthStats<PlayerId extends string = string> = {
   days: { puzzleDay: PuzzleDay; entries: DayEntry<PlayerId>[] }[]
 }
 
+/**
+ * THE FREE TIER'S SLICE — identities and (at most) one day, never the totals
+ * (wordle-teams-iht.3.2).
+ *
+ * WHY IT IS A SEPARATE TYPE RATHER THAN A TeamMonthStats WITH THE NUMBERS SET
+ * TO ZERO. A zero here would mean "withheld" while reading as "played nothing",
+ * and the first surface to render it would say so out loud — a real score of 0
+ * and a redacted one must not be the same value. So the fields are ABSENT and
+ * the compiler is what stops anyone reading them.
+ *
+ * TeamMonthStats IS ASSIGNABLE TO THIS, which is the whole reason it is shaped
+ * as a widening rather than as a sibling: MemberTotals already carries
+ * `playerId`, so a function that only needs identities and a day — dailyTeamFact
+ * is the only one — can take this type and accept BOTH payloads without a cast
+ * and without a second code path. The narrowing is real (no totals reach the
+ * wire) while the consumer stays single.
+ *
+ * `days` IS ZERO OR ONE ENTRY IN PRACTICE, not the whole month. The type cannot
+ * say so and deliberately does not try: the paid payload satisfies it with
+ * thirty-one, and a length the type cannot enforce is better asserted in the
+ * test that watches the wire (convex/insights.test.ts) than implied here.
+ */
+export type TeamMonthTeaser<PlayerId extends string = string> = {
+  members: { playerId: PlayerId }[]
+  days: { puzzleDay: PuzzleDay; entries: DayEntry<PlayerId>[] }[]
+}
+
 export type StatsInput<PlayerId extends string = string> = {
   playerId: PlayerId
   puzzleDay: PuzzleDay

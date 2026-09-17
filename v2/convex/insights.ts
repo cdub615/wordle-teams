@@ -3,7 +3,8 @@ import { query } from './_generated/server'
 import { currentPlayer, insightsAccessFor, requireTeamMemberFor } from './access'
 import { attemptsFor } from './lib/board.ts'
 import { visibleSlice } from './lib/globalThreshold.ts'
-import type { InsightsAccess } from './lib/insightsAccess.ts'
+import { hasFullTeamMonth, type InsightsAccess } from './lib/insightsAccess.ts'
+import { isPlausibleToday, toPuzzleDay, type PuzzleDay } from './lib/puzzleDay.ts'
 
 /**
  * The boards Layer 1 benchmarks, and what this player is allowed to see of them.
@@ -149,8 +150,8 @@ function visible(board: { puzzleDay: string; guesses: string[]; answer?: string 
  * real and common state, not a failure, and the caller renders it as one.
  */
 export const teamMonth = query({
-  args: { teamId: v.id('teams'), month: v.string() },
-  handler: async (ctx, { teamId, month }) => {
+  args: { teamId: v.id('teams'), month: v.string(), today: v.string() },
+  handler: async (ctx, { teamId, month, today }) => {
     const player = await currentPlayer(ctx)
     if (!player) return null
 
@@ -178,11 +179,85 @@ export const teamMonth = query({
       })
     }
 
+    /*
+      THE PAYWALL, AND IT IS A PAYLOAD RULE RATHER THAN A RENDERING ONE
+      (wordle-teams-iht.3.2).
+
+      WHAT IT REPLACED: this used to return `stats` unconditionally, having
+      resolved `access` and consulted it for nothing. Every paid Layer 3 view is
+      a pure client function over that one object (lib/insights-team.ts), so a
+      free viewer's browser already held everything needed to compute the entire
+      paid surface — head-to-heads, member averages, best and worst days, the
+      lot. Layer 3 was a presentation tier wearing a paywall's clothes.
+
+      TWO FIELDS, NOT ONE UNION. `stats` is the paid payload and `teaser` is the
+      free one, and exactly one of them is ever non-null. A discriminated union
+      would have been the tidier type and is deliberately not used: two fields
+      mean TeamPanel keeps reading `stats` with its existing type and needs no
+      narrowing, and — the part that matters — a free viewer's `stats` is `null`,
+      so if some future branch renders the paid panel to the wrong tier it gets
+      the empty state rather than the month. IT FAILS CLOSED BY CONSTRUCTION,
+      which a union would leave to whoever writes the narrowing.
+
+      NOTHING PREVIOUSLY VISIBLE IS TAKEN AWAY, which is a hard constraint in the
+      spec (see lib/insightsAccess.ts: "NOTHING PREVIOUSLY FREE MOVES BEHIND THE
+      PAYWALL"). The free surface is DailyTeamFact — one fact about today — and
+      dailyTeamFact reads exactly two things: today's entry, and how many members
+      there are. Both are still here. What leaves the wire is the other thirty
+      days and every member's boards/attempts/solved/failed, none of which was
+      ever rendered to a free viewer.
+    */
+    if (!hasFullTeamMonth(access.layer3)) {
+      /*
+        `today` COMES FROM THE CLIENT AND IS BOUNDED HERE, rather than being read
+        off the server's clock and imposed.
+
+        WHY NOT JUST USE THE SERVER'S. "Today" is a client-local fact — the
+        repo's convention throughout (puzzleDay.ts's own note: "a pure function
+        must take it as an argument rather than reach for one itself"). A player
+        far enough east or west of the backend is on a different puzzle day for
+        hours at a time, and serving them the server's day would blank their one
+        free fact with 'no-board' for no reason they could see.
+
+        WHY IT IS BOUNDED ANYWAY. Unbounded, a free client could walk the month a
+        day at a time and reassemble exactly what this gate exists to withhold.
+        `isPlausibleToday` is the same +/-1 day tolerance requirePlausibleToday
+        uses, so the most a lying client can reach is three days of entries — of
+        boards it can already read one by one on the dashboard.
+
+        IT FALLS BACK RATHER THAN THROWING, unlike requirePlausibleToday. This
+        query is a READ on a page, not a write: refusing it would take the
+        insights page away from someone whose device clock is wrong, which is a
+        worse failure than showing them the server's day.
+      */
+      const serverToday = toPuzzleDay(new Date())
+      const day = isPlausibleToday(today as PuzzleDay, serverToday) ? today : serverToday
+
+      return {
+        access,
+        viewerId: player._id,
+        roster,
+        stats: null,
+        teaser: stats
+          ? {
+              // IDENTITIES ONLY. dailyTeamFact counts these to know how many
+              // teammates there are; it never reads a total, and the totals are
+              // what memberAverages and the rest are built from.
+              members: stats.members.map(({ playerId }) => ({ playerId })),
+              days: stats.days.filter((entry) => entry.puzzleDay === day),
+            }
+          : null,
+      }
+    }
+
     return {
       access,
       viewerId: player._id,
       roster,
       stats: stats ? { members: stats.members, days: stats.days } : null,
+      // Pro and trial read `stats`; this is here so both branches return the
+      // same KEYS and the client never has to test for a missing field.
+      teaser: null,
     }
   },
 })

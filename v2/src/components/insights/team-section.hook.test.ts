@@ -30,6 +30,7 @@ import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { teamMonthOptions } from '#/lib/insights-months.ts'
+import { hasFullTeamMonth } from '../../../convex/lib/insightsAccess.ts'
 import { monthOf, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -83,6 +84,18 @@ const pastTeamMonth = {
 }
 
 /**
+ * THE TIER THE CURRENT RENDER IS FOR, set by `section` before it renders.
+ *
+ * A MODULE VARIABLE BECAUSE THE MOCK CANNOT SEE PROPS. `useQuery` is replaced
+ * wholesale, so the only things it receives are the query args — which carry the
+ * team, the month and today, but deliberately not the viewer's tier (the real
+ * server reads that from the session, never from an argument, which is what
+ * stops a client asking for the paid payload). Mirroring that split therefore
+ * needs the tier passed out of band, and this is it.
+ */
+let renderedTier: 'free' | 'full' = 'full'
+
+/**
  * Every `insights.teamMonth` args object TeamSection has asked for this test,
  * newest last — including the string 'skip', which is how that component says
  * "do not read at all" (see the route's own note on why `enabled` cannot).
@@ -102,7 +115,33 @@ const asked: unknown[] = []
 const answerFor = (args: unknown) => {
   if (args === 'skip' || args === undefined) return undefined
   const { month } = args as { month: string }
-  return month === monthOf(today) ? teamMonth : pastTeamMonth
+  const answer = month === monthOf(today) ? teamMonth : pastTeamMonth
+
+  /*
+    AND IT SPLITS BY TIER THE WAY THE SERVER DOES (wordle-teams-iht.3.2), for
+    exactly the reason the month-keying above is keyed rather than constant: a
+    mock that populated BOTH `stats` and `teaser` would let the free branch read
+    either one and still render its fact, so "the free branch reads the field the
+    server actually fills" could not fail. The real teamMonth never returns both
+    — one is always null — and neither does this.
+
+    IT CALLS hasFullTeamMonth RATHER THAN RE-SPELLING THE RULE, so the fixture
+    cannot drift from the gate it is standing in for.
+  */
+  if (hasFullTeamMonth(renderedTier)) {
+    return { ...answer, stats: answer.stats, teaser: null }
+  }
+  return {
+    ...answer,
+    stats: null,
+    teaser: {
+      // Identities only, and today's entry only — the reduction the server
+      // performs, reproduced here so the free branch is tested against what it
+      // will actually be handed rather than against the full month.
+      members: answer.stats.members.map(({ playerId }) => ({ playerId })),
+      days: answer.stats.days.filter((entry) => entry.puzzleDay === today),
+    },
+  }
 }
 
 // Answers the ONE query Layer 3 makes (`insights.teamMonth`). TrialEndedCard
@@ -228,6 +267,7 @@ const section = (options: {
   // presence, not its contents.
   const month = 'month' in options ? options.month : monthOf(today)
   const team = 'team' in options ? options.team : teams[0]
+  renderedTier = layer3
   asked.length = 0
   return render(
     createElement(TeamSection, {
@@ -306,7 +346,7 @@ describe('the month each branch reads', () => {
 
   test('and it asks for the CURRENT month, whatever ?month= says', () => {
     section({ layer3: 'free', teamCount: 2, month: pastMonth })
-    expect(asked).toEqual([{ teamId: 'team_a', month: monthOf(today) }])
+    expect(asked).toEqual([{ teamId: 'team_a', month: monthOf(today), today }])
   })
 
   test('the pro branch still asks for the month that was selected', () => {
@@ -314,7 +354,7 @@ describe('the month each branch reads', () => {
     // month and seeing that month's card is the entire feature, and they have
     // the month dropdown to come back with.
     section({ layer3: 'full', teamCount: 2, month: pastMonth })
-    expect(asked).toEqual([{ teamId: 'team_a', month: pastMonth }])
+    expect(asked).toEqual([{ teamId: 'team_a', month: pastMonth, today }])
     expect(screen.queryByTestId('insights-team')).not.toBeNull()
   })
 
@@ -565,8 +605,15 @@ describe('the guards and the query, read from the component source', () => {
     // (mutant-checked both ways) by "the month each branch reads" above. This
     // line is here so that a refactor reaching for the bare `month` again has to
     // walk past a second failure.
+    //
+    // `today` RIDES ALONG SINCE wordle-teams-iht.3.2 and is asserted with the
+    // rest: the server needs it to choose which day survives into the free
+    // tier's payload, so a refactor that drops it from the args does not fail
+    // loudly — it silently hands every free viewer the server's own day, which
+    // is wrong for anyone in a distant timezone and shows as a missing fact
+    // rather than as an error.
     expect(teamSectionCode).toContain(
-      "team && queryMonth ? { teamId: team.id, month: queryMonth } : 'skip'",
+      "team && queryMonth ? { teamId: team.id, month: queryMonth, today } : 'skip'",
     )
     expect(teamSectionCode).not.toContain('enabled')
   })

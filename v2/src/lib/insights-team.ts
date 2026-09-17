@@ -1,4 +1,4 @@
-import type { TeamMonthStats } from '../../convex/lib/teamStats.ts'
+import type { TeamMonthStats, TeamMonthTeaser } from '../../convex/lib/teamStats.ts'
 import type { PuzzleDay, PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
 
 /**
@@ -253,7 +253,15 @@ export type DailyFact =
  * skipped day in head-to-head.
  */
 export function dailyTeamFact(
-  stats: TeamMonth | null,
+  /*
+    THE TEASER TYPE, NOT TeamMonth, AND THAT IS THE POINT (wordle-teams-iht.3.2).
+    This is the one free-tier view, so it is the one function that must work on
+    the reduced payload the server now sends. Taking the WIDER type means the
+    paid payload still satisfies it — TeamMonthStats is assignable to
+    TeamMonthTeaser — so there is still exactly one implementation, while the
+    compiler now refuses any attempt to read a member total in here.
+  */
+  stats: TeamMonthTeaser | null,
   viewerId: PlayerId,
   today: PuzzleDay,
 ): DailyFact {

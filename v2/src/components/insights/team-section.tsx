@@ -141,7 +141,20 @@ export function TeamSection({
   const { data } = useQuery(
     convexQuery(
       api.insights.teamMonth,
-      team && queryMonth ? { teamId: team.id, month: queryMonth } : 'skip',
+      /*
+        `today` IS AN ARG NOW (wordle-teams-iht.3.2): the server needs it to know
+        WHICH day to keep in the free tier's payload, and "today" is a
+        client-local fact the backend cannot read off its own clock without
+        blanking the fact for anyone in a distant timezone. The server bounds it
+        to +/-1 day and falls back to its own, so a wrong device clock costs a
+        stale fact rather than the page.
+
+        IT IS SENT ON BOTH BRANCHES even though only the free one uses it, so
+        there is one set of query args rather than two shapes to keep in step.
+        It re-keys the query at midnight, which is correct rather than merely
+        harmless: the fact is about today.
+      */
+      team && queryMonth ? { teamId: team.id, month: queryMonth, today } : 'skip',
     ),
   )
 
@@ -213,7 +226,13 @@ export function TeamSection({
   if (!hasFullTeamMonth(layer3)) {
     return (
       <DailyTeamFact
-        stats={data.stats}
+        /*
+          `teaser`, NOT `stats`. The server sends this branch identities and
+          today's entry only, and leaves `stats` null for a free viewer
+          (wordle-teams-iht.3.2) — so reading `stats` here would render the
+          empty state rather than the fact.
+        */
+        stats={data.teaser}
         viewerId={data.viewerId}
         today={today}
         /* For the card's sr-only heading — it has no painted title. */

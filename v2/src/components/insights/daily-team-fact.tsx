@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import { CONTROLS_ONLY_HEADER } from '#/components/insights/team-scope-controls.tsx'
-import { dailyTeamFact, type TeamMonth } from '#/lib/insights-team.ts'
+import { dailyTeamFact } from '#/lib/insights-team.ts'
+import type { TeamMonthTeaser } from '../../../convex/lib/teamStats.ts'
 
 /**
  * Layer 3's FREE slice — one fact a day, and the hook to the paid surface.
@@ -31,7 +32,7 @@ export function DailyTeamFact({
   onSeeFullMonth,
   controls,
 }: {
-  stats: TeamMonth | null
+  stats: TeamMonthTeaser | null
   viewerId: string
   today: string
   /**
