@@ -32,7 +32,8 @@ The first draft was reviewed by four adversarial passes on separate failure mode
 - Component tests are `*.hook.test.ts` with `// @vitest-environment jsdom` and `createElement`. vitest's glob is `src/**/*.test.ts`, so a `.tsx` test file would silently not run.
 - User-facing copy uses typographic apostrophes (`’`).
 - `formatMonthLabel` renders **short** months: `'2023-03'` → `"Mar 2023"` (`src/lib/format-day.ts:13`). Never write "March 2023" in an assertion.
-- Comments explain WHY, at length, matching the density of the file you are in. Check every factual claim about another file against that file before writing it. If a test fails against a label or field name this plan gives you, **fix the plan's value, do not loosen the assertion** — a loosened matcher is how the one thing a test exists to pin gets deleted.
+- Comments explain WHY, at length, matching the density of the file you are in. Check every factual claim about another file against that file before writing it.
+- **Watch the tense on anything this plan has not built yet.** Three comments in this plan asserted, in the present tense, behaviour that a LATER task creates — `dashboard-months.ts` in task 1, `routes/app.tsx`'s `?month=` correction in tasks 2 and 3. Each was true of the finished feature and false on the day it was committed, which is exactly the defect class task 8 exists to discharge. If a comment you are writing describes something a later task builds, say so and name the task. Two of the three were caught by implementers flagging them rather than by review. If a test fails against a label or field name this plan gives you, **fix the plan's value, do not loosen the assertion** — a loosened matcher is how the one thing a test exists to pin gets deleted.
 
 ## Three decisions inside the approved design
 
@@ -1061,8 +1062,9 @@ In `typedCodeMessage`:
 ```ts
     case 'MONTH_OUT_OF_WINDOW':
       // A BACKSTOP, NOT A CONVERSION SURFACE. The dropdown never offers a month
-      // outside the window and routes/app.tsx corrects a ?month= that falls
-      // outside one, so a browser user is not expected to reach this — it exists
+      // outside the window, and once task 6 lands routes/app.tsx will correct a
+      // ?month= that falls outside one, so a browser user is not expected to
+      // reach this — it exists
       // so the tier is real against a direct call. The free player's actual
       // prompt is the dropdown's "Back to <month> · Pro" row, and the upgrade
       // flow belongs to wordle-teams-iht.1.

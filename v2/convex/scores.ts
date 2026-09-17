@@ -159,9 +159,13 @@ export const getTeamMonth = query({
  * visible on the scoreboard the same way.
  *
  * A LEAVING MEMBER CAN THEREFORE SHRINK THE WINDOW UNDER A VIEWER SITTING ON AN
- * OLD MONTH. The client corrects for it — routes/app.tsx moves `?month=` back into
- * the window whenever it falls outside — which is the same correction a team
- * change gets, for the same reason: the viewer did nothing wrong.
+ * OLD MONTH. NOTHING CORRECTS FOR THAT YET: routes/app.tsx will move `?month=`
+ * back into the window whenever it falls outside, but that is wordle-teams-kusd's
+ * task 6 and it has not landed. Until it does, a viewer whose window shrinks under
+ * them keeps a `?month=` the window no longer contains — harmless while task 3's
+ * server gate is also unbuilt, and the reason task 6 must not be skipped. It is
+ * the same correction a team change will get, for the same reason: the viewer did
+ * nothing wrong.
  *
  * DO NOT "OPTIMISE" THIS ONTO teamMonthStats. That table is computed, its coverage
  * of old months is not guaranteed, and reading it here would recreate exactly the
