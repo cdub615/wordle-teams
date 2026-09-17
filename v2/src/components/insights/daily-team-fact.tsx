@@ -5,7 +5,7 @@ import { dailyTeamFact } from '#/lib/insights-team.ts'
 import type { TeamMonthTeaser } from '../../../convex/lib/teamStats.ts'
 
 /**
- * Layer 3's FREE slice — one fact a day.
+ * Layer 3's free slice, above the locked card — one fact a day.
  *
  * ONE FACT, PINNED. The spec rejects "one free fact per month" with the
  * arithmetic: the paid surface is six view types times teammates times months, so

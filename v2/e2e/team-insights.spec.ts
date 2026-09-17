@@ -358,6 +358,15 @@ test.describe('a free member of a team', () => {
     // that rendered with no handler and did nothing when clicked.
     await expect(page.getByTestId('insights-team-locked')).toBeVisible()
     await expect(page.getByTestId('insights-locked-cta')).toContainText('Unlock')
+    // THE RANK ITSELF, FROM A REAL PAYLOAD — not a hand-built prop and not the
+    // server test's pinned response. They beat their one teammate, so they are
+    // 1st of 2.
+    await expect(page.getByTestId('insights-locked-headline')).toHaveText(
+      'You’re 1st of 2 this month',
+    )
+    // AND A REAL TEAMMATE NAME REACHING THE ROW — e2eSeed.ensureSharedTeamFor
+    // names the second player 'PlayerB'.
+    await expect(page.getByTestId('insights-locked-h2h')).toContainText('PlayerB')
 
     // And NOT the paid surface.
     await expect(page.getByTestId('insights-team')).toHaveCount(0)
@@ -383,10 +392,12 @@ test.describe('a free member of a team', () => {
     await expect(fact).not.toContainText('beat')
     // The card is present even here — the owner's rule is that it ALWAYS shows,
     // because a player with too little engagement to be ranked is exactly who
-    // needs to see what is possible. In this two-person, not-solo state only
-    // its headline changes — a solo team instead swaps the CTA to "Invite a
-    // teammate" and collapses the head-to-head to a generic row.
+    // needs to see what is possible.
     await expect(page.getByTestId('insights-team-locked')).toBeVisible()
+    // THE ONLY PLACE IN THE SUITE WHERE THE SERVER GENUINELY PRODUCES
+    // 'nobody-else' END TO END — the exact copy that distinguishes it from
+    // 'not-played' is the entire reason the tag exists (see headlineFor).
+    await expect(page.getByTestId('insights-locked-headline')).toContainText('only one playing')
   })
 })
 
@@ -538,9 +549,7 @@ test.describe('a free member of two teams who has not played today', () => {
     )
     // The card is present even here — the owner's rule is that it ALWAYS shows,
     // because a player with too little engagement to be ranked is exactly who
-    // needs to see what is possible. In this two-person, not-solo state only
-    // its headline changes — a solo team instead swaps the CTA to "Invite a
-    // teammate" and collapses the head-to-head to a generic row.
+    // needs to see what is possible.
     await expect(page.getByTestId('insights-team-locked')).toBeVisible()
 
     await switchTeam(page, { name: BETA, id: betaId }, 'insights-daily-fact')

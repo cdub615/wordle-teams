@@ -35,14 +35,14 @@ import type { TeamRankTeaser } from '../../../convex/lib/teamStats.ts'
  * team-section.tsx decides whether it renders at all.
  *
  * THE CALLBACKS ARE PROPS BECAUSE OF `onInvite`, NOT `onUpgrade`. Calling
- * useStartUpgrade in a component is fine and three components do it. A
- * router-dependent hook is not literally impossible here either —
- * no-team-card.tsx calls one directly (`Link`), and team-section.hook.test.ts
- * copes with it by mocking `@tanstack/react-router`. But every test in THIS
- * file renders the card bare, so a prop avoids adding that module mock just to
- * route on click. Taking `onUpgrade` as a prop too, and not only `onInvite`,
- * keeps the pair symmetrical instead of splitting them over an implementation
- * detail.
+ * useStartUpgrade in a component is fine and three components do it. Routing
+ * directly is not literally impossible here either — no-team-card.tsx uses
+ * `Link` from `@tanstack/react-router` for the same purpose, and
+ * team-section.hook.test.ts copes with it by mocking that module. But every
+ * test in THIS file renders the card bare, so a prop avoids adding that module
+ * mock just to route on click. Taking `onUpgrade` as a prop too, and not only
+ * `onInvite`, keeps the pair symmetrical instead of splitting them over an
+ * implementation detail.
  */
 export function TeamLockedCard({
   teamName,
@@ -84,10 +84,10 @@ export function TeamLockedCard({
         {/*
           A REAL <h2>, NOT A <p> (review finding). Every sibling card carries
           one — daily-team-fact.tsx and team-panel.tsx both give theirs an `h2`
-          so the region has a name to navigate to, which is the defect
-          wordle-teams-4b0m fixed on the card directly above this one. Here the
-          scope line is already visible and already names the team, so it BECOMES
-          the heading rather than an sr-only duplicate of itself.
+          so the region has a name to navigate to, which is what wordle-teams-cwmf
+          (682f04de) fixed on the card directly above this one. Here the scope
+          line is already visible and already names the team, so it BECOMES the
+          heading rather than an sr-only duplicate of itself.
         */}
         <CardTitle asChild className="text-muted-foreground text-xs font-normal">
           <h2 data-testid="insights-locked-scope">

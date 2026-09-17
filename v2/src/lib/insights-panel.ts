@@ -196,7 +196,10 @@ export function upsellFor({
 
   // "one team fact a day" IS WHAT THE FREE TIER ACTUALLY GETS — DailyTeamFact,
   // not a cut-down panel — so it is only honest to name it where that is the
-  // surface the reader is looking at.
+  // surface the reader is looking at. The free tier also gets a locked teaser
+  // card beneath it (team-locked-card.tsx); that card's own copy is a separate,
+  // deliberately out-of-scope decision (spec §7), so this promise names only
+  // the one thing an upgrade actually unlocks.
   const free = teamLocked
     ? 'Free shows your most recent board and one team fact a day.'
     : 'Free shows your most recent board.'

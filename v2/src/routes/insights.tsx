@@ -339,7 +339,7 @@ function InsightsRoute() {
               different trigger.
 
               `!hasFullTeamMonth(data.access.layer3)` NARROWS FURTHER, for the
-              same reason current-team-card.tsx:326 gates its own mount on
+              same reason current-team-card.tsx:333 gates its own mount on
               `isOwner`: InvitePlayerDialog calls useVisualViewport
               unconditionally (invite-player-dialog.tsx:66), and that hook's
               effect attaches `resize` and `scroll` listeners on MOUNT, not on

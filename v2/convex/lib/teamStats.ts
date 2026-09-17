@@ -239,8 +239,8 @@ export function meanAttemptsOf(member: { boards: number; attempts: number }): nu
  * they know whether they have played, the roster is on the dashboard, and
  * "nobody else has played" is visible in the scores table.
  *
- * `solo` IS NOT DECIDED HERE — see teamMonth. It is a fact about the ROSTER,
- * and this function only sees the aggregate, which can lag a roster change.
+ * `solo` IS NOT DECIDED HERE — see teamRank's own doc below for why the
+ * aggregate this type also describes can't be the one to decide it.
  */
 export type TeamRankTeaser =
   | { kind: 'ranked'; rank: number; of: number }
