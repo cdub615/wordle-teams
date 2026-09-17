@@ -4,7 +4,7 @@
 
 **Goal:** Give Pro players month history back to their team's earliest board, enforced on the server, and produce the one canonical statement of what Pro includes.
 
-**Architecture:** One import-free rule module (`convex/lib/monthWindow.ts`) is imported by both the browser, which builds the month dropdown from it, and by `getTeamMonthFor`, which refuses anything below its floor. A per-selected-team query supplies the rule's two inputs. `src/lib/pro-benefits.ts` falls out at the end as the inventory that wordle-teams-iht.1 and wordle-teams-wty4.1.14 both consume.
+**Architecture:** One rule module (`convex/lib/monthWindow.ts`) is imported by both the browser, which builds the month dropdown from it, and by `getTeamMonthFor`, which refuses anything below its floor. A per-selected-team query supplies the team's earliest board month; the viewer's Pro status comes from the `amIPro` subscription `routes/app.tsx` already holds. `src/lib/pro-benefits.ts` falls out at the end as the inventory that wordle-teams-iht.1 and wordle-teams-wty4.1.14 both consume.
 
 **Tech Stack:** TypeScript, Convex, TanStack Router + Query, React 19, Radix DropdownMenu, vitest (edge-runtime by default, jsdom for component tests), convex-test.
 
@@ -13,22 +13,34 @@
 
 ---
 
+## This is the second draft. Read this before anything else.
+
+The first draft was reviewed by four adversarial passes on separate failure modes. They found **ten blockers and no false positives**. Every one is fixed below, but three deserve naming up front because they are the reason particular steps look the way they do:
+
+1. **The Pro window was narrower than the free window** for any team younger than three months — upgrading would have *removed* months from the dropdown, which is the exact regression this work exists to close. The first draft's tests asserted the broken behaviour as correct. Task 1 now carries a `Math.max(FREE_MONTHS, span)` floor and a test that fails without it.
+2. **The new error message would have been dead code.** `typedCodeMessage` is exhaustive, so typecheck forces a case — but `convexErrorCode` (`src/lib/convex-error.ts:17-43`) is a hand-written 22-term `||` chain ending in `return null`, and nothing forces that. The case would have been added, the gates would have gone green, and users would have seen the generic fallback. Task 3 edits both.
+3. **Three hooks were placed below two early returns.** `routes/app.tsx` has no hook call below `:446` today; the returns are at `:612` and `:661`. Task 6 now puts them at the top of the component, which changes what they can assume about `teamParam` and `monthParam`.
+
+---
+
 ## Working agreements
 
 - All commands run from `v2/`.
-- The four gates are `pnpm typecheck`, `pnpm lint`, `pnpm test:once`, `pnpm build`. Run all four before the final commit; they catch different things.
+- The four gates are `pnpm typecheck`, `pnpm lint`, `pnpm test:once`, `pnpm build`. Several tasks below run `pnpm lint` mid-task, not only at the end — the first draft deferred it to Task 9 and that is where two blockers would have surfaced.
+- `"lint": "eslint . --max-warnings 0"`. A `react-hooks/exhaustive-deps` **warning** fails the gate. `react-hooks/rules-of-hooks` is an error.
 - Never `git commit --no-verify` — a PII scan and a beads export run in that hook.
 - Component tests are `*.hook.test.ts` with `// @vitest-environment jsdom` and `createElement`. vitest's glob is `src/**/*.test.ts`, so a `.tsx` test file would silently not run.
 - User-facing copy uses typographic apostrophes (`’`).
-- Comments explain WHY, at length, matching the density of the file you are in. Every factual claim about another file must be checked against that file before you write it.
+- `formatMonthLabel` renders **short** months: `'2023-03'` → `"Mar 2023"` (`src/lib/format-day.ts:13`). Never write "March 2023" in an assertion.
+- Comments explain WHY, at length, matching the density of the file you are in. Check every factual claim about another file against that file before writing it. If a test fails against a label or field name this plan gives you, **fix the plan's value, do not loosen the assertion** — a loosened matcher is how the one thing a test exists to pin gets deleted.
 
-## Two decisions this plan makes that the spec did not anticipate
+## Three decisions inside the approved design
 
-Both are inside the approved design, not departures from it. They are called out here so a reviewer does not have to rediscover them.
+**1. The server enforces a FLOOR with one month of slack**, not membership of the client's window. Convex runs UTC and the viewer does not, so an exact window would refuse the month the dropdown had just offered, for a few hours at every month boundary. Offsets span UTC−12..UTC+14, so the sides differ by at most one month and one month of slack is exactly sufficient — no margin, so do not reduce it.
 
-**1. The server enforces a FLOOR, with one month of slack — not membership of the client's exact window.** `toPuzzleDay` resolves in the runtime's local zone, and Convex runs UTC while the viewer does not. At a month boundary a viewer in Tokyo is on 2026-10-01 while the server is still on 2026-09-30, so a server window of `[09, 08, 07]` would refuse the `2026-10` the dropdown just offered — breaking the dashboard for everyone east of UTC on the 1st of each month, and everyone west of it for the oldest month. The gate exists to stop someone browsing years of history, not to be exact to the month, so the server floor is the client window's oldest month minus one. A free player can reach at most four months by hand-typing a URL instead of three; the dropdown still offers three.
+**2. The Pro check is skipped in the common path.** Almost every request is for one of the last three months. Below-floor requests pay for `isProFor`; only requests that pass *that* pay for the per-member earliest reads.
 
-**2. The Pro check is skipped entirely in the common path.** Nearly every request is for one of the last three months. `getTeamMonthFor` compares against the free floor first and only pays for `isProFor` and the per-member earliest reads when the requested month is older than that. This keeps the dashboard's core query at exactly its current cost for almost every call — the same "the pro check is one indexed read, do it first" cost reasoning `teams.ts:722` uses, inverted.
+**3. `pro` has one source on the client.** The query returns only `earliestMonth`. Pro-ness comes from the `amIPro` `useSuspenseQuery` already at `routes/app.tsx:203`. The first draft returned `pro` from the new query too, giving two independently-updating subscriptions to one fact — structurally the split-brain wordle-teams-iht.4 is about.
 
 ---
 
@@ -36,18 +48,20 @@ Both are inside the approved design, not departures from it. They are called out
 
 | File | Status | Responsibility |
 | --- | --- | --- |
-| `convex/lib/monthWindow.ts` | create | The rule. Pure, importing only `puzzleDay.ts`. Client and server both import it. |
-| `convex/lib/monthWindow.test.ts` | create | The rule's tests, including the element-0 property. |
-| `convex/scores.ts` | modify | `earliestMonthFor` helper, `monthWindowInputsFor` + `monthWindow` query, and the floor check inside `getTeamMonthFor`. |
-| `convex/scores.test.ts` | modify | Enforcement and query tests. |
-| `convex/access.ts` | modify | `MONTH_OUT_OF_WINDOW` added to `AccessCode`; the stale `isProFor` comment discharged. |
-| `src/lib/convex-error.ts` | modify | The new code's message. |
-| `src/components/month-picker.tsx` | modify | Takes a window; renders the Pro teaser row. `monthOptions` deleted. |
-| `src/components/month-picker.test.ts` | modify | Rewritten against the window. |
-| `src/components/month-picker.hook.test.ts` | create | The teaser row's render rules. |
-| `src/routes/app.tsx` | modify | The window query, both pickers, and the corrective navigation. |
-| `src/lib/dashboard-months.ts` | create | The corrective-navigation decision, as a pure function. |
-| `src/lib/dashboard-months.test.ts` | create | Its tests, including idempotence. |
+| `convex/lib/monthWindow.ts` | create | The rule. Pure; imports only `puzzleDay.ts`. Client and server both import it. |
+| `convex/lib/monthWindow.test.ts` | create | The rule's tests, including the element-0 invariant and the free-floor guarantee. |
+| `convex/scores.ts` | modify | `earliestMonthFor`, `monthWindowInputsFor`, the `monthWindow` query, the shape check and floor check in `getTeamMonthFor`. |
+| `convex/scores.test.ts` | modify | Enforcement tests, plus a mandatory rewrite of nine dated literals. |
+| `convex/access.ts` | modify | `MONTH_OUT_OF_WINDOW` on `AccessCode`; the stale `isProFor` comment discharged. |
+| `src/lib/convex-error.ts` | modify | **Both** `convexErrorCode`'s chain and `typedCodeMessage`. |
+| `convex/winners.ts` | modify | Audit + gate `getLastMonthWinner`. |
+| `src/components/month-picker.tsx` | modify | Takes a window and a teaser label. `monthOptions` deleted. |
+| `src/components/month-picker.test.ts` | delete | Its coverage moves to `monthWindow.test.ts`; keeping it would test nothing. |
+| `src/components/month-picker.hook.test.ts` | create | The dropdown's render rules. |
+| `src/lib/dashboard-months.ts` | create | `correctedMonth` and `fallbackMonths`, as pure functions. |
+| `src/lib/dashboard-months.test.ts` | create | Their tests, including idempotence. |
+| `src/routes/app.tsx` | modify | The query, the window, both pickers, the correction. |
+| `src/components/teams/team-boards.hook.test.ts` | modify | Its source-text assertion on `app.tsx:1142` breaks. |
 | `src/lib/pro-benefits.ts` | create | The canonical inventory. |
 | `src/lib/pro-benefits.test.ts` | create | Its tests. |
 
@@ -65,7 +79,7 @@ Create `v2/convex/lib/monthWindow.test.ts`:
 
 ```ts
 import { describe, expect, test } from 'vitest'
-import { monthWindowFor, proTeaserMonth, serverFloorFor } from './monthWindow.ts'
+import { FREE_MONTHS, monthWindowFor, proTeaserMonth, serverFloorFor } from './monthWindow.ts'
 
 describe('monthWindowFor — free', () => {
   test('is the current month and the two before it, newest first', () => {
@@ -104,7 +118,7 @@ describe('monthWindowFor — pro', () => {
     ])
   })
 
-  test('is uncapped — a team dating to 2023 reaches 2023', () => {
+  test('is uncapped in practice — a team dating to 2023 reaches 2023', () => {
     // THE POINT OF THE WHOLE FEATURE. insights-months.ts caps its own window at
     // twelve so it can render without scroll math; this one must not, because a
     // cap is exactly the regression a migrating v1 Pro subscriber would feel.
@@ -114,22 +128,63 @@ describe('monthWindowFor — pro', () => {
     expect(months[months.length - 1]).toBe('2023-03')
   })
 
-  test('with no boards at all, is just the current month', () => {
+  test('IS NEVER NARROWER THAN THE FREE WINDOW', () => {
+    // THE REGRESSION THIS WHOLE SPEC EXISTS TO CLOSE, REINTRODUCED INSIDE IT.
+    // Without the max(FREE_MONTHS, span) floor, a team younger than three months
+    // gives its PRO owner a one- or two-row dropdown while the FREE members
+    // beside them still get three — so upgrading visibly REMOVES months. Every
+    // team created during the launch window this work is aimed at is in range.
+    // The first draft of this file asserted the broken behaviour as correct.
+    for (const earliestMonth of [null, '2026-08', '2026-07', '2026-06', '2026-05']) {
+      const pro = monthWindowFor({ currentMonth: '2026-08', earliestMonth, pro: true })
+      const free = monthWindowFor({ currentMonth: '2026-08', earliestMonth, pro: false })
+
+      expect(pro.length).toBeGreaterThanOrEqual(free.length)
+      expect(pro.length).toBeGreaterThanOrEqual(FREE_MONTHS)
+    }
+  })
+
+  test('with no boards at all, is still the free window', () => {
     expect(monthWindowFor({ currentMonth: '2026-08', earliestMonth: null, pro: true })).toEqual([
       '2026-08',
+      '2026-07',
+      '2026-06',
     ])
   })
 
-  test('clamps an earliestMonth in the future to the current month', () => {
-    // Clock skew, or a board entered between currentMonth being computed and
-    // this running. Must not produce a negative-length or empty list.
+  test('clamps an earliestMonth in the future rather than producing a negative span', () => {
     expect(monthWindowFor({ currentMonth: '2026-08', earliestMonth: '2026-11', pro: true })).toEqual([
       '2026-08',
+      '2026-07',
+      '2026-06',
     ])
+  })
+
+  test('survives a malformed earliestMonth without producing an empty window', () => {
+    // upsertBoard TAKES puzzleDay AS A BARE v.string() AND VALIDATES NOTHING
+    // (wordle-teams-qvqi), so '' is a storable puzzle day and monthOf('') is ''.
+    // That makes the span NaN, Array.from({length: NaN}) returns [], and the
+    // element-0 invariant below is violated for a REACHABLE input — with
+    // serverFloorFor then reading months[-1] and throwing inside getTeamMonth,
+    // taking the dashboard down for every Pro member of the team rather than for
+    // the author. The cause is filed separately; this is the blast shield.
+    for (const earliestMonth of ['', '1', 'x', '2026', 'not-a-month']) {
+      const months = monthWindowFor({ currentMonth: '2026-08', earliestMonth, pro: true })
+
+      expect(months.length).toBeGreaterThanOrEqual(FREE_MONTHS)
+      expect(months[0]).toBe('2026-08')
+    }
+  })
+
+  test('caps an absurdly old earliestMonth rather than building a 12,000-entry list', () => {
+    const months = monthWindowFor({ currentMonth: '2026-08', earliestMonth: '1000-01', pro: true })
+
+    expect(months.length).toBeLessThanOrEqual(120)
+    expect(months[0]).toBe('2026-08')
   })
 })
 
-describe('the element-0 property', () => {
+describe('the element-0 invariant', () => {
   // DO NOT BREAK THIS. dashboard-months.ts falls back to element 0 for an
   // out-of-window ?month=, and that fallback settles — rather than the effect
   // behind it navigating forever — only because the fallback value is itself
@@ -141,16 +196,27 @@ describe('the element-0 property', () => {
     { currentMonth: '2026-08', earliestMonth: '2023-03', pro: true },
     { currentMonth: '2026-08', earliestMonth: '2026-08', pro: true },
     { currentMonth: '2026-08', earliestMonth: '2099-01', pro: true },
+    { currentMonth: '2026-08', earliestMonth: '', pro: true },
     { currentMonth: '2026-01', earliestMonth: '2025-11', pro: false },
   ]
 
-  test.each(inputs)('currentMonth is element 0 for %j', (input) => {
-    expect(monthWindowFor(input)[0]).toBe(input.currentMonth)
+  test.each(inputs)('currentMonth is element 0, and the window is never empty, for %j', (input) => {
+    const months = monthWindowFor(input)
+
+    expect(months.length).toBeGreaterThan(0)
+    expect(months[0]).toBe(input.currentMonth)
   })
 
-  test.each(inputs)('the window is strictly descending for %j', (input) => {
+  test.each(inputs)('the window is STRICTLY descending for %j', (input) => {
     const months = monthWindowFor(input)
+
+    // STRICTLY, WHICH THE SORT COMPARISON ALONE DOES NOT PROVE.
+    // `[...months].sort().reverse()` is satisfied by a non-increasing list, so
+    // ['2026-08','2026-08','2026-06'] passes it while a duplicated month would
+    // give the dropdown two identical rows and a radio group two items with one
+    // value. The uniqueness check is what makes the word "strictly" true.
     expect([...months].sort().reverse()).toEqual(months)
+    expect(new Set(months).size).toBe(months.length)
   })
 })
 
@@ -158,7 +224,9 @@ describe('serverFloorFor', () => {
   test('is one month below the free window, so a timezone skew cannot refuse a month the dropdown offered', () => {
     // Convex runs UTC; the viewer does not. At a month boundary the two
     // disagree by one month in either direction, so an exact server window
-    // would refuse the month the client just offered. See the plan's note 1.
+    // would refuse the month the client just offered — breaking the dashboard
+    // east of UTC on the 1st of every month. One month of slack is exactly
+    // sufficient and has zero margin: do not reduce it.
     expect(serverFloorFor({ currentMonth: '2026-08', earliestMonth: null, pro: false })).toBe('2026-05')
   })
 
@@ -167,13 +235,23 @@ describe('serverFloorFor', () => {
       '2023-02',
     )
   })
+
+  test('never returns undefined, whatever the earliestMonth', () => {
+    // It must not be implemented as monthWindowFor(...).at(-1): an empty window
+    // would make that undefined and addMonths(undefined, -1) throws.
+    for (const earliestMonth of ['', 'x', null, '2099-01', '1000-01']) {
+      expect(serverFloorFor({ currentMonth: '2026-08', earliestMonth, pro: true })).toMatch(
+        /^\d{4}-\d{2}$/,
+      )
+    }
+  })
 })
 
 describe('proTeaserMonth', () => {
   test('names the earliest month when it is older than the free window', () => {
-    expect(
-      proTeaserMonth({ currentMonth: '2026-08', earliestMonth: '2023-03', pro: false }),
-    ).toBe('2023-03')
+    expect(proTeaserMonth({ currentMonth: '2026-08', earliestMonth: '2023-03', pro: false })).toBe(
+      '2023-03',
+    )
   })
 
   test('is null for a pro player — there is nothing left to tease', () => {
@@ -190,6 +268,10 @@ describe('proTeaserMonth', () => {
     // behind the gate and no row may render.
     expect(proTeaserMonth({ currentMonth: '2026-08', earliestMonth: '2026-06', pro: false })).toBeNull()
     expect(proTeaserMonth({ currentMonth: '2026-08', earliestMonth: '2026-07', pro: false })).toBeNull()
+  })
+
+  test('is null for a malformed earliestMonth rather than advertising one', () => {
+    expect(proTeaserMonth({ currentMonth: '2026-08', earliestMonth: '', pro: false })).toBeNull()
   })
 })
 ```
@@ -220,16 +302,29 @@ import { addMonths, type PuzzleMonth } from './puzzleDay.ts'
  * the inputs, because nothing in this repo can drive an authed wrapper
  * (wordle-teams-obw) — a rule left inside one is a rule no test can execute.
  *
- * THIS IS A DIFFERENT RULE FROM insights-months.ts's `teamMonthOptions`, and the
- * two must not be unified. That one runs from the team's CREATION month and caps
- * at twelve so its list renders without scroll math. This one runs from the
- * team's earliest BOARD and is uncapped, because its job is parity with v1 —
- * where a Pro player reaches every month their team has ever played — and a cap
- * is precisely the regression a migrating subscriber would feel.
+ * A DIFFERENT RULE FROM insights-months.ts's `teamMonthOptions`, and the two must
+ * not be unified. That one runs from the team's CREATION month and caps at twelve
+ * so its list renders without scroll math. This one runs from the team's earliest
+ * BOARD and is effectively uncapped, because its job is parity with v1 — where a
+ * Pro player reaches every month their team has ever played — and a cap is
+ * precisely the regression a migrating subscriber would feel.
  */
 
 /** What a free account sees: this month and the two before it. v1's window. */
 export const FREE_MONTHS = 3
+
+/**
+ * THE CEILING, WHICH EXISTS FOR SAFETY RATHER THAN FOR PRODUCT.
+ *
+ * `earliestMonth` comes from `dailyScores.puzzleDay`, which `upsertBoard` accepts
+ * as a bare `v.string()` and validates nowhere on the server (wordle-teams-qvqi).
+ * A stored '1000-01-01' would otherwise build a twelve-thousand-row dropdown and
+ * make the server materialise the same array on every below-floor request. v1
+ * teams date to 2023, so ten years is generous for every real team and absurd for
+ * every fabricated one. This is NOT insights-months.ts's CAP — that one shapes the
+ * product; this one bounds an input nobody validates.
+ */
+const MAX_MONTHS = 120
 
 /**
  * ONE MONTH OF SLACK BETWEEN WHAT THE CLIENT OFFERS AND WHAT THE SERVER ACCEPTS.
@@ -237,13 +332,15 @@ export const FREE_MONTHS = 3
  * Convex runs UTC. `toPuzzleDay` resolves in the runtime's local zone, so the
  * server's idea of "this month" and the viewer's disagree for a few hours at
  * every month boundary — in BOTH directions, depending on which side of UTC the
- * viewer is on. Without slack, a viewer in Tokyo just after local midnight on
- * the 1st would be offered a month the server then refuses, and the dashboard
- * would break for everyone east of UTC on the 1st of every month.
+ * viewer is on. Without slack, a viewer in Tokyo just after local midnight on the
+ * 1st would be offered a month the server then refuses, and the dashboard would
+ * break for everyone east of UTC on the 1st of every month.
  *
- * The gate exists to stop someone reading years of history they have not paid
- * for, not to be exact to the month. One month of tolerance costs a hand-typed
- * URL at most one extra month and removes a whole class of clock bug.
+ * Offsets span UTC−12..UTC+14, so the two sides differ by at most one month:
+ * ONE IS EXACTLY SUFFICIENT AND HAS NO MARGIN. Do not reduce it. Two would be
+ * gratuitous. The gate exists to stop someone reading years of history they have
+ * not paid for, not to be exact to the month, and the cost of the slack is that a
+ * hand-typed URL reaches at most a fourth month.
  */
 const SERVER_SLACK_MONTHS = 1
 
@@ -261,54 +358,50 @@ export type MonthWindowInput = {
  *
  * DESCENDING IS A DELIBERATE DIVERGENCE FROM v1 (wordle-teams-l23h), recorded in
  * V2-ADDENDUM.md row 48: v1's getMonthsFromScoreDate walks forward and pushes the
- * current month on last, which puts the month a reader almost always wants off
- * the bottom of a scroll once the list is long. It is long now.
+ * current month on last, which puts the month a reader almost always wants off the
+ * bottom of a scroll once the list is long. It is long now.
  *
- * `currentMonth` IS ALWAYS ELEMENT 0, FOR EVERY INPUT — free or pro, with or
- * without boards, and for an earliestMonth in the future. Both clamps below bound
- * where the range STARTS, and the list is built by counting BACK from
- * `currentMonth`, so the span is never less than one.
+ * THE PRO WINDOW IS NEVER NARROWER THAN THE FREE ONE, and that `Math.max` is the
+ * single most important line in this file. Without it a team younger than three
+ * months gives its PRO owner a one- or two-row dropdown while the FREE members
+ * beside them still get three — so upgrading would visibly REMOVE months, which is
+ * the exact regression this whole feature exists to close. Every team created
+ * during the launch window is in that range.
  *
- * DO NOT BREAK THAT PROPERTY. dashboard-months.ts's termination depends on it by
- * name: `correctedMonth` falls back to element 0 whenever `?month=` is not a
- * member of this list, and that fallback settles — rather than the effect behind
- * it navigating forever — only because the fallback value is itself always a
- * member. A change like "do not offer the current month until the team has a
- * board in it" would read as entirely reasonable here and reintroduce an infinite
- * redirect in a file its author had no reason to open. insights-months.ts carries
- * this same warning for the same reason; the test that names the rule lives in
- * monthWindow.test.ts.
+ * `currentMonth` IS ALWAYS ELEMENT 0, AND THE WINDOW IS NEVER EMPTY, FOR EVERY
+ * INPUT — free or pro, with or without boards, for an earliestMonth in the future,
+ * and for a malformed one. The list is built by counting BACK from `currentMonth`
+ * over a length that is floored at FREE_MONTHS, so neither can fail.
+ *
+ * DO NOT BREAK THAT INVARIANT. dashboard-months.ts's termination depends on it by
+ * name: `correctedMonth` falls back to element 0 whenever `?month=` is not a member
+ * of this list, and that fallback settles — rather than the effect behind it
+ * navigating forever — only because the fallback value is itself always a member. A
+ * change like "do not offer the current month until the team has a board in it"
+ * would read as entirely reasonable here and reintroduce an infinite redirect in a
+ * file its author had no reason to open. insights-months.ts carries this same
+ * warning for the same reason.
  */
-export function monthWindowFor({
-  currentMonth,
-  earliestMonth,
-  pro,
-}: MonthWindowInput): Array<PuzzleMonth> {
-  if (!pro) return countBack(currentMonth, FREE_MONTHS)
-
-  // A team with no boards has no floor to clamp to, so the answer is the current
-  // month alone — the one sure thing about any team is that it can be viewed now.
-  if (earliestMonth === null) return [currentMonth]
-
-  // PuzzleMonth is 'YYYY-MM', so lexical comparison IS chronological comparison
-  // (see puzzleDay.ts's header). That is what makes this a string compare rather
-  // than a date parse, and it is why an earliestMonth in the future clamps here
-  // rather than producing a negative span below.
-  const start = earliestMonth > currentMonth ? currentMonth : earliestMonth
-  return countBack(currentMonth, monthIndex(currentMonth) - monthIndex(start) + 1)
+export function monthWindowFor({ currentMonth, earliestMonth, pro }: MonthWindowInput): Array<PuzzleMonth> {
+  return countBack(currentMonth, spanFor({ currentMonth, earliestMonth, pro }))
 }
 
 /**
  * The oldest month the SERVER will serve this viewer — one month below the
  * client's window, per SERVER_SLACK_MONTHS.
  *
- * A FLOOR RATHER THAN MEMBERSHIP OF THE WINDOW, deliberately. There is no upper
- * bound to enforce: a future month simply contains no boards, and refusing one
- * would be a second way for the UTC/local disagreement above to break a page.
+ * ARITHMETIC, NOT `monthWindowFor(...).at(-1)`, and that is deliberate rather than
+ * a micro-optimisation: the array form would materialise up to MAX_MONTHS entries
+ * on every below-floor request purely to read one value, and — before the span was
+ * floored — could read `[-1]` off an empty array and throw `undefined.split` inside
+ * getTeamMonth, taking the dashboard down for every Pro member of the team.
+ *
+ * A FLOOR RATHER THAN MEMBERSHIP OF THE WINDOW. There is no upper bound to
+ * enforce: a future month simply contains no boards, and refusing one would be a
+ * second way for the UTC/local disagreement above to break a page.
  */
 export function serverFloorFor(input: MonthWindowInput): PuzzleMonth {
-  const months = monthWindowFor(input)
-  return addMonths(months[months.length - 1], -SERVER_SLACK_MONTHS)
+  return addMonths(input.currentMonth, -(spanFor(input) - 1 + SERVER_SLACK_MONTHS))
 }
 
 /**
@@ -316,20 +409,52 @@ export function serverFloorFor(input: MonthWindowInput): PuzzleMonth {
  * when there is nothing to advertise.
  *
  * NULL IS THE IMPORTANT ANSWER. A team whose earliest board is already inside the
- * free window has nothing behind the gate, and a row saying otherwise would sell
- * a week-old team history it does not have. Same for a team with no boards at
- * all, and for a player who is already Pro.
+ * free window has nothing behind the gate, and a row saying otherwise would sell a
+ * week-old team history it does not have. Same for a team with no boards, for a
+ * player who is already Pro, and for a malformed earliestMonth.
+ *
+ * IT UNDER-PROMISES BY UP TO ONE MONTH, DELIBERATELY. The comparison is against
+ * the CLIENT free window, while the server actually serves a free viewer one month
+ * further back (SERVER_SLACK_MONTHS). So a team whose earliest board is exactly at
+ * the slack month gets no row, having nothing the dropdown does not already reach.
+ * Erring this way is correct: the failure to avoid is advertising history that
+ * cannot be delivered.
  */
-export function proTeaserMonth({
-  currentMonth,
-  earliestMonth,
-  pro,
-}: MonthWindowInput): PuzzleMonth | null {
-  if (pro || earliestMonth === null) return null
+export function proTeaserMonth({ currentMonth, earliestMonth, pro }: MonthWindowInput): PuzzleMonth | null {
+  if (pro || earliestMonth === null || !isMonth(earliestMonth)) return null
 
-  const free = monthWindowFor({ currentMonth, earliestMonth, pro: false })
-  const oldestOffered = free[free.length - 1]
+  const oldestOffered = addMonths(currentMonth, -(FREE_MONTHS - 1))
   return earliestMonth < oldestOffered ? earliestMonth : null
+}
+
+/**
+ * How many months long this viewer's window is. The one place the length rule
+ * lives, so `monthWindowFor` and `serverFloorFor` can never disagree about it.
+ */
+function spanFor({ currentMonth, earliestMonth, pro }: MonthWindowInput): number {
+  if (!pro || earliestMonth === null || !isMonth(earliestMonth)) return FREE_MONTHS
+
+  // PuzzleMonth is 'YYYY-MM', so lexical comparison IS chronological comparison
+  // (see puzzleDay.ts's header). An earliestMonth in the future clamps here rather
+  // than producing a negative span below.
+  const start = earliestMonth > currentMonth ? currentMonth : earliestMonth
+  const span = monthIndex(currentMonth) - monthIndex(start) + 1
+
+  // FLOORED AT FREE_MONTHS so Pro is never narrower than free; capped at
+  // MAX_MONTHS so an unvalidated puzzleDay cannot build an absurd list. Both
+  // bounds have their own comment above; neither is tidiness.
+  return Math.min(Math.max(span, FREE_MONTHS), MAX_MONTHS)
+}
+
+/**
+ * Whether a string is a well-formed 'YYYY-MM'.
+ *
+ * NEEDED BECAUSE NOTHING UPSTREAM GUARANTEES IT. `upsertBoard` stores `puzzleDay`
+ * as an unvalidated `v.string()` (wordle-teams-qvqi), so `monthOf('')` is `''` and
+ * `monthIndex('')` is NaN — which would make the span NaN and the window empty.
+ */
+function isMonth(value: string): boolean {
+  return /^\d{4}-\d{2}$/.test(value)
 }
 
 /** `count` months ending at `from`, newest first. */
@@ -347,21 +472,22 @@ function monthIndex(month: PuzzleMonth): number {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd v2 && pnpm exec vitest run convex/lib/monthWindow.test.ts`
-Expected: PASS, 17 tests.
+Expected: PASS, **31 tests** (free 3, pro 7, element-0 `test.each` 7×2 = 14, serverFloorFor 3, proTeaserMonth 5).
 
-- [ ] **Step 5: Mutation-test the two guards**
+If your runner reports a different number, count the `test.each` expansions before assuming the plan is wrong — but do not proceed on a mismatch without resolving it. The first draft of this plan said 17 for a smaller version of this file and was wrong by eight for exactly that reason.
 
-Guard A — the `pro` branch. Edit `monthWindowFor` so the first line reads `if (false)` instead of `if (!pro)`.
-Run: `cd v2 && pnpm exec vitest run convex/lib/monthWindow.test.ts`
-Expected: FAIL, naming `monthWindowFor — free › is the current month and the two before it`.
-Restore the line. Re-run. Expected: PASS.
+- [ ] **Step 5: Mutation-test the three guards, one at a time**
 
-Guard B — the teaser's "nothing behind the gate" check. Edit `proTeaserMonth`'s last line to `return earliestMonth`.
-Run: `cd v2 && pnpm exec vitest run convex/lib/monthWindow.test.ts`
-Expected: FAIL, naming `proTeaserMonth › is null when the earliest board is already inside the free window`.
-Restore the line. Re-run. Expected: PASS.
+Each mutation must fail the **named** test. If it fails a different set, the guard and the test are not aligned — fix that before moving on.
 
-If either mutation leaves the suite green, the test is not testing what it says — fix the test before continuing.
+*Guard A — the free floor on the Pro branch.* In `spanFor`, change `Math.min(Math.max(span, FREE_MONTHS), MAX_MONTHS)` to `Math.min(span, MAX_MONTHS)`.
+Expected: FAIL, naming `IS NEVER NARROWER THAN THE FREE WINDOW`, `with no boards at all, is still the free window`, and `clamps an earliestMonth in the future`. Restore; re-run; PASS.
+
+*Guard B — the malformed-input defence.* In `spanFor`, delete `|| !isMonth(earliestMonth)`.
+Expected: FAIL, naming `survives a malformed earliestMonth without producing an empty window`. Restore; re-run; PASS.
+
+*Guard C — the teaser's "nothing behind the gate" check.* In `proTeaserMonth`, change the final line to `return earliestMonth`.
+Expected: FAIL, naming `is null when the earliest board is already inside the free window`, **and nothing else**. This is the cleanest mutation in the plan; if anything else fails, something has coupled that should not have.
 
 - [ ] **Step 6: Commit**
 
@@ -369,17 +495,24 @@ If either mutation leaves the suite green, the test is not testing what it says 
 cd v2 && git add convex/lib/monthWindow.ts convex/lib/monthWindow.test.ts
 git commit -m "feat(months): the pro month window rule, shared by client and server
 
-One import-free module, the way insightsAccess.ts is one, so the browser can
-build the dropdown from the same rule getTeamMonthFor enforces. The server
-floor carries a month of slack because Convex runs UTC and the viewer does
-not — without it the dashboard breaks east of UTC on the 1st.
+One module, so the browser builds the dropdown from the same rule
+getTeamMonthFor enforces.
+
+The Math.max(FREE_MONTHS, span) floor is the line that matters: without it a
+team younger than three months gives its PRO owner a shorter dropdown than its
+free members, so upgrading removes months. The first draft of this rule had
+that bug and a test asserting it as correct; the adversarial review caught it.
+
+The server floor carries a month of slack because Convex runs UTC and the
+viewer does not, and the span is bounded because puzzleDay is an unvalidated
+v.string() (wordle-teams-qvqi).
 
 wordle-teams-kusd"
 ```
 
 ---
 
-### Task 2: The query that supplies the inputs
+### Task 2: The query that supplies the team's earliest month
 
 **Files:**
 - Modify: `v2/convex/scores.ts`
@@ -415,10 +548,7 @@ describe('monthWindowInputsFor', () => {
         guesses: ['SPEED'],
       })
 
-      expect(await monthWindowInputsFor(ctx, mine, teamId)).toEqual({
-        earliestMonth: '2023-03',
-        pro: false,
-      })
+      expect(await monthWindowInputsFor(ctx, mine, teamId)).toEqual({ earliestMonth: '2023-03' })
     })
   })
 
@@ -427,20 +557,7 @@ describe('monthWindowInputsFor', () => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
 
-      expect(await monthWindowInputsFor(ctx, playerId, teamId)).toEqual({
-        earliestMonth: null,
-        pro: false,
-      })
-    })
-  })
-
-  test('reports pro for a player with a pro membership row', () => {
-    return convexTest(schema, modules).run(async (ctx) => {
-      const playerId = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
-      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
-
-      expect((await monthWindowInputsFor(ctx, playerId, teamId)).pro).toBe(true)
+      expect(await monthWindowInputsFor(ctx, playerId, teamId)).toEqual({ earliestMonth: null })
     })
   })
 
@@ -456,12 +573,11 @@ describe('monthWindowInputsFor', () => {
     })
   })
 
-  test('ignores a roster entry whose player row is gone', () => {
-    // Same degradation getTeamMonthFor makes for the same reason: Convex ids are
-    // not foreign keys, so nothing guarantees every id in playerIds resolves.
-    // Here the read is by index on the id itself, so an unresolvable member
-    // contributes no rows rather than throwing — asserted so a future rewrite
-    // that dereferences the member doc does not silently take the page down.
+  test('ignores a roster entry whose player row is gone, without losing the others', () => {
+    // Convex ids are not foreign keys, so nothing guarantees every id in
+    // playerIds resolves. ASSERTED WITH THE GHOST HOLDING THE OLDEST BOARD —
+    // a ghost with no boards would be indistinguishable from a member with none,
+    // and would prove nothing about what happens to a dangling id.
     return convexTest(schema, modules).run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const ghostId = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
@@ -473,15 +589,25 @@ describe('monthWindowInputsFor', () => {
         answer: 'SPEED',
         guesses: ['SPEED'],
       })
+      await ctx.db.insert('dailyScores', {
+        playerId: ghostId,
+        puzzleDay: '2023-03-14',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
       await ctx.db.delete(ghostId)
 
-      expect((await monthWindowInputsFor(ctx, playerId, teamId)).earliestMonth).toBe('2026-05')
+      // The ghost's boards still exist and still count: the window is about what
+      // the scoreboard can show, and getTeamMonthFor reads by playerId too. What
+      // must not happen is a throw.
+      expect((await monthWindowInputsFor(ctx, playerId, teamId)).earliestMonth).toBe('2023-03')
     })
   })
 })
 ```
 
-Add `monthWindowInputsFor` to the existing import from `'./scores'` at the top of the file:
+Add `monthWindowInputsFor` to the existing import from `'./scores'`:
 
 ```ts
 import { getTeamMonthFor, monthWindowInputsFor, upsertBoardFor } from './scores'
@@ -494,7 +620,7 @@ Expected: FAIL — `monthWindowInputsFor is not a function`.
 
 - [ ] **Step 3: Write the implementation**
 
-In `v2/convex/scores.ts`, add `isProFor` to the existing import from `'./access'`, add `monthOf` to the import from `'./lib/puzzleDay.ts'`, and add these below `getTeamMonth`:
+In `v2/convex/scores.ts`, add these below `getTeamMonth`. `monthOf` is **already** imported at `convex/scores.ts:6` — do not add it again.
 
 ```ts
 /**
@@ -502,28 +628,34 @@ In `v2/convex/scores.ts`, add `isProFor` to the existing import from `'./access'
  *
  * ONE INDEXED `.first()` PER MEMBER, ascending — `by_player_and_puzzleDay` is
  * already the index getTeamMonthFor walks for the month's scores, and an index
- * range's first row IS its smallest. No scan, no sort, no collect.
+ * range's first row IS its smallest (Convex index queries default to ascending;
+ * this file's siblings write `.order('desc')` explicitly when they want the other
+ * end). No scan, no sort, no collect.
  *
  * ACROSS THE CURRENT ROSTER, WHICH IS THE ONLY MEANING AVAILABLE: dailyScores has
- * no teamId (see schema.ts), so a board belongs to a player rather than to a
- * team. That is not a workaround — it is exactly how getTeamMonthFor resolves the
+ * no teamId (see schema.ts), so a board belongs to a player rather than to a team.
+ * That is not a workaround — it is exactly how getTeamMonthFor resolves the
  * scoreboard above, so the window and the data it gates can never disagree. A
  * member joining brings their earlier boards and widens the window; a member
  * leaving takes theirs and narrows it. Both are correct, and both are already
  * visible on the scoreboard the same way.
  *
- * DO NOT "OPTIMISE" THIS ONTO teamMonthStats. That table is computed, its
- * coverage of old months is not guaranteed, and reading it here would recreate
- * exactly the aggregate-versus-roster disagreement wordle-teams-iht.4 exists to
- * close.
+ * A LEAVING MEMBER CAN THEREFORE SHRINK THE WINDOW UNDER A VIEWER SITTING ON AN
+ * OLD MONTH. The client corrects for it — routes/app.tsx moves `?month=` back into
+ * the window whenever it falls outside — which is the same correction a team
+ * change gets, for the same reason: the viewer did nothing wrong.
+ *
+ * DO NOT "OPTIMISE" THIS ONTO teamMonthStats. That table is computed, its coverage
+ * of old months is not guaranteed, and reading it here would recreate exactly the
+ * aggregate-versus-roster disagreement wordle-teams-iht.4 exists to close.
  */
 async function earliestMonthFor(
   ctx: ReaderCtx,
   playerIds: readonly Id<'players'>[],
 ): Promise<PuzzleMonth | null> {
   // Promise.all rather than a sequential loop for the reason getTeamMonthFor
-  // gives above: one snapshot-isolated transaction, so this is round trips
-  // rather than correctness. Order does not matter here — the result is a min.
+  // gives above: one snapshot-isolated transaction, so this is round trips rather
+  // than correctness. Order does not matter here — the result is a minimum.
   const firsts = await Promise.all(
     playerIds.map((memberId) =>
       ctx.db
@@ -533,7 +665,7 @@ async function earliestMonthFor(
     ),
   )
 
-  let earliest: PuzzleDay | null = null
+  let earliest: string | null = null
   for (const row of firsts) {
     // PuzzleDay is 'YYYY-MM-DD', so lexical comparison is chronological.
     if (row !== null && (earliest === null || row.puzzleDay < earliest)) earliest = row.puzzleDay
@@ -542,8 +674,15 @@ async function earliestMonthFor(
 }
 
 /**
- * What the month dropdown needs to build itself: how far back this team goes,
- * and whether this viewer may reach it.
+ * How far back this team goes — the one input the month dropdown cannot compute
+ * for itself.
+ *
+ * IT DOES NOT RETURN `pro`, AND THAT IS DELIBERATE. routes/app.tsx already holds
+ * the viewer's membership from `api.teams.amIPro` (app.tsx:203). Returning it here
+ * too would give the client two independently-updating subscriptions to one fact —
+ * structurally the aggregate-versus-live split-brain wordle-teams-iht.4 is about.
+ * The SERVER still needs it, and reads it straight from isProFor at the one place
+ * that enforces.
  *
  * A SEPARATE QUERY RATHER THAN A FIELD ON getTeamMonth'S PAYLOAD. MonthPicker
  * renders in the controls row of routes/app.tsx, OUTSIDE the <Suspense> boundary
@@ -551,23 +690,19 @@ async function earliestMonthFor(
  * make it wait for a month of scores to load before it could say which months
  * exist.
  *
- * IT RETURNS THE RULE'S INPUTS, NOT THE RULE'S ANSWER, because the answer needs
- * the VIEWER'S current month and the server does not have it — Convex runs UTC.
- * lib/monthWindow.ts turns these two values into a window on whichever side is
- * asking. Sending a server-computed list instead would be wrong for a few hours
- * at every month boundary, in whichever direction the viewer's zone leans.
+ * IT RETURNS THE RULE'S INPUT, NOT THE RULE'S ANSWER, because the answer needs the
+ * VIEWER'S current month and the server does not have it — Convex runs UTC.
+ * lib/monthWindow.ts turns this into a window on whichever side is asking. Sending
+ * a server-computed list instead would be wrong for a few hours at every month
+ * boundary, in whichever direction the viewer's zone leans.
  */
 export async function monthWindowInputsFor(
   ctx: ReaderCtx,
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
-): Promise<{ earliestMonth: PuzzleMonth | null; pro: boolean }> {
+): Promise<{ earliestMonth: PuzzleMonth | null }> {
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
-  const [earliestMonth, pro] = await Promise.all([
-    earliestMonthFor(ctx, team.playerIds),
-    isProFor(ctx, playerId),
-  ])
-  return { earliestMonth, pro }
+  return { earliestMonth: await earliestMonthFor(ctx, team.playerIds) }
 }
 
 export const monthWindow = query({
@@ -579,12 +714,12 @@ export const monthWindow = query({
 })
 ```
 
-Add the `PuzzleDay` and `PuzzleMonth` types to the existing `./lib/puzzleDay.ts` import if they are not already there.
+Add `PuzzleMonth` to the existing `./lib/puzzleDay.ts` type import if it is not already there.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd v2 && pnpm exec vitest run convex/scores.test.ts -t monthWindowInputsFor`
-Expected: PASS, 5 tests.
+Expected: PASS, 4 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -592,8 +727,9 @@ Expected: PASS, 5 tests.
 cd v2 && git add convex/scores.ts convex/scores.test.ts
 git commit -m "feat(months): a query for how far back a team goes
 
-Returns the rule's inputs rather than its answer: the viewer's current month
-is local and the server's is UTC, so only the asking side can build the window.
+Returns the earliest board month and nothing else: the viewer's current month
+is local and the server's is UTC, so only the asking side can build the window
+— and app.tsx already holds the one amIPro subscription that answers 'pro'.
 
 wordle-teams-kusd"
 ```
@@ -604,13 +740,49 @@ wordle-teams-kusd"
 
 **Files:**
 - Modify: `v2/convex/access.ts`
-- Modify: `v2/convex/scores.ts:37-58` (inside `getTeamMonthFor`, after `requireTeamMemberFor`)
-- Modify: `v2/src/lib/convex-error.ts`
-- Test: `v2/convex/scores.test.ts`
+- Modify: `v2/convex/scores.ts` (inside `getTeamMonthFor`, after `requireTeamMemberFor`)
+- Modify: `v2/src/lib/convex-error.ts` (**two** functions)
+- Modify: `v2/convex/scores.test.ts` (new tests **and** nine existing literals)
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Rewrite the nine dated literals — mandatory, not conditional**
 
-Append to `v2/convex/scores.test.ts`, inside the existing `describe('getTeamMonthFor', ...)`:
+`convex/scores.test.ts` calls `getTeamMonthFor` with a hardcoded month at lines **37, 50, 65, 135, 162, 181, 627, 651, 655** (`'2026-08'` at all but 651, which is `'2026-07'`).
+
+They pass today, because the free floor is currently `2026-05`. They begin failing in **December 2026** and **January 2027**, when the floor moves past them — with nobody having touched the code. The first draft of this plan made fixing them conditional on seeing a failure, and there is no failure to see.
+
+Rewrite each to be relative to the clock, the way this file's own header at `:13-16` already requires for `today`:
+
+```ts
+const thisMonth = monthOf(today)
+// … then '2026-08' → thisMonth, '2026-07' → addMonths(thisMonth, -1)
+```
+
+Board fixtures inside those tests use `puzzleDay` literals like `'2026-08-01'`; those must move with the month or the assertions break. `addMonths` and `monthOf` are already imported at `convex/scores.test.ts:5`.
+
+Add a line to the file's header comment recording that a hardcoded *month* is now as unsafe as a hardcoded `today` was, and why.
+
+- [ ] **Step 2: Run the suite to confirm the rewrite is behaviour-neutral**
+
+Run: `cd v2 && pnpm exec vitest run convex/scores.test.ts`
+Expected: PASS, unchanged count. This is a refactor; nothing should change yet.
+
+- [ ] **Step 3: Commit the rewrite on its own**
+
+```bash
+cd v2 && git add convex/scores.test.ts
+git commit -m "test(scores): make nine getTeamMonthFor months relative to the clock
+
+They are about to become time bombs: the month gate's floor moves with the
+calendar, so hardcoded '2026-08' starts failing in January 2027 with nobody
+having touched the code. Separated from the gate itself so the diff that adds
+the gate is only the gate.
+
+wordle-teams-kusd"
+```
+
+- [ ] **Step 4: Write the failing enforcement tests**
+
+Append inside the existing `describe('getTeamMonthFor', ...)`:
 
 ```ts
   test('refuses a free caller a month below the floor', () => {
@@ -628,16 +800,23 @@ Append to `v2/convex/scores.test.ts`, inside the existing `describe('getTeamMont
     })
   })
 
-  test('serves a free caller the current month and the two before it', () => {
+  test('serves a free caller every month down to the slack month, and refuses the one below', () => {
+    // THE BOUNDARY, BOTH SIDES OF IT. -3 is the slack month the server allows and
+    // the dropdown does not offer (SERVER_SLACK_MONTHS); -4 is the first refusal.
+    // Without both, SERVER_SLACK_MONTHS could be changed to 2 and every test in
+    // this file would stay green.
     return convexTest(schema, modules).run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
 
-      for (const delta of [0, -1, -2]) {
+      for (const delta of [0, -1, -2, -3]) {
         await expect(
           getTeamMonthFor(ctx, playerId, teamId, addMonths(monthOf(today), delta)),
         ).resolves.toBeDefined()
       }
+      await expect(
+        getTeamMonthFor(ctx, playerId, teamId, addMonths(monthOf(today), -4)),
+      ).rejects.toMatchObject({ data: { code: 'MONTH_OUT_OF_WINDOW' } })
     })
   })
 
@@ -683,8 +862,16 @@ Append to `v2/convex/scores.test.ts`, inside the existing `describe('getTeamMont
     // Insights layers 2 and 3, not a scoreboard grant. Asserted here rather than
     // left to follow from isProFor's definition, because "the trial is pro
     // enough" is exactly the reasonable-sounding change that would ship it.
+    //
+    // THE FIELD IS insightsTrialEndsAt (schema.ts:169). `trialEndsAt` is only a
+    // PARAMETER NAME on insightsAccess.ts's shouldStartTrial, and a grep for it
+    // matches the real field as a substring — which is how the first draft of
+    // this plan told its own implementer the wrong name was correct.
     return convexTest(schema, modules).run(async (ctx) => {
-      const playerId = await ctx.db.insert('players', aPlayer({ trialEndsAt: Date.now() + 86_400_000 }))
+      const playerId = await ctx.db.insert(
+        'players',
+        aPlayer({ insightsTrialEndsAt: Date.now() + 86_400_000 }),
+      )
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
       await ctx.db.insert('dailyScores', {
         playerId,
@@ -699,45 +886,79 @@ Append to `v2/convex/scores.test.ts`, inside the existing `describe('getTeamMont
       })
     })
   })
+
+  test('refuses a bare year, which lexically brackets a whole one', () => {
+    // convex/scores.ts:180 has documented this property of `v.string()` months
+    // since before the gate existed: "{ month: '2026' } bounds '2026-01'..
+    // '2026-31', which lexically brackets every day of the year… getTeamMonthFor
+    // has exactly the same property." Harmless while the route was the only
+    // caller. Not harmless now: '2026' sorts ABOVE a pro floor of '2023-02', so
+    // without a shape check a pro member could pull every board for every
+    // teammate for a whole year in one payload.
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2023-03-14',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      for (const month of ['2026', '2026-', 'abc', '']) {
+        await expect(getTeamMonthFor(ctx, playerId, teamId, month)).rejects.toMatchObject({
+          data: { code: 'MONTH_OUT_OF_WINDOW' },
+        })
+      }
+    })
+  })
 ```
 
-Before writing this, confirm `aPlayer` accepts `trialEndsAt` — run `grep -n "trialEndsAt" convex/fixtures.ts convex/schema.ts`. If the fixture does not take it, insert the player and then `ctx.db.patch(playerId, { trialEndsAt: ... })`.
+First confirm the fixture accepts the field: `grep -nw "insightsTrialEndsAt" convex/fixtures.ts convex/schema.ts`. Note `-w`. If `aPlayer` does not take it, insert the player and `ctx.db.patch(playerId, { insightsTrialEndsAt: … })`.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 5: Run to verify they fail**
 
 Run: `cd v2 && pnpm exec vitest run convex/scores.test.ts -t "below the floor"`
 Expected: FAIL — the call resolves instead of rejecting.
 
-- [ ] **Step 3: Add the access code**
+- [ ] **Step 6: Add the access code**
 
-In `v2/convex/access.ts`, add to the `AccessCode` union (after `'TEAM_LIMIT_REACHED'`):
+In `v2/convex/access.ts`, after `'TEAM_LIMIT_REACHED'` in the `AccessCode` union:
 
 ```ts
   | 'MONTH_OUT_OF_WINDOW'
 ```
 
-- [ ] **Step 4: Add the message**
+- [ ] **Step 7: Wire the message into BOTH functions in convex-error.ts**
 
-In `v2/src/lib/convex-error.ts`, add a case to `typedCodeMessage`:
+This is two edits, and the second is the one that matters.
+
+In `typedCodeMessage`:
 
 ```ts
     case 'MONTH_OUT_OF_WINDOW':
-      // REACHED BY A URL, NOT BY A CONTROL. The month dropdown never offers a
-      // month outside the window, and routes/app.tsx corrects ?month= when a
-      // team change invalidates it — so the reader who sees this arrived with a
-      // link: a bookmark kept across a downgrade, or a month a Pro teammate
-      // shared. It says what happened rather than bouncing them silently to
-      // this month, which would tell them nothing about why their link stopped
-      // working. wordle-teams-iht.1's interstitial is the natural next step from
-      // here; until it exists this sentence stands alone.
-      return 'That month is part of Pro. Upgrade to see your team’s full history.'
+      // A BACKSTOP, NOT A CONVERSION SURFACE. The dropdown never offers a month
+      // outside the window and routes/app.tsx corrects a ?month= that falls
+      // outside one, so a browser user is not expected to reach this — it exists
+      // so the tier is real against a direct call. The free player's actual
+      // prompt is the dropdown's "Back to <month> · Pro" row, and the upgrade
+      // flow belongs to wordle-teams-iht.1.
+      return 'That month is part of Pro.'
 ```
 
-`typedCodeMessage` is an exhaustive switch over `AccessCode`, so `pnpm typecheck` fails until this case exists — which is the property that keeps the two in step.
+Then in `convexErrorCode`, add to the `||` chain:
 
-- [ ] **Step 5: Enforce it**
+```ts
+    code === 'MONTH_OUT_OF_WINDOW' ||
+```
 
-In `v2/convex/scores.ts`, inside `getTeamMonthFor`, immediately after `const team = await requireTeamMemberFor(...)`:
+**Do not skip the second edit, and do not trust typecheck to catch it.** `typedCodeMessage` ends in `const _exhaustive: never = code`, so adding a member to `AccessCode` DOES force the case above — but `convexErrorCode` (`src/lib/convex-error.ts:17-43`) is a hand-written chain ending in `return null`, and nothing forces that at all. Without it the new case is dead code and every user sees "Something went wrong loading this page." All four gates would be green. Add a sentence to `convexErrorCode`'s header saying it must be extended by hand whenever `AccessCode` grows, because that is not otherwise discoverable.
+
+- [ ] **Step 8: Enforce it**
+
+In `getTeamMonthFor`, immediately after `const team = await requireTeamMemberFor(...)`:
 
 ```ts
   // THE MONTH GATE (wordle-teams-kusd). Membership was the ONLY check here
@@ -745,96 +966,131 @@ In `v2/convex/scores.ts`, inside `getTeamMonthFor`, immediately after `const tea
   // paywall — v1's own position, and one Layer 3 stopped taking in
   // wordle-teams-iht.3.
   //
+  // THE SHAPE CHECK IS FIRST, AND IT IS NOT DEFENSIVE PROGRAMMING. This function
+  // takes `month: v.string()`, and :180 in this file has long recorded what that
+  // allows: a bare '2026' lexically brackets every day of the year. It sorts
+  // ABOVE a pro floor, so without this a pro member could pull twelve months of
+  // every teammate's boards in one payload — past the floor below, and past this
+  // file's own "SCOPED TO ONE TEAM AND ONE MONTH" bandwidth argument.
+  if (!/^\d{4}-\d{2}$/.test(month)) throw accessError('MONTH_OUT_OF_WINDOW')
+
   // THE FREE FLOOR IS CHECKED FIRST, AND USUALLY IT IS THE WHOLE CHECK. Almost
-  // every call here asks for one of the last three months, and for those this
-  // costs one string comparison and no reads at all — no isProFor, no per-member
-  // index walk. Only a request OLDER than the free floor pays for the rest. Same
-  // shape as invitePlayerFor's "the pro check is first because it is one indexed
-  // read" reasoning (teams.ts), inverted: here the cheap answer is the common one.
+  // every call asks for one of the last three months, and for those this costs
+  // one string comparison and no database reads. Only a request OLDER than the
+  // free floor pays for isProFor, and only one that passes THAT pays for the
+  // per-member index walk — the free branch of the rule ignores earliestMonth
+  // entirely, so fetching it before knowing the caller is pro would be work that
+  // provably cannot change the answer.
   //
   // `serverFloorFor` CARRIES A MONTH OF SLACK and the reason is in its own
   // comment: this runtime is UTC and the viewer is not, so an exact window would
-  // refuse a month the dropdown had just offered, for a few hours at every month
-  // boundary.
+  // refuse a month the dropdown had just offered, at every month boundary.
+  //
+  // THE CLOCK READ IS A DEVIATION FROM THIS DIRECTORY'S CONVENTION and is worth
+  // naming: every other "what month is it" question on the server takes `today`
+  // from the client and bounds it with isPlausibleToday (insights.ts's teamMonth,
+  // winners.ts). Taking an argument here would mean changing getTeamMonth's
+  // signature at six call sites for a bound whose only failure direction is MORE
+  // permissive — Convex caches on read-set invalidation rather than wall-clock, so
+  // a long-lived subscriber's floor simply stays older than it should. Accepted
+  // deliberately; revisit if this function ever needs the day rather than the
+  // month.
   const serverMonth = monthOf(toPuzzleDay(new Date()))
   const freeFloor = serverFloorFor({ currentMonth: serverMonth, earliestMonth: null, pro: false })
   if (month < freeFloor) {
-    const { earliestMonth, pro } = await monthWindowInputsFor(ctx, playerId, teamId)
-    if (month < serverFloorFor({ currentMonth: serverMonth, earliestMonth, pro })) {
-      accessError('MONTH_OUT_OF_WINDOW')
+    if (!(await isProFor(ctx, playerId))) throw accessError('MONTH_OUT_OF_WINDOW')
+
+    const earliestMonth = await earliestMonthFor(ctx, team.playerIds)
+    if (month < serverFloorFor({ currentMonth: serverMonth, earliestMonth, pro: true })) {
+      throw accessError('MONTH_OUT_OF_WINDOW')
     }
   }
 ```
 
-Add `serverFloorFor` to the imports from `./lib/monthWindow.ts`, and `accessError` and `toPuzzleDay` to their existing imports if absent.
+Add `serverFloorFor` to a new import from `./lib/monthWindow.ts`, and `accessError`, `isProFor` and `toPuzzleDay` to their existing imports if absent. Note `throw accessError(...)` — the function is typed `never` and throws internally, but every other call site in this codebase writes the `throw`, and a reader checking whether the gate refuses should not have to look up a return type.
 
-Note that `monthWindowInputsFor` re-runs `requireTeamMemberFor`. That is one extra indexed read on a path that is already the uncommon one, and it keeps the helper usable on its own from the query; do not restructure it to thread the team doc through unless a measurement says otherwise.
-
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 9: Run the tests**
 
 Run: `cd v2 && pnpm exec vitest run convex/scores.test.ts`
-Expected: PASS — all pre-existing tests plus the 5 new ones.
+Expected: PASS — everything from Step 1 plus the 6 new tests.
 
-If a pre-existing test now fails because it asks for a hardcoded month older than the floor, that is a real finding: fix the test to use a month relative to `today`, the way `scores.test.ts`'s header already says `today`-dependent values must be. Do not widen the floor to accommodate a fixture.
+- [ ] **Step 10: Mutation-test the gate — three isolating mutations**
 
-- [ ] **Step 7: Mutation-test the gate**
+*Mutation 1 — the shape check.* Delete the `if (!/^\d{4}-\d{2}$/...)` line.
+Expected: FAIL, naming `refuses a bare year`, **and nothing else**.
 
-Delete the whole `if (month < freeFloor) { ... }` block.
-Run: `cd v2 && pnpm exec vitest run convex/scores.test.ts`
-Expected: FAIL, naming `refuses a free caller a month below the floor` AND `refuses a caller inside the Insights trial the pro window`.
-Restore. Re-run. Expected: PASS.
+*Mutation 2 — the pro check.* Change `if (!(await isProFor(ctx, playerId)))` to `if (false)`.
+Expected: FAIL, naming `refuses a free caller a month below the floor`, `serves a free caller every month down to the slack month`, and `refuses a caller inside the Insights trial the pro window` — the three that depend on a non-pro caller being stopped. It must **not** fail the two pro tests.
 
-Then change the inner condition to `if (false)`.
-Expected: FAIL, naming `refuses a pro caller a month before the roster’s earliest board`.
-Restore. Re-run. Expected: PASS.
+*Mutation 3 — the pro floor.* Change the inner `serverFloorFor({ …, earliestMonth, pro: true })` to `{ …, earliestMonth: null, pro: true }`.
+Expected: FAIL, naming `serves a pro caller a month back to the roster’s earliest board`, **and nothing else** — the pro window collapses to the free one, so the 2023 read is refused while every free-side test is unaffected.
 
-- [ ] **Step 8: Commit**
+Restore after each and re-run to green. The first draft offered two mutations that were the same mutation; if two of yours fail the same set, you have not isolated anything.
+
+- [ ] **Step 11: Lint, then commit**
+
+Run: `cd v2 && pnpm lint && pnpm typecheck`
 
 ```bash
 cd v2 && git add convex/access.ts convex/scores.ts convex/scores.test.ts src/lib/convex-error.ts
 git commit -m "feat(months): enforce the pro month window server-side
 
-getTeamMonthFor checked membership and nothing else, so the three-month
-window was decoration — any member could reach any month with a URL. The
-free floor is checked first and is the whole check for almost every call,
+getTeamMonthFor checked membership and nothing else, so the three-month window
+was decoration — any member could reach any month with a URL, and a bare
+'2026' lexically brackets a whole year, which :180 has documented all along.
+
+The free floor is checked first and is the whole check for almost every call,
 so the dashboard's core query pays nothing in the common path.
+
+MONTH_OUT_OF_WINDOW is added to convexErrorCode's chain as well as to
+typedCodeMessage. Only the latter is exhaustive; without the former the
+message is dead code behind a generic fallback, with every gate green.
 
 wordle-teams-kusd"
 ```
 
 ---
 
-### Task 4: Audit `winners.ts` for the same hole
+### Task 4: Audit every other path that serves a caller-supplied month
+
+The spec says the gate must cover every such path. Two are already known; find any third.
 
 **Files:**
-- Modify: `v2/convex/winners.ts` (comment, and a gate only if the audit finds one)
+- Modify: `v2/convex/winners.ts`
+- Modify: `v2/convex/scores.ts` (a comment, and a gate only if the decision goes that way)
 
-- [ ] **Step 1: Find every month-scoped read reachable by a player**
+- [ ] **Step 1: `getLastMonthWinner` — a known hole**
 
-Run:
+`convex/winners.ts:470` takes `{ teamId, month: v.string() }` and `lastMonthWinnerFor` checks `requireTeamMemberFor` and nothing else, so any member can ask who won March 2023.
+
+Decide and implement: either apply the same shape-and-floor check `getTeamMonthFor` now has, or record in the file why a winner's name is not worth gating when the month's boards are. If you gate it, add a test mirroring Task 3's and mutation-test it the same way.
+
+- [ ] **Step 2: `scores.getMyMonth` — in the file this task already edits**
+
+`convex/scores.ts:190` takes `{ month: v.string() }` and returns **the caller's own** boards for any month, with no window check. It is own-data, which is a real argument for leaving it open — but `pro-benefits.ts` (Task 7) sells "your full history" as Pro, and Insights Layer 2 is gated on exactly that. Decide which, and write the decision into the function's doc comment either way.
+
+- [ ] **Step 3: Sweep for a third**
 
 ```bash
-cd v2 && grep -n "export const\|export async function\|monthRange\|year\|month" convex/winners.ts | head -60
+cd v2 && grep -rn "month: v.string()" convex/*.ts | grep -v test
 ```
 
-For each exported Convex `query` or `mutation`, answer in writing: can a team member request an arbitrary month, and does it return board-level or aggregate data for that month?
+For every hit not covered above, state in writing whether a caller can supply an arbitrary month and what it returns. `convex/teamStats.ts` needs no audit — its only exports are `internalMutation`s. `convex/insights.ts:153` serves arbitrary months but returns `stats: null` without `hasFullTeamMonth`, so it is already closed; say so rather than leaving it unmentioned.
 
-- [ ] **Step 2: Record the outcome in the file, either way**
+- [ ] **Step 4: "Probably fine" is not an acceptable result**
 
-If a hole exists, add the same guard `getTeamMonthFor` uses and a test in `convex/winners.test.ts` mirroring Task 3's, then mutation-test it the same way.
+Each audited function ends this task with either a gate or a comment naming the specific reason it needs none. Silence is a failure of the task.
 
-If no hole exists, add a comment at the relevant export saying so in specific terms — which function, why it cannot serve an out-of-window month (for example: it takes no caller-supplied month, or it only ever reads the current one) — so the next reader does not re-audit it. "Probably fine" is not an acceptable result, and neither is silence.
+- [ ] **Step 5: Run and commit**
 
-- [ ] **Step 3: Run the suite**
-
-Run: `cd v2 && pnpm exec vitest run convex/winners.test.ts`
-Expected: PASS.
-
-- [ ] **Step 4: Commit**
+Run: `cd v2 && pnpm exec vitest run convex/winners.test.ts convex/scores.test.ts`
 
 ```bash
-cd v2 && git add convex/winners.ts convex/winners.test.ts
-git commit -m "chore(months): audit winners.ts against the new month gate
+cd v2 && git add convex/winners.ts convex/winners.test.ts convex/scores.ts
+git commit -m "fix(months): audit every caller-supplied-month path, not just getTeamMonth
+
+getLastMonthWinner and getMyMonth both take an unbounded v.string() month.
+A gate on one path is not a gate.
 
 wordle-teams-kusd"
 ```
@@ -844,47 +1100,17 @@ wordle-teams-kusd"
 ### Task 5: The dropdown
 
 **Files:**
+- Delete: `v2/src/components/month-picker.test.ts`
 - Modify: `v2/src/components/month-picker.tsx`
-- Modify: `v2/src/components/month-picker.test.ts`
 - Create: `v2/src/components/month-picker.hook.test.ts`
 
-- [ ] **Step 1: Rewrite the unit test**
+- [ ] **Step 1: Delete the old unit test**
 
-Replace the whole of `v2/src/components/month-picker.test.ts`:
-
-```ts
-import { describe, expect, test } from 'vitest'
-import { monthWindowFor } from '../../convex/lib/monthWindow.ts'
-
-// monthOptions IS GONE (wordle-teams-kusd). Its signature took only
-// currentMonth, so it could not express a window that depends on the viewer and
-// the team — and left as a wrapper it would be a function any future caller
-// could reach that silently answers "three months" for a Pro player. The
-// ordering properties it pinned are asserted here against its replacement,
-// because they are properties of the DROPDOWN and they matter more now that the
-// list can be forty entries long rather than three.
-describe('the order the dropdown renders', () => {
-  test('is newest first, whatever the length', () => {
-    // DESCENDING IS A DELIBERATE DIVERGENCE FROM v1 (wordle-teams-l23h,
-    // V2-ADDENDUM.md row 48): v1 walks forward and pushes the current month on
-    // last, which puts the month a reader almost always wants off the bottom of
-    // a scroll. That was three rows when it was decided and is forty-three here.
-    const long = monthWindowFor({ currentMonth: '2026-09', earliestMonth: '2023-03', pro: true })
-
-    expect(long[0]).toBe('2026-09')
-    expect(long[long.length - 1]).toBe('2023-03')
-    expect([...long].sort().reverse()).toEqual(long)
-  })
-
-  test('walks back correctly across a year boundary', () => {
-    expect(monthWindowFor({ currentMonth: '2026-01', earliestMonth: null, pro: false })).toEqual([
-      '2026-01',
-      '2025-12',
-      '2025-11',
-    ])
-  })
-})
+```bash
+cd v2 && git rm src/components/month-picker.test.ts
 ```
+
+It tested `monthOptions`, which this task deletes. The obvious move — repointing it at `monthWindowFor` — would leave a file under `components/` that renders no component and duplicates `monthWindow.test.ts`'s ordering cases exactly; `month-picker.tsx` could then be deleted entirely and it would stay green. The ordering properties it pinned (descending, strictly monotonic, holds at any length) are covered in `monthWindow.test.ts`, which is where the rule now lives. The component's own behaviour is covered by the jsdom test below.
 
 - [ ] **Step 2: Write the failing component test**
 
@@ -900,8 +1126,8 @@ Create `v2/src/components/month-picker.hook.test.ts`:
 // WHY THIS FILE EXISTS: THE RULE IT GUARDS IS ABOUT SOMETHING BEING ABSENT. The
 // Pro teaser row must not render when the team has no history behind the gate,
 // and an absent row is the one defect a screenshot of a long-lived team never
-// shows. Without this the row is deletable, and its condition is wideable, with
-// a green suite.
+// shows. Without this the row is deletable, and its condition wideable, with a
+// green suite.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
@@ -913,36 +1139,70 @@ afterEach(cleanup)
  * Radix opens a DropdownMenu on POINTERDOWN, not on click — `fireEvent.click`
  * alone leaves the menu shut and every assertion about its contents trivially
  * passing against an empty list. Lifted from team-scope-controls.hook.test.ts,
- * which pays for the same lesson on the same primitive.
+ * which pays for the same lesson on the same primitive, including the two extra
+ * event fields Radix's own handler reads.
  */
 const open = () =>
-  fireEvent.pointerDown(screen.getByRole('button', { name: /2026/ }), { button: 0 })
+  fireEvent.pointerDown(screen.getByRole('button', { name: /2026/ }), {
+    button: 0,
+    ctrlKey: false,
+    pointerType: 'mouse',
+  })
 
 const props = {
   value: '2026-08',
   months: ['2026-08', '2026-07', '2026-06'],
-  proTeaser: null as string | null,
+  teaserLabel: null as string | null,
   onChange: () => {},
   onUpgrade: () => {},
 }
 
-describe('the pro teaser row', () => {
-  test('names the month Pro reaches back to', () => {
-    render(createElement(MonthPicker, { ...props, proTeaser: '2023-03' }))
+describe('the month list', () => {
+  test('renders every month it is given, and only those', () => {
+    render(createElement(MonthPicker, { ...props, months: ['2026-08', '2026-07', '2026-06', '2026-05'] }))
     open()
 
-    expect(screen.getByRole('menuitem', { name: /Back to March 2023/ })).toBeTruthy()
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(4)
+  })
+
+  test('labels months in the short form the app uses everywhere', () => {
+    // 'Aug 2026', NOT 'August 2026'. formatMonthLabel is
+    // Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' })
+    // (format-day.ts:13), and its own doc line says "'Aug 2026' — the month
+    // picker's label". The first draft of this file asserted the long form in
+    // three places and could never have passed.
+    render(createElement(MonthPicker, props))
+    open()
+
+    expect(screen.getByRole('menuitemradio', { name: 'Aug 2026' })).toBeTruthy()
+  })
+})
+
+describe('the pro teaser row', () => {
+  test('names the month Pro reaches back to', () => {
+    render(createElement(MonthPicker, { ...props, teaserLabel: 'Mar 2023' }))
+    open()
+
+    const row = screen.getByRole('menuitem', { name: /Back to/ })
+    // THE MONTH IS PINNED SEPARATELY FROM THE PREFIX, deliberately. The row's
+    // whole job is to name the actual reward rather than an abstraction, so a
+    // future edit that keeps "Back to …" and loses the month must fail here.
+    expect(row.textContent).toContain('Mar 2023')
   })
 
   test('does not render when there is nothing behind the gate', () => {
     // THE GUARD. A week-old team must not advertise history it does not have —
-    // somebody would pay for it. `proTeaser` is null for a pro viewer, for a
+    // somebody would pay for it. `teaserLabel` is null for a pro viewer, for a
     // team with no boards, and for a team whose earliest board is already inside
     // the free window; proTeaserMonth decides which, and monthWindow.test.ts
-    // covers the decision. This asserts the component honours it.
+    // covers that decision. This asserts the component honours it.
     render(createElement(MonthPicker, props))
     open()
 
+    // A POSITIVE CONTROL FIRST. Without it, an `open()` that silently failed
+    // would make the null assertion below pass vacuously — which is exactly the
+    // failure mode team-scope-controls.hook.test.ts warns about in its own helper.
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(3)
     expect(screen.queryByRole('menuitem', { name: /Back to/ })).toBeNull()
   })
 
@@ -952,27 +1212,20 @@ describe('the pro teaser row', () => {
     // which the server would then refuse.
     const onUpgrade = vi.fn()
     const onChange = vi.fn()
-    render(createElement(MonthPicker, { ...props, proTeaser: '2023-03', onUpgrade, onChange }))
+    render(createElement(MonthPicker, { ...props, teaserLabel: 'Mar 2023', onUpgrade, onChange }))
     open()
-    fireEvent.click(screen.getByRole('menuitem', { name: /Back to March 2023/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Back to/ }))
 
     expect(onUpgrade).toHaveBeenCalledTimes(1)
     expect(onChange).not.toHaveBeenCalled()
   })
-
-  test('renders every month it is given', () => {
-    render(createElement(MonthPicker, { ...props, months: ['2026-08', '2026-07', '2026-06', '2026-05'] }))
-    open()
-
-    expect(screen.getAllByRole('menuitemradio')).toHaveLength(4)
-  })
 })
 ```
 
-- [ ] **Step 3: Run both tests to verify they fail**
+- [ ] **Step 3: Run to verify it fails**
 
-Run: `cd v2 && pnpm exec vitest run src/components/month-picker.test.ts src/components/month-picker.hook.test.ts`
-Expected: FAIL — `monthOptions` no longer imported by the unit test (it passes), and the component test fails because `MonthPicker` does not accept `months`/`proTeaser`/`onUpgrade`.
+Run: `cd v2 && pnpm exec vitest run src/components/month-picker.hook.test.ts`
+Expected: FAIL — `MonthPicker` does not accept `months` / `teaserLabel` / `onUpgrade`.
 
 - [ ] **Step 4: Rewrite the component**
 
@@ -991,36 +1244,35 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu.tsx'
-import { ScrollArea } from '#/components/ui/scroll-area.tsx'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import type { PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
-
-/**
- * How many rows the list may reach before it scrolls instead of growing.
- *
- * ONLY A PRO PLAYER EVER MEETS IT. A free window is three rows plus at most one
- * teaser, so this is dead weight on the free path by design — v1 wraps the same
- * dropdown in a ScrollArea with a computed height
- * (src/components/action-buttons/month-dropdown/utils.ts) precisely because a
- * paying player's list gets long, and v1 teams date back to 2023.
- */
-const MAX_ROWS = 10
 
 /**
  * The month dropdown.
  *
  * IT TAKES A WINDOW RATHER THAN COMPUTING ONE (wordle-teams-kusd). It used to own
- * `monthOptions`, which returned the same three months to everyone — that
- * function is gone rather than left delegating, because its signature took only
+ * `monthOptions`, which returned the same three months to everyone — that function
+ * is gone rather than left delegating, because its signature took only
  * `currentMonth` and could not express a window that depends on the viewer's
- * membership and the team's age. routes/app.tsx builds the window from
- * convex/lib/monthWindow.ts and hands the SAME array to TeamBoards, so the
- * calendar and this control can never disagree about which months exist.
+ * membership and the team's age; left as a wrapper it would be a function any
+ * future caller could reach that silently answers "three months" for a Pro player.
+ * routes/app.tsx builds the window from convex/lib/monthWindow.ts and hands the
+ * SAME array to TeamBoards, so the calendar and this control cannot disagree about
+ * which months exist.
+ *
+ * NO SCROLL CONTAINER OF ITS OWN, even though a Pro list runs to dozens of rows.
+ * DropdownMenuContent already carries
+ * `max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto`
+ * (ui/dropdown-menu.tsx:68), which is viewport-aware and therefore better than a
+ * computed height on a phone. v1 wraps its own long dropdown in a ScrollArea with
+ * a hand-computed height (src/components/action-buttons/month-dropdown/utils.ts);
+ * porting that here would nest a second scroll container inside one that already
+ * works, and v2 has no ScrollArea primitive to port it with.
  */
 export function MonthPicker({
   value,
   months,
-  proTeaser,
+  teaserLabel,
   onChange,
   onUpgrade,
 }: {
@@ -1028,11 +1280,18 @@ export function MonthPicker({
   /** Every month this viewer may select, newest first. `monthWindowFor`'s output. */
   months: Array<PuzzleMonth>
   /**
-   * The month Pro reaches back to, or null when there is nothing to advertise —
-   * a pro viewer, a team with no boards, or a team whose earliest board is
-   * already inside the free window. `proTeaserMonth` decides; this only renders.
+   * The already-formatted month Pro reaches back to, or null when there is
+   * nothing to advertise — a pro viewer, a team with no boards, or a team whose
+   * earliest board is already inside the free window. `proTeaserMonth` decides
+   * and the route formats; this only renders.
+   *
+   * A FORMATTED STRING RATHER THAN A PuzzleMonth, so that deleting the guard
+   * below renders an empty label instead of throwing: `formatMonthLabel(null)`
+   * reaches `Intl.DateTimeFormat.format(Invalid Date)`, which raises a
+   * RangeError. A guard whose only mutant is a crash cannot be mutation-tested —
+   * the crash proves the component still runs, not that the guard works.
    */
-  proTeaser: PuzzleMonth | null
+  teaserLabel: string | null
   onChange: (month: PuzzleMonth) => void
   onUpgrade: () => void
 }) {
@@ -1047,40 +1306,36 @@ export function MonthPicker({
       <DropdownMenuContent>
         <DropdownMenuLabel>Change Month</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {/* HEIGHT SET FROM THE ROW COUNT, NOT A FIXED `max-h`: a short list must
-            not leave empty scrollable space below it, and a long one must not
-            run off the bottom of a phone. 2.25rem is the rendered height of a
-            DropdownMenuRadioItem at this size. */}
-        <ScrollArea
-          style={{ height: `${Math.min(months.length, MAX_ROWS) * 2.25}rem` }}
-          className={months.length > MAX_ROWS ? undefined : 'h-auto'}
-        >
-          <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
-            {months.map((option) => (
-              <DropdownMenuRadioItem key={option} value={option}>
-                {formatMonthLabel(option)}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </ScrollArea>
+        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
+          {months.map((option) => (
+            <DropdownMenuRadioItem key={option} value={option}>
+              {formatMonthLabel(option)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
         {/* OUTSIDE THE RADIO GROUP, AND THAT IS NOT A STYLE CHOICE. A
             DropdownMenuRadioItem carries a value, so putting this inside would
-            make it selectable as a month the window does not contain — which
-            the server would then refuse with MONTH_OUT_OF_WINDOW. It is an
-            upgrade affordance that happens to live in a month menu.
+            make it selectable as a month the window does not contain — which the
+            server would then refuse with MONTH_OUT_OF_WINDOW. It is an upgrade
+            affordance that happens to live in a month menu.
 
             IT IS THE SIXTH CALLER OF THE UPGRADE PATH. Header.tsx:267,
             trial-ended-card.tsx:32, board-entry/import-upsell.tsx:49,
             routes/app.tsx:892 and routes/insights.tsx:327 are the others.
             wordle-teams-iht.1 puts one shared interstitial behind all of them;
-            when it lands, this must go through it rather than remaining the one
-            path that still reaches checkout directly. */}
-        {proTeaser !== null && (
+            when it lands this must go through it rather than remaining the one
+            path that still reaches checkout directly. That issue's notes carry
+            the count.
+
+            THE "Pro" BADGE IS PART OF THE ACCESSIBLE NAME, not hidden from it —
+            "Back to Mar 2023 Pro" — matching board-entry/import-upsell.tsx,
+            which renders the same badge the same way. */}
+        {teaserLabel !== null && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onUpgrade}>
               <Sparkles className="h-4 w-4 text-accent-solid" aria-hidden="true" />
-              Back to {formatMonthLabel(proTeaser)}
+              Back to {teaserLabel}
               <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide">
                 Pro
               </span>
@@ -1095,43 +1350,42 @@ export function MonthPicker({
 export default MonthPicker
 ```
 
-Before writing this, confirm the ScrollArea primitive exists: `ls src/components/ui/scroll-area.tsx`. If it does not, add it with `pnpm dlx shadcn@latest add scroll-area` and commit that separately, or render a plain `div` with `max-h-[22.5rem] overflow-y-auto` instead and say in the comment why.
+- [ ] **Step 5: Run to verify it passes**
 
-- [ ] **Step 5: Run the tests to verify they pass**
-
-Run: `cd v2 && pnpm exec vitest run src/components/month-picker.test.ts src/components/month-picker.hook.test.ts`
-Expected: PASS, 6 tests.
+Run: `cd v2 && pnpm exec vitest run src/components/month-picker.hook.test.ts`
+Expected: PASS, 5 tests.
 
 - [ ] **Step 6: Mutation-test the teaser guard**
 
-Change `{proTeaser !== null && (` to `{true && (` — with `proTeaser` null the label will read "Back to Invalid Date" or similar.
-Run: `cd v2 && pnpm exec vitest run src/components/month-picker.hook.test.ts`
-Expected: FAIL, naming `does not render when there is nothing behind the gate`.
-Restore. Re-run. Expected: PASS.
+Change `{teaserLabel !== null && (` to `{teaserLabel !== '__never__' && (`.
+Expected: FAIL, naming `does not render when there is nothing behind the gate`, **and nothing else** — the row renders with an empty month and no crash, which is the point of taking a formatted string. Restore; re-run; PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd v2 && git add src/components/month-picker.tsx src/components/month-picker.test.ts src/components/month-picker.hook.test.ts
+cd v2 && git add -A src/components/month-picker.tsx src/components/month-picker.hook.test.ts src/components/month-picker.test.ts
 git commit -m "feat(months): the dropdown takes a window, and teases what Pro reaches
 
 monthOptions is deleted rather than left delegating: its signature took only
 currentMonth and could not express a window that depends on the viewer.
 
-The teaser row is the sixth caller of the upgrade path and is recorded as
-such on wordle-teams-iht.1.
+No ScrollArea — DropdownMenuContent already scrolls, viewport-aware, and v2
+has no ScrollArea primitive to port v1's computed-height one with.
+
+The teaser takes a formatted label so the guard has a non-crashing mutant.
 
 wordle-teams-kusd"
 ```
 
 ---
 
-### Task 6: Wire the route, and correct the month on a team change
+### Task 6: Wire the route
 
 **Files:**
 - Create: `v2/src/lib/dashboard-months.ts`
 - Create: `v2/src/lib/dashboard-months.test.ts`
-- Modify: `v2/src/routes/app.tsx:23` (import), `:894-898` (MonthPicker), `:1142` (TeamBoards)
+- Modify: `v2/src/routes/app.tsx`
+- Modify: `v2/src/components/teams/team-boards.hook.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1139,37 +1393,50 @@ Create `v2/src/lib/dashboard-months.test.ts`:
 
 ```ts
 import { describe, expect, test } from 'vitest'
-import { correctedMonth } from './dashboard-months.ts'
+import { correctedMonth, fallbackMonths } from './dashboard-months.ts'
 
 describe('correctedMonth', () => {
   test('is null when the month on screen is inside the window', () => {
     expect(correctedMonth({ monthParam: '2026-07', months: ['2026-08', '2026-07', '2026-06'] })).toBeNull()
   })
 
-  test('is null while the window is still loading', () => {
-    // NOT `months[0]`. An empty or absent window means the query has not
-    // answered yet, and navigating on it would move the reader off the month
-    // they asked for and then have to move them back.
+  test('is null while the window is still loading, and null with no month yet', () => {
+    // NOT months[0]. An absent window means the query has not answered, and
+    // navigating on it would move the reader off the month they asked for and
+    // then have to move them back. An absent monthParam belongs to useSearchSync,
+    // which fills it — this must not race that.
     expect(correctedMonth({ monthParam: '2019-01', months: undefined })).toBeNull()
     expect(correctedMonth({ monthParam: '2019-01', months: [] })).toBeNull()
+    expect(correctedMonth({ monthParam: undefined, months: ['2026-08'] })).toBeNull()
   })
 
   test('falls back to the newest month when the month on screen is outside the window', () => {
-    // THE TEAM-SWITCH CASE, and the only one this corrects. Viewing March 2023
-    // on an old team and switching to one created last month leaves ?month=
-    // naming a month the new team's window does not reach. The reader did
-    // nothing wrong and must not meet an error.
+    // Viewing March 2023 on an old team and switching to one created last month
+    // leaves ?month= naming a month the new team cannot show. Same for a Pro
+    // subscriber's bookmark after a downgrade, and for a roster change that takes
+    // the team's oldest board away with a departing member. All three are
+    // corrected identically — see dashboard-months.ts's header for why the spec
+    // stopped trying to tell them apart.
     expect(correctedMonth({ monthParam: '2023-03', months: ['2026-08', '2026-07', '2026-06'] })).toBe(
       '2026-08',
     )
   })
 
+  test('always returns a member of the window it was given', () => {
+    // THE PROPERTY THE EFFECT'S TERMINATION ACTUALLY RESTS ON, asserted directly
+    // rather than inferred from the round-trip test below — which, on its own,
+    // would also pass for `return months[months.length - 1]`.
+    const months = ['2026-08', '2026-07', '2026-06']
+
+    expect(months).toContain(correctedMonth({ monthParam: '2019-01', months }))
+  })
+
   test('is idempotent — fed its own output, it does nothing', () => {
-    // THE ONLY THING STANDING BETWEEN THE EFFECT THAT CONSUMES THIS AND AN
-    // INFINITE REDIRECT, and the same property resolveDashboardSearch and
-    // resolveInsightsSearch are each tested for. It holds because element 0 of
-    // a window is always a member of that window — see monthWindow.ts, which
-    // labels that DO NOT BREAK THAT PROPERTY.
+    // The same property resolveDashboardSearch and resolveInsightsSearch are each
+    // tested for, and the only thing standing between the effect that consumes
+    // this and an infinite redirect. It holds because element 0 of a window is
+    // always currentMonth — see monthWindow.ts, which labels that DO NOT BREAK
+    // THAT PROPERTY.
     const months = ['2026-08', '2026-07', '2026-06']
     const once = correctedMonth({ monthParam: '2023-03', months })
 
@@ -1177,9 +1444,33 @@ describe('correctedMonth', () => {
     expect(correctedMonth({ monthParam: once as string, months })).toBeNull()
   })
 })
+
+describe('fallbackMonths', () => {
+  test('is the free window, newest first', () => {
+    expect(fallbackMonths('2026-08', '2026-08')).toEqual(['2026-08', '2026-07', '2026-06'])
+  })
+
+  test('includes the month on screen even when it is older than the free window', () => {
+    // WITHOUT THIS THE DAY PICKER GOES DEAD MID-LOAD. team-boards.tsx:227 sets
+    // minDay from the OLDEST month in this array, so a Pro viewer sitting on
+    // 2026-02 would, for the length of one round trip, get a minDay of 2026-06 —
+    // after every day in the month on screen — and react-day-picker would
+    // disable the whole visible grid and both arrows.
+    expect(fallbackMonths('2026-08', '2026-02')).toEqual([
+      '2026-08',
+      '2026-07',
+      '2026-06',
+      '2026-02',
+    ])
+  })
+
+  test('never duplicates a month', () => {
+    expect(fallbackMonths('2026-08', '2026-07')).toEqual(['2026-08', '2026-07', '2026-06'])
+  })
+})
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run to verify it fails**
 
 Run: `cd v2 && pnpm exec vitest run src/lib/dashboard-months.test.ts`
 Expected: FAIL — cannot resolve `./dashboard-months.ts`.
@@ -1189,26 +1480,35 @@ Expected: FAIL — cannot resolve `./dashboard-months.ts`.
 Create `v2/src/lib/dashboard-months.ts`:
 
 ```ts
+import { monthWindowFor } from '../../convex/lib/monthWindow.ts'
 import type { PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
 
 /**
- * Whether `?month=` needs correcting, and to what.
+ * What the dashboard should do about `?month=` once it knows the team's window.
  *
  * IN ITS OWN MODULE RATHER THAN IN dashboard-search.ts, which that file's header
  * asks for by name: "A new rule that needs a date library, a Convex call, or the
  * insights month window belongs in its own module beside what it depends on, the
- * way insights-search.ts does." This one depends on a window a Convex query
- * supplies. It is also the wrong shape for resolveDashboardSearch, which is fed
- * by useSearchSync and must therefore be reachable as a module-level function
- * with no per-team data — the constraint wordle-teams-1ubk left behind
- * (use-search-sync.ts:47-56).
+ * way insights-search.ts does." This one needs a window a Convex query supplies.
  *
- * IT CORRECTS ONE CASE AND DELIBERATELY NOT THE OTHER. A team change that leaves
- * `?month=` naming a month the new team's window does not reach is nobody's
- * mistake and is corrected silently. A URL that names an unreachable month — a
- * bookmark kept across a downgrade, a link from a Pro teammate — is left to reach
- * the server's MONTH_OUT_OF_WINDOW, because the error says why the link stopped
- * working and a silent bounce to this month says nothing at all.
+ * IT IS ALSO THE WRONG SHAPE FOR resolveDashboardSearch, and that is a hard
+ * constraint rather than a preference. useSearchSync's `resolve` must be a
+ * module-level function (use-search-sync.ts:47-50) — the sibling requirement on
+ * `navigate` at :59-72 is what wordle-teams-1ubk fixed, after a call-site closure
+ * re-ran that effect on every render — so the resolver cannot be handed per-team
+ * data. resolveInsightsSearch escapes this only because `createdAt` rides along on
+ * every entry of the `teams` array it already receives; `earliestMonth` does not.
+ *
+ * EVERY OUT-OF-WINDOW MONTH IS CORRECTED, AND THE SPEC USED TO SPLIT THEM.
+ * An earlier design corrected a team switch but let a bookmark kept across a
+ * downgrade reach the server's typed error, so it could explain itself. That is
+ * not implementable here: both arrive as "?month= is not in this window", and
+ * telling them apart means threading the previous teamParam through an effect that
+ * navigates — the riskiest code in the feature. It would also race: six components
+ * call useSuspenseQuery(getTeamMonth) during render while this correction only
+ * runs after commit, so whichever resolved first would decide what the player saw.
+ * Intermittent behaviour is worse than either branch. The server gate stays and
+ * still makes the tier real; a browser user simply is not expected to meet it.
  *
  * THE PURE FUNCTION IS THE POINT. The caller navigates from an effect, which is
  * the shape an infinite redirect takes; pulling the decision out means the
@@ -1219,150 +1519,226 @@ export function correctedMonth({
   monthParam,
   months,
 }: {
-  /** `?month=` as it stands. */
-  monthParam: string
+  /** `?month=` as it stands, or undefined before useSearchSync has filled it. */
+  monthParam: string | undefined
   /** The selected team's window, or undefined while the query is in flight. */
   months: Array<PuzzleMonth> | undefined
 }): PuzzleMonth | null {
-  // NOT A CORRECTION TO months[0] — there is no window yet to judge against, and
-  // navigating on an absent one would move the reader off the month they asked
-  // for and then have to move them back when the query answers.
+  if (monthParam === undefined) return null
   if (months === undefined || months.length === 0) return null
   if (months.includes(monthParam)) return null
 
   // Element 0, which monthWindowFor guarantees is `currentMonth` for every input.
-  // That guarantee is what makes this terminate: the value returned here is
-  // itself always a member of the window this function judges against, so a
-  // second pass returns null.
+  // That guarantee is what makes this terminate: the value returned here is itself
+  // always a member of the window this function judges against, so a second pass
+  // returns null.
   return months[0]
+}
+
+/**
+ * What to drive the two month controls with while `api.scores.monthWindow` is
+ * still in flight.
+ *
+ * THE FREE WINDOW, PLUS THE MONTH ALREADY ON SCREEN. Not `[currentMonth]`, which
+ * an earlier draft used: team-boards.tsx:227 derives `minDay` from the OLDEST
+ * entry here, so a one-element array would set minDay to the first of the current
+ * month — after every day of a past month a Pro viewer might be looking at — and
+ * react-day-picker would disable the entire visible grid and both step arrows for
+ * the length of one round trip. Including `monthParam` keeps the control alive on
+ * the month actually being viewed.
+ *
+ * THE FREE WINDOW IS THE SAFE FLOOR because every account is entitled to it, so
+ * this can only ever WIDEN when the query lands — never take a month away that was
+ * briefly offered.
+ */
+export function fallbackMonths(currentMonth: PuzzleMonth, monthParam: PuzzleMonth): Array<PuzzleMonth> {
+  const free = monthWindowFor({ currentMonth, earliestMonth: null, pro: false })
+  return [...new Set([...free, monthParam])].sort().reverse()
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: Run to verify it passes**
 
 Run: `cd v2 && pnpm exec vitest run src/lib/dashboard-months.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 8 tests.
 
-- [ ] **Step 5: Wire the route**
+- [ ] **Step 5: Mutation-test the correction**
+
+Delete the `if (months.includes(monthParam)) return null` line.
+Expected: FAIL, naming `is null when the month on screen is inside the window` and `is idempotent`. Restore; re-run; PASS.
+
+- [ ] **Step 6: Wire the route — hooks at the TOP of the component**
 
 In `v2/src/routes/app.tsx`:
 
-Replace the import at line 23:
-
-```tsx
-import { MonthPicker } from '#/components/month-picker.tsx'
-```
-
-Add:
+Change the import at `:23` to `import { MonthPicker } from '#/components/month-picker.tsx'`. Add `useQuery` to the `@tanstack/react-query` import at `:6` (it currently imports only `useMutation, useSuspenseQuery`). Add `useMemo` to the `react` import at `:7`. Add:
 
 ```tsx
 import { monthWindowFor, proTeaserMonth } from '../../convex/lib/monthWindow.ts'
-import { correctedMonth } from '#/lib/dashboard-months.ts'
+import { correctedMonth, fallbackMonths } from '#/lib/dashboard-months.ts'
 ```
 
-After `const currentMonth = hydrated ? monthOf(toPuzzleDay(new Date())) : monthParam` (line 680), add:
+**Insert the new hooks immediately after `const { data: onboardingStatus } = …` (around `:208`) — NOT further down.** `Dashboard` has early returns at `:612` (`if (teams.length === 0)`) and `:661` (`if (!teamParam || !monthParam)`), and today there is not one hook call below `:446`. Three hooks below those returns would call a different number of hooks on the render before `useSearchSync` fills the params and the render after it — `Rendered more hooks than during the previous render`, on every load, caught by `react-hooks/rules-of-hooks` but only when lint runs.
 
 ```tsx
   /*
-    THE SELECTED TEAM'S WINDOW (wordle-teams-kusd).
+    THE SELECTED TEAM'S MONTH WINDOW (wordle-teams-kusd).
 
-    'skip' UNTIL THERE IS A TEAM, matching every other gated query in this app —
-    see Header.tsx's note on why it must be 'skip' rather than `enabled:`. A
-    stale or invalid `?team=` leaves `teamParam` naming a team the viewer is not
-    on, and useSearchSync corrects it within a render or two; asking for its
-    window in the meantime would be a guaranteed NOT_A_MEMBER throw.
+    UP HERE WITH THE OTHER HOOKS, NOT BESIDE THE CONTROLS IT FEEDS. This component
+    returns early twice below — an empty state at :612 and a skeleton at :661 —
+    and every hook must run on both paths.
 
-    useQuery, NOT useSuspenseQuery: this feeds a control in the bar, and
-    suspending the page on it would make the whole dashboard wait to find out
-    how far back the dropdown goes.
+    NAMED monthWindowInputs, NOT `window`. A `const window` in this scope shadows
+    the global that the sign-in arrival effect uses at :357 and :374, which would
+    break the funnel event, promoteLoginAttempt and the ?signin= strip — silently,
+    since :359 already records that a failure there just leaves the last-used badge
+    naming the wrong method forever.
+
+    'skip' GATED ON MEMBERSHIP, NOT ON TRUTHINESS. A stale or foreign ?team= is a
+    non-empty string, so `teamParam ? … : 'skip'` would fire the query and take a
+    guaranteed NOT_A_MEMBER throw for the render or two before useSearchSync
+    corrects it. `teams` is already resolved above, so validating against it costs
+    nothing — and it is the same check resolveDashboardSearch makes.
+
+    useQuery, NOT useSuspenseQuery: this feeds a control in the bar, and suspending
+    the page on it would make the whole dashboard wait to learn how far back the
+    dropdown goes.
   */
-  const { data: window } = useQuery(
-    convexQuery(api.scores.monthWindow, teamParam ? { teamId: teamParam as Id<'teams'> } : 'skip'),
-  )
+  const monthWindowArgs =
+    teamParam && teams.some((team) => team.id === teamParam)
+      ? { teamId: teamParam as Id<'teams'> }
+      : 'skip'
+  const { data: monthWindowInputs } = useQuery(convexQuery(api.scores.monthWindow, monthWindowArgs))
 
   /*
-    BUILT ON THE CLIENT FROM THE SERVER'S TWO INPUTS, because `currentMonth` is
-    the VIEWER'S and Convex runs UTC. See monthWindow.ts.
-
-    useMemo KEYED ON PRIMITIVES, not on the query's object: a fresh array every
-    render would re-run the correction effect below on every render, which is
-    the exact defect wordle-teams-1ubk fixed in useSearchSync.
+    THE VIEWER'S OWN CLOCK, and the same post-hydration guard :680 uses for the
+    same reason: reading it during an SSR-matching render would make the server
+    (UTC) and the client (local) disagree on the last and first days of a month —
+    the hydration-mismatch class wordle-teams-uc5 was.
   */
+  const clockMonth = hydrated ? monthOf(toPuzzleDay(new Date())) : undefined
+
+  /*
+    THE WINDOW, BUILT ON THE CLIENT because `currentMonth` is the VIEWER'S and
+    Convex runs UTC — see monthWindow.ts.
+
+    `pro` IS THE EXISTING isPro (:203), NOT A FIELD ON THE NEW QUERY. Two
+    subscriptions to one fact, updating independently, is the aggregate-versus-live
+    split-brain wordle-teams-iht.4 is about. isPro is a useSuspenseQuery, so it is
+    always a boolean here and needs no in-flight branch.
+
+    EVERY DEPENDENCY IS A PRIMITIVE, AND THE LIST IS EXHAUSTIVE. `earliestMonth` is
+    destructured out first rather than left as `monthWindowInputs?.earliestMonth`
+    in the array, because react-hooks/exhaustive-deps resolves a bare
+    `monthWindowInputs` in the body to the identifier itself and would report a
+    missing dependency — and `pnpm lint` runs with --max-warnings 0, where that
+    warning is a failed gate.
+  */
+  const earliestMonth = monthWindowInputs?.earliestMonth ?? null
+  const windowReady = monthWindowInputs !== undefined && clockMonth !== undefined
   const months = useMemo(
     () =>
-      window === undefined
-        ? undefined
-        : monthWindowFor({ currentMonth, earliestMonth: window.earliestMonth, pro: window.pro }),
-    [currentMonth, window?.earliestMonth, window?.pro],
+      windowReady && clockMonth !== undefined
+        ? monthWindowFor({ currentMonth: clockMonth, earliestMonth, pro: isPro })
+        : undefined,
+    [windowReady, clockMonth, earliestMonth, isPro],
   )
 
   /*
-    CORRECTING `?month=` AFTER A TEAM CHANGE. Switching from a team whose window
-    reaches 2023 to one created last month leaves `?month=` naming a month the
-    new team cannot show. The decision is pure and lives in lib/dashboard-months.ts,
-    which has the idempotence test this effect's termination depends on — read its
-    header before changing what it is fed.
+    MOVING `?month=` BACK INTO THE WINDOW. Three situations produce a ?month= the
+    selected team cannot show: switching to a younger team, a bookmark kept across
+    a downgrade, and a departing member taking the team's oldest board with them.
+    All three are corrected the same way; lib/dashboard-months.ts's header explains
+    why the spec stopped trying to distinguish them.
 
-    `replace: true, resetScroll: false` MATCHES useSearchSync'S OWN CORRECTION,
-    and for the same reasons: this is not a navigation the reader asked for, so
-    it must not take over the back button and must not move them on the page.
+    THE DECISION IS PURE AND THE TERMINATION IS A TEST, not a comment — read that
+    file's header before changing what this is fed.
+
+    `replace: true, resetScroll: false` MATCHES useSearchSync'S OWN CORRECTION and
+    for the same reasons: this is not a navigation the reader asked for, so it must
+    not take over the back button and must not move them on the page.
   */
-  const correction = months === undefined ? null : correctedMonth({ monthParam, months })
+  const monthCorrection = correctedMonth({ monthParam, months })
   useEffect(() => {
-    if (correction === null) return
+    if (monthCorrection === null || !teamParam) return
     void navigate({
       to: Route.fullPath,
-      search: { team: teamParam, month: correction },
+      search: { team: teamParam, month: monthCorrection },
       replace: true,
       resetScroll: false,
     })
-  }, [correction, navigate, teamParam])
+  }, [monthCorrection, teamParam, navigate])
 ```
 
-Replace the `MonthPicker` element at lines 894-898:
+Then, below the early returns where `currentMonth` and `monthParam` are both known strings, define the value both controls share:
+
+```tsx
+  // ONE ARRAY FOR BOTH CONTROLS, which is what keeps the dropdown and the day
+  // picker from disagreeing about which months exist — team-boards.tsx's `months`
+  // prop doc has said so since wordle-teams-5vv3, predicting this change.
+  const monthsForControls = months ?? fallbackMonths(currentMonth, monthParam)
+```
+
+Replace the `MonthPicker` element at `:894-898`:
 
 ```tsx
         <MonthPicker
           value={monthParam}
-          months={months ?? [currentMonth]}
-          proTeaser={
-            window === undefined
+          months={monthsForControls}
+          teaserLabel={
+            months === undefined
               ? null
-              : proTeaserMonth({
-                  currentMonth,
-                  earliestMonth: window.earliestMonth,
-                  pro: window.pro,
-                })
+              : (() => {
+                  const teaser = proTeaserMonth({
+                    currentMonth,
+                    earliestMonth,
+                    pro: isPro,
+                  })
+                  return teaser === null ? null : formatMonthLabel(teaser)
+                })()
           }
           onChange={(month) => navigate({ to: Route.fullPath, search: { team: teamParam, month } })}
           onUpgrade={() => void startUpgrade()}
         />
 ```
 
-`months ?? [currentMonth]` is the in-flight state: one row, the month already on screen, so the control is never empty and never offers a month it cannot yet justify.
+Add `formatMonthLabel` to the imports if absent.
 
-Replace line 1142:
+Replace `:1142`:
 
 ```tsx
-          months={months ?? [currentMonth]}
+          months={monthsForControls}
 ```
 
-Add `useEffect` and `useMemo` to the `react` import if absent.
+- [ ] **Step 7: Fix the source-text assertion this breaks**
 
-- [ ] **Step 6: Run the full suite and typecheck**
+`src/components/teams/team-boards.hook.test.ts:679` asserts the literal JSX text of `app.tsx:1142`:
 
-Run: `cd v2 && pnpm typecheck && pnpm exec vitest run`
-Expected: PASS. `routes.test.ts` and any dashboard tests that referenced `monthOptions` must be updated, not deleted — if one breaks, it is telling you a call site moved.
+```ts
+expect(rendered[0].get('months')).toBe('{monthOptions(currentMonth)}')
+```
 
-- [ ] **Step 7: Commit**
+Update it to `'{monthsForControls}'`, and — because that assertion exists to prove the two controls share one array — **extend it to walk `<MonthPicker>` too** and assert both `months` attributes render the identical expression. As written it only ever inspected `<TeamBoards>`, so it could never have caught the two drifting apart, which is the one thing its comment says it is for.
+
+(`src/routes.test.ts` contains no reference to `monthOptions` — the first draft of this plan named it and was wrong.)
+
+- [ ] **Step 8: Run typecheck, lint and the full suite**
+
+Run: `cd v2 && pnpm typecheck && pnpm lint && pnpm exec vitest run`
+Expected: all green. **Run `lint` here, not only in Task 9** — `rules-of-hooks` and `exhaustive-deps` are the two rules this task is most likely to trip, and neither shows up in typecheck or vitest.
+
+- [ ] **Step 9: Commit**
 
 ```bash
-cd v2 && git add src/lib/dashboard-months.ts src/lib/dashboard-months.test.ts src/routes/app.tsx
-git commit -m "feat(months): drive both pickers from the window, and correct on team change
+cd v2 && git add src/lib/dashboard-months.ts src/lib/dashboard-months.test.ts src/routes/app.tsx src/components/teams/team-boards.hook.test.ts
+git commit -m "feat(months): drive both pickers from the window, and correct ?month=
+
+The hooks go at the top of Dashboard, above its two early returns — there is
+no hook call below :446 today and adding three below :661 would change the
+hook count between renders on every load.
 
 The correction is a pure function with an idempotence test, for the reason
-resolveDashboardSearch is: it is consumed by an effect that navigates, which
-is the shape an infinite redirect takes.
+resolveDashboardSearch is one: it is consumed by an effect that navigates.
 
 wordle-teams-kusd"
 ```
@@ -1380,14 +1756,21 @@ wordle-teams-kusd"
 Create `v2/src/lib/pro-benefits.test.ts`:
 
 ```ts
+// @vitest-environment node
+//
+// node rather than the suite's default edge-runtime, because the gatedAt test
+// below reads the filesystem. That is the whole point of it: a path that does not
+// resolve is a claim nobody checked.
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { PRO_BENEFITS } from './pro-benefits.ts'
 
 describe('PRO_BENEFITS', () => {
   test('lists exactly the five things Pro gates today', () => {
-    // A COUNT ASSERTION, deliberately. This file is copy, and copy is the one
-    // thing typecheck, lint and build cannot check: an entry deleted or a sixth
-    // one invented would otherwise ship silently to the interstitial and the
+    // A COUNT AND ORDER ASSERTION, deliberately. This file is copy, and copy is
+    // the one thing typecheck, lint and build cannot check: an entry deleted or a
+    // sixth invented would otherwise ship silently to the interstitial and the
     // landing page at once.
     expect(PRO_BENEFITS.map((benefit) => benefit.id)).toEqual([
       'teams',
@@ -1398,13 +1781,25 @@ describe('PRO_BENEFITS', () => {
     ])
   })
 
-  test('every benefit names where it is enforced', () => {
-    // THE PROPERTY THAT KEEPS THIS HONEST. An entry with no enforcement site is
-    // a claim nobody checked, which is precisely how "unlimited months" survived
-    // on the landing page for months while v2 gated nothing.
+  test('every gatedAt path exists on disk', () => {
+    // THE PROPERTY THAT KEEPS THIS HONEST, and it has to touch the filesystem to
+    // have it. A suffix check (`/\.tsx?$/`) would pass for 'nonsense.ts' while
+    // the comment claimed the entry named real code — which is the same shape as
+    // the "unlimited months" claim this whole file exists to stop.
     for (const benefit of PRO_BENEFITS) {
-      expect(benefit.enforcedAt).toMatch(/\.tsx?$/)
+      expect(existsSync(resolve(__dirname, '../..', benefit.gatedAt)), benefit.gatedAt).toBe(true)
     }
+  })
+
+  test('records which gates are server-enforced and which are UI-only', () => {
+    // TWO OF THE FIVE ARE NOT ENFORCED, and access.ts:265-268 says so: "createTeam
+    // PAST THE CAP IS NOT ENFORCED… THE SCORING-SYSTEM EDITOR IS NOT ENFORCED."
+    // form.tsx:161 says the same of the import gate. Both are deliberate v1-parity
+    // decisions and neither is a reason not to sell the feature — but a list that
+    // implied all five were enforced would be false on the day it was written.
+    expect(
+      PRO_BENEFITS.filter((benefit) => benefit.serverEnforced).map((benefit) => benefit.id),
+    ).toEqual(['teams', 'insights', 'months'])
   })
 
   test('says nothing about chat or notifications', () => {
@@ -1418,24 +1813,27 @@ describe('PRO_BENEFITS', () => {
     expect(prose).not.toContain('notification')
   })
 
-  test('quotes no price', () => {
+  test('quotes no price, in any of the shapes a price takes', () => {
     // The price lives in Polar and reaches the customer on Polar's hosted
     // checkout. A number here is a second source of truth that goes stale
     // silently with every gate green — trial-copy.ts's own rule, same reason.
     const prose = PRO_BENEFITS.map((b) => `${b.title} ${b.body}`).join(' ')
 
-    expect(prose).not.toMatch(/[$£€]|\bper month\b|\bper year\b|\/mo\b/)
+    expect(prose).not.toMatch(/[$£€]|\bUSD\b|\bper (month|year)\b|\ba (month|year)\b|\bmonthly\b|\bannually\b|\/mo\b/i)
   })
 
-  test('uses typographic apostrophes', () => {
+  test('uses typographic apostrophes and no typewriter ones', () => {
     const prose = PRO_BENEFITS.map((b) => `${b.title} ${b.body}`).join(' ')
 
     expect(prose).not.toContain("'")
+    // AND AT LEAST ONE IS PRESENT, so that deleting every apostrophe — which
+    // would also satisfy the line above — fails instead of passing.
+    expect(prose).toContain('’')
   })
 })
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run to verify it fails**
 
 Run: `cd v2 && pnpm exec vitest run src/lib/pro-benefits.test.ts`
 Expected: FAIL — cannot resolve `./pro-benefits.ts`.
@@ -1446,12 +1844,12 @@ Create `v2/src/lib/pro-benefits.ts`:
 
 ```ts
 /**
- * WHAT PRO ACTUALLY INCLUDES — one list, checked against the gates that enforce it.
+ * WHAT PRO ACTUALLY INCLUDES — one list, checked against the code that gates it.
  *
  * Sibling of trial-copy.ts and billing-copy.ts, and here for the reason
  * trial-copy.ts gives: the copy is the deliverable and the component is not. A
- * sentence chosen in a spec and then typed straight into JSX is a product
- * decision no test can reach.
+ * sentence chosen in a spec and then typed straight into JSX is a product decision
+ * no test can reach.
  *
  * IT EXISTS BECAUSE THE PRODUCT HAD NO SUCH LIST AND THE ONE DESCRIPTION IT DID
  * HAVE WAS WRONG. components/home/feature-cards.tsx's "Go Pro" card sold
@@ -1464,10 +1862,15 @@ Create `v2/src/lib/pro-benefits.ts`:
  * wordle-teams-wty4.1.14's marketing pages. They describe one tier and must not
  * describe it twice.
  *
- * `enforcedAt` IS NOT DECORATION. Every entry names the file that actually
- * refuses the thing to a free player, and pro-benefits.test.ts asserts each one
- * is present. An entry that cannot name its gate is a claim nobody checked,
- * which is exactly what "unlimited months" was.
+ * `gatedAt` IS NOT DECORATION, AND IT IS NOT `enforcedAt`. Every entry names the
+ * file where a free player is turned away, and pro-benefits.test.ts asserts each
+ * path exists on disk. But only three of the five are turned away by the SERVER —
+ * convex/access.ts:265-268 states plainly that "createTeam PAST THE CAP IS NOT
+ * ENFORCED" and "THE SCORING-SYSTEM EDITOR IS NOT ENFORCED", and
+ * board-entry/form.tsx:161 calls the import gate "UI-ONLY BY DESIGN". Both are
+ * deliberate v1-parity decisions — v1 sells those features the same way — and
+ * neither is a reason to leave them off the list. What would be wrong is a field
+ * named `enforcedAt` claiming a server check that two of these do not have.
  *
  * NO PRICE HERE. The price lives in Polar and reaches the customer on Polar's
  * hosted checkout. A number in this file is a second source of truth that goes
@@ -1476,9 +1879,8 @@ Create `v2/src/lib/pro-benefits.ts`:
  * TEAM CHAT AND PUSH NOTIFICATIONS ARE NOT ON THIS LIST, and their absence is a
  * decision rather than an omission: neither is gated — there is no isProFor
  * anywhere in convex/chat.ts or convex/chatNotify.ts. They are part of the free
- * product and belong in the story the landing page tells about what the app
- * does, not in the one it tells about what Pro buys. Selling something already
- * free is the same defect as selling something that does not exist.
+ * product and belong in the story the landing page tells about what the app does,
+ * not in the one it tells about what Pro buys.
  */
 export type ProBenefit = {
   id: 'teams' | 'scoring' | 'import' | 'insights' | 'months'
@@ -1486,8 +1888,10 @@ export type ProBenefit = {
   title: string
   /** One sentence, second person, no price. */
   body: string
-  /** The file that refuses this to a free player. Checked by the test. */
-  enforcedAt: string
+  /** Repo-relative path to where a free player is turned away. Checked on disk. */
+  gatedAt: string
+  /** Whether the server refuses it, or only the UI hides it. See this file's header. */
+  serverEnforced: boolean
 }
 
 export const PRO_BENEFITS: ReadonlyArray<ProBenefit> = [
@@ -1495,46 +1899,52 @@ export const PRO_BENEFITS: ReadonlyArray<ProBenefit> = [
     id: 'teams',
     title: 'As many teams as you like',
     body: 'Free accounts can join two teams. Pro lifts the cap, and any invites waiting on it come through the moment you upgrade.',
-    enforcedAt: 'convex/lib/teamLimits.ts',
+    gatedAt: 'convex/lib/teamLimits.ts',
+    serverEnforced: true,
   },
   {
     id: 'scoring',
     title: 'Your own scoring system',
     body: 'Decide what a two-guess day is worth, and what a failed one costs, for every team you own.',
-    enforcedAt: 'src/components/scoring-system-card.tsx',
+    gatedAt: 'src/components/scoring-system-card.tsx',
+    serverEnforced: false,
   },
   {
     id: 'import',
     title: 'Import from a screenshot',
     body: 'Paste a screenshot of your Wordle and we’ll fill the board in for you — check it and submit.',
-    enforcedAt: 'src/components/board-entry/form.tsx',
+    gatedAt: 'src/components/board-entry/form.tsx',
+    serverEnforced: false,
   },
   {
     id: 'insights',
     title: 'Your full history, and your team’s whole month',
-    body: 'Free shows you today. Pro shows you everything you have done, and how the whole team’s month is going, not just one day of it.',
-    enforcedAt: 'convex/insights.ts',
+    body: 'Free shows you today. Pro shows you everything you have done, and how the whole team’s month is going rather than just one day of it.',
+    gatedAt: 'convex/insights.ts',
+    serverEnforced: true,
   },
   {
     id: 'months',
     title: 'Every month you have ever played',
     body: 'Free reaches back three months. Pro reaches back to your team’s very first board.',
-    enforcedAt: 'convex/lib/monthWindow.ts',
+    gatedAt: 'convex/lib/monthWindow.ts',
+    serverEnforced: true,
   },
 ]
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: Run to verify it passes**
 
 Run: `cd v2 && pnpm exec vitest run src/lib/pro-benefits.test.ts`
-Expected: PASS, 5 tests.
+Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Mutation-test the count assertion**
+- [ ] **Step 5: Mutation-test both honesty guards**
 
-Delete the `months` entry from `PRO_BENEFITS`.
-Run: `cd v2 && pnpm exec vitest run src/lib/pro-benefits.test.ts`
-Expected: FAIL, naming `lists exactly the five things Pro gates today`.
-Restore. Re-run. Expected: PASS.
+*Mutation 1.* Delete the `months` entry.
+Expected: FAIL, naming `lists exactly the five things Pro gates today`. Restore.
+
+*Mutation 2.* Change the `scoring` entry's `gatedAt` to `'src/components/nope.tsx'`.
+Expected: FAIL, naming `every gatedAt path exists on disk`. Restore; re-run; PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -1543,54 +1953,72 @@ cd v2 && git add src/lib/pro-benefits.ts src/lib/pro-benefits.test.ts
 git commit -m "feat(pro): one canonical list of what Pro includes
 
 The product had no such list, and the only description it had — feature-cards'
-'Go Pro' card — claimed unlimited months while v2 gated none. Both downstream
-issues (iht.1's interstitial, wty4.1.14's marketing pages) consume this so one
-tier gets one description.
+'Go Pro' card — claimed unlimited months while v2 gated none.
+
+The field is gatedAt, not enforcedAt: access.ts:265-268 and form.tsx:161 both
+say the scoring editor and the import gate are UI-only, so a field claiming
+server enforcement for all five would be false on the day it was written.
 
 wordle-teams-kusd"
 ```
 
 ---
 
-### Task 8: Discharge the stale predictions
+### Task 8: Discharge the stale predictions — there are nine, not four
 
-Four comments predict this work as future. Leaving them is the defect class this project has found nineteen instances of: comments that assert things the code does not do.
+Comments that predict this work as future become comments that assert something the code does not do. This project has found nineteen of those recently; leaving nine behind would be the largest single batch yet.
 
-**Files:**
-- Modify: `v2/convex/access.ts` (the `isProFor` header, ~line 270)
-- Modify: `v2/src/components/teams/team-boards.tsx:61` (the `months` prop doc)
-- Modify: `v2/src/lib/insights-months.ts` (the `teamMonthOptions` header)
-- Modify: `docs/design-system/V2-ADDENDUM.md:446` (row 48)
+**Files (all confirmed to contain a prediction or a reference to the deleted `monthOptions`):**
+
+| File | What is now false |
+| --- | --- |
+| `v2/convex/access.ts` (~`:270`, the `isProFor` header) | "the month window… DOES NOT EXIST HERE YET", "v2 currently shows a pro player LESS history than production" |
+| `v2/src/routes/app.tsx:1136-1137` | "widen together when the pro / expansion lands" — **wrapped across a line break**, so a phrase grep misses it; six lines above the line Task 6 edits |
+| `v2/src/components/teams/team-boards.tsx:49-60` | "v2 has NO pro month gate yet — `monthOptions` returns three months for everyone" |
+| `v2/src/components/teams/team-boards.tsx:202` | "is `monthOptions`' output" |
+| `v2/src/components/teams/team-boards-model.ts:147,153-154` | "v2 has no pro month gate yet, so both controls read `monthOptions`" |
+| `v2/src/components/teams/team-boards-model.test.ts:283` | "that is `monthOptions`’ order" |
+| `v2/src/components/teams/team-boards.hook.test.ts:89,441-444` | "the shape `monthOptions` produces"; "the pro expansion would later have to take it away" |
+| `v2/src/components/insights/team-scope-controls.tsx:49-55` | "`monthOptions(currentMonth)` is computed INSIDE that component"; "An `options` prop on MonthPicker would have closed the gap" — Task 5 adds exactly that prop |
+| `v2/src/lib/insights-months.ts:9-16` | "still owes its own score-based expansion" |
+| `docs/design-system/V2-ADDENDUM.md:450` (row 50) | "v2 has no pro month gate yet… both controls widen together when it lands" |
+| `docs/design-system/V2-ADDENDUM.md:587` | "Phase 2 deliberately deferred the pro gate, so v2…" — contains no "month", so a month-shaped grep misses it |
 
 - [ ] **Step 1: Correct each one**
 
-`convex/access.ts` — the paragraph beginning "THE FOURTH GATE wordle-teams-6tn NAMES" says the month window "does not exist here yet" and "v2 currently shows a pro player LESS history than production". Both are now false. Replace it with a statement that the gate exists, that it lives in `scores.ts`'s `getTeamMonthFor` rather than in the list above because it is a read gate rather than a write gate, and that `wordle-teams-kusd` is what built it.
+Rewrite each from prediction to fact. Keep what is still true — `insights-months.ts`'s explanation of why its window and this one are *different rules that must not be unified* is now more load-bearing, not less, and V2-ADDENDUM row 48's newest-first divergence is still a divergence the parity audit needs.
 
-`src/components/teams/team-boards.tsx:61` — the `months` doc says "v2 has NO pro month gate yet — `monthOptions` returns three months for everyone — so an unbounded picker would hand every player unlimited history now and the pro expansion would later have to take it away." Rewrite to say the expansion has landed, that `months` is now `monthWindowFor`'s output passed down from `routes/app.tsx`, and that sharing one array is what still keeps this control and the dropdown from disagreeing.
+**Row 50 at `:450` is the one that carries the quoted sentence, not row 48 at `:446`.** An earlier draft of the spec cited `:446` and the error reached the beads issue; editing row 48 and leaving row 50 would discharge the wrong comment.
 
-`src/lib/insights-months.ts` — the header says the scores picker "still owes its own score-based expansion". It no longer does. Say instead that it has one, in `convex/lib/monthWindow.ts`, and keep the sentence explaining why the two rules are different and must not be unified — that part is still true and is now more load-bearing, not less.
+- [ ] **Step 2: Verify nothing survives**
 
-`docs/design-system/V2-ADDENDUM.md:446` — row 48 says "That three-month window is a free-tier affordance and is temporary" and "v2 has no pro month gate yet". Update to record that the expansion landed in `wordle-teams-kusd`, that the descending order it argued for is what the now-long list inherited, and leave the divergence itself (newest-first versus v1's oldest-first) intact — that is still a divergence and the parity audit still needs it.
+**Two traps, both found by running the first version of this grep, and both of which would have left work undone:**
 
-- [ ] **Step 2: Verify no stale prediction survives**
+*Multi-word phrases wrap.* `app.tsx:1136` reads "…when the pro / expansion lands" across a line break, so `grep "pro expansion"` does not match it. Nor does any month-shaped phrase match `V2-ADDENDUM.md:587`'s "deferred the pro gate". Search single distinctive words and read the context.
 
-Run:
+*`monthOptionsFor` is a DIFFERENT function and it SURVIVES.* `src/lib/insights-panel.ts:238` exports it; `daily-benchmark.tsx` and `insights-panel.test.ts` use it. A substring grep for `monthOptions` hits all three. Use `-w`, and do not let anyone "tidy up" those call sites.
 
 ```bash
-cd /home/cdub/projects/wordle-teams && grep -rn "no pro month gate\|pro expansion\|still owes its own score-based\|does not exist here yet" v2/src v2/convex docs/design-system/V2-ADDENDUM.md
+cd /home/cdub/projects/wordle-teams
+# The deleted function, word-bounded so monthOptionsFor is excluded.
+grep -rnw "monthOptions" v2/src v2/convex
+# The predictions, single words so a line break cannot hide them.
+grep -rniE "pro (month )?gate|pro[[:space:]]+expansion|expansion lands|score-based" \
+  v2/src v2/convex docs/design-system/V2-ADDENDUM.md
 ```
 
-Expected: every remaining hit is a sentence written in the past tense about work that has now landed. Any hit still predicting future work is one you missed.
+Expected: **zero** hits from the first grep — Task 5 deleted `monthOptions`, so any surviving reference names something that no longer exists. Every hit from the second is past tense about work that has landed, or is `monthWindow.ts`'s own deliberate explanation of why its rule and `teamMonthOptions` differ. The first draft of this task listed four files and used a grep that would have left eleven references standing.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/cdub/projects/wordle-teams && git add v2/convex/access.ts v2/src/components/teams/team-boards.tsx v2/src/lib/insights-months.ts docs/design-system/V2-ADDENDUM.md
-git commit -m "docs(months): discharge four comments that predicted the pro month gate
+cd /home/cdub/projects/wordle-teams && git add -A v2/src v2/convex docs/design-system/V2-ADDENDUM.md
+git commit -m "docs(months): discharge nine comments that predicted the pro month gate
 
-Each said the expansion was future work. It is not any more, and a comment
-that asserts something the code does not do is the defect class this project
-has found nineteen of.
+Each said the expansion was future work, or named monthOptions, which is now
+deleted. A comment that asserts something the code does not do is the defect
+class this project has found nineteen of; the first draft of this task found
+four of these nine.
 
 wordle-teams-kusd"
 ```
@@ -1605,7 +2033,7 @@ wordle-teams-kusd"
 cd v2 && pnpm typecheck && pnpm lint && pnpm test:once && pnpm build
 ```
 
-Expected: all four green. Run all four — they catch different things; `lint` reaches `public/*.js` that `build` does not, and the test suite asserts counts that a docs-only change can break.
+Expected: all four green. Run all four — they catch different things; `lint` reaches `public/*.js` that `build` does not, and the suite asserts counts a docs-only change can break.
 
 Do not pipe these through anything that swallows the exit status. This shell is zsh, where `PIPESTATUS` is empty, so a piped gate check can report a false green.
 
@@ -1619,20 +2047,20 @@ cd v2 && PATH="$HOME/.local/share/mise/installs/node/22.23.2/bin:$PATH" \
 
 Run it in the background. The `--env-file` is **not optional**: `.env.local` carries `CONVEX_DEPLOY_KEY` and a bare `convex dev` targets a real cloud deployment. Confirm the log says `[Local] Port 3210` before continuing. Node 22 is required; the workstation default is 25, which refuses `use node` actions.
 
-Before starting Playwright, confirm nothing stale holds port 3000 — a previous dev server will be attached to and every run will test old code.
+Before starting Playwright, confirm nothing stale holds port 3000 — a leftover dev server will be attached to and every spec will test old code.
 
 - [ ] **Step 3: Run e2e**
 
 Run the full Playwright suite in the background; it takes about 11 minutes and exceeds the foreground tool-call limit.
 Expected: 101/101, or a failure that names a real behaviour change from this work.
 
-A server-side access change to the dashboard's core query is exactly the class e2e catches and the unit suite does not. If a spec fails because a seeded fixture asks for a month older than the floor, fix the seed (`convex/e2eSeed.ts`), not the floor.
+A server-side access change to the dashboard's core query is exactly the class e2e catches and the unit suite does not. **`convex/e2eSeed.ts` is the first place to look** on a failure: a seeded team whose boards predate the free window will now be refused for a free seeded player. Fix the seed, not the floor.
 
 - [ ] **Step 4: Kill the backend**
 
 Wait on the log rather than on the process name — `until ! pgrep -f convex` never exits, because the waiter matches itself.
 
-- [ ] **Step 5: Close the issue and push**
+- [ ] **Step 5: Close and push**
 
 ```bash
 cd /home/cdub/projects/wordle-teams
@@ -1644,12 +2072,16 @@ git status   # MUST show up to date with origin
 
 `bd` changes lag one commit: after `bd close`, check `git status` and commit `.beads/issues.jsonl` again if it changed. Never `--no-verify`.
 
+Leave `wordle-teams-qvqi` (unvalidated `puzzleDay`) open — Task 1's span bounds defend against its symptom, not its cause.
+
 ---
 
 ## Self-review
 
-**Spec coverage.** §3 the rule → Task 1. §4 the query → Task 2; enforcement → Task 3; the trial decision → Task 3 step 1; the two-ways-in split → Tasks 3 and 6. §5 the dropdown and the teaser → Task 5; the day picker → Task 6 step 5; the sixth affordance → recorded in Task 5's component comment and already on `wordle-teams-iht.1`. §6 the inventory → Task 7. §7 testing → the mutation steps in Tasks 1, 3, 5, 7 and Task 9. §9 AC 1–10 → AC1 Task 6, AC2 Task 5, AC3 Task 3, AC4 Task 6, AC5 Tasks 1 and 5, AC6 Task 7, AC7 Task 8, AC8 Task 3, AC9 Task 4, AC10 Task 9.
+**Spec coverage.** §3 the rule, both bounds and the invariant → Task 1. §4 the query → Task 2; the floor, the slack, the shape check and the trial → Task 3; the always-correct decision → Task 6. §5 the dropdown, the teaser, the short label, no ScrollArea → Task 5; the day picker → Task 6 steps 6-7; the sixth affordance → Task 5's component comment and `wordle-teams-iht.1`'s notes. §6 the inventory and the `gatedAt`/`serverEnforced` split → Task 7. §7's five mutation-tested guards → Task 1 step 5 (guards 2, 3 and the new 5), Task 3 step 10 (guard 1), Task 5 step 6, Task 6 step 5 (guard 4), Task 7 step 5. §9 AC 1–12 → AC1 Task 6, AC2 Task 5, AC3 Task 3, AC4 Task 6, AC5 Tasks 5 and 8, AC6 Task 7, AC7 Task 8, AC8 Task 1, AC9 Task 3, AC10 Task 4, AC11 Task 3 step 7, AC12 Task 9.
 
-**Names used consistently across tasks:** `monthWindowFor`, `serverFloorFor`, `proTeaserMonth`, `MonthWindowInput`, `FREE_MONTHS`, `monthWindowInputsFor`, `earliestMonthFor`, `correctedMonth`, `PRO_BENEFITS`, `ProBenefit`, `MONTH_OUT_OF_WINDOW`. `MonthPicker`'s props are `value`, `months`, `proTeaser`, `onChange`, `onUpgrade` in both Task 5's test and Task 6's call site.
+**Names used consistently across tasks:** `monthWindowFor`, `serverFloorFor`, `proTeaserMonth`, `spanFor`, `isMonth`, `MonthWindowInput`, `FREE_MONTHS`, `MAX_MONTHS`, `SERVER_SLACK_MONTHS`, `monthWindowInputsFor`, `earliestMonthFor`, `correctedMonth`, `fallbackMonths`, `monthsForControls`, `monthWindowInputs`, `PRO_BENEFITS`, `ProBenefit`, `gatedAt`, `serverEnforced`, `MONTH_OUT_OF_WINDOW`. `MonthPicker`'s props are `value`, `months`, `teaserLabel`, `onChange`, `onUpgrade` in both Task 5's test and Task 6's call site. `monthWindowInputsFor` returns `{ earliestMonth }` only — no `pro` — in Task 2's tests, Task 2's implementation and Task 6's consumer.
 
-**Two things the implementer must verify rather than assume**, flagged inline where they occur: that `src/components/ui/scroll-area.tsx` exists (Task 5 step 4), and that `aPlayer` accepts `trialEndsAt` (Task 3 step 1). Both have a stated fallback.
+**Test counts, expanded rather than estimated:** Task 1 = 31 (free 3, pro 7, `test.each` 7×2 = 14, floor 3, teaser 5); Task 2 = 4; Task 3 = 6 new; Task 5 = 5; Task 6 = 8; Task 7 = 6. The first draft said 17 for Task 1 because it did not expand `test.each`.
+
+**Two things the implementer must verify rather than assume**, flagged inline where they occur: that `aPlayer` accepts `insightsTrialEndsAt` (Task 3 step 4 — grep with `-w`, because the wrong name matches the right field as a substring), and the exact shape of `team-boards.hook.test.ts`'s AST helper before extending it to `<MonthPicker>` (Task 6 step 7).
