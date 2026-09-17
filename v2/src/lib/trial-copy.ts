@@ -20,9 +20,9 @@ export const TRIAL_ENDED_TITLE = 'Your Insights trial has ended'
  *
  * Says MONTH, not season, and the distinction is load-bearing: Layer 3 is
  * denominated in months (a per-team-per-month aggregate, and the free tier's own
- * CTA is "see the full month"), while a season retrospective is a DEFERRED,
- * unbuilt candidate. Copy shown at the moment someone decides whether to pay must
- * not name a feature that does not exist.
+ * locked teaser card is month-scoped too), while a season retrospective is a
+ * DEFERRED, unbuilt candidate. Copy shown at the moment someone decides whether
+ * to pay must not name a feature that does not exist.
  */
 export const TRIAL_ENDED_BODY =
   'You can still see today. Pro shows you everything you have done — your full ' +

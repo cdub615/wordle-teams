@@ -245,7 +245,7 @@ export type DailyFact =
  * hundreds of cells for a five-person team over a year — so a free slice that
  * moved around would still be a rounding error of the data while being impossible
  * to describe. One daily fact recurs, is the most shareable thing in the product,
- * and earns its "see the full month" honestly.
+ * and earns the locked teaser in team-locked-card.tsx honestly.
  *
  * FOUR OUTCOMES, NOT ONE WITH EDGE CASES, and the middle two are the whole reason
  * this returns a union instead of a number. On a small team early in the day

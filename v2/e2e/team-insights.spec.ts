@@ -383,7 +383,9 @@ test.describe('a free member of a team', () => {
     await expect(fact).not.toContainText('beat')
     // The card is present even here — the owner's rule is that it ALWAYS shows,
     // because a player with too little engagement to be ranked is exactly who
-    // needs to see what is possible. Only its headline changes.
+    // needs to see what is possible. In this two-person, not-solo state only
+    // its headline changes — a solo team instead swaps the CTA to "Invite a
+    // teammate" and collapses the head-to-head to a generic row.
     await expect(page.getByTestId('insights-team-locked')).toBeVisible()
   })
 })
@@ -536,7 +538,9 @@ test.describe('a free member of two teams who has not played today', () => {
     )
     // The card is present even here — the owner's rule is that it ALWAYS shows,
     // because a player with too little engagement to be ranked is exactly who
-    // needs to see what is possible. Only its headline changes.
+    // needs to see what is possible. In this two-person, not-solo state only
+    // its headline changes — a solo team instead swaps the CTA to "Invite a
+    // teammate" and collapses the head-to-head to a generic row.
     await expect(page.getByTestId('insights-team-locked')).toBeVisible()
 
     await switchTeam(page, { name: BETA, id: betaId }, 'insights-daily-fact')
