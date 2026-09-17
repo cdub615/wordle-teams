@@ -200,17 +200,20 @@ in `src/` reads `data.rank` yet either. What breaks is `convex/insights.test.ts`
 whose two rank assertions still expect the old `{ rank, of }`. That is Task 2's
 Step 1. **Fold Task 2 in before committing** rather than committing a red suite.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Do NOT commit yet — go straight to Task 2**
 
-```bash
-cd /home/cdub/projects/wordle-teams
-git add v2/convex/lib/teamStats.ts v2/convex/lib/teamStats.test.ts
-git commit -m "refactor(insights): teamRank says WHY there is no rank"
-```
+Tasks 1 and 2 land as one commit. The adversarial review established why: after
+Task 1 the suite is red (`convex/insights.test.ts` still expects `{ rank, of }`),
+and the working agreement above forbids committing a red suite. Task 2 Step 1 is
+what makes it green again, and it is four lines.
+
+Do not commit here. Task 2's Step 6 commits both tasks together.
 
 ---
 
 ## Task 2: `teamMonth` resolves and returns the tag
+
+**Lands in the same commit as Task 1** — see Task 1 Step 9.
 
 **Files:**
 - Modify: `convex/insights.ts:264` (the free branch's `rank`) and `:277` (the pro branch's)
@@ -327,11 +330,14 @@ Expected: PASS, 11 tests.
 
 Temporarily change `roster.length < 2` to `stats !== null && stats.members.length < 2`, run the file, and confirm the solo test FAILS (that team has no aggregate, so it falls through to `not-played`). Restore.
 
-- [ ] **Step 6: Four gates, then commit**
+- [ ] **Step 6: Four gates, then commit BOTH tasks**
+
+All four must be green now — this is the first point in Tasks 1-2 where they can be.
 
 ```bash
 cd /home/cdub/projects/wordle-teams
-git add v2/convex/insights.ts v2/convex/insights.test.ts
+git add v2/convex/lib/teamStats.ts v2/convex/lib/teamStats.test.ts \
+        v2/convex/insights.ts v2/convex/insights.test.ts
 git commit -m "feat(insights): teamMonth tells the free tier why it has no rank"
 ```
 
