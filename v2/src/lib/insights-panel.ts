@@ -1,5 +1,6 @@
 import { dayDifficulty, openerRank, type InsightsBenchmark } from './insights-benchmark.ts'
 import type { PuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import { hasFullTeamMonth } from '../../convex/lib/insightsAccess.ts'
 
 /**
  * What Layer 1 says about one board — the sentences, decided here rather than in
@@ -180,7 +181,12 @@ export function upsellFor({
   if (onATeam === undefined) return null
 
   const historyLocked = layer2 !== 'full'
-  const teamLocked = layer3 !== 'full' && onATeam
+  // `hasFullTeamMonth` RATHER THAN A `layer3` COMPARISON, so this sentence and
+  // the surface it describes cannot drift apart (wordle-teams-iht.3.1). This
+  // copy names what the free tier gets — "one team fact a day" below — and
+  // team-section.tsx is what actually renders it; two independent readings of
+  // `layer3` is how the promise and the panel end up disagreeing.
+  const teamLocked = !hasFullTeamMonth(layer3) && onATeam
 
   const opens = [
     ...(historyLocked ? ['your full playing history'] : []),

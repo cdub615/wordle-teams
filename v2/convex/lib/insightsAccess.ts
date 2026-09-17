@@ -153,3 +153,35 @@ export function insightsAccess({
     trialExpired: trialEndsAt !== undefined && !trialActive && !isPro,
   }
 }
+
+/**
+ * Does this caller get the WHOLE team month, or only today's one fact?
+ *
+ * THE SINGLE DEFINITION OF THAT QUESTION (wordle-teams-iht.3.1). It was spelled
+ * out as a `layer3` comparison in three separate places, and
+ * components/insights/team-section.tsx already carried a comment warning that
+ * two of them "MUST KEEP MIRRORING" each other. Three was already one too many;
+ * the fourth is about to be the SERVER's payload gate (wordle-teams-iht.3.2),
+ * and unlike the others its divergence would not be a rendering bug — it would
+ * quietly ship the entire month to a free viewer. So the question gets a name
+ * and one implementation, and the literal stops being copyable.
+ *
+ * NAMED FOR THE QUESTION, NOT THE TIER, on purpose. `isPro` is a different
+ * question and would be the wrong one here: insightsAccess deliberately refuses
+ * to collapse the tiers into one flag, because A TRIAL IS 'full' ON LAYER 3 AND
+ * 'free' ON LAYER 1 at the same time. Anything reading this as "is a paying
+ * customer" will get trials wrong in whichever direction it guesses.
+ *
+ * TAKES THE LAYER, NOT THE WHOLE ACCESS OBJECT, because every caller has the
+ * layer and only some have the object — team-section.tsx and insights-panel.ts
+ * both receive `layer3` as a bare prop, and widening this to the object would
+ * make them thread one just to ask.
+ *
+ * `layer3` IS NEVER 'none' TODAY — insightsAccess returns 'full' or 'free' and
+ * nothing else — but this is written against the full LayerAccess union rather
+ * than as `=== 'free'`, so a third value added later fails CLOSED here (no full
+ * month) instead of silently opening the payload.
+ */
+export function hasFullTeamMonth(layer3: LayerAccess): boolean {
+  return layer3 === 'full'
+}

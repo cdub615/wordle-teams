@@ -1,8 +1,11 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import {
   INSIGHTS_TRIAL_DAYS,
   LAUNCH_AT,
   LAUNCH_AT_IS_PLACEHOLDER,
+  hasFullTeamMonth,
   insightsAccess,
   shouldStartTrial,
   trialEndsAtFor,
@@ -185,5 +188,114 @@ describe('trialExpired — the distinction a prompt cannot be written without', 
   test('a pro player who never had a trial is not expired either', () => {
     const access = insightsAccess({ isPro: true, trialEndsAt: undefined, now: 2_000 })
     expect(access.trialExpired).toBe(false)
+  })
+})
+
+
+/**
+ * hasFullTeamMonth — THE ONE DEFINITION OF "WHOLE MONTH, OR JUST TODAY'S FACT"
+ * (wordle-teams-iht.3.1).
+ *
+ * It is a one-line predicate and it is tested anyway, because of what is about
+ * to be built on it: wordle-teams-iht.3.2 makes the SERVER's teamMonth payload
+ * depend on this answer, so getting it wrong stops being a rendering bug and
+ * becomes the whole month shipped to a viewer who has not paid for it.
+ */
+describe('hasFullTeamMonth', () => {
+  test('full yes, free no', () => {
+    expect(hasFullTeamMonth('full')).toBe(true)
+    expect(hasFullTeamMonth('free')).toBe(false)
+  })
+
+  test("'none' is not a full month either, though layer3 is never 'none' today", () => {
+    // insightsAccess returns 'full' or 'free' for layer3 and nothing else. This
+    // pins the CLOSED default for a value that does not occur yet, so a third
+    // tier added later cannot open the payload by being unhandled.
+    expect(hasFullTeamMonth('none')).toBe(false)
+  })
+
+  test('A TRIAL IS A FULL MONTH, which is why this is not an isPro check', () => {
+    // The trap this predicate's name exists to avoid. A trialist is 'full' on
+    // Layer 3 and 'free' on Layer 1 AT THE SAME TIME, so anything reading the
+    // tier as "is a paying customer" gets trials wrong whichever way it guesses.
+    const trial = insightsAccess({
+      isPro: false,
+      trialEndsAt: Date.now() + 86_400_000,
+      now: Date.now(),
+    })
+    expect(trial.trialActive).toBe(true)
+    expect(hasFullTeamMonth(trial.layer3)).toBe(true)
+    // ...and the same object is NOT full on Layer 1, which is the asymmetry.
+    expect(trial.layer1).toBe('free')
+  })
+
+  test('it agrees with insightsAccess for every tier it actually produces', () => {
+    // Derived from the source of truth rather than restated, so this cannot
+    // drift from insightsAccess the way three hand-written comparisons did.
+    const now = Date.now()
+    const free = insightsAccess({ isPro: false, trialEndsAt: undefined, now })
+    const pro = insightsAccess({ isPro: true, trialEndsAt: undefined, now })
+    const expired = insightsAccess({ isPro: false, trialEndsAt: now - 1, now })
+
+    expect(hasFullTeamMonth(free.layer3)).toBe(false)
+    expect(hasFullTeamMonth(pro.layer3)).toBe(true)
+    expect(hasFullTeamMonth(expired.layer3)).toBe(false)
+  })
+})
+
+/**
+ * NOBODY RE-SPELLS THE QUESTION (wordle-teams-iht.3.1).
+ *
+ * THE DEFECT THIS PREVENTS IS THE ONE THAT ALREADY HAPPENED. `layer3 === 'full'`
+ * was written out in three places, and team-section.tsx carried a comment
+ * telling the next reader that two of them had to keep agreeing. A comment
+ * cannot fail a build. This can.
+ *
+ * IT MATTERS MORE FROM wordle-teams-iht.3.2 ONWARD, when the server's teamMonth
+ * payload starts depending on the same answer. A fourth copy that drifts is not
+ * a card rendered from the wrong month — it is the whole team month delivered to
+ * someone on the free tier. The cheapest moment to stop a fourth copy existing
+ * is before it is written.
+ *
+ * SCANS SOURCE, COMMENT-STRIPPED, for the reason styles.test.ts gives for the
+ * same shape of test: the prose in these files quotes the very literal being
+ * forbidden — this file included, and team-section.tsx's surviving comment still
+ * explains what it used to do — so a raw text match would be satisfied by the
+ * explanation rather than by the code.
+ */
+describe('the layer3 comparison lives in exactly one place', () => {
+  /** Every .ts/.tsx under a tree, minus tests and generated output. */
+  function sourceFiles(dir: string): Array<string> {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        return entry.name === 'node_modules' || entry.name === '_generated'
+          ? []
+          : sourceFiles(path)
+      }
+      if (!/\.tsx?$/.test(entry.name)) return []
+      return /\.test\.tsx?$/.test(entry.name) ? [] : [path]
+    })
+  }
+
+  // A regex stripper rather than test-support/source-ast's `codeOf`, which is
+  // the tool this repo normally reaches for. That module lives under src/, and
+  // this file does not import across into src/ — convex/ is a deployed tree and
+  // keeping its dependency direction one-way is worth more here than sharing a
+  // helper for two lines of work.
+  const withoutComments = (source: string) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+
+  test('only insightsAccess.ts compares layer3 to a tier literal', () => {
+    const comparison = /layer3\s*[!=]==\s*['"]full['"]/
+
+    const offenders = [...sourceFiles('src'), ...sourceFiles('convex')]
+      .filter((file) => comparison.test(withoutComments(readFileSync(file, 'utf8'))))
+      // Normalised, so the expectation reads the same on any platform.
+      .map((file) => file.replace(/\\/g, '/'))
+
+    // Listed rather than counted, so a failure names the file that has to call
+    // hasFullTeamMonth instead of a number somebody has to go and chase.
+    expect(offenders).toEqual(['convex/lib/insightsAccess.ts'])
   })
 })

@@ -8,6 +8,7 @@ import {
   TeamScopeControls,
 } from '#/components/insights/team-scope-controls.tsx'
 import { teamMonthOptions } from '#/lib/insights-months.ts'
+import { hasFullTeamMonth } from '../../../convex/lib/insightsAccess.ts'
 import { onATeamFrom } from '#/lib/insights-panel.ts'
 import { monthOf, toPuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
 import { api } from '../../../convex/_generated/api'
@@ -91,16 +92,18 @@ export function TeamSection({
     whose trial ended while a past month sat in the URL, got a blank region with
     nothing to click to get out of it.
 
-    IT MIRRORS THE RENDER BRANCH BELOW AND MUST KEEP MIRRORING IT: `layer3 ===
-    'full'` here, `layer3 !== 'full'` there. If one of the two ever learns a new
-    value of `layer3` without the other, a card will be rendered from a month it
-    did not ask for.
+    IT MIRRORS THE RENDER BRANCH BELOW AND MUST KEEP MIRRORING IT. Both now ask
+    `hasFullTeamMonth` (convex/lib/insightsAccess.ts) rather than comparing
+    `layer3` themselves, which is what makes them mirror BY CONSTRUCTION instead
+    of by everyone remembering to — the failure this comment used to only warn
+    about was a card rendered from a month it did not ask for
+    (wordle-teams-iht.3.1).
 
     THE PRO BRANCH IS DELIBERATELY UNTOUCHED. A pro player picking a past month
     and getting that month's card is the feature, and they have the month
     dropdown to come back with.
   */
-  const queryMonth = layer3 === 'full' ? month : monthOf(today)
+  const queryMonth = hasFullTeamMonth(layer3) ? month : monthOf(today)
 
   /*
     'skip' IS THE ONLY THING THAT ACTUALLY STOPS THIS QUERY, WHICH IS WHY THE
@@ -207,7 +210,7 @@ export function TeamSection({
     surface, so there is nothing here to "unlock" — the two render different
     things from the same one aggregate read.
   */
-  if (layer3 !== 'full') {
+  if (!hasFullTeamMonth(layer3)) {
     return (
       <DailyTeamFact
         stats={data.stats}
