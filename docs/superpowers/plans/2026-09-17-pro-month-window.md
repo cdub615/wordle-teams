@@ -472,19 +472,23 @@ function monthIndex(month: PuzzleMonth): number {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd v2 && pnpm exec vitest run convex/lib/monthWindow.test.ts`
-Expected: PASS, **31 tests** (free 3, pro 7, element-0 `test.each` 7×2 = 14, serverFloorFor 3, proTeaserMonth 5).
+Expected: PASS, **32 tests** (free 3, pro 7, element-0 `test.each` 7×2 = 14, serverFloorFor 3, proTeaserMonth 5). Verified by running it.
 
-If your runner reports a different number, count the `test.each` expansions before assuming the plan is wrong — but do not proceed on a mismatch without resolving it. The first draft of this plan said 17 for a smaller version of this file and was wrong by eight for exactly that reason.
+If your runner reports a different number, count the `test.each` expansions before assuming the plan is wrong — but do not proceed on a mismatch without resolving it. An earlier draft of this line said 31, which is what that same breakdown sums to only if you add it up wrong; the draft before that said 17, having not expanded `test.each` at all.
 
 - [ ] **Step 5: Mutation-test the three guards, one at a time**
 
 Each mutation must fail the **named** test. If it fails a different set, the guard and the test are not aligned — fix that before moving on.
 
 *Guard A — the free floor on the Pro branch.* In `spanFor`, change `Math.min(Math.max(span, FREE_MONTHS), MAX_MONTHS)` to `Math.min(span, MAX_MONTHS)`.
-Expected: FAIL, naming `IS NEVER NARROWER THAN THE FREE WINDOW`, `with no boards at all, is still the free window`, and `clamps an earliestMonth in the future`. Restore; re-run; PASS.
+Expected: FAIL, **exactly two tests** — `IS NEVER NARROWER THAN THE FREE WINDOW` and `clamps an earliestMonth in the future rather than producing a negative span`. Verified by running it.
+
+`with no boards at all, is still the free window` does **not** fail, and an earlier draft of this step wrongly predicted that it would. `spanFor` returns `FREE_MONTHS` from its early-return guard when `earliestMonth === null`, so that case never reaches the line this mutation touches. Worth knowing rather than worth fixing: the null path is covered by Guard B's territory, not Guard A's. Restore; re-run; PASS.
 
 *Guard B — the malformed-input defence.* In `spanFor`, delete `|| !isMonth(earliestMonth)`.
-Expected: FAIL, naming `survives a malformed earliestMonth without producing an empty window`. Restore; re-run; PASS.
+Expected: FAIL, **three tests** — `survives a malformed earliestMonth without producing an empty window`, the element-0 case for `{"earliestMonth":""}`, and `serverFloorFor › never returns undefined, whatever the earliestMonth`. Verified by running it.
+
+That blast radius is the guard doing its job rather than a coupling problem: a malformed month makes `monthIndex` return `NaN`, which propagates into an empty window (breaking element-0) and into `serverFloorFor`'s arithmetic (producing a value that fails the `YYYY-MM` assertion). Three tests failing is the evidence that one unvalidated input reaches all three consequences. Restore; re-run; PASS.
 
 *Guard C — the teaser's "nothing behind the gate" check.* In `proTeaserMonth`, change the final line to `return earliestMonth`.
 Expected: FAIL, naming `is null when the earliest board is already inside the free window`, **and nothing else**. This is the cleanest mutation in the plan; if anything else fails, something has coupled that should not have.
