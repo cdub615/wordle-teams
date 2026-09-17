@@ -748,24 +748,43 @@ In `v2/convex/scores.ts`, add these below `getTeamMonth`. `monthOf` is **already
 /**
  * The earliest month anyone on this roster has a board in, or null for none.
  *
- * ONE INDEXED `.first()` PER MEMBER, ascending — `by_player_and_puzzleDay` is
- * already the index getTeamMonthFor walks for the month's scores, and an index
- * range's first row IS its smallest (Convex index queries default to ascending;
- * this file's siblings write `.order('desc')` explicitly when they want the other
- * end). No scan, no sort, no collect.
+ * ONE `ctx.db.get` PLUS, FOR A MEMBER WHO STILL EXISTS, ONE INDEXED `.first()`,
+ * ascending — `by_player_and_puzzleDay` is already the index getTeamMonthFor
+ * walks for the month's scores, and an index range's first row IS its smallest
+ * (Convex index queries default to ascending; insights.ts:91 writes
+ * `.order('desc')` explicitly when it wants the other end). No scan, no sort, no
+ * collect — a `.collect().then((rows) => rows[0] ?? null)` would read every board
+ * that member has ever entered and still return the same first row, which is
+ * exactly the regression the documentsRead guard on this function's test exists
+ * to catch (scores.test.ts).
  *
  * ACROSS THE CURRENT ROSTER, WHICH IS THE ONLY MEANING AVAILABLE: dailyScores has
- * no teamId (see schema.ts), so a board belongs to a player rather than to a team.
- * That is not a workaround — it is exactly how getTeamMonthFor resolves the
+ * no teamId (see schema.ts), so a board belongs to a player rather than to a
+ * team. That is not a workaround — it is exactly how getTeamMonthFor resolves the
  * scoreboard above, so the window and the data it gates can never disagree. A
  * member joining brings their earlier boards and widens the window; a member
  * leaving takes theirs and narrows it. Both are correct, and both are already
  * visible on the scoreboard the same way.
  *
+ * A DANGLING ROSTER ID IS SKIPPED, on the same premise getTeamMonthFor
+ * (scores.ts:84) and getMyTeamsFor (teams.ts:105) share — Convex ids are not
+ * foreign keys, so `teams.playerIds` can outlive the `players` row it names —
+ * but for a DIFFERENT REASON. Those two guard against throwing on
+ * `member.firstName`; nothing here would throw on a ghost, which is exactly why
+ * the pre-fix version of this function had no guard at all. This guard exists so
+ * a ghost's boards cannot widen the window past what getTeamMonthFor can ever
+ * render for this team — it drops the same id before reading a single score for
+ * it, so counting the ghost's boards here would offer a paying member a month
+ * the scoreboard renders as empty.
+ *
  * A LEAVING MEMBER CAN THEREFORE SHRINK THE WINDOW UNDER A VIEWER SITTING ON AN
- * OLD MONTH. The client corrects for it — routes/app.tsx moves `?month=` back into
- * the window whenever it falls outside — which is the same correction a team
- * change gets, for the same reason: the viewer did nothing wrong.
+ * OLD MONTH. NOTHING CORRECTS FOR THAT YET: routes/app.tsx will move `?month=`
+ * back into the window whenever it falls outside, but that is wordle-teams-kusd's
+ * task 6 and it has not landed. Until it does, a viewer whose window shrinks under
+ * them keeps a `?month=` the window no longer contains — harmless while task 3's
+ * server gate is also unbuilt, and the reason task 6 must not be skipped. It is
+ * the same correction a team change will get, for the same reason: the viewer did
+ * nothing wrong.
  *
  * DO NOT "OPTIMISE" THIS ONTO teamMonthStats. That table is computed, its coverage
  * of old months is not guaranteed, and reading it here would recreate exactly the
@@ -779,17 +798,33 @@ async function earliestMonthFor(
   // gives above: one snapshot-isolated transaction, so this is round trips rather
   // than correctness. Order does not matter here — the result is a minimum.
   const firsts = await Promise.all(
-    playerIds.map((memberId) =>
-      ctx.db
+    playerIds.map(async (memberId) => {
+      // A ROSTER ENTRY WITH NO PLAYER ROW, skipped BEFORE the index read rather
+      // than after — the same guard scores.ts:84 (getTeamMonthFor) and teams.ts:105
+      // (getMyTeamsFor) apply, for a related but distinct reason: those two guard
+      // against throwing on `member.firstName`, while this one exists so a ghost's
+      // boards cannot widen the window past what getTeamMonthFor can ever render
+      // for this team — it drops the same id before reading a single score for it.
+      // Checking first also makes a ghost CHEAPER than a real member: one
+      // `ctx.db.get` instead of one `ctx.db.get` plus an index read.
+      const member = await ctx.db.get(memberId)
+      if (!member) return null
+      return ctx.db
         .query('dailyScores')
         .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', memberId))
-        .first(),
-    ),
+        .first()
+    }),
   )
 
   let earliest: string | null = null
   for (const row of firsts) {
-    // PuzzleDay is 'YYYY-MM-DD', so lexical comparison is chronological.
+    // PuzzleDay is 'YYYY-MM-DD' BY CONVENTION ONLY — upsertBoard accepts it as an
+    // unvalidated `v.string()` (wordle-teams-qvqi) — so lexical comparison is
+    // chronological for every well-formed row, but a single malformed one (say,
+    // an empty string) sorts below every real day and would silently become the
+    // minimum, dropping a paying member into the free window. Nothing here
+    // crashes on that: lib/monthWindow.ts's `isMonth` catches a malformed
+    // `earliestMonth` downstream and treats it as if the team had none.
     if (row !== null && (earliest === null || row.puzzleDay < earliest)) earliest = row.puzzleDay
   }
   return earliest === null ? null : monthOf(earliest)
@@ -803,8 +838,9 @@ async function earliestMonthFor(
  * the viewer's membership from `api.teams.amIPro` (app.tsx:203). Returning it here
  * too would give the client two independently-updating subscriptions to one fact —
  * structurally the aggregate-versus-live split-brain wordle-teams-iht.4 is about.
- * The SERVER still needs it, and reads it straight from isProFor at the one place
- * that enforces.
+ * The SERVER still needs it, and WILL read it straight from isProFor at the one
+ * place that enforces — wordle-teams-kusd's task 3, still open as of this
+ * comment. Nothing enforces the window yet.
  *
  * A SEPARATE QUERY RATHER THAN A FIELD ON getTeamMonth'S PAYLOAD. MonthPicker
  * renders in the controls row of routes/app.tsx, OUTSIDE the <Suspense> boundary
@@ -841,7 +877,7 @@ Add `PuzzleMonth` to the existing `./lib/puzzleDay.ts` type import if it is not 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd v2 && pnpm exec vitest run convex/scores.test.ts -t monthWindowInputsFor`
-Expected: PASS, 4 tests.
+Expected: PASS, 6 tests — four behavioural plus a `documentsRead` bandwidth guard and an `UNAUTHENTICATED` case for the query wrapper, both added during review. Whole file: 33.
 
 - [ ] **Step 5: Commit**
 
