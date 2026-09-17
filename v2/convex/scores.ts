@@ -3,7 +3,7 @@ import { mutation, query } from './_generated/server'
 import { accessError, currentPlayer, requirePlausibleToday, requirePlayer, requireTeamMemberFor } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
 import { LAUNCH_AT, shouldStartTrial, trialEndsAtFor } from './lib/insightsAccess.ts'
-import { monthOf, monthRange } from './lib/puzzleDay.ts'
+import { monthOf, monthRange, type PuzzleMonth } from './lib/puzzleDay.ts'
 import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
 import { recomputePlayerMonth } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
@@ -138,6 +138,96 @@ export const getTeamMonth = query({
   handler: async (ctx, { teamId, month }) => {
     const player = await requirePlayer(ctx)
     return await getTeamMonthFor(ctx, player._id, teamId, month)
+  },
+})
+
+/**
+ * The earliest month anyone on this roster has a board in, or null for none.
+ *
+ * ONE INDEXED `.first()` PER MEMBER, ascending — `by_player_and_puzzleDay` is
+ * already the index getTeamMonthFor walks for the month's scores, and an index
+ * range's first row IS its smallest (Convex index queries default to ascending;
+ * this file's siblings write `.order('desc')` explicitly when they want the other
+ * end). No scan, no sort, no collect.
+ *
+ * ACROSS THE CURRENT ROSTER, WHICH IS THE ONLY MEANING AVAILABLE: dailyScores has
+ * no teamId (see schema.ts), so a board belongs to a player rather than to a
+ * team. That is not a workaround — it is exactly how getTeamMonthFor resolves the
+ * scoreboard above, so the window and the data it gates can never disagree. A
+ * member joining brings their earlier boards and widens the window; a member
+ * leaving takes theirs and narrows it. Both are correct, and both are already
+ * visible on the scoreboard the same way.
+ *
+ * A LEAVING MEMBER CAN THEREFORE SHRINK THE WINDOW UNDER A VIEWER SITTING ON AN
+ * OLD MONTH. The client corrects for it — routes/app.tsx moves `?month=` back into
+ * the window whenever it falls outside — which is the same correction a team
+ * change gets, for the same reason: the viewer did nothing wrong.
+ *
+ * DO NOT "OPTIMISE" THIS ONTO teamMonthStats. That table is computed, its coverage
+ * of old months is not guaranteed, and reading it here would recreate exactly the
+ * aggregate-versus-roster disagreement wordle-teams-iht.4 exists to close.
+ */
+async function earliestMonthFor(
+  ctx: ReaderCtx,
+  playerIds: readonly Id<'players'>[],
+): Promise<PuzzleMonth | null> {
+  // Promise.all rather than a sequential loop for the reason getTeamMonthFor
+  // gives above: one snapshot-isolated transaction, so this is round trips rather
+  // than correctness. Order does not matter here — the result is a minimum.
+  const firsts = await Promise.all(
+    playerIds.map((memberId) =>
+      ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', memberId))
+        .first(),
+    ),
+  )
+
+  let earliest: string | null = null
+  for (const row of firsts) {
+    // PuzzleDay is 'YYYY-MM-DD', so lexical comparison is chronological.
+    if (row !== null && (earliest === null || row.puzzleDay < earliest)) earliest = row.puzzleDay
+  }
+  return earliest === null ? null : monthOf(earliest)
+}
+
+/**
+ * How far back this team goes — the one input the month dropdown cannot compute
+ * for itself.
+ *
+ * IT DOES NOT RETURN `pro`, AND THAT IS DELIBERATE. routes/app.tsx already holds
+ * the viewer's membership from `api.teams.amIPro` (app.tsx:203). Returning it here
+ * too would give the client two independently-updating subscriptions to one fact —
+ * structurally the aggregate-versus-live split-brain wordle-teams-iht.4 is about.
+ * The SERVER still needs it, and reads it straight from isProFor at the one place
+ * that enforces.
+ *
+ * A SEPARATE QUERY RATHER THAN A FIELD ON getTeamMonth'S PAYLOAD. MonthPicker
+ * renders in the controls row of routes/app.tsx, OUTSIDE the <Suspense> boundary
+ * getTeamMonth sits behind; hanging the dropdown's contents on that payload would
+ * make it wait for a month of scores to load before it could say which months
+ * exist.
+ *
+ * IT RETURNS THE RULE'S INPUT, NOT THE RULE'S ANSWER, because the answer needs the
+ * VIEWER'S current month and the server does not have it — Convex runs UTC.
+ * lib/monthWindow.ts turns this into a window on whichever side is asking. Sending
+ * a server-computed list instead would be wrong for a few hours at every month
+ * boundary, in whichever direction the viewer's zone leans.
+ */
+export async function monthWindowInputsFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+): Promise<{ earliestMonth: PuzzleMonth | null }> {
+  const team = await requireTeamMemberFor(ctx, playerId, teamId)
+  return { earliestMonth: await earliestMonthFor(ctx, team.playerIds) }
+}
+
+export const monthWindow = query({
+  args: { teamId: v.id('teams') },
+  handler: async (ctx, { teamId }) => {
+    const player = await requirePlayer(ctx)
+    return await monthWindowInputsFor(ctx, player._id, teamId)
   },
 })
 

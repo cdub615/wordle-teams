@@ -4,7 +4,7 @@ import schema from './schema'
 import { api } from './_generated/api'
 import { addDays, addMonths, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
 import { aPlayer, aTeam, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
-import { getTeamMonthFor, upsertBoardFor } from './scores'
+import { getTeamMonthFor, monthWindowInputsFor, upsertBoardFor } from './scores'
 
 // Supplied here, not in fixtures.ts: that file is PUSHED to the deployment and
 // the Convex runtime has no import.meta. See makeRegisterBetterAuth's comment.
@@ -655,6 +655,89 @@ describe('getTeamMonthFor — scoring version resolution', () => {
       const august = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
       expect(august.team.system.oneGuess).toBe(20)
       expect(august.team.systemEffectiveFrom).toBe('2026-08')
+    })
+  })
+})
+
+describe('monthWindowInputsFor', () => {
+  test('reports the earliest board of anyone on the roster, not just the caller', () => {
+    // "THE TEAM'S EARLIEST SCORE" IS NECESSARILY THE ROSTER'S, because
+    // dailyScores has no teamId — a board belongs to a player. This is the same
+    // resolution getTeamMonthFor already does, so the window and the data it
+    // gates agree by construction.
+    return convexTest(schema, modules).run(async (ctx) => {
+      const mine = await ctx.db.insert('players', aPlayer())
+      const theirs = await ctx.db.insert('players', aPlayer({ email: 'other@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [mine, theirs] }))
+      await ctx.db.insert('dailyScores', {
+        playerId: mine,
+        puzzleDay: '2026-05-02',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+      await ctx.db.insert('dailyScores', {
+        playerId: theirs,
+        puzzleDay: '2023-03-14',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      expect(await monthWindowInputsFor(ctx, mine, teamId)).toEqual({ earliestMonth: '2023-03' })
+    })
+  })
+
+  test('reports null when nobody on the team has ever entered a board', () => {
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+
+      expect(await monthWindowInputsFor(ctx, playerId, teamId)).toEqual({ earliestMonth: null })
+    })
+  })
+
+  test('refuses a caller who is not on the team', () => {
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const outsiderId = await ctx.db.insert('players', aPlayer({ email: 'out@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+
+      await expect(monthWindowInputsFor(ctx, outsiderId, teamId)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+    })
+  })
+
+  test('ignores a roster entry whose player row is gone, without losing the others', () => {
+    // Convex ids are not foreign keys, so nothing guarantees every id in
+    // playerIds resolves. ASSERTED WITH THE GHOST HOLDING THE OLDEST BOARD —
+    // a ghost with no boards would be indistinguishable from a member with none,
+    // and would prove nothing about what happens to a dangling id.
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const ghostId = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId, ghostId] }))
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2026-05-02',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+      await ctx.db.insert('dailyScores', {
+        playerId: ghostId,
+        puzzleDay: '2023-03-14',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+      await ctx.db.delete(ghostId)
+
+      // The ghost's boards still exist and still count: the window is about what
+      // the scoreboard can show, and getTeamMonthFor reads by playerId too. What
+      // must not happen is a throw.
+      expect((await monthWindowInputsFor(ctx, playerId, teamId)).earliestMonth).toBe('2023-03')
     })
   })
 })
