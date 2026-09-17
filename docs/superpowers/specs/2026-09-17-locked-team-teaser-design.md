@@ -52,7 +52,7 @@ redacted, and one call to action.
 │ You beat 2 of 3 teammates today.  │
 └───────────────────────────────────┘
 ┌─ insights-team-locked ────────────┐   NEW
-│ Alpha Analysts · September        │
+│ Alpha Analysts · Sep 2026         │
 │ You're 3rd of 5 this month        │   ← the headline; four variants, §4
 │                                   │
 │ Head to head                      │
@@ -185,8 +185,9 @@ Takes what it renders and decides nothing about tiers:
 {
   teamName: string
   month: PuzzleMonth            // rendered through `formatMonthLabel`
-                                // (lib/format-day.ts), as daily-benchmark and
-                                // trend-panel already do
+                                // (lib/format-day.ts) — which yields "Sep 2026",
+                                // NOT "September"; daily-benchmark and
+                                // trend-panel already render it that way
   roster: { playerId: string; firstName: string; lastName: string }[]
   viewerId: string
   rank: TeamRankTeaser          // §3's tagged value, NEVER null here: the card
@@ -209,10 +210,16 @@ as a requirement.
 here.
 
 `onUpgrade` and `onInvite` are props rather than hooks called inside, following the
-convention `team-section.tsx` already documents for `onTeamChange`: a component
-that called `useNavigate` or `useStartUpgrade` for itself could not be rendered in
-a jsdom component test without a router around it, and every component test in this
-project renders the component bare.
+convention `team-section.tsx` documents for `onTeamChange`.
+
+**Not because a component may not call `useStartUpgrade`** — three do today
+(`Header.tsx`, `trial-ended-card.tsx`, `board-entry/import-upsell.tsx`, the last of
+which records the convention explicitly as "ONE MORE CALLER OF useStartUpgrade").
+The reason is narrower and real: `onInvite` needs the **router**, and a component
+calling `useNavigate` for itself cannot be rendered bare in a jsdom test without a
+`RouterProvider` around it. Taking both as props keeps the pair symmetrical and the
+component renderable, which is how every other component test in this directory
+works.
 
 **Changed: `daily-team-fact.tsx`** — the dead "See the full month →" button and its
 unused `onSeeFullMonth` prop are removed. The locked card below now answers the
