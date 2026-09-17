@@ -212,11 +212,24 @@ guarded by `!hasFullTeamMonth(layer3)` — beneath `DailyTeamFact`, from the sam
 `teamMonth` response. **No new query and no new document read**, which iht.2 names
 as a requirement.
 
-`onInvite` navigates to `/team` carrying the current `?team=`, where
-`current-team-card.tsx`'s Invite control lives — the same destination the app bar's
-"Team settings" already uses. A deep-link anchor (`id="invite"`, the mechanism
-`id="scoring"` uses for ScoringLegend's Edit) is optional polish and not required
-here.
+`onInvite` opens an `InvitePlayerDialog` **in place on `/insights`**, mounted by
+the route, exactly as `routes/app.tsx` does for the onboarding card's invite task
+(`:253`, `:515`, `:768`).
+
+**Corrected 2026-09-17, during implementation.** This originally read "navigates to
+`/team` carrying the current `?team=`", and it was built that way before the
+divergence was spotted. That is the arrangement this codebase examined and
+REVERSED: `routes.test.ts:1084-1107` records that /app's invite task used to point
+at `/team` "because that is where the only InvitePlayerDialog in the app was
+mounted", and that repointing it to a local dialog was the whole UI half of an
+epic — because navigating "takes the person off the screen they were converting on
+and nothing goes red". That test exists precisely to stop the navigation coming
+back.
+
+The reasoning applies at least as strongly here. The locked card's entire job is to
+show a solo player what a team would give them; sending them to another page is
+losing them at the moment the pitch landed. So /insights gets a third mount of the
+dialog — a mount, not a move, the same way /app's was.
 
 `onUpgrade` and `onInvite` are props rather than hooks called inside, following the
 convention `team-section.tsx` documents for `onTeamChange`.
