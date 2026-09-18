@@ -14,7 +14,21 @@ const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth
 // tests can no longer hardcode a literal like '2026-08-18' for it — that drifts
 // out of bounds the moment the calendar moves on. `puzzleDay` values are NOT
 // bounded and stay as literals; only `today` needs to track the real date.
+//
+// A HARDCODED *MONTH* HANDED TO getTeamMonthFor IS ABOUT TO BE EXACTLY AS
+// UNSAFE, for a second and independent reason. wordle-teams-kusd adds a month
+// gate to that function in the very next commit, and its floor is computed from
+// the server's own clock — so a literal month stops being a fixed input and
+// becomes one that walks steadily further below the floor every time the
+// calendar turns over. Nine calls in this file passed '2026-08' and would have
+// begun failing in December 2026 with nobody having touched the code, which is
+// the worst possible way to learn a gate exists. Every month handed to
+// getTeamMonthFor is therefore derived from `thisMonth` below, and every board
+// fixture those tests assert on moves with it. A `puzzleDay` that is never
+// compared against a month window — upsertBoardFor's fixtures further down — is
+// still free to be a literal.
 const today = toPuzzleDay(new Date())
+const thisMonth = monthOf(today)
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -24,7 +38,16 @@ describe('getTeamMonthFor', () => {
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
-      for (const puzzleDay of ['2026-07-31', '2026-08-01', '2026-08-31', '2026-09-01']) {
+      // The 28th rather than the month's real last day: these have to move with
+      // `thisMonth`, and only 1..28 exists in every month — a `-31` built from a
+      // February `thisMonth` would be a day the index range never matches, and
+      // the test would assert one score instead of two for one month in twelve.
+      for (const puzzleDay of [
+        `${addMonths(thisMonth, -1)}-28`,
+        `${thisMonth}-01`,
+        `${thisMonth}-28`,
+        `${addMonths(thisMonth, 1)}-01`,
+      ]) {
         await ctx.db.insert('dailyScores', {
           playerId,
           puzzleDay,
@@ -34,10 +57,10 @@ describe('getTeamMonthFor', () => {
         })
       }
 
-      const result = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
+      const result = await getTeamMonthFor(ctx, playerId, teamId, thisMonth)
       expect(result.players[0].scores.map((s) => s.puzzleDay)).toEqual([
-        '2026-08-01',
-        '2026-08-31',
+        `${thisMonth}-01`,
+        `${thisMonth}-28`,
       ])
     })
   })
@@ -47,7 +70,7 @@ describe('getTeamMonthFor', () => {
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId], playWeekends: false }))
-      const result = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
+      const result = await getTeamMonthFor(ctx, playerId, teamId, thisMonth)
       expect(result.team.playWeekends).toBe(false)
       expect(result.team.system.oneGuess).toBe(5)
       expect(result.team.system.failed).toBe(-3)
@@ -62,7 +85,7 @@ describe('getTeamMonthFor', () => {
         'teams',
         aTeam({ playerIds: [playerId], invited: ['someone@example.com'] }),
       )
-      const result = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
+      const result = await getTeamMonthFor(ctx, playerId, teamId, thisMonth)
 
       // A `teams` doc structurally satisfies the payload shape, so a change
       // that swaps the explicit `system: {...}` pick for `system: team` (or
@@ -112,17 +135,18 @@ describe('getTeamMonthFor', () => {
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
 
       // 60 scores well outside the requested month...
+      const staleMonth = addMonths(thisMonth, -20)
       for (let i = 0; i < 60; i++) {
         await ctx.db.insert('dailyScores', {
           playerId,
-          puzzleDay: `2025-01-${String((i % 28) + 1).padStart(2, '0')}`,
+          puzzleDay: `${staleMonth}-${String((i % 28) + 1).padStart(2, '0')}`,
           date: 1_700_000_000_000 + i,
           answer: 'SPEED',
           guesses: ['SPEED'],
         })
       }
       // ...and 2 inside it.
-      for (const puzzleDay of ['2026-08-01', '2026-08-31']) {
+      for (const puzzleDay of [`${thisMonth}-01`, `${thisMonth}-28`]) {
         await ctx.db.insert('dailyScores', {
           playerId,
           puzzleDay,
@@ -132,7 +156,7 @@ describe('getTeamMonthFor', () => {
         })
       }
 
-      const result = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
+      const result = await getTeamMonthFor(ctx, playerId, teamId, thisMonth)
       expect(result.players[0].scores).toHaveLength(2)
     })
   })
@@ -159,7 +183,7 @@ describe('getTeamMonthFor', () => {
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [namedId, ghostId] }))
       await ctx.db.delete(ghostId)
 
-      const result = await getTeamMonthFor(ctx, namedId, teamId, '2026-08')
+      const result = await getTeamMonthFor(ctx, namedId, teamId, thisMonth)
       expect(result.players).toHaveLength(1)
       expect(result.players[0].id).toBe(namedId)
     })
@@ -178,7 +202,7 @@ describe('getTeamMonthFor', () => {
       )
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [memberId] }))
 
-      await expect(getTeamMonthFor(ctx, outsiderId, teamId, '2026-08')).rejects.toMatchObject({
+      await expect(getTeamMonthFor(ctx, outsiderId, teamId, thisMonth)).rejects.toMatchObject({
         data: { code: 'NOT_A_MEMBER' },
       })
     })
@@ -624,7 +648,7 @@ describe('getTeamMonthFor — scoring version resolution', () => {
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
-      const result = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
+      const result = await getTeamMonthFor(ctx, playerId, teamId, thisMonth)
       expect(result.team.system.oneGuess).toBe(5)
       expect(result.team.systemEffectiveFrom).toBeNull()
     })
@@ -637,7 +661,7 @@ describe('getTeamMonthFor — scoring version resolution', () => {
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
       await ctx.db.insert('scoringSystems', {
         teamId,
-        effectiveFrom: '2026-08',
+        effectiveFrom: thisMonth,
         oneGuess: 20,
         twoGuesses: 3,
         threeGuesses: 2,
@@ -648,13 +672,17 @@ describe('getTeamMonthFor — scoring version resolution', () => {
         nA: 0,
       })
 
-      const july = await getTeamMonthFor(ctx, playerId, teamId, '2026-07')
-      expect(july.team.system.oneGuess).toBe(5)
-      expect(july.team.systemEffectiveFrom).toBeNull()
+      // Named for their relationship to the version's effectiveFrom rather than
+      // for calendar months: these used to be `july` and `august` against a
+      // hardcoded '2026-07'/'2026-08', which stopped being the right names the
+      // moment the months became relative to the clock.
+      const beforeTheVersion = await getTeamMonthFor(ctx, playerId, teamId, addMonths(thisMonth, -1))
+      expect(beforeTheVersion.team.system.oneGuess).toBe(5)
+      expect(beforeTheVersion.team.systemEffectiveFrom).toBeNull()
 
-      const august = await getTeamMonthFor(ctx, playerId, teamId, '2026-08')
-      expect(august.team.system.oneGuess).toBe(20)
-      expect(august.team.systemEffectiveFrom).toBe('2026-08')
+      const fromTheVersion = await getTeamMonthFor(ctx, playerId, teamId, thisMonth)
+      expect(fromTheVersion.team.system.oneGuess).toBe(20)
+      expect(fromTheVersion.team.systemEffectiveFrom).toBe(thisMonth)
     })
   })
 })
