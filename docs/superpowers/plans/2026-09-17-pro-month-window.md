@@ -896,6 +896,33 @@ wordle-teams-kusd"
 
 ### Task 3: Enforcement
 
+> **Shipped 2026-09-18. What differs from the blocks below, and why.** Tasks 1 and 2
+> had their code blocks resynced to the committed files; Task 3 spans four files in
+> snippets, so the deltas are listed here instead.
+>
+> - **Two of this task's own instructions were wrong and were corrected during
+>   review.** Step 10's M2 prediction (three failures) was wrong — it was one, and
+>   the reason was diagnostic: the free-caller fixture had no boards, so the pro
+>   floor collapsed onto the free floor and the `isProFor` check's only real guard
+>   was the Insights-trial test. The fixture now carries an ancient board. And
+>   step 4's own test literals reintroduced the dated-literal defect step 1 exists
+>   to remove.
+> - **`convexErrorCode` got a mechanism, not a comment.** The plan asked for a
+>   sentence saying the chain must be extended by hand. `convex-error.test.ts` now
+>   parses the `AccessCode` union out of `access.ts` and requires it to equal
+>   `typedCodeMessage`'s case labels — two independent parsers over two files, so
+>   neither can be silently incomplete.
+> - **A future-month test was added.** The absence of an upper bound is a decision
+>   (`monthWindow.ts` explains why refusing one would break UTC+14 viewers at a
+>   boundary), and nothing pinned it — `if (month > serverMonth) throw` would have
+>   passed all four gates.
+> - **`isMonth` is now exported** from `monthWindow.ts` and called by the gate,
+>   rather than the regex living in a third place.
+> - **`getMyMonth` stays ungated**, with the floor asymmetry documented rather than
+>   implied.
+> - **Ten stale line citations were corrected**, then moved twice more by this
+>   task's own edits. See the note at the end of this plan.
+
 **Files:**
 - Modify: `v2/convex/access.ts`
 - Modify: `v2/convex/scores.ts` (inside `getTeamMonthFor`, after `requireTeamMemberFor`)
@@ -2244,3 +2271,18 @@ Leave `wordle-teams-qvqi` (unvalidated `puzzleDay`) open — Task 1's span bound
 **Test counts, expanded rather than estimated:** Task 1 = 31 (free 3, pro 7, `test.each` 7×2 = 14, floor 3, teaser 5); Task 2 = 4; Task 3 = 6 new; Task 5 = 5; Task 6 = 8; Task 7 = 6. The first draft said 17 for Task 1 because it did not expand `test.each`.
 
 **Two things the implementer must verify rather than assume**, flagged inline where they occur: that `aPlayer` accepts `insightsTrialEndsAt` (Task 3 step 4 — grep with `-w`, because the wrong name matches the right field as a substring), and the exact shape of `team-boards.hook.test.ts`'s AST helper before extending it to `<MonthPicker>` (Task 6 step 7).
+
+
+---
+
+## A convention cost this plan surfaced three times
+
+`file.ts:NN` citations are load-bearing in this codebase and broke in **three
+consecutive commits** of Task 3 — including `1daa3033`, which was itself dedicated
+to fixing them. Every insertion above a cited line silently invalidates every
+citation below it, and no gate notices: not typecheck, not lint, not the suite.
+
+Three reviewers and two implementers have now spent effort on this. It is not a
+defect any one task introduced and no task should change it unilaterally, but it is
+a real recurring tax, and the alternative is cheap: cite a symbol name, which grep
+finds and edits do not move. Worth a decision outside this plan.
