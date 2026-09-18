@@ -1,8 +1,9 @@
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Sparkles } from 'lucide-react'
 import { Button } from '#/components/ui/button.tsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -10,60 +11,56 @@ import {
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu.tsx'
 import { formatMonthLabel } from '#/lib/format-day.ts'
-import { addMonths, type PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
+import type { PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
 
 /**
- * The current month and the two before it — what v1 shows a free account —
- * NEWEST FIRST.
+ * The month dropdown.
  *
- * DESCENDING IS A DELIBERATE DIVERGENCE FROM v1 (wordle-teams-l23h), which
- * builds the same list ascending: `getMonthsFromScoreDate` in v1's
- * src/lib/utils.ts walks forward from the starting month and pushes the current
- * one last. Recorded in V2-ADDENDUM.md section 7a so the parity audit expects it.
+ * IT TAKES A WINDOW RATHER THAN COMPUTING ONE (wordle-teams-kusd). It used to own
+ * `monthOptions`, which returned the same three months to everyone — that function
+ * is gone rather than left delegating, because its signature took only
+ * `currentMonth` and could not express a window that depends on the viewer's
+ * membership and the team's age; left as a wrapper it would be a function any
+ * future caller could reach that silently answers "three months" for a Pro player.
+ * routes/app.tsx builds the window from convex/lib/monthWindow.ts and hands the
+ * SAME array to TeamBoards, so the calendar and this control cannot disagree about
+ * which months exist.
  *
- * IT MATTERS MORE THAN THREE ROWS SUGGESTS, WHICH IS WHY IT IS WORTH DOING
- * BEFORE THE LIST GROWS. The window here is temporary: the pro expansion — back
- * to the team's earliest score — ships with the rest of the pro gate, not here.
- * v1 already has that expansion and wraps its dropdown in a ScrollArea with a
- * computed height (src/components/action-buttons/month-dropdown/utils.ts)
- * precisely because the list gets long. Ascending order in that shape puts the
- * month a reader almost always wants — this one — off the bottom of a scroll.
- * Fixing the order now means the expansion inherits it rather than rediscovering
- * the problem once the list is long enough to hurt.
- *
- * IN v1 THIS WINDOW IS A UI AFFORDANCE RATHER THAN ACCESS CONTROL — every score
- * is loaded client-side regardless — AND IN v2 IT NO LONGER IS. That question is
- * answered: convex/scores.ts's getTeamMonthFor refuses any month below the
- * viewer's floor (wordle-teams-kusd's task 3), so reaching further back is no
- * longer a matter of typing a URL.
- *
- * THIS LIST IS A STRICT SUBSET OF WHAT THE SERVER ALLOWS, NOT A MIRROR OF IT, and
- * every month it offers is safe for that reason rather than by agreement. The
- * three here are the FREE window specifically, and the server floor sits one
- * month below even that (SERVER_SLACK_MONTHS, for the UTC-versus-viewer
- * disagreement at a month boundary). A Pro viewer is therefore currently offered
- * far less than they are entitled to; task 5 replaces this function with
- * lib/monthWindow.ts's monthWindowFor, which is the shared rule both sides
- * already derive their bounds from. Do not widen this list by hand in the
- * meantime — monthWindowFor needs the team's earliest board and the viewer's
- * membership, neither of which is in scope here, so anything hand-rolled would be
- * right by luck rather than by construction.
+ * NO SCROLL CONTAINER OF ITS OWN, even though a Pro list runs to dozens of rows.
+ * DropdownMenuContent already carries
+ * `max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto`
+ * (ui/dropdown-menu.tsx's own class list), which is viewport-aware and therefore
+ * better than a computed height on a phone. v1 wraps its own long dropdown in a
+ * ScrollArea with a hand-computed height (src/components/action-buttons/month-dropdown/utils.ts);
+ * porting that here would nest a second scroll container inside one that already
+ * works, and v2 has no ScrollArea primitive to port it with.
  */
-export function monthOptions(currentMonth: PuzzleMonth): Array<PuzzleMonth> {
-  return [currentMonth, addMonths(currentMonth, -1), addMonths(currentMonth, -2)]
-}
-
 export function MonthPicker({
-  currentMonth,
   value,
+  months,
+  teaserLabel,
   onChange,
+  onUpgrade,
 }: {
-  currentMonth: PuzzleMonth
   value: PuzzleMonth
+  /** Every month this viewer may select, newest first. `monthWindowFor`'s output. */
+  months: Array<PuzzleMonth>
+  /**
+   * The already-formatted month Pro reaches back to, or null when there is
+   * nothing to advertise — a pro viewer, a team with no boards, or a team whose
+   * earliest board is already inside the free window. `proTeaserMonth` decides
+   * and the route formats; this only renders.
+   *
+   * A FORMATTED STRING RATHER THAN A PuzzleMonth, so that deleting the guard
+   * below renders an empty label instead of throwing: `formatMonthLabel(null)`
+   * reaches `Intl.DateTimeFormat.format(Invalid Date)`, which raises a
+   * RangeError. A guard whose only mutant is a crash cannot be mutation-tested —
+   * the crash proves the component still runs, not that the guard works.
+   */
+  teaserLabel: string | null
   onChange: (month: PuzzleMonth) => void
+  onUpgrade: () => void
 }) {
-  const options = monthOptions(currentMonth)
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -76,12 +73,40 @@ export function MonthPicker({
         <DropdownMenuLabel>Change Month</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
-          {options.map((option) => (
+          {months.map((option) => (
             <DropdownMenuRadioItem key={option} value={option}>
               {formatMonthLabel(option)}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        {/* OUTSIDE THE RADIO GROUP, AND THAT IS NOT A STYLE CHOICE. A
+            DropdownMenuRadioItem carries a value, so putting this inside would
+            make it selectable as a month the window does not contain — which the
+            server would then refuse with MONTH_OUT_OF_WINDOW. It is an upgrade
+            affordance that happens to live in a month menu.
+
+            IT IS THE SIXTH CALLER OF THE UPGRADE PATH. Header.tsx, trial-ended-card.tsx,
+            board-entry/import-upsell.tsx, routes/app.tsx (TeamPicker's own
+            onUpgrade) and routes/insights.tsx are the others. wordle-teams-iht.1
+            puts one shared interstitial behind all of them; when it lands this
+            must go through it rather than remaining the one path that still
+            reaches checkout directly. That issue's notes carry the count.
+
+            THE "Pro" BADGE IS PART OF THE ACCESSIBLE NAME, not hidden from it —
+            "Back to Mar 2023 Pro" — matching board-entry/import-upsell.tsx,
+            which renders the same badge the same way. */}
+        {teaserLabel !== null && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onUpgrade}>
+              <Sparkles className="h-4 w-4 text-accent-solid" aria-hidden="true" />
+              Back to {teaserLabel}
+              <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                Pro
+              </span>
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

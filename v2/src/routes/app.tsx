@@ -20,7 +20,7 @@ import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
 import { chatEntryLabel, hasUnread, unreadTeamIds, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
 import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
-import { MonthPicker, monthOptions } from '#/components/month-picker.tsx'
+import { MonthPicker } from '#/components/month-picker.tsx'
 import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
@@ -44,6 +44,7 @@ import {
   ScoringLegendSkeleton,
 } from '#/components/dashboard-skeletons.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import { monthWindowFor } from '../../convex/lib/monthWindow.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
 /**
@@ -678,6 +679,17 @@ function Dashboard() {
   // branch is unreachable until a client-only re-render, by which point nothing
   // is being compared against server output any more.
   const currentMonth = hydrated ? monthOf(toPuzzleDay(new Date())) : monthParam
+  // TASK 5 OF wordle-teams-kusd LEAVES THIS HALF-WIRED, ON PURPOSE. `monthOptions`
+  // (which used to live in month-picker.tsx) is gone — task 5's job was the
+  // dropdown component, not this route — so this calls the real
+  // `monthWindowFor` rather than reintroducing a copy of the deleted three-month
+  // arithmetic. `earliestMonth: null` means `spanFor` always falls back to
+  // FREE_MONTHS regardless of `pro` (see monthWindow.ts's own header), so a Pro
+  // viewer gets exactly the free window here still — NOT a regression from
+  // before this task, since `monthOptions` never offered more either. Task 6
+  // owns querying the team's earliest board and threading it through here; when
+  // it does, `isPro` below already is real and needs no further change.
+  const monthWindow = monthWindowFor({ currentMonth, earliestMonth: null, pro: isPro })
   const selectedTeam = teams.find((team) => team.id === teamParam)
 
   return (
@@ -892,9 +904,18 @@ function Dashboard() {
           onUpgrade={() => void startUpgrade()}
         />
         <MonthPicker
-          currentMonth={currentMonth}
           value={monthParam}
+          months={monthWindow}
+          // NO TEASER YET (task 5 of wordle-teams-kusd). `proTeaserMonth` also
+          // needs the team's earliest board, which this route does not query —
+          // see `monthWindow`'s own comment above. Hardcoding null here rather
+          // than routing through `proTeaserMonth({ ..., earliestMonth: null })`
+          // is the same answer either way, since that function returns null
+          // whenever `earliestMonth` is null, but this says so directly instead
+          // of making a reader chase a call that can only ever be inert.
+          teaserLabel={null}
           onChange={(month) => navigate({ to: Route.fullPath, search: { team: teamParam, month } })}
+          onUpgrade={() => void startUpgrade()}
         />
         {/* Gated on `selectedTeam`, matching the convention every other
             selectedTeam-dependent block in this file uses: a stale or invalid
@@ -1132,14 +1153,19 @@ function Dashboard() {
           `months` AND `onMonthChange` MAKE THE DAY PICKER REACH PAST THE LOADED
           MONTH (wordle-teams-5vv3). It was clamped to the month on screen, so
           viewing an earlier day meant going up to the dropdown first. The SAME
-          array the MonthPicker above is driven by bounds it, so the two
-          controls offer exactly the same months and widen together when the pro
-          expansion lands.
+          `monthWindow` the MonthPicker above is driven by bounds it, so the two
+          controls offer exactly the same months and cannot drift apart.
+
+          `monthWindow` STILL ONLY EVER SPANS THE FREE WINDOW HERE, for the
+          reason its own definition above says: this route does not yet query
+          the team's earliest board, so `pro` has nothing to widen against.
+          Task 6 of wordle-teams-kusd owns supplying that, at which point both
+          controls widen together with no change needed here.
         */}
         <TeamBoards
           teamId={teamParam as Id<'teams'>}
           month={monthParam}
-          months={monthOptions(currentMonth)}
+          months={monthWindow}
           onMonthChange={(month) =>
             navigate({
               to: Route.fullPath,

@@ -672,11 +672,12 @@ describe('the panel is mounted on the dashboard', () => {
     expect(rendered[0].get('month')).toBe('{monthParam}')
     expect(rendered[0].get('className')).toBe('"md:col-span-3"')
 
-    // `monthOptions(currentMonth)` — THE SAME CALL the MonthPicker is driven
-    // by, which is what makes the day picker and the arrows offer exactly the
-    // months the dropdown does. A different window here, or a literal array, is
-    // how the controls silently drift apart.
-    expect(rendered[0].get('months')).toBe('{monthOptions(currentMonth)}')
+    // `monthWindow` — THE SAME VARIABLE the MonthPicker is driven by (task 5 of
+    // wordle-teams-kusd replaced `monthOptions(currentMonth)` with it), which is
+    // what makes the day picker and the arrows offer exactly the months the
+    // dropdown does. A different window here, or a literal array, is how the
+    // controls silently drift apart.
+    expect(rendered[0].get('months')).toBe('{monthWindow}')
 
     // ASSERTED BY CONTENT RATHER THAN AS ONE EXACT STRING, because the handler
     // is now a multi-line object literal and pinning its formatting would make
