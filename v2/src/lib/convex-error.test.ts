@@ -34,14 +34,20 @@ const here = dirname(fileURLToPath(import.meta.url))
  *    single comment inserted mid-union would have truncated the list to whatever
  *    came before it and sailed past a floor of 15.
  *
- * 2. A CROSS-CHECK against `typedCodeMessage`'s `case` labels, parsed separately,
- *    by a different pattern, out of a different file. That switch is exhaustive
- *    over AccessCode BY COMPILER ENFORCEMENT, so its label set IS the union — no
- *    parsing of mine can make it incomplete without tsc noticing. Requiring the
- *    two sets to be EQUAL therefore catches both directions of a bad parse: a
- *    truncated union parse leaves labels unmatched, and an over-greedy one that
- *    ran on past the declaration leaves members unmatched. This is what makes the
- *    per-code assertions below trustworthy rather than merely present.
+ * 2. A CROSS-CHECK against `typedCodeMessage`'s `case` labels. Requiring the two
+ *    sets to be EQUAL catches both directions of a bad parse: a truncated union
+ *    parse leaves labels unmatched, and an over-greedy one that ran on past the
+ *    declaration leaves members unmatched.
+ *
+ *    WHAT MAKES THAT WORK IS THE INDEPENDENCE OF THE TWO PARSERS, NOT tsc. Be
+ *    precise about this, because the obvious phrasing is wrong: tsc guarantees
+ *    the SWITCH is exhaustive over AccessCode, and guarantees nothing whatever
+ *    about whether a regex of mine over that switch's SOURCE TEXT finds every
+ *    label it contains. The compiler cannot see this file. What the equality
+ *    actually rests on is that two separately written patterns, run over two
+ *    different files in two different syntaxes, would have to fail in the same
+ *    direction by the same amount to agree wrongly. Hence the deliberately
+ *    DISSIMILAR character classes below — see CODE_UNION and CODE_CASE.
  *
  * ONE DIRECTION ONLY on the chain itself. A code in the chain that is NOT in
  * AccessCode is already a compile error: the narrowed `code` is returned as
@@ -49,8 +55,17 @@ const here = dirname(fileURLToPath(import.meta.url))
  * direction needs a test.
  */
 
-/** Permissive on purpose: a future code with a digit in it must not be skipped. */
-const CODE = "[A-Za-z0-9_]+"
+/**
+ * DELIBERATELY DIFFERENT PATTERNS FOR THE SAME NAMES, which is the point rather
+ * than an inconsistency. If both parsers shared one class, a future code
+ * containing a character neither expects would be dropped by BOTH — the two sets
+ * would still be equal, the floor would still hold, and that code would go
+ * unguarded with every gate green. The union side takes anything that is not the
+ * closing quote; the switch side is the conservative identifier class. They can
+ * only disagree in a way that FAILS, never in a way that silently narrows.
+ */
+const CODE_UNION = "[^']+"
+const CODE_CASE = '[A-Za-z0-9_]+'
 
 const ACCESS_CODES_IN_SOURCE = (() => {
   const source = readFileSync(join(here, '../../convex/access.ts'), 'utf8')
@@ -68,7 +83,7 @@ const ACCESS_CODES_IN_SOURCE = (() => {
   const codes: string[] = []
   for (const raw of afterDeclaration.split('\n')) {
     const line = raw.trim()
-    const member = new RegExp(`^\\|\\s*'(${CODE})'$`).exec(line)
+    const member = new RegExp(`^\\|\\s*'(${CODE_UNION})'$`).exec(line)
     if (member) {
       codes.push(member[1])
       continue
@@ -88,14 +103,27 @@ const SWITCH_CASE_LABELS = (() => {
   const source = readFileSync(join(here, 'convex-error.ts'), 'utf8')
   const body = source.split('export function typedCodeMessage')[1]
   expect(body, 'convex-error.ts no longer declares `export function typedCodeMessage`').toBeDefined()
-  return [...body.split('\nexport ')[0].matchAll(new RegExp(`case '(${CODE})':`, 'g'))].map((m) => m[1])
+  return [...body.split('\nexport ')[0].matchAll(new RegExp(`case '(${CODE_CASE})':`, 'g'))].map((m) => m[1])
 })()
 
+/**
+ * The `||` CHAIN ALONE — from the `if (` that opens it to the `) {` that closes
+ * it — and NOT the whole function, which is what this used to slice.
+ *
+ * Running to the next `\nexport ` swept in `typedCodeMessage`'s entire JSDoc.
+ * Nothing in it quotes a real code today, but a future doc comment that wrote
+ * `code === 'FOO'` in prose would satisfy the per-code assertion below while the
+ * actual chain entry was missing — which is precisely the failure this file
+ * exists to catch, reintroduced through its own evidence. The bound is now the
+ * chain's own closing `) {`, so only executable membership tests count.
+ */
 const CONVEX_ERROR_CODE_BODY = (() => {
   const source = readFileSync(join(here, 'convex-error.ts'), 'utf8')
   const afterSignature = source.split('export function convexErrorCode')[1]
   expect(afterSignature, 'convex-error.ts no longer declares `export function convexErrorCode`').toBeDefined()
-  return afterSignature.split('\nexport ')[0]
+  const chain = /\n {2}if \(\n([\s\S]*?)\n {2}\) \{/.exec(afterSignature)
+  expect(chain, "convexErrorCode's `||` chain is no longer an `if (` ... `) {` block").not.toBeNull()
+  return chain![1]
 })()
 
 describe('convexErrorCode recognises every AccessCode', () => {

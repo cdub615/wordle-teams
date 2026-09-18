@@ -71,9 +71,15 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // MONTH_OUT_OF_WINDOW is thrown in scores.ts, by getTeamMonthFor, when the
 // requested month falls below what the caller's tier reaches — or is not a
 // 'YYYY-MM' at all, which is the same refusal because a bare '2026' lexically
-// brackets a whole year of boards. ONE CODE FOR BOTH ON PURPOSE: the answer a
-// caller gets must not tell them whether they were refused for shape or for
-// tier, for the reason INVITE_LINK_INVALID collapses its three states. It is
+// brackets a whole year of boards. THE SAME CODE FOR BOTH ON PURPOSE, so the
+// message a caller reads does not name which rule stopped them — the reason
+// INVITE_LINK_INVALID collapses its three states. NOT a claim that the two are
+// indistinguishable, and do not write one: a shape refusal returns before
+// isProFor and reads ZERO documents, while a tier refusal reads the caller's
+// playerMembership row and may walk the roster. That is a latency difference and,
+// more reliably, a READ-SET difference — a shape-refused subscription can never
+// be invalidated by a membership change, and a tier-refused one can. Collapsing
+// the copy is worth doing; pretending the two paths are identical is not. It is
 // also a BACKSTOP rather than a conversion surface — the dropdown never offers a
 // month outside the window — so unlike TEAM_LIMIT_REACHED its copy does not
 // carry the upgrade flow.
@@ -303,15 +309,39 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  * and task 6 corrects an out-of-window `?month=`; until both land, the gate is
  * strictly a backstop that no UI can trip.
  *
- * ONLY THIS ONE READ SURFACE IS GATED, AND THE SIBLINGS ARE WORTH KNOWING ABOUT.
- * insights.ts's teamMonth and winners.ts's getLastMonthWinner are the other two
- * public queries taking a client-supplied `month: v.string()` scoped to a team,
- * and both check membership alone — so an old month's aggregate stats and winner
- * name stay reachable to a free member. That is a narrower leak than the
- * scoreboard's (aggregates and one name, not every teammate's boards), which is
- * why task 3 scoped the gate here, and it is filed rather than widened silently:
- * wordle-teams-7uv8. Do not read this function's presence in getTeamMonthFor as
- * evidence the whole family is covered.
+ * ONLY THIS ONE READ SURFACE IS MONTH-GATED, AND THE OTHER TWO DIVERGE FROM IT
+ * IN DIFFERENT DIRECTIONS. They are the other public queries taking a
+ * client-supplied `month: v.string()` scoped to a team, and they are NOT the same
+ * case as each other — an earlier version of this paragraph said both "check
+ * membership alone", which was false of the first and is the reason it is spelled
+ * out at length here.
+ *
+ * - insights.ts's `teamMonth` IS gated, by LAYER rather than by month:
+ *   `hasFullTeamMonth(access.layer3)` (insights.ts:211). layer3 is `paid ? 'full'
+ *   : 'free'` and `paid = isPro || trialActive` (lib/insightsAccess.ts:143-149),
+ *   so a FREE member gets the reduced teaser for every month, current or ancient.
+ *   There is no free leak here. What reaches an out-of-window month is the TRIAL
+ *   tier: `trialActive` makes layer3 'full' while THIS function still returns
+ *   false, so a trial player gets their team's full stats for any month on
+ *   /insights and three months of scoreboard on /app.
+ *
+ *   THAT SEAM IS DELIBERATE AND ALREADY ACCEPTED — do not "fix" it here. The
+ *   spec's §4 ("The trial does not widen this window",
+ *   docs/superpowers/specs/2026-09-17-pro-month-window-design.md) states the
+ *   split in those words and takes it knowingly: the trial was specified as an
+ *   Insights grant rather than a scoreboard grant, and honouring it here would
+ *   make this rule take an InsightsAccess tier instead of a boolean and let the
+ *   trial's expiry silently withdraw history. scores.test.ts's "refuses a caller
+ *   inside the Insights trial the pro window" pins the /app half on purpose.
+ *
+ * - winners.ts's `getLastMonthWinner` IS membership-only, and is the genuinely
+ *   ungated sibling: any member can name the winner of any past month. One name
+ *   and a boolean, so it is a far narrower exposure than the scoreboard's — which
+ *   is why task 3 scoped the gate here rather than widening it — and it is filed
+ *   rather than left unsaid: wordle-teams-7uv8.
+ *
+ * Do not read this function's presence in getTeamMonthFor as evidence the whole
+ * family is covered, and do not read the family as uniformly leaky either.
  */
 export async function isProFor(ctx: ReaderCtx, playerId: Id<'players'>): Promise<boolean> {
   const membership = await ctx.db

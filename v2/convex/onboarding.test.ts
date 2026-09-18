@@ -33,7 +33,7 @@ describe('onboarding.getStatus', () => {
   })
 
   test('a row with EMPTY guesses does not count as entered', async () => {
-    // Migrated v1 rows predate v2's delete-on-empty rule (scores.ts:538), so
+    // Migrated v1 rows predate v2's delete-on-empty rule (scores.ts:589), so
     // empty-guess rows exist in copied data. wordle-teams-456 counts non-empty
     // guesses for exactly this reason: without the filter every migrated empty
     // row reads as an activation and the number is inflated.

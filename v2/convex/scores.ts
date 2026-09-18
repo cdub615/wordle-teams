@@ -10,7 +10,7 @@ import {
 } from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
 import { LAUNCH_AT, shouldStartTrial, trialEndsAtFor } from './lib/insightsAccess.ts'
-import { serverFloorFor } from './lib/monthWindow.ts'
+import { isMonth, serverFloorFor } from './lib/monthWindow.ts'
 import { monthOf, monthRange, toPuzzleDay, type PuzzleMonth } from './lib/puzzleDay.ts'
 import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
 import { recomputePlayerMonth } from './winners.ts'
@@ -72,10 +72,15 @@ export async function getTeamMonthFor(
   // lexically brackets every day of the year. It sorts ABOVE a pro floor, so
   // without this a pro member could pull twelve months of every teammate's boards
   // in one payload — past the floor below, and past this file's own "SCOPED TO
-  // ONE TEAM AND ONE MONTH" bandwidth argument. routes/app.tsx:66 applies this
-  // same regex to `?month=` before it ever reaches a query, so this is the check
+  // ONE TEAM AND ONE MONTH" bandwidth argument. routes/app.tsx:66 applies the
+  // same rule to `?month=` before it ever reaches a query, so this is the check
   // for everything that is not the browser.
-  if (!/^\d{4}-\d{2}$/.test(month)) throw accessError('MONTH_OUT_OF_WINDOW')
+  //
+  // `isMonth` RATHER THAN AN INLINE REGEX, so the shape rule sits in the same
+  // module as the window rule it guards: the argument for refusing a malformed
+  // month is that it sorts above a floor monthWindow.ts computes, and a private
+  // copy of the pattern here would let one side be relaxed without the other.
+  if (!isMonth(month)) throw accessError('MONTH_OUT_OF_WINDOW')
 
   // THE FREE FLOOR IS CHECKED FIRST, AND USUALLY IT IS THE WHOLE CHECK. Almost
   // every call asks for one of the last three months, and for those this costs
@@ -91,10 +96,16 @@ export async function getTeamMonthFor(
   //
   // THE CLOCK READ IS A DEVIATION FROM THIS DIRECTORY'S CONVENTION and is worth
   // naming. Every other "what day is it" question on the server takes `today`
-  // from the client and bounds it: upsertBoardFor below and teams.ts and
-  // scoringSystems.ts through access.ts's requirePlausibleToday, insights.ts's
-  // teamMonth through isPlausibleToday with a fallback instead of a throw. This
-  // reads `new Date()` directly. Taking an argument instead would mean changing
+  // from the client and bounds it. Through access.ts's requirePlausibleToday,
+  // which THROWS: upsertBoardFor below, teams.ts, scoringSystems.ts, and
+  // inviteLinks.ts's consumeLink (:229). Through isPlausibleToday directly, which
+  // FALLS BACK to the server's day rather than throwing: insights.ts's teamMonth
+  // (:235) and players.ts's completeProfileFor (:151) — the latter is the
+  // documented exception access.ts:242 already carries, because throwing there
+  // would refuse the player row and lock the account out. This reads `new Date()`
+  // directly and bounds nothing, because it takes no client value to bound.
+  //
+  // Taking an argument instead would mean changing
   // getTeamMonth's signature at all six of its useSuspenseQuery call sites
   // (scores-table, scoring-legend, scoring-system-card, today-panel,
   // teams/team-boards, board-entry/form) for a bound whose only failure direction
@@ -106,6 +117,24 @@ export async function getTeamMonthFor(
   const serverMonth = monthOf(toPuzzleDay(new Date()))
   const freeFloor = serverFloorFor({ currentMonth: serverMonth, earliestMonth: null, pro: false })
   if (month < freeFloor) {
+    // DOES THE REFUSAL RE-FIRE WHEN THE PLAYER UPGRADES? UNVERIFIED — recorded
+    // as unverified deliberately rather than assumed either way. This throw
+    // happens AFTER isProFor has read `playerMembership by_player`, so if Convex
+    // records the read set of a throwing execution the subscription invalidates
+    // when the Polar webhook patches that row, and the scoreboard appears without
+    // a reload. That is the behaviour to expect and it is what the ordering here
+    // gives the best chance of, but convex-test models no subscriptions at all,
+    // so nothing in this repo can prove it and the answer lives in the backend.
+    //
+    // THE CONSEQUENCE IF IT DOES NOT is bounded, which is why this is a note and
+    // not a blocker. The checkout return is a full document navigation to
+    // /app?checkout=success (convex/polar.ts's successUrl), so the paid-and-
+    // redirected path re-runs every query from scratch — and checkoutReturnUrl
+    // preserves `?month=` on purpose, so the player lands back on the month they
+    // were refused, now allowed. Only the in-page case is exposed: the webhook
+    // landing while the tab sits open, where `api.teams.amIPro` updates live and
+    // this query might not. Worth measuring against a real deployment before the
+    // dropdown starts offering out-of-window months in task 5: wordle-teams-q0x0.
     if (!(await isProFor(ctx, playerId))) throw accessError('MONTH_OUT_OF_WINDOW')
 
     // THE SAME `serverFloorFor`, NOT A BARE `month < earliestMonth`. The pro
@@ -241,7 +270,7 @@ export const getTeamMonth = query({
  * visible on the scoreboard the same way.
  *
  * A DANGLING ROSTER ID IS SKIPPED, on the same premise getTeamMonthFor
- * (scores.ts:162) and getMyTeamsFor (teams.ts:105) share — Convex ids are not
+ * (scores.ts:191) and getMyTeamsFor (teams.ts:105) share — Convex ids are not
  * foreign keys, so `teams.playerIds` can outlive the `players` row it names —
  * but for a DIFFERENT REASON. Those two guard against throwing on
  * `member.firstName`; nothing here would throw on a ghost, which is exactly why
@@ -276,7 +305,7 @@ async function earliestMonthFor(
   const firsts = await Promise.all(
     playerIds.map(async (memberId) => {
       // A ROSTER ENTRY WITH NO PLAYER ROW, skipped BEFORE the index read rather
-      // than after — the same guard scores.ts:162 (getTeamMonthFor) and teams.ts:105
+      // than after — the same guard scores.ts:191 (getTeamMonthFor) and teams.ts:105
       // (getMyTeamsFor) apply, for a related but distinct reason: those two guard
       // against throwing on `member.firstName`, while this one exists so a ghost's
       // boards cannot widen the window past what getTeamMonthFor can ever render
@@ -378,7 +407,7 @@ export const getMyPlayerId = query({
  * A MONTH, NOT A DAY. The form picks a default day from the set of days already
  * played (form.tsx:64), so a single-day read cannot feed it.
  *
- * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:175-180), deliberately,
+ * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:204-209), deliberately,
  * so the form derives from one shape whichever query fed it. It reads the same
  * index through the same monthRange bounds for the same reason: given a
  * WELL-FORMED 'YYYY-MM', `end` is '<month>-31' as a LEXICAL bound on
@@ -399,9 +428,31 @@ export const getMyPlayerId = query({
  * paywall. Here the worst case is a year of THE CALLER'S OWN boards returned to
  * the caller: more bytes than asked for, but nothing they are not already
  * entitled to and nobody else's data at all. So the shape check is not copied
- * down — it belongs to the gate, not to `monthRange`. If this query ever grows a
- * teamId or serves anyone but `currentPlayer`, that reasoning expires and the
- * check comes with it.
+ * down — it belongs to the gate, not to `monthRange`.
+ *
+ * THERE IS NO MONTH FLOOR HERE EITHER, AND THAT IS THE LARGER ASYMMETRY OF THE
+ * TWO — stated outright because it is not obvious and because the reasoning
+ * above does NOT extend to it unexamined. A free player can read their own
+ * boards from any month they like through this query, while getTeamMonthFor
+ * refuses them the same month's scoreboard — INCLUDING THEIR OWN ROW IN IT.
+ * board-entry/form.tsx shows the two side by side: its team branch (:1304) and
+ * its solo branch (:1329) hand the SAME route month to the gated query and the
+ * ungated one respectively.
+ *
+ * LEFT UNGATED DELIBERATELY. The paywall being sold is a TEAM's history — every
+ * teammate's boards for a month, which is what the dropdown offers and what v1's
+ * Pro reaches back to. A player's own boards are not that product: they are the
+ * thing the player typed in, they are already returned in full for the current
+ * month to everyone, and refusing them would mean a free player could not re-open
+ * their own entry form for an old month. Note the disagreement honestly, though —
+ * "your own data is data you are entitled to" is exactly the premise the gate
+ * declines two hundred lines up, where it refuses a free caller a month
+ * containing their own row. The gate's answer is that the ROW is not what is
+ * being withheld; the TEAM MONTH is, and a row cannot be served out of it
+ * selectively without rebuilding the payload. If that ever stops being true — if
+ * this query grows a teamId, serves anyone but `currentPlayer`, or starts
+ * returning anything a teammate entered — both the shape check and a floor come
+ * with it.
  *
  * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
  * /app, which is reachable in the window before a player row exists.

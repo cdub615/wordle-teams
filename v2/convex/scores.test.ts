@@ -285,16 +285,26 @@ describe('getTeamMonthFor', () => {
     })
   })
 
-  test('serves a free caller every month down to the slack month, and refuses the one below', () => {
+  test('serves a free caller future months and every month down to the slack, and refuses the one below', () => {
     // THE BOUNDARY, BOTH SIDES OF IT. -3 is the slack month the server allows and
     // the dropdown does not offer (SERVER_SLACK_MONTHS); -4 is the first refusal.
     // Without both, SERVER_SLACK_MONTHS could be changed to 2 and every test in
     // this file would stay green.
+    //
+    // +1 AND +2 PIN THE ABSENCE OF AN UPPER BOUND, WHICH IS A DECISION RATHER
+    // THAN AN OMISSION. monthWindow.ts's serverFloorFor says it: a future month
+    // simply contains no boards, and refusing one would be "a second way for the
+    // UTC/local disagreement to break a page" — the server is UTC, so a viewer in
+    // UTC+14 asks for next month for a few hours at every month boundary, and a
+    // reader who saw only a floor could add `if (month > serverMonth) throw` and
+    // break every one of them on the 1st. Nothing else in the suite walks
+    // forward, so without these two that guard would land with all four gates
+    // green. This is the free-boundary fixture's lesson applied to the other end.
     return convexTest(schema, modules).run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
 
-      for (const delta of [0, -1, -2, -3]) {
+      for (const delta of [2, 1, 0, -1, -2, -3]) {
         await expect(
           getTeamMonthFor(ctx, playerId, teamId, addMonths(thisMonth, delta)),
         ).resolves.toBeDefined()
@@ -1012,7 +1022,7 @@ describe('monthWindowInputsFor', () => {
     // a ghost with no boards would be indistinguishable from a member with none,
     // and would prove nothing about what happens to a dangling id.
     //
-    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching scores.ts:162
+    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching scores.ts:191
     // (getTeamMonthFor): that function drops a dangling roster id before it ever
     // reads a score for it, so the ghost's 2023-03 board can never reach the
     // scoreboard either. A window that offered 2023-03 anyway would let a viewer
@@ -1045,7 +1055,7 @@ describe('monthWindowInputsFor', () => {
 
   test('reads a bounded number of documents — a bandwidth regression guard', () => {
     // The sibling of the budget on getTeamMonthFor above (scores.test.ts:150-161,
-    // and of the below-floor one at :446-454, which budgets a call that reaches
+    // and of the below-floor one at :456-464, which budgets a call that reaches
     // earliestMonthFor through the month gate rather than directly):
     // swapping earliestMonthFor's index `.first()` for
     // `.collect().then((rows) => rows[0] ?? null)` returns an IDENTICAL
@@ -1202,7 +1212,7 @@ describe('scores.getMyMonth', () => {
   test("a row with no answer at all comes back as '', not undefined", async () => {
     // THE `?? ''` FALLBACK, WHICH NOTHING ELSE IN THIS FILE REACHES. `answer`
     // is v.optional in the schema — v1 rows predate it — and getTeamMonthFor
-    // coalesces it for exactly that reason (scores.ts:175-180). Drop the
+    // coalesces it for exactly that reason (scores.ts:204-209). Drop the
     // coalesce here and all four gates stay green: the shape test above asserts
     // Object.keys, which still lists `answer` when the value is undefined, and
     // every other fixture in this file sets one. The TYPE link does not catch
