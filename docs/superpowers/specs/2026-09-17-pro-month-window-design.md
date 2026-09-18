@@ -506,9 +506,14 @@ this is called done.
    named test rather than left to follow from `isProFor`'s definition. The schema
    field is `insightsTrialEndsAt`, not `trialEndsAt`.
 10. Every caller-supplied-month path has been audited, not only `winners.ts`:
-    `getLastMonthWinner` (`winners.ts:470`) and `scores.getMyMonth`
-    (`scores.ts:190`) both take an unbounded `v.string()` month, and the outcome
-    for each is written into its file either way.
+    `winners.getLastMonthWinner` and `scores.getMyMonth` both take an unbounded
+    `v.string()` month, and the outcome for each is written into its file either
+    way. The sweep found **six**, not two: those, `scores.getTeamMonth`,
+    `winners.markCelebrationSeen`, `insights.teamMonth`, and
+    `teamStats.rollupOne`. Every one ends in a gate or a named reason — see
+    `isProFor`'s doc comment in `convex/access.ts`, which carries the list.
+    *(Symbols, not line numbers: this criterion cited `winners.ts:470` and
+    `scores.ts:190`, and the second was already stale when task 4 read it.)*
 11. `MONTH_OUT_OF_WINDOW` is added to `convexErrorCode`'s chain
     (`src/lib/convex-error.ts:17-43`) as well as to `typedCodeMessage`. That chain
     is hand-written and not exhaustive, so typecheck does NOT force it and the

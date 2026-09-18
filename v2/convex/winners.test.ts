@@ -1,7 +1,7 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
-import { toPuzzleDay } from './lib/puzzleDay.ts'
+import { addMonths, monthOf, toPuzzleDay, type PuzzleMonth } from './lib/puzzleDay.ts'
 import { aPlayer, aTeam } from './fixtures.ts'
 import {
   lastMonthWinnerFor,
@@ -13,6 +13,34 @@ import {
 
 const today = toPuzzleDay(new Date())
 const modules = import.meta.glob('./**/*.ts')
+
+/**
+ * MONTHS RELATIVE TO THE CLOCK, FOR THE `lastMonthWinnerFor` SUITE ONLY, and
+ * they are not cosmetic. That function is month-gated since wordle-teams-kusd's
+ * task 4, and its floor is derived from the SERVER'S current month — so a
+ * hardcoded '2026-08' is a fixture with an expiry date. Every one of those tests
+ * would have gone red in October 2026 and reported a failure of the gate rather
+ * than of the fixture, which is the worst kind of red to hand the next reader.
+ *
+ * The `recomputeTeamMonth` and `markCelebrationSeenFor` suites keep their literal
+ * months on purpose: neither function has a month rule, so nothing about them
+ * depends on where the clock is.
+ */
+const thisMonth = monthOf(today)
+/** Last month. The only month the celebration dialog ever asks for. */
+const lastMonth = addMonths(thisMonth, -1)
+const twoBack = addMonths(thisMonth, -2)
+/** SERVER_SLACK_MONTHS: offered by no dropdown, served by the server. */
+const slackMonth = addMonths(thisMonth, -3)
+/** The first month below the free floor. */
+const belowFloor = addMonths(thisMonth, -4)
+const ancientMonth = '2019-04'
+
+/** The (year, month) number pair `monthlyWinners` is keyed on, for a 'YYYY-MM'. */
+const keyOf = (month: PuzzleMonth) => ({
+  year: Number(month.slice(0, 4)),
+  month: Number(month.slice(5, 7)),
+})
 
 /** A board scoring `attempts` guesses, on the given day. */
 const aScore = (playerId: string, puzzleDay: string, guesses: Array<string>) => ({
@@ -494,15 +522,14 @@ describe('lastMonthWinnerFor', () => {
       await ctx.db.insert('monthlyWinners', {
         playerId: ada,
         teamId,
-        year: 2026,
-        month: 8,
+        ...keyOf(lastMonth),
         hasSeenCelebration: [],
       })
 
       // Asked BY BOB, who did not win. The name in the answer is Ada's, which
       // is the whole of v1's misnamed-winner bug (§7a row 35): v1 never asks
       // the server who won, it renders the viewer's own name.
-      expect(await lastMonthWinnerFor(ctx, bob, teamId, '2026-08')).toEqual({
+      expect(await lastMonthWinnerFor(ctx, bob, teamId, lastMonth)).toEqual({
         teamName: 'Wordlers',
         winner: { id: ada, firstName: 'Ada', lastName: 'Lovelace' },
         hasSeen: false,
@@ -519,15 +546,14 @@ describe('lastMonthWinnerFor', () => {
       await ctx.db.insert('monthlyWinners', {
         playerId: ada,
         teamId,
-        year: 2026,
-        month: 8,
+        ...keyOf(lastMonth),
         hasSeenCelebration: [ada],
       })
 
       // Ada has dismissed it; Bob has not. A `hasSeenCelebration.length > 0`
       // would answer true for both, and Bob would never see the dialog.
-      expect((await lastMonthWinnerFor(ctx, ada, teamId, '2026-08'))?.hasSeen).toBe(true)
-      expect((await lastMonthWinnerFor(ctx, bob, teamId, '2026-08'))?.hasSeen).toBe(false)
+      expect((await lastMonthWinnerFor(ctx, ada, teamId, lastMonth))?.hasSeen).toBe(true)
+      expect((await lastMonthWinnerFor(ctx, bob, teamId, lastMonth))?.hasSeen).toBe(false)
     })
   })
 
@@ -540,23 +566,23 @@ describe('lastMonthWinnerFor', () => {
       await ctx.db.insert('monthlyWinners', {
         playerId: ada,
         teamId,
-        year: 2026,
-        month: 7,
+        ...keyOf(twoBack),
         hasSeenCelebration: [],
       })
       await ctx.db.insert('monthlyWinners', {
         playerId: bob,
         teamId,
-        year: 2026,
-        month: 8,
+        ...keyOf(lastMonth),
         hasSeenCelebration: [],
       })
 
-      expect((await lastMonthWinnerFor(ctx, ada, teamId, '2026-07'))?.winner.id).toBe(ada)
-      expect((await lastMonthWinnerFor(ctx, ada, teamId, '2026-08'))?.winner.id).toBe(bob)
+      expect((await lastMonthWinnerFor(ctx, ada, teamId, twoBack))?.winner.id).toBe(ada)
+      expect((await lastMonthWinnerFor(ctx, ada, teamId, lastMonth))?.winner.id).toBe(bob)
       // Nothing at all for a month with no row — the common case, since a month
-      // nobody played produces none.
-      expect(await lastMonthWinnerFor(ctx, ada, teamId, '2026-06')).toBeNull()
+      // nobody played produces none. `slackMonth` is the oldest month the gate
+      // serves a free caller, so this doubles as the proof that a NULL and a
+      // REFUSAL are different answers at the boundary.
+      expect(await lastMonthWinnerFor(ctx, ada, teamId, slackMonth)).toBeNull()
     })
   })
 
@@ -569,8 +595,7 @@ describe('lastMonthWinnerFor', () => {
       await ctx.db.insert('monthlyWinners', {
         playerId: ghost,
         teamId,
-        year: 2026,
-        month: 8,
+        ...keyOf(lastMonth),
         hasSeenCelebration: [],
       })
       await ctx.db.delete(ghost)
@@ -578,7 +603,7 @@ describe('lastMonthWinnerFor', () => {
       // Convex ids are not foreign keys, so the row can outlive its winner.
       // Dereferencing without the guard throws on `winner.firstName` and takes
       // the dashboard down; null just means no celebration.
-      expect(await lastMonthWinnerFor(ctx, ada, teamId, '2026-08')).toBeNull()
+      expect(await lastMonthWinnerFor(ctx, ada, teamId, lastMonth)).toBeNull()
     })
   })
 
@@ -597,17 +622,204 @@ describe('lastMonthWinnerFor', () => {
       await ctx.db.insert('monthlyWinners', {
         playerId: ada,
         teamId,
-        year: 2026,
-        month: 8,
+        ...keyOf(lastMonth),
         hasSeenCelebration: [],
       })
 
       // NOT_A_MEMBER rather than null, and a ConvexError rather than a plain
       // one — a plain Error's message is redacted in production, so the client
       // could not tell this apart from a crash.
-      await expect(lastMonthWinnerFor(ctx, outsider, teamId, '2026-08')).rejects.toMatchObject({
+      await expect(lastMonthWinnerFor(ctx, outsider, teamId, lastMonth)).rejects.toMatchObject({
         data: { code: 'NOT_A_MEMBER' },
       })
+    })
+  })
+
+  /*
+    THE MONTH GATE (wordle-teams-kusd's task 4). These mirror scores.test.ts's
+    getTeamMonthFor gate tests, with ONE DELIBERATE DIVERGENCE that has its own
+    test below: there is no pro floor here.
+
+    WHY THE ROSTER NEEDS NO BOARDS IN ANY OF THEM, unlike scores.test.ts's free
+    fixture, which carries an ancient `dailyScores` row precisely so the free
+    check and the pro check can be told apart. They cannot collapse into each
+    other here: this gate never computes a pro floor at all, so a free refusal is
+    the only thing `isProFor` can be standing in front of, and replacing that call
+    with `if (false)` turns the free test below red on its own.
+  */
+
+  test('refuses a free caller the month before the free floor', async () => {
+    // THE GATE ITSELF. Without it this function checks membership and nothing
+    // else, and a member can name the winner of every month their team has ever
+    // played — the whole hall of fame, one cheap call per month, which is the
+    // history Pro sells.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        ...keyOf(ancientMonth),
+        hasSeenCelebration: [],
+      })
+
+      // A ROW REALLY EXISTS FOR THE REFUSED MONTH, which matters: without it the
+      // answer would be null either way and the assertion could not tell a gate
+      // from an empty table.
+      for (const month of [belowFloor, ancientMonth]) {
+        await expect(lastMonthWinnerFor(ctx, ada, teamId, month)).rejects.toMatchObject({
+          data: { code: 'MONTH_OUT_OF_WINDOW' },
+        })
+      }
+    })
+  })
+
+  test('serves a free caller every month down to the slack, and refuses the one below', async () => {
+    // THE BOUNDARY, BOTH SIDES. -3 is the slack month SERVER_SLACK_MONTHS exists
+    // for and no dropdown offers; -4 is the first refusal. Without both,
+    // SERVER_SLACK_MONTHS could be changed to 2 and this file would stay green —
+    // and the dialog would start failing for viewers east of UTC on the 1st.
+    //
+    // +1 PINS THE ABSENCE OF AN UPPER BOUND, for the reason serverFloorFor gives:
+    // a viewer in UTC+14 asks for a month the server has not reached yet for a few
+    // hours at every boundary, and a reader who saw only a floor could add
+    // `if (month > serverMonth) throw` and break exactly them.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+
+      for (const month of [addMonths(thisMonth, 1), thisMonth, lastMonth, twoBack, slackMonth]) {
+        await expect(lastMonthWinnerFor(ctx, ada, teamId, month)).resolves.toBeNull()
+      }
+      await expect(lastMonthWinnerFor(ctx, ada, teamId, belowFloor)).rejects.toMatchObject({
+        data: { code: 'MONTH_OUT_OF_WINDOW' },
+      })
+    })
+  })
+
+  test('serves a PRO caller a month the roster has no boards in at all', async () => {
+    // THE DELIBERATE DIVERGENCE FROM getTeamMonthFor, AND THE ONLY TEST THAT
+    // PINS IT. That function refuses a pro caller below `earliestMonthFor`'s
+    // floor; this one has no pro floor, because refusing here would mean walking
+    // the roster to find the earliest board in order to withhold a single index
+    // lookup that misses and returns null anyway — strictly more work to serve
+    // less.
+    //
+    // THE TEAM HAS NO dailyScores ROWS ON PURPOSE. Under getTeamMonthFor's rule
+    // `earliestMonthFor` would be null, the pro floor would collapse onto the
+    // free one, and this call would be refused. It resolves, so copying that
+    // branch over here turns this test red — which is the point of writing it.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      await ctx.db.insert('playerMembership', { playerId: ada, membershipStatus: 'pro' })
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        ...keyOf(ancientMonth),
+        hasSeenCelebration: [],
+      })
+
+      expect((await lastMonthWinnerFor(ctx, ada, teamId, ancientMonth))?.winner.id).toBe(ada)
+    })
+  })
+
+  test('refuses a caller inside the Insights trial', async () => {
+    // THE TRIAL DOES NOT OPEN THIS WINDOW EITHER, and the reason is the spec's
+    // §4: the trial was specified as a grant of Insights layers 2 and 3, not of
+    // history. `isProFor` is `membershipStatus === 'pro'` and a trial sets no
+    // membership row at all. Asserted rather than left to follow from that
+    // definition, for the reason scores.test.ts gives: "the trial is pro enough"
+    // is exactly the reasonable-sounding change that would ship it.
+    //
+    // THE FIELD IS insightsTrialEndsAt. The bare `trialEndsAt` next door in
+    // lib/insightsAccess.ts is a different thing; access.ts's insightsAccessFor
+    // is the adapter between them.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert(
+        'players',
+        aPlayer({ insightsTrialEndsAt: Date.now() + 86_400_000 }),
+      )
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        ...keyOf(ancientMonth),
+        hasSeenCelebration: [],
+      })
+
+      await expect(lastMonthWinnerFor(ctx, ada, teamId, ancientMonth)).rejects.toMatchObject({
+        data: { code: 'MONTH_OUT_OF_WINDOW' },
+      })
+    })
+  })
+
+  test('refuses a malformed month even from a caller no floor can stop', async () => {
+    // THE SHAPE CHECK, AND THE FIXTURE IS PRO FOR A REASON THAT IS STRONGER HERE
+    // THAN IN scores.test.ts. There, a pro floor still exists and a free fixture
+    // would have refused most of these strings by the floor instead. Here a pro
+    // caller passes EVERY month, so the shape check is the only thing that can
+    // refuse them — delete it and each of these resolves to null instead of
+    // throwing.
+    //
+    // WHAT IT PREVENTS TODAY IS MILD AND THAT IS WHY IT IS WRITTEN DOWN:
+    // `yearAndMonth` is `split('-').map(Number)`, so a bare '2026' yields a NaN
+    // monthNum and the index lookup simply misses. The check is here so that
+    // stays true when someone later makes this function branch on the month.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      await ctx.db.insert('playerMembership', { playerId: ada, membershipStatus: 'pro' })
+
+      const thisYear = thisMonth.slice(0, 4)
+      for (const month of [thisYear, `${thisYear}-`, `${thisMonth}-01`, 'abc', '']) {
+        await expect(lastMonthWinnerFor(ctx, ada, teamId, month)).rejects.toMatchObject({
+          data: { code: 'MONTH_OUT_OF_WINDOW' },
+        })
+      }
+    })
+  })
+
+  test('an in-window read never consults the caller’s membership row', async () => {
+    // THE ORDERING GUARD. The free floor is compared BEFORE `isProFor`, so the
+    // only call this query actually receives — the dialog asking for last month —
+    // costs one string comparison and reads no playerMembership row. An
+    // implementation that resolved the caller's tier first would answer
+    // identically and be wrong on cost, on the one path that is hot.
+    //
+    // THE CALLER MUST HAVE A MEMBERSHIP ROW FOR THIS TO GUARD ANYTHING, and that
+    // is not decoration. `isProFor` is an indexed `.first()`, and an index range
+    // that matches nothing reads no documents — so against a player with no row
+    // the premature-`isProFor` mutant costs exactly the same as the correct
+    // ordering and this test passes it. Measured: it did, before this insert was
+    // added. A 'free' row is the realistic fixture anyway; every v2 signup gets
+    // one.
+    //
+    // THE BUDGET IS EXACT rather than round, for the reason scores.test.ts's own
+    // documentsRead guard states: a budget with headroom reads as slack and stops
+    // catching what it was written for.
+    const BUDGET =
+      1 + // the team document (requireTeamMemberFor)
+      1 + // the monthlyWinners row
+      1 // the winner's player document
+    const t = convexTest({ schema, modules, transactionLimits: { documentsRead: BUDGET } })
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada] }))
+      await ctx.db.insert('playerMembership', { playerId: ada, membershipStatus: 'free' })
+      await ctx.db.insert('monthlyWinners', {
+        playerId: ada,
+        teamId,
+        ...keyOf(lastMonth),
+        hasSeenCelebration: [],
+      })
+
+      expect((await lastMonthWinnerFor(ctx, ada, teamId, lastMonth))?.winner.id).toBe(ada)
     })
   })
 })

@@ -309,20 +309,45 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  * and task 6 corrects an out-of-window `?month=`; until both land, the gate is
  * strictly a backstop that no UI can trip.
  *
- * ONLY THIS ONE READ SURFACE IS MONTH-GATED, AND THE OTHER TWO DIVERGE FROM IT
- * IN DIFFERENT DIRECTIONS. They are the other public queries taking a
- * client-supplied `month: v.string()` scoped to a team, and they are NOT the same
- * case as each other — an earlier version of this paragraph said both "check
- * membership alone", which was false of the first and is the reason it is spelled
- * out at length here.
+ * EVERY PUBLIC PATH THAT TAKES A CALLER-SUPPLIED MONTH HAS NOW BEEN AUDITED
+ * (wordle-teams-kusd's task 4), AND THEY DO NOT ALL END IN THIS FUNCTION. Two of
+ * the five call it; the other three each have a different reason, and they are
+ * listed in full below so nobody has to re-derive the sweep. An earlier version
+ * of this paragraph described two of them as "check membership alone", which was
+ * false of the first, and that error reached a beads issue — which is why they
+ * are spelled out at length here rather than summarised.
  *
- * - insights.ts's `teamMonth` IS gated, by LAYER rather than by month:
- *   `hasFullTeamMonth(access.layer3)` (insights.ts:211). layer3 is `paid ? 'full'
- *   : 'free'` and `paid = isPro || trialActive` (lib/insightsAccess.ts:143-149),
+ * - scores.ts's `getTeamMonth` — the surface this function exists for. Shape
+ *   check, free floor, then `isProFor`, then a roster walk. See getTeamMonthFor.
+ *
+ * - winners.ts's `getLastMonthWinner` — GATED SINCE TASK 4, and it calls this
+ *   function. It was the genuinely ungated sibling: membership and nothing else,
+ *   so any member could name the winner of any month the team ever played. One
+ *   name and a boolean per call, but walking the months yields the team's whole
+ *   hall of fame, which is the history Pro sells. Gating it cost no UI anything —
+ *   the celebration dialog only ever asks for last month. It has NO PRO FLOOR,
+ *   deliberately: refusing an ancient month there would mean walking the roster to
+ *   find the earliest board, which is strictly more work than the single index
+ *   lookup that serves it and returns null anyway. The reasoning is in
+ *   `lastMonthWinnerFor`'s own gate comment; wordle-teams-7uv8 is the issue.
+ *
+ * - winners.ts's `markCelebrationSeen` — NOT GATED, and it needs none. It returns
+ *   void with both of its early returns silent successes, so it discloses nothing
+ *   at all, not even whether a winner row for that month exists; it writes only
+ *   the caller's own id; and requireTeamMemberFor already runs before the patch.
+ *   Its own doc comment lists the four conditions that would change that answer.
+ *
+ * - teamStats.ts's `rollupOne` — takes a month, but it is an `internalMutation`
+ *   scheduled by `sweep`. Nothing a browser holds can call it, so there is no
+ *   caller to gate.
+ *
+ * - insights.ts's `teamMonth` — gated, by LAYER rather than by month:
+ *   `hasFullTeamMonth(access.layer3)`. layer3 is `paid ? 'full' : 'free'` and
+ *   `paid = isPro || trialActive` (lib/insightsAccess.ts's `insightsAccess`),
  *   so a FREE member gets the reduced teaser for every month, current or ancient.
- *   There is no free leak here. What reaches an out-of-window month is the TRIAL
- *   tier: `trialActive` makes layer3 'full' while THIS function still returns
- *   false, so a trial player gets their team's full stats for any month on
+ *   There is no free leak of `stats` here. What reaches an out-of-window month is
+ *   the TRIAL tier: `trialActive` makes layer3 'full' while THIS function still
+ *   returns false, so a trial player gets their team's full stats for any month on
  *   /insights and three months of scoreboard on /app.
  *
  *   THAT SEAM IS DELIBERATE AND ALREADY ACCEPTED — do not "fix" it here. The
@@ -334,11 +359,18 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  *   trial's expiry silently withdraw history. scores.test.ts's "refuses a caller
  *   inside the Insights trial the pro window" pins the /app half on purpose.
  *
- * - winners.ts's `getLastMonthWinner` IS membership-only, and is the genuinely
- *   ungated sibling: any member can name the winner of any past month. One name
- *   and a boolean, so it is a far narrower exposure than the scoreboard's — which
- *   is why task 3 scoped the gate here rather than widening it — and it is filed
- *   rather than left unsaid: wordle-teams-7uv8.
+ *   ONE FIELD THERE IS STILL MONTH-UNBOUNDED FOR A FREE CALLER — the `rank`
+ *   teaser, computed from the requested month's aggregate. Not UI-reachable (that
+ *   component's free branch asks only for the current month) and narrow, but it
+ *   is a decision rather than a non-finding: wordle-teams-g03s.
+ *
+ * ONE MORE MONTH-TAKING QUERY IS NOT IN THAT LIST BECAUSE IT IS NOT TEAM-SCOPED:
+ * scores.ts's `getMyMonth`, which serves `currentPlayer`'s OWN boards for any
+ * month with no shape check and no floor. Task 4 re-examined it and left it
+ * ungated; its doc comment carries the argument, including the one thing that
+ * argument does not settle (insights.ts's myBoards already rations a player's own
+ * history by layer, so "your own data is free" is not this repo's rule —
+ * wordle-teams-byft).
  *
  * Do not read this function's presence in getTeamMonthFor as evidence the whole
  * family is covered, and do not read the family as uniformly leaky either.

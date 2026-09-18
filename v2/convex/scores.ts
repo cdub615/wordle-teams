@@ -405,9 +405,11 @@ export const getMyPlayerId = query({
  * to do; this is what gives them something to do.
  *
  * A MONTH, NOT A DAY. The form picks a default day from the set of days already
- * played (form.tsx:64), so a single-day read cannot feed it.
+ * played — `pickDefaultDay`'s `playedDays`, built from `myScores` in
+ * board-entry/form.tsx — so a single-day read cannot feed it.
  *
- * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:204-209), deliberately,
+ * THE SAME SCORE SHAPE getTeamMonthFor emits (its `scores.map` over the in-range
+ * rows, four fields, no `playerId`), deliberately,
  * so the form derives from one shape whichever query fed it. It reads the same
  * index through the same monthRange bounds for the same reason: given a
  * WELL-FORMED 'YYYY-MM', `end` is '<month>-31' as a LEXICAL bound on
@@ -435,8 +437,8 @@ export const getMyPlayerId = query({
  * above does NOT extend to it unexamined. A free player can read their own
  * boards from any month they like through this query, while getTeamMonthFor
  * refuses them the same month's scoreboard — INCLUDING THEIR OWN ROW IN IT.
- * board-entry/form.tsx shows the two side by side: its team branch (:1304) and
- * its solo branch (:1329) hand the SAME route month to the gated query and the
+ * board-entry/form.tsx shows the two side by side: `TeamBoardEntryForm` and
+ * `SoloBoardEntryForm` hand the SAME route month to the gated query and the
  * ungated one respectively.
  *
  * LEFT UNGATED DELIBERATELY. The paywall being sold is a TEAM's history — every
@@ -453,6 +455,33 @@ export const getMyPlayerId = query({
  * this query grows a teamId, serves anyone but `currentPlayer`, or starts
  * returning anything a teammate entered — both the shape check and a floor come
  * with it.
+ *
+ * RE-EXAMINED AND STILL UNGATED IN wordle-teams-kusd's task 4, WHICH AUDITED
+ * EVERY CALLER-SUPPLIED-MONTH PATH. That audit gated winners.ts's
+ * getLastMonthWinner, which leaves this the only public, month-taking read with
+ * no month rule at all — so the reason had better be a reason, and the audit
+ * found one thing the paragraph above does not say. It is recorded here rather
+ * than acted on, because acting on it is a product decision rather than an audit
+ * finding:
+ *
+ * THE "YOUR OWN DATA IS FREE" PREMISE IS NOT ACTUALLY THIS REPO'S RULE, AND
+ * insights.ts's myBoards IS THE COUNTER-EXAMPLE. That query returns the caller's
+ * OWN boards, and it hands a free player exactly one — the most recently entered
+ * — while `layer1 === 'full' || layer2 === 'full'` is what unlocks the rest.
+ * Its own comment says it outright: "HISTORY IS WHAT LAYER 2 IS". So a paid tier
+ * in this product already withholds a player's own past boards from them, and
+ * this query serves the same rows for any month to anyone. A free player who
+ * walks the months through `api.scores.getMyMonth` reassembles the history
+ * myBoards is rationing.
+ *
+ * THAT IS NOT BEING FIXED HERE, and the reason is not squeamishness. The two
+ * queries answer different questions — myBoards feeds a benchmark panel that is
+ * the Insights product, this feeds the entry form's prefill, which is how a
+ * player EDITS a board they already own — and a floor here would be the first
+ * time this product refused someone the form for their own entry. Whether the
+ * two should agree, and in which direction, belongs to whoever owns the Insights
+ * tiering, not to a month-window gate. Filed as wordle-teams-byft so it is a
+ * decision someone takes rather than a seam someone finds.
  *
  * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
  * /app, which is reachable in the window before a player row exists.

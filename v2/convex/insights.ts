@@ -149,6 +149,48 @@ function visible(board: { puzzleDay: string; guesses: string[]; answer?: string 
  * A MISSING AGGREGATE IS AN EMPTY MONTH, NOT AN ERROR. The rollup writes on the
  * first board of a month, so a month nobody has played has no row — which is a
  * real and common state, not a failure, and the caller renders it as one.
+ *
+ * GATED BY LAYER, NOT BY MONTH, AND THAT IS THE ANSWER THE CALLER-SUPPLIED-MONTH
+ * AUDIT REACHED (wordle-teams-kusd's task 4). `month` here is an unbounded
+ * `v.string()`, exactly like getTeamMonthFor's and getLastMonthWinner's, and this
+ * is the one of the three that ends the audit with a reason instead of a month
+ * gate. Written out because "it takes a raw month, therefore it leaks" is the
+ * reading that has already been wrong about this function once — wordle-teams-7uv8
+ * was filed claiming a free leak here and has been corrected.
+ *
+ * FOR A FREE MEMBER IT IS CLOSED. `hasFullTeamMonth(access.layer3)` below returns
+ * `stats: null` for every month, ancient or current, so the paid payload is not
+ * reachable by asking for an old month.
+ *
+ * FOR A TRIAL MEMBER IT IS DELIBERATELY OPEN, AND MUST STAY OPEN. `layer3` is
+ * `paid ? 'full' : 'free'` with `paid = isPro || trialActive`
+ * (lib/insightsAccess.ts), while the scoreboard's window keys off access.ts's
+ * `isProFor`, which a trial does NOT satisfy. So a trialist gets their team's
+ * full stats for any month here and three months of scoreboard on /app. The
+ * spec's §4 states that split in those words — "The trial does not widen this
+ * window" (docs/superpowers/specs/2026-09-17-pro-month-window-design.md) — and
+ * accepts it: the trial was specified as an Insights grant, not a scoreboard
+ * grant, and honouring it on /app would make that rule take an InsightsAccess
+ * tier rather than a boolean and let the trial's expiry silently withdraw
+ * history. DO NOT CLOSE IT HERE. scores.test.ts's "refuses a caller inside the
+ * Insights trial the pro window" pins the /app half on purpose.
+ *
+ * A MONTH FLOOR WOULD ALSO TAKE SOMETHING AWAY, which getLastMonthWinner's gate
+ * would not — the difference that decided the two the opposite way. This surface
+ * is genuinely offered for twelve months by `teamMonthOptions`
+ * (lib/insights-months.ts), so a three-month floor would contradict
+ * lib/insightsAccess.ts's hard constraint that "NOTHING PREVIOUSLY FREE MOVES
+ * BEHIND THE PAYWALL". The celebration dialog, by contrast, only ever asks for
+ * last month.
+ *
+ * ONE THING ON THE FREE BRANCH IS STILL MONTH-UNBOUNDED, and it is named rather
+ * than waved past: `rank`. It is computed from the requested month's aggregate,
+ * so a devtools caller with no subscription can read `{ kind: 'ranked', rank, of }`
+ * for any month the team has played. team-section.tsx's free branch asks only for
+ * `monthOf(today)`, so no browser does it. Left as a decision rather than a fix
+ * for the reasons in wordle-teams-g03s — chiefly that a rank is a conclusion
+ * about the CALLER'S OWN position, and that a floor here would have to answer the
+ * trial question the paragraph above leaves deliberately open.
  */
 export const teamMonth = query({
   args: { teamId: v.id('teams'), month: v.string(), today: v.string() },

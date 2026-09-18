@@ -1,8 +1,9 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { requirePlayer, requireTeamMemberFor } from './access'
+import { accessError, isProFor, requirePlayer, requireTeamMemberFor } from './access'
 import { rollupTeamMonth, storeTeamMonthStats, type MonthScore } from './teamStats.ts'
-import { monthOf, monthRange } from './lib/puzzleDay.ts'
+import { isMonth, serverFloorFor } from './lib/monthWindow.ts'
+import { monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { systemFor } from './lib/scoringSystem.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
@@ -93,8 +94,19 @@ export type SchedulingCtx = WriterCtx & { scheduler: Scheduler }
  *   has already run at every call site — so the widest thing a malformed
  *   argument can buy is an answer the caller could have asked for correctly.
  *
- * scores.ts's getTeamMonth takes `v.string()` on the same reasoning; adding a
- * code for either case would be inventing a failure the UI has no way to reach.
+ * NEITHER CASE IS STILL REACHABLE THROUGH `lastMonthWinnerFor`, whose month gate
+ * rejects anything that is not 'YYYY-MM' before this function sees it. This
+ * paragraph now describes `markCelebrationSeen` — deliberately ungated, see its
+ * own comment — and the internal recompute callers, which are handed months this
+ * module derived itself. It is kept rather than narrowed because the tolerance is
+ * a property of THIS function and the next caller inherits it.
+ *
+ * AN EARLIER VERSION OF THIS COMMENT ENDED "scores.ts's getTeamMonth takes
+ * `v.string()` on the same reasoning", AND THAT HAS BEEN FALSE SINCE
+ * wordle-teams-kusd's task 3: getTeamMonthFor rejects a non-'YYYY-MM' month
+ * outright, because a bare year sorts above a Pro caller's floor and would return
+ * a year of every teammate's boards. Do not read tolerance here as a statement
+ * about any gated caller.
  */
 function yearAndMonth(month: PuzzleMonth): { year: number; monthNum: number } {
   const [year, monthNum] = month.split('-').map(Number)
@@ -447,6 +459,14 @@ export async function recomputePlayerMonth(
  * are not foreign keys; the same guard scores.ts's getTeamMonthFor and
  * recomputeTeamMonth above both carry). The third is the caller not being on
  * the team, which is a throw rather than a null — see requireTeamMemberFor.
+ *
+ * MONTH-GATED SINCE wordle-teams-kusd's task 4, and the gate is the block below
+ * rather than anything in this paragraph — read it there. What belongs here is
+ * that this function used to check membership and NOTHING else, which made it
+ * the one remaining public, team-scoped, caller-supplied-month read with no
+ * month rule of any kind while its two siblings both had one (getTeamMonthFor's
+ * window gate, insights.ts's teamMonth's layer gate). wordle-teams-7uv8 is the
+ * issue that named it.
  */
 export async function lastMonthWinnerFor(
   ctx: ReaderCtx,
@@ -455,6 +475,78 @@ export async function lastMonthWinnerFor(
   month: PuzzleMonth,
 ) {
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
+
+  // THE MONTH GATE, AND IT IS DELIBERATELY NOT A COPY OF getTeamMonthFor'S.
+  //
+  // WHAT IT WITHHOLDS, STATED PLAINLY, BECAUSE "a name is not a scoreboard" IS
+  // THE ARGUMENT FOR LEAVING IT OPEN AND IT IS NOT GOOD ENOUGH. A caller is
+  // already a member, so the winner's NAME is one they can read off the roster;
+  // what this returns that they cannot otherwise get is the MAPPING from a month
+  // to that name. Walk the months and you have the team's whole hall of fame —
+  // every month it has ever played, one cheap call each. "Reaching back through
+  // your team's history" is precisely what Pro sells (see monthWindow.ts's
+  // header on parity with v1), so that mapping is the product, not a detail of
+  // it.
+  //
+  // GATING COSTS NO UI ANYTHING, WHICH IS WHY THE DECISION WAS EASY HERE AND IS
+  // NOT THE SAME DECISION insights.ts REACHES. The only caller is
+  // monthly-winner-celebration.tsx, which asks for the VIEWER'S OWN LOCAL
+  // PREVIOUS MONTH and nothing else. The free floor sits three months below the
+  // server's month: FREE_MONTHS of 3 makes the oldest OFFERED month S-2, and
+  // SERVER_SLACK_MONTHS puts the floor one below that at S-3. Offsets span
+  // UTC−12..UTC+14, so a viewer's local month differs from the server's by at
+  // most one; a viewer a month BEHIND asks for S-2, which is the worst case and
+  // still a full month above the floor. No browser can trip this. Contrast
+  // insights.ts's teamMonth, whose free surface really is offered
+  // for twelve months by teamMonthOptions and therefore cannot be narrowed
+  // without taking something away.
+  //
+  // THE SHAPE CHECK IS FIRST, for getTeamMonthFor's reason and for one of this
+  // file's own. There, a malformed month sorts above a Pro floor and pulls a year
+  // of boards. Here it is milder but real: `yearAndMonth` above is
+  // `split('-').map(Number)`, so a bare '2026' yields monthNum NaN and the index
+  // lookup simply misses. Harmless today — and exactly the kind of harmless that
+  // stops being harmless when someone later makes this branch on the month. The
+  // check is `isMonth` from lib/monthWindow.ts, not a private regex, for the
+  // reason that function's own comment gives: the shape rule and the window rule
+  // it guards must not be able to drift apart.
+  //
+  // NO PRO FLOOR, AND THAT ASYMMETRY WITH getTeamMonthFor IS THE ONE DELIBERATE
+  // DIFFERENCE. There, a Pro caller below `earliestMonthFor`'s floor is refused,
+  // because serving them means walking the roster and materialising every
+  // member's month — MAX_MONTHS exists in monthWindow.ts precisely to bound that
+  // work against an unvalidated `puzzleDay`. Here, serving an ancient month is
+  // ONE point lookup on `by_team_year_month` that misses and returns null, while
+  // REFUSING it would first have to walk the roster to find the earliest board —
+  // strictly more work, to withhold a row that does not exist. A Pro caller is
+  // entitled to every month their team has actually played, and a month it has
+  // not played has no winner row to leak. So the pro branch here is `isProFor`
+  // and nothing more.
+  //
+  // THE SERVER CLOCK IS READ HERE, AND THAT DOES NOT CONTRADICT "WHY THE MONTH
+  // IS AN ARGUMENT" ABOVE. That paragraph is about which month the celebration
+  // is ABOUT — a question about the viewer's calendar, which is why the client
+  // names it. This reads the server's month only to decide how far back anyone
+  // may reach, which is a question about the SUBSCRIPTION and has no viewer in
+  // it. The one place the two meet is the month of slack `serverFloorFor`
+  // carries, which exists for exactly the UTC-versus-viewer disagreement that
+  // paragraph describes. Taking `today` as an argument instead would mean
+  // bounding it — and a bound whose only failure direction is more permissive is
+  // not worth a signature change on a query the dashboard mounts on every load.
+  // getTeamMonthFor's own gate makes the same call and says so at greater length.
+  //
+  // MEMBERSHIP STILL RUNS FIRST. requireTeamMemberFor throws NOT_A_MEMBER for a
+  // team that does not exist as well as for one that is not yours (the property
+  // insights.ts's teamMonth also depends on), so a probe cannot use the error
+  // code to learn which team ids are real. Putting the month check ahead of it
+  // would hand an outsider MONTH_OUT_OF_WINDOW — which only a member can
+  // meaningfully receive — and turn the code into an oracle.
+  if (!isMonth(month)) throw accessError('MONTH_OUT_OF_WINDOW')
+  const serverMonth = monthOf(toPuzzleDay(new Date()))
+  if (month < serverFloorFor({ currentMonth: serverMonth, earliestMonth: null, pro: false })) {
+    if (!(await isProFor(ctx, playerId))) throw accessError('MONTH_OUT_OF_WINDOW')
+  }
+
   const row = await winnerRow(ctx, teamId, month)
   if (!row) return null
   const winner = await ctx.db.get(row.playerId)
@@ -499,6 +591,33 @@ export const getLastMonthWinner = query({
  *   an unconditional push would put the same id in twice. Nothing reads the
  *   array by length, so a duplicate would not misbehave; it would just grow
  *   without bound, one entry per remount, forever.
+ *
+ * DELIBERATELY NOT MONTH-GATED, THOUGH IT TAKES THE SAME `month: v.string()`
+ * ITS READING SIBLING DOES. wordle-teams-kusd's task 4 audited every such path
+ * and this is the one that ends with a reason rather than a gate, so the reason
+ * is written out rather than left to be re-derived:
+ *
+ * - IT DISCLOSES NOTHING, not even by the shape of its answer. It returns void,
+ *   and BOTH early returns above are silent successes — so a caller cannot learn
+ *   from it whether a winner row for that month exists, which is the one bit
+ *   `lastMonthWinnerFor`'s gate is there to withhold. A gate here would protect
+ *   a secret that is not in the response.
+ * - IT WRITES ONLY THE CALLER'S OWN ID, into a field nothing reads except that
+ *   same caller's dialog, and the write is idempotent. The worst an arbitrary
+ *   month buys is suppressing a celebration for yourself.
+ * - THE ACCESS CHECK THAT MATTERS IS ALREADY HERE. requireTeamMemberFor runs
+ *   before the patch — pinned by "refuses a caller who is not on the team, and
+ *   writes nothing" in winners.test.ts — so an outsider's id can never reach
+ *   another team's row, which is the real risk on a write.
+ * - A MALFORMED MONTH IS INERT for the same reason it is inert in
+ *   `lastMonthWinnerFor` before that function's shape check: `yearAndMonth` maps
+ *   a bare '2026' to a NaN monthNum, the index lookup misses, and this returns
+ *   through the no-row branch. No shape check is added for it here, because
+ *   adding one would imply this function branches on the month when it does not.
+ *
+ * IF ANY OF THOSE FOUR STOP HOLDING — if this ever returns a value, writes
+ * anything but the caller's own id, or grows a second caller — the gate in
+ * `lastMonthWinnerFor` comes with it.
  */
 export async function markCelebrationSeenFor(
   ctx: WriterCtx,
