@@ -33,6 +33,13 @@ The first draft was reviewed by four adversarial passes on separate failure mode
 - User-facing copy uses typographic apostrophes (`’`).
 - `formatMonthLabel` renders **short** months: `'2023-03'` → `"Mar 2023"` (`src/lib/format-day.ts:13`). Never write "March 2023" in an assertion.
 - Comments explain WHY, at length, matching the density of the file you are in. Check every factual claim about another file against that file before writing it.
+- **Cite SYMBOLS, not line numbers, in any comment you write from task 4 onward.**
+  Write "`getTeamMonthFor`'s ghost guard" or "`isMonth` in `convex/lib/monthWindow.ts`",
+  not "`scores.ts:162`". Grep finds a symbol; an edit above it does not move it.
+  `file.ts:NN` citations broke in three consecutive commits of task 3 — including one
+  commit that existed only to fix them — and no gate notices: not typecheck, not lint,
+  not the suite. **Existing citations you pass through get fixed as you break them**;
+  tasks 5, 6 and 8 all edit heavily-cited files, so expect to.
 - **Watch the tense on anything this plan has not built yet.** Three comments in this plan asserted, in the present tense, behaviour that a LATER task creates — `dashboard-months.ts` in task 1, `routes/app.tsx`'s `?month=` correction in tasks 2 and 3. Each was true of the finished feature and false on the day it was committed, which is exactly the defect class task 8 exists to discharge. If a comment you are writing describes something a later task builds, say so and name the task. Two of the three were caught by implementers flagging them rather than by review. If a test fails against a label or field name this plan gives you, **fix the plan's value, do not loosen the assertion** — a loosened matcher is how the one thing a test exists to pin gets deleted.
 
 ## Three decisions inside the approved design
