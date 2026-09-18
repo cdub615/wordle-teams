@@ -33,6 +33,7 @@ import type * as lib_globalThreshold from "../lib/globalThreshold.js";
 import type * as lib_html from "../lib/html.js";
 import type * as lib_insightsAccess from "../lib/insightsAccess.js";
 import type * as lib_invite from "../lib/invite.js";
+import type * as lib_monthWindow from "../lib/monthWindow.js";
 import type * as lib_otpExpiry from "../lib/otpExpiry.js";
 import type * as lib_polarErrors from "../lib/polarErrors.js";
 import type * as lib_polarEvents from "../lib/polarEvents.js";
@@ -96,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   "lib/html": typeof lib_html;
   "lib/insightsAccess": typeof lib_insightsAccess;
   "lib/invite": typeof lib_invite;
+  "lib/monthWindow": typeof lib_monthWindow;
   "lib/otpExpiry": typeof lib_otpExpiry;
   "lib/polarErrors": typeof lib_polarErrors;
   "lib/polarEvents": typeof lib_polarEvents;
