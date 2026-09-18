@@ -302,12 +302,15 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  * the gate landed, and it is listed with the three above rather than apart from
  * them now.
  *
- * WHAT IS STILL MISSING IS THE CLIENT HALF, not the enforcement.
- * month-picker.tsx's monthOptions still offers everyone the same three months,
- * pro or not — the free window — so a pro player is still shown LESS history than
- * production, they simply can now reach the rest by URL. Task 5 widens that list
- * and task 6 corrects an out-of-window `?month=`; until both land, the gate is
- * strictly a backstop that no UI can trip.
+ * THE CLIENT HALF LANDED WITH IT (wordle-teams-kusd tasks 5 and 6), and the
+ * paragraph that used to sit here — "monthOptions still offers everyone the same
+ * three months … the gate is strictly a backstop that no UI can trip" — is false
+ * on both counts now. routes/app.tsx queries the team's earliest board and builds
+ * the dropdown from the same monthWindow.ts rule this gate uses, so a pro player
+ * is shown the history they pay for; and the UI CAN reach this gate, in the frame
+ * between an out-of-window `?month=` arriving and the after-commit correction
+ * moving it (src/lib/dashboard-months.ts), plus the open team-switch race on
+ * wordle-teams-alr7.
  *
  * EVERY PATH THAT TAKES A CALLER-SUPPLIED MONTH HAS NOW BEEN AUDITED
  * (wordle-teams-kusd's task 4), AND THEY DO NOT ALL END IN THIS FUNCTION. The

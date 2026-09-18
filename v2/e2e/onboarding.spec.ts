@@ -146,7 +146,7 @@ test('a player with a team of one owes board and invite, not create', async ({ p
 
   // THE DASHBOARD BRANCH (routes/app.tsx's grid `onboardingCard`), which nothing
   // else in this repo renders this card on. Note the skeleton return above it
-  // draws no card at all, so this also proves useDashboardSearchSync filled the
+  // draws no card at all, so this also proves useSearchSync filled the
   // params in.
   await expect(page.getByRole('heading', { name: CARD_HEADING, exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeVisible()

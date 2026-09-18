@@ -455,18 +455,18 @@ function Dashboard() {
     to: Route.fullPath,
   })
 
-
   /*
     THE SELECTED TEAM'S MONTH WINDOW (wordle-teams-kusd), AND THE CORRECTION THAT
     KEEPS `?month=` INSIDE IT.
 
     UP HERE WITH THE OTHER HOOKS, NOT BESIDE THE CONTROLS THEY FEED. `Dashboard`
     returns early twice below — the no-team empty state and the params skeleton —
-    and there is no hook call below either of them. Three hooks down there would
-    call a different number of hooks on the render before useSearchSync fills the
-    params in and the render after it: "Rendered more hooks than during the
-    previous render", on every load. `react-hooks/rules-of-hooks` catches it, but
-    only when lint runs — neither typecheck nor vitest can see it.
+    and there is no hook call below either of them. The two added here (a
+    `useQuery` and a `useEffect`) placed down there would call a different number
+    of hooks on the render before useSearchSync fills the params in and the render
+    after it: "Rendered more hooks than during the previous render", on every
+    load. `react-hooks/rules-of-hooks` catches it, but only when lint runs —
+    neither typecheck nor vitest can see it.
 
     BELOW usePendingInvite AND useSearchSync RATHER THAN BESIDE THE QUERIES AT THE
     TOP OF THE COMPONENT, which is stricter than "above the returns" and worth
@@ -486,34 +486,58 @@ function Dashboard() {
     last-used badge naming the wrong method forever.
 
     'skip' GATED ON MEMBERSHIP, NOT ON TRUTHINESS. A stale or foreign `?team=` is a
-    non-empty string, so `teamParam ? … : 'skip'` would fire the query and take a
-    guaranteed NOT_A_MEMBER throw for the render or two before useSearchSync
-    corrects it. `teams` is already resolved above, so validating against it costs
-    nothing — and it is the same check resolveDashboardSearch makes. `'skip'` and
-    not `enabled: false` for the reason Header.tsx sets out: measured on this
-    project, `enabled: false` still opens the websocket watch, the server still
-    refuses, and the refusal is swallowed into query state where nobody sees it.
+    non-empty string, so `teamParam ? … : 'skip'` would fire the query for the
+    render or two before useSearchSync corrects the param, and take a refusal for
+    it. WHICH refusal depends on the id: `monthWindow` declares `teamId` as
+    `v.id('teams')`, so a malformed leftover fails Convex's ARGUMENT VALIDATOR
+    before the handler runs at all, and only a well-formed id for a team the
+    viewer is not on reaches `requireTeamMemberFor` and NOT_A_MEMBER. Either way
+    it is a guaranteed throw for a question already answerable here: `teams` is
+    resolved above, so validating against it costs nothing, and it is the same
+    check resolveDashboardSearch makes.
+
+    `'skip'` AND NOT `enabled: false` for the reason Header.tsx sets out: measured
+    on this project, `enabled: false` still opens the websocket watch, the server
+    still refuses, and the refusal is swallowed into query state where nobody sees
+    it.
+
+    THAT SWALLOWING CUTS BOTH WAYS HERE, AND IT IS NOT FIXED. `useQuery` has no
+    error branch on this call site, so a genuine failure of this query — not a
+    skip — leaves `monthWindowInputs` undefined and the two controls on
+    `fallbackMonths`, which is the FREE window. A Pro subscriber would then see
+    exactly the regression this epic exists to close, with nothing on screen
+    saying so and no gate able to notice. Deliberately not addressed here rather
+    than overlooked; filed as wordle-teams-fkbh, which also records why the blast
+    radius is small — the free window is a SAFE fallback, never a wrong one.
 
     useQuery, NOT useSuspenseQuery LIKE THE FOUR AT THE TOP: this feeds a control
     in the bar, and suspending the page on it would make the whole dashboard wait
     to learn how far back the dropdown goes. `fallbackMonths` below the returns is
     what both controls run on until it lands.
+
+    THE ARGUMENT IS A NAMED CONST rather than an inline ternary, so that
+    src/routes.test.ts can pin it with `initializerOf` — which is exact about the
+    DIRECTION of the membership test. An inverted `!teams.some(...)` type-checks,
+    lints, passes every test and inverts the feature; a `toContain('teams.some')`
+    is satisfied by it.
   */
-  const { data: monthWindowInputs } = useQuery(
-    convexQuery(
-      api.scores.monthWindow,
-      teamParam !== undefined && teams.some((team) => team.id === teamParam)
-        ? { teamId: teamParam as Id<'teams'> }
-        : 'skip',
-    ),
-  )
+  const monthWindowArgs =
+    teamParam !== undefined && teams.some((team) => team.id === teamParam)
+      ? { teamId: teamParam as Id<'teams'> }
+      : 'skip'
+  const { data: monthWindowInputs } = useQuery(convexQuery(api.scores.monthWindow, monthWindowArgs))
   const earliestMonth = monthWindowInputs?.earliestMonth ?? null
 
   /*
-    THE VIEWER'S OWN CLOCK, AND THE ONLY READ OF IT ON THIS PATH. `currentMonth`
-    below the returns is derived from this rather than reading `new Date()` for
-    itself, so the window, the teaser and the table cannot end up on opposite
-    sides of a month boundary a render straddles.
+    THE VIEWER'S OWN CLOCK, READ ONCE PER RENDER OF THIS COMPONENT.
+    `currentMonth` below the returns is derived from this rather than reading
+    `new Date()` for itself, so the window, the teaser and the table cannot end up
+    on opposite sides of a month boundary a render straddles.
+
+    NOT THE ONLY CLOCK READ ON THE PAGE, and the narrower claim above is the true
+    one. useSearchSync reads it to fill `?month=`, the onboarding card's `onBoard`
+    handler reads it, and the invite consume reads it for `today` — each from its
+    own effect or handler, none of them during this render.
 
     BEHIND `hydrated`, which is the rule useSearchSync states once for the whole
     app: reading the clock during an SSR-matching render would make the server
@@ -571,12 +595,17 @@ function Dashboard() {
     or null, so this effect's dependency list is two primitives and `navigate`, and
     no array identity can re-fire it.
 
-    IT CANNOT FIGHT useSearchSync, the other effect on this page that navigates.
+    IT CANNOT FIGHT useSearchSync, the other effect on this page that navigates,
+    and the reason is worth getting right rather than nearly right.
     resolveDashboardSearch returns null as soon as `?team=` names a team the viewer
-    belongs to AND `?month=` is set — and those are exactly the conditions under
-    which `loadedWindow` is anything but undefined, since the query above is
-    'skip'ped otherwise. The two are disjoint by construction rather than by
-    timing.
+    belongs to AND `?month=` is set. It is NOT the case that `loadedWindow` is
+    defined exactly then — the query is gated on the team alone, so it answers
+    perfectly well with `?month=` still empty. What closes the gap is the other
+    end: `correctedMonth` returns null for an undefined `monthParam` by its first
+    line, deliberately, so that it cannot race useSearchSync for the param
+    useSearchSync owns. Membership comes from the query's own gate. So the two
+    conditions this effect needs are exactly the two that make the resolver
+    return null, and they are disjoint by construction rather than by timing.
 
     `replace: true, resetScroll: false` MATCHES useSearchSync'S OWN CORRECTION and
     for the same reasons: this is not a navigation the reader asked for, so it must

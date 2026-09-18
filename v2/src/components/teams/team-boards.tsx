@@ -202,8 +202,11 @@ export function TeamBoards({
               board entry's picker (the same component) had no such restriction.
 
               `minDay` IS THE FIRST DAY OF THE OLDEST MONTH ON OFFER. `months`
-              is monthOptions' output and is newest-first, so the last entry is
-              the oldest.
+              is `monthWindowFor`'s output and is newest-first, so the last entry
+              is the oldest. Which is why routes/app.tsx's in-flight fallback
+              (`fallbackMonths`) puts the month on screen into that array: a
+              window that excluded it would push `minDay` past every day the
+              viewer is looking at and disable the whole grid.
 
               NO `maxDay` AT ALL, WHICH IS A DELETION RATHER THAN AN OMISSION.
               date-picker.tsx already refuses every future day on its own; the

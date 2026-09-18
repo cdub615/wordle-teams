@@ -276,7 +276,7 @@ test('the portal and both upgrade entry points each report their own failure', a
   await expect(pending).toBeVisible({ timeout: 20_000 })
 
   // STILL THERE AFTER THE DASHBOARD'S OWN NAVIGATION, which is the assertion
-  // with teeth. useDashboardSearchSync navigates on hydration to fill ?team=
+  // with teeth. useSearchSync navigates on hydration to fill ?team=
   // and ?month= in; if that remounted the route — or if the notice's flag lived
   // anywhere that a remount resets — the message would flash and vanish while
   // the upgrade was still in flight. Waiting for ?team= to appear is waiting

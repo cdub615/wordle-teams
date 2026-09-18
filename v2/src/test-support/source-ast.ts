@@ -348,6 +348,107 @@ export const objectLiteralAssignedTo = (
 }
 
 /**
+ * The initializer of a `const NAME = ...`, as its TOKENS, one space apart.
+ *
+ * THE SIBLING OF `objectLiteralAssignedTo` FOR VALUES THAT ARE NOT OBJECTS. A
+ * guard, a ternary, a `??` fallback — the shapes routes/app.tsx's month wiring is
+ * made of — are expressions, so that helper cannot see them and the only tool
+ * left was `expect(codeOf(read(APP))).toContain('const x = ...')`. That works, and
+ * it is what this replaces, at a cost worth naming: it pins INDENTATION AND LINE
+ * BREAKS along with the code, so rewrapping a long initializer turns a passing
+ * assertion red for nothing. This is exact about the tokens and indifferent to
+ * how they are laid out.
+ *
+ * WHY THIS IS THE SHAPE WORTH PINNING AT ALL. Four mutants of routes/app.tsx
+ * survived a first round of `toContain` assertions, all four of them a DIRECTION
+ * or a CONJUNCT inside an expression: `teams.some(...)` inverted, `hydrated ?`
+ * inverted, `x === null ?` inverted, and one operand of a two-operand `||`
+ * deleted. A fragment match cannot see any of those, because all four leave the
+ * fragment intact. The whole initializer can.
+ *
+ * BOUNDED TO THE DECLARATION, which is the other half of the value and this
+ * file's standing argument: a `toContain` is satisfied by the text sitting in a
+ * comment, in a detached const, or in a string — and for an initializer that is
+ * not hypothetical, since the expressions worth pinning are exactly the ones a
+ * file's prose quotes when it explains itself.
+ *
+ * NORMALISED BY RE-SCANNING, NOT BY A WHITESPACE REGEX, AND THAT IS THE THIRD
+ * ATTEMPT RATHER THAN A FLOURISH. `printNode` alone reproduces an unmodified
+ * multi-line node's ORIGINAL TEXT verbatim — it formats only synthesised nodes,
+ * and clearing the text ranges does not change that — so printing left this
+ * exactly as brittle as the `toContain` it replaces. Collapsing whitespace with
+ * `/\s+/g` fixed the line breaks and still failed on the one token a rewrap
+ * actually adds: a TRAILING COMMA before the closing brace. Stripping that with a
+ * second regex would have walked straight into the hazard `codeOf`'s header
+ * documents — `'skip, }'` is a string literal, and a regex cannot tell it from
+ * code. The scanner can, so the scanner does it: tokens out, joined by one space.
+ *
+ * THE COST IS THAT THE EXPECTED STRING READS AS TOKENS — `teams . some ( ( team )
+ * => ... )`. That is deliberate. There is no spacing convention for a caller to
+ * guess at and no way for an assertion to be accidentally specific about layout;
+ * what is left is the token sequence, which is the thing being claimed.
+ *
+ * A COMMA IS DROPPED ONLY WHEN IT CLOSES A LIST — one immediately before `}`, `)`
+ * or `]` and not itself preceded by a comma. That last clause keeps an array
+ * ELISION (`[a, ,]`, whose final comma is meaningful) from being silently
+ * rewritten; nothing in this repo has one, and a normaliser that quietly changed
+ * a value's length would be worse than the brittleness it cures.
+ *
+ * `removeComments: true` on the printer for the same reason the scanner skips
+ * trivia: a comment between two tokens is not part of the claim.
+ *
+ * Throws rather than returning undefined, so a renamed or deleted declaration is
+ * a named failure and not a silent pass.
+ */
+const printer = ts.createPrinter({ removeComments: true })
+
+const CLOSERS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.CloseBraceToken,
+  ts.SyntaxKind.CloseParenToken,
+  ts.SyntaxKind.CloseBracketToken,
+])
+
+const tokensOf = (text: string): Array<{ kind: ts.SyntaxKind; text: string }> => {
+  const scanner = ts.createScanner(ts.ScriptTarget.ESNext, true, ts.LanguageVariant.JSX, text)
+  const out: Array<{ kind: ts.SyntaxKind; text: string }> = []
+  for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
+    out.push({ kind, text: scanner.getTokenText() })
+  }
+  return out
+}
+
+export const initializerOf = (name: string, source: string, identifier: string): string => {
+  const found: ts.Expression[] = []
+  const file = parseSource(name, source)
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && node.name.getText() === identifier && node.initializer) {
+      found.push(node.initializer)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+
+  if (found.length !== 1) {
+    throw new Error(
+      `expected exactly one \`const ${identifier} = ...\` in ${name}, found ${found.length}`,
+    )
+  }
+
+  const tokens = tokensOf(printer.printNode(ts.EmitHint.Unspecified, found[0], file))
+  return tokens
+    .filter(
+      (token, index) =>
+        !(
+          token.kind === ts.SyntaxKind.CommaToken &&
+          CLOSERS.has(tokens[index + 1]?.kind) &&
+          tokens[index - 1]?.kind !== ts.SyntaxKind.CommaToken
+        ),
+    )
+    .map((token) => token.text)
+    .join(' ')
+}
+
+/**
  * The object literal returned by a top-level `const NAME = (...) => ...`.
  *
  * THE SIBLING OF `objectLiteralAssignedTo`, for the case where the value worth

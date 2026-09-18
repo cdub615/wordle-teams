@@ -1,14 +1,17 @@
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
+import ts from 'typescript'
 import {
   callSitesOf,
   codeOf,
+  initializerOf,
   orderedIn,
   jsxElementsOf,
   jsxPropsOf,
   objectLiteralReturnedBy,
   optionsPassedTo,
+  parseSource,
   propertiesOf,
 } from './test-support/source-ast'
 
@@ -1786,149 +1789,325 @@ describe('the passkey offer is triggered on arrival and mounted on every branch'
 /**
  * THE PRO MONTH WINDOW IS ACTUALLY WIRED INTO THE DASHBOARD (wordle-teams-kusd.6).
  *
- * MEASURED, NOT ASSUMED, AND THE MEASUREMENT IS WHY THIS BLOCK EXISTS. With the
- * feature complete and all four gates green, three mutations of routes/app.tsx
- * were planted and ALL THREE SURVIVED `vitest run`, `lint`, `typecheck` and
- * `build`:
+ * MEASURED, NOT ASSUMED, AND TWICE. With the feature complete and all four gates
+ * green, three mutations of routes/app.tsx survived everything — `earliestMonth`
+ * to null, `pro: isPro` to `pro: false`, and an inert correction effect. Each
+ * silently restores the regression this epic exists to close. The first draft of
+ * this block killed those three; a review then planted nine more and FOUR of them
+ * survived it, which is the more useful measurement and the reason this block
+ * looks the way it does now:
  *
- *   - `earliestMonth` -> `earliestMonth: null` in the `monthWindowFor` call,
- *     which un-wires `api.scores.monthWindow` completely and hands every Pro
- *     subscriber the free three months back — the exact regression this epic
- *     exists to close, restored with a one-word edit.
- *   - `pro: isPro` -> `pro: false`, same outcome by the other input.
- *   - a `|| true` added to the correction effect's early return, which leaves an
- *     out-of-window `?month=` on screen until six useSuspenseQuery call sites
- *     throw MONTH_OUT_OF_WINDOW at it.
+ *   - the in-flight half of `loadedWindow`'s guard deleted, so the window reads
+ *     as ANSWERED the moment hydration flips and the correction bounces a Pro
+ *     viewer off their bookmarked month on every load;
+ *   - `teams.some(...)` INVERTED, which a `toContain('teams.some')` cannot see;
+ *   - `hydrated ?` inverted;
+ *   - the teaser's null guard inverted, which removes the only place in the app
+ *     that tells a free player what Pro reaches.
  *
- * None of that is reachable by any other test: `Dashboard` is not exported (the
- * guard above forbids it) and a route module cannot be rendered under vitest,
- * so convex/lib/monthWindow.test.ts proves the RULE and src/lib/dashboard-
- * months.test.ts proves the CORRECTION while nothing at all proved the route
- * calls either of them with the right arguments. That is the same hole
- * team-boards.hook.test.ts's dashboard block was opened for, and the same one
- * e2e/onboarding.spec.ts's header describes at length for the onboarding card.
+ * THE PATTERN IN WHAT SURVIVED IS WORTH MORE THAN THE LIST. Every one of them is
+ * a DIRECTION or a CONJUNCT inside an expression, and every assertion that missed
+ * them was a `toContain` over a fragment. A fragment cannot see an inverted
+ * operator or a dropped operand, because both leave the fragment intact. So the
+ * pins below are `initializerOf` — the whole initializer, exactly, normalised for
+ * whitespace — rather than a substring of it, and the correction's guard is
+ * asserted through the AST rather than as text.
  *
- * ASSERTED AS A CHAIN, NOT AS THREE INDEPENDENT FACTS. The query is read into
- * `earliestMonth`, `earliestMonth` is handed to `monthWindowFor`, and
- * `monthWindowFor`'s result is what `correctedMonth` judges `?month=` against.
- * Breaking any single link is what the mutations above do, so each link gets a
- * line rather than the block asserting that the four identifiers merely appear
- * somewhere in the file.
+ * None of this is reachable any other way: `Dashboard` is not exported (the guard
+ * above forbids it) and a route module cannot be rendered under vitest, so
+ * convex/lib/monthWindow.test.ts proves the RULE and src/lib/dashboard-months.
+ * test.ts proves the CORRECTION while nothing at all proves the route calls
+ * either of them with the right arguments. Same hole team-boards.hook.test.ts's
+ * dashboard block was opened for, and the one e2e/onboarding.spec.ts's header
+ * describes at length for the onboarding card.
+ *
+ * ASSERTED AS A CHAIN. The query is read into `earliestMonth`, `earliestMonth`
+ * and the viewer's clock build `loadedWindow`, and `loadedWindow` is what
+ * `correctedMonth` judges `?month=` against and what both controls fall back
+ * from. Each link gets its own line, so a break names itself.
  */
 describe('the dashboard builds its month window from the team, not from a literal', () => {
   const APP = './routes/app.tsx'
-  const app = () => codeOf(read(APP))
   const sitesIn = (callee: string) => callSitesOf(APP, read(APP), callee)
+  // EVERY `initializer(...)` EXPECTATION BELOW READS AS TOKENS, one space apart
+  // — `teams . some ( ( team ) => ... )`. That is `initializerOf`'s normal form
+  // and its own header says why: it is what makes these immune to a rewrap, a
+  // re-indent and a hand-added trailing comma while staying exact about the
+  // operators, the operands and their order, which is where all four of the
+  // mutants that survived the first draft of this block lived.
+  const initializer = (identifier: string) => initializerOf(APP, read(APP), identifier)
 
-  test('it subscribes to api.scores.monthWindow, gated on membership rather than truthiness', () => {
-    // `convexQuery` is called a dozen times in this file, so the sites are
-    // filtered by their FIRST argument — the query reference — rather than
-    // indexed, which would make this a positional guess that a reordering
-    // breaks for no reason.
+  test('it subscribes to api.scores.monthWindow, once, with the gate it declares', () => {
+    // `convexQuery` is called ten times in this file, so the sites are filtered
+    // by their FIRST argument — the query reference — rather than indexed, which
+    // would make this a positional guess that a reordering breaks for no reason.
     const subscriptions = sitesIn('convexQuery').filter(
       (site) => site.args[0] === 'api.scores.monthWindow',
     )
     expect(subscriptions, 'routes/app.tsx does not query api.scores.monthWindow').toHaveLength(1)
 
-    // 'skip', NOT `enabled: false`, for the reason Header.tsx states: measured
-    // on this project, `enabled: false` still opens the websocket watch and the
-    // refusal is swallowed into query state where nobody sees it.
-    expect(subscriptions[0].args[1]).toContain("'skip'")
+    // THE ARGUMENT IS THE NAMED CONST, which is what makes the test below mean
+    // anything. `monthWindowArgs` pinned perfectly while the call passed
+    // something else would be the detached-literal mutation src/test-support/
+    // source-ast.ts's header exists for.
+    expect(subscriptions[0].args[1]).toBe('monthWindowArgs')
+  })
 
-    // AND THE GATE IS MEMBERSHIP. `teamParam ? ... : 'skip'` is a non-empty
-    // string for a stale or foreign `?team=`, so it would fire the query and
-    // take a guaranteed NOT_A_MEMBER throw for the render or two before
-    // useSearchSync corrects the param. This is the same check
-    // resolveDashboardSearch makes, against a list already in hand.
-    expect(
-      subscriptions[0].args[1],
-      "the monthWindow query is gated on `?team=` being truthy rather than on membership",
-    ).toContain('teams.some')
+  test('and it skips unless the viewer is a MEMBER of the team in `?team=`', () => {
+    // PINNED WHOLE, BECAUSE THE DIRECTION IS THE PROPERTY. `!teams.some(...)`
+    // type-checks, lints, passes every other test, and inverts the feature: the
+    // window never loads for a member, and a guaranteed refusal is fired for a
+    // non-member. A substring match on `teams.some` is satisfied by the inverted
+    // form, which is how this survived the first version of this block.
+    //
+    // Truthiness is the other half: a stale `?team=` is a non-empty string, so
+    // `teamParam ? … : 'skip'` fires the query and takes a refusal for the render
+    // or two before useSearchSync corrects the param.
+    expect(initializer('monthWindowArgs')).toBe(
+      "teamParam !== undefined && teams . some ( ( team ) => team . id === teamParam ) ? { teamId : teamParam as Id < 'teams' > } : 'skip'",
+    )
   })
 
   test("the query's answer is what `earliestMonth` is bound to", () => {
-    // The middle link of the chain, and the one the surviving mutation cut.
-    // Pinned as text because it is a binding rather than a call or a prop —
-    // neither `optionsPassedTo` nor `jsxPropsOf` can see one.
-    expect(app()).toContain('const earliestMonth = monthWindowInputs?.earliestMonth ?? null')
+    // The middle link, and the one the very first surviving mutant cut.
+    expect(initializer('earliestMonth')).toBe('monthWindowInputs ?. earliestMonth ?? null')
   })
 
-  test('the window is built from that binding and the real membership', () => {
-    const [built] = sitesIn('monthWindowFor')
-    expect(built, 'routes/app.tsx does not call monthWindowFor').toBeDefined()
-    expect(sitesIn('monthWindowFor')).toHaveLength(1)
-
-    // THE TWO MUTATIONS THAT SURVIVED, BOTH SPELLED OUT. A literal for either
-    // input silently collapses the window to FREE_MONTHS for every viewer —
-    // see convex/lib/monthWindow.ts's `spanFor`, which ignores `pro` entirely
-    // when `earliestMonth` is null.
-    expect(built.args[0]).toContain('currentMonth: clockMonth')
-    expect(built.args[0], 'monthWindowFor is handed a literal instead of `isPro`').toContain(
-      'pro: isPro',
+  test('the clock is the viewer\'s, and only past hydration', () => {
+    // INVERTING `hydrated` SURVIVED EVERY GATE. It reads the clock on exactly the
+    // renders that have to match the server (SSR, and the client's first render)
+    // and undefined afterwards — so the window never loads at all, and the
+    // hydration-mismatch class wordle-teams-uc5 was is reintroduced in the same
+    // edit. Nothing else in the repo can observe either half.
+    expect(initializer('clockMonth')).toBe(
+      'hydrated ? monthOf ( toPuzzleDay ( new Date ( ) ) ) : undefined',
     )
-    expect(
-      built.args[0],
-      'monthWindowFor is handed a literal instead of the queried earliestMonth',
-    ).not.toContain('earliestMonth:')
   })
 
-  test('the teaser is computed from the same two inputs', () => {
+  test('the window waits for BOTH inputs, then uses the real team and the real tier', () => {
+    // THE WORST SURVIVOR, AND THE REASON IT IS WORTH ITS OWN SENTENCE. Dropping
+    // `|| monthWindowInputs === undefined` makes `loadedWindow` an ARRAY the
+    // moment hydration flips — before the query has answered — so it is the free
+    // window, and `correctedMonth` judges `?month=` against an answer that has
+    // not arrived. A Pro viewer opening a bookmark on an old month is navigated
+    // off it on every load, and the URL they end up with is the current month, so
+    // there is nothing left on screen to suggest anything went wrong.
+    //
+    // routes/app.tsx's own comment names this invariant — "THE ANSWER OR THE
+    // ABSENCE OF ONE, which is exactly what `correctedMonth` has to be able to
+    // tell apart" — and src/lib/dashboard-months.test.ts pins the pure function's
+    // half of it (`months: undefined` returns null). This is the other half: WHEN
+    // the route considers it undefined.
+    //
+    // The two literal substitutions are pinned by the same line: `earliestMonth:
+    // null` collapses every viewer to FREE_MONTHS (see convex/lib/monthWindow.ts's
+    // `spanFor`, which ignores `pro` entirely for a null earliestMonth), and
+    // `pro: false` does it by the other input.
+    expect(initializer('loadedWindow')).toBe(
+      'clockMonth === undefined || monthWindowInputs === undefined ? undefined : monthWindowFor ( { currentMonth : clockMonth , earliestMonth , pro : isPro } )',
+    )
+  })
+
+  test('both controls share one array, and its fallback keeps the month on screen', () => {
+    // `monthWindow` cannot be `undefined` — both controls take
+    // `Array<PuzzleMonth>` — and what it falls back TO matters: `[currentMonth]`
+    // would set the day picker's `minDay` past every day of a past month and
+    // disable the whole visible grid for the length of one round trip.
+    // `fallbackMonths` is the free window PLUS `?month=`, and its own tests pin
+    // that. team-boards.hook.test.ts pins that both controls receive this name.
+    expect(initializer('monthWindow')).toBe(
+      'loadedWindow ?? fallbackMonths ( currentMonth , monthParam )',
+    )
+  })
+
+  test('the teaser is computed from the same two inputs, and its null guard is intact', () => {
     // `teaserLabel={teaserLabel}` on the MonthPicker is pinned by
-    // team-boards.hook.test.ts's dashboard block; this is the other half — that
-    // the value behind that name is `proTeaserMonth`'s answer about THIS team
-    // and THIS viewer, not a constant that happens to type-check.
-    const [teased] = sitesIn('proTeaserMonth')
-    expect(teased, 'routes/app.tsx does not call proTeaserMonth').toBeDefined()
-    expect(teased.args[0]).toContain('pro: isPro')
-    expect(teased.args[0]).not.toContain('earliestMonth:')
+    // team-boards.hook.test.ts's dashboard block; these are the other two halves.
+    //
+    // FIRST, THAT THE MONTH IS ABOUT THIS TEAM AND THIS VIEWER rather than a
+    // constant that happens to type-check.
+    expect(initializer('teaserMonth')).toBe(
+      'proTeaserMonth ( { currentMonth , earliestMonth , pro : isPro } )',
+    )
+    expect(sitesIn('proTeaserMonth')).toHaveLength(1)
+
+    // SECOND, THE GUARD'S DIRECTION. `teaserMonth !== undefined ? null : …`
+    // type-checks and passes everything, and returns null for every month
+    // `proTeaserMonth` ever names — silently deleting the only place in the app
+    // that tells a free player how far back Pro reaches. It survived the first
+    // version of this block because the assertion here was about the CALL and
+    // said nothing about what is done with its answer.
+    expect(initializer('teaserLabel')).toBe(
+      'teaserMonth === null ? null : formatMonthLabel ( teaserMonth )',
+    )
   })
 
-  test('an out-of-window `?month=` is corrected, and the correction is the pure one', () => {
-    const [judged] = sitesIn('correctedMonth')
-    expect(judged, 'routes/app.tsx does not call correctedMonth').toBeDefined()
-
-    // JUDGED AGAINST THE LOADED WINDOW, NOT AGAINST `monthWindow`. The latter
-    // falls back to `fallbackMonths`, which always CONTAINS the month on screen
-    // — so feeding it here would make the correction unreachable while looking
-    // entirely correct. src/lib/dashboard-months.ts's header is the long form.
-    expect(judged.args[0]).toContain('monthParam')
-    expect(judged.args[0], 'correctedMonth is judging `?month=` against the fallback').toContain(
-      'months: loadedWindow',
+  test('an out-of-window `?month=` is judged against the loaded window, not the fallback', () => {
+    // NOT AGAINST `monthWindow`. That falls back to `fallbackMonths`, which
+    // always CONTAINS the month on screen — so feeding it here would make the
+    // correction unreachable while looking entirely correct.
+    // src/lib/dashboard-months.ts's header is the long form.
+    expect(initializer('monthCorrection')).toBe(
+      'correctedMonth ( { monthParam , months : loadedWindow } )',
     )
   })
 
   test('and the correction navigates without taking the back button or the scroll', () => {
-    // THE `|| true` MUTANT. An effect that computes a correction and never acts
-    // on it is green everywhere; what makes this line mean something is that the
-    // navigation carries the correction itself.
     const corrective = sitesIn('navigate').filter((site) =>
       site.args.some((arg) => arg.includes('month: monthCorrection')),
     )
     expect(corrective, 'nothing in routes/app.tsx navigates to the corrected month').toHaveLength(1)
 
     // Both flags, for the reasons useSearchSync's own correction carries them:
-    // nobody asked for this navigation, so it must not take over the back
-    // button and must not move the reader on the page.
+    // nobody asked for this navigation, so it must not take over the back button
+    // and must not move the reader on the page.
     expect(corrective[0].args[0]).toContain('replace: true')
     expect(corrective[0].args[0]).toContain('resetScroll: false')
-
-    // AND THE GUARD ITSELF, PINNED AS TEXT, which is the one mutation the
-    // assertions above cannot reach. `|| true` appended to that early return
-    // leaves every call site in place and every line here green while the
-    // correction never fires; it is not a call, a prop or an option, so none of
-    // the AST helpers can see it. A literal match is the weaker tool and is
-    // used knowingly: it goes red on a reformat of this line as well as on a
-    // defeated guard, and a reformat is the cheaper failure of the two.
-    expect(app()).toContain('if (monthCorrection === null || !teamParam) return')
   })
 
-  test('the controls fall back to a window that still contains the month on screen', () => {
-    // `monthWindow` cannot be `undefined` — both controls take `Array<PuzzleMonth>`
-    // — and what it falls back to matters: `[currentMonth]` would set the day
-    // picker's `minDay` past every day of a past month and disable the whole
-    // visible grid for the length of one round trip. `fallbackMonths` is the
-    // free window PLUS `?month=`, and its own tests pin that.
-    expect(app()).toContain('const monthWindow = loadedWindow ?? fallbackMonths(currentMonth, monthParam)')
+  test("the effect's guard is still two conditions, not a defeated one", () => {
+    // THE ONE MUTATION EVERY ASSERTION ABOVE IS BLIND TO. `|| true` appended to
+    // that early return leaves the call sites, the initializers and the JSX
+    // exactly as they are, and the correction simply never fires. It is not a
+    // call, a prop, an option or an initializer, so no helper in
+    // src/test-support/source-ast.ts can reach it.
+    //
+    // ASSERTED STRUCTURALLY RATHER THAN AS TEXT, which is the difference between
+    // this and the `toContain('if (monthCorrection === null || !teamParam)')` it
+    // replaces. That form caught `|| true` and ALSO went red on a rewrap of the
+    // line; counting the operands catches the extra one at any layout, and
+    // reading them back catches an inverted or swapped condition too.
+    const file = parseSource(APP, read(APP))
+    let guard: ts.IfStatement | undefined
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.getText() === 'useEffect' &&
+        node.arguments.length === 2 &&
+        ts.isArrayLiteralExpression(node.arguments[1]) &&
+        node.arguments[1].elements.some((element) => element.getText() === 'monthCorrection')
+      ) {
+        const body = node.arguments[0]
+        if (ts.isArrowFunction(body) && ts.isBlock(body.body)) {
+          const [first] = body.body.statements
+          if (first && ts.isIfStatement(first)) guard = first
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(file)
+
+    expect(guard, 'the correction effect does not open with an `if (...) return`').toBeDefined()
+    if (!guard) return
+
+    // `a || b || true` parses left-associatively, so flattening the chain and
+    // counting is what makes a third operand visible. A `&&` here would be a
+    // different — and wrong — guard, so the operator is asserted too.
+    const operandsOf = (expression: ts.Expression): ts.Expression[] =>
+      ts.isBinaryExpression(expression) &&
+      expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
+        ? [...operandsOf(expression.left), expression.right]
+        : [expression]
+
+    expect(ts.isBinaryExpression(guard.expression)).toBe(true)
+    const operands = operandsOf(guard.expression)
+    expect(operands.map((operand) => operand.getText())).toEqual([
+      'monthCorrection === null',
+      '!teamParam',
+    ])
+
+    // AND IT RETURNS. `if (...) {}` satisfies everything above and guards
+    // nothing.
+    expect(ts.isReturnStatement(guard.thenStatement)).toBe(true)
+  })
+})
+
+/**
+ * initializerOf, ON THE NORMALISATION THE BLOCK ABOVE LEANS ON.
+ *
+ * Hand-written fixtures, for the reason the callSitesOf block below gives: a
+ * helper that quietly reported the wrong thing would make every pin above pass
+ * on a file that had drifted, and reading it out of a real route file would
+ * couple these to that file's contents.
+ *
+ * THE DIRECTION OF THE RISK IS WHAT THESE ARE FOR, and it is not the obvious
+ * one. A normaliser that does too LITTLE makes the pins brittle, which is red
+ * and loud. One that does too MUCH — collapses an operator, swallows a `!` —
+ * makes them pass on a mutation, which is silent and is exactly the failure the
+ * block above was rewritten to close. So the last two tests assert that two
+ * expressions which DIFFER still normalise differently.
+ */
+describe('initializerOf, the normalisation those pins are built on', () => {
+  const of = (source: string, name = 'x') => initializerOf('fixture.tsx', source, name)
+
+  test('layout is invisible to it — three spellings, one answer', () => {
+    const tight = of("const x = a !== undefined && b.some((c) => c.id === a) ? { k: a as Id<'t'> } : 'skip'")
+    const wrapped = of(`const x =
+      a !== undefined && b.some((c) => c.id === a)
+        ? { k: a as Id<'t'> }
+        : 'skip'`)
+    const exploded = of(`const x =
+      a !== undefined &&
+      b.some(
+        (c) => c.id === a,
+      )
+        ? {
+            k: a as Id<'t'>,
+          }
+        : 'skip'`)
+
+    expect(wrapped).toBe(tight)
+    // The exploded form adds the two trailing commas a hand-rewrap adds, which
+    // is the token `printNode` reproduces verbatim and a whitespace collapse
+    // cannot reach. This is the case that sent the first draft of this helper
+    // back.
+    expect(exploded).toBe(tight)
+  })
+
+  test("a comma inside a STRING is not a trailing comma", () => {
+    // THE HAZARD A REGEX WALKS INTO, and the reason this is done with the
+    // scanner. `codeOf`'s header documents the same class of failure for the
+    // two regexes it replaced.
+    expect(of(`const x = cond ? { a: 1 } : 'skip, }'`)).toContain("'skip, }'")
+    expect(of(`const x = cond ? { a: 1 } : 'skip, }'`)).toBe(
+      of(`const x = cond
+        ? {
+            a: 1,
+          }
+        : 'skip, }'`),
+    )
+  })
+
+  test('an array elision keeps its final comma, so a value cannot change length', () => {
+    // `[a, ,]` has two elements and `[a,]` has one. A normaliser that dropped
+    // the last comma there would silently rewrite the value it is meant to be
+    // reporting. Nothing in this repo has an elision; the guard is here so that
+    // stays a fact rather than a coincidence.
+    expect(of('const x = [a, ,]')).toBe('[ a , , ]')
+    expect(of('const x = [a,]')).toBe('[ a ]')
+  })
+
+  test('an inverted operator is a DIFFERENT answer', () => {
+    // THE VACUITY GUARD. Every pin in the block above is a `toBe` against one of
+    // these strings, and all four mutants that survived the first draft were an
+    // inversion. If normalisation ever swallowed one, those pins would go quiet
+    // rather than red.
+    expect(of('const x = b.some((c) => c.id === a)')).not.toBe(
+      of('const x = !b.some((c) => c.id === a)'),
+    )
+    expect(of('const x = m === null ? null : f(m)')).not.toBe(
+      of('const x = m !== null ? null : f(m)'),
+    )
+    expect(of('const x = p || q ? u : v')).not.toBe(of('const x = p || q || true ? u : v'))
+  })
+
+  test('a renamed or duplicated declaration throws rather than answering', () => {
+    // Returning undefined would read as "it has no initializer" and pass a
+    // `toContain`; two declarations would make the answer a coin toss.
+    expect(() => of('const y = 1', 'x')).toThrow(/expected exactly one/)
+    expect(() => of('const x = 1; function f() { const x = 2 }', 'x')).toThrow(
+      /expected exactly one/,
+    )
   })
 })
 

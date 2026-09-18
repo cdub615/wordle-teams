@@ -91,11 +91,11 @@ export type MonthWindowInput = {
  * and for a malformed one. The list is built by counting BACK from `currentMonth`
  * over a length that is floored at FREE_MONTHS, so neither can fail.
  *
- * DO NOT BREAK THAT INVARIANT. dashboard-months.ts does not exist yet — Task 6 of
- * this spec creates it — but it will depend on this by name: its planned
- * `correctedMonth` will fall back to element 0 whenever `?month=` is not a member
- * of this list, and that fallback will settle — rather than the effect behind it
- * navigating forever — only because the fallback value is itself always a member. A
+ * DO NOT BREAK THAT INVARIANT. src/lib/dashboard-months.ts depends on it by name:
+ * `correctedMonth` falls back to element 0 whenever `?month=` is not a member of
+ * this list, and that fallback settles — rather than the effect behind it
+ * navigating forever — only because the fallback value is itself always a member.
+ * Its idempotence test is where that property is actually enforced. A
  * change like "do not offer the current month until the team has a board in it"
  * would read as entirely reasonable here and would reintroduce an infinite
  * redirect in a file its author had no reason to open. insights-months.ts carries

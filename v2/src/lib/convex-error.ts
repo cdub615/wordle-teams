@@ -193,21 +193,34 @@ export function typedCodeMessage(code: AccessCode): string {
       // literal in a switch, so every gate stays green while it lies.
       return "You're on as many teams as the free plan allows. Upgrade to join another."
     case 'MONTH_OUT_OF_WINDOW':
-      // A BACKSTOP, NOT A CONVERSION SURFACE, which is why this is the one
-      // paywall code that does NOT read like TEAM_LIMIT_REACHED's above. Nothing
-      // in the UI is supposed to produce it, and since wordle-teams-kusd that is
-      // true of a Pro viewer as well as a free one: routes/app.tsx builds the
-      // dropdown from the same convex/lib/monthWindow.ts rule the server gates
-      // on, so every month it can OFFER is inside the window, and its month
-      // correction (lib/dashboard-months.ts) moves an out-of-window `?month=`
-      // back inside before any query is made with it. `validateSearch` in
-      // routes/app.tsx rejects a `?month=` that is not 'YYYY-MM' before that,
-      // so a hand-typed URL can only reach this by naming a well-formed month
-      // that is too old, and only in the window between arriving and the
-      // correction landing. It exists so the tier is real against a direct API
-      // call; the free player's actual upgrade prompt is the dropdown's "Back to
-      // <month> · Pro" row, and the upgrade flow itself belongs to
-      // wordle-teams-iht.1.
+      // MOSTLY A BACKSTOP, WHICH IS WHY THIS DOES NOT READ LIKE
+      // TEAM_LIMIT_REACHED's COPY ABOVE — but "nothing in the UI can produce it"
+      // stopped being true at wordle-teams-kusd.6 and this comment should not go
+      // on asserting it. What IS true:
+      //
+      // THE DROPDOWN CANNOT OFFER AN OUT-OF-WINDOW MONTH. routes/app.tsx builds
+      // it from the same convex/lib/monthWindow.ts rule the server gates on, and
+      // `validateSearch` there drops a `?month=` that is not 'YYYY-MM' before any
+      // of it runs. So picking a month, for either tier, cannot land here.
+      //
+      // THE CORRECTION RUNS AFTER COMMIT, NOT BEFORE THE QUERIES. An
+      // out-of-window `?month=` that arrives by URL is moved back inside by
+      // lib/dashboard-months.ts — from a useEffect, which is to say AFTER the
+      // render that has already issued six useSuspenseQuery(getTeamMonth) calls
+      // with it. That file's header says so at length and explains why the
+      // alternative (telling a downgrade apart from a team switch) was dropped.
+      // So a hand-typed old month reaches this code for the frame before the
+      // correction lands, by design rather than by oversight.
+      //
+      // AND ONE REAL RACE IS OPEN: wordle-teams-alr7. A team switch preserves
+      // `?month=` while the new team's window is still loading, so a Pro viewer
+      // moving from a team with history to a younger one can put all six of
+      // those queries here at once. That one ends at DashboardError, not at this
+      // string, but it is the same gate throwing.
+      //
+      // The code exists so the tier is real against a direct API call; the free
+      // player's actual upgrade prompt is the dropdown's "Back to <month> · Pro"
+      // row, and the upgrade flow itself belongs to wordle-teams-iht.1.
       //
       // SAYS NOTHING ABOUT WHICH MONTHS ARE REACHABLE. The same code answers a
       // malformed month and a month below the caller's floor (see AccessCode in

@@ -130,12 +130,13 @@ describe('monthWindowFor — pro', () => {
 })
 
 describe('the element-0 invariant', () => {
-  // DO NOT BREAK THIS. dashboard-months.ts does not exist yet (Task 6 creates
-  // it), but it will fall back to element 0 for an out-of-window ?month=, and
-  // that fallback will settle — rather than the effect behind it navigating
-  // forever — only because the fallback value is itself always a member of
-  // the window it is judged against. insights-months.ts records the identical
-  // property for resolveInsightsSearch, in the same words.
+  // DO NOT BREAK THIS. src/lib/dashboard-months.ts falls back to element 0 for
+  // an out-of-window ?month=, and that fallback settles — rather than the effect
+  // behind it navigating forever — only because the fallback value is itself
+  // always a member of the window it is judged against. Its own suite asserts
+  // the idempotence directly; this is the half that lives on THIS side of the
+  // dependency. insights-months.ts records the identical property for
+  // resolveInsightsSearch, in the same words.
 
   test.each(inputs)('currentMonth is element 0, and the window is never empty, for %j', (input) => {
     const months = monthWindowFor(input)

@@ -85,10 +85,15 @@ const NOW = new Date(2026, 7, 20, 10, 0, 0)
 const monthChanges: Array<string> = []
 
 /**
- * The three months the dropdown offers for August 2026, newest first — the
- * shape `monthOptions` produces, which is what bounds the day picker
- * (wordle-teams-5vv3). June is the oldest, so `2026-06-01` is the picker's
- * floor.
+ * A three-month window for August 2026, newest first — `monthWindowFor`'s shape,
+ * which is what bounds the day picker (wordle-teams-5vv3). June is the oldest, so
+ * `2026-06-01` is the picker's floor.
+ *
+ * THREE BECAUSE THAT IS WHAT A FREE VIEWER GETS, not because three is all there
+ * is. Since wordle-teams-kusd.6 a Pro viewer's window runs back to the team's
+ * earliest board and is routinely much longer; this fixture is the short case
+ * because the floor is easier to read at three, and the component's contract is
+ * "the oldest entry, whatever the length".
  */
 const MONTHS = ['2026-08', '2026-07', '2026-06']
 
@@ -438,10 +443,12 @@ describe('the date picker reaches every month the dropdown offers', () => {
 
   test('the floor is the OLDEST month the dropdown offers, and no further', () => {
     // THE BOUND THAT REPLACED THE MONTH CLAMP, and the reason it is not simply
-    // unbounded: v2 has no pro month gate yet — monthOptions returns three
-    // months for everyone — so an unbounded picker would hand every player
-    // unlimited history now, and the pro expansion would later have to take it
-    // away. `months` is that same array, so the two controls cannot disagree.
+    // unbounded: the months a viewer may reach are a TIER decision, so the
+    // picker must offer exactly what the dropdown does and no further. That was
+    // written when v2 had no pro month gate at all and an unbounded picker would
+    // have handed every player unlimited history; wordle-teams-kusd.6 shipped the
+    // gate, and because both controls read one array they widened together on the
+    // day it landed. `months` is that same array here.
     render(panel())
     fireEvent.click(dayLabel('August 20, 2026'))
 
