@@ -22,8 +22,14 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
  * wrapper — see requireTeamOwnerFor below for the owner-checking sibling.
  */
 
-// If you add a member here, src/lib/convex-error.ts's typedCodeMessage switch
-// must grow a case too — it is exhaustive against this type on purpose.
+// If you add a member here, BOTH functions in src/lib/convex-error.ts must grow
+// an entry, and only one of them will tell you. typedCodeMessage's switch is
+// exhaustive against this type on purpose, so it stops the build until the case
+// exists. convexErrorCode's `||` chain cannot be — it narrows an arbitrary string
+// off the wire — so a missing entry there is silent, and the copy you just wrote
+// becomes unreachable behind the generic "Something went wrong". The mechanism
+// that catches that is a test: src/lib/convex-error.test.ts parses this union out
+// of this file and asserts every member appears in that chain.
 // INVALID_DATE is thrown here (requirePlausibleToday); OWNER_NOT_REMOVABLE
 // is thrown in teams.ts; INVALID_NAME is thrown in players.ts. INVALID_EMAIL is
 // thrown in teams.ts too, by invitePlayerFor and cancelInviteFor, when
@@ -62,6 +68,15 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // never refuses, it PARKS the address in teams.invited and lets billing.ts's
 // upgradeTeamInvitesFor release it later. A link cannot park, so refusing is a
 // new outcome and gets a new code rather than a reused one.
+// MONTH_OUT_OF_WINDOW is thrown in scores.ts, by getTeamMonthFor, when the
+// requested month falls below what the caller's tier reaches — or is not a
+// 'YYYY-MM' at all, which is the same refusal because a bare '2026' lexically
+// brackets a whole year of boards. ONE CODE FOR BOTH ON PURPOSE: the answer a
+// caller gets must not tell them whether they were refused for shape or for
+// tier, for the reason INVITE_LINK_INVALID collapses its three states. It is
+// also a BACKSTOP rather than a conversion surface — the dropdown never offers a
+// month outside the window — so unlike TEAM_LIMIT_REACHED its copy does not
+// carry the upgrade flow.
 // INVALID_AVATAR is thrown in players.ts, by setAvatarFor, when an uploaded
 // file fails the server-side type or size check — the same function deletes
 // the file before throwing, so a rejection never leaves an orphan in storage.
@@ -86,6 +101,7 @@ export type AccessCode =
   | 'SCROLL_RATE_LIMITED'
   | 'INVITE_LINK_INVALID'
   | 'TEAM_LIMIT_REACHED'
+  | 'MONTH_OUT_OF_WINDOW'
   | 'INVALID_AVATAR'
   | 'AVATAR_RATE_LIMITED'
 
@@ -272,13 +288,30 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  * not one introduced here: v1 enforces the cap on the path where SOMEBODY ELSE
  * puts you on a team, and leaves the paths you drive yourself to the UI.
  *
- * THE FOURTH GATE wordle-teams-6tn NAMES — the month window — IS NOT LISTED
- * ABOVE BECAUSE IT DOES NOT EXIST HERE YET. month-picker.tsx's monthOptions
- * offers everyone the same three months, pro or not, so v2 currently shows a
- * pro player LESS history than production rather than gating more. There is
- * nothing to enforce until the pro expansion is built, and Phase 5 deliberately
- * did not build it: it is not a billing behaviour, and it still has no owning
- * phase. Whoever adds it inherits the enforcement question with it.
+ * THE FOURTH GATE wordle-teams-6tn NAMES — the month window — IS NOW ENFORCED,
+ * and this function is what enforces it. scores.ts's getTeamMonthFor refuses any
+ * month below the free floor unless `isProFor` says yes (wordle-teams-kusd's task
+ * 3). This paragraph used to say the gate did not exist and there was nothing to
+ * enforce until the pro expansion was built; that stopped being true the moment
+ * the gate landed, and it is listed with the three above rather than apart from
+ * them now.
+ *
+ * WHAT IS STILL MISSING IS THE CLIENT HALF, not the enforcement.
+ * month-picker.tsx's monthOptions still offers everyone the same three months,
+ * pro or not — the free window — so a pro player is still shown LESS history than
+ * production, they simply can now reach the rest by URL. Task 5 widens that list
+ * and task 6 corrects an out-of-window `?month=`; until both land, the gate is
+ * strictly a backstop that no UI can trip.
+ *
+ * ONLY THIS ONE READ SURFACE IS GATED, AND THE SIBLINGS ARE WORTH KNOWING ABOUT.
+ * insights.ts's teamMonth and winners.ts's getLastMonthWinner are the other two
+ * public queries taking a client-supplied `month: v.string()` scoped to a team,
+ * and both check membership alone — so an old month's aggregate stats and winner
+ * name stay reachable to a free member. That is a narrower leak than the
+ * scoreboard's (aggregates and one name, not every teammate's boards), which is
+ * why task 3 scoped the gate here, and it is filed rather than widened silently:
+ * wordle-teams-7uv8. Do not read this function's presence in getTeamMonthFor as
+ * evidence the whole family is covered.
  */
 export async function isProFor(ctx: ReaderCtx, playerId: Id<'players'>): Promise<boolean> {
   const membership = await ctx.db

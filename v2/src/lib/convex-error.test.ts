@@ -1,6 +1,77 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 import { typedCodeMessage } from './convex-error.ts'
 import type { AccessCode } from '../../convex/access'
+
+const here = dirname(fileURLToPath(import.meta.url))
+
+/**
+ * THE ONE HALF OF THE ERROR MAPPING NO COMPILER CHECKS.
+ *
+ * `typedCodeMessage` is exhaustive over AccessCode — its `default` assigns to a
+ * `never`, so adding a member to the union stops the build until a case exists.
+ * `convexErrorCode` is NOT, and cannot be by construction: it narrows an
+ * arbitrary `string` off the wire, so its membership test is a hand-written
+ * chain of `code === '…' ||` ending in `return null`. Add a code to the union,
+ * write its copy, forget the chain, and the copy is unreachable: every user sees
+ * the generic "Something went wrong" fallback instead, while lint, tsc, build and
+ * all 3500-odd other tests stay green. There is no type-level way to notice.
+ *
+ * SO THE CHECK IS TEXTUAL, on the same premise as the twenty-odd other
+ * source-reading tests in this repo (frontend-import-graph.test.ts, fonts.test.ts,
+ * routes.test.ts): when the property lives in the SHAPE of a file rather than in
+ * its types, reading the file is the only mechanism that can see it. Parsing the
+ * union out of access.ts is crude and that is the point — it fails loudly if
+ * anyone reformats the union into a shape this cannot read, which is a far better
+ * outcome than silently checking nothing.
+ *
+ * ONE DIRECTION ONLY. A code in the chain that is NOT in AccessCode is already a
+ * compile error: the narrowed `code` is returned as `AccessCode`, so an unknown
+ * literal fails assignability. Only the missing direction needs a test.
+ */
+const ACCESS_CODES_IN_SOURCE = (() => {
+  const source = readFileSync(join(here, '../../convex/access.ts'), 'utf8')
+  const afterDeclaration = source.split('export type AccessCode =')[1]
+  expect(afterDeclaration, 'convex/access.ts no longer declares `export type AccessCode =`').toBeDefined()
+
+  // The split leaves the tail of the `=` line itself as element 0 — empty, since
+  // the first member sits on the next line — so collection starts at the first
+  // line that parses and stops at the first that does not AFTER that.
+  const codes: string[] = []
+  for (const line of afterDeclaration.split('\n')) {
+    const member = /^\s*\|\s*'([A-Z_]+)'\s*$/.exec(line)
+    if (member) codes.push(member[1])
+    else if (codes.length > 0) break
+  }
+  return codes
+})()
+
+const CONVEX_ERROR_CODE_BODY = (() => {
+  const source = readFileSync(join(here, 'convex-error.ts'), 'utf8')
+  const afterSignature = source.split('export function convexErrorCode')[1]
+  expect(afterSignature, 'convex-error.ts no longer declares `export function convexErrorCode`').toBeDefined()
+  return afterSignature.split('\nexport ')[0]
+})()
+
+describe('convexErrorCode recognises every AccessCode', () => {
+  test('the union parsed out of access.ts is the real one, not an empty list', () => {
+    // Without this the loop below would pass vacuously the moment the parse
+    // broke — the classic way a source-reading guard stops guarding. The floor is
+    // deliberately well under the real count so an ordinary addition or removal
+    // does not have to touch it; it only catches a parse that collapsed.
+    expect(ACCESS_CODES_IN_SOURCE.length).toBeGreaterThan(15)
+    expect(ACCESS_CODES_IN_SOURCE).toContain('UNAUTHENTICATED')
+  })
+
+  test.each(ACCESS_CODES_IN_SOURCE)(
+    '%s appears in convexErrorCode’s hand-written chain',
+    (code) => {
+      expect(CONVEX_ERROR_CODE_BODY).toContain(`code === '${code}'`)
+    },
+  )
+})
 
 /**
  * THE ONLY MECHANISM GUARDING THE TWO OWNERSHIP STRINGS.

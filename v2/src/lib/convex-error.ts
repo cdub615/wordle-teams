@@ -9,6 +9,23 @@ import type { AccessCode } from '../../convex/access'
  * with typed codes; UI maps codes to sonner toasts". Everything that is not one
  * of ours — a dropped connection, a platform 5xx — returns null and gets the
  * generic recovery message, which is the case that must never lose a board.
+ *
+ * THIS CHAIN MUST BE EXTENDED BY HAND EVERY TIME AccessCode GROWS, AND NO
+ * COMPILER WILL TELL YOU. `typedCodeMessage` below is exhaustive — its `default`
+ * assigns to a `never`, so a new member of the union stops the build until a case
+ * exists. This function is not, and cannot be: it narrows an arbitrary `string`
+ * from the wire, so its `||` chain is hand-written and its `return null` swallows
+ * anything it has not been told about. Miss a code here and the case you
+ * carefully wrote in `typedCodeMessage` is unreachable, every user sees the
+ * generic "Something went wrong" fallback instead, and lint, tsc and build all
+ * stay green while it happens.
+ *
+ * A TEST DOES TELL YOU, since wordle-teams-kusd. convex-error.test.ts parses the
+ * union out of convex/access.ts and asserts every member of it appears in this
+ * chain — textual, because the property lives in the shape of this function
+ * rather than in its types. That is the mechanism; this paragraph is only the
+ * explanation. If you are here because that test failed, add the `code === '…'`
+ * line, and write the copy in `typedCodeMessage` too.
  */
 export function convexErrorCode(error: unknown): AccessCode | null {
   if (!(error instanceof ConvexError)) return null
@@ -35,6 +52,7 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'SCROLL_RATE_LIMITED' ||
     code === 'INVITE_LINK_INVALID' ||
     code === 'TEAM_LIMIT_REACHED' ||
+    code === 'MONTH_OUT_OF_WINDOW' ||
     code === 'INVALID_AVATAR' ||
     code === 'AVATAR_RATE_LIMITED'
   ) {
@@ -174,6 +192,26 @@ export function typedCodeMessage(code: AccessCode): string {
       // number so the copy cannot drift out of step with FREE_TEAM_LIMIT — a
       // literal in a switch, so every gate stays green while it lies.
       return "You're on as many teams as the free plan allows. Upgrade to join another."
+    case 'MONTH_OUT_OF_WINDOW':
+      // A BACKSTOP, NOT A CONVERSION SURFACE, which is why this is the one
+      // paywall code that does NOT read like TEAM_LIMIT_REACHED's above. Nothing
+      // in the UI is supposed to produce it. month-picker.tsx offers everybody
+      // the same three months today, which is the free window itself, so no
+      // choice it can offer is out of window; wordle-teams-kusd's task 5 will
+      // widen that list for a Pro viewer, and task 6 will make app.tsx correct
+      // an out-of-window `?month=` — neither has been built at the time of
+      // writing. app.tsx's validateSearch already rejects a `?month=` that is not
+      // 'YYYY-MM' (routes/app.tsx:66), so a hand-typed URL can only reach this by
+      // naming a well-formed month that is too old. It exists so the tier is real
+      // against a direct API call, and the free player's actual upgrade prompt
+      // will be the dropdown's "Back to <month> · Pro" row that task 5 adds; the
+      // upgrade flow itself belongs to wordle-teams-iht.1.
+      //
+      // SAYS NOTHING ABOUT WHICH MONTHS ARE REACHABLE. The same code answers a
+      // malformed month and a month below the caller's floor (see AccessCode in
+      // convex/access.ts), so any copy naming a boundary would be wrong for one
+      // of the two — and would also hand a prober the floor it is guessing at.
+      return 'That month is part of Pro.'
     case 'INVALID_AVATAR':
       // Thrown by setAvatarFor (convex/players.ts) when an uploaded file fails
       // the server-side type or size check. Deliberately does not say WHY —

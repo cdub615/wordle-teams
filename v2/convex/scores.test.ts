@@ -15,20 +15,29 @@ const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth
 // out of bounds the moment the calendar moves on. `puzzleDay` values are NOT
 // bounded and stay as literals; only `today` needs to track the real date.
 //
-// A HARDCODED *MONTH* HANDED TO getTeamMonthFor IS ABOUT TO BE EXACTLY AS
-// UNSAFE, for a second and independent reason. wordle-teams-kusd adds a month
-// gate to that function in the very next commit, and its floor is computed from
-// the server's own clock — so a literal month stops being a fixed input and
-// becomes one that walks steadily further below the floor every time the
-// calendar turns over. Nine calls in this file passed '2026-08' and would have
-// begun failing in December 2026 with nobody having touched the code, which is
-// the worst possible way to learn a gate exists. Every month handed to
+// A HARDCODED *MONTH* HANDED TO getTeamMonthFor IS EXACTLY AS UNSAFE, for a
+// second and independent reason. wordle-teams-kusd's month gate refuses any
+// month below a floor computed from the server's own clock, so a literal month
+// is not a fixed input — it walks steadily further below the floor every time
+// the calendar turns over. Nine calls in this file passed '2026-08' and would
+// have begun failing in December 2026 with nobody having touched the code, which
+// is the worst possible way to learn a gate exists. Every month handed to
 // getTeamMonthFor is therefore derived from `thisMonth` below, and every board
 // fixture those tests assert on moves with it. A `puzzleDay` that is never
 // compared against a month window — upsertBoardFor's fixtures further down — is
 // still free to be a literal.
 const today = toPuzzleDay(new Date())
 const thisMonth = monthOf(today)
+
+// A month deep inside the Pro window and far outside the free one, for the gate
+// tests below. 30 back clears the free floor (FREE_MONTHS = 3, plus one of
+// SERVER_SLACK_MONTHS) by a wide margin while staying well inside
+// lib/monthWindow.ts's MAX_MONTHS cap of 120 — so neither bound moves under these
+// tests as the calendar advances. That is the whole reason it is not written
+// '2023-03': a literal there would have a six-year fuse rather than a three-month
+// one, but it is the same defect the nine rewrites above exist to remove.
+const ancientMonth = addMonths(thisMonth, -30)
+const ancientDay = `${ancientMonth}-14`
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -122,42 +131,64 @@ describe('getTeamMonthFor', () => {
     // regardless of what the query eventually returns. DO NOT "simplify" this
     // into an assertion on `result` — that is exactly the shape that failed
     // to catch the regression this test exists to prevent.
-    const t = convexTest({
-      schema,
-      modules,
-      // A bounded read costs 1 (team) + 1 (member) + 2 (in-range scores) = 4
-      // documents. 20 leaves comfortable headroom above that while staying
-      // far below the ~64 an unbounded collect-then-filter would read.
-      transactionLimits: { documentsRead: 20 },
-    })
+    //
+    // THE ROSTER HAS MORE THAN ONE MEMBER, AND THE BUDGET IS A FORMULA IN THAT
+    // COUNT. Everything getTeamMonthFor reads except the team document is
+    // per-member, so a single-member fixture cannot distinguish a fixed cost from
+    // a per-member one, and a budget stated as a round number with "comfortable
+    // headroom" hides the difference completely: on wordle-teams-kusd's task 2
+    // exactly that phrasing turned out to be the precise cost of a correct
+    // seven-member read, with no headroom at all. Writing the budget as
+    // `MEMBERS × …` makes an added per-member read fail this test instead of
+    // quietly spending the slack.
+    const MEMBERS = 3
+    const IN_RANGE_PER_MEMBER = 2
+    const BUDGET =
+      1 + // the team document (requireTeamMemberFor)
+      MEMBERS * (1 + IN_RANGE_PER_MEMBER) // each member's player document, plus their in-range scores
+    // No allowance for the month gate: this asks for the CURRENT month, which is
+    // above the free floor, so the gate answers from one string comparison and
+    // reads nothing. That is the property worth guarding — the dashboard's own
+    // query must not have got more expensive — and the below-floor path has its
+    // own budgeted test at the end of this describe.
+
+    const t = convexTest({ schema, modules, transactionLimits: { documentsRead: BUDGET } })
     await t.run(async (ctx) => {
-      const playerId = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      const playerIds = []
+      for (let i = 0; i < MEMBERS; i++) {
+        playerIds.push(
+          await ctx.db.insert('players', aPlayer({ email: `member${i}@example.com` })),
+        )
+      }
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds }))
 
       // 60 scores well outside the requested month...
       const staleMonth = addMonths(thisMonth, -20)
       for (let i = 0; i < 60; i++) {
         await ctx.db.insert('dailyScores', {
-          playerId,
+          playerId: playerIds[0],
           puzzleDay: `${staleMonth}-${String((i % 28) + 1).padStart(2, '0')}`,
           date: 1_700_000_000_000 + i,
           answer: 'SPEED',
           guesses: ['SPEED'],
         })
       }
-      // ...and 2 inside it.
-      for (const puzzleDay of [`${thisMonth}-01`, `${thisMonth}-28`]) {
-        await ctx.db.insert('dailyScores', {
-          playerId,
-          puzzleDay,
-          date: 1_755_500_000_000,
-          answer: 'SPEED',
-          guesses: ['SPEED'],
-        })
+      // ...and IN_RANGE_PER_MEMBER inside it, for everyone.
+      for (const playerId of playerIds) {
+        for (const puzzleDay of [`${thisMonth}-01`, `${thisMonth}-28`]) {
+          await ctx.db.insert('dailyScores', {
+            playerId,
+            puzzleDay,
+            date: 1_755_500_000_000,
+            answer: 'SPEED',
+            guesses: ['SPEED'],
+          })
+        }
       }
 
-      const result = await getTeamMonthFor(ctx, playerId, teamId, thisMonth)
-      expect(result.players[0].scores).toHaveLength(2)
+      const result = await getTeamMonthFor(ctx, playerIds[0], teamId, thisMonth)
+      expect(result.players).toHaveLength(MEMBERS)
+      expect(result.players.every((p) => p.scores.length === IN_RANGE_PER_MEMBER)).toBe(true)
     })
   })
 
@@ -205,6 +236,232 @@ describe('getTeamMonthFor', () => {
       await expect(getTeamMonthFor(ctx, outsiderId, teamId, thisMonth)).rejects.toMatchObject({
         data: { code: 'NOT_A_MEMBER' },
       })
+    })
+  })
+
+  test('refuses a free caller a month below the floor, including one the team has boards in', () => {
+    // THE GATE. Without it the three-month window is decoration: getTeamMonthFor
+    // checks membership and nothing else, so any member can reach any month by
+    // typing a URL. Layer 3 stopped being decorative in wordle-teams-iht.3 and
+    // this is the same standard applied to the scoreboard.
+    //
+    // THE TEAM MUST HAVE AN ANCIENT BOARD, and that is the whole difference
+    // between this test and the floor test below it. Measured: with the roster
+    // empty of old boards, replacing the `isProFor` check with `if (false)`
+    // leaves THIS test green — `earliestMonthFor` returns null, `serverFloorFor`
+    // floors the span at FREE_MONTHS, and the pro floor collapses onto the free
+    // one, so the SECOND refusal catches what the first was supposed to. That is
+    // also why the test below, whose team has no boards at all, cannot be the
+    // guard for this check and is not written as one. The only call that
+    // can tell the two checks apart is a NON-PRO caller asking for a month the
+    // roster really does reach, which is exactly the call a v1 subscriber's free
+    // teammate makes. Before this fixture gained its board, the sole test killing
+    // that mutation was the Insights-trial one further down — a test whose stated
+    // subject is the trial, and which would have been rewritten or deleted
+    // outright by anyone who later decided the trial should open this window,
+    // taking the only coverage of the pro check with it.
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: ancientDay,
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      for (const month of [addMonths(thisMonth, -6), ancientMonth]) {
+        await expect(getTeamMonthFor(ctx, playerId, teamId, month)).rejects.toMatchObject({
+          data: { code: 'MONTH_OUT_OF_WINDOW' },
+        })
+      }
+    })
+  })
+
+  test('serves a free caller every month down to the slack month, and refuses the one below', () => {
+    // THE BOUNDARY, BOTH SIDES OF IT. -3 is the slack month the server allows and
+    // the dropdown does not offer (SERVER_SLACK_MONTHS); -4 is the first refusal.
+    // Without both, SERVER_SLACK_MONTHS could be changed to 2 and every test in
+    // this file would stay green.
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+
+      for (const delta of [0, -1, -2, -3]) {
+        await expect(
+          getTeamMonthFor(ctx, playerId, teamId, addMonths(thisMonth, delta)),
+        ).resolves.toBeDefined()
+      }
+      await expect(
+        getTeamMonthFor(ctx, playerId, teamId, addMonths(thisMonth, -4)),
+      ).rejects.toMatchObject({ data: { code: 'MONTH_OUT_OF_WINDOW' } })
+    })
+  })
+
+  test('serves a pro caller a month back to the roster’s earliest board', () => {
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: ancientDay,
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      await expect(getTeamMonthFor(ctx, playerId, teamId, ancientMonth)).resolves.toBeDefined()
+    })
+  })
+
+  test('refuses a pro caller a month below the roster’s earliest board and its slack', () => {
+    // THE PRO BOUNDARY, BOTH SIDES OF IT, for the reason the free one above is
+    // written both ways — and for one more. The gate could have been written
+    // `if (month < earliestMonth) throw`, which every other test in this file
+    // would accept: the free tests never reach the pro branch, and "serves a pro
+    // caller" asks for exactly `earliestMonth`, which that version also allows.
+    // The -1 assertion here is the only thing that pins the pro floor to
+    // serverFloorFor — i.e. to the SAME one month of slack the free floor
+    // carries, for the same UTC-versus-viewer reason.
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: ancientDay,
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      await expect(
+        getTeamMonthFor(ctx, playerId, teamId, addMonths(ancientMonth, -1)),
+      ).resolves.toBeDefined()
+      await expect(
+        getTeamMonthFor(ctx, playerId, teamId, addMonths(ancientMonth, -2)),
+      ).rejects.toMatchObject({ data: { code: 'MONTH_OUT_OF_WINDOW' } })
+    })
+  })
+
+  test('refuses a caller inside the Insights trial the pro window', () => {
+    // THE TRIAL DOES NOT OPEN THIS WINDOW, and that is a decision rather than an
+    // oversight — see the spec's §4. The trial was specified as one month of
+    // Insights layers 2 and 3, not a scoreboard grant. Asserted here rather than
+    // left to follow from isProFor's definition, because "the trial is pro
+    // enough" is exactly the reasonable-sounding change that would ship it.
+    //
+    // THE FIELD IS insightsTrialEndsAt (schema.ts:169). `trialEndsAt` is only a
+    // PARAMETER NAME on lib/insightsAccess.ts's insightsAccess, and a grep for it
+    // matches the real field as a substring — which is how the first draft of
+    // this plan told its own implementer the wrong name was correct.
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert(
+        'players',
+        aPlayer({ insightsTrialEndsAt: Date.now() + 86_400_000 }),
+      )
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: ancientDay,
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      await expect(getTeamMonthFor(ctx, playerId, teamId, ancientMonth)).rejects.toMatchObject({
+        data: { code: 'MONTH_OUT_OF_WINDOW' },
+      })
+    })
+  })
+
+  test('refuses a malformed month, which can lexically bracket a whole year', () => {
+    // getMyMonth's header in convex/scores.ts has documented this property of
+    // `v.string()` months since before the gate existed: a bare '2026' bounds
+    // '2026-01'..'2026-31', which lexically brackets every day of the year.
+    // Harmless there, and harmless here while the route was the only caller —
+    // app.tsx's validateSearch applies the same regex to `?month=`. Not harmless
+    // now: a malformed month sorts ABOVE a Pro caller's floor far more often than
+    // below it ('abc' and a full 'YYYY-MM-DD' always do), so without a shape check
+    // a Pro member could pull every board for every teammate for a whole year in
+    // one payload.
+    //
+    // THE CALLER HERE MUST BE PRO WITH AN OLD BOARD, and that is not incidental.
+    // The refusals below have to come from the SHAPE CHECK, and against a free
+    // caller most of these strings fall below the free floor and would be refused
+    // by the floor instead — so a free fixture would stay green with the shape
+    // check deleted and prove nothing. A Pro floor years back is what puts them
+    // above it, which is the situation the check exists for.
+    return convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await ctx.db.insert('playerMembership', { playerId, membershipStatus: 'pro' })
+      await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: ancientDay,
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['SPEED'],
+      })
+
+      const thisYear = thisMonth.slice(0, 4)
+      for (const month of [thisYear, `${thisYear}-`, `${thisMonth}-01`, 'abc', '']) {
+        await expect(getTeamMonthFor(ctx, playerId, teamId, month)).rejects.toMatchObject({
+          data: { code: 'MONTH_OUT_OF_WINDOW' },
+        })
+      }
+    })
+  })
+
+  test('a below-floor pro read costs a fixed number of documents per member', () => {
+    // THE GATE'S OWN BANDWIDTH GUARD, and a separate test from the one above
+    // because it guards a DIFFERENT PATH. That one asks for the current month, so
+    // the gate answers from one string comparison and reads nothing; this one asks
+    // for a month below the free floor, which is the only path that pays for
+    // isProFor and for earliestMonthFor's walk across the roster.
+    //
+    // THE BUDGET IS A FORMULA IN MEMBERS, not a round number with headroom, and
+    // that is the point: this path walks the roster TWICE — once in
+    // earliestMonthFor and once in the scoreboard read — so it is the most
+    // per-member-expensive thing getTeamMonthFor does, and a fixture with one
+    // member cannot see per-member growth at all. A budget of "20, comfortable
+    // headroom" measured on a single member read as slack and was in fact the
+    // exact cost of a correct seven-member read (measured on wordle-teams-kusd's
+    // task 2). Exact-cost budgets fail loudly when the cost changes, which is the
+    // only useful behaviour for a guard nobody re-derives by hand.
+    const MEMBERS = 3
+    const BOARDS_IN_MONTH = 1
+    const BUDGET =
+      1 + // the team document (requireTeamMemberFor)
+      1 + // the caller's playerMembership row (isProFor)
+      MEMBERS * 2 + // earliestMonthFor: one player document + one earliest-board probe each
+      MEMBERS * (1 + BOARDS_IN_MONTH) // the scoreboard: the same player documents again, plus their in-range scores
+
+    const t = convexTest({ schema, modules, transactionLimits: { documentsRead: BUDGET } })
+    return t.run(async (ctx) => {
+      const playerIds = []
+      for (let i = 0; i < MEMBERS; i++) {
+        playerIds.push(
+          await ctx.db.insert('players', aPlayer({ email: `member${i}@example.com` })),
+        )
+      }
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds }))
+      await ctx.db.insert('playerMembership', { playerId: playerIds[0], membershipStatus: 'pro' })
+      for (const playerId of playerIds) {
+        await ctx.db.insert('dailyScores', {
+          playerId,
+          puzzleDay: ancientDay,
+          date: 1_755_500_000_000,
+          answer: 'SPEED',
+          guesses: ['SPEED'],
+        })
+      }
+
+      const result = await getTeamMonthFor(ctx, playerIds[0], teamId, ancientMonth)
+      expect(result.players).toHaveLength(MEMBERS)
+      expect(result.players.every((p) => p.scores.length === BOARDS_IN_MONTH)).toBe(true)
     })
   })
 })

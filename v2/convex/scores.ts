@@ -1,9 +1,17 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { accessError, currentPlayer, requirePlausibleToday, requirePlayer, requireTeamMemberFor } from './access'
+import {
+  accessError,
+  currentPlayer,
+  isProFor,
+  requirePlausibleToday,
+  requirePlayer,
+  requireTeamMemberFor,
+} from './access'
 import { boardIsValid, normalizeGuesses } from './lib/board.ts'
 import { LAUNCH_AT, shouldStartTrial, trialEndsAtFor } from './lib/insightsAccess.ts'
-import { monthOf, monthRange, type PuzzleMonth } from './lib/puzzleDay.ts'
+import { serverFloorFor } from './lib/monthWindow.ts'
+import { monthOf, monthRange, toPuzzleDay, type PuzzleMonth } from './lib/puzzleDay.ts'
 import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
 import { recomputePlayerMonth } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
@@ -41,6 +49,76 @@ export async function getTeamMonthFor(
   month: string,
 ) {
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
+
+  // THE MONTH GATE (wordle-teams-kusd). Membership was the ONLY check here
+  // before, which made the three-month dropdown an affordance rather than a
+  // paywall — v1's own position, and one Layer 3 stopped taking in
+  // wordle-teams-iht.3.
+  //
+  // IT SITS HERE, BEFORE THE PER-MEMBER READS, AND MUST STAY HERE. A reviewer
+  // will eventually notice that the pro branch below resolves `team.playerIds` a
+  // second time, and propose folding the gate into the `Promise.all` further down
+  // so the roster is walked once. Do not. That reorders an ACCESS DECISION behind
+  // the work it authorises: an unauthorised request would pay for every member's
+  // player document and every member's month of scores before being refused, so
+  // the cheapest way to make the server do the most work would be to ask for a
+  // month you are not allowed to see. The duplicate walk is the price of refusing
+  // first, it is paid only on the rare below-floor path, and the common path —
+  // every request for one of the last three months — costs nothing at all.
+  //
+  // THE SHAPE CHECK IS FIRST, AND IT IS NOT DEFENSIVE PROGRAMMING. This function
+  // takes `month: v.string()`, and getMyMonth's header in this file has long
+  // recorded what that allows: a bare '2026' bounds '2026-01'..'2026-31', which
+  // lexically brackets every day of the year. It sorts ABOVE a pro floor, so
+  // without this a pro member could pull twelve months of every teammate's boards
+  // in one payload — past the floor below, and past this file's own "SCOPED TO
+  // ONE TEAM AND ONE MONTH" bandwidth argument. routes/app.tsx:66 applies this
+  // same regex to `?month=` before it ever reaches a query, so this is the check
+  // for everything that is not the browser.
+  if (!/^\d{4}-\d{2}$/.test(month)) throw accessError('MONTH_OUT_OF_WINDOW')
+
+  // THE FREE FLOOR IS CHECKED FIRST, AND USUALLY IT IS THE WHOLE CHECK. Almost
+  // every call asks for one of the last three months, and for those this costs
+  // one string comparison and no database reads. Only a request OLDER than the
+  // free floor pays for isProFor, and only one that passes THAT pays for the
+  // per-member index walk — the free branch of the rule ignores earliestMonth
+  // entirely, so fetching it before knowing the caller is pro would be work that
+  // provably cannot change the answer.
+  //
+  // `serverFloorFor` CARRIES A MONTH OF SLACK and the reason is in its own
+  // comment: this runtime is UTC and the viewer is not, so an exact window would
+  // refuse a month the dropdown had just offered, at every month boundary.
+  //
+  // THE CLOCK READ IS A DEVIATION FROM THIS DIRECTORY'S CONVENTION and is worth
+  // naming. Every other "what day is it" question on the server takes `today`
+  // from the client and bounds it: upsertBoardFor below and teams.ts and
+  // scoringSystems.ts through access.ts's requirePlausibleToday, insights.ts's
+  // teamMonth through isPlausibleToday with a fallback instead of a throw. This
+  // reads `new Date()` directly. Taking an argument instead would mean changing
+  // getTeamMonth's signature at all six of its useSuspenseQuery call sites
+  // (scores-table, scoring-legend, scoring-system-card, today-panel,
+  // teams/team-boards, board-entry/form) for a bound whose only failure direction
+  // is MORE permissive — Convex caches on read-set invalidation rather than
+  // wall-clock, so a long-lived subscriber's floor simply stays older than it
+  // should, never newer. Accepted deliberately; revisit if this function ever
+  // needs the DAY rather than the month, where a stale value would actually be
+  // visible.
+  const serverMonth = monthOf(toPuzzleDay(new Date()))
+  const freeFloor = serverFloorFor({ currentMonth: serverMonth, earliestMonth: null, pro: false })
+  if (month < freeFloor) {
+    if (!(await isProFor(ctx, playerId))) throw accessError('MONTH_OUT_OF_WINDOW')
+
+    // THE SAME `serverFloorFor`, NOT A BARE `month < earliestMonth`. The pro
+    // floor has to carry the same month of slack the free one does, for the same
+    // UTC-versus-viewer reason, and it has to respect the MAX_MONTHS cap that
+    // bounds an unvalidated `puzzleDay`. Routing both tiers through one function
+    // is what stops the two floors drifting apart.
+    const earliestMonth = await earliestMonthFor(ctx, team.playerIds)
+    if (month < serverFloorFor({ currentMonth: serverMonth, earliestMonth, pro: true })) {
+      throw accessError('MONTH_OUT_OF_WINDOW')
+    }
+  }
+
   const { start, end } = monthRange(month)
 
   // The system that governed the month being VIEWED. The team doc's own eight
@@ -174,13 +252,15 @@ export const getTeamMonth = query({
  * the scoreboard renders as empty.
  *
  * A LEAVING MEMBER CAN THEREFORE SHRINK THE WINDOW UNDER A VIEWER SITTING ON AN
- * OLD MONTH. NOTHING CORRECTS FOR THAT YET: routes/app.tsx will move `?month=`
- * back into the window whenever it falls outside, but that is wordle-teams-kusd's
- * task 6 and it has not landed. Until it does, a viewer whose window shrinks under
- * them keeps a `?month=` the window no longer contains — harmless while task 3's
- * server gate is also unbuilt, and the reason task 6 must not be skipped. It is
- * the same correction a team change will get, for the same reason: the viewer did
- * nothing wrong.
+ * OLD MONTH, AND SINCE TASK 3 THAT IS NO LONGER HARMLESS. getTeamMonthFor now
+ * refuses a month below the floor this value feeds, so the moment the roster
+ * narrows, a Pro viewer parked on a `?month=` outside the new window stops
+ * getting a scoreboard and starts getting "That month is part of Pro." — on a
+ * page they did nothing to. routes/app.tsx will move such a `?month=` back into
+ * the window, but that is wordle-teams-kusd's task 6 and it has not landed; until
+ * it does, the recovery is a manual month change. This is the concrete reason
+ * task 6 must not be skipped, and it is the same correction a team change will
+ * get, for the same reason: the viewer did nothing wrong.
  *
  * DO NOT "OPTIMISE" THIS ONTO teamMonthStats. That table is computed, its coverage
  * of old months is not guaranteed, and reading it here would recreate exactly the
@@ -234,9 +314,11 @@ async function earliestMonthFor(
  * the viewer's membership from `api.teams.amIPro` (app.tsx:203). Returning it here
  * too would give the client two independently-updating subscriptions to one fact —
  * structurally the aggregate-versus-live split-brain wordle-teams-iht.4 is about.
- * The SERVER still needs it, and WILL read it straight from isProFor at the one
- * place that enforces — wordle-teams-kusd's task 3, still open as of this
- * comment. Nothing enforces the window yet.
+ * The SERVER still needs it, and reads it straight from isProFor at the one place
+ * that enforces — getTeamMonthFor's month gate above (wordle-teams-kusd's task
+ * 3). That gate also re-derives `earliestMonth` for itself rather than trusting
+ * anything this query returned, which is the point of the split: this is the
+ * DROPDOWN's input, and a client that lies about it can only mislead its own UI.
  *
  * A SEPARATE QUERY RATHER THAN A FIELD ON getTeamMonth'S PAYLOAD. MonthPicker
  * renders in the controls row of routes/app.tsx, OUTSIDE the <Suspense> boundary
@@ -307,8 +389,19 @@ export const getMyPlayerId = query({
  * not enforce it: `{ month: '2026' }` bounds '2026-01'..'2026-31', which
  * lexically brackets every day of the year. The route is what enforces the
  * shape — app.tsx's validateSearch requires /^\d{4}-\d{2}$/ before a month can
- * reach here — and getTeamMonthFor has exactly the same property, so this is a
- * shared pre-existing contract rather than something to patch in one caller.
+ * reach here.
+ *
+ * getTeamMonthFor USED TO HAVE EXACTLY THIS PROPERTY AND NO LONGER DOES, so the
+ * two are now deliberately asymmetric and this paragraph is the record of why.
+ * That function rejects a non-'YYYY-MM' month outright (wordle-teams-kusd's month
+ * gate) because a bare year there sorts ABOVE a Pro caller's floor and would
+ * return a year of EVERY TEAMMATE'S boards in one payload, straight through the
+ * paywall. Here the worst case is a year of THE CALLER'S OWN boards returned to
+ * the caller: more bytes than asked for, but nothing they are not already
+ * entitled to and nobody else's data at all. So the shape check is not copied
+ * down — it belongs to the gate, not to `monthRange`. If this query ever grows a
+ * teamId or serves anyone but `currentPlayer`, that reasoning expires and the
+ * check comes with it.
  *
  * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
  * /app, which is reachable in the window before a player row exists.

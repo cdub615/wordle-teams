@@ -31,9 +31,23 @@ import { addMonths, type PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
  * Fixing the order now means the expansion inherits it rather than rediscovering
  * the problem once the list is long enough to hurt.
  *
- * Note that in v1 this window is a UI affordance rather than access control:
- * every score is loaded client-side regardless. Whether the gate should be
- * enforced server-side is a question for the phase that adds it.
+ * IN v1 THIS WINDOW IS A UI AFFORDANCE RATHER THAN ACCESS CONTROL — every score
+ * is loaded client-side regardless — AND IN v2 IT NO LONGER IS. That question is
+ * answered: convex/scores.ts's getTeamMonthFor refuses any month below the
+ * viewer's floor (wordle-teams-kusd's task 3), so reaching further back is no
+ * longer a matter of typing a URL.
+ *
+ * THIS LIST IS A STRICT SUBSET OF WHAT THE SERVER ALLOWS, NOT A MIRROR OF IT, and
+ * every month it offers is safe for that reason rather than by agreement. The
+ * three here are the FREE window specifically, and the server floor sits one
+ * month below even that (SERVER_SLACK_MONTHS, for the UTC-versus-viewer
+ * disagreement at a month boundary). A Pro viewer is therefore currently offered
+ * far less than they are entitled to; task 5 replaces this function with
+ * lib/monthWindow.ts's monthWindowFor, which is the shared rule both sides
+ * already derive their bounds from. Do not widen this list by hand in the
+ * meantime — monthWindowFor needs the team's earliest board and the viewer's
+ * membership, neither of which is in scope here, so anything hand-rolled would be
+ * right by luck rather than by construction.
  */
 export function monthOptions(currentMonth: PuzzleMonth): Array<PuzzleMonth> {
   return [currentMonth, addMonths(currentMonth, -1), addMonths(currentMonth, -2)]
