@@ -525,8 +525,51 @@ function Dashboard() {
     teamParam !== undefined && teams.some((team) => team.id === teamParam)
       ? { teamId: teamParam as Id<'teams'> }
       : 'skip'
-  const { data: monthWindowInputs } = useQuery(convexQuery(api.scores.monthWindow, monthWindowArgs))
+  const { data: monthWindowInputs, error: monthWindowError } = useQuery(
+    convexQuery(api.scores.monthWindow, monthWindowArgs),
+  )
   const earliestMonth = monthWindowInputs?.earliestMonth ?? null
+
+  /*
+    A FAILURE HERE IS INVISIBLE WITHOUT THIS, AND IT COSTS A PRO SUBSCRIBER THEIR
+    HISTORY (wordle-teams-fkbh).
+
+    `data` is `undefined` for three different states — skipped, in flight, and
+    FAILED — and only the first two are benign. On a failure `loadedWindow` stays
+    undefined, both month controls run on `fallbackMonths`, and that is the FREE
+    window by construction. So a transport error silently reinstates exactly the
+    regression this feature exists to close, and nothing on screen, in any gate or
+    in any log says so.
+
+    REPORTED, NOT SURFACED, AND THAT IS THE DECISION. Convex subscriptions retry
+    on their own, so a websocket blip that resolves itself would make a visible
+    banner pure noise. And the fallback is SAFE rather than wrong: the free window
+    is contained in every window `monthWindowFor` can produce, so the controls can
+    only ever offer too few months, never one the server would refuse. What was
+    unacceptable was the silence, not the fallback — a Pro subscriber quietly
+    losing their history is precisely the thing nobody would notice until they
+    wrote in.
+
+    IT ALSO CLOSES AN ASYMMETRY THE COMMENT ABOVE OPENS. That block cites
+    Header.tsx's measurement — a refusal "swallowed into query state where nobody
+    sees it" — as the reason for `'skip'` over `enabled: false`, and then swallowed
+    its own for the non-skip case.
+
+    IN AN EFFECT, NOT IN THE RENDER BODY. Reporting is a side effect: called
+    during render it would fire twice under StrictMode and fire again for every
+    render React discards, which turns one failure into a burst of events that
+    say nothing extra. The effect keys on the error itself, so it reports once per
+    distinct failure. It sits above this component's two early returns with the
+    other hooks — a hook below them would change the hook count between the
+    skeleton render and the full one.
+
+    `captureError` NEVER THROWS (see sentry-capture.ts), so reporting a degraded
+    window cannot itself become the failure.
+  */
+  useEffect(() => {
+    if (!monthWindowError) return
+    captureError(monthWindowError, { where: 'app.monthWindow', team: teamParam ?? 'none' })
+  }, [monthWindowError, teamParam])
 
   /*
     THE VIEWER'S OWN CLOCK, READ ONCE PER RENDER OF THIS COMPONENT.
