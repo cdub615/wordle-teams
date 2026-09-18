@@ -280,9 +280,18 @@ export function TeamSection({
           the current month. Saying so directly drops the undefined and states
           the fact rather than re-deriving it.
 
-          `data.rank` IS NON-NULL ON THIS BRANCH by construction: teamMonth
-          returns the tag for exactly the tier this branch serves, and `null`
-          only for pro and trial. The fallback keeps the types honest without
+          `data.rank` IS NON-NULL ON THIS BRANCH by construction, and since
+          wordle-teams-g03s that construction has TWO parts rather than one.
+          teamMonth returns the tag for exactly the tier this branch serves —
+          `null` for pro and trial — AND, on the free tier, only for the CURRENT
+          month; a free caller asking for any other month now gets `null` there
+          too. Both halves hold here: this branch is the free one, and
+          `queryMonth` above is `monthOf(today)` from the same clock reading sent
+          as the `today` arg, so the server's `monthOf(day) !== month` check can
+          never fire for it. THAT IS WHY queryMonth MUST STAY `monthOf(today)` ON
+          THIS BRANCH — keying it on `?month=` would not merely fetch the wrong
+          aggregate (the bug wordle-teams-iht.3.1 fixed), it would now also blank
+          the rank headline this card is built around. The fallback keeps the types honest without
           inventing a state — but it is NOT a true statement about a viewer who
           actually reaches it. The realistic way in is query skew: `layer3`
           comes from myBenchmarkBoards and `rank` from teamMonth, two reads
