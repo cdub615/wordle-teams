@@ -34,13 +34,24 @@ export const FREE_MONTHS = 3
 /**
  * THE CEILING, WHICH EXISTS FOR SAFETY RATHER THAN FOR PRODUCT.
  *
- * `earliestMonth` comes from `dailyScores.puzzleDay`, which `upsertBoard` accepts
- * as a bare `v.string()` and validates nowhere on the server (wordle-teams-qvqi).
- * A stored '1000-01-01' would otherwise build a twelve-thousand-row dropdown and
- * make the server materialise the same array on every below-floor request. v1
- * teams date to 2023, so ten years is generous for every real team and absurd for
- * every fabricated one. This is NOT insights-months.ts's CAP — that one shapes the
- * product; this one bounds an input nobody validates.
+ * `earliestMonth` comes from `dailyScores.puzzleDay`. A stored '1000-01-01' would
+ * otherwise build a twelve-thousand-row dropdown and make the server materialise
+ * the same array on every below-floor request. v1 teams date to 2023, so ten
+ * years is generous for every real team and absurd for every fabricated one. This
+ * is NOT insights-months.ts's CAP — that one shapes the product; this one bounds
+ * an input this module cannot vouch for.
+ *
+ * upsertBoard NOW VALIDATES puzzleDay ON THE WAY IN (wordle-teams-qvqi:
+ * `requirePlausiblePuzzleDay` in ../access.ts refuses anything that is not a real
+ * day between Wordle's first puzzle and tomorrow), SO WHY IS THIS STILL HERE.
+ * Because that check guards ONE writer. migrate.ts copies v1 rows verbatim with a
+ * direct `ctx.db.insert` and must keep doing so, e2eSeed.ts inserts directly too,
+ * and every row written before the check landed went in unexamined. So the set of
+ * rows nothing has ever validated is definitely not empty — what is UNVERIFIED is
+ * whether any of them is actually malformed, and it cannot be checked from this
+ * repo (see wordle-teams-qvqi for the query to run against the deployment). A cap
+ * that costs one `Math.min` is not worth removing on a hope.
+ * DO NOT REMOVE IT ON THE STRENGTH OF THE WRITE-PATH FIX.
  */
 const MAX_MONTHS = 120
 
@@ -114,7 +125,7 @@ export function monthWindowFor({ currentMonth, earliestMonth, pro }: MonthWindow
  * a micro-optimisation: the array form would materialise up to MAX_MONTHS entries
  * on every below-floor request purely to read one value, and — before the span was
  * floored — could read `[-1]` off an empty array and throw `undefined.split` inside
- * getTeamMonthFor (scores.ts:45), taking the dashboard down for every Pro member of
+ * getTeamMonthFor (convex/scores.ts), taking the dashboard down for every Pro member of
  * the team.
  *
  * A FLOOR RATHER THAN MEMBERSHIP OF THE WINDOW. There is no upper bound to
@@ -139,10 +150,10 @@ export function serverFloorFor(input: MonthWindowInput): PuzzleMonth {
  * `spanFor`'s bounds bites — an `earliestMonth` of `currentMonth - 1` already
  * differs from the floored window's oldest month — but the ANSWER this function
  * returns only differs when the MAX_MONTHS cap does, because below the floor
- * both comparisons land on null anyway. The cap is the case that mattered: an ancient, unvalidated `earliestMonth` (upsertBoard,
- * wordle-teams-qvqi) used to be handed back verbatim, so a team with a stored
- * '1000-01' could be teased a month decades before what Pro's own capped window
- * reaches — advertising history the upgrade cannot deliver. Comparing the two
+ * both comparisons land on null anyway. The cap is the case that mattered: an
+ * ancient `earliestMonth` used to be handed back verbatim, so a team with a
+ * stored '1000-01' could be teased a month decades before what Pro's own capped
+ * window reaches — advertising history the upgrade cannot deliver. Comparing the two
  * `oldestOfferedFor` values, instead of `earliestMonth` against the free
  * window, makes that impossible by construction: this can only ever name a
  * month the Pro window itself contains.
@@ -225,18 +236,34 @@ function oldestOfferedFor(input: MonthWindowInput): PuzzleMonth {
  * one is route validation on `?month=`, runs before any query, and belongs to the
  * router rather than to this rule.
  *
- * NEEDED BECAUSE NOTHING UPSTREAM GUARANTEES IT. `upsertBoard` stores `puzzleDay`
- * as an unvalidated `v.string()` (wordle-teams-qvqi), so `monthOf('')` is `''` and
+ * NEEDED BECAUSE NOTHING UPSTREAM GUARANTEES IT. `earliestMonth` is `monthOf` of
+ * a stored `dailyScores.puzzleDay`, and the table still holds rows no write-path
+ * check ever saw (migrate.ts's verbatim copies, e2eSeed.ts's inserts, and
+ * everything written before wordle-teams-qvqi landed). `monthOf('')` is `''` and
  * `monthIndex('')` is NaN — which would make the span NaN and the window empty.
+ * The `month` this ALSO guards on the two read gates is a caller's argument and
+ * has no upstream guarantee at all.
  *
  * SHAPE ONLY, AND IT ADMITS MONTH 00 AND 99. '2026-00' and '2026-99' both pass
  * here: the first yields a nine-month window and the second clamps to three.
  * Neither is harmful — a cosmetically long dropdown is not a crash, and since
  * Fix 1 every month this module hands out is `addMonths`-derived rather than
  * echoed back, so a nonsense input can no longer reach a label ('2026-00' teases
- * '2025-12'). Left shape-only deliberately: the real fix belongs upstream in
- * wordle-teams-qvqi, and a stricter check here would imply a validation
- * guarantee this module cannot make.
+ * '2025-12'). Left shape-only deliberately, and the day-level rule is NOT its
+ * twin: `isPuzzleDay` in puzzleDay.ts rejects '2026-02-30' outright. The two
+ * differ because their jobs do — that one guards a WRITE of a value that is then
+ * read back as a Date, this one guards a READ whose every output is derived
+ * rather than echoed — and puzzleDay.ts's own comment argues the split at length.
+ *
+ * THE DAY-LEVEL SIBLING LIVES IN puzzleDay.ts, NOT BESIDE THIS, and that is a
+ * decision rather than an accident of where someone was typing. This predicate is
+ * here because its ARGUMENT is about the window: a malformed month sorts above a
+ * floor THIS MODULE computes, so the shape rule and the window rule must not be
+ * able to drift apart. `isPuzzleDay` has no window in it — it answers "is this
+ * the format puzzleDay.ts defines", which is the question that module exists for
+ * and whose every other operation (`monthOf`, `monthRange`, `fromPuzzleDay`,
+ * `daysOfMonth`) already assumes. Putting it here would also mean the write path
+ * imports the window rule to validate a board, which is backwards.
  */
 export function isMonth(value: string): boolean {
   return /^\d{4}-\d{2}$/.test(value)

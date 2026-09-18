@@ -5,7 +5,7 @@ import { attemptsFor } from './lib/board.ts'
 import { teamRank, type TeamRankTeaser } from './lib/teamStats.ts'
 import { visibleSlice } from './lib/globalThreshold.ts'
 import { hasFullTeamMonth, type InsightsAccess } from './lib/insightsAccess.ts'
-import { isPlausibleToday, toPuzzleDay, type PuzzleDay } from './lib/puzzleDay.ts'
+import { isPlausibleToday, monthOf, toPuzzleDay, type PuzzleDay } from './lib/puzzleDay.ts'
 
 /**
  * The boards Layer 1 benchmarks, and what this player is allowed to see of them.
@@ -49,6 +49,31 @@ export const myAccess = query({
   },
 })
 
+/**
+ * WHY A PLAYER'S OWN PAST BOARDS ARE RATIONED HERE AND NOT IN scores.getMyMonth
+ * (wordle-teams-byft, resolved). Both queries return the CALLER'S OWN rows from
+ * `dailyScores`; this one hands a free player exactly one of them and that one
+ * serves every board of whatever month it is asked for. That looks like an
+ * accident and is not, but the reason cannot be "your own data is free" — if it
+ * were, the layer check below would be indefensible. THE RULE IS:
+ *
+ *     EDITING YOUR OWN ENTRY IS FREE.
+ *     BROWSING YOUR OWN HISTORY AS ANALYSIS IS LAYER 2.
+ *
+ * THIS QUERY IS THE ANALYSIS SIDE. Its only caller is routes/insights.tsx, where
+ * the boards are joined against the static benchmark corpus and rendered as a
+ * personal-history panel. That panel IS the Insights product; a player reading
+ * their own past boards through it is doing the thing Layer 2 sells, which is
+ * what the block comment below means by "HISTORY IS WHAT LAYER 2 IS".
+ *
+ * scores.getMyMonth IS THE EDITING SIDE, and its own header carries the same rule
+ * from the other end: it feeds `SoloBoardEntryForm`'s prefill, so a floor there
+ * would refuse a player the form for an entry they own. The two are allowed to
+ * disagree about months BECAUSE they answer different questions, and the
+ * disagreement is bounded by what each one is wired to — the day this query stops
+ * feeding a panel, or that one starts feeding one, the rule has moved and both
+ * comments are wrong together.
+ */
 export const myBenchmarkBoards = query({
   args: {},
   handler: async (ctx) => {
@@ -199,14 +224,18 @@ function visible(board: { puzzleDay: string; guesses: string[]; answer?: string 
  * getLastMonthWinner has no analogue: no tier is offered a month its gate
  * refuses, which is why it could be gated at no cost and this cannot.
  *
- * ONE THING ON THE FREE BRANCH IS STILL MONTH-UNBOUNDED, and it is named rather
- * than waved past: `rank`. It is computed from the requested month's aggregate,
- * so a devtools caller with no subscription can read `{ kind: 'ranked', rank, of }`
- * for any month the team has played. team-section.tsx's free branch asks only for
- * `monthOf(today)`, so no browser does it. Left as a decision rather than a fix
- * for the reasons in wordle-teams-g03s — chiefly that a rank is a conclusion
- * about the CALLER'S OWN position, and that a floor here would have to answer the
- * trial question the paragraph above leaves deliberately open.
+ * ONE THING ON THE FREE BRANCH IS MONTH-BOUNDED AFTER ALL, AND IT IS THE ONLY
+ * THING THAT IS: `rank`. wordle-teams-g03s asked whether a position computed from
+ * a month's aggregate belongs with the `stats` that month's gate withholds, and
+ * the answer is yes for every month but the current one — a rank you cannot see
+ * the numbers behind is a conclusion about a month you have not bought, while
+ * "where do I stand this month" is the free tier's own figure and stays free. The
+ * gate is a `monthOf(day) !== month` check on the BOUNDED day, written out in
+ * full at the point it is applied. It binds the FREE tier only: `hasFullTeamMonth`
+ * is true for a trialist, so they take the paid branch and derive their standing
+ * from `stats` for any month via src/lib/insights-team.ts's `memberAverages`,
+ * which is the trial/pro seam the two paragraphs above accept in the spec's own
+ * words.
  */
 export const teamMonth = query({
   args: { teamId: v.id('teams'), month: v.string(), today: v.string() },
@@ -317,12 +346,73 @@ export const teamMonth = query({
         A MISSING AGGREGATE IS `not-played` rather than `nobody-else`. Nobody
         has played the month, the viewer included, so the ask is on them.
       */
-      const rank: TeamRankTeaser =
-        roster.length < 2
-          ? { kind: 'solo' }
-          : stats
-            ? teamRank(stats.members, player._id)
-            : { kind: 'not-played' }
+      /*
+        THE RANK IS PART OF THE PAID MONTH FOR EVERY MONTH BUT THIS ONE
+        (wordle-teams-g03s, resolved). `stats` is null above for every month a
+        free member asks for, so serving a POSITION derived from the same
+        aggregate for an arbitrary past month was incoherent: a conclusion about
+        a month whose numbers the caller is not allowed to see. A rank for last
+        March is analysis — the thing Layer 3 sells — rather than a fact about
+        today, and nothing free is meant to reach it.
+
+        THE CURRENT MONTH STAYS FREE, AND THAT IS THE POINT RATHER THAN AN
+        EXEMPTION. The free tier's product here is one fact about today
+        (DailyTeamFact) plus "where do I stand this month" — wordle-teams-iht.3.3
+        added the second deliberately as the one real figure the free tier gains,
+        and lib/insightsAccess.ts's hard constraint is that NOTHING PREVIOUSLY
+        FREE MOVES BEHIND THE PAYWALL. Withholding it for the current month would
+        breach that; withholding it for March takes nothing anyone ever had.
+
+        `monthOf(day)`, NOT `monthOf(today)`, AND THE DIFFERENCE IS THE WHOLE
+        GATE. `day` is the value already bounded by isPlausibleToday just above.
+        Comparing against the raw `today` would make the check self-certifying:
+        a caller wanting March's rank would send `today: '2026-03-14'` alongside
+        `month: '2026-03'` and pass. Against `day`, an implausible `today`
+        collapses to the server's own, so the furthest a lying client can move
+        the accepted month is the ±1 day of slack — which reaches a second month
+        only at a month boundary, and only the one adjacent to it. That is the
+        same tolerance requirePlausibleToday grants every mutation.
+
+        A FREE CALLER WITH A GENUINELY WRONG CLOCK LOSES THE RANK, and it is
+        worth naming rather than discovering. If their `today` is days adrift,
+        `day` falls back to the server's and `monthOf(day)` stops matching the
+        month their browser asked for, so this returns null. Their free card is
+        already degraded in exactly that case — the teaser filters `stats.days`
+        for `day`, which is not in the month that was fetched, so the fact reads
+        'no-board' — so this withholds nothing that was still working.
+
+        NO UI REGRESSION, VERIFIED RATHER THAN ASSUMED: team-section.tsx's free
+        branch computes `queryMonth = hasFullTeamMonth(layer3) ? month :
+        monthOf(today)` from the same `toPuzzleDay(new Date())` it sends as
+        `today`, and never passes `?month=` on that branch. So a browser on this
+        path always satisfies this check, and `data.rank` is non-null there as
+        that component's own comment claims.
+
+        THE TRIAL KEEPS ITS RANK FOR EVERY MONTH, DELIBERATELY, AND THAT IS NOT
+        AN OVERSIGHT IN THIS GATE — it never reaches it. `hasFullTeamMonth`
+        includes `trialActive`, so a trialist takes the paid branch below, gets
+        `stats` in full, and src/lib/insights-team.ts's `memberAverages` puts them
+        in order on the client from it. Nothing here could withhold that without withholding
+        `stats`, and the spec forbids exactly that: §4 states "The trial does not
+        widen this window" (docs/superpowers/specs/2026-09-17-pro-month-window-design.md)
+        and accepts the resulting trial/pro seam in those words. So the honest
+        statement of this gate's reach is: it binds the FREE tier only.
+
+        null, NOT A NEW TeamRankTeaser TAG. `TeamRankTeaser`'s four kinds are
+        reasons a player HAS no standing, each with its own copy in
+        team-locked-card.tsx's exhaustive `headlineFor`; "you may not see this
+        month's" is not one of those and would need copy for a state no browser
+        can reach. The paid branch already returns `rank: null`, so both branches
+        keep the same keys and the client needs no new narrowing.
+      */
+      const rank: TeamRankTeaser | null =
+        monthOf(day) !== month
+          ? null
+          : roster.length < 2
+            ? { kind: 'solo' }
+            : stats
+              ? teamRank(stats.members, player._id)
+              : { kind: 'not-played' }
 
       return {
         access,

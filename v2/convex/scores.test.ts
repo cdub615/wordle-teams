@@ -12,8 +12,16 @@ const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth
 
 // `today` is now bounded server-side to ±1 day of the real clock (Step 0b), so
 // tests can no longer hardcode a literal like '2026-08-18' for it — that drifts
-// out of bounds the moment the calendar moves on. `puzzleDay` values are NOT
-// bounded and stay as literals; only `today` needs to track the real date.
+// out of bounds the moment the calendar moves on. Only `today` needs to track
+// the real date.
+//
+// `puzzleDay` IS BOUNDED TOO SINCE wordle-teams-qvqi, but not in a way that puts
+// a fuse under a literal. requirePlausiblePuzzleDay accepts any real day from
+// Wordle's first puzzle to one past the server's today, so a literal in the PAST
+// — every one in this file — stays valid for as long as the repo exists. What
+// would rot is a literal in the FUTURE, and there are none: write one and it
+// fails immediately rather than in six months, which is the failure mode worth
+// having.
 //
 // A HARDCODED *MONTH* HANDED TO getTeamMonthFor IS EXACTLY AS UNSAFE, for a
 // second and independent reason. wordle-teams-kusd's month gate refuses any
@@ -674,6 +682,107 @@ describe('upsertBoardFor', () => {
       }
     })
   })
+
+  // wordle-teams-qvqi. Until this guard landed, `puzzleDay` was a bare
+  // `v.string()` nothing on the server ever looked at, so every value below was
+  // storable forever as half of dailyScores' (playerId, puzzleDay) key.
+  describe('the day the board is for', () => {
+    // NAMED AS A ROOT-CAUSE TEST, because '' is the value that actually broke
+    // something: it sorts below every real day, so earliestMonthFor took it as a
+    // team's minimum, monthOf('') is '', the window span is NaN, and the month
+    // dropdown's "currentMonth is always element 0" invariant fails.
+    test('refuses the malformed days that used to be storable', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const playerId = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+        for (const puzzleDay of ['', '1', 'x', '2026', '2026-08']) {
+          await expect(
+            upsertBoardFor(ctx, playerId, {
+              puzzleDay,
+              answer: 'SPEED',
+              guesses: ['SPEED', '', '', '', '', ''],
+              today,
+            }),
+          ).rejects.toMatchObject({ data: { code: 'INVALID_PUZZLE_DAY' } })
+        }
+        // And nothing was written on the way to any of those refusals.
+        expect(await ctx.db.query('dailyScores').collect()).toEqual([])
+      })
+    })
+
+    test('refuses a day before Wordle existed', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const playerId = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+        await expect(
+          upsertBoardFor(ctx, playerId, {
+            puzzleDay: '1000-01-01',
+            answer: 'SPEED',
+            guesses: ['SPEED', '', '', '', '', ''],
+            today,
+          }),
+        ).rejects.toMatchObject({ data: { code: 'INVALID_PUZZLE_DAY' } })
+      })
+    })
+
+    // WELL-SHAPED AND NOT A DAY. This is the case a shape-only check — the kind
+    // lib/monthWindow.ts's isMonth deliberately is — would let through, and it is
+    // not harmless: fromPuzzleDay rolls '2026-02-30' over to March 2nd, so the
+    // board would render on a different day from the one it is keyed on.
+    test('refuses a well-shaped string that is not a real calendar day', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const playerId = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+        await expect(
+          upsertBoardFor(ctx, playerId, {
+            puzzleDay: '2026-02-30',
+            answer: 'SPEED',
+            guesses: ['SPEED', '', '', '', '', ''],
+            today,
+          }),
+        ).rejects.toMatchObject({ data: { code: 'INVALID_PUZZLE_DAY' } })
+      })
+    })
+
+    test('refuses a day in the future, past the one of timezone slack', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const playerId = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+        await expect(
+          upsertBoardFor(ctx, playerId, {
+            puzzleDay: addDays(toPuzzleDay(new Date()), 2),
+            answer: 'SPEED',
+            guesses: ['SPEED', '', '', '', '', ''],
+            today,
+          }),
+        ).rejects.toMatchObject({ data: { code: 'INVALID_PUZZLE_DAY' } })
+      })
+    })
+
+    // THE HALF THAT MUST KEEP WORKING, and the reason the range is not bounded
+    // to today: backfilling an old board is a supported feature, not an anomaly.
+    // A guard that refused this would be worse than the hole it closed.
+    test('still accepts a backfilled board years old, and tomorrow', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const playerId = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+        for (const puzzleDay of ['2023-03-14', addDays(toPuzzleDay(new Date()), 1)]) {
+          const result = await upsertBoardFor(ctx, playerId, {
+            puzzleDay,
+            answer: 'SPEED',
+            guesses: ['SPEED', '', '', '', '', ''],
+            today,
+          })
+          expect(result.action).toBe('create')
+        }
+      })
+    })
+  })
 })
 
 describe('monthly winners', () => {
@@ -1038,7 +1147,7 @@ describe('monthWindowInputsFor', () => {
     // a ghost with no boards would be indistinguishable from a member with none,
     // and would prove nothing about what happens to a dangling id.
     //
-    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching scores.ts:191
+    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching getTeamMonthFor's
     // (getTeamMonthFor): that function drops a dangling roster id before it ever
     // reads a score for it, so the ghost's 2023-03 board can never reach the
     // scoreboard either. A window that offered 2023-03 anyway would let a viewer
@@ -1228,7 +1337,7 @@ describe('scores.getMyMonth', () => {
   test("a row with no answer at all comes back as '', not undefined", async () => {
     // THE `?? ''` FALLBACK, WHICH NOTHING ELSE IN THIS FILE REACHES. `answer`
     // is v.optional in the schema — v1 rows predate it — and getTeamMonthFor
-    // coalesces it for exactly that reason (scores.ts:204-209). Drop the
+    // coalesces it for exactly that reason (getTeamMonthFor's `scores.map`). Drop the
     // coalesce here and all four gates stay green: the shape test above asserts
     // Object.keys, which still lists `answer` when the value is undefined, and
     // every other fixture in this file sets one. The TYPE link does not catch
@@ -1257,5 +1366,66 @@ describe('scores.getMyMonth', () => {
     registerBetterAuth(t)
     const as = await authenticatedAs(t, 'nobody@example.com')
     expect(await as.query(api.scores.getMyMonth, { month: '2026-09' })).toEqual([])
+  })
+
+  // wordle-teams-byft's half that WAS a real gap. A bare '2026' bounds
+  // '2026-01'..'2026-31', which lexically brackets every day of the year, so
+  // without the isMonth check this returns TWELVE MONTHS of boards to a caller
+  // who asked for one — `monthRange`'s "cannot reach into the next month"
+  // guarantee holds only for a well-formed 'YYYY-MM'.
+  //
+  // THE FIXTURE SPANS TWO MONTHS ON PURPOSE. A single-month fixture would pass
+  // against the broken version too, since one month of a year is still one
+  // month; it takes a second month inside the same year for the bracket to show.
+  test('treats a month-shaped argument as a month and anything else as nothing', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      for (const puzzleDay of ['2026-03-04', '2026-09-04']) {
+        await ctx.db.insert('dailyScores', {
+          playerId: ada,
+          puzzleDay,
+          date: Date.now(),
+          answer: 'crane',
+          guesses: ['crane'],
+        })
+      }
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    expect(
+      (await as.query(api.scores.getMyMonth, { month: '2026-09' })).map((s) => s.puzzleDay),
+    ).toEqual(['2026-09-04'])
+    for (const month of ['2026', '', '2026-09-04', 'x']) {
+      expect(await as.query(api.scores.getMyMonth, { month })).toEqual([])
+    }
+  })
+
+  // AND THE FLOOR IS STILL DELIBERATELY ABSENT — the other half of
+  // wordle-teams-byft, decided rather than overlooked. This query is the EDITING
+  // affordance (SoloBoardEntryForm's prefill), not an analysis surface, so a free
+  // player reaches every month they have boards in. A floor here would open the
+  // entry form empty over a board that exists, and a re-submit would overwrite
+  // it. insights.myBenchmarkBoards is where a player's own history IS rationed,
+  // and both files carry the rule.
+  test('serves a free caller a month far below any window, because this is the entry form', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('dailyScores', {
+        playerId: ada,
+        puzzleDay: ancientDay,
+        date: Date.now(),
+        answer: 'crane',
+        guesses: ['crane'],
+      })
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    // No playerMembership row at all, so isProFor is false — the same caller
+    // getTeamMonthFor refuses this month's scoreboard to.
+    expect(
+      (await as.query(api.scores.getMyMonth, { month: ancientMonth })).map((s) => s.puzzleDay),
+    ).toEqual([ancientDay])
   })
 })

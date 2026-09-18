@@ -105,14 +105,15 @@ describe('monthWindowFor — pro', () => {
   })
 
   test('survives a malformed earliestMonth without producing an empty window', () => {
-    // upsertBoard TAKES puzzleDay AS A BARE v.string() AND VALIDATES NOTHING
-    // (wordle-teams-qvqi), so '' is a storable puzzle day and monthOf('') is ''.
+    // '' IS A STORED puzzle day on rows nothing ever validated — migrate.ts's
+    // verbatim v1 copies, e2eSeed.ts's inserts, and everything written before
+    // upsertBoardFor grew its check (wordle-teams-qvqi) — and monthOf('') is ''.
     // That makes the span NaN, Array.from({length: NaN}) returns [], and the
     // element-0 invariant below is violated for a REACHABLE input — with
     // serverFloorFor then reading months[-1] and throwing inside
-    // getTeamMonthFor (scores.ts:45), taking the dashboard down for every Pro
-    // member of the team rather than for the author. The cause is filed
-    // separately; this is the blast shield.
+    // getTeamMonthFor (convex/scores.ts), taking the dashboard down for every Pro
+    // member of the team rather than for the author. The write path is closed
+    // now; this is the blast shield for the rows that predate it.
     for (const earliestMonth of ['', '1', 'x', '2026', 'not-a-month']) {
       const months = monthWindowFor({ currentMonth: '2026-08', earliestMonth, pro: true })
 
@@ -224,8 +225,8 @@ describe('proTeaserMonth', () => {
 
   test('names a month the Pro window can actually deliver, even for an ancient earliestMonth', () => {
     // THE DEFECT THIS GUARDS AGAINST. This function used to hand back
-    // `earliestMonth` verbatim, so a team with an old, unvalidated
-    // earliestMonth (upsertBoard, wordle-teams-qvqi) — '1000-01' here — could
+    // `earliestMonth` verbatim, so a team with an old earliestMonth left by a
+    // row no write-path check ever saw (wordle-teams-qvqi) — '1000-01' here — could
     // be teased a month far older than what spanFor's MAX_MONTHS cap lets the
     // Pro window itself reach: a free player upgrades and gets 2016-09, not
     // the 1000-01 they were promised. Asserted as a RELATIONSHIP, not a

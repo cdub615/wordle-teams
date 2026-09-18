@@ -4,6 +4,7 @@ import {
   accessError,
   currentPlayer,
   isProFor,
+  requirePlausiblePuzzleDay,
   requirePlausibleToday,
   requirePlayer,
   requireTeamMemberFor,
@@ -98,10 +99,10 @@ export async function getTeamMonthFor(
   // naming. Every other "what day is it" question on the server takes `today`
   // from the client and bounds it. Through access.ts's requirePlausibleToday,
   // which THROWS: upsertBoardFor below, teams.ts, scoringSystems.ts, and
-  // inviteLinks.ts's consumeLink (:229). Through isPlausibleToday directly, which
+  // inviteLinks.ts's consumeLink. Through isPlausibleToday directly, which
   // FALLS BACK to the server's day rather than throwing: insights.ts's teamMonth
-  // (:235) and players.ts's completeProfileFor (:151) — the latter is the
-  // documented exception access.ts:242 already carries, because throwing there
+  // and players.ts's completeProfileFor — the latter is the
+  // documented exception requirePlausibleToday's own doc already carries, because throwing there
   // would refuse the player row and lock the account out. This reads `new Date()`
   // directly and bounds nothing, because it takes no client value to bound.
   //
@@ -254,7 +255,7 @@ export const getTeamMonth = query({
  * ONE `ctx.db.get` PLUS, FOR A MEMBER WHO STILL EXISTS, ONE INDEXED `.first()`,
  * ascending — `by_player_and_puzzleDay` is already the index getTeamMonthFor
  * walks for the month's scores, and an index range's first row IS its smallest
- * (Convex index queries default to ascending; insights.ts:91 writes
+ * (Convex index queries default to ascending; insights.ts's myBenchmarkBoards writes
  * `.order('desc')` explicitly when it wants the other end). No scan, no sort, no
  * collect — a `.collect().then((rows) => rows[0] ?? null)` would read every board
  * that member has ever entered and still return the same first row, which is
@@ -270,7 +271,7 @@ export const getTeamMonth = query({
  * visible on the scoreboard the same way.
  *
  * A DANGLING ROSTER ID IS SKIPPED, on the same premise getTeamMonthFor
- * (scores.ts:191) and getMyTeamsFor (teams.ts:105) share — Convex ids are not
+ * (its own `if (!member) return null`) and getMyTeamsFor (teams.ts) share — Convex ids are not
  * foreign keys, so `teams.playerIds` can outlive the `players` row it names —
  * but for a DIFFERENT REASON. Those two guard against throwing on
  * `member.firstName`; nothing here would throw on a ghost, which is exactly why
@@ -311,7 +312,7 @@ async function earliestMonthFor(
   const firsts = await Promise.all(
     playerIds.map(async (memberId) => {
       // A ROSTER ENTRY WITH NO PLAYER ROW, skipped BEFORE the index read rather
-      // than after — the same guard scores.ts:191 (getTeamMonthFor) and teams.ts:105
+      // than after — the same guard getTeamMonthFor (above) and teams.ts's getMyTeamsFor
       // (getMyTeamsFor) apply, for a related but distinct reason: those two guard
       // against throwing on `member.firstName`, while this one exists so a ghost's
       // boards cannot widen the window past what getTeamMonthFor can ever render
@@ -329,13 +330,17 @@ async function earliestMonthFor(
 
   let earliest: string | null = null
   for (const row of firsts) {
-    // PuzzleDay is 'YYYY-MM-DD' BY CONVENTION ONLY — upsertBoard accepts it as an
-    // unvalidated `v.string()` (wordle-teams-qvqi) — so lexical comparison is
-    // chronological for every well-formed row, but a single malformed one (say,
-    // an empty string) sorts below every real day and would silently become the
-    // minimum, dropping a paying member into the free window. Nothing here
-    // crashes on that: lib/monthWindow.ts's `isMonth` catches a malformed
-    // `earliestMonth` downstream and treats it as if the team had none.
+    // PuzzleDay is 'YYYY-MM-DD' BY CONVENTION ON THE ROWS THAT ALREADY EXIST, so
+    // lexical comparison is chronological for every well-formed row, but a single
+    // malformed one (say, an empty string) sorts below every real day and would
+    // silently become the minimum, dropping a paying member into the free window.
+    // Nothing here crashes on that: lib/monthWindow.ts's `isMonth` catches a
+    // malformed `earliestMonth` downstream and treats it as if the team had none.
+    //
+    // upsertBoardFor NOW REFUSES SUCH A DAY ON THE WAY IN (wordle-teams-qvqi), so
+    // no NEW row can be one — but this read is over the whole table's history, and
+    // migrate.ts and e2eSeed.ts both insert without passing through that check. A
+    // guard here is still guarding something.
     if (row !== null && (earliest === null || row.puzzleDay < earliest)) earliest = row.puzzleDay
   }
   return earliest === null ? null : monthOf(earliest)
@@ -425,70 +430,60 @@ export const getMyPlayerId = query({
  *
  * THAT GUARANTEE IS CONDITIONAL ON THE ARGUMENT'S SHAPE, and `v.string()` does
  * not enforce it: `{ month: '2026' }` bounds '2026-01'..'2026-31', which
- * lexically brackets every day of the year. The route is what enforces the
- * shape — app.tsx's validateSearch requires /^\d{4}-\d{2}$/ before a month can
- * reach here.
+ * lexically brackets every day of the year. routes/app.tsx's `validateSearch`
+ * requires /^\d{4}-\d{2}$/ of `?month=` before a month can reach here from a
+ * browser, and the `isMonth` check in the handler below is the rule for
+ * everything that is not one — the same division getTeamMonthFor's gate states.
  *
- * getTeamMonthFor USED TO HAVE EXACTLY THIS PROPERTY AND NO LONGER DOES, so the
- * two are now deliberately asymmetric and this paragraph is the record of why.
- * That function rejects a non-'YYYY-MM' month outright (wordle-teams-kusd's month
- * gate) because a bare year there sorts ABOVE a Pro caller's floor and would
- * return a year of EVERY TEAMMATE'S boards in one payload, straight through the
- * paywall. Here the worst case is a year of THE CALLER'S OWN boards returned to
- * the caller: more bytes than asked for, but nothing they are not already
- * entitled to and nobody else's data at all. So the shape check is not copied
- * down — it belongs to the gate, not to `monthRange`.
+ * WHY THE PRODUCT RULE IS NOT "YOUR OWN DATA IS FREE" (wordle-teams-byft,
+ * resolved). It would be the obvious reading of this query and it is the wrong
+ * one, because insights.ts's `myBenchmarkBoards` returns the caller's OWN boards
+ * too and hands a free player exactly one of them — "HISTORY IS WHAT LAYER 2 IS",
+ * in that query's own words. Two queries over the same rows cannot both be
+ * explained by who owns the rows. THE RULE THAT ACTUALLY FITS BOTH IS:
  *
- * THERE IS NO MONTH FLOOR HERE EITHER, AND THAT IS THE LARGER ASYMMETRY OF THE
- * TWO — stated outright because it is not obvious and because the reasoning
- * above does NOT extend to it unexamined. A free player can read their own
- * boards from any month they like through this query, while getTeamMonthFor
- * refuses them the same month's scoreboard — INCLUDING THEIR OWN ROW IN IT.
- * board-entry/form.tsx shows the two side by side: `TeamBoardEntryForm` and
- * `SoloBoardEntryForm` hand the SAME route month to the gated query and the
- * ungated one respectively.
+ *     EDITING YOUR OWN ENTRY IS FREE.
+ *     BROWSING YOUR OWN HISTORY AS ANALYSIS IS LAYER 2.
  *
- * LEFT UNGATED DELIBERATELY. The paywall being sold is a TEAM's history — every
- * teammate's boards for a month, which is what the dropdown offers and what v1's
- * Pro reaches back to. A player's own boards are not that product: they are the
- * thing the player typed in, they are already returned in full for the current
- * month to everyone, and refusing them would mean a free player could not re-open
- * their own entry form for an old month. Note the disagreement honestly, though —
- * "your own data is data you are entitled to" is exactly the premise the gate
- * declines two hundred lines up, where it refuses a free caller a month
- * containing their own row. The gate's answer is that the ROW is not what is
- * being withheld; the TEAM MONTH is, and a row cannot be served out of it
- * selectively without rebuilding the payload. If that ever stops being true — if
- * this query grows a teamId, serves anyone but `currentPlayer`, or starts
- * returning anything a teammate entered — both the shape check and a floor come
+ * THIS QUERY IS THE EDITING AFFORDANCE, and the code says so rather than the
+ * comment merely claiming it: its only production caller is `SoloBoardEntryForm`
+ * in board-entry/form.tsx, where `useSuspenseQuery(getMyMonth)` becomes
+ * `myScores` — which feeds `pickDefaultDay`'s `playedDays` and the `existing`
+ * lookup that prefills the board being edited. Nothing renders it as a history.
+ * A month floor here would be the first time this product refused someone the
+ * form for an entry they own, and it would refuse it silently: the form would
+ * open empty over a board that exists and a re-submit would overwrite it.
+ *
+ * myBenchmarkBoards IS THE ANALYSIS AFFORDANCE, and it is the Insights product
+ * — a benchmark panel on /insights, not a way back into anything. Its layer
+ * check is the paywall working, not an inconsistency with this file.
+ *
+ * SO THE TWO ARE ALLOWED TO DISAGREE ABOUT MONTHS, AND EACH NOW SAYS WHY IN ITS
+ * OWN FILE so neither reads as an oversight. What would break the rule is this
+ * query becoming a way to READ history rather than to edit an entry. If it ever
+ * grows a `limit`, serves a range of months, feeds a panel, or starts returning
+ * anything a teammate entered, it has crossed over and the layer check comes
  * with it.
  *
- * RE-EXAMINED AND STILL UNGATED IN wordle-teams-kusd's task 4, WHICH AUDITED
- * EVERY CALLER-SUPPLIED-MONTH PATH. That audit gated winners.ts's
- * getLastMonthWinner, which leaves this the only public, month-taking read with
- * no month rule at all — so the reason had better be a reason, and the audit
- * found one thing the paragraph above does not say. It is recorded here rather
- * than acted on, because acting on it is a product decision rather than an audit
- * finding:
+ * THE SHAPE CHECK IS NEW AND THE FLOOR IS STILL DELIBERATELY ABSENT — the task 4
+ * audit recorded exactly that asymmetry against this function, and only half of
+ * it was a real gap. A bare '2026' is not a month, so treating it as one is a
+ * bug whatever the tiering says; how far back a month may reach is the product
+ * question the rule above answers, and the answer for an editing affordance is
+ * "as far back as they have boards".
  *
- * THE "YOUR OWN DATA IS FREE" PREMISE IS NOT ACTUALLY THIS REPO'S RULE, AND
- * insights.ts's myBenchmarkBoards IS THE COUNTER-EXAMPLE. That query returns the
- * caller's OWN boards, and it hands a free player exactly one — the most recently
- * entered — while `layer1 === 'full' || layer2 === 'full'` unlocks the rest.
- * Its own comment says it outright: "HISTORY IS WHAT LAYER 2 IS". So a paid tier
- * in this product already withholds a player's own past boards from them, and
- * this query serves the same rows for any month to anyone. A free player who
- * walks the months through `api.scores.getMyMonth` reassembles the history
- * myBenchmarkBoards is rationing.
- *
- * THAT IS NOT BEING FIXED HERE, and the reason is not squeamishness. The two
- * queries answer different questions — myBenchmarkBoards feeds a benchmark panel
- * that is the Insights product, this feeds the entry form's prefill, which is how a
- * player EDITS a board they already own — and a floor here would be the first
- * time this product refused someone the form for their own entry. Whether the
- * two should agree, and in which direction, belongs to whoever owns the Insights
- * tiering, not to a month-window gate. Filed as wordle-teams-byft so it is a
- * decision someone takes rather than a seam someone finds.
+ * IT RETURNS [] RATHER THAN THROWING, WHICH DIVERGES FROM BOTH SIBLINGS, and the
+ * divergence is the rule above applied rather than an inconsistency. getTeamMonthFor
+ * and winners.ts's lastMonthWinnerFor both throw MONTH_OUT_OF_WINDOW on a
+ * malformed month because for them the shape check IS the leak gate — a bare year
+ * sorts above a Pro floor and pulls a year of every teammate's boards. Here there
+ * is no window to be out of, the caller is reading their own rows, and the copy
+ * ("That month is part of Pro.") would be a lie. '2026' is not a month, so it
+ * contains no boards: [] is the honest answer AND the safe one, and it keeps
+ * "editing your own entry is never refused" literally true one paragraph below
+ * where it is written. It also matters that this is a `useSuspenseQuery` — a
+ * throw here reaches the error boundary and takes the form away, which is the
+ * outcome the rule exists to prevent.
  *
  * NULL-SAFE FOR A MISSING PLAYER, like onboarding.getStatus: this renders on
  * /app, which is reachable in the window before a player row exists.
@@ -498,6 +493,12 @@ export const getMyMonth = query({
   handler: async (ctx, { month }) => {
     const player = await currentPlayer(ctx)
     if (!player) return []
+    // See the header: `monthRange`'s "cannot reach into the next month" guarantee
+    // holds only for a well-formed 'YYYY-MM'. `isMonth` from lib/monthWindow.ts
+    // rather than a private regex, for the reason that function's own comment
+    // gives — a second copy of the pattern is how the server's shape rule comes to
+    // mean two different things in two files.
+    if (!isMonth(month)) return []
     const { start, end } = monthRange(month)
     const scores = await ctx.db
       .query('dailyScores')
@@ -591,6 +592,34 @@ export async function upsertBoardFor(
 ): Promise<{ action: 'create' | 'update' | 'delete' }> {
   const { puzzleDay, answer, guesses, today } = input
 
+  // THE DAY THIS BOARD IS FOR, CHECKED BEFORE ANYTHING IS READ OR WRITTEN
+  // (wordle-teams-qvqi). `puzzleDay` arrives as a bare `v.string()`, and until
+  // this line nothing on the server looked at its shape at all: '', '1', 'x' and
+  // '1000-01-01' were every one of them storable, forever, as half of this
+  // table's `by_player_and_puzzleDay` key.
+  //
+  // IT IS THE ROOT CAUSE THE MONTH WINDOW HAD TO DEFEND AGAINST DOWNSTREAM. A
+  // stored '' sorts below every real day, so `earliestMonthFor` above takes it as
+  // the team's minimum, `monthOf('')` is '', `monthIndex('')` is NaN, and the
+  // window is empty — which breaks the "currentMonth is always element 0"
+  // invariant src/lib/dashboard-months.ts's corrective navigation terminates on.
+  // lib/monthWindow.ts's `isMonth` guard and its MAX_MONTHS cap both exist for
+  // rows like that. THEY STAY, and this does not make them redundant: they defend
+  // rows that already exist and rows migrate.ts and e2eSeed.ts write directly,
+  // neither of which comes through here. What this closes is the path a client
+  // can reach.
+  //
+  // FIRST, BEFORE `existing` IS EVEN LOOKED UP, for getTeamMonthFor's reason: a
+  // refusal should not pay for the work it is refusing. An unusable day costs one
+  // string comparison and no database access at all.
+  //
+  // THE RANGE IS DELIBERATELY NOT "TODAY". Backfill is a supported feature — the
+  // form's date picker opens on any past day of the selected month — so the bound
+  // runs from Wordle's own first puzzle to one day past the server's today. Both
+  // ends are argued in lib/puzzleDay.ts's `isPlausiblePuzzleDay`; access.ts's
+  // `requirePlausiblePuzzleDay` reads the clock and throws.
+  requirePlausiblePuzzleDay(puzzleDay)
+
   const existing = await ctx.db
     .query('dailyScores')
     .withIndex('by_player_and_puzzleDay', (q) =>
@@ -663,6 +692,12 @@ export async function upsertBoardFor(
 
 export const upsertBoard = mutation({
   args: {
+    // STILL `v.string()`, AND THE CHECK IS IN upsertBoardFor RATHER THAN HERE.
+    // Convex validators are shape-only over primitives — there is no `v.string()`
+    // with a pattern — so the rule would have to be code either way, and putting
+    // it in the `...For` helper is what makes it reachable by convex-test, which
+    // cannot drive an authed mutation wrapper (wordle-teams-obw). Every other
+    // rule in this file is placed the same way for the same reason.
     puzzleDay: v.string(),
     answer: v.string(),
     guesses: v.array(v.string()),

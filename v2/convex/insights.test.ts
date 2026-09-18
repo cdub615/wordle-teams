@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { api } from './_generated/api'
 import { aPlayer, aTeam, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
-import { monthOf, toPuzzleDay, addDays } from './lib/puzzleDay.ts'
+import { monthOf, toPuzzleDay, addDays, addMonths } from './lib/puzzleDay.ts'
 import type { Id } from './_generated/dataModel'
 
 const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
@@ -178,6 +178,77 @@ describe('teamMonth — the free tier', () => {
     expect(Object.keys(res?.rank ?? {}).sort()).toEqual(['kind', 'of', 'rank'])
   })
 
+  // wordle-teams-g03s. `stats` is null for a free member for EVERY month, so a
+  // rank computed from a past month's aggregate was a conclusion about numbers
+  // the caller is not allowed to see. The current month keeps its rank — that is
+  // the free tier's own figure (wordle-teams-iht.3.3) and taking it away would
+  // breach "NOTHING PREVIOUSLY FREE MOVES BEHIND THE PAYWALL".
+  test('gets NO rank for a past month, whose stats it cannot see either', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { me, mate, teamId } = await seed(t)
+
+    // A SECOND AGGREGATE, FOR LAST MONTH, with the viewer genuinely ranked in it
+    // — 9 attempts over 3 boards against the mate's 15. Without it this test
+    // would pass against the ungated version by accident, since a month with no
+    // teamMonthStats row answers `not-played` rather than a rank.
+    const lastMonth = addMonths(month, -1)
+    await t.run(async (ctx) => {
+      await ctx.db.insert('teamMonthStats', {
+        teamId,
+        year: Number(lastMonth.slice(0, 4)),
+        month: Number(lastMonth.slice(5, 7)),
+        members: [
+          { playerId: me, boards: 3, attempts: 9, solved: 3, failed: 0 },
+          { playerId: mate, boards: 3, attempts: 15, solved: 3, failed: 0 },
+        ],
+        days: [],
+        computedAt: Date.now(),
+      })
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month: lastMonth, today })
+
+    expect(res?.access.layer3).toBe('free')
+    expect(res?.stats).toBeNull()
+    expect(res?.rank).toBeNull()
+  })
+
+  // THE GATE IS AGAINST THE BOUNDED DAY, NOT THE RAW `today`, or it would be
+  // self-certifying: a caller wanting last month's rank would simply send last
+  // month's `today` alongside it. isPlausibleToday collapses an implausible
+  // `today` to the server's own, so the month stops matching and the rank goes.
+  test('and cannot buy one back by claiming to be living in that month', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { me, mate, teamId } = await seed(t)
+
+    const lastMonth = addMonths(month, -1)
+    await t.run(async (ctx) => {
+      await ctx.db.insert('teamMonthStats', {
+        teamId,
+        year: Number(lastMonth.slice(0, 4)),
+        month: Number(lastMonth.slice(5, 7)),
+        members: [
+          { playerId: me, boards: 3, attempts: 9, solved: 3, failed: 0 },
+          { playerId: mate, boards: 3, attempts: 15, solved: 3, failed: 0 },
+        ],
+        days: [],
+        computedAt: Date.now(),
+      })
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, {
+      teamId,
+      month: lastMonth,
+      today: `${lastMonth}-14`,
+    })
+
+    expect(res?.rank).toBeNull()
+  })
+
   test('cannot walk the month a day at a time by lying about today', async () => {
     // THE HARVESTING HOLE THIS GATE WOULD OTHERWISE HAVE. `today` is a client
     // fact and has to be taken from the client — a backend that imposed its own
@@ -257,6 +328,42 @@ describe('teamMonth — a trial', () => {
     expect(res?.access.trialActive).toBe(true)
     expect(res?.stats?.days).toHaveLength(3)
     expect(res?.teaser).toBeNull()
+  })
+
+  // THE RANK GATE ABOVE BINDS THE FREE TIER ONLY, AND THIS IS WHERE THAT IS
+  // PINNED (wordle-teams-g03s). `hasFullTeamMonth` includes `trialActive`, so a
+  // trialist never reaches that branch: they get `stats` whole for any month and
+  // lib/insights-team.ts computes their standing on the client. Nothing here
+  // could withhold that without withholding `stats`, and the spec's §4 ("The
+  // trial does not widen this window") accepts the resulting trial/pro seam in
+  // those words. If someone ever "fixes" that seam, this test says what breaks.
+  test('keeps a past month whole, so its standing survives a gate the free tier meets', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { me, mate, teamId } = await seed(t)
+    const lastMonth = addMonths(month, -1)
+    await t.run(async (ctx) => {
+      await ctx.db.patch(me, { insightsTrialEndsAt: Date.now() + 86_400_000 })
+      await ctx.db.insert('teamMonthStats', {
+        teamId,
+        year: Number(lastMonth.slice(0, 4)),
+        month: Number(lastMonth.slice(5, 7)),
+        members: [
+          { playerId: me, boards: 3, attempts: 9, solved: 3, failed: 0 },
+          { playerId: mate, boards: 3, attempts: 15, solved: 3, failed: 0 },
+        ],
+        days: [],
+        computedAt: Date.now(),
+      })
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month: lastMonth, today })
+
+    expect(res?.access.trialActive).toBe(true)
+    // The totals a rank is computed from, for a month the free tier gets neither
+    // the totals nor the rank for.
+    expect(res?.stats?.members.map((member) => member.attempts)).toEqual([9, 15])
   })
 
   test('and an EXPIRED trial falls back to the reduced payload', async () => {

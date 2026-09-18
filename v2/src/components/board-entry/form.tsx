@@ -115,7 +115,7 @@ const lastRowWithContent = (guesses: Array<string>): number => {
  *
  * Derived from getMyMonth's return type rather than written out, so the two
  * queries that feed this form cannot drift apart silently: getMyMonth exists
- * precisely to emit the shape getTeamMonthFor already emits (scores.ts:204-209),
+ * precisely to emit the shape getTeamMonthFor already emits (its `scores.map`),
  * and a change to either that broke the pairing would fail here at typecheck.
  */
 type MyScores = FunctionReturnType<typeof api.scores.getMyMonth>

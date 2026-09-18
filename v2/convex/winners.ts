@@ -547,14 +547,19 @@ export async function lastMonthWinnerFor(
   // opposite. getTeamMonthFor's pro floor runs through `spanFor`, whose
   // `Math.min(…, MAX_MONTHS)` caps the window at 120 months, so a Pro is refused
   // a month further back than that on the SCOREBOARD while this function still
-  // names its winner. That is constructible, not theoretical: `upsertBoard` takes
-  // `puzzleDay` as an unvalidated `v.string()` (wordle-teams-qvqi — the very
-  // reason MAX_MONTHS exists), and `recomputeTeamMonth` writes a monthlyWinners
-  // row for whatever month the board lands in. So "a month the team has not
-  // played has no row to leak" is NOT an invariant, and the honest statement of
-  // the exposure is: one teammate's name per fabricated pre-cap month, to a Pro
-  // member of that team. Left ungated because that is a worse trade than the
-  // roster walk it would cost, not because it cannot happen.
+  // names its winner. That WAS constructible through the mutation and no longer
+  // is: `upsertBoard` used to take `puzzleDay` as an unvalidated `v.string()`
+  // (wordle-teams-qvqi — the very reason MAX_MONTHS exists) and
+  // `recomputeTeamMonth` writes a monthlyWinners row for whatever month the board
+  // lands in, so a fabricated pre-cap month could be manufactured at will.
+  // `requirePlausiblePuzzleDay` closed that path. It did NOT close the divergence
+  // itself: rows migrate.ts copied from v1, rows e2eSeed.ts inserts, and
+  // everything written before the check landed can all still sit below the cap.
+  // So "a month the team has not played has no row to leak" is STILL not an
+  // invariant, and the honest statement of the exposure is now: one teammate's
+  // name per pre-cap month a row already exists for, to a Pro member of that
+  // team — no longer manufacturable on demand. Left ungated because that is a
+  // worse trade than the roster walk it would cost, not because it cannot happen.
   //
   // THE SERVER CLOCK IS READ HERE, AND THAT DOES NOT CONTRADICT "WHY THE MONTH
   // IS AN ARGUMENT" ABOVE. That paragraph is about which month the celebration

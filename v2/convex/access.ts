@@ -1,7 +1,7 @@
 import { ConvexError } from 'convex/values'
 import { authComponent } from './auth'
 import { insightsAccess } from './lib/insightsAccess.ts'
-import { isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
+import { isPlausiblePuzzleDay, isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { GenericDatabaseReader } from 'convex/server'
@@ -68,10 +68,13 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // never refuses, it PARKS the address in teams.invited and lets billing.ts's
 // upgradeTeamInvitesFor release it later. A link cannot park, so refusing is a
 // new outcome and gets a new code rather than a reused one.
-// MONTH_OUT_OF_WINDOW is thrown in scores.ts, by getTeamMonthFor, when the
-// requested month falls below what the caller's tier reaches — or is not a
+// MONTH_OUT_OF_WINDOW is thrown by getTeamMonthFor in scores.ts and by
+// lastMonthWinnerFor in winners.ts — TWO call sites, not one — when the
+// requested month falls below what the caller's tier reaches, or is not a
 // 'YYYY-MM' at all, which is the same refusal because a bare '2026' lexically
-// brackets a whole year of boards. THE SAME CODE FOR BOTH ON PURPOSE, so the
+// brackets a whole year of boards. (scores.ts's getMyMonth applies the same
+// SHAPE rule and returns [] instead of throwing; see its header for why the
+// copy below would be wrong there.) THE SAME CODE FOR BOTH ON PURPOSE, so the
 // message a caller reads does not name which rule stopped them — the reason
 // INVITE_LINK_INVALID collapses its three states. NOT a claim that the two are
 // indistinguishable, and do not write one: a shape refusal returns before
@@ -86,6 +89,19 @@ import type { PuzzleDay } from './lib/puzzleDay.ts'
 // INVALID_AVATAR is thrown in players.ts, by setAvatarFor, when an uploaded
 // file fails the server-side type or size check — the same function deletes
 // the file before throwing, so a rejection never leaves an orphan in storage.
+// INVALID_PUZZLE_DAY is thrown here (requirePlausiblePuzzleDay), on the one
+// path a CLIENT can write dailyScores through: upsertBoardFor. It is not the
+// only mutation that writes that table — migrate.ts's upsertDailyScores is an
+// internalMutation and e2eSeed.ts's are public but e2e-only — and neither is
+// routed through this, deliberately; see the function's own doc. A DISTINCT
+// CODE RATHER THAN A REUSE OF INVALID_DATE, even though both bound a day against
+// the server's clock, because the two name different things to the reader.
+// INVALID_DATE's copy points at the DEVICE CLOCK ("Your device's clock looks
+// off"), which is the true cause when a client's `today` is days adrift; the day
+// a board is FOR is a value the player picked from a calendar, and telling them
+// to check their system settings would send them to fix something that is not
+// broken. Not reusing INVALID_BOARD either, for requirePlausibleToday's reason:
+// the board can be perfectly well formed and only its day wrong.
 export type AccessCode =
   | 'UNAUTHENTICATED'
   | 'NO_PLAYER'
@@ -110,6 +126,7 @@ export type AccessCode =
   | 'MONTH_OUT_OF_WINDOW'
   | 'INVALID_AVATAR'
   | 'AVATAR_RATE_LIMITED'
+  | 'INVALID_PUZZLE_DAY'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
@@ -256,6 +273,11 @@ export async function requireTeamOwnerFor(
  * clock-bounded surface", and this is where a reader goes to enumerate them.
  * See wordle-teams-04r: that Convex's clock is UTC is currently an inference,
  * and confirming it is a pre-cutover task.
+ *
+ * A SEVENTH CLOCK-BOUNDED SURFACE SITS DIRECTLY BELOW and is NOT one of the six:
+ * requirePlausiblePuzzleDay bounds the day a board is FOR, which is a different
+ * question with a much wider answer. Counted separately so the six above stay
+ * the answer to "who feeds a client `today` into winner recomputation".
  */
 export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
   const serverToday = toPuzzleDay(new Date())
@@ -268,6 +290,43 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
     throw accessError('INVALID_DATE')
   }
   return today
+}
+
+/**
+ * The day a board is FOR, bounded server-side (wordle-teams-qvqi).
+ *
+ * ONE CALL SITE — upsertBoardFor in scores.ts — AND IT LIVES HERE ANYWAY, beside
+ * requirePlausibleToday rather than inline in that mutation. Two reasons, and
+ * neither is symmetry for its own sake. The first is that this file's census of
+ * clock-bounded surfaces is load-bearing: the comment above says "KEEP THIS LIST
+ * WHOLE" because wordle-teams-04r's pre-cutover check is "every clock-bounded
+ * surface", and a seventh one hidden in another module is one the check misses.
+ * The second is that `accessError` is this module's export, and a guard that
+ * throws an AccessCode is one a reader expects to find enumerated here.
+ *
+ * WHAT IT IS NOT: a duplicate of requirePlausibleToday with a different
+ * argument. That one bounds the CLIENT'S CLOCK to ±1 day because an unbounded
+ * `today` corrupts monthlyWinners for a whole team. This bounds a value the
+ * player CHOSE, and deliberately allows every past day back to the game's own
+ * first puzzle, because backfilling an old board is a supported feature rather
+ * than an anomaly. See isPlausiblePuzzleDay in lib/puzzleDay.ts, which holds the
+ * rule; this reads the clock and throws.
+ *
+ * NOT APPLIED TO EVERY WRITER OF dailyScores, AND THAT IS DELIBERATE RATHER THAN
+ * A GAP. migrate.ts copies v1 rows with `ctx.db.insert('dailyScores', doc)` and
+ * must keep doing so: its contract is that a migrated row is byte-identical to
+ * the row v1 held, and a copier that silently refused some of them would leave
+ * the two databases disagreeing with no record of which rows were dropped. Any
+ * malformed day already in v1 is a MIGRATION finding, not a mutation to reject.
+ * e2eSeed.ts inserts directly too, for the reason its own header gives. So this
+ * closes the path a client can reach, which is the path the issue is about — the
+ * downstream defences (lib/monthWindow.ts's `isMonth` and MAX_MONTHS) still
+ * exist, and still have rows to defend against.
+ */
+export function requirePlausiblePuzzleDay(puzzleDay: string): PuzzleDay {
+  const serverToday = toPuzzleDay(new Date())
+  if (!isPlausiblePuzzleDay(puzzleDay, serverToday)) throw accessError('INVALID_PUZZLE_DAY')
+  return puzzleDay
 }
 
 /**
@@ -368,18 +427,25 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  *   trial's expiry silently withdraw history. scores.test.ts's "refuses a caller
  *   inside the Insights trial the pro window" pins the /app half on purpose.
  *
- *   ONE FIELD THERE IS STILL MONTH-UNBOUNDED FOR A FREE CALLER — the `rank`
- *   teaser, computed from the requested month's aggregate. Not UI-reachable (that
- *   component's free branch asks only for the current month) and narrow, but it
- *   is a decision rather than a non-finding: wordle-teams-g03s.
+ *   ONE FIELD THERE WAS MONTH-UNBOUNDED FOR A FREE CALLER — the `rank` teaser,
+ *   computed from the requested month's aggregate — AND IS NOW BOUNDED TO THE
+ *   CURRENT MONTH (wordle-teams-g03s, decided). A rank whose `stats` the caller
+ *   cannot see is analysis rather than a fact about today, so it went with
+ *   `stats`; the current month stays free because that figure is the free tier's
+ *   own. The check is against the day `isPlausibleToday` already bounded, not
+ *   against the raw `today`, or a caller could certify their own past month. It
+ *   binds the FREE tier only — a trialist takes the paid branch and derives a
+ *   rank from `stats` for any month, which is the same accepted seam.
  *
  * THE SIXTH IS NOT TEAM-SCOPED, WHICH IS WHY IT IS NOT IN THE LIST: scores.ts's
- * `getMyMonth`, which serves `currentPlayer`'s OWN boards for any month with no
- * shape check and no floor. Task 4 re-examined it and left it ungated; its doc
- * comment carries the argument, including the one thing that argument does not
- * settle (insights.ts's `myBenchmarkBoards` already rations a player's own
- * history by layer, so "your own data is free" is not this repo's rule —
- * wordle-teams-byft).
+ * `getMyMonth`, which serves `currentPlayer`'s OWN boards for any month. It now
+ * has the same `isMonth` SHAPE check as the gated reads and still has NO FLOOR,
+ * deliberately (wordle-teams-byft, decided). The rule that reconciles it with
+ * insights.ts's `myBenchmarkBoards` — which rations the same player's own boards
+ * by layer — is "editing your own entry is free; browsing your own history as
+ * analysis is Layer 2": that query feeds a panel, this one feeds the entry form's
+ * prefill. Both files state it. Note that this one RETURNS [] rather than
+ * throwing MONTH_OUT_OF_WINDOW, for the reason its header gives.
  *
  * Do not read this function's presence in getTeamMonthFor as evidence the whole
  * family is covered, and do not read the family as uniformly leaky either.

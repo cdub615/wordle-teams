@@ -54,7 +54,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'TEAM_LIMIT_REACHED' ||
     code === 'MONTH_OUT_OF_WINDOW' ||
     code === 'INVALID_AVATAR' ||
-    code === 'AVATAR_RATE_LIMITED'
+    code === 'AVATAR_RATE_LIMITED' ||
+    code === 'INVALID_PUZZLE_DAY'
   ) {
     return code
   }
@@ -235,6 +236,21 @@ export function typedCodeMessage(code: AccessCode): string {
       // here means something upstream of that resize went wrong, and the
       // useful next step is the same regardless: pick a different image.
       return 'That image could not be used. Try a different one.'
+    case 'INVALID_PUZZLE_DAY':
+      // Thrown by requirePlausiblePuzzleDay (convex/access.ts) when upsertBoard
+      // is handed a day that is not a real calendar day, is before Wordle's own
+      // first puzzle, or is in the future.
+      //
+      // UNREACHABLE FROM THE FORM, which is why this reads as a backstop rather
+      // than as guidance. board-entry's DatePicker offers a calendar and
+      // disables everything after today, so a player cannot pick any of the
+      // three. Reaching this means a direct API call or a client bug.
+      //
+      // POINTS AT THE DAY AND NOT AT THE DEVICE, which is the whole reason this
+      // is not INVALID_DATE. That code's copy sends the reader to their system
+      // clock settings, and the clock is not what is wrong here — the day the
+      // board was filed under is.
+      return "That puzzle day isn't one we can save a board for. Pick the day from the calendar."
     default: {
       const _exhaustive: never = code
       return _exhaustive
