@@ -630,16 +630,26 @@ describe('the panel is mounted on the dashboard', () => {
     const source = codeOf(readFileSync(path, 'utf8'))
     const file = parseSource('app.tsx', source)
 
-    const rendered: Array<Map<string, string>> = []
+    // BOTH CONTROLS, NOT JUST THIS ONE. Until wordle-teams-kusd.6 this walker
+    // matched `TeamBoards` alone, which meant the sharing claim below — the one
+    // thing this assertion exists for — was enforced by reading the file rather
+    // than by the suite: repointing the DROPDOWN at a second window left every
+    // gate green. The walker now collects the dashboard's month controls by tag
+    // and the two are compared directly.
+    const byTag = new Map<string, Array<Map<string, string>>>([
+      ['TeamBoards', []],
+      ['MonthPicker', []],
+    ])
     const walk = (node: ts.Node) => {
       const tag = ts.isJsxSelfClosingElement(node)
         ? node.tagName
         : ts.isJsxOpeningElement(node)
           ? node.tagName
           : undefined
-      if (tag?.getText(file) === 'TeamBoards') {
+      const bucket = tag === undefined ? undefined : byTag.get(tag.getText(file))
+      if (bucket) {
         const element = node as ts.JsxSelfClosingElement | ts.JsxOpeningElement
-        rendered.push(
+        bucket.push(
           new Map(
             element.attributes.properties
               .filter(ts.isJsxAttribute)
@@ -654,7 +664,13 @@ describe('the panel is mounted on the dashboard', () => {
     }
     walk(file)
 
+    const rendered = byTag.get('TeamBoards') ?? []
+    const pickers = byTag.get('MonthPicker') ?? []
     expect(rendered).toHaveLength(1)
+    // The dropdown is mounted exactly once too, and that is worth its own line
+    // rather than being folded into the comparison below: two MonthPickers would
+    // make `pickers[0]` an arbitrary choice and the comparison a coin toss.
+    expect(pickers, 'routes/app.tsx does not mount exactly one MonthPicker').toHaveLength(1)
 
     // THE PROP NAMES, EXHAUSTIVELY. A `month={currentMonth}` added beside the
     // right one, or a prop silently dropped, is a change to this list —
@@ -673,11 +689,30 @@ describe('the panel is mounted on the dashboard', () => {
     expect(rendered[0].get('className')).toBe('"md:col-span-3"')
 
     // `monthWindow` — THE SAME VARIABLE the MonthPicker is driven by (task 5 of
-    // wordle-teams-kusd replaced `monthOptions(currentMonth)` with it), which is
-    // what makes the day picker and the arrows offer exactly the months the
-    // dropdown does. A different window here, or a literal array, is how the
-    // controls silently drift apart.
-    expect(rendered[0].get('months')).toBe('{monthWindow}')
+    // wordle-teams-kusd replaced `monthOptions(currentMonth)` with it, and
+    // kusd.6 made it a real Pro window), which is what makes the day picker and
+    // the arrows offer exactly the months the dropdown does. A different window
+    // here, or a literal array, is how the controls silently drift apart.
+    const months = rendered[0].get('months')
+    expect(months).toBe('{monthWindow}')
+
+    // AND THE DROPDOWN GETS THE IDENTICAL EXPRESSION. Asserted as an equality
+    // against the value above rather than as a second literal, so a rename of
+    // `monthWindow` moves ONE line in this file and a divergence moves none —
+    // which is the failure this is here to catch. The `toBe` above is what stops
+    // two absent props satisfying this by both being undefined.
+    expect(
+      pickers[0].get('months'),
+      'the MonthPicker and the day picker are driven by different arrays',
+    ).toBe(months)
+
+    // THE TEASER IS WIRED, which nothing else can see. month-picker.hook.test.ts
+    // proves the component renders the row when it is GIVEN a label; only this
+    // file can prove the route computes one. `teaserLabel={null}` — what stood
+    // here between tasks 5 and 6 — type-checks, lints, builds and passes every
+    // other test, and silently removes the only place in the app that tells a
+    // free player how much history Pro would reach.
+    expect(pickers[0].get('teaserLabel')).toBe('{teaserLabel}')
 
     // ASSERTED BY CONTENT RATHER THAN AS ONE EXACT STRING, because the handler
     // is now a multi-line object literal and pinning its formatting would make

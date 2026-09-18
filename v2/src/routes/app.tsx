@@ -3,7 +3,7 @@ import { MessageSquare, Settings } from 'lucide-react'
 import { toast } from 'sonner'
 import { Suspense } from 'react'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
@@ -13,6 +13,8 @@ import { shouldOfferPasskey } from '#/lib/passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
 import { resolveDashboardSearch } from '#/lib/dashboard-search.ts'
+import { correctedMonth, fallbackMonths } from '#/lib/dashboard-months.ts'
+import { formatMonthLabel } from '#/lib/format-day.ts'
 import { useSearchSync } from '#/lib/use-search-sync.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { usePendingInvite } from '#/lib/use-pending-invite.ts'
@@ -44,7 +46,7 @@ import {
   ScoringLegendSkeleton,
 } from '#/components/dashboard-skeletons.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
-import { monthWindowFor } from '../../convex/lib/monthWindow.ts'
+import { monthWindowFor, proTeaserMonth } from '../../convex/lib/monthWindow.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
 /**
@@ -453,6 +455,144 @@ function Dashboard() {
     to: Route.fullPath,
   })
 
+
+  /*
+    THE SELECTED TEAM'S MONTH WINDOW (wordle-teams-kusd), AND THE CORRECTION THAT
+    KEEPS `?month=` INSIDE IT.
+
+    UP HERE WITH THE OTHER HOOKS, NOT BESIDE THE CONTROLS THEY FEED. `Dashboard`
+    returns early twice below — the no-team empty state and the params skeleton —
+    and there is no hook call below either of them. Three hooks down there would
+    call a different number of hooks on the render before useSearchSync fills the
+    params in and the render after it: "Rendered more hooks than during the
+    previous render", on every load. `react-hooks/rules-of-hooks` catches it, but
+    only when lint runs — neither typecheck nor vitest can see it.
+
+    BELOW usePendingInvite AND useSearchSync RATHER THAN BESIDE THE QUERIES AT THE
+    TOP OF THE COMPONENT, which is stricter than "above the returns" and worth
+    keeping. Effects run in the order their hooks are called, and the effect below
+    navigates with `{ team, month }` — a whole new search object, so `?join=` is
+    gone from the router's search once it has run. usePendingInvite reads the token
+    from `window.location` rather than from the router precisely so that cannot
+    bite it, but the ordering that makes the two independent is free here, and this
+    file already states the same constraint twice: for the checkout marker and for
+    the invite.
+
+    NAMED monthWindowInputs, NOT `window`. A `const window` in this scope shadows
+    the global the sign-in arrival effect above uses for `window.location.href` and
+    `window.history.replaceState` — which would break the funnel event,
+    promoteLoginAttempt and the `?signin=` strip, and break them SILENTLY: that
+    effect's own note already records that a failure there just leaves the
+    last-used badge naming the wrong method forever.
+
+    'skip' GATED ON MEMBERSHIP, NOT ON TRUTHINESS. A stale or foreign `?team=` is a
+    non-empty string, so `teamParam ? … : 'skip'` would fire the query and take a
+    guaranteed NOT_A_MEMBER throw for the render or two before useSearchSync
+    corrects it. `teams` is already resolved above, so validating against it costs
+    nothing — and it is the same check resolveDashboardSearch makes. `'skip'` and
+    not `enabled: false` for the reason Header.tsx sets out: measured on this
+    project, `enabled: false` still opens the websocket watch, the server still
+    refuses, and the refusal is swallowed into query state where nobody sees it.
+
+    useQuery, NOT useSuspenseQuery LIKE THE FOUR AT THE TOP: this feeds a control
+    in the bar, and suspending the page on it would make the whole dashboard wait
+    to learn how far back the dropdown goes. `fallbackMonths` below the returns is
+    what both controls run on until it lands.
+  */
+  const { data: monthWindowInputs } = useQuery(
+    convexQuery(
+      api.scores.monthWindow,
+      teamParam !== undefined && teams.some((team) => team.id === teamParam)
+        ? { teamId: teamParam as Id<'teams'> }
+        : 'skip',
+    ),
+  )
+  const earliestMonth = monthWindowInputs?.earliestMonth ?? null
+
+  /*
+    THE VIEWER'S OWN CLOCK, AND THE ONLY READ OF IT ON THIS PATH. `currentMonth`
+    below the returns is derived from this rather than reading `new Date()` for
+    itself, so the window, the teaser and the table cannot end up on opposite
+    sides of a month boundary a render straddles.
+
+    BEHIND `hydrated`, which is the rule useSearchSync states once for the whole
+    app: reading the clock during an SSR-matching render would make the server
+    (UTC) and the client (local) disagree on the last and first days of a month —
+    the hydration-mismatch class wordle-teams-uc5 was.
+
+    `undefined` ON THAT BRANCH RATHER THAN `monthParam`, which is where this and
+    `currentMonth` part company. `monthParam` is a fine stand-in for something
+    being RENDERED, and that is what `currentMonth` uses it for; it is not one for
+    the input to a decision that NAVIGATES, because a window built around the
+    bookmarked month would always contain that month and so could never correct
+    it.
+  */
+  const clockMonth = hydrated ? monthOf(toPuzzleDay(new Date())) : undefined
+
+  /*
+    THE WINDOW ITSELF, OR `undefined` UNTIL BOTH INPUTS EXIST. `monthWindow`, below
+    the returns, is what the controls are actually handed. Two names because they
+    are two different things: this one is the ANSWER OR THE ABSENCE OF ONE, which
+    is exactly what `correctedMonth` has to be able to tell apart; that one is
+    always an array, because a control cannot render `undefined` months.
+
+    BUILT ON THE CLIENT because `currentMonth` is the VIEWER'S and Convex runs UTC
+    — see convex/lib/monthWindow.ts, which is also why `api.scores.monthWindow`
+    returns the rule's INPUT rather than the rule's answer.
+
+    `pro` IS THE EXISTING isPro, NOT A FIELD ON THE NEW QUERY. Two subscriptions to
+    one fact, updating independently, is the aggregate-versus-live split-brain
+    wordle-teams-iht.4 is about — and `monthWindowInputsFor`'s own doc names this
+    call site as the reason it does not return `pro`. isPro is a useSuspenseQuery,
+    so it is always a boolean here and needs no in-flight branch.
+
+    NOT MEMOISED, DELIBERATELY, AND THE PLAN ASKED FOR A useMemo. Nothing
+    downstream puts this array in a dependency array or a memo: TeamBoards reads
+    `months` during render only (its `stepDay` call and its DatePicker's `minDay`)
+    and MonthPicker maps over it, so a stable identity buys nothing — while the
+    memo would add a dependency list that `react-hooks/exhaustive-deps` has to be
+    kept honest against under `--max-warnings 0`. The line this replaces called
+    `monthWindowFor` unmemoised on every render too, so it is not a regression.
+  */
+  const loadedWindow =
+    clockMonth === undefined || monthWindowInputs === undefined
+      ? undefined
+      : monthWindowFor({ currentMonth: clockMonth, earliestMonth, pro: isPro })
+
+  /*
+    MOVING `?month=` BACK INTO THE WINDOW. Three situations produce a `?month=` the
+    selected team cannot show: switching to a younger team, a bookmark kept across
+    a downgrade, and a departing member taking the team's oldest board away with
+    them. All three are corrected the same way; lib/dashboard-months.ts's header
+    explains why the spec stopped trying to distinguish them.
+
+    THE DECISION IS PURE AND THE TERMINATION IS A TEST, not a comment — read that
+    file's header before changing what this is fed. `monthCorrection` is a string
+    or null, so this effect's dependency list is two primitives and `navigate`, and
+    no array identity can re-fire it.
+
+    IT CANNOT FIGHT useSearchSync, the other effect on this page that navigates.
+    resolveDashboardSearch returns null as soon as `?team=` names a team the viewer
+    belongs to AND `?month=` is set — and those are exactly the conditions under
+    which `loadedWindow` is anything but undefined, since the query above is
+    'skip'ped otherwise. The two are disjoint by construction rather than by
+    timing.
+
+    `replace: true, resetScroll: false` MATCHES useSearchSync'S OWN CORRECTION and
+    for the same reasons: this is not a navigation the reader asked for, so it must
+    not take over the back button and must not move them on the page.
+  */
+  const monthCorrection = correctedMonth({ monthParam, months: loadedWindow })
+  useEffect(() => {
+    if (monthCorrection === null || !teamParam) return
+    void navigate({
+      to: Route.fullPath,
+      search: { team: teamParam, month: monthCorrection },
+      replace: true,
+      resetScroll: false,
+    })
+  }, [monthCorrection, teamParam, navigate])
+
   const onboardingFacts = onboardingFactsFrom(teams, onboardingStatus)
 
   /**
@@ -477,21 +617,26 @@ function Dashboard() {
       className={className}
       facts={onboardingFacts}
       onBoard={() => {
-        // COMPUTED IN THE HANDLER BECAUSE `currentMonth` IS OUT OF REACH, and
+        // COMPUTED IN THE HANDLER BECAUSE NEITHER RENDER-SCOPE MONTH FITS, and
         // that — not hydration on its own — is the argument. A render-scope
         // const that only ever feeds a click handler never reaches the DOM, so
         // deriving the month during render could not by itself produce the
         // hydration mismatch today-panel.tsx and scores-table.tsx warn about.
-        // What is actually true is narrower and sufficient: `currentMonth` at
-        // the bottom of this component (`hydrated ? monthOf(...) : monthParam`)
-        // is the right idiom and does this job, but it sits BELOW the
-        // `teams.length === 0` early return, so the branch that most needs a
-        // month cannot reach it — and a team-less player never reaches the
-        // `!teamParam || !monthParam` guard either, so `monthParam` is
-        // undefined for them. Hoisting `currentMonth` above the return would
-        // make every render of that branch depend on a hydration flag for a
-        // value only a click ever reads. A click is post-hydration by
-        // construction, so the handler needs no flag at all.
+        // What is actually true is narrower and sufficient, and there are now
+        // two candidates rather than one:
+        //
+        // `currentMonth`, at the bottom of this component, is the right idiom
+        // and does this job — but it sits BELOW the `teams.length === 0` early
+        // return, so the branch that most needs a month cannot reach it, and a
+        // team-less player never reaches the `!teamParam || !monthParam` guard
+        // either, so `monthParam` is undefined for them.
+        //
+        // `clockMonth`, added above the returns by wordle-teams-kusd.6, IS in
+        // scope here — but it is `undefined` before hydration by design, so
+        // using it would put a `?? monthOf(toPuzzleDay(new Date()))` back on
+        // this line anyway for a case a click can never be in. A click is
+        // post-hydration by construction, so the handler reads the clock itself
+        // and needs no flag at all.
         setBoardMonth(monthParam ?? monthOf(toPuzzleDay(new Date())))
         setBoardOpen(true)
       }}
@@ -673,23 +818,59 @@ function Dashboard() {
     )
   }
 
-  // Reading the clock here does not reintroduce the guardrail above: `hydrated`
-  // is false on every render that has to match the server (SSR itself, and the
-  // client's first render before its post-mount effect flips it), so this
-  // branch is unreachable until a client-only re-render, by which point nothing
-  // is being compared against server output any more.
-  const currentMonth = hydrated ? monthOf(toPuzzleDay(new Date())) : monthParam
-  // TASK 5 OF wordle-teams-kusd LEAVES THIS HALF-WIRED, ON PURPOSE. `monthOptions`
-  // (which used to live in month-picker.tsx) is gone — task 5's job was the
-  // dropdown component, not this route — so this calls the real
-  // `monthWindowFor` rather than reintroducing a copy of the deleted three-month
-  // arithmetic. `earliestMonth: null` means `spanFor` always falls back to
-  // FREE_MONTHS regardless of `pro` (see monthWindow.ts's own header), so a Pro
-  // viewer gets exactly the free window here still — NOT a regression from
-  // before this task, since `monthOptions` never offered more either. Task 6
-  // owns querying the team's earliest board and threading it through here; when
-  // it does, `isPro` below already is real and needs no further change.
-  const monthWindow = monthWindowFor({ currentMonth, earliestMonth: null, pro: isPro })
+  // THE SAME CLOCK READ THE WINDOW ABOVE IS BUILT FROM, not a second one.
+  // `clockMonth` already carries the `hydrated` guard and the reasoning for it:
+  // `hydrated` is false on every render that has to match the server (SSR
+  // itself, and the client's first render before its post-mount effect flips
+  // it), so the clock is unreachable until a client-only re-render, by which
+  // point nothing is being compared against server output any more.
+  //
+  // ONE `new Date()` PER RENDER RATHER THAN TWO, which is the point of deriving
+  // it here. Two independent reads can straddle midnight on the last day of a
+  // month within a single render, and the two halves of this page would then
+  // disagree about which month is current — the dropdown built from one and the
+  // teaser and the table from the other.
+  //
+  // `monthParam` IS THE PRE-HYDRATION STAND-IN, and only here. `clockMonth`
+  // stays undefined on that branch deliberately: see its own note for why a
+  // window built around the bookmarked month could never correct it.
+  const currentMonth = clockMonth ?? monthParam
+  /*
+    ONE ARRAY FOR BOTH MONTH CONTROLS, which is what keeps the dropdown and the
+    day picker from disagreeing about which months exist — team-boards.tsx's
+    `months` prop doc has said so since wordle-teams-5vv3, predicting this change.
+    team-boards.hook.test.ts parses this file and asserts that the two `months`
+    attributes are the same expression, so the sharing is a test rather than a
+    convention.
+
+    `loadedWindow` UNTIL THE QUERY LANDS, THEN THE REAL WINDOW. `fallbackMonths`
+    is the free window plus the month on screen, and its own header says why the
+    month on screen has to be in there: the day picker takes `minDay` from the
+    OLDEST entry, so a Pro viewer sitting on a month older than the free window
+    would get a grid where every visible day is disabled for the length of one
+    round trip. It can only ever WIDEN when `loadedWindow` arrives.
+
+    THE PRE-HYDRATION RENDER TAKES THE FALLBACK TOO, and gets the same three
+    months the deleted `monthOptions` always returned: `clockMonth` is undefined
+    there, so `loadedWindow` is, and `currentMonth` is `monthParam` — which makes
+    `fallbackMonths(monthParam, monthParam)` a pure function of the URL and so
+    identical on the server and on the client's first render.
+  */
+  const monthWindow = loadedWindow ?? fallbackMonths(currentMonth, monthParam)
+
+  /*
+    WHAT PRO REACHES BACK TO, PRE-FORMATTED FOR THE DROPDOWN (MonthPicker takes a
+    label, not a month, so that it needs no date helper of its own).
+
+    NO EXPLICIT IN-FLIGHT BRANCH, AND IT DOES NOT NEED ONE. `earliestMonth` is
+    null until the query answers, and `proTeaserMonth` returns null for a null
+    `earliestMonth` — as it does for a Pro viewer, for a team with no boards, for
+    a malformed stored month, and for a team whose earliest board is already
+    inside the free window. So the row simply appears when there is something
+    truthful to say and never before.
+  */
+  const teaserMonth = proTeaserMonth({ currentMonth, earliestMonth, pro: isPro })
+  const teaserLabel = teaserMonth === null ? null : formatMonthLabel(teaserMonth)
   const selectedTeam = teams.find((team) => team.id === teamParam)
 
   return (
@@ -906,14 +1087,7 @@ function Dashboard() {
         <MonthPicker
           value={monthParam}
           months={monthWindow}
-          // NO TEASER YET (task 5 of wordle-teams-kusd). `proTeaserMonth` also
-          // needs the team's earliest board, which this route does not query —
-          // see `monthWindow`'s own comment above. Hardcoding null here rather
-          // than routing through `proTeaserMonth({ ..., earliestMonth: null })`
-          // is the same answer either way, since that function returns null
-          // whenever `earliestMonth` is null, but this says so directly instead
-          // of making a reader chase a call that can only ever be inert.
-          teaserLabel={null}
+          teaserLabel={teaserLabel}
           onChange={(month) => navigate({ to: Route.fullPath, search: { team: teamParam, month } })}
           onUpgrade={() => void startUpgrade()}
         />
@@ -1154,13 +1328,16 @@ function Dashboard() {
           MONTH (wordle-teams-5vv3). It was clamped to the month on screen, so
           viewing an earlier day meant going up to the dropdown first. The SAME
           `monthWindow` the MonthPicker above is driven by bounds it, so the two
-          controls offer exactly the same months and cannot drift apart.
+          controls offer exactly the same months and cannot drift apart — and
+          team-boards.hook.test.ts pins that by parsing both elements out of this
+          file and comparing the two attributes, rather than trusting the fact
+          that one variable is spelled here twice.
 
-          `monthWindow` STILL ONLY EVER SPANS THE FREE WINDOW HERE, for the
-          reason its own definition above says: this route does not yet query
-          the team's earliest board, so `pro` has nothing to widen against.
-          Task 6 of wordle-teams-kusd owns supplying that, at which point both
-          controls widen together with no change needed here.
+          IT IS A PRO WINDOW NOW (wordle-teams-kusd.6): `monthWindow` is built
+          from the team's earliest board and the viewer's membership, so for a Pro
+          subscriber the arrows and the day picker reach back as far as the
+          dropdown does — years, on a migrated v1 team — and for everyone else it
+          is still the three months this used to be fixed at.
         */}
         <TeamBoards
           teamId={teamParam as Id<'teams'>}

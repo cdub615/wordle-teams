@@ -340,7 +340,8 @@ async function earliestMonthFor(
  * for itself.
  *
  * IT DOES NOT RETURN `pro`, AND THAT IS DELIBERATE. routes/app.tsx already holds
- * the viewer's membership from `api.teams.amIPro` (app.tsx:203). Returning it here
+ * the viewer's membership from `api.teams.amIPro`, in the `isPro` its `Dashboard`
+ * binds beside the other suspense queries at the top. Returning it here
  * too would give the client two independently-updating subscriptions to one fact —
  * structurally the aggregate-versus-live split-brain wordle-teams-iht.4 is about.
  * The SERVER still needs it, and reads it straight from isProFor at the one place

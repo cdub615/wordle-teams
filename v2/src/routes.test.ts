@@ -102,7 +102,8 @@ const INSIGHTS = './routes/insights.tsx'
  * make this fail on a prettier run.
  *
  * IT CANNOT SEE THE CONSEQUENCE AND DOES NOT PRETEND TO. jsdom has no scroll
- * restoration and no router here. app.tsx:1150 records that an e2e for this was
+ * restoration and no router here. The comment on `TeamBoards`' own
+ * `onMonthChange` in routes/app.tsx records that an e2e for this was
  * written, found not to discriminate, and deleted rather than left looking like
  * coverage — Playwright scrolls a target into view before clicking it and
  * treats anything near the top as obscured by the sticky header, so the
@@ -1779,6 +1780,155 @@ describe('the passkey offer is triggered on arrival and mounted on every branch'
     expect(app()).toMatch(/import \{ shouldOfferPasskey \} from '#\/lib\/passkey\.ts'/)
     expect(app()).toMatch(/import \{ PasskeyOffer \} from '#\/components\/passkey-offer\.tsx'/)
     expect(app()).not.toMatch(/addPasskey/)
+  })
+})
+
+/**
+ * THE PRO MONTH WINDOW IS ACTUALLY WIRED INTO THE DASHBOARD (wordle-teams-kusd.6).
+ *
+ * MEASURED, NOT ASSUMED, AND THE MEASUREMENT IS WHY THIS BLOCK EXISTS. With the
+ * feature complete and all four gates green, three mutations of routes/app.tsx
+ * were planted and ALL THREE SURVIVED `vitest run`, `lint`, `typecheck` and
+ * `build`:
+ *
+ *   - `earliestMonth` -> `earliestMonth: null` in the `monthWindowFor` call,
+ *     which un-wires `api.scores.monthWindow` completely and hands every Pro
+ *     subscriber the free three months back — the exact regression this epic
+ *     exists to close, restored with a one-word edit.
+ *   - `pro: isPro` -> `pro: false`, same outcome by the other input.
+ *   - a `|| true` added to the correction effect's early return, which leaves an
+ *     out-of-window `?month=` on screen until six useSuspenseQuery call sites
+ *     throw MONTH_OUT_OF_WINDOW at it.
+ *
+ * None of that is reachable by any other test: `Dashboard` is not exported (the
+ * guard above forbids it) and a route module cannot be rendered under vitest,
+ * so convex/lib/monthWindow.test.ts proves the RULE and src/lib/dashboard-
+ * months.test.ts proves the CORRECTION while nothing at all proved the route
+ * calls either of them with the right arguments. That is the same hole
+ * team-boards.hook.test.ts's dashboard block was opened for, and the same one
+ * e2e/onboarding.spec.ts's header describes at length for the onboarding card.
+ *
+ * ASSERTED AS A CHAIN, NOT AS THREE INDEPENDENT FACTS. The query is read into
+ * `earliestMonth`, `earliestMonth` is handed to `monthWindowFor`, and
+ * `monthWindowFor`'s result is what `correctedMonth` judges `?month=` against.
+ * Breaking any single link is what the mutations above do, so each link gets a
+ * line rather than the block asserting that the four identifiers merely appear
+ * somewhere in the file.
+ */
+describe('the dashboard builds its month window from the team, not from a literal', () => {
+  const APP = './routes/app.tsx'
+  const app = () => codeOf(read(APP))
+  const sitesIn = (callee: string) => callSitesOf(APP, read(APP), callee)
+
+  test('it subscribes to api.scores.monthWindow, gated on membership rather than truthiness', () => {
+    // `convexQuery` is called a dozen times in this file, so the sites are
+    // filtered by their FIRST argument — the query reference — rather than
+    // indexed, which would make this a positional guess that a reordering
+    // breaks for no reason.
+    const subscriptions = sitesIn('convexQuery').filter(
+      (site) => site.args[0] === 'api.scores.monthWindow',
+    )
+    expect(subscriptions, 'routes/app.tsx does not query api.scores.monthWindow').toHaveLength(1)
+
+    // 'skip', NOT `enabled: false`, for the reason Header.tsx states: measured
+    // on this project, `enabled: false` still opens the websocket watch and the
+    // refusal is swallowed into query state where nobody sees it.
+    expect(subscriptions[0].args[1]).toContain("'skip'")
+
+    // AND THE GATE IS MEMBERSHIP. `teamParam ? ... : 'skip'` is a non-empty
+    // string for a stale or foreign `?team=`, so it would fire the query and
+    // take a guaranteed NOT_A_MEMBER throw for the render or two before
+    // useSearchSync corrects the param. This is the same check
+    // resolveDashboardSearch makes, against a list already in hand.
+    expect(
+      subscriptions[0].args[1],
+      "the monthWindow query is gated on `?team=` being truthy rather than on membership",
+    ).toContain('teams.some')
+  })
+
+  test("the query's answer is what `earliestMonth` is bound to", () => {
+    // The middle link of the chain, and the one the surviving mutation cut.
+    // Pinned as text because it is a binding rather than a call or a prop —
+    // neither `optionsPassedTo` nor `jsxPropsOf` can see one.
+    expect(app()).toContain('const earliestMonth = monthWindowInputs?.earliestMonth ?? null')
+  })
+
+  test('the window is built from that binding and the real membership', () => {
+    const [built] = sitesIn('monthWindowFor')
+    expect(built, 'routes/app.tsx does not call monthWindowFor').toBeDefined()
+    expect(sitesIn('monthWindowFor')).toHaveLength(1)
+
+    // THE TWO MUTATIONS THAT SURVIVED, BOTH SPELLED OUT. A literal for either
+    // input silently collapses the window to FREE_MONTHS for every viewer —
+    // see convex/lib/monthWindow.ts's `spanFor`, which ignores `pro` entirely
+    // when `earliestMonth` is null.
+    expect(built.args[0]).toContain('currentMonth: clockMonth')
+    expect(built.args[0], 'monthWindowFor is handed a literal instead of `isPro`').toContain(
+      'pro: isPro',
+    )
+    expect(
+      built.args[0],
+      'monthWindowFor is handed a literal instead of the queried earliestMonth',
+    ).not.toContain('earliestMonth:')
+  })
+
+  test('the teaser is computed from the same two inputs', () => {
+    // `teaserLabel={teaserLabel}` on the MonthPicker is pinned by
+    // team-boards.hook.test.ts's dashboard block; this is the other half — that
+    // the value behind that name is `proTeaserMonth`'s answer about THIS team
+    // and THIS viewer, not a constant that happens to type-check.
+    const [teased] = sitesIn('proTeaserMonth')
+    expect(teased, 'routes/app.tsx does not call proTeaserMonth').toBeDefined()
+    expect(teased.args[0]).toContain('pro: isPro')
+    expect(teased.args[0]).not.toContain('earliestMonth:')
+  })
+
+  test('an out-of-window `?month=` is corrected, and the correction is the pure one', () => {
+    const [judged] = sitesIn('correctedMonth')
+    expect(judged, 'routes/app.tsx does not call correctedMonth').toBeDefined()
+
+    // JUDGED AGAINST THE LOADED WINDOW, NOT AGAINST `monthWindow`. The latter
+    // falls back to `fallbackMonths`, which always CONTAINS the month on screen
+    // — so feeding it here would make the correction unreachable while looking
+    // entirely correct. src/lib/dashboard-months.ts's header is the long form.
+    expect(judged.args[0]).toContain('monthParam')
+    expect(judged.args[0], 'correctedMonth is judging `?month=` against the fallback').toContain(
+      'months: loadedWindow',
+    )
+  })
+
+  test('and the correction navigates without taking the back button or the scroll', () => {
+    // THE `|| true` MUTANT. An effect that computes a correction and never acts
+    // on it is green everywhere; what makes this line mean something is that the
+    // navigation carries the correction itself.
+    const corrective = sitesIn('navigate').filter((site) =>
+      site.args.some((arg) => arg.includes('month: monthCorrection')),
+    )
+    expect(corrective, 'nothing in routes/app.tsx navigates to the corrected month').toHaveLength(1)
+
+    // Both flags, for the reasons useSearchSync's own correction carries them:
+    // nobody asked for this navigation, so it must not take over the back
+    // button and must not move the reader on the page.
+    expect(corrective[0].args[0]).toContain('replace: true')
+    expect(corrective[0].args[0]).toContain('resetScroll: false')
+
+    // AND THE GUARD ITSELF, PINNED AS TEXT, which is the one mutation the
+    // assertions above cannot reach. `|| true` appended to that early return
+    // leaves every call site in place and every line here green while the
+    // correction never fires; it is not a call, a prop or an option, so none of
+    // the AST helpers can see it. A literal match is the weaker tool and is
+    // used knowingly: it goes red on a reformat of this line as well as on a
+    // defeated guard, and a reformat is the cheaper failure of the two.
+    expect(app()).toContain('if (monthCorrection === null || !teamParam) return')
+  })
+
+  test('the controls fall back to a window that still contains the month on screen', () => {
+    // `monthWindow` cannot be `undefined` — both controls take `Array<PuzzleMonth>`
+    // — and what it falls back to matters: `[currentMonth]` would set the day
+    // picker's `minDay` past every day of a past month and disable the whole
+    // visible grid for the length of one round trip. `fallbackMonths` is the
+    // free window PLUS `?month=`, and its own tests pin that.
+    expect(app()).toContain('const monthWindow = loadedWindow ?? fallbackMonths(currentMonth, monthParam)')
   })
 })
 

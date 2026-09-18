@@ -18,8 +18,8 @@ import type { Page } from '@playwright/test'
  * `build` — the entire dashboard-branch render of the card could be deleted and
  * every gate stayed green. The reason is narrow and worth stating: every
  * assertion that touched this feature ran on an account with NO TEAMS, so
- * app.tsx:395 (the no-team branch) and app.tsx:742 (the dashboard grid) were
- * indistinguishable to the suite. Three AST tripwires in
+ * routes/app.tsx's two `onboardingCard(...)` call sites — the `teams.length === 0`
+ * branch and the dashboard grid — were indistinguishable to the suite. Three AST tripwires in
  * dashboard-skeletons.hook.test.ts now cover the shape of those call sites;
  * this file covers the half a tripwire cannot — that the card renders, that its
  * buttons do what they say, and that dismissal is where the code claims it is.
@@ -27,7 +27,7 @@ import type { Page } from '@playwright/test'
  * THE TEAM-OF-ONE TEST IS THE ONE THAT WAS MISSING. It is the only assertion in
  * the repo that renders this card on the dashboard branch, and therefore the
  * only thing that would notice `onboardingCard('md:col-span-3')` disappearing
- * from app.tsx:742.
+ * from routes/app.tsx's dashboard grid.
  *
  * PLAYWRIGHT IS A BLOCKING CI GATE, AND THIS COMMENT SAID THE OPPOSITE. It read
  * "runs in no CI workflow ... only ever a thing somebody runs by hand", which was
@@ -42,7 +42,7 @@ import type { Page } from '@playwright/test'
  * that is not stylistic. `toBeHidden()` passes on an element that does not
  * exist, so an unanchored "Invite someone is hidden" is equally green on a page
  * that never drew the card at all — which is not hypothetical, it is precisely
- * the mutant that deleted app.tsx:742 and survived every gate. Each one below is
+ * the mutant that deleted that dashboard-grid call site and survived every gate. Each one below is
  * preceded by an assertion that the card itself is on screen, so the absence
  * means "the card rendered and chose not to offer this" rather than "nothing
  * rendered".
@@ -144,9 +144,10 @@ test('a fresh signup owes board and team, and can play with no team at all', asy
 test('a player with a team of one owes board and invite, not create', async ({ page }) => {
   await signInWithTeam(page)
 
-  // THE DASHBOARD BRANCH (app.tsx:742), which nothing else in this repo
-  // renders this card on. Note the skeleton return above it draws no card at
-  // all, so this also proves useDashboardSearchSync filled the params in.
+  // THE DASHBOARD BRANCH (routes/app.tsx's grid `onboardingCard`), which nothing
+  // else in this repo renders this card on. Note the skeleton return above it
+  // draws no card at all, so this also proves useDashboardSearchSync filled the
+  // params in.
   await expect(page.getByRole('heading', { name: CARD_HEADING, exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Invite someone/ })).toBeVisible()

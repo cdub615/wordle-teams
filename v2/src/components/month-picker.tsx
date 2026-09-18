@@ -26,12 +26,12 @@ import type { PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
  * SAME array to TeamBoards, so the calendar and this control cannot disagree about
  * which months exist.
  *
- * THAT WINDOW IS STILL THE FREE ONE FOR EVERYONE, RIGHT NOW. app.tsx calls
- * `monthWindowFor` with `earliestMonth: null` because it does not yet query the
- * team's earliest board, so `spanFor` falls back to `FREE_MONTHS` regardless of
- * `pro`. wordle-teams-kusd.6 is what supplies the real query and, with it, a real
- * `teaserLabel` — until it lands, a reader of THIS file should not conclude the
- * Pro window is live from the props alone; app.tsx is where that is still true.
+ * THE WINDOW IS REAL FOR BOTH TIERS SINCE wordle-teams-kusd.6. app.tsx queries
+ * `api.scores.monthWindow` for the selected team's earliest board and passes it
+ * to `monthWindowFor` with the viewer's own `isPro`, so a Pro subscriber on a
+ * migrated v1 team gets years of rows here and everyone else gets `FREE_MONTHS`.
+ * This component still learns none of that: it renders the array it is given and
+ * the label it is given, which is what keeps the rule in one place.
  *
  * NO SCROLL CONTAINER OF ITS OWN, even though a Pro list runs to dozens of rows.
  * DropdownMenuContent already carries
@@ -58,11 +58,11 @@ export function MonthPicker({
    * earliest board is already inside the free window. `proTeaserMonth` decides
    * and the route formats; this only renders.
    *
-   * ALWAYS NULL TODAY. routes/app.tsx hardcodes this rather than calling
-   * `proTeaserMonth`, because that function needs the team's earliest board and
-   * the route does not query it yet (see `months`' sibling note above).
-   * wordle-teams-kusd.6 is what wires the query and starts passing a real value
-   * through here.
+   * NULL FOR MOST VIEWERS, WHICH IS NOT THE SAME AS UNWIRED. routes/app.tsx
+   * calls `proTeaserMonth` for real (see `months`' sibling note above) and
+   * formats whatever it returns; the function's own header lists the four cases
+   * that answer null, and a free player on a team older than three months is not
+   * one of them.
    *
    * A FORMATTED STRING RATHER THAN A PuzzleMonth, so that deleting the guard
    * below renders an empty label instead of throwing: `formatMonthLabel(null)`

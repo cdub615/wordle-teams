@@ -47,16 +47,19 @@ export function TeamBoards({
   teamId: Id<'teams'>
   month: string
   /**
-   * Every month the MONTH DROPDOWN offers, newest first — `monthOptions`' own
+   * Every month the MONTH DROPDOWN offers, newest first — `monthWindowFor`'s
    * output, passed down rather than recomputed (wordle-teams-5vv3).
    *
    * IT BOUNDS THE DAY PICKER, which is the whole point: the picker reaches
    * exactly the months the dropdown does and no further. The owner's decision,
-   * and the reason is that v2 has NO pro month gate yet — `monthOptions`
-   * returns three months for everyone — so an unbounded picker would hand every
-   * player unlimited history now and the pro expansion would later have to take
-   * it away. Sharing one source means both widen together when it lands, and
-   * the two controls cannot disagree about what exists.
+   * and the original reason was that v2 had no pro month gate at all, so an
+   * unbounded picker would have handed every player unlimited history and the
+   * expansion would later have had to take it away. wordle-teams-kusd.6 shipped
+   * that gate, and sharing one source is what made both controls widen together
+   * on the day it landed rather than needing a second change here. They still
+   * cannot disagree about what exists: team-boards.hook.test.ts parses
+   * routes/app.tsx and asserts this attribute and the dropdown's are the same
+   * expression.
    */
   months: Array<PuzzleMonth>
   /**

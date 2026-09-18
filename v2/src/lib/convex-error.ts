@@ -195,17 +195,19 @@ export function typedCodeMessage(code: AccessCode): string {
     case 'MONTH_OUT_OF_WINDOW':
       // A BACKSTOP, NOT A CONVERSION SURFACE, which is why this is the one
       // paywall code that does NOT read like TEAM_LIMIT_REACHED's above. Nothing
-      // in the UI is supposed to produce it. month-picker.tsx offers everybody
-      // the same three months today, which is the free window itself, so no
-      // choice it can offer is out of window; wordle-teams-kusd's task 5 will
-      // widen that list for a Pro viewer, and task 6 will make app.tsx correct
-      // an out-of-window `?month=` — neither has been built at the time of
-      // writing. app.tsx's validateSearch already rejects a `?month=` that is not
-      // 'YYYY-MM' (routes/app.tsx:66), so a hand-typed URL can only reach this by
-      // naming a well-formed month that is too old. It exists so the tier is real
-      // against a direct API call, and the free player's actual upgrade prompt
-      // will be the dropdown's "Back to <month> · Pro" row that task 5 adds; the
-      // upgrade flow itself belongs to wordle-teams-iht.1.
+      // in the UI is supposed to produce it, and since wordle-teams-kusd that is
+      // true of a Pro viewer as well as a free one: routes/app.tsx builds the
+      // dropdown from the same convex/lib/monthWindow.ts rule the server gates
+      // on, so every month it can OFFER is inside the window, and its month
+      // correction (lib/dashboard-months.ts) moves an out-of-window `?month=`
+      // back inside before any query is made with it. `validateSearch` in
+      // routes/app.tsx rejects a `?month=` that is not 'YYYY-MM' before that,
+      // so a hand-typed URL can only reach this by naming a well-formed month
+      // that is too old, and only in the window between arriving and the
+      // correction landing. It exists so the tier is real against a direct API
+      // call; the free player's actual upgrade prompt is the dropdown's "Back to
+      // <month> · Pro" row, and the upgrade flow itself belongs to
+      // wordle-teams-iht.1.
       //
       // SAYS NOTHING ABOUT WHICH MONTHS ARE REACHABLE. The same code answers a
       // malformed month and a month below the caller's floor (see AccessCode in
