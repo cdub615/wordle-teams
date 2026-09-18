@@ -281,15 +281,21 @@ export const getTeamMonth = query({
  * the scoreboard renders as empty.
  *
  * A LEAVING MEMBER CAN THEREFORE SHRINK THE WINDOW UNDER A VIEWER SITTING ON AN
- * OLD MONTH, AND SINCE TASK 3 THAT IS NO LONGER HARMLESS. getTeamMonthFor now
- * refuses a month below the floor this value feeds, so the moment the roster
- * narrows, a Pro viewer parked on a `?month=` outside the new window stops
- * getting a scoreboard and starts getting "That month is part of Pro." — on a
- * page they did nothing to. routes/app.tsx will move such a `?month=` back into
- * the window, but that is wordle-teams-kusd's task 6 and it has not landed; until
- * it does, the recovery is a manual month change. This is the concrete reason
- * task 6 must not be skipped, and it is the same correction a team change will
- * get, for the same reason: the viewer did nothing wrong.
+ * OLD MONTH, AND getTeamMonthFor REFUSES A MONTH BELOW THE FLOOR THIS VALUE
+ * FEEDS. So the moment the roster narrows, a Pro viewer parked on a `?month=`
+ * outside the new window would stop getting a scoreboard and start getting
+ * "That month is part of Pro." — on a page they did nothing to.
+ *
+ * `correctedMonth` in src/lib/dashboard-months.ts is what stops that, and
+ * routes/app.tsx navigates on it from an effect: any `?month=` outside the
+ * selected team's window is moved back to the window's newest month. A roster
+ * change gets the same correction a team switch does, for the same reason —
+ * the viewer did nothing wrong.
+ *
+ * IT IS A CORRECTION AFTER COMMIT, NOT BEFORE THE READ. The six
+ * useSuspenseQuery(getTeamMonth) callers fire during render, so a narrowed
+ * window can still surface the refusal for the render before the correction
+ * lands. wordle-teams-alr7 tracks that race.
  *
  * DO NOT "OPTIMISE" THIS ONTO teamMonthStats. That table is computed, its coverage
  * of old months is not guaranteed, and reading it here would recreate exactly the

@@ -402,7 +402,7 @@ describe('the date picker reaches every month the dropdown offers', () => {
   test('it OPENS on the day being viewed, not on the clock month', () => {
     // wordle-teams-p5mw, fixed as part of this. react-day-picker resolves its
     // initial month as `month || defaultMonth || today` and never consults
-    // `selected` (helpers/getInitialMonth.js:14), so with neither passed the
+    // `selected` (react-day-picker's own helpers/getInitialMonth.js), so with neither passed the
     // calendar opened on August while the panel showed July — every day in the
     // grid disabled by the old maxDay, and the viewer had to page back before
     // there was anything to click. The version of this test that stood here had
