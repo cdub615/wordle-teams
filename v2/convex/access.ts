@@ -309,13 +309,16 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  * and task 6 corrects an out-of-window `?month=`; until both land, the gate is
  * strictly a backstop that no UI can trip.
  *
- * EVERY PUBLIC PATH THAT TAKES A CALLER-SUPPLIED MONTH HAS NOW BEEN AUDITED
- * (wordle-teams-kusd's task 4), AND THEY DO NOT ALL END IN THIS FUNCTION. Two of
- * the five call it; the other three each have a different reason, and they are
- * listed in full below so nobody has to re-derive the sweep. An earlier version
- * of this paragraph described two of them as "check membership alone", which was
- * false of the first, and that error reached a beads issue — which is why they
- * are spelled out at length here rather than summarised.
+ * EVERY PATH THAT TAKES A CALLER-SUPPLIED MONTH HAS NOW BEEN AUDITED
+ * (wordle-teams-kusd's task 4), AND THEY DO NOT ALL END IN THIS FUNCTION. The
+ * sweep — `grep "month: v.string()" convex/*.ts` — found six. FOUR ARE PUBLIC AND
+ * TEAM-SCOPED, and exactly TWO OF THOSE FOUR call this function; the other two
+ * have their own reasons. A fifth is listed with them only so the sweep is
+ * reproducible from this comment rather than re-derived, and the sixth is not
+ * team-scoped and is described after the list. An earlier version of this
+ * paragraph described two of them as "check membership alone", which was false of
+ * the first, and that error reached a beads issue — which is why they are spelled
+ * out at length here rather than summarised.
  *
  * - scores.ts's `getTeamMonth` — the surface this function exists for. Shape
  *   check, free floor, then `isProFor`, then a roster walk. See getTeamMonthFor.
@@ -324,12 +327,14 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  *   function. It was the genuinely ungated sibling: membership and nothing else,
  *   so any member could name the winner of any month the team ever played. One
  *   name and a boolean per call, but walking the months yields the team's whole
- *   hall of fame, which is the history Pro sells. Gating it cost no UI anything —
- *   the celebration dialog only ever asks for last month. It has NO PRO FLOOR,
- *   deliberately: refusing an ancient month there would mean walking the roster to
- *   find the earliest board, which is strictly more work than the single index
- *   lookup that serves it and returns null anyway. The reasoning is in
- *   `lastMonthWinnerFor`'s own gate comment; wordle-teams-7uv8 is the issue.
+ *   hall of fame, which is the history Pro sells. Gating it took nothing from any
+ *   tier — the celebration dialog only ever asks for last month. It has NO PRO
+ *   FLOOR, deliberately, and for the PRODUCT reason rather than the cost one: a
+ *   Pro caller asking who won an old month is asking for what they paid for. Cost
+ *   only settles the shape (a point lookup versus a roster walk), and the
+ *   divergence that buys — this serves months beyond the scoreboard's MAX_MONTHS
+ *   cap — is named in `lastMonthWinnerFor`'s own gate comment rather than assumed
+ *   away. wordle-teams-7uv8 is the issue.
  *
  * - winners.ts's `markCelebrationSeen` — NOT GATED, and it needs none. It returns
  *   void with both of its early returns silent successes, so it discloses nothing
@@ -337,9 +342,10 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  *   the caller's own id; and requireTeamMemberFor already runs before the patch.
  *   Its own doc comment lists the four conditions that would change that answer.
  *
- * - teamStats.ts's `rollupOne` — takes a month, but it is an `internalMutation`
- *   scheduled by `sweep`. Nothing a browser holds can call it, so there is no
- *   caller to gate.
+ * - teamStats.ts's `rollupOne` — THE FIFTH, AND IT IS NOT PUBLIC: an
+ *   `internalMutation` scheduled by `sweep`. Nothing a browser holds can call it,
+ *   so there is no caller to gate. It is in this list to be crossed off, not
+ *   counted among the four above.
  *
  * - insights.ts's `teamMonth` — gated, by LAYER rather than by month:
  *   `hasFullTeamMonth(access.layer3)`. layer3 is `paid ? 'full' : 'free'` and
@@ -364,11 +370,11 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
  *   component's free branch asks only for the current month) and narrow, but it
  *   is a decision rather than a non-finding: wordle-teams-g03s.
  *
- * ONE MORE MONTH-TAKING QUERY IS NOT IN THAT LIST BECAUSE IT IS NOT TEAM-SCOPED:
- * scores.ts's `getMyMonth`, which serves `currentPlayer`'s OWN boards for any
- * month with no shape check and no floor. Task 4 re-examined it and left it
- * ungated; its doc comment carries the argument, including the one thing that
- * argument does not settle (insights.ts's myBoards already rations a player's own
+ * THE SIXTH IS NOT TEAM-SCOPED, WHICH IS WHY IT IS NOT IN THE LIST: scores.ts's
+ * `getMyMonth`, which serves `currentPlayer`'s OWN boards for any month with no
+ * shape check and no floor. Task 4 re-examined it and left it ungated; its doc
+ * comment carries the argument, including the one thing that argument does not
+ * settle (insights.ts's `myBenchmarkBoards` already rations a player's own
  * history by layer, so "your own data is free" is not this repo's rule —
  * wordle-teams-byft).
  *

@@ -204,16 +204,26 @@ function oldestOfferedFor(input: MonthWindowInput): PuzzleMonth {
 /**
  * Whether a string is a well-formed 'YYYY-MM'.
  *
- * EXPORTED, AND THE ONE PLACE THE SERVER'S SHAPE RULE LIVES. getTeamMonthFor's
- * month gate calls this rather than carrying its own copy of the regex, so the
- * shape rule and the window rule it guards cannot drift apart — the gate's whole
- * argument for refusing a malformed month is that a bare '2026' sorts above a
- * floor THIS MODULE computes, and a second copy of the pattern would let one
- * side be relaxed without the other. insightsAccess.ts's hasFullTeamMonth was
- * extracted for the same reason and says so ("Three was already one too many").
- * routes/app.tsx:66 keeps its own inline copy deliberately: that one is route
- * validation on `?month=`, runs before any query, and belongs to the router
- * rather than to this rule.
+ * EXPORTED, AND THE ONE PLACE THE SERVER'S SHAPE RULE LIVES. TWO GATES CALL IT
+ * NOW — getTeamMonthFor's and lastMonthWinnerFor's — rather than either carrying
+ * its own copy of the regex, so the shape rule and the window rules it guards
+ * cannot drift apart. A second copy of the pattern would let one side be relaxed
+ * without the other. insightsAccess.ts's hasFullTeamMonth was extracted for the
+ * same reason and says so ("Three was already one too many").
+ *
+ * THE TWO CALLERS WANT IT FOR DIFFERENT REASONS, which is worth knowing before
+ * relaxing this to satisfy one of them. getTeamMonthFor's argument is about
+ * SORTING: a bare '2026' sorts above a floor THIS MODULE computes, so without the
+ * check a Pro member pulls a year of every teammate's boards. lastMonthWinnerFor
+ * has no pro floor at all, so for its Pro callers this is the ONLY refusal there
+ * is — and what it buys them is not a payload but predictability, since
+ * `yearAndMonth` would otherwise turn a malformed month into a NaN index lookup
+ * that quietly misses. Relaxing the pattern would weaken a leak guard in one file
+ * and a correctness guard in the other.
+ *
+ * routes/app.tsx's `validateSearch` keeps its own inline copy deliberately: that
+ * one is route validation on `?month=`, runs before any query, and belongs to the
+ * router rather than to this rule.
  *
  * NEEDED BECAUSE NOTHING UPSTREAM GUARANTEES IT. `upsertBoard` stores `puzzleDay`
  * as an unvalidated `v.string()` (wordle-teams-qvqi), so `monthOf('')` is `''` and

@@ -152,11 +152,22 @@ describe('getTeamMonthFor', () => {
     const BUDGET =
       1 + // the team document (requireTeamMemberFor)
       MEMBERS * (1 + IN_RANGE_PER_MEMBER) // each member's player document, plus their in-range scores
-    // No allowance for the month gate: this asks for the CURRENT month, which is
+    // NO ALLOWANCE FOR THE MONTH GATE: this asks for the CURRENT month, which is
     // above the free floor, so the gate answers from one string comparison and
     // reads nothing. That is the property worth guarding — the dashboard's own
     // query must not have got more expensive — and the below-floor path has its
     // own budgeted test at the end of this describe.
+    //
+    // THE CALLER NEEDS A MEMBERSHIP ROW FOR THAT SENTENCE TO BE GUARDED AT ALL,
+    // and the row below is what arms it. `isProFor` is an indexed `.first()`, and
+    // an index range matching nothing reads no documents — so with no row, hoisting
+    // `isProFor` above the floor comparison costs nothing and this budget passes a
+    // gate that resolves the caller's tier on every dashboard read. Measured
+    // exactly that way: the mutant survived here while dying in the below-floor
+    // test next door, which does insert a 'pro' row. winners.test.ts's equivalent
+    // guard carries the same insert for the same reason, and its comment records
+    // which population a membership row actually models — NOT every v2 signup, see
+    // billing.ts.
 
     const t = convexTest({ schema, modules, transactionLimits: { documentsRead: BUDGET } })
     await t.run(async (ctx) => {
@@ -167,6 +178,11 @@ describe('getTeamMonthFor', () => {
         )
       }
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds }))
+      // Arms the budget against a premature isProFor — see the comment above.
+      await ctx.db.insert('playerMembership', {
+        playerId: playerIds[0],
+        membershipStatus: 'free',
+      })
 
       // 60 scores well outside the requested month...
       const staleMonth = addMonths(thisMonth, -20)

@@ -18,9 +18,13 @@ const modules = import.meta.glob('./**/*.ts')
  * MONTHS RELATIVE TO THE CLOCK, FOR THE `lastMonthWinnerFor` SUITE ONLY, and
  * they are not cosmetic. That function is month-gated since wordle-teams-kusd's
  * task 4, and its floor is derived from the SERVER'S current month — so a
- * hardcoded '2026-08' is a fixture with an expiry date. Every one of those tests
- * would have gone red in October 2026 and reported a failure of the gate rather
- * than of the fixture, which is the worst kind of red to hand the next reader.
+ * hardcoded '2026-08' is a fixture with an expiry date. Staggered ones, in fact,
+ * which is worse than a single cliff: the floor is S-3, so the old suite's
+ * '2026-06' assertion breaks once S reaches 2026-10, its '2026-07' ones a month
+ * after that, and its '2026-08' ones a month after that again. Three separate
+ * reds over three months, each reporting a failure of the GATE rather than of the
+ * fixture — which is the worst kind of red to hand the next reader, and it is why
+ * this is a rewrite rather than a bumped constant.
  *
  * The `recomputeTeamMonth` and `markCelebrationSeenFor` suites keep their literal
  * months on purpose: neither function has a month rule, so nothing about them
@@ -797,8 +801,20 @@ describe('lastMonthWinnerFor', () => {
     // that matches nothing reads no documents — so against a player with no row
     // the premature-`isProFor` mutant costs exactly the same as the correct
     // ordering and this test passes it. Measured: it did, before this insert was
-    // added. A 'free' row is the realistic fixture anyway; every v2 signup gets
-    // one.
+    // added.
+    //
+    // WHICH POPULATION THIS FIXTURE MODELS, STATED HONESTLY, BECAUSE THE OBVIOUS
+    // JUSTIFICATION IS FALSE. It is NOT "every v2 signup has one": billing.ts says
+    // the opposite in as many words — "A PLAYER BORN IN v2 HAS NO MEMBERSHIP ROW
+    // UNTIL THEY PAY, and this is where the first one comes from" — and the only
+    // non-test inserts in the repo are migrate.ts, billing.ts and e2eSeed.ts. So a
+    // v2-born free player has NO row, which is precisely the state in which this
+    // guard is vacuous. What the row models is the v1 MIGRANT and the LAPSED
+    // PAYER — migrate.ts copies a row for every v1 player, and billing.ts leaves
+    // one behind at 'cancelled' or 'expired' — and those are the accounts a
+    // bandwidth guard should be measured against anyway, since they are the ones
+    // with history. The row is also the only thing that makes the read OBSERVABLE:
+    // without it there is nothing for the mutant to over-read.
     //
     // THE BUDGET IS EXACT rather than round, for the reason scores.test.ts's own
     // documentsRead guard states: a budget with headroom reads as slack and stops

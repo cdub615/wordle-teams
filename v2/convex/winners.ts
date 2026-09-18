@@ -488,18 +488,34 @@ export async function lastMonthWinnerFor(
   // header on parity with v1), so that mapping is the product, not a detail of
   // it.
   //
-  // GATING COSTS NO UI ANYTHING, WHICH IS WHY THE DECISION WAS EASY HERE AND IS
-  // NOT THE SAME DECISION insights.ts REACHES. The only caller is
+  // GATING TAKES NOTHING FROM ANY TIER, WHICH IS WHY THE DECISION WAS EASY HERE
+  // AND IS NOT THE DECISION insights.ts REACHES. The only caller is
   // monthly-winner-celebration.tsx, which asks for the VIEWER'S OWN LOCAL
   // PREVIOUS MONTH and nothing else. The free floor sits three months below the
   // server's month: FREE_MONTHS of 3 makes the oldest OFFERED month S-2, and
   // SERVER_SLACK_MONTHS puts the floor one below that at S-3. Offsets span
   // UTC−12..UTC+14, so a viewer's local month differs from the server's by at
   // most one; a viewer a month BEHIND asks for S-2, which is the worst case and
-  // still a full month above the floor. No browser can trip this. Contrast
-  // insights.ts's teamMonth, whose free surface really is offered
-  // for twelve months by teamMonthOptions and therefore cannot be narrowed
-  // without taking something away.
+  // still a full month above the floor. No browser of any tier can trip this.
+  //
+  // WHERE insights.ts's teamMonth DIFFERS IS THE TRIAL TIER, NOT THE FREE ONE,
+  // and an earlier version of this comment had that wrong in a way worth naming,
+  // because it was the deciding argument and it was false. It claimed teamMonth's
+  // FREE surface is offered twelve months by teamMonthOptions. It is not:
+  // team-section.tsx computes `queryMonth = hasFullTeamMonth(layer3) ? month :
+  // monthOf(today)`, and builds the teamMonthOptions dropdown only inside the
+  // paid branch — the free branch renders DailyTeamFact and TeamLockedCard on
+  // today's month alone. A floor there would take nothing from a free viewer
+  // either, and the free tier is closed by `stats: null` rather than by anything
+  // about months.
+  //
+  // THE TIER THAT WOULD ACTUALLY LOSE SOMETHING IS THE TRIALIST.
+  // `hasFullTeamMonth` is true for them, so they DO get the twelve-month
+  // dropdown, while `isProFor` — the predicate this gate keys off — is false.
+  // An isProFor-keyed floor on teamMonth would cut a paying-customer-in-waiting
+  // from twelve months to three, mid-trial, which is the "taking something away"
+  // that decides it. Nothing analogous exists here: no tier is offered a month
+  // this gate refuses.
   //
   // THE SHAPE CHECK IS FIRST, for getTeamMonthFor's reason and for one of this
   // file's own. There, a malformed month sorts above a Pro floor and pulls a year
@@ -512,16 +528,33 @@ export async function lastMonthWinnerFor(
   // it guards must not be able to drift apart.
   //
   // NO PRO FLOOR, AND THAT ASYMMETRY WITH getTeamMonthFor IS THE ONE DELIBERATE
-  // DIFFERENCE. There, a Pro caller below `earliestMonthFor`'s floor is refused,
-  // because serving them means walking the roster and materialising every
-  // member's month — MAX_MONTHS exists in monthWindow.ts precisely to bound that
-  // work against an unvalidated `puzzleDay`. Here, serving an ancient month is
-  // ONE point lookup on `by_team_year_month` that misses and returns null, while
-  // REFUSING it would first have to walk the roster to find the earliest board —
-  // strictly more work, to withhold a row that does not exist. A Pro caller is
-  // entitled to every month their team has actually played, and a month it has
-  // not played has no winner row to leak. So the pro branch here is `isProFor`
-  // and nothing more.
+  // DIFFERENCE. The reason is the PRODUCT one, not the cost one: what Pro buys is
+  // reaching back through your team's history, so a Pro caller asking who won an
+  // old month is asking for the thing they paid for. There is nothing here to
+  // withhold from them.
+  //
+  // COST IS THE TIEBREAKER RATHER THAN THE ARGUMENT, and it is worth stating that
+  // way round because cost alone would argue against gating at all — it is
+  // equally true of the free floor above, where refusing also costs more than
+  // serving. What cost settles is only the SHAPE of the pro branch: serving an
+  // ancient month is ONE point lookup on `by_team_year_month`, while computing a
+  // pro floor would first walk the roster for its earliest board. Given that the
+  // product answer is "serve it", paying for a roster walk to arrive there would
+  // be perverse.
+  //
+  // IT ALSO SKIPS THE MAX_MONTHS CLAMP, AND THAT IS A REAL DIVERGENCE RATHER THAN
+  // A TIDY ONE — recorded because the paragraph this replaced asserted the
+  // opposite. getTeamMonthFor's pro floor runs through `spanFor`, whose
+  // `Math.min(…, MAX_MONTHS)` caps the window at 120 months, so a Pro is refused
+  // a month further back than that on the SCOREBOARD while this function still
+  // names its winner. That is constructible, not theoretical: `upsertBoard` takes
+  // `puzzleDay` as an unvalidated `v.string()` (wordle-teams-qvqi — the very
+  // reason MAX_MONTHS exists), and `recomputeTeamMonth` writes a monthlyWinners
+  // row for whatever month the board lands in. So "a month the team has not
+  // played has no row to leak" is NOT an invariant, and the honest statement of
+  // the exposure is: one teammate's name per fabricated pre-cap month, to a Pro
+  // member of that team. Left ungated because that is a worse trade than the
+  // roster walk it would cost, not because it cannot happen.
   //
   // THE SERVER CLOCK IS READ HERE, AND THAT DOES NOT CONTRADICT "WHY THE MONTH
   // IS AN ARGUMENT" ABOVE. That paragraph is about which month the celebration

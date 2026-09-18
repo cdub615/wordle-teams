@@ -72,7 +72,7 @@ export async function getTeamMonthFor(
   // lexically brackets every day of the year. It sorts ABOVE a pro floor, so
   // without this a pro member could pull twelve months of every teammate's boards
   // in one payload — past the floor below, and past this file's own "SCOPED TO
-  // ONE TEAM AND ONE MONTH" bandwidth argument. routes/app.tsx:66 applies the
+  // ONE TEAM AND ONE MONTH" bandwidth argument. routes/app.tsx's `validateSearch` applies the
   // same rule to `?month=` before it ever reaches a query, so this is the check
   // for everything that is not the browser.
   //
@@ -465,18 +465,18 @@ export const getMyPlayerId = query({
  * finding:
  *
  * THE "YOUR OWN DATA IS FREE" PREMISE IS NOT ACTUALLY THIS REPO'S RULE, AND
- * insights.ts's myBoards IS THE COUNTER-EXAMPLE. That query returns the caller's
- * OWN boards, and it hands a free player exactly one — the most recently entered
- * — while `layer1 === 'full' || layer2 === 'full'` is what unlocks the rest.
+ * insights.ts's myBenchmarkBoards IS THE COUNTER-EXAMPLE. That query returns the
+ * caller's OWN boards, and it hands a free player exactly one — the most recently
+ * entered — while `layer1 === 'full' || layer2 === 'full'` unlocks the rest.
  * Its own comment says it outright: "HISTORY IS WHAT LAYER 2 IS". So a paid tier
  * in this product already withholds a player's own past boards from them, and
  * this query serves the same rows for any month to anyone. A free player who
  * walks the months through `api.scores.getMyMonth` reassembles the history
- * myBoards is rationing.
+ * myBenchmarkBoards is rationing.
  *
  * THAT IS NOT BEING FIXED HERE, and the reason is not squeamishness. The two
- * queries answer different questions — myBoards feeds a benchmark panel that is
- * the Insights product, this feeds the entry form's prefill, which is how a
+ * queries answer different questions — myBenchmarkBoards feeds a benchmark panel
+ * that is the Insights product, this feeds the entry form's prefill, which is how a
  * player EDITS a board they already own — and a floor here would be the first
  * time this product refused someone the form for their own entry. Whether the
  * two should agree, and in which direction, belongs to whoever owns the Insights

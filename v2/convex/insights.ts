@@ -158,9 +158,14 @@ function visible(board: { puzzleDay: string; guesses: string[]; answer?: string 
  * reading that has already been wrong about this function once — wordle-teams-7uv8
  * was filed claiming a free leak here and has been corrected.
  *
- * FOR A FREE MEMBER IT IS CLOSED. `hasFullTeamMonth(access.layer3)` below returns
- * `stats: null` for every month, ancient or current, so the paid payload is not
- * reachable by asking for an old month.
+ * FOR A FREE MEMBER IT IS CLOSED BY `stats: null`, AND THAT — NOT ANYTHING ABOUT
+ * MONTHS — IS THE WHOLE REASON. `hasFullTeamMonth(access.layer3)` below withholds
+ * the paid payload for every month, ancient or current, so asking for an old one
+ * reaches nothing a current one would not. The plan that commissioned this audit
+ * said exactly that and was right; task 4 briefly replaced it with a better-
+ * sounding reason that was false (see the floor paragraph below), which is the
+ * more expensive kind of mistake and is therefore recorded rather than quietly
+ * reverted.
  *
  * FOR A TRIAL MEMBER IT IS DELIBERATELY OPEN, AND MUST STAY OPEN. `layer3` is
  * `paid ? 'full' : 'free'` with `paid = isPro || trialActive`
@@ -175,13 +180,24 @@ function visible(board: { puzzleDay: string; guesses: string[]; answer?: string 
  * history. DO NOT CLOSE IT HERE. scores.test.ts's "refuses a caller inside the
  * Insights trial the pro window" pins the /app half on purpose.
  *
- * A MONTH FLOOR WOULD ALSO TAKE SOMETHING AWAY, which getLastMonthWinner's gate
- * would not — the difference that decided the two the opposite way. This surface
- * is genuinely offered for twelve months by `teamMonthOptions`
- * (lib/insights-months.ts), so a three-month floor would contradict
- * lib/insightsAccess.ts's hard constraint that "NOTHING PREVIOUSLY FREE MOVES
- * BEHIND THE PAYWALL". The celebration dialog, by contrast, only ever asks for
- * last month.
+ * A MONTH FLOOR WOULD TAKE SOMETHING FROM THE TRIALIST, which is the difference
+ * that decided this the opposite way from winners.ts's getLastMonthWinner — and
+ * it is the TRIAL tier, not the free one. An earlier draft of this paragraph
+ * claimed the FREE surface is offered twelve months by `teamMonthOptions`
+ * (lib/insights-months.ts) and would therefore breach lib/insightsAccess.ts's
+ * "NOTHING PREVIOUSLY FREE MOVES BEHIND THE PAYWALL". That is false, and the
+ * proof is in this query's only caller: team-section.tsx computes `queryMonth =
+ * hasFullTeamMonth(layer3) ? month : monthOf(today)` and builds the
+ * teamMonthOptions dropdown only inside the paid branch. A free viewer's browser
+ * never sends any month but the current one, so a floor would cost them nothing.
+ *
+ * THE TRIALIST IS WHO IT WOULD COST. `hasFullTeamMonth` is true for them, so they
+ * do get the twelve-month dropdown, while `isProFor` — the predicate any floor
+ * here would have to key off, since it is the one the scoreboard uses — is false.
+ * So a floor would cut a trial player from twelve months to three in the middle
+ * of the month they are being asked to judge whether this is worth paying for.
+ * getLastMonthWinner has no analogue: no tier is offered a month its gate
+ * refuses, which is why it could be gated at no cost and this cannot.
  *
  * ONE THING ON THE FREE BRANCH IS STILL MONTH-UNBOUNDED, and it is named rather
  * than waved past: `rank`. It is computed from the requested month's aggregate,
