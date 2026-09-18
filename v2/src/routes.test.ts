@@ -1655,12 +1655,12 @@ describe('the passkey sign-in button is offered only where it can succeed', () =
  * `?signin=` guard into an unguarded effect offers a passkey to anyone who
  * merely opens the dashboard — including, one navigation later, the player who
  * has just declined, since the decline marker is only consulted at the moment
- * the effect runs. `{passkeyOffer}` dropped from one of the three returns leaves
+ * the effect runs. `{passkeyOffer}` dropped from one of the three surfaces leaves
  * the offer invisible to exactly the players it was written for: a team-less
- * signup, and anyone whose first frame is the params skeleton. Neither is a
+ * signup, and anyone whose first frame is the waiting screen. Neither is a
  * type error, a lint error or a rendering difference any other suite observes.
  */
-describe('the passkey offer is triggered on arrival and mounted on every branch', () => {
+describe('the passkey offer is triggered on arrival and mounted on every surface', () => {
   const APP = './routes/app.tsx'
   const app = () => codeOf(read(APP))
 
@@ -1730,13 +1730,20 @@ describe('the passkey offer is triggered on arrival and mounted on every branch'
     expect(callSitesOf(APP, read(APP), 'setCelebrationOpen')).toHaveLength(0)
   })
 
-  test('the offer is rendered on ALL THREE returns, as each one\'s first child', () => {
+  test('the offer is rendered on ALL THREE surfaces, as each one\'s first child', () => {
     const code = app()
-    // THE VACUITY GUARD FOR THE NUMBER BELOW. Three is the count of returns
-    // this component has; without this, a branch deleted along with its
+    // THE VACUITY GUARD FOR THE NUMBER BELOW. Three is the count of SURFACES
+    // this component can draw; without this, one deleted along with its
     // `{passkeyOffer}` would leave a "3" asserted against a file that no longer
     // has three of anything, and the test would have to be edited to stay
     // green for the wrong reason.
+    //
+    // SURFACES, NOT RETURNS, SINCE wordle-teams-alr7. The component returns from
+    // four places now — the out-of-window month guard is the fourth — but two of
+    // them hand back the SAME `waitingScreen` element, which is the point of its
+    // being a const: the two waits are consecutive on a bookmarked load, and one
+    // element means React sees no swap between them and cannot unmount a dialog
+    // mid-ceremony. So there are still three `<main>` elements to align.
     expect(code.match(/<main/g) ?? []).toHaveLength(3)
 
     // FIRST CHILD IN EACH, which is not cosmetic: React reconciles children by
@@ -1745,7 +1752,7 @@ describe('the passkey offer is triggered on arrival and mounted on every branch'
     // as "nothing between the <main> and the offer", per branch.
     //
     // PER BRANCH AND NAMED, NOT A COUNT. A count fails as "expected 3, received
-    // 2" and leaves the reader to find which of three near-identical returns
+    // 2" and leaves the reader to find which of three near-identical surfaces
     // lost it — two of them open with a byte-identical <main> tag, so there is
     // nothing to grep for. Walking them in source order and naming each one
     // turns the failure into a location.
@@ -1755,9 +1762,14 @@ describe('the passkey offer is triggered on arrival and mounted on every branch'
     // `{/* … */}`, which is a brace pair wrapped around one — leaves an empty
     // `{}` behind in the stripped source. `\s*` fails on it, and the failure
     // looks exactly like the offer not being the first child.
-    const BRANCHES = ['the team-less branch', 'the params skeleton', 'the dashboard']
+    // IN SOURCE ORDER, WHICH IS NOT THE ORDER THE BRANCHES ARE REACHED IN.
+    // `waitingScreen` is declared with the other element consts, above both early
+    // returns, so its `<main>` is the first one in the file even though the
+    // team-less branch is the first thing that can return. Naming them in the
+    // order the walk below meets them is what makes a failure a location.
+    const BRANCHES = ['the waiting screen', 'the team-less branch', 'the dashboard']
     const opened = [...code.matchAll(/<main[^>]*>([\s\S]{0,120})/g)]
-    expect(opened, 'the three returns are no longer three <main> elements').toHaveLength(
+    expect(opened, 'the three surfaces are no longer three <main> elements').toHaveLength(
       BRANCHES.length,
     )
     opened.forEach((branch, index) => {
@@ -2019,6 +2031,95 @@ describe('the dashboard builds its month window from the team, not from a litera
     // AND IT RETURNS. `if (...) {}` satisfies everything above and guards
     // nothing.
     expect(ts.isReturnStatement(guard.thenStatement)).toBe(true)
+  })
+
+  test('the body is held until `?month=` is KNOWN servable, not merely plausible', () => {
+    // wordle-teams-alr7. Everything past this guard reaches six
+    // `useSuspenseQuery(api.scores.getTeamMonth)` call sites that fire DURING
+    // render, while the correction above only runs after commit — so without it a
+    // month outside the team's window takes six MONTH_OUT_OF_WINDOW refusals and
+    // DashboardError before `monthCorrection` can navigate. Two paths land there:
+    // a team switch, which preserves `?month=`, and a FIRST LOAD from a bookmarked
+    // or shared URL, where `loadedWindow` is undefined for the same reason.
+    //
+    // PINNED WHOLE, for the reason every initializer in this block is. Each of the
+    // three arguments is a silent regression on its own: `loadedWindow` swapped
+    // for `monthWindow` makes the guard vacuous, since `fallbackMonths` always
+    // CONTAINS the month on screen; `currentMonth` swapped for `monthParam` makes
+    // the free window a window around the bookmark, which contains it too. Both
+    // type-check, and both restore the defect while leaving a guard on screen.
+    expect(initializer('monthIsServable')).toBe(
+      'isServableMonth ( { monthParam , currentMonth , loadedWindow } )',
+    )
+    expect(sitesIn('isServableMonth')).toHaveLength(1)
+  })
+
+  test('and it actually RETURNS the waiting screen rather than computing an unused boolean', () => {
+    // THE MUTATION THE INITIALIZER ABOVE IS BLIND TO, and it is the whole fix:
+    // delete the two-token `if (!monthIsServable) return waitingScreen` and
+    // `monthIsServable` becomes a const nothing reads. Every other assertion in
+    // this block still passes, lint sees a used variable (it is not unused — it is
+    // simply not branched on if the const is kept), and the six queries go back to
+    // racing the correction. Same shape as the effect guard below: structural, so
+    // a rewrap cannot break it and an inversion cannot survive it.
+    const file = parseSource(APP, read(APP))
+    let guard: ts.IfStatement | undefined
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isIfStatement(node) &&
+        ts.isPrefixUnaryExpression(node.expression) &&
+        node.expression.operator === ts.SyntaxKind.ExclamationToken &&
+        node.expression.operand.getText() === 'monthIsServable'
+      ) {
+        guard = node
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(file)
+
+    // `!monthIsServable` AND NOT `monthIsServable`: the inverted guard holds the
+    // body on exactly the renders that are safe and renders it on exactly the
+    // renders that are not, which is worse than having no guard at all. The walk
+    // above only matches the negated form, so an inversion fails here as "the
+    // guard is missing" rather than passing.
+    expect(
+      guard,
+      'routes/app.tsx does not hold the dashboard body on `if (!monthIsServable)`',
+    ).toBeDefined()
+    if (!guard) return
+
+    // AND WHAT IT HANDS BACK. `return null` renders a blank page and satisfies a
+    // bare `isReturnStatement`; the skeleton is what the params return already
+    // shows, and sharing the ELEMENT — not just its shape — is what keeps the
+    // passkey dialog mounted across the swap between the two waits.
+    expect(ts.isReturnStatement(guard.thenStatement)).toBe(true)
+    expect(
+      ts.isReturnStatement(guard.thenStatement) && guard.thenStatement.expression?.getText(),
+    ).toBe('waitingScreen')
+
+    // THE ONE ARRANGEMENT FACT NO OTHER ASSERTION CARRIES: the guard sits above
+    // every month-scoped subtree, and `<ScoresTable` is the first of them in
+    // source order. A guard moved BELOW them still type-checks, still reads as a
+    // guard, and is simply unreachable on the render that matters.
+    //
+    // ON THE NODES' POSITIONS RATHER THAN ON LINES OF TEXT: `orderedIn` compares
+    // whole array entries, so feeding it source lines would make this fail on a
+    // re-indent. The `if` was located by the walk above, and `<ScoresTable` is
+    // located the same structural way.
+    let table: ts.Node | undefined
+    const findTable = (node: ts.Node): void => {
+      if (
+        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        node.tagName.getText() === 'ScoresTable'
+      ) {
+        table ??= node
+      }
+      ts.forEachChild(node, findTable)
+    }
+    findTable(file)
+
+    expect(table, 'routes/app.tsx no longer renders <ScoresTable>').toBeDefined()
+    expect(guard.getStart() < (table?.getStart() ?? -1)).toBe(true)
   })
 })
 

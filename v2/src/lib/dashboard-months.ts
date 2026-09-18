@@ -91,16 +91,138 @@ export function fallbackMonths(
   currentMonth: PuzzleMonth,
   monthParam: PuzzleMonth,
 ): Array<PuzzleMonth> {
-  // `pro: false` regardless of the viewer, because the whole point is the floor
-  // every account is entitled to. monthWindowFor ignores `pro` when
-  // `earliestMonth` is null anyway — see spanFor — so this is what it would
-  // return either way; naming it false says the floor is deliberate rather than
-  // an accident of the null.
-  const free = monthWindowFor({ currentMonth, earliestMonth: null, pro: false })
+  const free = freeMonths(currentMonth)
 
   // PuzzleMonth is 'YYYY-MM', so a lexical sort IS chronological (see
   // puzzleDay.ts's header) and `.reverse()` gives monthWindowFor's own
   // newest-first order back. The Set is what stops `monthParam` appearing twice
   // when it is already inside the free window, which is the common case.
   return [...new Set([...free, monthParam])].sort().reverse()
+}
+
+/**
+ * Whether the dashboard body may be rendered for `?month=` yet, or whether
+ * routes/app.tsx must hold it on a skeleton until the answer is known
+ * (wordle-teams-alr7).
+ *
+ * THE RACE THIS EXISTS TO CLOSE. `correctedMonth` above runs from an EFFECT, and
+ * the six `useSuspenseQuery(api.scores.getTeamMonth)` call sites this file's own
+ * header lists run during RENDER. So on any render where `?month=` is outside the
+ * selected team's window and `loadedWindow` has not arrived, all six go out with a
+ * month `getTeamMonthFor` refuses, and MONTH_OUT_OF_WINDOW reaches the route's
+ * error boundary before the correction can possibly have fired. Two different
+ * paths reach that render, and only one of them was reported:
+ *
+ *   A TEAM SWITCH. routes/app.tsx's TeamPicker `onChange` preserves `?month=`
+ *   deliberately, so a reader comparing two teams stays on the month they were
+ *   looking at. The switch changes `monthWindowArgs`, so `api.scores.monthWindow`
+ *   becomes a new query key, `monthWindowInputs` goes undefined, and `loadedWindow`
+ *   with it. Reachable by a Pro viewer leaving a team with years of history for one
+ *   that does not go back that far.
+ *
+ *   A FIRST LOAD, WHICH THE ISSUE DID NOT NAME AND WHICH IS THE WIDER DOOR. A
+ *   bookmarked or shared `?team=&month=` arrives with `monthWindowInputs`
+ *   undefined for exactly the same reason — the query has not answered yet — so
+ *   the FIRST render of the dashboard body is already the racing one, with no team
+ *   switch anywhere in it. It needs no Pro subscription either: routes/app.tsx's
+ *   `validateSearch` admits any well-formed 'YYYY-MM' without consulting a window,
+ *   so a free viewer who hand-types or is sent `?month=2020-01` lands on it. A fix
+ *   scoped to the picker's `onChange` would have left this path open.
+ *
+ * THE FREE WINDOW IS SAFE FOR EVERY TEAM AND EVERY TIER, which is what lets this
+ * answer true before the query has said anything — and so what keeps an ordinary
+ * load off the skeleton entirely. Two halves, both in convex/lib/monthWindow.ts:
+ *
+ *   ON THE CLIENT, EVERY WINDOW CONTAINS THE FREE ONE. `monthWindowFor` is
+ *   `countBack(currentMonth, spanFor(...))` and `spanFor` returns
+ *   `Math.min(Math.max(span, FREE_MONTHS), MAX_MONTHS)`, so the list always starts
+ *   at `currentMonth` and is always at least FREE_MONTHS long — whatever the team's
+ *   `earliestMonth` and whatever the tier. That `Math.max` is the line
+ *   monthWindow.ts calls the most important in the file.
+ *
+ *   ON THE SERVER, THE FREE FLOOR DOES NOT DEPEND ON THE TEAM. `getTeamMonthFor`
+ *   tests `month < serverFloorFor({ currentMonth: serverMonth, earliestMonth: null,
+ *   pro: false })` FIRST and, for anything above it, returns without reading a
+ *   membership row, a roster or an `earliestMonth` at all. The two clocks cannot
+ *   disagree enough to matter: SERVER_SLACK_MONTHS puts that floor a month below
+ *   the oldest month a client free window offers, and UTC offsets span
+ *   UTC-12..UTC+14, so the two sides are at most one month apart.
+ *
+ * NOT `keepPreviousData` ON THE WINDOW QUERY, which was the first remedy recorded
+ * on the issue and does not work: the PREVIOUS team's window contains the month on
+ * screen by construction, so `correctedMonth` would still return null and the six
+ * bad queries would still go out. It hides the symptom in `loadedWindow` without
+ * preventing the request. The only placeholder that is known-safe for a team whose
+ * window has not loaded is the free one, which is the first disjunct below.
+ *
+ * TERMINATION, which is what a caller rendering a skeleton on false depends on.
+ * Once `loadedWindow` arrives, either it contains `?month=` and this returns true,
+ * or `correctedMonth` returns element 0 of it — `currentMonth`, which
+ * `monthWindowFor` guarantees for every input — the effect navigates there, and
+ * `currentMonth` is in the free window, so the next render returns true by the
+ * first disjunct. The skeleton lasts one round trip at most, and the case that
+ * would otherwise hang — a `?team=` the viewer is not a member of, where
+ * `monthWindowArgs` is 'skip' and `loadedWindow` never arrives — is settled from
+ * the other side by `resolveDashboardSearch`, which replaces that param.
+ *
+ * PRE-HYDRATION IT IS ALWAYS TRUE, SO SSR IS UNCHANGED. routes/app.tsx passes
+ * `clockMonth ?? monthParam` as `currentMonth`, and `clockMonth` is undefined on
+ * every render that has to match the server — so before hydration the free window
+ * is built AROUND `?month=` and therefore contains it. That is not a loophole, it
+ * is the only shape available: the viewer's clock cannot be read on a render that
+ * has to match the server (the hydration-mismatch class wordle-teams-uc5 was), so
+ * a guard that held on those renders would hold on EVERY /app load and the
+ * dashboard would stop server-rendering altogether.
+ *
+ * WHICH LEAVES ONE RESIDUE, AND IT IS SERVER-SIDE ONLY. On a bookmarked load
+ * carrying an out-of-window month the six queries still go out DURING SSR and
+ * still take a MONTH_OUT_OF_WINDOW there — observed in the dev server's log while
+ * e2e/month-window.spec.ts passes. React streams the Suspense fallbacks, flags
+ * those boundaries for client rendering, and the browser starts the queries
+ * again over the websocket; `useHydrated`'s passive effect flips on the hydration
+ * commit, this guard returns false on the re-render that follows, and the six
+ * subtrees are discarded while still suspended — so they never reach the throw
+ * and the route's boundary never catches. The margin is a React passive-effect
+ * flush against a network round trip, which is not close.
+ *
+ * SO THE READER IS FIXED AND THE LOG IS NOT: those SSR rejections are still
+ * logged where the Worker's console goes. That is not a regression — the same
+ * queries threw in the same place before this guard existed, and the reader saw
+ * DashboardError as well. Closing it would mean deciding the month on the SERVER,
+ * whose clock is UTC and the reader's is not, which is the disagreement
+ * SERVER_SLACK_MONTHS exists to absorb rather than to relitigate here.
+ */
+export function isServableMonth({
+  monthParam,
+  currentMonth,
+  loadedWindow,
+}: {
+  /** `?month=`. Always set — routes/app.tsx has already returned without it. */
+  monthParam: PuzzleMonth
+  /** The month the caller treats as current: the viewer's clock, or `?month=` before hydration. */
+  currentMonth: PuzzleMonth
+  /** The selected team's window, or undefined while `api.scores.monthWindow` is in flight. */
+  loadedWindow: Array<PuzzleMonth> | undefined
+}): boolean {
+  return (
+    freeMonths(currentMonth).includes(monthParam) || (loadedWindow?.includes(monthParam) ?? false)
+  )
+}
+
+/**
+ * The window every account is entitled to, around the month given.
+ *
+ * ONE SPELLING OF THE FREE WINDOW FOR THE TWO CALLERS ABOVE rather than the
+ * `earliestMonth: null, pro: false` incantation written twice. Both lean on the
+ * same property — that this is the SAFE FLOOR, the list no team and no tier can
+ * fail to cover — and a second copy is how one of them quietly acquires an
+ * `earliestMonth` and the other does not.
+ *
+ * `pro: false` IS NAMED EVEN THOUGH IT CHANGES NOTHING. `spanFor` ignores `pro`
+ * entirely when `earliestMonth` is null, so monthWindowFor would return this list
+ * either way; writing it false says the floor is the point rather than an accident
+ * of the null.
+ */
+function freeMonths(currentMonth: PuzzleMonth): Array<PuzzleMonth> {
+  return monthWindowFor({ currentMonth, earliestMonth: null, pro: false })
 }

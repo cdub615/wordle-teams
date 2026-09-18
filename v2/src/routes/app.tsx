@@ -13,7 +13,7 @@ import { shouldOfferPasskey } from '#/lib/passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
 import { resolveDashboardSearch } from '#/lib/dashboard-search.ts'
-import { correctedMonth, fallbackMonths } from '#/lib/dashboard-months.ts'
+import { correctedMonth, fallbackMonths, isServableMonth } from '#/lib/dashboard-months.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { useSearchSync } from '#/lib/use-search-sync.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
@@ -460,11 +460,11 @@ function Dashboard() {
     KEEPS `?month=` INSIDE IT.
 
     UP HERE WITH THE OTHER HOOKS, NOT BESIDE THE CONTROLS THEY FEED. `Dashboard`
-    returns early twice below — the no-team empty state and the params skeleton —
-    and there is no hook call below either of them. The two added here (a
-    `useQuery` and a `useEffect`) placed down there would call a different number
-    of hooks on the render before useSearchSync fills the params in and the render
-    after it: "Rendered more hooks than during the previous render", on every
+    returns early three times below — the no-team empty state, the params
+    skeleton, and the out-of-window month guard wordle-teams-alr7 added — and
+    there is no hook call below any of them. The two added here (a `useQuery` and
+    a `useEffect`) placed down there would call a different number of hooks on the
+    render before useSearchSync fills the params in and the render after it: "Rendered more hooks than during the previous render", on every
     load. `react-hooks/rules-of-hooks` catches it, but only when lint runs —
     neither typecheck nor vitest can see it.
 
@@ -743,7 +743,7 @@ function Dashboard() {
   )
 
   /**
-   * The passkey offer, on ALL THREE returns below and as each one's FIRST
+   * The passkey offer, on ALL THREE SURFACES below and as each one's FIRST
    * child.
    *
    * ALL THREE, because the effect that opens it fires on mount and cannot know
@@ -753,15 +753,20 @@ function Dashboard() {
    * first screen is one of those.
    *
    * FIRST, WHICH IS LOAD-BEARING RATHER THAN TIDY. React reconciles children by
-   * INDEX, and these three branches swap during a normal load — skeleton to
+   * INDEX, and these three surfaces swap during a normal load — skeleton to
    * dashboard — while this dialog may already be open. At index 0 in every
-   * branch it survives the swap; anywhere else the element at its index differs
-   * between branches, React unmounts and remounts it, and a dialog open over a
+   * one it survives the swap; anywhere else the element at its index differs
+   * between them, React unmounts and remounts it, and a dialog open over a
    * WebAuthn ceremony loses its `adding` flag and its focus trap mid-prompt.
-   * The three branches already happen to agree on their first two children —
+   * The three already happen to agree on their first two children —
    * the `<h1>` and `CheckoutPending`, now at 1 and 2 — so taking index 0 costs
    * nothing and disturbs no existing alignment. src/routes.test.ts pins it,
    * because it is invisible to every other gate.
+   *
+   * THREE SURFACES, FOUR RETURNS, since wordle-teams-alr7 gave `waitingScreen`
+   * below a second caller. That is not a fourth place to keep aligned: the two
+   * returns that wait hand back the SAME element, so they cannot drift apart and
+   * React sees no swap at all when one becomes the other.
    *
    * IT COSTS THE DASHBOARD'S GRID NOTHING. A closed Radix dialog renders no DOM
    * at all, and an open one lives in a portal — MonthlyWinnerCelebration is the
@@ -778,20 +783,48 @@ function Dashboard() {
     <PasskeyOffer open={offerPasskey && !celebrationOpen} onClose={() => setOfferPasskey(false)} />
   )
 
-  // ALL THREE RETURNS BELOW RENDER THE PENDING NOTICE, and the empty state is
+  /**
+   * WHAT THE PAGE SHOWS WHILE IT DOES NOT YET KNOW WHAT TO DRAW. Returned from
+   * TWO places below — the params skeleton, and the out-of-window month guard
+   * wordle-teams-alr7 added — and it is ONE const rather than two copies of the
+   * same JSX for a reason beyond tidiness: the two waits are adjacent in time on
+   * a bookmarked load (params fill in, then the window arrives), so two separate
+   * elements would make React swap one <main> for another between them and
+   * unmount whatever the passkey dialog was in the middle of. Handing back the
+   * same element makes that swap a no-op.
+   *
+   * IT IS DECLARED HERE, WITH THE OTHER ELEMENT CONSTS, so its `<main>` is the
+   * FIRST of the three in source order rather than the second. src/routes.test.ts
+   * walks those three in source order to check `{passkeyOffer}` is each one's
+   * first child, and names them in that order; if this ever moves, that list
+   * moves with it.
+   */
+  const waitingScreen = (
+    <main className="page-max mt-2 md:mt-6">
+      {/* First child on every surface. Full note on the const above. */}
+      {passkeyOffer}
+      {/* The route's <h1>, on every surface so it is stable. Full note on the
+          no-team branch below. */}
+      <h1 className="sr-only">Dashboard</h1>
+      {upgradePending && <CheckoutPending className="mb-4" />}
+      <Skeleton className="h-96 w-full rounded-lg" />
+    </main>
+  )
+
+  // ALL THREE SURFACES RENDER THE PENDING NOTICE, and the empty state is
   // the one wordle-teams-6tn actually named: someone can upgrade before they
   // have created a single team, and that is the case where they would
   // otherwise be looking at a page with nothing on it that acknowledges the
-  // payment they just made. The skeleton branch matters too — it is what every
+  // payment they just made. The waiting screen matters too — it is what every
   // load shows until useSearchSync fills the params in.
   if (teams.length === 0) {
     return (
       <main className="page-max mt-2 md:mt-6">
-        {/* FIRST CHILD ON EVERY BRANCH — see the const above; the index is what
-            keeps the dialog mounted across a branch swap. */}
+        {/* FIRST CHILD ON EVERY SURFACE — see the const above; the index is what
+            keeps the dialog mounted across a surface swap. */}
         {passkeyOffer}
         {/*
-          THE ROUTE'S <h1>, VISUALLY HIDDEN, AND ON ALL THREE RETURNS SO IT IS
+          THE ROUTE'S <h1>, VISUALLY HIDDEN, AND ON ALL THREE SURFACES SO IT IS
           STABLE (wordle-teams review of qt4.7). ui/card.tsx's own note states
           the doctrine — "a Card used as a page's main region silently leaves
           that page with no h1. That is an accessibility defect, not just a
@@ -833,19 +866,7 @@ function Dashboard() {
 
   // Until the effect above resolves both params there is nothing well-defined to
   // render, and rendering a guess is what causes the mismatch.
-  if (!teamParam || !monthParam) {
-    return (
-      <main className="page-max mt-2 md:mt-6">
-        {/* First child on every branch. Full note on the const above. */}
-        {passkeyOffer}
-        {/* The route's <h1>, on every return so it is stable. Full note on the
-            no-team branch above. */}
-        <h1 className="sr-only">Dashboard</h1>
-        {upgradePending && <CheckoutPending className="mb-4" />}
-        <Skeleton className="h-96 w-full rounded-lg" />
-      </main>
-    )
-  }
+  if (!teamParam || !monthParam) return waitingScreen
 
   // THE SAME CLOCK READ THE WINDOW ABOVE IS BUILT FROM, not a second one.
   // `clockMonth` already carries the `hydrated` guard and the reasoning for it:
@@ -864,6 +885,48 @@ function Dashboard() {
   // stays undefined on that branch deliberately: see its own note for why a
   // window built around the bookmarked month could never correct it.
   const currentMonth = clockMonth ?? monthParam
+
+  /*
+    NOTHING BELOW RUNS UNTIL `?month=` IS KNOWN TO BE SERVABLE (wordle-teams-alr7).
+
+    THE SIX QUERIES ARE THE REASON. Everything past this point renders
+    ScoresTable, ScoringLegend, TodayPanel, TeamBoards and BoardEntryButton, and
+    those reach six `useSuspenseQuery(api.scores.getTeamMonth)` call sites that
+    fire DURING RENDER with `teamParam` and `monthParam`. The correction that
+    keeps `?month=` inside the team's window runs from the `monthCorrection`
+    effect above — AFTER commit — so on any render where the window has not
+    arrived and `?month=` is outside it, all six take a MONTH_OUT_OF_WINDOW and
+    DashboardError replaces the page before the correction can fire. Holding the
+    body is what puts the effect back in front of the queries.
+
+    IT IS NOT ONLY A TEAM SWITCH, which is how the defect was reported. The same
+    render is reached on a FIRST LOAD from a bookmarked or shared `?team=&month=`
+    — `monthWindowInputs` is undefined there for the same reason, so `loadedWindow`
+    is, so `correctedMonth` returns null by design and the six go out with whatever
+    month the URL carried. `validateSearch` at the top of this file admits any
+    well-formed 'YYYY-MM' without consulting a window, so a FREE viewer sent
+    `?month=2020-01` reaches it too. A fix in TeamPicker's `onChange` would have
+    closed the reported door and left that one open.
+
+    `isServableMonth` OWNS THE RULE, and lib/dashboard-months.ts's note on it is
+    the long form: the free window is safe for every team and every tier, so an
+    ordinary load never waits, and once `loadedWindow` arrives the guard either
+    passes or the correction navigates to element 0 — `currentMonth`, which IS in
+    the free window. So this cannot hold for more than one round trip.
+
+    BELOW BOTH EARLY RETURNS, WHICH IS WHERE A NEW RETURN HAS TO GO. Every hook
+    in this component is above them; a third return here adds no hook and changes
+    no hook count. The guard reads `currentMonth`, which is only defined past the
+    `!monthParam` return, so it could not have been written higher up without
+    duplicating that derivation — and this file keeps exactly one.
+
+    THE SAME `waitingScreen` THE PARAMS RETURN HANDS BACK, deliberately: on a
+    bookmarked load the two waits are consecutive, and one shared element means
+    React sees no swap between them. See the const's own note.
+  */
+  const monthIsServable = isServableMonth({ monthParam, currentMonth, loadedWindow })
+  if (!monthIsServable) return waitingScreen
+
   /*
     ONE ARRAY FOR BOTH MONTH CONTROLS, which is what keeps the dropdown and the
     day picker from disagreeing about which months exist — team-boards.tsx's
@@ -952,9 +1015,9 @@ function Dashboard() {
     // sizing specifically, with no flexbox equivalent. A future multi-column
     // widget is what would make the three columns earn their keep again.
     <main className="page-max mb-12 mt-2 grid grid-cols-1 gap-2 md:mt-6 md:grid-cols-3 md:gap-6">
-      {/* First child on every branch. Full note on the const above. */}
+      {/* First child on every surface. Full note on the const above. */}
       {passkeyOffer}
-      {/* The route's <h1>, on every return so it is stable. Full note on the
+      {/* The route's <h1>, on every surface so it is stable. Full note on the
           no-team branch above. */}
       <h1 className="sr-only">Dashboard</h1>
       {upgradePending && <CheckoutPending className="md:col-span-3" />}
@@ -1250,7 +1313,7 @@ function Dashboard() {
           the team and month pickers — the chrome this page is navigated by, and
           a row four separate measurements defend at 390px — down the screen for
           a card that is temporary by design. Above the upgrade notice would be
-          worse still: that notice is first on all three returns on purpose. */}
+          worse still: that notice is first on all three surfaces on purpose. */}
       {onboardingCard('md:col-span-3')}
       {/*
         THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
