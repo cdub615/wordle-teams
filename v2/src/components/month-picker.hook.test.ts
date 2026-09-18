@@ -47,11 +47,12 @@ describe('the month list', () => {
   })
 
   test('labels months in the short form the app uses everywhere', () => {
-    // 'Aug 2026', NOT 'August 2026'. formatMonthLabel is
-    // Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' })
-    // (format-day.ts:13), and its own doc line says "'Aug 2026' — the month
-    // picker's label". The first draft of this file asserted the long form in
-    // three places and could never have passed.
+    // 'Aug 2026', NOT 'August 2026'. formatMonthLabel formats through
+    // format-day.ts's own `monthYear`, an
+    // Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }), and
+    // formatMonthLabel's own doc line says "'Aug 2026' — the month picker's
+    // label". The first draft of this file asserted the long form in three
+    // places and could never have passed.
     render(createElement(MonthPicker, props))
     open()
 

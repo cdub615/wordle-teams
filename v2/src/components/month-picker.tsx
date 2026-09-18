@@ -26,6 +26,13 @@ import type { PuzzleMonth } from '../../convex/lib/puzzleDay.ts'
  * SAME array to TeamBoards, so the calendar and this control cannot disagree about
  * which months exist.
  *
+ * THAT WINDOW IS STILL THE FREE ONE FOR EVERYONE, RIGHT NOW. app.tsx calls
+ * `monthWindowFor` with `earliestMonth: null` because it does not yet query the
+ * team's earliest board, so `spanFor` falls back to `FREE_MONTHS` regardless of
+ * `pro`. wordle-teams-kusd.6 is what supplies the real query and, with it, a real
+ * `teaserLabel` — until it lands, a reader of THIS file should not conclude the
+ * Pro window is live from the props alone; app.tsx is where that is still true.
+ *
  * NO SCROLL CONTAINER OF ITS OWN, even though a Pro list runs to dozens of rows.
  * DropdownMenuContent already carries
  * `max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto`
@@ -50,6 +57,12 @@ export function MonthPicker({
    * nothing to advertise — a pro viewer, a team with no boards, or a team whose
    * earliest board is already inside the free window. `proTeaserMonth` decides
    * and the route formats; this only renders.
+   *
+   * ALWAYS NULL TODAY. routes/app.tsx hardcodes this rather than calling
+   * `proTeaserMonth`, because that function needs the team's earliest board and
+   * the route does not query it yet (see `months`' sibling note above).
+   * wordle-teams-kusd.6 is what wires the query and starts passing a real value
+   * through here.
    *
    * A FORMATTED STRING RATHER THAN A PuzzleMonth, so that deleting the guard
    * below renders an empty label instead of throwing: `formatMonthLabel(null)`
@@ -85,6 +98,27 @@ export function MonthPicker({
             server would then refuse with MONTH_OUT_OF_WINDOW. It is an upgrade
             affordance that happens to live in a month menu.
 
+            NO EXPLICIT LEFT INSET ON THE ITEM BELOW, AND ITS "Back to" TEXT
+            STILL LANDS FLUSH WITH "Aug 2026" ABOVE IT — checked by rendering
+            this component's actual DOM output through the app's own compiled
+            Tailwind stylesheet in real Chromium and reading
+            getBoundingClientRect() off both text nodes, since jsdom has no
+            layout engine and this repo's e2e suite is mutation-measured as
+            blind to layout (neither could have caught a regression here).
+            The two land on the same pixel because DropdownMenuItem's default
+            `px-2` + this Sparkles icon's `h-4` + the item's own `gap-2` sum to
+            exactly 2rem — the same 2rem DropdownMenuRadioItem spends on `pl-8`
+            for its indicator well. That identity is shadcn's own convention
+            for mixing icon rows with checkbox/radio rows in one menu, not a
+            coincidence specific to this file, but it is arithmetic a reader
+            has to redo by hand, not something the markup states — so it breaks
+            silently if the icon stops being `h-4`, if the gap stops being
+            `gap-2`, or if `DropdownMenuItem`'s own base padding ever changes.
+            Reaching for the `inset` prop here would NOT fix that fragility —
+            it would ADD `pl-8` on top of the icon and gap that already supply
+            the equivalent indent, pushing the text a further 1.5rem right and
+            breaking the alignment this comment just proved holds.
+
             IT IS THE SIXTH CALLER OF THE UPGRADE PATH. Header.tsx, trial-ended-card.tsx,
             board-entry/import-upsell.tsx, routes/app.tsx (TeamPicker's own
             onUpgrade) and routes/insights.tsx are the others. wordle-teams-iht.1
@@ -93,8 +127,12 @@ export function MonthPicker({
             reaches checkout directly. That issue's notes carry the count.
 
             THE "Pro" BADGE IS PART OF THE ACCESSIBLE NAME, not hidden from it —
-            "Back to Mar 2023 Pro" — matching board-entry/import-upsell.tsx,
-            which renders the same badge the same way. */}
+            "Back to Mar 2023 Pro" — matching the one load-bearing thing
+            board-entry/import-upsell.tsx's own "Pro" badge does the same way.
+            The markup itself differs: that badge is `text-muted-foreground`,
+            carries a `Lock` icon, and is laid out with `flex items-center
+            gap-1`; this one has none of those. Only the accessible-name choice
+            is asserted to match, not the visual badge. */}
         {teaserLabel !== null && (
           <>
             <DropdownMenuSeparator />
