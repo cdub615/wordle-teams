@@ -63,6 +63,15 @@ export type TeamMonthStats<PlayerId extends string = string> = {
  * and without a second code path. The narrowing is real (no totals reach the
  * wire) while the consumer stays single.
  *
+ * `members` ON THE WIRE IS THE CURRENT ROSTER, NOT THE AGGREGATE'S MEMBERS
+ * (wordle-teams-iht.4). The type cannot say that either — it is a property of
+ * how insights.ts fills this in, and the paid payload satisfies the same shape
+ * from the rollup — but it is what makes the free card coherent: `rank`'s
+ * `solo` is decided from team.playerIds, the aggregate is written at rollup
+ * time, and the two disagree for as long as a roster change is newer than the
+ * last rollup. dailyTeamFact counts these members to answer the same question
+ * `solo` answers, so both have to be counting the same people.
+ *
  * `days` IS ZERO OR ONE ENTRY IN PRACTICE, not the whole month. The type cannot
  * say so and deliberately does not try: the paid payload satisfies it with
  * thirty-one, and a length the type cannot enforce is better asserted in the

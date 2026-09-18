@@ -266,6 +266,9 @@ export const teamMonth = query({
         lastName: member.lastName,
       })
     }
+    // The same roster as a lookup, for the teaser below — see its comment on
+    // why the free payload is built from the roster rather than the aggregate.
+    const rosterIds = new Set(roster.map((member) => member.playerId))
 
     /*
       THE PAYWALL, AND IT IS A PAYLOAD RULE RATHER THAN A RENDERING ONE
@@ -333,8 +336,10 @@ export const teamMonth = query({
         member's totals, which is precisely what the branch above stops
         sending — so a client-side rank would undo the gate it sits beside.
 
-        `solo` IS DECIDED FROM `roster` (ABOVE), NOT THE AGGREGATE, and the two
-        can disagree: teamMonthStats.members is written at rollup time, so a
+        `solo` IS DECIDED FROM `roster` (ABOVE), NOT THE AGGREGATE — and so are
+        the teaser's members below, since wordle-teams-iht.4, so the free card's
+        two halves can no longer answer this question differently. The two
+        sources can disagree: teamMonthStats.members is written at rollup time, so a
         teammate who joined since the last rollup is absent from it, while
         `roster` reflects team.playerIds right now (trimmed only of an id whose
         player document is gone). "Is this a team of one" is a question about
@@ -421,11 +426,35 @@ export const teamMonth = query({
         stats: null,
         teaser: stats
           ? {
-              // IDENTITIES ONLY. dailyTeamFact counts these to know how many
-              // teammates there are; it never reads a total, and the totals are
-              // what memberAverages and the rest are built from.
-              members: stats.members.map(({ playerId }) => ({ playerId })),
-              days: stats.days.filter((entry) => entry.puzzleDay === day),
+              /*
+                IDENTITIES ONLY. dailyTeamFact counts these to know how many
+                teammates there are; it never reads a total, and the totals are
+                what memberAverages and the rest are built from.
+
+                AND THEY COME FROM `roster`, NOT `stats.members`, BECAUSE `solo`
+                ABOVE DOES (wordle-teams-iht.4). teamMonthStats is written at
+                rollup time, so between a roster change and the next rollup the
+                aggregate and team.playerIds disagree about who is on the team.
+                Until wordle-teams-iht.2 only one of the two answers was ever
+                drawn; now both are, stacked — so a teammate who joined since
+                the last rollup produced "invite a teammate to compare scores"
+                six inches above a locked card offering team insights, and a
+                member who left produced the reverse. Two cards asking one
+                question have to read one source.
+
+                THE DAY FOLLOWS THE SAME ROSTER, or the fact's DENOMINATOR would
+                go on counting a departed member's board — "you beat 1 of 1
+                teammates" on a team of one. aggregateTeamMonth already discards
+                a non-member's boards when it next runs; this makes the window
+                before that rollup agree with the document it will write.
+              */
+              members: roster.map(({ playerId }) => ({ playerId })),
+              days: stats.days
+                .filter((entry) => entry.puzzleDay === day)
+                .map(({ puzzleDay, entries }) => ({
+                  puzzleDay,
+                  entries: entries.filter((entry) => rosterIds.has(entry.playerId)),
+                })),
             }
           : null,
         rank,

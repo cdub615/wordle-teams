@@ -285,6 +285,74 @@ describe('teamMonth — the free tier', () => {
     // behind the backend still gets their own puzzle day's fact.
     expect(res?.teaser?.days.map((day) => day.puzzleDay)).toEqual([addDays(today, -1)])
   })
+
+  /**
+   * ONE SOURCE FOR "DO I HAVE A TEAMMATE", AND THE SKEW WINDOW IS WHERE IT SHOWS
+   * (wordle-teams-iht.4).
+   *
+   * `rank`'s `solo` is decided from the ROSTER — team.playerIds as it is right
+   * now — while the teaser's members were copied from the AGGREGATE, which is
+   * written at rollup time. Between a roster change and the next rollup those
+   * two disagreed, and since wordle-teams-iht.2 both cards render at once,
+   * stacked: the daily fact said "invite a teammate to compare scores" beside a
+   * locked card offering team insights, or the exact reverse.
+   *
+   * ASSERTED AS THE INVARIANT, not only as the two states these fixtures build:
+   * "the teaser sees fewer than two members" and "the rank says solo" are the
+   * same question, so they must always give the same answer. That line fails on
+   * any future divergence, including ones no fixture here anticipates.
+   */
+  test('counts a teammate who joined since the last rollup, on BOTH cards', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { me, teamId } = await seed(t)
+
+    // THE AGGREGATE AS IT WAS BEFORE THE MATE JOINED — one member, one day. The
+    // roster already carries both, which is precisely the window this covers.
+    await t.run(async (ctx) => {
+      const stats = await ctx.db.query('teamMonthStats').unique()
+      await ctx.db.patch(stats!._id, {
+        members: [{ playerId: me, boards: 1, attempts: 4, solved: 1, failed: 0 }],
+        days: [{ puzzleDay: today, entries: [{ playerId: me, attempts: 4 }] }],
+      })
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month, today })
+
+    expect(res?.roster).toHaveLength(2)
+    // Two members reach dailyTeamFact, so it says "nobody else has entered yet"
+    // rather than "you are the only one playing".
+    expect(res?.teaser?.members).toHaveLength(2)
+    expect(res?.rank?.kind).not.toBe('solo')
+    expect((res?.teaser?.members.length ?? 0) < 2).toBe(res?.rank?.kind === 'solo')
+  })
+
+  test('drops a member who left since the last rollup, on BOTH cards', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { me, teamId } = await seed(t)
+
+    // THE CONVERSE SKEW: the mate has left, and the aggregate still carries both
+    // their totals and their board for today until the next rollup.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(teamId, { playerIds: [me] })
+    })
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, { teamId, month, today })
+
+    expect(res?.roster).toHaveLength(1)
+    expect(res?.teaser?.members).toHaveLength(1)
+    expect(res?.rank).toEqual({ kind: 'solo' })
+    expect((res?.teaser?.members.length ?? 0) < 2).toBe(res?.rank?.kind === 'solo')
+    // AND THE DAY FOLLOWS THE ROSTER TOO, or the free fact's denominator would
+    // go on counting a departed player's board — "you beat 1 of 1 teammates"
+    // from a team of one. aggregateTeamMonth already discards a non-member's
+    // boards at rollup time; this makes the skew window agree with the document
+    // the next rollup will write.
+    expect(res?.teaser?.days[0]?.entries.map((entry) => entry.playerId)).toEqual([me])
+  })
 })
 
 describe('teamMonth — pro', () => {

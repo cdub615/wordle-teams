@@ -278,6 +278,15 @@ export function dailyTeamFact(
   if (day === undefined || mine === undefined) return { kind: 'no-board' }
 
   const others = day.entries.filter((entry) => entry.playerId !== viewerId)
+  /*
+    THE ROSTER, REACHING HERE AS `members` (wordle-teams-iht.4). On the free
+    payload convex/insights.ts fills these identities from team.playerIds rather
+    than from the rollup's member totals, precisely so that this count and the
+    locked card's `solo` — which has always been decided from the roster — can
+    never contradict each other on screen. Nothing changes here: this function
+    still counts the members it is handed, which is what keeps it a pure
+    function of the payload and leaves its outcomes pinned exactly as they were.
+  */
   const teammates = (stats?.members.length ?? 1) - 1
   if (teammates <= 0) return { kind: 'alone' }
   if (others.length === 0) return { kind: 'nobody-yet', teammates }
