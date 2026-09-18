@@ -48,11 +48,21 @@ import type { PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
  *
  * MonthPicker WAS THE NEAR-MISS, and it deserves the note this file's long
  * argument about TeamPicker does not give it: MonthDropdown below is close to a
- * clone of it. What stops the reuse is one thing — `monthOptions(currentMonth)`
- * is computed INSIDE that component and hardcodes a three-month window, while
- * this dropdown's list is the team's own (`teamMonthOptions`, from its
- * `createdAt`). An `options` prop on MonthPicker would have closed the gap, and
- * is the obvious move if a third caller ever wants a month dropdown.
+ * clone of it. What used to stop the reuse was one thing — that component
+ * computed its own three-month list INSIDE itself, while this dropdown's list is
+ * the team's own (`teamMonthOptions`, from its `createdAt`). wordle-teams-kusd
+ * CLOSED THAT PARTICULAR GAP: MonthPicker now takes its window as a `months`
+ * prop, so the list is no longer what separates them.
+ *
+ * REUSE IS STILL NOT THE OBVIOUS MOVE, for two reasons that outlived the prop.
+ * MonthPicker also owns the Pro teaser row — `teaserLabel` and `onUpgrade` are
+ * both required props — and there is nothing behind a paywall here, so a caller
+ * would be passing null and a no-op to silence half the component. And its
+ * trigger takes the Button default height, which is the divergence the paragraph
+ * above argues for KEEPING. The two LISTS also remain different rules that must
+ * not be unified: convex/lib/monthWindow.ts runs from the team's earliest BOARD
+ * and widens for a Pro subscriber, `teamMonthOptions` runs from the team's
+ * CREATION month and caps at twelve for everyone. Both files' headers say so.
  *
  * NO QUERY OF ITS OWN, AND NEITHER FOR THE CARDS THAT HOST IT. Everything here
  * arrives as a prop from team-section.tsx, which already holds the roster and

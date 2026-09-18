@@ -144,14 +144,18 @@ export function resolveDay(days: Array<PuzzleDay>, picked: PuzzleDay | undefined
  * days is what makes "disabled" mean "nowhere to go" rather than "nowhere
  * next door".
  *
- * `months` IS newest-first, monthOptions' own order, so a LATER month is at a
- * LOWER index. Stepping forward walks toward 0 and stepping back walks toward
- * the end — inverted relative to the day direction, which is why the index
- * arithmetic below subtracts `delta` rather than adding it.
+ * `months` IS newest-first — `monthWindowFor`'s own order (convex/lib/monthWindow.ts),
+ * which `fallbackMonths` reproduces while that window is still in flight — so a
+ * LATER month is at a LOWER index. Stepping forward walks toward 0 and stepping
+ * back walks toward the end — inverted relative to the day direction, which is
+ * why the index arithmetic below subtracts `delta` rather than adding it.
  *
  * THE WINDOW IS THE BOUND. An arrow must never reach a month the dropdown does
- * not offer, for the reason recorded on the picker: v2 has no pro month gate
- * yet, so both controls read `monthOptions` and widen together when it lands.
+ * not offer, for the reason recorded on the picker: how far back a viewer may
+ * look is a TIER decision. Both controls are driven by the one array
+ * routes/app.tsx builds, so they widened together on the day wordle-teams-kusd.6
+ * shipped the pro gate rather than needing a change here, and they cannot
+ * disagree about what exists.
  */
 export function stepDay({
   months,

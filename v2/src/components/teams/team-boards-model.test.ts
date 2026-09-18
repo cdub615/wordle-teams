@@ -280,9 +280,10 @@ describe('wrapSlide', () => {
  * offered June 30th — the same friction wordle-teams-5vv3 removed through the
  * other control.
  *
- * `months` IS newest-first throughout, because that is `monthOptions`' order and
- * the component passes it straight through. A LATER month sits at a LOWER index,
- * which is the part of this that is easy to invert.
+ * `months` IS newest-first throughout, because that is `monthWindowFor`'s order
+ * (convex/lib/monthWindow.ts) and the component passes it straight through. A
+ * LATER month sits at a LOWER index, which is the part of this that is easy to
+ * invert.
  */
 describe('stepDay', () => {
   // A Thursday, so weekday/weekend edges are their own cases below.

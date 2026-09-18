@@ -6,14 +6,16 @@ const CAP = 12
 /**
  * Which months a team's insights can be viewed for, newest first, from the
  * team's creation month through `currentMonth`. THIS IS A DIFFERENT RULE FROM
- * WHAT month-picker.tsx's `monthOptions` COMMENT DEFERS. That comment
- * describes an eventual pro expansion back to the team's earliest SCORE; this
- * goes back to the team's earliest CREATION MONTH, which is not the same
- * thing in either direction -- most sharply, a player who joins an existing
- * team can bring boards that predate the team's own creation, and this window
- * would hide them. That is the right rule for the insights card this was
- * built for. It is not a drop-in for the scores picker, which still owes its
- * own score-based expansion.
+ * THE SCORES PICKER'S, AND THE TWO MUST NOT BE UNIFIED. That one is
+ * `monthWindowFor` in convex/lib/monthWindow.ts: it runs back to the team's
+ * earliest SCORE and widens for a Pro subscriber (wordle-teams-kusd shipped
+ * it); this goes back to the team's earliest CREATION MONTH, for every tier.
+ * That is not the same thing in either direction -- most sharply, a player who
+ * joins an existing team can bring boards that predate the team's own
+ * creation, and this window would hide them. That is the right rule for the
+ * insights card this was built for, and it is not a drop-in for the scores
+ * picker. monthWindow.ts's own header carries this warning from the other
+ * side; neither file should lose it.
  *
  * CAPPED AT 12 rather than left open-ended. v1's equivalent dropdown
  * (src/components/action-buttons/month-dropdown/utils.ts) wraps its long
