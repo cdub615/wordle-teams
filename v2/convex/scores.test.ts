@@ -47,10 +47,16 @@ describe('getTeamMonthFor', () => {
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
       const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
-      // The 28th rather than the month's real last day: these have to move with
-      // `thisMonth`, and only 1..28 exists in every month — a `-31` built from a
-      // February `thisMonth` would be a day the index range never matches, and
-      // the test would assert one score instead of two for one month in twelve.
+      // The 28th, where this used to read '2026-08-31'. NOT because a '-31'
+      // would break in February — it would not, and an earlier version of this
+      // comment claimed otherwise. `monthRange` returns `end` as a LITERAL
+      // '<month>-31' for every month (lib/puzzleDay.ts, and puzzleDay.test.ts's
+      // "bounds sort correctly against every real day" pins it), so the bound is
+      // lexicographic rather than calendrical: a stored '2026-02-31' sorts inside
+      // February's range exactly as '2026-08-31' sorts inside August's, and the
+      // fixture inserts the same string the query bounds with. Both values work.
+      // The 28th is chosen only because it is a real date, so nobody reading
+      // these fixtures has to re-derive that argument to believe them.
       for (const puzzleDay of [
         `${addMonths(thisMonth, -1)}-28`,
         `${thisMonth}-01`,
@@ -353,10 +359,16 @@ describe('getTeamMonthFor', () => {
     // left to follow from isProFor's definition, because "the trial is pro
     // enough" is exactly the reasonable-sounding change that would ship it.
     //
-    // THE FIELD IS insightsTrialEndsAt (schema.ts:169). `trialEndsAt` is only a
-    // PARAMETER NAME on lib/insightsAccess.ts's insightsAccess, and a grep for it
-    // matches the real field as a substring — which is how the first draft of
-    // this plan told its own implementer the wrong name was correct.
+    // THE FIELD IS insightsTrialEndsAt (schema.ts:169), and the bare
+    // `trialEndsAt` next door in lib/insightsAccess.ts is a DIFFERENT THING in
+    // three places: a parameter of shouldStartTrial, a parameter of
+    // insightsAccess, and a field of the InsightsAccess those return into.
+    // access.ts's insightsAccessFor is the adapter between them
+    // (`trialEndsAt: player?.insightsTrialEndsAt`). Named here for orientation
+    // rather than as a warning: writing the wrong one into `aPlayer` is caught
+    // immediately and legibly by the schema validator — measured, "Validator
+    // error: Unexpected field `trialEndsAt` in object" — because the players
+    // table's validator rejects fields it does not declare.
     return convexTest(schema, modules).run(async (ctx) => {
       const playerId = await ctx.db.insert(
         'players',
@@ -1000,7 +1012,7 @@ describe('monthWindowInputsFor', () => {
     // a ghost with no boards would be indistinguishable from a member with none,
     // and would prove nothing about what happens to a dangling id.
     //
-    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching scores.ts:84
+    // THE GHOST'S BOARD MUST NOT SET THE WINDOW, matching scores.ts:162
     // (getTeamMonthFor): that function drops a dangling roster id before it ever
     // reads a score for it, so the ghost's 2023-03 board can never reach the
     // scoreboard either. A window that offered 2023-03 anyway would let a viewer
@@ -1032,7 +1044,9 @@ describe('monthWindowInputsFor', () => {
   })
 
   test('reads a bounded number of documents — a bandwidth regression guard', () => {
-    // The sibling of the guard on getTeamMonthFor above (scores.test.ts:89-101):
+    // The sibling of the budget on getTeamMonthFor above (scores.test.ts:150-161,
+    // and of the below-floor one at :446-454, which budgets a call that reaches
+    // earliestMonthFor through the month gate rather than directly):
     // swapping earliestMonthFor's index `.first()` for
     // `.collect().then((rows) => rows[0] ?? null)` returns an IDENTICAL
     // `earliestMonth` — every other test in this block would still pass — while
@@ -1188,7 +1202,7 @@ describe('scores.getMyMonth', () => {
   test("a row with no answer at all comes back as '', not undefined", async () => {
     // THE `?? ''` FALLBACK, WHICH NOTHING ELSE IN THIS FILE REACHES. `answer`
     // is v.optional in the schema — v1 rows predate it — and getTeamMonthFor
-    // coalesces it for exactly that reason (scores.ts:96-101). Drop the
+    // coalesces it for exactly that reason (scores.ts:175-180). Drop the
     // coalesce here and all four gates stay green: the shape test above asserts
     // Object.keys, which still lists `answer` when the value is undefined, and
     // every other fixture in this file sets one. The TYPE link does not catch

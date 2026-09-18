@@ -241,7 +241,7 @@ export const getTeamMonth = query({
  * visible on the scoreboard the same way.
  *
  * A DANGLING ROSTER ID IS SKIPPED, on the same premise getTeamMonthFor
- * (scores.ts:84) and getMyTeamsFor (teams.ts:105) share — Convex ids are not
+ * (scores.ts:162) and getMyTeamsFor (teams.ts:105) share — Convex ids are not
  * foreign keys, so `teams.playerIds` can outlive the `players` row it names —
  * but for a DIFFERENT REASON. Those two guard against throwing on
  * `member.firstName`; nothing here would throw on a ghost, which is exactly why
@@ -276,7 +276,7 @@ async function earliestMonthFor(
   const firsts = await Promise.all(
     playerIds.map(async (memberId) => {
       // A ROSTER ENTRY WITH NO PLAYER ROW, skipped BEFORE the index read rather
-      // than after — the same guard scores.ts:84 (getTeamMonthFor) and teams.ts:105
+      // than after — the same guard scores.ts:162 (getTeamMonthFor) and teams.ts:105
       // (getMyTeamsFor) apply, for a related but distinct reason: those two guard
       // against throwing on `member.firstName`, while this one exists so a ghost's
       // boards cannot widen the window past what getTeamMonthFor can ever render
@@ -378,7 +378,7 @@ export const getMyPlayerId = query({
  * A MONTH, NOT A DAY. The form picks a default day from the set of days already
  * played (form.tsx:64), so a single-day read cannot feed it.
  *
- * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:96-101), deliberately,
+ * THE SAME SCORE SHAPE getTeamMonthFor emits (scores.ts:175-180), deliberately,
  * so the form derives from one shape whichever query fed it. It reads the same
  * index through the same monthRange bounds for the same reason: given a
  * WELL-FORMED 'YYYY-MM', `end` is '<month>-31' as a LEXICAL bound on

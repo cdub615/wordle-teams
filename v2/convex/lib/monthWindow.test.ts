@@ -110,7 +110,7 @@ describe('monthWindowFor — pro', () => {
     // That makes the span NaN, Array.from({length: NaN}) returns [], and the
     // element-0 invariant below is violated for a REACHABLE input — with
     // serverFloorFor then reading months[-1] and throwing inside
-    // getTeamMonthFor (scores.ts:37), taking the dashboard down for every Pro
+    // getTeamMonthFor (scores.ts:45), taking the dashboard down for every Pro
     // member of the team rather than for the author. The cause is filed
     // separately; this is the blast shield.
     for (const earliestMonth of ['', '1', 'x', '2026', 'not-a-month']) {

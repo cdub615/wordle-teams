@@ -114,7 +114,7 @@ export function monthWindowFor({ currentMonth, earliestMonth, pro }: MonthWindow
  * a micro-optimisation: the array form would materialise up to MAX_MONTHS entries
  * on every below-floor request purely to read one value, and — before the span was
  * floored — could read `[-1]` off an empty array and throw `undefined.split` inside
- * getTeamMonthFor (scores.ts:37), taking the dashboard down for every Pro member of
+ * getTeamMonthFor (scores.ts:45), taking the dashboard down for every Pro member of
  * the team.
  *
  * A FLOOR RATHER THAN MEMBERSHIP OF THE WINDOW. There is no upper bound to

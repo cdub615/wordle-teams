@@ -19,33 +19,76 @@ const here = dirname(fileURLToPath(import.meta.url))
  * the generic "Something went wrong" fallback instead, while lint, tsc, build and
  * all 3500-odd other tests stay green. There is no type-level way to notice.
  *
- * SO THE CHECK IS TEXTUAL, on the same premise as the twenty-odd other
+ * SO THE CHECK IS TEXTUAL, on the same premise as the thirty-odd other
  * source-reading tests in this repo (frontend-import-graph.test.ts, fonts.test.ts,
  * routes.test.ts): when the property lives in the SHAPE of a file rather than in
- * its types, reading the file is the only mechanism that can see it. Parsing the
- * union out of access.ts is crude and that is the point — it fails loudly if
- * anyone reformats the union into a shape this cannot read, which is a far better
- * outcome than silently checking nothing.
+ * its types, reading the file is the only mechanism that can see it.
  *
- * ONE DIRECTION ONLY. A code in the chain that is NOT in AccessCode is already a
- * compile error: the narrowed `code` is returned as `AccessCode`, so an unknown
- * literal fails assignability. Only the missing direction needs a test.
+ * THE HARD PART IS NOT THE ASSERTION, IT IS PROVING THE PARSE FOUND EVERYTHING.
+ * A source-reading guard that quietly parses half a list still passes, and then
+ * guards half a list. Two things stop that here, and the second is the real one:
+ *
+ * 1. A FLOOR on the count, so a parse that collapses to nothing cannot pass
+ *    vacuously. Necessary, and nowhere near sufficient — an earlier version of
+ *    this file stopped collecting at the first line that was not a member, so a
+ *    single comment inserted mid-union would have truncated the list to whatever
+ *    came before it and sailed past a floor of 15.
+ *
+ * 2. A CROSS-CHECK against `typedCodeMessage`'s `case` labels, parsed separately,
+ *    by a different pattern, out of a different file. That switch is exhaustive
+ *    over AccessCode BY COMPILER ENFORCEMENT, so its label set IS the union — no
+ *    parsing of mine can make it incomplete without tsc noticing. Requiring the
+ *    two sets to be EQUAL therefore catches both directions of a bad parse: a
+ *    truncated union parse leaves labels unmatched, and an over-greedy one that
+ *    ran on past the declaration leaves members unmatched. This is what makes the
+ *    per-code assertions below trustworthy rather than merely present.
+ *
+ * ONE DIRECTION ONLY on the chain itself. A code in the chain that is NOT in
+ * AccessCode is already a compile error: the narrowed `code` is returned as
+ * `AccessCode`, so an unknown literal fails assignability. Only the missing
+ * direction needs a test.
  */
+
+/** Permissive on purpose: a future code with a digit in it must not be skipped. */
+const CODE = "[A-Za-z0-9_]+"
+
 const ACCESS_CODES_IN_SOURCE = (() => {
   const source = readFileSync(join(here, '../../convex/access.ts'), 'utf8')
   const afterDeclaration = source.split('export type AccessCode =')[1]
   expect(afterDeclaration, 'convex/access.ts no longer declares `export type AccessCode =`').toBeDefined()
 
-  // The split leaves the tail of the `=` line itself as element 0 — empty, since
-  // the first member sits on the next line — so collection starts at the first
-  // line that parses and stops at the first that does not AFTER that.
+  // Walks to the END OF THE DECLARATION rather than stopping at the first line
+  // that is not a member. Blank lines and comments are FILLER — skipped, not
+  // terminators — because treating them as terminators is exactly how a comment
+  // added inside the union would silently truncate this list. The union ends at
+  // the first line that is neither a member nor filler, which in practice is the
+  // next top-level statement. Over-running that is harmless and detectable: the
+  // equality check against the switch labels below fails if this picks up a
+  // member that is not an AccessCode.
   const codes: string[] = []
-  for (const line of afterDeclaration.split('\n')) {
-    const member = /^\s*\|\s*'([A-Z_]+)'\s*$/.exec(line)
-    if (member) codes.push(member[1])
-    else if (codes.length > 0) break
+  for (const raw of afterDeclaration.split('\n')) {
+    const line = raw.trim()
+    const member = new RegExp(`^\\|\\s*'(${CODE})'$`).exec(line)
+    if (member) {
+      codes.push(member[1])
+      continue
+    }
+    if (line === '' || line.startsWith('//') || line.startsWith('*') || line.startsWith('/*')) continue
+    break
   }
   return codes
+})()
+
+/**
+ * The `case` labels of `typedCodeMessage`, which tsc guarantees are exactly
+ * AccessCode's members — the `default` branch assigns `code` to a `never`, so a
+ * missing case does not compile and a surplus one is not assignable.
+ */
+const SWITCH_CASE_LABELS = (() => {
+  const source = readFileSync(join(here, 'convex-error.ts'), 'utf8')
+  const body = source.split('export function typedCodeMessage')[1]
+  expect(body, 'convex-error.ts no longer declares `export function typedCodeMessage`').toBeDefined()
+  return [...body.split('\nexport ')[0].matchAll(new RegExp(`case '(${CODE})':`, 'g'))].map((m) => m[1])
 })()
 
 const CONVEX_ERROR_CODE_BODY = (() => {
@@ -56,13 +99,14 @@ const CONVEX_ERROR_CODE_BODY = (() => {
 })()
 
 describe('convexErrorCode recognises every AccessCode', () => {
-  test('the union parsed out of access.ts is the real one, not an empty list', () => {
-    // Without this the loop below would pass vacuously the moment the parse
-    // broke — the classic way a source-reading guard stops guarding. The floor is
-    // deliberately well under the real count so an ordinary addition or removal
-    // does not have to touch it; it only catches a parse that collapsed.
+  test('the union parsed out of access.ts is the real one, not a truncated list', () => {
+    // The floor catches a parse that collapsed to nothing; the equality catches
+    // one that stopped early or ran on. Neither assertion is redundant: the floor
+    // still fires if BOTH parsers break the same way, and the equality still
+    // fires if the union parse loses members while staying above the floor.
     expect(ACCESS_CODES_IN_SOURCE.length).toBeGreaterThan(15)
     expect(ACCESS_CODES_IN_SOURCE).toContain('UNAUTHENTICATED')
+    expect([...ACCESS_CODES_IN_SOURCE].sort()).toEqual([...SWITCH_CASE_LABELS].sort())
   })
 
   test.each(ACCESS_CODES_IN_SOURCE)(
