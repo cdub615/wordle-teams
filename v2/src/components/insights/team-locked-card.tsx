@@ -34,8 +34,16 @@ import type { TeamRankTeaser } from '../../../convex/lib/teamStats.ts'
  * PRESENTATIONAL ONLY. It calls no hooks and knows nothing about tiers —
  * team-section.tsx decides whether it renders at all.
  *
- * THE CALLBACKS ARE PROPS BECAUSE OF `onInvite`, NOT `onUpgrade`. Calling
- * useStartUpgrade in a component is fine and three components do it. Routing
+ * THE CALLBACKS ARE PROPS BECAUSE OF `onInvite`, NOT `onUpgrade`. Opening the
+ * upgrade surface from inside a component is fine — `useUpgrade` from
+ * components/upgrade-dialog.tsx is a context hook and several components call
+ * it — so `onUpgrade` did not have to be a prop. (This used to read "calling
+ * useStartUpgrade in a component is fine and three components do it", which
+ * wordle-teams-iht.1 falsified in both halves: that hook now has exactly ONE
+ * importer, the dialog itself, pinned by src/checkout-entry-point.test.ts.
+ * Reaching checkout from a component is no longer the alternative on offer;
+ * opening the dialog is. No count is given here on purpose — nothing asserts
+ * one, so it could only rot the same way.) Routing
  * directly is not literally impossible here either — no-team-card.tsx uses
  * `Link` from `@tanstack/react-router` for the same purpose, and
  * team-section.hook.test.ts copes with it by mocking that module. But every

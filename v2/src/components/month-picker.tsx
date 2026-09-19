@@ -119,12 +119,25 @@ export function MonthPicker({
             the equivalent indent, pushing the text a further 1.5rem right and
             breaking the alignment this comment just proved holds.
 
-            IT IS THE SIXTH CALLER OF THE UPGRADE PATH. Header.tsx, trial-ended-card.tsx,
+            IT IS THE SIXTH UPGRADE AFFORDANCE. Header.tsx, trial-ended-card.tsx,
             board-entry/import-upsell.tsx, routes/app.tsx (TeamPicker's own
             onUpgrade) and routes/insights.tsx are the others. wordle-teams-iht.1
-            puts one shared interstitial behind all of them; when it lands this
-            must go through it rather than remaining the one path that still
-            reaches checkout directly. That issue's notes carry the count.
+            put one shared interstitial behind all six, and this one goes through
+            it: `onUpgrade` is supplied by routes/app.tsx as
+            `() => openUpgrade('months')`, so what this item opens is
+            components/upgrade-dialog.tsx and the checkout is that dialog's CTA.
+
+            SAID AS "CALLER" UNTIL iht.1 LANDED, AND THAT WORD HAD TO GO. The
+            paragraph used to close "when it lands this must go through it
+            rather than remaining the one path that still reaches checkout
+            directly" — future tense about work now merged, describing a state
+            that is no longer this file's. The COUNT survived the change
+            unharmed, because six affordances is what it always counted; it is
+            the claim about reaching checkout that expired. Nothing in this file
+            imports lib/use-start-upgrade.ts, and nothing may:
+            src/checkout-entry-point.test.ts pins the dialog as that hook's only
+            importer, so a seventh affordance added the old way fails the suite
+            rather than shipping.
 
             THE "Pro" BADGE IS PART OF THE ACCESSIBLE NAME, not hidden from it —
             "Back to Mar 2023 Pro" — matching the one load-bearing thing
