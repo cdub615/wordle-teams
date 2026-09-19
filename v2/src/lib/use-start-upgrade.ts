@@ -1,5 +1,5 @@
 import { useConvexAction } from '@convex-dev/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { api } from '../../convex/_generated/api'
 import { CHECKOUT_FAILED, checkoutOutcome } from '#/lib/billing-copy.ts'
@@ -42,15 +42,70 @@ import { mutationErrorMessage } from '#/lib/convex-error.ts'
  * the same disabled window Header.tsx's portal button already has. app.tsx's
  * dropdown item ignores it: a DropdownMenu closes on select, so there is no
  * control left on screen to put a spinner in.
+ *
+ * `abandonUpgrade` IS A FOURTH OUTCOME OF THE ROUND TRIP, AND IT LIVES HERE
+ * RATHER THAN IN THE DIALOG (wordle-teams-iht.1.10). The player can walk away
+ * mid-flight — dismiss the upgrade dialog while Polar is still being asked for
+ * a URL — and until this existed that did nothing at all: the promise below
+ * survived the dismissal and `location.href` was assigned when it resolved, so
+ * the surface built so nobody lands on checkout uninformed landed them there
+ * after they had explicitly declined.
+ *
+ * WHY HERE AND NOT IN upgrade-dialog.tsx, which is where dismissal is known.
+ * The two things cancellation has to reach are the navigation and the pending
+ * flag, and this module owns both — a caller cannot skip an assignment made
+ * inside this closure, so a dialog-side token would still need this file to
+ * consult it, which is one decision with two owners. The banner above says this
+ * is the single place that knows what a checkout attempt can end as; "the
+ * player left" is one of those endings, sitting beside the url, the two
+ * url-less reasons and the throw, and the reason wordle-teams-9fm happened was
+ * a caller hand-rolling one of those endings for itself. The cost is real and
+ * accepted: the hook now has a concept of a caller who can go away, which it
+ * did not before. It is additive — every existing property above is unchanged,
+ * and the alternative on offer was disabling all four exits for the round trip,
+ * which makes the dialog briefly inescapable and is worse.
+ *
+ * IT IS PER-ATTEMPT, CLEARED BY THE NEXT `startUpgrade`. A flag that latched
+ * would be a worse bug than the one it fixes: an Upgrade button that is mounted,
+ * enabled and spinner-free while silently declining to take anybody's money —
+ * the dead-button-indistinguishable-from-a-working-one failure this file and
+ * useUpgrade's throw are both already written against.
+ *
+ * AND IT LOWERS `pending` ITSELF rather than waiting for the `finally`, because
+ * the caller that abandons is not necessarily gone: upgrade-dialog.tsx stays
+ * mounted across a close (its origin has to outlive the exit animation), so a
+ * flag left raised is a re-opened dialog whose CTA is disabled and `aria-busy`
+ * for a request the player believes they abandoned, with nothing to do but wait
+ * on a promise nobody is waiting for.
+ *
+ * A REF, NOT STATE, because it is read by a closure that is already running —
+ * re-rendering with a new value would not reach the `await` that is in flight.
  */
-export function useStartUpgrade(): { startUpgrade: () => Promise<void>; pending: boolean } {
+export function useStartUpgrade(): {
+  startUpgrade: () => Promise<void>
+  abandonUpgrade: () => void
+  pending: boolean
+} {
   const createCheckout = useConvexAction(api.polar.createProCheckout)
   const [pending, setPending] = useState(false)
+  const abandoned = useRef(false)
+
+  const abandonUpgrade = () => {
+    abandoned.current = true
+    setPending(false)
+  }
 
   const startUpgrade = async () => {
+    abandoned.current = false
     setPending(true)
     try {
-      const outcome = checkoutOutcome(await createCheckout({}))
+      const result = await createCheckout({})
+      // THE ONE GUARD THAT COVERS BOTH ANSWERS. Whatever Polar said, a player
+      // who has walked away gets neither a navigation nor a toast: a failure
+      // sentence raised over whatever they went on to do instead is noise about
+      // a thing they abandoned.
+      if (abandoned.current) return
+      const outcome = checkoutOutcome(result)
       if (outcome.action === 'navigate') {
         window.location.href = outcome.url
         return
@@ -70,6 +125,7 @@ export function useStartUpgrade(): { startUpgrade: () => Promise<void>; pending:
       // as a failure, which is exactly the class of bug wordle-teams-9fm was.
       toast[outcome.level](outcome.message)
     } catch (error) {
+      if (abandoned.current) return
       toast.error(mutationErrorMessage(error, CHECKOUT_FAILED))
     } finally {
       // Runs on the navigate branch too, exactly as Header.tsx's portal button
@@ -81,5 +137,5 @@ export function useStartUpgrade(): { startUpgrade: () => Promise<void>; pending:
     }
   }
 
-  return { startUpgrade, pending }
+  return { startUpgrade, abandonUpgrade, pending }
 }

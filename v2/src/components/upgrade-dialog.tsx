@@ -108,10 +108,37 @@ function UpgradeDialog({
   open: boolean
   onClose: () => void
 }) {
-  const { startUpgrade, pending } = useStartUpgrade()
+  const { startUpgrade, abandonUpgrade, pending } = useStartUpgrade()
+
+  /**
+   * EVERY EXIT IS A CANCELLATION (wordle-teams-iht.1.10). Dismissing while a
+   * checkout is in flight used to do nothing to the checkout: `onClose` flips
+   * `open`, `state` stays non-null so this component stays mounted, and the
+   * hook's promise resolved into `window.location.href` — the player was put on
+   * Polar's payment page after explicitly declining it. `abandonUpgrade` is the
+   * hook's own cancellation (the argument for it living there, not here, is in
+   * use-start-upgrade.ts); this is the half that says WHEN.
+   *
+   * ONE FUNCTION FOR ALL FOUR WAYS OUT, which is the only reason this is
+   * correct rather than nearly correct. "Not now" is the exit that gets thought
+   * about; the X is the one most players reach for, Escape is the one a
+   * keyboard user has, and the overlay click is the one nothing in jsdom can
+   * drive. The last three share `onOpenChange`, so routing both it and the
+   * button through here is what makes "dismissed" mean the same thing however
+   * the player spelled it.
+   *
+   * IT IS NOT CONDITIONAL ON `pending`. Abandoning when no checkout is running
+   * is a no-op by construction — the flag is re-armed by the next
+   * `startUpgrade` — and a guard here would be a second copy of the hook's idea
+   * of "in flight", kept in step by hand.
+   */
+  const dismiss = () => {
+    abandonUpgrade()
+    onClose()
+  }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && dismiss()}>
       {/*
         THE WHOLE PANEL SCROLLS, AND THE CTA SCROLLS WITH IT. The spec asked for
         a pinned footer; DialogContent is why this does not do that. That
@@ -151,7 +178,7 @@ function UpgradeDialog({
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">{MONTHLY_FINE_PRINT}</p>
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="ghost" onClick={dismiss}>
               Not now
             </Button>
             <Button

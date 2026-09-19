@@ -16,6 +16,17 @@ import type { UpgradeOrigin } from '#/lib/plans.ts'
 
 const startUpgrade = vi.fn()
 /**
+ * The hook's cancellation, which every exit from this dialog must reach —
+ * wordle-teams-iht.1.10. Present here because a mock that is missing a member
+ * of the contract fails as an unhelpful "not a function" deep inside a handler
+ * rather than as the assertion it should be; what the cancellation actually
+ * PREVENTS (a navigation to Polar after the player declined) cannot be seen
+ * from this file at all, since `startUpgrade` above is a `vi.fn()` that
+ * navigates nowhere. That is upgrade-dialog-dismissal.hook.test.ts, which mocks
+ * `useConvexAction` instead and runs the real hook.
+ */
+const abandonUpgrade = vi.fn()
+/**
  * Set per test, read by the mocked hook below — the `let` reset in `beforeEach`
  * that Header.hook.test.ts uses for `isPro` and friends.
  *
@@ -29,7 +40,7 @@ const startUpgrade = vi.fn()
 let pending: boolean
 
 vi.mock('#/lib/use-start-upgrade.ts', () => ({
-  useStartUpgrade: () => ({ startUpgrade, pending }),
+  useStartUpgrade: () => ({ startUpgrade, abandonUpgrade, pending }),
 }))
 
 const { UpgradeDialogProvider, useUpgrade } = await import('./upgrade-dialog.tsx')
@@ -41,6 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   startUpgrade.mockClear()
+  abandonUpgrade.mockClear()
 })
 
 /** A consumer that opens the dialog from a given origin on click. */
@@ -257,6 +269,13 @@ describe('dismissing the dialog', () => {
 
       expect(screen.queryByText(UPGRADE_HEADLINES.teams)).toBeNull()
       expect(startUpgrade).not.toHaveBeenCalled()
+      // AND IT TELLS THE HOOK, whichever exit it was. All three go through one
+      // `dismiss` in the component, so wiring only the "Not now" handler is the
+      // mutant this loop kills: the X and Escape would close the dialog and
+      // leave the checkout running, to land the player on Polar's payment page
+      // once it answered. What that abandonment then suppresses is asserted
+      // against the real hook in upgrade-dialog-dismissal.hook.test.ts.
+      expect(abandonUpgrade).toHaveBeenCalledTimes(1)
     })
   }
 })
