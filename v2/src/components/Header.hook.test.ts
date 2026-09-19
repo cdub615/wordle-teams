@@ -66,6 +66,7 @@ import { api } from '../../convex/_generated/api'
 import Header from './Header.tsx'
 import { UpgradeDialogProvider } from './upgrade-dialog.tsx'
 import { CHECKOUT_NOT_CONFIGURED, PORTAL_NOT_CONFIGURED } from '#/lib/billing-copy.ts'
+import { UPGRADE_HEADLINES } from '#/lib/plans.ts'
 
 /** Set per test, read by the mocked hooks below. */
 let isAuthenticated: boolean
@@ -280,9 +281,10 @@ describe('Upgrade appears exactly when amIPro says the player is not pro', () =>
 /**
  * TWO STEPS NOW, AND THEY STAYED HERE RATHER THAN MOVING (wordle-teams-iht.1).
  * The bar's button opens the dialog; the dialog's CTA is what reaches
- * createProCheckout. These three keep their value because they are still the
- * only CI-runnable cover on the checkout OUTCOMES — navigate, misconfigured,
- * and the pending window — so they click through rather than being deleted.
+ * createProCheckout. The three outcome tests keep their value because they are
+ * still the only CI-runnable cover on what checkout ANSWERS — navigate,
+ * misconfigured, and the pending window — so they click through rather than
+ * being deleted. The headline test below them covers the new first step.
  */
 describe('Upgrade reaches the dialog, and the dialog reaches checkout', () => {
   /** Opens the dialog from the bar, and returns its CTA. */
@@ -296,6 +298,28 @@ describe('Upgrade reaches the dialog, and the dialog reaches checkout', () => {
       name: 'Upgrade',
     }) as HTMLButtonElement
   }
+
+  test("the dialog opens on the BAR's headline, not another affordance's", () => {
+    // THE ORIGIN LITERAL IS INVISIBLE TO EVERY OTHER GATE. `openUpgrade('teams')`
+    // in Header.tsx type-checks, lints, builds and passes the whole suite while
+    // headlining "Pro lifts the two-team limit" at somebody who clicked the app
+    // bar and may hold no teams at all — the exact mismatch the six origins
+    // exist to prevent. src/routes.test.ts pins both pickers' origins, but it
+    // reads routes/app.tsx; the bar is the one affordance no source guard
+    // covers, so it is pinned here, where the dialog is really rendered.
+    //
+    // THE HEADING, NOT THE DIALOG'S ACCESSIBLE NAME: both come from DialogTitle
+    // via aria-labelledby, and a failure on the element reads as the wrong
+    // sentence rather than as "unable to find a dialog".
+    isPro = false
+    bar()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upgrade' }))
+
+    expect(within(screen.getByRole('dialog')).getByRole('heading').textContent).toBe(
+      UPGRADE_HEADLINES.header,
+    )
+  })
 
   test('Upgrade starts a CHECKOUT and navigates to Polar', async () => {
     isPro = false
