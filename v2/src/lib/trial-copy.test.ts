@@ -34,9 +34,9 @@ describe('the trial-ended prompt', () => {
     //
     // EXCEPT src/lib/plans.ts, added since as the one module whose job is to
     // hold $49.99 and $4.99 for a public /pricing page — a page with no prices
-    // is not one. That departure is confined to plans.ts and is backstopped by
-    // a drift script; the rule this test pins stands everywhere else,
-    // including here.
+    // is not one. That departure is confined to plans.ts and will be
+    // backstopped by a drift check owned by wordle-teams-wty4.1.14, not yet
+    // written; the rule this test pins stands everywhere else, including here.
     const all = `${TRIAL_ENDED_TITLE} ${TRIAL_ENDED_BODY} ${TRIAL_ENDED_CTA}`
     expect(all).not.toMatch(/\$\d/)
   })
