@@ -17,6 +17,7 @@ import { pageTitle, socialMetaTags } from '#/lib/seo'
 import { appleWebAppMetaTags, splashLinkTags } from '#/lib/splash-screens.ts'
 import { useServiceWorkerRegistration } from '#/lib/register-sw.ts'
 import { hidesSiteFooter } from '#/lib/site-chrome.ts'
+import { UpgradeDialogProvider } from '#/components/upgrade-dialog.tsx'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { PullToRefresh } from '../components/pull-to-refresh'
@@ -266,9 +267,16 @@ function RootComponent() {
         how Header and useServiceWorkerRegistration are already scoped.
       */}
       <PullToRefresh />
-      <Header />
-      <Outlet />
-      {hidesSiteFooter(pathname) ? null : <Footer />}
+      {/*
+        THE PROVIDER WRAPS HEADER TOO, not only the Outlet: Header.tsx's own
+        Upgrade button is one of the six affordances, so it has to be inside.
+        One mount for the whole app is the point — see upgrade-dialog.tsx.
+      */}
+      <UpgradeDialogProvider>
+        <Header />
+        <Outlet />
+        {hidesSiteFooter(pathname) ? null : <Footer />}
+      </UpgradeDialogProvider>
     </ConvexBetterAuthProvider>
   )
 }
