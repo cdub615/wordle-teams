@@ -168,14 +168,25 @@ describe('the locked card opens the invite dialog in place', () => {
     expect(props.get('teamId')).toBe('selectedTeam.id')
   })
 
-  test('and onUpgrade reaches checkout, not a dead handler or the wrong action', () => {
-    // THE SAME MEASUREMENT AS THE "dashboard CTA" BLOCK BELOW, applied to the
+  test('and onUpgrade opens the dialog, not a dead handler or the wrong action', () => {
+    // THE SAME MEASUREMENT AS THE "dashboard CTAs" BLOCK BELOW, applied to the
     // call site that block does not cover: /insights' locked card is the
     // upsell for every free member of a team with more than one player — the
     // majority case — and until this test existed its `onUpgrade` had no
     // route-level pin at all, unlike /app's identical expression.
-    expect(jsxProps(INSIGHTS, 'TeamSection').get('onUpgrade')).toBe('() => void startUpgrade()')
-    expect(codeOf(read(INSIGHTS))).toMatch(/const \{ startUpgrade \} = useStartUpgrade\(\)/)
+    //
+    // CHECKOUT IS ONE HOP FURTHER ON NOW (wordle-teams-iht.1): the prop opens
+    // the upgrade dialog, whose CTA is the app's one caller of useStartUpgrade.
+    // The mutations this catches are unchanged by the extra hop — a dead
+    // handler is still a button that does nothing — and the ORIGIN is now part
+    // of what is pinned, because `openUpgrade('header')` here type-checks and
+    // shows a generic Pro pitch to somebody looking at a locked team month.
+    expect(jsxProps(INSIGHTS, 'TeamSection').get('onUpgrade')).toBe("() => openUpgrade('insights')")
+    expect(codeOf(read(INSIGHTS))).toMatch(/const \{ openUpgrade \} = useUpgrade\(\)/)
+    // NOR MAY IT GO STRAIGHT TO CHECKOUT, skipping the only statement of what
+    // is being bought. `wordle-teams-iht.1.7` makes upgrade-dialog.tsx the
+    // hook's only importer; this says it for the file that was the third one.
+    expect(codeOf(read(INSIGHTS))).not.toMatch(/useStartUpgrade/)
     expect(codeOf(read(INSIGHTS))).not.toMatch(/getCustomerPortalUrl/)
   })
 })

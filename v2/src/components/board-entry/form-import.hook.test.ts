@@ -20,9 +20,9 @@
 // no canvas, so the decode is stood in for with a bitmap from the Task 1
 // renderer; everything downstream of that — lattice, colour, glyphs, repair —
 // is the shipping code.
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { getFunctionName, type FunctionReference } from 'convex/server'
-import { createElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
 import { fillRect } from '#/lib/board-import/bitmap.ts'
@@ -30,6 +30,7 @@ import { attemptsFor, boardIsValid } from '../../../convex/lib/board.ts'
 import { renderPlayedBoard } from '#/lib/board-import/testing/board-fixture.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import { BoardEntryForm } from './form.tsx'
+import { UpgradeDialogProvider } from '#/components/upgrade-dialog.tsx'
 
 const today = toPuzzleDay(new Date())
 const thisMonth = today.slice(0, 7)
@@ -70,6 +71,19 @@ let proAnswer: boolean | undefined
  */
 const flushEffects = () => act(async () => {})
 
+/**
+ * The form inside the provider its Pro gate now depends on.
+ *
+ * EVERY RENDER GOES THROUGH IT, not just the non-Pro ones. ImportUpsell calls
+ * useUpgrade(), which THROWS outside UpgradeDialogProvider on purpose
+ * (wordle-teams-iht.1), so the four tests below that set `proAnswer = false`
+ * would die on the wrapper rather than on what they assert. Wrapping the Pro
+ * and in-flight renders too costs nothing — the dialog is null until something
+ * opens it — and means the next test added here cannot trip over the gate.
+ */
+const renderForm = (element: ReactElement) =>
+  render(createElement(UpgradeDialogProvider, null, element))
+
 vi.mock('@convex-dev/react-query', () => ({
   convexQuery: (ref: FunctionReference<'query'>, args: unknown) => ({
     queryKey: [getFunctionName(ref), args],
@@ -77,7 +91,8 @@ vi.mock('@convex-dev/react-query', () => ({
   // The NAME, not a spy: it is what lets useMutation below tell the board
   // submit and the correction log apart.
   useConvexMutation: (ref: FunctionReference<'mutation'>) => getFunctionName(ref),
-  // The upsell reaches checkout through useStartUpgrade, which uses an ACTION.
+  // The upgrade dialog the upsell opens reaches checkout through
+  // useStartUpgrade, which uses an ACTION.
   useConvexAction: (ref: FunctionReference<'action'>) => async () => {
     fired.push({ name: getFunctionName(ref), args: {} })
     return { url: null, reason: 'not-configured' }
@@ -231,7 +246,7 @@ afterEach(() => {
 describe('importing a screenshot into the entry form', () => {
   test('fills the board in from a pasted screenshot', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -245,7 +260,7 @@ describe('importing a screenshot into the entry form', () => {
   // failed", not "never wrong" — is affordable without this.
   test('writes NOTHING until the player presses submit', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
@@ -256,7 +271,7 @@ describe('importing a screenshot into the entry form', () => {
 
   test('submits what is on screen once the player confirms it', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
@@ -272,7 +287,7 @@ describe('importing a screenshot into the entry form', () => {
   // only part Stage 3 can learn from.
   test('logs the tile the player corrected, and only that tile', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
@@ -294,7 +309,7 @@ describe('importing a screenshot into the entry form', () => {
 
   test('logs nothing when the player confirmed the parse unchanged', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
@@ -312,7 +327,7 @@ describe('importing a screenshot into the entry form', () => {
     failingMutation = LOG
     screenshotOf(ANSWER, GUESSES)
     let onSuccessCalled = false
-    render(
+    renderForm(
       createElement(BoardEntryForm, {
         month: thisMonth,
         onSuccess: () => {
@@ -340,7 +355,7 @@ describe('importing a screenshot into the entry form', () => {
   // saw.
   test('logs nothing when the player fills the board in by hand', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     goToEntry()
     // The answer first, then the board — which is the order the stream imposes
@@ -362,7 +377,7 @@ describe('the two-step flow', () => {
   // has nothing focusable that raises a keyboard, and that is the fix.
   test('opens on the choice step with nothing focused', () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
     expect(screen.queryByTestId('board')).toBeNull()
@@ -376,7 +391,7 @@ describe('the two-step flow', () => {
     // hides it — which is why it has to be stubbed here to be seen at all.
     vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     expect(screen.getByTestId('date-picker').getAttribute('data-day')).toBe(today)
     expect(screen.getByRole('button', { name: /paste screenshot/i })).toBeTruthy()
@@ -387,7 +402,7 @@ describe('the two-step flow', () => {
   // Typing is what the player asked for here, so the keyboard is now correct.
   test('focuses the answer when the player chooses to type, and not before', () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     goToEntry()
 
@@ -400,7 +415,7 @@ describe('the two-step flow', () => {
   // extra step in front of it.
   test('does not focus the answer when the board arrived from a screenshot', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -413,7 +428,7 @@ describe('the two-step flow', () => {
   // not the step's. A player who mistyped the date must not lose the board.
   test('keeps a part-typed board when the player goes back to change the day', () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     goToEntry()
     typeKeys('CRANE')
@@ -431,7 +446,7 @@ describe('the import confirm step', () => {
 
   test('confirms what it read, with the board filled in and a Submit', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -444,7 +459,7 @@ describe('the import confirm step', () => {
 
   test('goes back to the choice step without losing what it read', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
@@ -461,7 +476,7 @@ describe('the import confirm step', () => {
   // failures look identical to whoever pasted it.
   test('names a share card and drops into manual entry', async () => {
     screenshotOf(ANSWER, GUESSES, { withoutLetters: true })
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -484,7 +499,7 @@ describe('the import confirm step', () => {
         }),
       } as unknown as HTMLElement
     }) as typeof document.createElement)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -528,7 +543,7 @@ describe('the import confirm step', () => {
         getContext: () => ({ drawImage: () => {}, getImageData: () => board6.bitmap }),
       } as unknown as HTMLElement
     }) as typeof document.createElement)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -621,7 +636,7 @@ describe('a row the parse missed in the MIDDLE of the board', () => {
         getContext: () => ({ drawImage: () => {}, getImageData: () => rendered.bitmap }),
       } as unknown as HTMLElement
     }) as typeof document.createElement)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -651,7 +666,7 @@ describe('the answer, asked for only when the board did not carry one', () => {
   // correct.
   test('never asks when the parse read the answer off the board', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -673,7 +688,7 @@ describe('the answer, asked for only when the board did not carry one', () => {
   // where a keyboard is help rather than an interruption.
   test('asks, and focuses, when the board was not solved', async () => {
     screenshotOf('DRYLY', ['SLATE', 'BROIL', 'WRYLY'])
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -698,7 +713,7 @@ describe('the answer, asked for only when the board did not carry one', () => {
   // torn. parse.test.ts builds torn evidence by hand to show that.
   test('re-resolves the guesses against the answer once it is typed', async () => {
     screenshotOf('DRYLY', ['SLATE', 'BROIL', 'WRYLY'])
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(note()).toMatch(/not solved/i))
@@ -715,7 +730,7 @@ describe('the answer, asked for only when the board did not carry one', () => {
   // resolve of the original evidence.
   test('does not overwrite a hand-corrected board when the answer is edited again', async () => {
     screenshotOf('DRYLY', ['SLATE', 'BROIL', 'WRYLY'])
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(note()).toMatch(/not solved/i))
@@ -750,7 +765,7 @@ describe('what the correction log may and may not blame the parser for', () => {
     // either a winning last row or all six rows used.
     const lost = ['SLATE', 'BROIL', 'WRYLY', 'CHUNK', 'PLATE', 'SCORE']
     screenshotOf('DRYLY', lost)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(screen.getByTestId('board-import-note').textContent).toMatch(/not solved/i))
@@ -775,7 +790,7 @@ describe('what the correction log may and may not blame the parser for', () => {
   // got wrong, is exactly the thing the log exists to capture.
   test('does blame it for an answer it read off the board and got wrong', async () => {
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
     await waitFor(() => expect(answerText()).toBe('CRANE'))
@@ -815,7 +830,7 @@ describe('the Pro gate on step one', () => {
     proAnswer = false
     vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     expect(screen.getByTestId('board-import-upsell')).toBeTruthy()
     expect(screen.getByRole('button', { name: /upgrade to pro/i })).toBeTruthy()
@@ -826,23 +841,35 @@ describe('the Pro gate on step one', () => {
     expect(screen.getByRole('button', { name: /enter manually/i })).toBeTruthy()
   })
 
-  test('reaches checkout through the existing upgrade path', async () => {
+  test('reaches checkout through the upgrade dialog, not straight past it', async () => {
+    // TWO CLICKS NOW, AND THE FIRST ONE MUST NOT BE THE CHECKOUT
+    // (wordle-teams-iht.1). The upsell opens the dialog that says what Pro is;
+    // the dialog's CTA is what calls createProCheckout. Asserting that nothing
+    // fired after the first click is the half that catches a regression back
+    // to `startUpgrade()` here — a test that only checked the end state would
+    // pass with the dialog skipped entirely.
     proAnswer = false
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     fireEvent.click(screen.getByRole('button', { name: /upgrade to pro/i }))
 
-    await waitFor(() =>
-      expect(fired.some((call) => call.name === getFunctionName(api.polar.createProCheckout))).toBe(true),
-    )
+    const checkout = () =>
+      fired.some((call) => call.name === getFunctionName(api.polar.createProCheckout))
+    expect(checkout()).toBe(false)
+
+    // SCOPED WITH `within`: the upsell's own "Upgrade to Pro" is still mounted
+    // behind the dialog, and /upgrade/i would match both.
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Upgrade' }))
+
+    await waitFor(() => expect(checkout()).toBe(true))
   })
 
   test('gives a Pro player the real controls and no upgrade offer', () => {
     proAnswer = true
     vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     expect(screen.getByRole('button', { name: /paste screenshot/i })).toBeTruthy()
     expect(screen.queryByTestId('board-import-upsell')).toBeNull()
@@ -856,7 +883,7 @@ describe('the Pro gate on step one', () => {
     proAnswer = undefined
     vi.stubGlobal('navigator', { ...navigator, clipboard: { read: async () => [] } })
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     expect(screen.queryByTestId('board-import-upsell')).toBeNull()
     expect(screen.queryByRole('button', { name: /paste screenshot/i })).toBeNull()
@@ -869,7 +896,7 @@ describe('the Pro gate on step one', () => {
   test('is not listening to the clipboard for a non-Pro player', async () => {
     proAnswer = false
     screenshotOf(ANSWER, GUESSES)
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     paste()
 
@@ -909,7 +936,7 @@ describe('focus does not outlive the input it belongs to', () => {
   test('a caret drawn on an unfocused surface is impossible after going back', async () => {
     // An UNSOLVED board: one guess, and it is not the answer.
     screenshotOf('CRANE', ['SLATE'])
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     // 1. The entry step, focused. The probe reports `cursorFor`'s result
     //    UNADAPTED — form.tsx hands BoardInput the whole Cursor and the real

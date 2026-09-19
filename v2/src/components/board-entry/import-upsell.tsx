@@ -1,6 +1,6 @@
-import { ImageDown, Loader2, Lock } from 'lucide-react'
+import { ImageDown, Lock } from 'lucide-react'
 import { Button } from '#/components/ui/button.tsx'
-import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
+import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 
 /**
  * What a player without Pro sees where the import controls would be.
@@ -16,12 +16,12 @@ import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
  * and a single button, which is thin enough to argue for skipping it — and
  * skipping it would mean two flows to keep in step for the sake of one tap.
  *
- * ONE MORE CALLER OF useStartUpgrade, not a second checkout route. That hook
- * already owns createProCheckout, its failure shapes and its copy, and is
- * already used by the app bar and the account menu.
+ * IT OPENS THE UPGRADE DIALOG, NOT CHECKOUT (wordle-teams-iht.1), and passes
+ * 'import' as the origin so the headline names the thing they just reached for
+ * rather than Pro in general.
  */
 export function ImportUpsell() {
-  const { startUpgrade, pending } = useStartUpgrade()
+  const { openUpgrade } = useUpgrade()
 
   return (
     <div
@@ -40,15 +40,7 @@ export function ImportUpsell() {
         Paste or upload a screenshot of your Wordle and we&apos;ll fill the board in for you. Check it
         and submit.
       </p>
-      <Button
-        type="button"
-        size="sm"
-        className="w-fit"
-        disabled={pending}
-        aria-disabled={pending}
-        onClick={() => void startUpgrade()}
-      >
-        {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+      <Button type="button" size="sm" className="w-fit" onClick={() => openUpgrade('import')}>
         Upgrade to Pro
       </Button>
     </div>

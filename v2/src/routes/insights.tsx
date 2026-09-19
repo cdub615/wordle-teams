@@ -13,7 +13,6 @@ import type { Boards } from '#/lib/insights-panel.ts'
 import { isThin, MIN_BOARDS_FOR_STATS } from '#/lib/insights-personal.ts'
 import { resolveInsightsSearch } from '#/lib/insights-search.ts'
 import { useSearchSync } from '#/lib/use-search-sync.ts'
-import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { DailyBenchmark } from '#/components/insights/daily-benchmark.tsx'
 import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
@@ -21,6 +20,7 @@ import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
 import { TeamSection } from '#/components/insights/team-section.tsx'
 import { TrendPanel } from '#/components/insights/trend-panel.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
+import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
 import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
 import { hasFullTeamMonth } from '../../convex/lib/insightsAccess.ts'
@@ -116,7 +116,11 @@ function useBenchmark() {
 function InsightsRoute() {
   const { team: teamParam, month: monthParam } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const { startUpgrade } = useStartUpgrade()
+  // THE LOCKED CARD'S CTA OPENS THE UPGRADE DIALOG, NOT CHECKOUT
+  // (wordle-teams-iht.1). 'insights' is the origin because that is the page
+  // the player is on and the thing the locked card is withholding; the dialog
+  // headlines it accordingly. routes.test.ts pins both the prop and this line.
+  const { openUpgrade } = useUpgrade()
   /**
    * The locked card's invite CTA, which opens a dialog IN PLACE rather than
    * navigating to /team — routes.test.ts's "onboarding invite task" block
@@ -324,7 +328,7 @@ function InsightsRoute() {
                       resetScroll: false,
                     })
                   }
-                  onUpgrade={() => void startUpgrade()}
+                  onUpgrade={() => openUpgrade('insights')}
                   onInvite={() => setInviteOpen(true)}
                 />
               }

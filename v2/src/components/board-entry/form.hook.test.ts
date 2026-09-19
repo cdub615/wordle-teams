@@ -31,10 +31,21 @@
 // pins, is which value each branch hands it.
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { getFunctionName, type FunctionReference } from 'convex/server'
-import { createElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
 import { BoardEntryForm } from './form.tsx'
+import { UpgradeDialogProvider } from '#/components/upgrade-dialog.tsx'
+
+/**
+ * The form inside the provider its Pro gate now depends on. `useQuery` is
+ * mocked to `{ data: false }` here, so EVERY render in this file is a non-Pro
+ * one and mounts ImportUpsell — whose useUpgrade() throws outside
+ * UpgradeDialogProvider by design (wordle-teams-iht.1). The dialog itself
+ * renders nothing until something opens it, and nothing here opens it.
+ */
+const renderForm = (element: ReactElement) =>
+  render(createElement(UpgradeDialogProvider, null, element))
 import { monthOf, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import { boardIsValid } from '../../../convex/lib/board.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -239,7 +250,7 @@ describe('the team branch prefills from the CALLER, never a teammate', () => {
       ],
     }
 
-    render(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
 
     // The form opened on today, so a mis-scoped lookup WOULD have found the
     // teammate's row — which is what makes the empty answer meaningful rather
@@ -263,7 +274,7 @@ describe('the team branch prefills from the CALLER, never a teammate', () => {
       ],
     }
 
-    render(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
 
     goToEntry()
     expect(answerText()).toBe('SPEED')
@@ -274,7 +285,7 @@ describe('each branch hands DatePicker the right playWeekends', () => {
   test("the team branch forwards the TEAM's setting", () => {
     teamMonth = { team: { playWeekends: false }, players: [{ id: ME, scores: [] }] }
 
-    render(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
 
     expect(picker().getAttribute('data-play-weekends')).toBe('false')
   })
@@ -285,7 +296,7 @@ describe('each branch hands DatePicker the right playWeekends', () => {
     // both switches on, so this is what the player will see on the team they
     // are about to create. Choosing false would silently disable weekend entry
     // for someone who never chose that, and every gate would stay green.
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     expect(picker().getAttribute('data-play-weekends')).toBe('true')
   })
@@ -297,7 +308,7 @@ describe('the dispatcher picks its query by whether there is a team', () => {
     // multi-player payload. getMyMonth is already scoped to the caller, so
     // asking for it here would be a wasted subscription on the very screen this
     // work exists to make fast.
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     expect(requested).toEqual([getFunctionName(api.scores.getMyMonth)])
   })
@@ -305,7 +316,7 @@ describe('the dispatcher picks its query by whether there is a team', () => {
   test('a teamId: getTeamMonth and getMyPlayerId, in that order, and never getMyMonth', () => {
     teamMonth = { team: { playWeekends: true }, players: [{ id: ME, scores: [] }] }
 
-    render(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { teamId: TEAM_ID, month: thisMonth, onSuccess: () => {} }))
 
     expect(requested).toEqual([
       getFunctionName(api.scores.getTeamMonth),
@@ -318,7 +329,7 @@ describe('the dispatcher picks its query by whether there is a team', () => {
     // of getMyMonth emitting getTeamMonthFor's exact score shape.
     myMonth = [{ id: 'score-solo', puzzleDay: today, answer: 'TOAST', guesses: ['TOAST'] }]
 
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     goToEntry()
     expect(answerText()).toBe('TOAST')
@@ -336,7 +347,7 @@ describe('the dispatcher picks its query by whether there is a team', () => {
  */
 describe('one keystroke stream, from the answer into the board', () => {
   const openEntry = () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
   }
 
@@ -444,7 +455,7 @@ describe('one keystroke stream, from the answer into the board', () => {
  */
 describe('the coach line', () => {
   const openEntry = () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
   }
 
@@ -486,7 +497,7 @@ describe('the coach line', () => {
    * future edit can get wrong, rather than a path a player reaches today.
    */
   test('a complete board with no day does NOT say to press Enter or Submit', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     act(() => selectDay?.(undefined))
     goToEntry()
 
@@ -503,7 +514,7 @@ describe('the coach line', () => {
   })
 
   test('the same board WITH a day does say it', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
     type('CRANE')
@@ -525,7 +536,7 @@ describe('the coach line', () => {
 describe('the stream on a board that is not a prefix', () => {
   const openWith = (guesses: Array<string>, answer = 'CRANE') => {
     myMonth = [{ id: 'score-1', puzzleDay: today, answer, guesses }]
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
   }
 
@@ -736,7 +747,7 @@ describe('the stream on a board that is not a prefix', () => {
 
 describe('Enter, from anywhere in the region', () => {
   test('submits a complete board', async () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
     type('CRANE')
     type('CRANE')
@@ -764,7 +775,7 @@ describe('Enter, from anywhere in the region', () => {
    * above, and the same reason to pin the composition rather than the path.
    */
   test('warns rather than silently doing nothing when the board is complete but the day is not', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     act(() => selectDay?.(undefined))
     goToEntry()
     type('CRANE')
@@ -780,7 +791,7 @@ describe('Enter, from anywhere in the region', () => {
   })
 
   test('warns instead of submitting an incomplete one', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
     type('CRA')
 
@@ -797,7 +808,7 @@ describe('Enter, from anywhere in the region', () => {
  */
 describe('the entry surface', () => {
   test('the one focus target is a real input, and neither zone is a second one', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
     expect(entryInput().tagName).toBe('INPUT')
@@ -826,7 +837,7 @@ describe('the entry surface', () => {
    * `isContentEditable` would be a jsdom-specific property that is always false.
    */
   test('nothing in the entry surface is contentEditable', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
     const form = presentation().closest('form')
@@ -850,7 +861,7 @@ describe('the entry surface', () => {
    * declaration, which is the only thing that keeps it from being tidied away.
    */
   test('the input is named as a group, not a textbox, and cannot trigger iOS zoom', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
     expect(entryInput().getAttribute('role')).toBe('group')
@@ -867,7 +878,7 @@ describe('the entry surface', () => {
    * three characters somebody could delete as dead code.
    */
   test('mousedown on the slots or a tile is prevented, so focus never leaves the input', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
     type('CRANE')
 
@@ -888,7 +899,7 @@ describe('the entry surface', () => {
    * is still asserted. See board-input.tsx.
    */
   test('the presentation contains no controls, and both submits are still on the page', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
     expect(presentation().querySelectorAll('button, input, a, [tabindex]')).toHaveLength(0)
@@ -915,7 +926,7 @@ describe('the entry surface', () => {
    * surface with no keyboard behind it and nothing else in the repo would notice.
    */
   test('draws no caret in either zone while the input is unfocused', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
     // Focused: the answer caret is on slot 0 — otherwise this test is vacuous.
@@ -935,7 +946,7 @@ describe('the entry surface', () => {
   })
 
   test('says what the model is, once, for a screen reader', () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
 
     const described = region().getAttribute('aria-describedby')
@@ -970,7 +981,7 @@ describe('the entry surface', () => {
  */
 describe('the hidden input is a dead end for anything that lands in it', () => {
   const open = () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
   }
 
@@ -1047,7 +1058,7 @@ describe('the hidden input is a dead end for anything that lands in it', () => {
  */
 describe('a keystroke that changes nothing writes nothing', () => {
   const openEntry = () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
   }
 
@@ -1129,7 +1140,7 @@ describe('a keystroke that changes nothing writes nothing', () => {
  */
 describe('the answer row is visibly not part of the board', () => {
   const openEntry = () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
   }
 
@@ -1243,7 +1254,7 @@ describe('the answer row is visibly not part of the board', () => {
  */
 describe('the scroll is aimed at the thing the player is looking at', () => {
   const openEntry = () => {
-    render(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
     goToEntry()
   }
 
