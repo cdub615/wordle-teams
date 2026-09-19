@@ -110,9 +110,9 @@ const billingItem = (page: Page): Locator => page.getByRole('menuitem', { name: 
  * Until it existed, clicking Upgrade called createProCheckout and the player
  * arrived at Polar having been told nothing about what Pro is. Six affordances
  * now call `openUpgrade(origin)` instead, and the CTA below is the app's ONE
- * route to checkout — src/lib/use-start-upgrade.graph.test.ts pins
- * upgrade-dialog.tsx as that hook's only importer, so a second unguarded path
- * fails a gate rather than shipping.
+ * route to checkout — src/checkout-entry-point.test.ts pins upgrade-dialog.tsx
+ * as that hook's only importer, so a second unguarded path fails a gate rather
+ * than shipping.
  *
  * AND THIS IS THE ONLY PLACE THE REAL DIALOG IS EXERCISED. The jsdom suite
  * (src/components/upgrade-dialog.hook.test.ts) mounts it with no animations, no
@@ -530,7 +530,21 @@ test('a player whose trial has ended is told, and offered the upgrade', async ({
 
   await expect(page.getByTestId('trial-ended')).toBeVisible()
   await expect(page.getByText('Your Insights trial has ended')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'See your history' })).toBeVisible()
+
+  // THE CTA IS CLICKED, NOT JUST SEEN, and the difference is the whole value of
+  // this assertion: `toBeVisible()` alone passes against a button wired to
+  // nothing, which is exactly the defect trial-ended-card.hook.test.ts was
+  // written for (an `openUpgrade('header')` in place of `('trial-ended')` there
+  // passed every gate). That suite owns the origin literal in jsdom; what only
+  // a browser can say is that the real Radix dialog opens over this card.
+  await page.getByRole('button', { name: 'See your history' }).click()
+  await expect(upgradeDialog(page).getByText(UPGRADE_HEADLINES['trial-ended'])).toBeVisible()
+
+  // LEFT AGAIN BEFORE THE TEST ENDS. A Radix dialog puts `pointer-events: none`
+  // on the body while it is up, so leaving it open leaks a dead page into
+  // whatever runs next in this worker — see `closeUpgradeDialog` for the toast
+  // that otherwise swallows the click that closes it.
+  await closeUpgradeDialog(page)
 })
 
 /**

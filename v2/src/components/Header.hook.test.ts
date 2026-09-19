@@ -302,7 +302,7 @@ describe('Upgrade reaches the dialog, and the dialog reaches checkout', () => {
   test("the dialog opens on the BAR's headline, not another affordance's", () => {
     // THE ORIGIN LITERAL IS INVISIBLE TO EVERY OTHER GATE. `openUpgrade('teams')`
     // in Header.tsx type-checks, lints, builds and passes the whole suite while
-    // headlining "Pro lifts the two-team limit" at somebody who clicked the app
+    // headlining "You are at the two-team limit" at somebody who clicked the app
     // bar and may hold no teams at all — the exact mismatch the six origins
     // exist to prevent. src/routes.test.ts pins three of the six by reading
     // SOURCE — both pickers' origins out of routes/app.tsx and the panel's out

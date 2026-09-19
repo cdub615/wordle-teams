@@ -79,21 +79,31 @@ export const MONTHLY_FINE_PRINT = `or ${monthly.label}`
  * Pro pitch wastes the one moment they created. The benefits list beneath is
  * PRO_BENEFITS in full for every origin — one inventory, six openings.
  *
- * NO HEADLINE REPEATS A BENEFIT TITLE, OR NEAR ENOUGH TO ONE. The dialog draws
- * the headline above PRO_BENEFITS in full, so a headline equal to — or a
- * trivial rewording of — one of those titles would print the same sentence
- * twice, three lines apart. Caught in review for `months` and `teams`, both
- * fixed here; plans.test.ts pins it by comparing case- and
- * punctuation-normalized text, precisely so a stray trailing period or a
- * capital letter cannot let a near-duplicate back through.
+ * A HEADLINE NAMES THE THING THE PLAYER JUST REACHED FOR. It does not summarize
+ * the benefit, because the benefit is three lines below it: the dialog draws
+ * the headline above PRO_BENEFITS in full, so a headline that restates one of
+ * those entries prints the same sentence twice on one screen. That is the whole
+ * reason these lines are written in the voice of the click — "you are at the
+ * two-team limit" is what the player did; "as many teams as you like" is what
+ * Pro sells, and the list beneath already says it.
+ *
+ * REVIEW FOUND FOUR OF THEM RESTATING THE LIST, and title equality was too
+ * narrow a guard to see any but the first. `months` and `teams` opened with the
+ * benefit title verbatim and were reworded; then `insights` shipped "See your
+ * team’s whole month, not just today" three lines above the title "Your
+ * history, and your team’s whole month" (wordle-teams-iht.1.9), and `import`
+ * shipped six words verbatim from its own benefit's body. plans.test.ts now
+ * measures the longest run of consecutive words a headline shares with any
+ * benefit title OR body and fails at four, which is the class all four belonged
+ * to — not just the equality the earlier guard could see.
  */
 export type UpgradeOrigin = 'header' | 'teams' | 'months' | 'import' | 'insights' | 'trial-ended'
 
 export const UPGRADE_HEADLINES: Record<UpgradeOrigin, string> = {
   header: 'What you get with Pro',
-  teams: 'Pro lifts the two-team limit',
-  months: 'Reach back past the last three months',
-  import: 'Let a screenshot fill the board in for you',
-  insights: 'See your team’s whole month, not just today',
+  teams: 'You are at the two-team limit',
+  months: 'You reached past the last three months',
+  import: 'Your screenshot can do the typing',
+  insights: 'See who’s actually beating whom',
   'trial-ended': 'Pick up where your trial left off',
 }

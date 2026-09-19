@@ -315,7 +315,9 @@ function Dashboard() {
    * of dropping them on Polar's page having been told nothing. The outcome
    * branching, the full-page navigation and the two distinct failures still
    * live in lib/use-start-upgrade.ts — this file no longer reaches them, and
-   * after `wordle-teams-iht.1.7` nothing but upgrade-dialog.tsx may.
+   * nothing but upgrade-dialog.tsx may: src/checkout-entry-point.test.ts pins
+   * that hook's importer list, so a route reaching past the dialog to checkout
+   * fails the suite rather than shipping.
    *
    * NOTHING PENDS HERE ANY MORE. Opening a dialog is synchronous, and the
    * checkout round trip it used to start — whose `pending` this deliberately

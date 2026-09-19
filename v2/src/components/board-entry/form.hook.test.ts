@@ -36,6 +36,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
 import { BoardEntryForm } from './form.tsx'
 import { UpgradeDialogProvider } from '#/components/upgrade-dialog.tsx'
+import { monthOf, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { boardIsValid } from '../../../convex/lib/board.ts'
+import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
  * The form inside the provider its Pro gate now depends on. `useQuery` is
@@ -46,9 +49,6 @@ import { UpgradeDialogProvider } from '#/components/upgrade-dialog.tsx'
  */
 const renderForm = (element: ReactElement) =>
   render(createElement(UpgradeDialogProvider, null, element))
-import { monthOf, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
-import { boardIsValid } from '../../../convex/lib/board.ts'
-import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
  * The real clock, like convex/scores.test.ts's `today`. pickDefaultDay returns
