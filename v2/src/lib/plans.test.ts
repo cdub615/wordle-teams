@@ -6,6 +6,7 @@ import {
   UPGRADE_HEADLINES,
   type UpgradeOrigin,
 } from './plans.ts'
+import { PRO_BENEFITS } from './pro-benefits.ts'
 
 describe('PLANS', () => {
   test('leads with annual, which is how Polar presents it too', () => {
@@ -24,6 +25,12 @@ describe('PLANS', () => {
   test('the label is the price and its interval, not a bare number', () => {
     expect(PLANS[0].label).toBe('$49.99/year')
     expect(PLANS[1].label).toBe('$4.99/month')
+  })
+
+  test('the label cannot drift from the price and interval it is built from', () => {
+    for (const plan of PLANS) {
+      expect(plan.label).toBe(`${plan.price}/${plan.interval}`)
+    }
   })
 })
 
@@ -66,9 +73,23 @@ describe('UPGRADE_HEADLINES', () => {
   })
 
   test('uses typographic apostrophes and no typewriter ones', () => {
-    // Same rule pro-benefits.test.ts pins for its own copy.
+    // Same rule pro-benefits.test.ts pins for its own copy: assert the
+    // typewriter apostrophe is absent AND that a typographic one is present,
+    // so that deleting every apostrophe fails this test instead of passing it.
     for (const line of Object.values(UPGRADE_HEADLINES)) {
       expect(line).not.toContain("'")
+    }
+    expect(Object.values(UPGRADE_HEADLINES).join(' ')).toContain('’')
+  })
+
+  test('no headline repeats a benefit title, which would render twice in the dialog', () => {
+    // The dialog draws the headline ABOVE PRO_BENEFITS in full, so a headline
+    // equal to one of those titles prints the same sentence twice, three lines
+    // apart. Caught in review of the first version, where `months` did exactly
+    // that.
+    const titles = PRO_BENEFITS.map((benefit) => benefit.title)
+    for (const line of Object.values(UPGRADE_HEADLINES)) {
+      expect(titles).not.toContain(line)
     }
   })
 })

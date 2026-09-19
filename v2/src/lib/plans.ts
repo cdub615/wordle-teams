@@ -1,5 +1,8 @@
 /**
- * WHAT PRO COSTS — the one module in this repo that holds a price.
+ * WHAT PRO COSTS — the one module in this repo whose job is to hold the price
+ * a customer-facing surface renders. (It is not the only file that mentions
+ * one — insights/no-team-card.tsx and insights/trend-panel.tsx quote $49.99/yr
+ * in their own banner comments — but this is the only one whose job is to.)
  *
  * Sibling of pro-benefits.ts, and the division between them is deliberate:
  * that file is WHAT Pro includes and is forbidden to quote a price (its own
@@ -11,8 +14,9 @@
  * customer only on Polar's hosted checkout, so a number in the codebase was a
  * second source of truth with no reader. A public /pricing page changes that:
  * a pricing page with no prices is not one. The departure is confined to this
- * module and backstopped by scripts/check-polar-prices.mjs, which compares
- * these literals against Polar's products. The rule stands everywhere else.
+ * module and will be backstopped by scripts/check-polar-prices.mjs, which
+ * wordle-teams-wty4.1.14's plan owns and which is not written yet. The rule
+ * stands everywhere else.
  *
  * ANNUAL LEADS, AND THE REASON IS THE FEE SCHEDULE RATHER THAN THE HEADLINE
  * NUMBER. wordle-teams-iht records Polar Starter at 5.0% + $0.50 per
@@ -20,13 +24,18 @@
  * twelve fees, annual is $49.99 gross less $3.00 in one. Monthly's fee share is
  * 15.0% against annual's 6.0%, and the net gap that still favours monthly
  * exists only at FULL retention — annual nets more the moment a monthly
- * subscriber lasts under 11.1 months, which for a $5 consumer subscription is
+ * subscriber lasts under 11.08 months, which for a $5 consumer subscription is
  * the common case. Annual also removes eleven further chances a year at
  * involuntary churn on an expired card.
  *
  * MONTHLY IS NEVER DISPARAGED AND NEVER PROMOTED. It is a real choice for
  * someone who will not commit a year. What no surface may do is present it as
- * the better value; plans.test.ts pins that as a property of the copy.
+ * the better value; plans.test.ts pins that as a property of the copy. What
+ * that test covers is narrower than the paragraph above claims for it,
+ * though: it pins the WORDING of the fine print only. Whether monthly ever
+ * reads, in practice, as the better value is a question of prominence and
+ * layout on the surface that renders it — that belongs to the upgrade
+ * dialog's own test, in a later task.
  */
 
 export type PlanId = 'annual' | 'monthly'
@@ -68,13 +77,19 @@ export const MONTHLY_FINE_PRINT = `or ${monthly.label}`
  * screenshot" has demonstrated interest in import specifically, and a generic
  * Pro pitch wastes the one moment they created. The benefits list beneath is
  * PRO_BENEFITS in full for every origin — one inventory, six openings.
+ *
+ * NO HEADLINE REPEATS A BENEFIT TITLE. The dialog draws the headline above
+ * PRO_BENEFITS in full, so a headline equal to one of those titles would print
+ * the same sentence twice, three lines apart — caught in review for `months`
+ * and `teams`, both fixed here, and pinned by plans.test.ts so it cannot
+ * recur.
  */
 export type UpgradeOrigin = 'header' | 'teams' | 'months' | 'import' | 'insights' | 'trial-ended'
 
 export const UPGRADE_HEADLINES: Record<UpgradeOrigin, string> = {
-  header: 'Everything you have played, not just today',
-  teams: 'Join as many teams as you like',
-  months: 'Every month your team has ever played',
+  header: 'Your history, not just your last board',
+  teams: 'The free limit is two teams',
+  months: 'Reach back past the last three months',
   import: 'Let a screenshot fill the board in for you',
   insights: 'See your team’s whole month, not just today',
   'trial-ended': 'Pick up where your trial left off',
