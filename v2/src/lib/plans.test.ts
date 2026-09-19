@@ -43,7 +43,7 @@ describe('the price copy', () => {
   test('monthly appears, as fine print, and is never sold as the better value', () => {
     // wordle-teams-iht's fee schedule is Polar Starter, 5.0% + $0.50 per
     // transaction: twelve charges a year cost $8.99 against annual's $3.00, and
-    // annual nets more for any subscriber who lasts under 11.1 months. Monthly
+    // annual nets more for any subscriber who lasts under 11.08 months. Monthly
     // stays available and undisparaged; what it must never be is the pitch.
     expect(MONTHLY_FINE_PRINT).toContain('$4.99/month')
     expect(MONTHLY_FINE_PRINT).not.toMatch(/best value|better value|save|cheaper|only/i)
