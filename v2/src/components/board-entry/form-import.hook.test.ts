@@ -29,6 +29,7 @@ import { fillRect } from '#/lib/board-import/bitmap.ts'
 import { attemptsFor, boardIsValid } from '../../../convex/lib/board.ts'
 import { renderPlayedBoard } from '#/lib/board-import/testing/board-fixture.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { UPGRADE_HEADLINES } from '#/lib/plans.ts'
 import { BoardEntryForm } from './form.tsx'
 import { UpgradeDialogProvider } from '#/components/upgrade-dialog.tsx'
 
@@ -857,6 +858,23 @@ describe('the Pro gate on step one', () => {
     const checkout = () =>
       fired.some((call) => call.name === getFunctionName(api.polar.createProCheckout))
     expect(checkout()).toBe(false)
+
+    // AND IT IS THE IMPORT DIALOG, WHICH NOTHING ELSE IN THE REPO CAN SEE
+    // (wordle-teams-iht.1.11). Six affordances each pass a different origin and
+    // the origin is the only thing that picks the headline; `teams`, `months`
+    // and `insights` are pinned by src/routes.test.ts reading the route modules
+    // and `header` by Header.hook.test.ts rendering the bar, but ImportUpsell is
+    // a plain component that neither approach reaches. Measured: rewriting
+    // `openUpgrade('import')` as `openUpgrade('header')` passed the whole suite,
+    // tsc, eslint and the build, while headlining a generic Pro pitch at
+    // somebody who had just reached for screenshot import specifically.
+    //
+    // THE HEADING, NOT THE DIALOG'S ACCESSIBLE NAME: both come from DialogTitle
+    // via aria-labelledby, and a failure on the element reads as the wrong
+    // sentence rather than as "unable to find a dialog".
+    expect(within(screen.getByRole('dialog')).getByRole('heading').textContent).toBe(
+      UPGRADE_HEADLINES.import,
+    )
 
     // SCOPED WITH `within`: the upsell's own "Upgrade to Pro" is still mounted
     // behind the dialog, and /upgrade/i would match both.

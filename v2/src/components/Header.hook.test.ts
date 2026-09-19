@@ -304,9 +304,14 @@ describe('Upgrade reaches the dialog, and the dialog reaches checkout', () => {
     // in Header.tsx type-checks, lints, builds and passes the whole suite while
     // headlining "Pro lifts the two-team limit" at somebody who clicked the app
     // bar and may hold no teams at all — the exact mismatch the six origins
-    // exist to prevent. src/routes.test.ts pins both pickers' origins, but it
-    // reads routes/app.tsx; the bar is the one affordance no source guard
-    // covers, so it is pinned here, where the dialog is really rendered.
+    // exist to prevent. src/routes.test.ts pins three of the six by reading
+    // SOURCE — both pickers' origins out of routes/app.tsx and the panel's out
+    // of routes/insights.tsx — and a source guard cannot reach the other three,
+    // which are plain components rather than route modules. So each of those is
+    // pinned by RENDERING it: the bar here, ImportUpsell in
+    // board-entry/form-import.hook.test.ts, and TrialEndedCard in
+    // trial-ended-card.hook.test.ts (both added by wordle-teams-iht.1.11, which
+    // is when this comment stopped being able to say the bar was the only one).
     //
     // THE HEADING, NOT THE DIALOG'S ACCESSIBLE NAME: both come from DialogTitle
     // via aria-labelledby, and a failure on the element reads as the wrong
