@@ -1,14 +1,14 @@
 import { Link } from '@tanstack/react-router'
 import { convexQuery, useConvexAuth } from '@convex-dev/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, Mails, Sparkles } from 'lucide-react'
+import { Mails, Sparkles } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import { Badge } from '#/components/ui/badge.tsx'
 import { Button } from '#/components/ui/button.tsx'
+import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { pendingInviteLabel } from '#/lib/billing-copy.ts'
 import { useLocalCapture } from '#/lib/use-local-capture.ts'
 import { useSocialImageSync } from '#/lib/use-social-image-sync.ts'
-import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
 import { AppMenu } from './app-menu.tsx'
 
 /**
@@ -71,9 +71,10 @@ export default function Header() {
   useSocialImageSync()
 
   const { isAuthenticated } = useConvexAuth()
-  // Shared with routes/app.tsx's "Upgrade for more" — one copy of the outcome
-  // handling, in lib/use-start-upgrade.ts. See the button below.
-  const { startUpgrade, pending: upgradePending } = useStartUpgrade()
+  // Opens the dialog rather than checkout (wordle-teams-iht.1). The spinner
+  // this button used to own went with the hook: opening a dialog is
+  // synchronous, and the pending state now lives on the dialog's own CTA.
+  const { openUpgrade } = useUpgrade()
 
   const { data: isPro } = useQuery(
     convexQuery(api.teams.amIPro, isAuthenticated ? {} : 'skip'),
@@ -263,15 +264,10 @@ export default function Header() {
               variant="ghost"
               size="sm"
               aria-label="Upgrade"
-              disabled={upgradePending}
-              onClick={() => void startUpgrade()}
+              onClick={() => openUpgrade('header')}
               className="px-2 sm:px-3"
             >
-              {upgradePending ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Sparkles className="h-4 w-4" aria-hidden="true" />
-              )}
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Upgrade</span>
             </Button>
           )}

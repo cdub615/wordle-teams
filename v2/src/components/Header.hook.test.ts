@@ -14,6 +14,14 @@
 // offers Upgrade to anybody amIPro says is not pro, with no team count in the
 // condition at all, and this reads it.
 //
+// WHAT THE BUTTON OFFERS IS NOW THE EXPLANATION, AND THE CHECKOUT IS ONE CLICK
+// FURTHER ON (wordle-teams-iht.1). It opens the upgrade dialog — what Pro
+// includes and what it costs — whose CTA is the app's one route to
+// createProCheckout. Every sentence below about "reaching checkout" still
+// holds, with that click in the middle; the second describe walks it. This is
+// also why every render here goes through `bar()`: useUpgrade() throws outside
+// UpgradeDialogProvider on purpose.
+//
 // IT IS NOT OFFERED "UNCONDITIONALLY", WHICH IS WHAT THIS COMMENT CLAIMED
 // UNTIL THE TASK 12 REVIEW. The owner's account is comped pro, so `isPro` is
 // true for him, the button does not render, and he still cannot reach checkout
@@ -50,12 +58,13 @@
 // already carries a comment about. Nothing but a test that renders the
 // in-flight state can see it: it type-checks, it lints, it builds, and by the
 // time a human looks at the bar the query has answered.
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { getFunctionName, type FunctionReference } from 'convex/server'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../convex/_generated/api'
 import Header from './Header.tsx'
+import { UpgradeDialogProvider } from './upgrade-dialog.tsx'
 import { CHECKOUT_NOT_CONFIGURED, PORTAL_NOT_CONFIGURED } from '#/lib/billing-copy.ts'
 
 /** Set per test, read by the mocked hooks below. */
@@ -91,17 +100,22 @@ vi.mock('@convex-dev/react-query', () => ({
     queryKey: [getFunctionName(ref), args],
   }),
   useConvexAuth: () => ({ isAuthenticated }),
-  // THE THROW IS THE ASSERTION. Header reaches exactly one action now — the
-  // checkout, through use-start-upgrade.ts. Wiring Upgrade to
-  // getCustomerPortalUrl type-checks (both actions take no arguments and answer
-  // the same url-or-reason shape) and, on a deployment with no POLAR_* set,
-  // produces an almost identical-looking failure toast. Refusing to hand back
-  // any other action is what makes that swap a red test rather than a silent
-  // one, and it is now stricter than the old two-way mapping was.
+  // THE THROW IS THE ASSERTION. Exactly one action is reachable from this
+  // render tree — the checkout, through use-start-upgrade.ts, which since
+  // wordle-teams-iht.1 is called by the dialog's CTA rather than by Header
+  // itself. Wiring either control to getCustomerPortalUrl type-checks (both
+  // actions take no arguments and answer the same url-or-reason shape) and, on
+  // a deployment with no POLAR_* set, produces an almost identical-looking
+  // failure toast. Refusing to hand back any other action is what makes that
+  // swap a red test rather than a silent one.
+  //
+  // THE PROVIDER ADDED NOTHING FOR IT TO REJECT, WHICH WAS CHECKED RATHER THAN
+  // ASSUMED: upgrade-dialog.tsx reaches Convex only through that one hook, and
+  // its benefits, headline and price are all plain modules.
   useConvexAction: (ref: FunctionReference<'action'>) => {
     const name = getFunctionName(ref)
     if (name === getFunctionName(api.polar.createProCheckout)) return createCheckout
-    throw new Error(`Header asked for an unexpected action: ${name}`)
+    throw new Error(`Header's tree asked for an unexpected action: ${name}`)
   },
 }))
 
@@ -150,6 +164,13 @@ afterEach(() => {
 })
 
 /**
+ * Header inside the provider it now depends on. useUpgrade() throws without
+ * one by design (see upgrade-dialog.tsx), and the closed dialog renders
+ * nothing, so `buttons()` below is unaffected by the wrapper.
+ */
+const bar = () => render(createElement(UpgradeDialogProvider, null, createElement(Header)))
+
+/**
  * Every button in the bar, by the accessible name a screen reader and
  * e2e/billing.spec.ts's locator both use.
  *
@@ -175,12 +196,12 @@ const iconIn = (label: string) =>
 const inviteBadge = () => screen.queryByText(/Invites? Pending/)?.textContent ?? null
 
 describe('Upgrade appears exactly when amIPro says the player is not pro', () => {
-  test('a FREE player is offered the checkout', () => {
+  test('a FREE player is offered the upgrade', () => {
     // The gap wordle-teams-6tp names. There is no team count in the Upgrade
     // condition at all: it does not care how many teams they have, which is
     // the entire fix.
     isPro = false
-    render(createElement(Header))
+    bar()
 
     expect(buttons()).toEqual(['Upgrade'])
   })
@@ -190,7 +211,7 @@ describe('Upgrade appears exactly when amIPro says the player is not pro', () =>
     // wordle-teams-lyab: a paying player with no pending invites has a
     // wordmark and a menu, nothing else. The old bar always had Billing here.
     isPro = true
-    render(createElement(Header))
+    bar()
 
     expect(buttons()).toEqual([])
   })
@@ -208,7 +229,7 @@ describe('Upgrade appears exactly when amIPro says the player is not pro', () =>
     // the time. Three pending invites, so its `> 0` gate is not what hides it.
     isPro = undefined
     pendingInvites = 3
-    render(createElement(Header))
+    bar()
 
     expect(buttons()).toEqual([])
     expect(inviteBadge()).toBeNull()
@@ -228,7 +249,7 @@ describe('Upgrade appears exactly when amIPro says the player is not pro', () =>
     // complete. Deleting that conjunct is invisible to every other test here.
     isAuthenticated = false
     isPro = false
-    render(createElement(Header))
+    bar()
 
     expect(buttons()).toEqual([])
   })
@@ -237,7 +258,7 @@ describe('Upgrade appears exactly when amIPro says the player is not pro', () =>
     // The label is `hidden sm:inline`, so on a phone — the product's primary
     // device, wordle-teams-ksh — this button is an icon and an aria-label.
     isPro = false
-    render(createElement(Header))
+    bar()
 
     expect(iconIn('Upgrade')).toContain('lucide-sparkles')
   })
@@ -250,19 +271,37 @@ describe('Upgrade appears exactly when amIPro says the player is not pro', () =>
     // to click, only something to know.
     isPro = false
     pendingInvites = 2
-    render(createElement(Header))
+    bar()
 
     expect(inviteBadge()).toBe('2 Invites Pending')
   })
 })
 
-describe('Upgrade reaches the action its label promises', () => {
+/**
+ * TWO STEPS NOW, AND THEY STAYED HERE RATHER THAN MOVING (wordle-teams-iht.1).
+ * The bar's button opens the dialog; the dialog's CTA is what reaches
+ * createProCheckout. These three keep their value because they are still the
+ * only CI-runnable cover on the checkout OUTCOMES — navigate, misconfigured,
+ * and the pending window — so they click through rather than being deleted.
+ */
+describe('Upgrade reaches the dialog, and the dialog reaches checkout', () => {
+  /** Opens the dialog from the bar, and returns its CTA. */
+  const ctaFromBar = () => {
+    bar()
+    fireEvent.click(screen.getByRole('button', { name: 'Upgrade' }))
+    // SCOPED WITH `within`, NOT OPTIONAL. Once the dialog is open there are two
+    // buttons named "Upgrade" — the bar's, still mounted behind it, and the
+    // CTA — so an unscoped getByRole would throw on the ambiguity.
+    return within(screen.getByRole('dialog')).getByRole('button', {
+      name: 'Upgrade',
+    }) as HTMLButtonElement
+  }
+
   test('Upgrade starts a CHECKOUT and navigates to Polar', async () => {
     isPro = false
     createCheckout.mockResolvedValue({ url: 'https://polar.example/checkout/abc' })
-    render(createElement(Header))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Upgrade' }))
+    fireEvent.click(ctaFromBar())
 
     await waitFor(() => expect(location.href).toBe('https://polar.example/checkout/abc'))
     expect(createCheckout).toHaveBeenCalledWith({})
@@ -273,34 +312,34 @@ describe('Upgrade reaches the action its label promises', () => {
     // which affordance failed; the portal half of that pair is asserted in
     // app-menu.hook.test.ts, against the same two constants.
     isPro = false
-    render(createElement(Header))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Upgrade' }))
+    fireEvent.click(ctaFromBar())
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith(CHECKOUT_NOT_CONFIGURED))
     expect(toastError).not.toHaveBeenCalledWith(PORTAL_NOT_CONFIGURED)
     expect(location.href).toBe('http://localhost:3000/app')
   })
 
-  test('Upgrade is disabled for the round trip and comes back afterwards', async () => {
+  test('the CTA is disabled for the round trip and comes back afterwards', async () => {
     // A button that stays stuck pending is the same dead end as one that says
     // nothing — e2e/billing.spec.ts makes the identical assertion about the
-    // portal, and this is the half of it CI can actually run.
+    // portal, and this is the half of it CI can actually run. The control it
+    // applies to moved with the round trip: the bar's button is synchronous
+    // now and has nothing to pend on.
     isPro = false
     let release: (result: { url: null; reason: 'error' }) => void = () => {}
     createCheckout.mockReturnValue(new Promise((resolve) => (release = resolve)))
-    render(createElement(Header))
 
     // `.disabled`, not a jest-dom matcher: @testing-library/jest-dom is not
     // installed in this repo and no suite here sets one up.
-    const upgrade = screen.getByRole('button', { name: 'Upgrade' }) as HTMLButtonElement
-    expect(upgrade.disabled).toBe(false)
+    const cta = ctaFromBar()
+    expect(cta.disabled).toBe(false)
 
-    fireEvent.click(upgrade)
-    await waitFor(() => expect(upgrade.disabled).toBe(true))
+    fireEvent.click(cta)
+    await waitFor(() => expect(cta.disabled).toBe(true))
 
     release({ url: null, reason: 'error' })
-    await waitFor(() => expect(upgrade.disabled).toBe(false))
+    await waitFor(() => expect(cta.disabled).toBe(false))
   })
 })
 
@@ -334,7 +373,7 @@ describe('the app bar links at the landing', () => {
 
   test('the wordmark points at the canonical landing, and is the only link left', () => {
     isPro = false
-    render(createElement(Header))
+    bar()
 
     // EXHAUSTIVE over the anchors, not `toContain`. A link that quietly starts
     // pointing at /home is the regression, and toContain('/') cannot see it —

@@ -18,7 +18,7 @@ import { formatMonthLabel } from '#/lib/format-day.ts'
 import { useSearchSync } from '#/lib/use-search-sync.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { usePendingInvite } from '#/lib/use-pending-invite.ts'
-import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
+import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
 import { chatEntryLabel, hasUnread, unreadTeamIds, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
 import { CheckoutPending, useCheckoutReturn } from '#/components/checkout-return.tsx'
@@ -307,20 +307,22 @@ function Dashboard() {
   })
   const consumeInvite = useMutation({ mutationFn: useConvexMutation(api.inviteLinks.consumeLink) })
   /**
-   * team-picker.tsx's "Upgrade for more", gated on `atFreeLimit`.
+   * BOTH PICKERS' UPGRADE CTAs — team-picker.tsx's "Upgrade for more", gated on
+   * `atFreeLimit`, and month-picker.tsx's locked-month teaser.
    *
-   * NO LONGER THE ONLY ENTRY POINT, AND NO LONGER THE ONLY COPY OF THIS LOGIC.
-   * wordle-teams-6tp: a free player holding ONE team could not reach checkout
-   * at all, so Header.tsx now offers the same action unconditionally. The body
-   * that used to sit here — the outcome branching, the full-page navigation and
-   * the two distinct failures — moved to lib/use-start-upgrade.ts whole, so
-   * both callers share one, and its doc comment carries every reason.
+   * THEY OPEN THE DIALOG RATHER THAN CHECKOUT (wordle-teams-iht.1), each with
+   * its own origin, so the headline names the limit the player just hit instead
+   * of dropping them on Polar's page having been told nothing. The outcome
+   * branching, the full-page navigation and the two distinct failures still
+   * live in lib/use-start-upgrade.ts — this file no longer reaches them, and
+   * after `wordle-teams-iht.1.7` nothing but upgrade-dialog.tsx may.
    *
-   * `pending` IS DELIBERATELY DROPPED HERE. A DropdownMenu closes on select, so
-   * there is no control left on screen for a spinner to sit in; the header's
-   * button, which stays put, uses it.
+   * NOTHING PENDS HERE ANY MORE. Opening a dialog is synchronous, and the
+   * checkout round trip it used to start — whose `pending` this deliberately
+   * dropped, a DropdownMenu having closed on select with no control left for a
+   * spinner to sit in — belongs to the dialog's own CTA.
    */
-  const { startUpgrade } = useStartUpgrade()
+  const { openUpgrade } = useUpgrade()
 
   /**
    * The return leg from checkout (wordle-teams-wxg, decision L).
@@ -1217,14 +1219,14 @@ function Dashboard() {
           isPro={isPro}
           onChange={(team) => navigate({ to: Route.fullPath, search: { team, month: monthParam } })}
           onCreate={() => setCreateOpen(true)}
-          onUpgrade={() => void startUpgrade()}
+          onUpgrade={() => openUpgrade('teams')}
         />
         <MonthPicker
           value={monthParam}
           months={monthWindow}
           teaserLabel={teaserLabel}
           onChange={(month) => navigate({ to: Route.fullPath, search: { team: teamParam, month } })}
-          onUpgrade={() => void startUpgrade()}
+          onUpgrade={() => openUpgrade('months')}
         />
         {/* Gated on `selectedTeam`, matching the convention every other
             selectedTeam-dependent block in this file uses: a stale or invalid

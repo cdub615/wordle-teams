@@ -541,30 +541,52 @@ describe('/login-error, and the two config strings that are the only way to it',
  * set, produces an almost identical failure toast.
  *
  * THE PROP, NOT A `toMatch` OVER THE FILE — see test-support/source-ast.ts.
- * The dead-handler mutation leaves `startUpgrade` in the file, called from
- * nowhere, so a file-wide match keeps passing. Route modules cannot be imported
- * under vitest either (createFileRoute registers against a router that does not
+ * The dead-handler mutation leaves the opener in the file, called from nowhere,
+ * so a file-wide match keeps passing. Route modules cannot be imported under
+ * vitest either (createFileRoute registers against a router that does not
  * exist), which is the constraint every block above works within.
+ *
+ * THE CTA NOW REACHES THE CHECKOUT THROUGH THE DIALOG (wordle-teams-iht.1), and
+ * this block followed it rather than being retired. Both pickers hand their
+ * onUpgrade to `openUpgrade(origin)`; upgrade-dialog.tsx's CTA is the one
+ * caller of useStartUpgrade left, and `wordle-teams-iht.1.7` pins that. What
+ * the two mutations above would do is unchanged by the extra hop — a dead
+ * handler is still a button that does nothing — so the guard is the same guard.
+ *
+ * AND THE ORIGIN IS PART OF IT NOW. `openUpgrade('months')` under TeamPicker
+ * type-checks and opens a dialog headlined about the month window to somebody
+ * who just hit the team limit; pinning the prop whole is what makes that a red
+ * test. MonthPicker is asserted beside it for the same reason — it is the same
+ * one-word mistake in the other direction, and nothing else in the suite reads
+ * either literal.
  */
-describe('the dashboard CTA reaches the CHECKOUT, and app.tsx is where that is decided', () => {
+describe('the dashboard CTAs reach the CHECKOUT, and app.tsx is where that is decided', () => {
   const APP = './routes/app.tsx'
   const source = () => codeOf(read(APP))
 
-  test("TeamPicker's onUpgrade is useStartUpgrade's startUpgrade", () => {
-    // The prop as it is actually passed. `void` because the handler is sync and
-    // startUpgrade returns a promise; that is app.tsx's spelling and it is
-    // pinned here whole rather than matched loosely.
-    expect(jsxProps(APP, 'TeamPicker').get('onUpgrade')).toBe('() => void startUpgrade()')
+  test("TeamPicker's onUpgrade opens the dialog, from the 'teams' origin", () => {
+    // The prop as it is actually passed. No `void` any more: opening a dialog
+    // is synchronous, where startUpgrade returned a promise.
+    expect(jsxProps(APP, 'TeamPicker').get('onUpgrade')).toBe("() => openUpgrade('teams')")
   })
 
-  test('and `startUpgrade` is the shared hook, not a local pointed somewhere else', () => {
-    // WITHOUT THIS, THE PROP ASSERTION ABOVE IS DEFEATED BY A RENAME: a local
-    // `const startUpgrade = useConvexAction(api.polar.getCustomerPortalUrl)`
-    // leaves the prop's text untouched. Both halves are needed, and neither is
+  test("MonthPicker's says 'months', which is the only thing that differs", () => {
+    expect(jsxProps(APP, 'MonthPicker').get('onUpgrade')).toBe("() => openUpgrade('months')")
+  })
+
+  test('and `openUpgrade` is the shared context, not a local pointed somewhere else', () => {
+    // WITHOUT THIS, THE PROP ASSERTIONS ABOVE ARE DEFEATED BY A RENAME: a local
+    // `const openUpgrade = useConvexAction(api.polar.getCustomerPortalUrl)`
+    // leaves the props' text untouched. Both halves are needed, and neither is
     // the other's duplicate.
-    expect(source()).toMatch(/const \{ startUpgrade \} = useStartUpgrade\(\)/)
-    // The action this must never be. Header.tsx is the only place in v2 that
-    // legitimately names it, and it is not this file.
+    expect(source()).toMatch(/const \{ openUpgrade \} = useUpgrade\(\)/)
+    // NOR MAY IT GO STRAIGHT TO CHECKOUT. Skipping the dialog saves one click
+    // and skips the only statement of what is being bought; `wordle-teams-iht.1.7`
+    // makes upgrade-dialog.tsx the hook's only importer, and this says it for
+    // the file that used to be the second one.
+    expect(source()).not.toMatch(/useStartUpgrade/)
+    // The action this must never be. It is not named anywhere in v2 outside
+    // app-menu.tsx's Billing item, and it is not this file.
     expect(source()).not.toMatch(/getCustomerPortalUrl/)
   })
 })
