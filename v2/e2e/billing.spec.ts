@@ -3,6 +3,11 @@ import { closeAppMenu, openAppMenu } from './app-menu.ts'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
+// The headlines, imported rather than retyped. It is NOT a tautology: the six
+// entries differ from one another, so asserting `UPGRADE_HEADLINES.header`
+// after the header's click and `.teams` after the team picker's is what proves
+// each affordance passes its OWN origin through — the thing the dialog varies.
+import { UPGRADE_HEADLINES } from '../src/lib/plans.ts'
 import type { Locator, Page } from '@playwright/test'
 
 /**
@@ -99,6 +104,40 @@ const toastWith = (page: Page, text: string): Locator =>
 const billingItem = (page: Page): Locator => page.getByRole('menuitem', { name: 'Billing' })
 
 /**
+ * THE UPGRADE DIALOG, WHICH IS NOW BETWEEN EVERY AFFORDANCE AND CHECKOUT
+ * (wordle-teams-iht.1).
+ *
+ * Until it existed, clicking Upgrade called createProCheckout and the player
+ * arrived at Polar having been told nothing about what Pro is. Six affordances
+ * now call `openUpgrade(origin)` instead, and the CTA below is the app's ONE
+ * route to checkout — src/lib/use-start-upgrade.graph.test.ts pins
+ * upgrade-dialog.tsx as that hook's only importer, so a second unguarded path
+ * fails a gate rather than shipping.
+ *
+ * AND THIS IS THE ONLY PLACE THE REAL DIALOG IS EXERCISED. The jsdom suite
+ * (src/components/upgrade-dialog.hook.test.ts) mounts it with no animations, no
+ * portal layering and — its own note says so — no faithful overlay click. What
+ * only a browser can say is that the panel really appears over the page, that
+ * its CTA is reachable, and that the click lands on IT rather than on the
+ * overlay covering the affordance behind it.
+ */
+const upgradeDialog = (page: Page): Locator => page.getByRole('dialog')
+
+/**
+ * The dialog's own CTA, and `exact` is not decoration: the header's button
+ * carries the accessible name "Upgrade" too, so an unanchored
+ * `getByRole('button', { name: 'Upgrade' })` matches BOTH while the dialog is
+ * open and fails Playwright's strict mode. Scoping to the dialog is what keeps
+ * the two apart — see `upgradeButton` below for the other half of that.
+ */
+const dialogUpgradeCta = (page: Page): Locator =>
+  upgradeDialog(page).getByRole('button', { name: 'Upgrade', exact: true })
+
+/** The dialog's decline, which is also how this spec gets the page back. */
+const notNowButton = (page: Page): Locator =>
+  upgradeDialog(page).getByRole('button', { name: 'Not now' })
+
+/**
  * The upgrade entry point, which STAYED IN THE BAR when Billing left it.
  *
  * That is a deliberate asymmetry, not an oversight: wordle-teams-456 measures
@@ -107,8 +146,16 @@ const billingItem = (page: Page): Locator => page.getByRole('menuitem', { name: 
  * hamburger. Its name comes from an aria-label rather than the text, because
  * the visible label is hidden below the `sm` breakpoint — so this locator works
  * at both viewport sizes this file uses.
+ *
+ * ANCHORED TO THE BAR SINCE wordle-teams-iht.1, AND IT HAS TO BE. The dialog
+ * this button now opens carries a CTA whose accessible name is also "Upgrade",
+ * so the bare role query matches two elements the moment the dialog is up and
+ * every use of it fails Playwright's strict mode. `banner` is Header.tsx's
+ * `<header>` and there is exactly one in the app — grep says so — which makes
+ * it a real anchor rather than a nearest-enclosing-div guess.
  */
-const upgradeButton = (page: Page): Locator => page.getByRole('button', { name: 'Upgrade' })
+const upgradeButton = (page: Page): Locator =>
+  page.getByRole('banner').getByRole('button', { name: 'Upgrade' })
 
 /** Waits for sonner to clear, so the NEXT assertion cannot pass on a stale toast. */
 const noToasts = async (page: Page): Promise<void> => {
@@ -120,11 +167,39 @@ const noToasts = async (page: Page): Promise<void> => {
   await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15_000 })
 }
 
+/**
+ * Closes the dialog and waits for Radix to unmount it.
+ *
+ * IT WAITS FOR THE TOASTS FIRST, and that is not tidiness. Sonner renders at
+ * the bottom of the viewport, which is where this dialog's action row sits —
+ * measured at 390x667, the failure toast overlaps the CTA row outright — so a
+ * click aimed at "Not now" while a toast is up can land on the toast instead.
+ * Playwright's actionTimeout is 0, so that does not fail, it HANGS.
+ *
+ * AND UNMOUNTING MATTERS TO EVERYTHING AFTER IT. A Radix dialog's overlay
+ * covers the page and its modal guard puts `pointer-events: none` on the body,
+ * exactly as the app menu's does — the same trap `closeAppMenu` exists for, and
+ * the same failure: the next click is swallowed and the spec times out pointing
+ * at a control that is plainly visible.
+ */
+const closeUpgradeDialog = async (page: Page): Promise<void> => {
+  await noToasts(page)
+  await notNowButton(page).click()
+  await expect(upgradeDialog(page)).toHaveCount(0)
+}
+
 test('the portal and both upgrade entry points each report their own failure', async ({ page }) => {
   // One OTP sign-in plus a team creation. sign-in.ts alone polls for a code for
   // up to 15s, which does not fit Playwright's 30s default with a dashboard
   // load and three Polar round trips after it.
-  test.setTimeout(120_000)
+  //
+  // 120s BECAME 180s AT wordle-teams-iht.1 (Task 8). The upgrade dialog put a
+  // second click between every affordance and checkout, and the cost is not the
+  // click — it is that the dialog has to be LEFT again afterwards, and leaving
+  // it means waiting out a sonner toast that would otherwise be sitting over
+  // the "Not now" button (see `closeUpgradeDialog`). Four such waits at sonner's
+  // 4s duration, plus a fourth checkout round trip on the phone pass at the end.
+  test.setTimeout(180_000)
 
   const email = `e2e+billing-${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
   const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
@@ -168,6 +243,21 @@ test('the portal and both upgrade entry points each report their own failure', a
 
   await upgrade.click()
 
+  // ── THE DIALOG, WHICH IS NOW WHAT THIS BUTTON DOES (wordle-teams-iht.1) ───
+  // It used to call createProCheckout directly and the toast below arrived on
+  // this click. THAT IS THE REGRESSION THE NEXT THREE LINES PIN: the count of
+  // zero says the header no longer starts a checkout on its own, which is the
+  // whole of the change and the one thing a reinstated `startUpgrade()` here
+  // would quietly undo — type-checking, linting and building clean while it did.
+  await expect(upgradeDialog(page)).toBeVisible()
+  await expect(upgradeDialog(page).getByText(UPGRADE_HEADLINES.header)).toBeVisible()
+  await expect(page.locator('[data-sonner-toast]')).toHaveCount(0)
+
+  // AND THE CTA IS WHERE CHECKOUT NOW STARTS. Clicked through a REAL Radix
+  // overlay, which is the part no jsdom test can reach: upgrade-dialog.hook.
+  // test.ts says so in its own note about the overlay click.
+  await dialogUpgradeCta(page).click()
+
   // THE `not-configured` BRANCH, AND THE OTHER TWO ARE THE POINT OF ASSERTING
   // IT. This deployment has no POLAR_* variable (measured with `convex env
   // list`), so polarEnvProblem answers before any network call and the checkout
@@ -190,8 +280,18 @@ test('the portal and both upgrade entry points each report their own failure', a
   await expect(page.locator('body')).not.toContainText('POLAR_')
 
   // The button comes back rather than staying stuck pending: a failure the
-  // player cannot retry is the same dead end as no message at all.
-  await expect(upgrade).toBeEnabled()
+  // player cannot retry is the same dead end as no message at all. IT IS THE
+  // DIALOG'S CTA THAT HAS TO COME BACK, not the header's — since
+  // wordle-teams-iht.1 that is the control holding the `pending` state and the
+  // one the player is looking at, and the header's is behind an overlay.
+  await expect(dialogUpgradeCta(page)).toBeEnabled()
+
+  // AND THE DIALOG CAN BE LEFT AGAIN. "Not now" is the only way out this spec
+  // can prove — Escape and the overlay click are Radix's, and ui/dialog owns
+  // them — and it has to work, because the failure above is a dead end
+  // otherwise. Everything below needs the page back, too: see
+  // `closeUpgradeDialog`.
+  await closeUpgradeDialog(page)
 
   // ── The portal, reached by the same free account ──────────────────────────
   // THE JOIN THIS FILE EXISTS FOR, ON THE OTHER ACTION. Same deployment, same
@@ -251,6 +351,18 @@ test('the portal and both upgrade entry points each report their own failure', a
   await expect(page.getByRole('menuitem', { name: 'New Team' })).toHaveCount(0)
   await page.getByRole('menuitem', { name: 'Upgrade for more' }).click()
 
+  // THE SAME DIALOG, A DIFFERENT HEADLINE, AND THAT IS THE ASSERTION WITH
+  // TEETH. Both affordances now open one shared surface, so the only thing
+  // distinguishing them is the origin each passes — `'teams'` here against
+  // `'header'` above. Two affordances wired to the same origin is the mistake a
+  // single provider invites, it reads perfectly in the diff, and this is the
+  // only test in the repo that sees the real one being opened by the real menu
+  // item rather than by a hand-written `openUpgrade` call.
+  await expect(upgradeDialog(page)).toBeVisible()
+  await expect(upgradeDialog(page).getByText(UPGRADE_HEADLINES.teams)).toBeVisible()
+  await expect(page.locator('[data-sonner-toast]')).toHaveCount(0)
+  await dialogUpgradeCta(page).click()
+
   // Was `toast.info('More teams need a paid plan. Coming soon.')` until Task 11.
   // Nothing about a real checkout is observable without POLAR_*, but a CTA that
   // reaches createProCheckout and reports what it answers is exactly what
@@ -258,11 +370,13 @@ test('the portal and both upgrade entry points each report their own failure', a
   //
   // THE SAME SENTENCE THE HEADER GAVE, because Task 12 made both call one
   // shared lib/use-start-upgrade.ts rather than two hand-written copies — and
+  // since wordle-teams-iht.1 they share the CTA that calls it as well. The
   // `noToasts` above is what stops this assertion passing on the header's toast
   // instead of this one's.
   await expect(toastWith(page, 'Upgrades are unavailable.')).toBeVisible({ timeout: 15_000 })
   await expect(toastWith(page, 'Coming soon')).toHaveCount(0)
   await expect(toastWith(page, 'Please try again')).toHaveCount(0)
+  await closeUpgradeDialog(page)
 
   // ── The return leg from checkout (wordle-teams-wxg) ───────────────────────
   // NO REAL CHECKOUT IS NEEDED TO REACH THIS, and none can be driven: with no
@@ -317,6 +431,31 @@ test('the portal and both upgrade entry points each report their own failure', a
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
   expect(overflow).toBeLessThanOrEqual(0)
+
+  // ── AND THE DIALOG ON THE SAME PHONE (wordle-teams-iht.1, Task 8) ─────────
+  // The panel deliberately does NOT pin its footer: ui/dialog.tsx's
+  // DialogContent already bounds its own height against the safe-area insets
+  // and scrolls itself (wordle-teams-8h2p), and overriding that would switch
+  // off the protection for this one caller. So the property worth holding is
+  // not "the CTA is pinned", it is "the CTA is REACHABLE and nothing spills
+  // sideways" — five benefit entries plus a headline is a lot to put in a
+  // 390px-wide box, and the alternative to this assertion is nobody noticing
+  // when a sixth is added.
+  //
+  // `click()` IS THE REACHABILITY TEST, not `toBeVisible()`. Playwright scrolls
+  // the element into view first, so it exercises the scroll the design relies
+  // on; measured at 390x667 the CTA starts 42px below the fold and this is what
+  // gets to it. A bound is given because an unreachable element HANGS here
+  // rather than failing — actionTimeout is 0 suite-wide.
+  await upgradeButton(page).click()
+  await expect(upgradeDialog(page)).toBeVisible()
+  const dialogOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  )
+  expect(dialogOverflow).toBeLessThanOrEqual(0)
+  await dialogUpgradeCta(page).click({ timeout: 10_000 })
+  await expect(toastWith(page, 'Upgrades are unavailable.')).toBeVisible({ timeout: 15_000 })
+  await closeUpgradeDialog(page)
 })
 
 test('a signed-out visitor is offered no billing link and no badge', async ({ page }) => {
