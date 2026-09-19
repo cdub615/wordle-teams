@@ -24,11 +24,15 @@ import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
  *
  * A PROVIDER, NOT SIX MOUNTS. Six affordances in five files need this surface;
  * mounting it beside each would be six dialogs to keep in step and six chances
- * for the next one to be added without it. One mount at __root, one
- * `openUpgrade(origin)`, and — the part that matters — the CTA below is the
- * ONLY remaining caller of useStartUpgrade in the app. A graph test asserts
- * that as a source property, because a second unguarded path would defeat the
- * whole thing and would type-check, lint and build clean.
+ * for the next one to be added without it. One mount at __root
+ * (`wordle-teams-iht.1.4`), one `openUpgrade(origin)`, and — the part that
+ * matters — the CTA below is meant to be the app's ONE route to checkout.
+ * `wordle-teams-iht.1.5` and `.6` point the remaining affordances — Header.tsx,
+ * routes/app.tsx, board-entry/import-upsell.tsx, trial-ended-card.tsx and
+ * routes/insights.tsx — at `openUpgrade` rather than at useStartUpgrade, and
+ * `.7` then adds the graph test that pins this file as that hook's only
+ * importer. The test is the load-bearing half: a second unguarded path would
+ * defeat the whole thing and would type-check, lint and build clean.
  *
  * THE HEADLINE IS THE ONLY THING THAT VARIES. The benefits list is PRO_BENEFITS
  * in full for every origin: one inventory, six openings. Nothing here writes a
