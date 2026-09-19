@@ -2,7 +2,8 @@
  * WHAT PRO COSTS — the one module in this repo whose job is to hold the price
  * a customer-facing surface renders. (It is not the only file that mentions
  * one — insights/no-team-card.tsx and insights/trend-panel.tsx quote $49.99/yr
- * in their own banner comments — but this is the only one whose job is to.)
+ * in their own banner comments, and trial-copy.test.ts quotes both prices in a
+ * comment of its own — but this is the only one whose job is to.)
  *
  * Sibling of pro-benefits.ts, and the division between them is deliberate:
  * that file is WHAT Pro includes and is forbidden to quote a price (its own
@@ -78,17 +79,19 @@ export const MONTHLY_FINE_PRINT = `or ${monthly.label}`
  * Pro pitch wastes the one moment they created. The benefits list beneath is
  * PRO_BENEFITS in full for every origin — one inventory, six openings.
  *
- * NO HEADLINE REPEATS A BENEFIT TITLE. The dialog draws the headline above
- * PRO_BENEFITS in full, so a headline equal to one of those titles would print
- * the same sentence twice, three lines apart — caught in review for `months`
- * and `teams`, both fixed here, and pinned by plans.test.ts so it cannot
- * recur.
+ * NO HEADLINE REPEATS A BENEFIT TITLE, OR NEAR ENOUGH TO ONE. The dialog draws
+ * the headline above PRO_BENEFITS in full, so a headline equal to — or a
+ * trivial rewording of — one of those titles would print the same sentence
+ * twice, three lines apart. Caught in review for `months` and `teams`, both
+ * fixed here; plans.test.ts pins it by comparing case- and
+ * punctuation-normalized text, precisely so a stray trailing period or a
+ * capital letter cannot let a near-duplicate back through.
  */
 export type UpgradeOrigin = 'header' | 'teams' | 'months' | 'import' | 'insights' | 'trial-ended'
 
 export const UPGRADE_HEADLINES: Record<UpgradeOrigin, string> = {
-  header: 'Your history, not just your last board',
-  teams: 'The free limit is two teams',
+  header: 'What you get with Pro',
+  teams: 'Pro lifts the two-team limit',
   months: 'Reach back past the last three months',
   import: 'Let a screenshot fill the board in for you',
   insights: 'See your team’s whole month, not just today',

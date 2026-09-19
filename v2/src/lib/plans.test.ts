@@ -7,6 +7,8 @@ import {
   type UpgradeOrigin,
 } from './plans.ts'
 import { PRO_BENEFITS } from './pro-benefits.ts'
+import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
+import { FREE_MONTHS } from '../../convex/lib/monthWindow.ts'
 
 describe('PLANS', () => {
   test('leads with annual, which is how Polar presents it too', () => {
@@ -84,12 +86,28 @@ describe('UPGRADE_HEADLINES', () => {
 
   test('no headline repeats a benefit title, which would render twice in the dialog', () => {
     // The dialog draws the headline ABOVE PRO_BENEFITS in full, so a headline
-    // equal to one of those titles prints the same sentence twice, three lines
-    // apart. Caught in review of the first version, where `months` did exactly
-    // that.
-    const titles = PRO_BENEFITS.map((benefit) => benefit.title)
+    // equal to — or a trivial rewording of — one of those titles prints the
+    // same sentence twice, three lines apart. Caught in review of the first
+    // version, where `months` did exactly that. Normalized (lowercased,
+    // trailing punctuation stripped) on both sides, because an exact-match
+    // guard is the weaker property: 'As many teams as you like.' with a
+    // trailing period would still slip through and still render twice — a
+    // near-duplicate is what this is really guarding against, not just an
+    // identical string.
+    const normalize = (text: string) => text.toLowerCase().replace(/[.!?]+$/, '')
+    const titles = PRO_BENEFITS.map((benefit) => normalize(benefit.title))
     for (const line of Object.values(UPGRADE_HEADLINES)) {
-      expect(titles).not.toContain(line)
+      expect(titles).not.toContain(normalize(line))
     }
+  })
+
+  test('pins the free-tier numbers these headlines spell out in words', () => {
+    // `teams` says "two teams" and `months` says "three months" as WORDS, which
+    // no template literal can keep honest — the same problem pro-benefits.test.ts
+    // has and solves the same way. Change either constant without updating the
+    // copy here and this fails instead of shipping stale copy behind four green
+    // gates.
+    expect(FREE_TEAM_LIMIT).toBe(2)
+    expect(FREE_MONTHS).toBe(3)
   })
 })
