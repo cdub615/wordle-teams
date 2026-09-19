@@ -57,27 +57,29 @@ export function useUpgrade(): UpgradeContextValue {
 
 export function UpgradeDialogProvider({ children }: { children: React.ReactNode }) {
   /**
-   * TWO FIELDS, NOT A NULLABLE ORIGIN, AND THE REASON IS THE EXIT ANIMATION.
-   * Radix keeps DialogContent mounted through `data-[state=closed]:animate-out`
-   * (ui/dialog.tsx sets it, with `duration-200`), so an `origin: null` on close
-   * blanks the TITLE for the length of the fade while the price line, the five
-   * benefits and the footer are all still on screen — the dialog appears to
-   * lose its headline as it leaves. Keeping the origin and flipping only `open`
-   * means it renders what it was opened with, all the way out.
+   * NULL UNTIL THE FIRST OPEN, AND THEN AN ORIGIN THAT OUTLIVES THE CLOSE. Two
+   * separate decisions, both about state that is not what it looks like.
    *
-   * REASONING, NOT A TEST, IS WHAT HOLDS THIS. jsdom runs no animations, so
-   * Radix unmounts immediately there and nothing in upgrade-dialog.hook.test.ts
-   * can tell the two versions apart — which is exactly why it is written down
-   * here rather than left to the suite.
+   * CLOSING DOES NOT CLEAR THE ORIGIN, BECAUSE OF THE EXIT ANIMATION. Radix
+   * keeps DialogContent mounted through `data-[state=closed]:animate-out`
+   * (ui/dialog.tsx sets it, with `duration-200`), so dropping the origin on
+   * close blanks the TITLE for the length of the fade while the price line, the
+   * five benefits and the footer are all still on screen — the dialog appears
+   * to lose its headline as it leaves. Flipping only `open` means it renders
+   * what it was opened with, all the way out. REASONING, NOT A TEST, HOLDS
+   * THIS: jsdom runs no animations, so Radix unmounts immediately there and
+   * nothing in upgrade-dialog.hook.test.ts can tell the two versions apart.
    *
-   * THE SEED ORIGIN IS NEVER DISPLAYED. `open` is false until something calls
-   * openUpgrade, and every call sets both fields together, so no render with
-   * `open: true` ever shows 'header' unless 'header' is where it was asked from.
+   * AND THE WHOLE THING IS NULL BEFORE THE FIRST OPEN RATHER THAN SEEDED WITH
+   * AN ARBITRARY ORIGIN. A seed would be a value that is never a real answer,
+   * and nothing in the type could say so — the dialog would mount at app start
+   * (this provider wraps the whole tree in routes/__root.tsx) holding a
+   * `'header'` nobody asked for, so any mount effect or `useRef` added inside
+   * it later would capture the fiction instead of a real origin. Null is a
+   * state TypeScript can enforce, and it also means a player who never asks
+   * about Pro never mounts this dialog at all.
    */
-  const [state, setState] = useState<{ origin: UpgradeOrigin; open: boolean }>({
-    origin: 'header',
-    open: false,
-  })
+  const [state, setState] = useState<{ origin: UpgradeOrigin; open: boolean } | null>(null)
   const value = useMemo(
     () => ({ openUpgrade: (origin: UpgradeOrigin) => setState({ origin, open: true }) }),
     [],
@@ -86,11 +88,13 @@ export function UpgradeDialogProvider({ children }: { children: React.ReactNode 
   return (
     <UpgradeContext.Provider value={value}>
       {children}
-      <UpgradeDialog
-        origin={state.origin}
-        open={state.open}
-        onClose={() => setState((current) => ({ ...current, open: false }))}
-      />
+      {state !== null && (
+        <UpgradeDialog
+          origin={state.origin}
+          open={state.open}
+          onClose={() => setState((current) => (current === null ? null : { ...current, open: false }))}
+        />
+      )}
     </UpgradeContext.Provider>
   )
 }
@@ -113,11 +117,15 @@ function UpgradeDialog({
         a pinned footer; DialogContent is why this does not do that. That
         component already bounds its own height against the safe-area insets and
         sets `overflow-y-auto` on itself (wordle-teams-8h2p) — pinning a footer
-        would mean overriding that with `overflow-hidden` plus a flex column, and
-        `cn`'s tailwind-merge silently drops whichever of two conflicting
-        overflow utilities it likes less, which is exactly the failure
-        ui/dialog.hook.test.ts exists to catch. Five benefits is not a long
-        document; the 390px check in a later task confirms the CTA is reachable.
+        would mean overriding that with `overflow-hidden` plus a flex column —
+        and `cn` is `twMerge(clsx(...))`, which is deterministic LAST-WINS with
+        the caller's classes last, so a className passed here does not merely
+        risk beating the component's `overflow-y-auto`, it reliably does. That
+        is worse than a coin toss, not better: it means one caller can switch
+        off wordle-teams-8h2p's safe-area scrolling for its own dialog silently,
+        which is the class of failure ui/dialog.hook.test.ts exists to catch.
+        Five benefits is not a long document, and Task 8's 390px pass is what
+        would catch it if the CTA ever stopped being reachable.
 
         AND IT PASSES NO className AT ALL, which is the second half of the same
         argument. The two it used to carry were both wrong: `space-y-4` stacks
@@ -132,16 +140,16 @@ function UpgradeDialog({
           <DialogTitle>{UPGRADE_HEADLINES[origin]}</DialogTitle>
           <DialogDescription>{PRO_PRICE_LINE}</DialogDescription>
         </DialogHeader>
-        <ul className="m-0 list-none space-y-3 p-0 text-sm">
+        <ul className="space-y-3 text-sm">
           {PRO_BENEFITS.map((benefit) => (
             <li key={benefit.id} className="space-y-1">
-              <p className="m-0 font-medium text-foreground">{benefit.title}</p>
-              <p className="m-0 text-muted-foreground">{benefit.body}</p>
+              <p className="font-medium text-foreground">{benefit.title}</p>
+              <p className="text-muted-foreground">{benefit.body}</p>
             </li>
           ))}
         </ul>
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="m-0 text-xs text-muted-foreground">{MONTHLY_FINE_PRINT}</p>
+          <p className="text-xs text-muted-foreground">{MONTHLY_FINE_PRINT}</p>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>
               Not now

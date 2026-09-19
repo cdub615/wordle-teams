@@ -20,9 +20,9 @@ const startUpgrade = vi.fn()
  * that Header.hook.test.ts uses for `isPro` and friends.
  *
  * IT IS A BINDING RATHER THAN A CONSTANT `false` BECAUSE THE PENDING BRANCH IS
- * NOT DECORATION. From task 5 this CTA owns the checkout round trip Header.tsx's
- * Upgrade button owns today, spinner and disabled window included, so the state
- * it is in while Polar is being asked for a URL is the only progress signal the
+ * NOT DECORATION. This CTA owns the checkout round trip Header.tsx's Upgrade
+ * button used to own, spinner and disabled window included, so the state it is
+ * in while Polar is being asked for a URL is the only progress signal the
  * player gets. Hard-coding `false` here leaves that branch unrendered by any
  * test in the repo.
  */
@@ -49,6 +49,21 @@ function Opener({ origin }: { origin: UpgradeOrigin }) {
   return createElement('button', { onClick: () => openUpgrade(origin) }, 'open')
 }
 
+/**
+ * Several origins, each its own button, against ONE provider mount — the shape
+ * production actually has. See the re-open test below for why that matters.
+ */
+function Openers({ origins }: { origins: ReadonlyArray<UpgradeOrigin> }) {
+  const { openUpgrade } = useUpgrade()
+  return createElement(
+    'div',
+    null,
+    ...origins.map((origin) =>
+      createElement('button', { key: origin, onClick: () => openUpgrade(origin) }, `open ${origin}`),
+    ),
+  )
+}
+
 const open = (origin: UpgradeOrigin) => {
   render(createElement(UpgradeDialogProvider, null, createElement(Opener, { origin })))
   fireEvent.click(screen.getByText('open'))
@@ -68,6 +83,38 @@ describe('the upgrade dialog', () => {
       expect(screen.getByText(UPGRADE_HEADLINES[origin])).toBeTruthy()
       cleanup()
     }
+  })
+
+  /**
+   * THE SECOND OPEN, WHICH IS THE ONLY SHAPE PRODUCTION HAS. routes/__root.tsx
+   * mounts this provider once for the whole session, so every open after a
+   * player's first is a re-open against state that already holds an origin —
+   * and every other test in this file renders a fresh provider, opens once and
+   * tears down, which is the one arrangement that cannot see a stale origin.
+   *
+   * THE MUTANT THIS KILLS: making the origin sticky after the first open (an
+   * `openUpgrade` that only sets it when the state is null, say, which is an
+   * easy thing to write while adding a guard). Everything else in this file
+   * still passed. A player who opened from the header, dismissed, then tapped
+   * the import upsell would be shown the header's headline — six headlines
+   * silently collapsed into whichever one was asked for first.
+   */
+  test('re-opens with the new origin on a provider that is already mounted', () => {
+    render(
+      createElement(
+        UpgradeDialogProvider,
+        null,
+        createElement(Openers, { origins: ['header', 'import'] }),
+      ),
+    )
+
+    fireEvent.click(screen.getByText('open header'))
+    expect(screen.getByText(UPGRADE_HEADLINES.header)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    fireEvent.click(screen.getByText('open import'))
+    expect(screen.getByText(UPGRADE_HEADLINES.import)).toBeTruthy()
+    expect(screen.queryByText(UPGRADE_HEADLINES.header)).toBeNull()
   })
 
   /**
@@ -99,19 +146,28 @@ describe('the upgrade dialog', () => {
    * PROMINENCE, NOT WORDING, IS WHERE "MONTHLY IS NEVER THE BETTER VALUE" LIVES
    * (added after Task 1's review). plans.test.ts can only pin the two strings;
    * whether monthly reads as the pitch is a question of where each one sits.
-   * The annual line is the dialog's description — directly under the title —
-   * and monthly is muted fine print in the footer.
+   *
+   * ASSERTED STRUCTURALLY, NOT AS A CLASS LIST. This used to pin `text-xs` and
+   * `text-muted-foreground` on the fine print, which is the same coupling the
+   * CTA's own comment rejects for `.animate-spin`: a palette or type-scale
+   * change breaks it without changing anything a reader can tell, and it says
+   * nothing about which line is the pitch. What actually makes annual lead is
+   * that it IS the dialog's description — the line Radix points
+   * `aria-describedby` at, directly under the title — and that monthly comes
+   * after it in the document and is not that line. Promote monthly to the
+   * description, or move it above the benefits, and this fails.
    */
   test('leads with annual by placement, not only by wording', () => {
     open('header')
+    const describedBy = screen.getByRole('dialog').getAttribute('aria-describedby')
     const description = screen.getByText(PRO_PRICE_LINE)
     const finePrint = screen.getByText(MONTHLY_FINE_PRINT)
 
-    expect(description.id).toBe(
-      screen.getByRole('dialog').getAttribute('aria-describedby'),
-    )
-    expect(finePrint.className).toContain('text-muted-foreground')
-    expect(finePrint.className).toContain('text-xs')
+    expect(description.id).toBe(describedBy)
+    expect(finePrint.id).not.toBe(describedBy)
+    expect(
+      Boolean(description.compareDocumentPosition(finePrint) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true)
   })
 
   test('the CTA reaches the one checkout path', () => {
@@ -147,10 +203,60 @@ describe('the upgrade dialog', () => {
     expect(cta().querySelector('svg')).not.toBeNull()
   })
 
-  test('dismissing it starts no checkout', () => {
-    open('teams')
-    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
-    expect(startUpgrade).not.toHaveBeenCalled()
-    expect(screen.queryByText(UPGRADE_HEADLINES.teams)).toBeNull()
+  /**
+   * A CONSUMER WITH NO PROVIDER ABOVE IT, which is a wiring mistake nothing
+   * else can catch. The throw is this file's most-argued line and has the worst
+   * failure mode if it is ever softened to a no-op default: an upgrade button
+   * that is mounted, styled, focusable, and opens nothing — indistinguishable
+   * from a working one until someone tries to pay. Replacing the throw with
+   * `return { openUpgrade: () => {} }` passed every other test here.
+   */
+  test('a consumer outside the provider fails loudly', () => {
+    // React 19 logs a render error through console.error before it rethrows,
+    // and the throw IS the expected outcome — so the log is noise from a
+    // passing test. Spied and restored, as server.test.ts and
+    // settings/notifications-tab.hook.test.ts do for their own expected warns.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      expect(() => render(createElement(Opener, { origin: 'header' }))).toThrow(
+        /UpgradeDialogProvider/,
+      )
+    } finally {
+      error.mockRestore()
+    }
   })
+})
+
+/**
+ * FOUR WAYS OUT, AND THREE OF THEM WERE UNPINNED. Deleting `onOpenChange` from
+ * the Dialog kills Escape, the click on the overlay and DialogContent's own X
+ * button in one line — leaving only the "Not now" button, which was the only
+ * one this file used to exercise, so all eight tests passed. The X is the
+ * affordance most players reach for, and Escape is the one a keyboard user has.
+ *
+ * NOT THE OVERLAY CLICK, and that is a limitation rather than a decision:
+ * Radix closes on a pointerdown sequence outside the content, which
+ * fireEvent's synthetic events do not reproduce faithfully in jsdom. It shares
+ * the single `onOpenChange` with these two, so it is covered in the only sense
+ * that matters to the mutant above — but a Radix upgrade that changed the
+ * outside-click behaviour alone would not be caught here.
+ */
+describe('dismissing the dialog', () => {
+  const dismissals: ReadonlyArray<readonly [string, () => void]> = [
+    ['the Not now button', () => fireEvent.click(screen.getByRole('button', { name: 'Not now' }))],
+    ['the X in the corner', () => fireEvent.click(screen.getByRole('button', { name: 'Close' }))],
+    ['Escape', () => fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })],
+  ]
+
+  for (const [name, dismiss] of dismissals) {
+    test(`${name} closes it, and starts no checkout`, () => {
+      open('teams')
+      expect(screen.getByText(UPGRADE_HEADLINES.teams)).toBeTruthy()
+
+      dismiss()
+
+      expect(screen.queryByText(UPGRADE_HEADLINES.teams)).toBeNull()
+      expect(startUpgrade).not.toHaveBeenCalled()
+    })
+  }
 })
