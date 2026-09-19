@@ -33,7 +33,7 @@ import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
  * THE HEADLINE IS THE ONLY THING THAT VARIES. The benefits list is PRO_BENEFITS
  * in full for every origin: one inventory, six openings. Nothing here writes a
  * benefit of its own, and the test fails if the inventory grows an entry this
- * does not render.
+ * does not render — title AND body, so five bare headings do not satisfy it.
  *
  * NO SKIP-TO-CHECKOUT PATH. The CTA below IS the checkout, so skipping saves
  * exactly one click, and the thing being skipped is the only statement of what
@@ -52,28 +52,58 @@ export function useUpgrade(): UpgradeContextValue {
 }
 
 export function UpgradeDialogProvider({ children }: { children: React.ReactNode }) {
-  const [origin, setOrigin] = useState<UpgradeOrigin | null>(null)
-  const value = useMemo(() => ({ openUpgrade: setOrigin }), [])
+  /**
+   * TWO FIELDS, NOT A NULLABLE ORIGIN, AND THE REASON IS THE EXIT ANIMATION.
+   * Radix keeps DialogContent mounted through `data-[state=closed]:animate-out`
+   * (ui/dialog.tsx sets it, with `duration-200`), so an `origin: null` on close
+   * blanks the TITLE for the length of the fade while the price line, the five
+   * benefits and the footer are all still on screen — the dialog appears to
+   * lose its headline as it leaves. Keeping the origin and flipping only `open`
+   * means it renders what it was opened with, all the way out.
+   *
+   * REASONING, NOT A TEST, IS WHAT HOLDS THIS. jsdom runs no animations, so
+   * Radix unmounts immediately there and nothing in upgrade-dialog.hook.test.ts
+   * can tell the two versions apart — which is exactly why it is written down
+   * here rather than left to the suite.
+   *
+   * THE SEED ORIGIN IS NEVER DISPLAYED. `open` is false until something calls
+   * openUpgrade, and every call sets both fields together, so no render with
+   * `open: true` ever shows 'header' unless 'header' is where it was asked from.
+   */
+  const [state, setState] = useState<{ origin: UpgradeOrigin; open: boolean }>({
+    origin: 'header',
+    open: false,
+  })
+  const value = useMemo(
+    () => ({ openUpgrade: (origin: UpgradeOrigin) => setState({ origin, open: true }) }),
+    [],
+  )
 
   return (
     <UpgradeContext.Provider value={value}>
       {children}
-      <UpgradeDialog origin={origin} onClose={() => setOrigin(null)} />
+      <UpgradeDialog
+        origin={state.origin}
+        open={state.open}
+        onClose={() => setState((current) => ({ ...current, open: false }))}
+      />
     </UpgradeContext.Provider>
   )
 }
 
 function UpgradeDialog({
   origin,
+  open,
   onClose,
 }: {
-  origin: UpgradeOrigin | null
+  origin: UpgradeOrigin
+  open: boolean
   onClose: () => void
 }) {
   const { startUpgrade, pending } = useStartUpgrade()
 
   return (
-    <Dialog open={origin !== null} onOpenChange={(next) => !next && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       {/*
         THE WHOLE PANEL SCROLLS, AND THE CTA SCROLLS WITH IT. The spec asked for
         a pinned footer; DialogContent is why this does not do that. That
@@ -84,10 +114,18 @@ function UpgradeDialog({
         overflow utilities it likes less, which is exactly the failure
         ui/dialog.hook.test.ts exists to catch. Five benefits is not a long
         document; the 390px check in a later task confirms the CTA is reachable.
+
+        AND IT PASSES NO className AT ALL, which is the second half of the same
+        argument. The two it used to carry were both wrong: `space-y-4` stacks
+        margins ON TOP OF DialogContent's own `grid gap-4`, separating the
+        header, the list and the footer by 2rem rather than the 1rem every other
+        dialog in this app uses, and `sm:max-w-lg` re-states a `max-w-lg` that
+        is already in the base class list. If the component's defaults are
+        right, say nothing.
       */}
-      <DialogContent className="space-y-4 sm:max-w-lg">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle>{origin ? UPGRADE_HEADLINES[origin] : ''}</DialogTitle>
+          <DialogTitle>{UPGRADE_HEADLINES[origin]}</DialogTitle>
           <DialogDescription>{PRO_PRICE_LINE}</DialogDescription>
         </DialogHeader>
         <ul className="m-0 list-none space-y-3 p-0 text-sm">
@@ -104,7 +142,19 @@ function UpgradeDialog({
             <Button variant="ghost" onClick={onClose}>
               Not now
             </Button>
-            <Button disabled={pending} aria-disabled={pending} onClick={() => void startUpgrade()}>
+            <Button
+              disabled={pending}
+              aria-disabled={pending}
+              // THE SPINNER IS DECORATION; THIS IS THE ANNOUNCEMENT — the same
+              // reasoning settings/security-tab.tsx spells out over its own
+              // removal button, and it applies harder here: from task 5 this
+              // CTA owns the checkout round trip that Header.tsx's Upgrade
+              // button used to, and a screen reader cannot perceive a swapped
+              // icon. It is also what the test asserts on, because pinning
+              // `.animate-spin` would couple the suite to a Tailwind class.
+              aria-busy={pending}
+              onClick={() => void startUpgrade()}
+            >
               {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
               Upgrade
             </Button>
