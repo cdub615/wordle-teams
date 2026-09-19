@@ -218,7 +218,11 @@ export const UPGRADE_HEADLINES: Record<UpgradeOrigin, string> = {
 - [ ] **Step 4: Run the tests and watch them pass**
 
 Run: `TZ=UTC pnpm vitest run src/lib/plans.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
+
+(Executed 2026-09-19: review added three more guards — the free-tier constant
+pin, the label/price invariant and the benefit-title collision check — so the
+finished file has 11. See `05b21cf0`.)
 
 - [ ] **Step 5: Commit**
 
@@ -242,6 +246,11 @@ EOF
 - Modify: `src/lib/trial-copy.test.ts:14-16`
 
 The comment there reads *"at $4.99/mo against $49.99/yr, monthly is worth MORE across a fully retained year ($59.88 vs $49.99), so calling it…"*. That is gross revenue with no mention of Polar's per-transaction fee and no mention of the retention assumption it depends on. Left alone, the next person designs against it — which is what happened while writing this plan's spec.
+
+**A SECOND STALE COMMENT IN THE SAME FILE**, found by Task 1's code review: around
+line 25 it reads *"Verified 2026-09-10: no price literal exists anywhere in src/
+or convex/."* Task 1 made that false. It is a dated factual claim rather than a
+rule, so it needs a carve-out naming `src/lib/plans.ts`, not deletion.
 
 - [ ] **Step 1: Read the surrounding assertion**
 
@@ -363,6 +372,25 @@ describe('the upgrade dialog', () => {
     open('header')
     expect(screen.getByText(PRO_PRICE_LINE)).toBeTruthy()
     expect(screen.getByText(MONTHLY_FINE_PRINT)).toBeTruthy()
+  })
+
+  /**
+   * PROMINENCE, NOT WORDING, IS WHERE "MONTHLY IS NEVER THE BETTER VALUE" LIVES
+   * (added after Task 1's review). plans.test.ts can only pin the two strings;
+   * whether monthly reads as the pitch is a question of where each one sits.
+   * The annual line is the dialog's description — directly under the title —
+   * and monthly is muted fine print in the footer.
+   */
+  test('leads with annual by placement, not only by wording', () => {
+    open('header')
+    const description = screen.getByText(PRO_PRICE_LINE)
+    const finePrint = screen.getByText(MONTHLY_FINE_PRINT)
+
+    expect(description.id).toBe(
+      screen.getByRole('dialog').getAttribute('aria-describedby'),
+    )
+    expect(finePrint.className).toContain('text-muted-foreground')
+    expect(finePrint.className).toContain('text-xs')
   })
 
   test('the CTA reaches the one checkout path', () => {
