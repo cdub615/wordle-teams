@@ -319,7 +319,7 @@ describe('the product shots the walkthrough is illustrated with', () => {
     // IN THE FRAME, never what the product can do — the rule
     // components/home/marketing-copy.ts states for its own.
     expect(shots.map((shot) => shot.shot.alt)).toEqual([
-      'The board entry dialog: the day at the top, the day’s answer spelled out above a Wordle grid with two guesses filled in and the cursor waiting on the next tile.',
+      'The board entry form: the day at the top, the day’s answer spelled out above a Wordle grid with two guesses filled in and the cursor waiting on the next tile.',
       'The Create Team dialog: a team name field, and switches for playing weekends and for showing letters in completed boards.',
       'The settings dialog on its Install tab, listing three steps: tap the three-dot or share icon, choose Add to Home Screen or Install app, then confirm.',
     ])
@@ -377,7 +377,12 @@ describe('the product shots the walkthrough is illustrated with', () => {
     // way legal-prose.test.ts's fixture does, and it is the only thing that
     // would make anyone LOOK at the new picture.
     expect(shots.map((shot) => [shot.shot.stem, shot.width, shot.height])).toEqual([
-      ['board-entry', 512, 714],
+      // board-entry WAS 512x714 — the whole dialog — until
+      // wordle-teams-wty4.1.14.8 clipped it to the form inside, which is 478
+      // wide because the dialog's `p-4` and its 1px border are outside it. The
+      // change in these numbers is the only automatic signal that the picture
+      // was re-framed, which is exactly what this test is for.
+      ['board-entry', 478, 620],
       ['create-team', 512, 326],
       ['install-guide', 462, 236],
     ])
@@ -411,6 +416,145 @@ describe('the product shots the walkthrough is illustrated with', () => {
     // And positively, not only by absence: every image the page draws is
     // composed by ProductShot out of a stem, which is what confines it.
     expect(rendered.filter((element) => element.type === 'img')).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The one thing in a screenshot that no gate can read: the words inside it.
+// ---------------------------------------------------------------------------
+
+/**
+ * THE GUARD FOR wordle-teams-wty4.1.14.8, AND WHAT IT HONESTLY IS.
+ *
+ * THE DEFECT: board-entry/button.tsx puts a `DialogDescription` under the entry
+ * dialog's title reading "Pick the day, then import a screenshot or type the
+ * board in". Screenshot import is PRO — lib/pro-benefits.ts's `import` entry
+ * gates it in board-entry/form.tsx — and the board-entry capture was clipped to
+ * `[role="dialog"]`, so that sentence was in the picture, legible at 1:1, two
+ * sections above this page's "Everything above is free". The prose beside it
+ * had been written carefully to elide exactly that clause. Four green gates, a
+ * page whose every sentence names the file that makes it true, and the claim
+ * shipped anyway — because it shipped as PIXELS.
+ *
+ * WHAT THIS CANNOT DO, SAID FIRST. Nothing reachable from `vitest run` can read
+ * text out of a PNG. There is no OCR here and adding one would be a gate that
+ * fails for its own reasons. So this does NOT assert that the shipped image
+ * lacks that sentence; only a person opening the file can assert that, and
+ * whoever re-shoots is asked to.
+ *
+ * WHAT IT DOES INSTEAD IS PIN THE MECHANISM, FROM BOTH ENDS, so the defect
+ * cannot return silently:
+ *
+ *   1. The dialog's description still names the gated feature. If the product
+ *      ever reworded it, this fails — and the failure is the NOTE that the
+ *      clip is free to widen again.
+ *   2. That description lives inside `DialogHeader`, and `BoardEntryForm` is
+ *      its SIBLING. This is the structural fact that makes (3) sufficient.
+ *   3. The capture's clip for this shot is the form, not the dialog. Widening
+ *      it back is then a deliberate act with a red test attached.
+ *   4. And the file THAT SHIPS is narrower than a full-dialog capture, measured
+ *      against the create-team twin — which IS clipped to `[role="dialog"]`, so
+ *      it carries the dialog's own width and nobody has to spell 512 here. This
+ *      is the only one of the four that reads the committed bytes rather than
+ *      the source, which is why it is worth having despite being coarse: a
+ *      re-shot board-entry PNG that is as wide as a dialog IS a picture of a
+ *      dialog, header included.
+ */
+describe('the board-entry capture is framed below the sentence that sells Pro', () => {
+  const SHOTS_SCRIPT = '../scripts/build-marketing-shots.mjs'
+  const ENTRY_SURFACE = './components/board-entry/button.tsx'
+
+  /**
+   * Each shot's own slice of scripts/build-marketing-shots.mjs, keyed by name.
+   *
+   * ANCHORED ON A LINE OF EXACTLY FOUR SPACES, which is the SHOTS table's own
+   * indentation, because `name:` is not unique in that file — every
+   * `getByRole('button', { name: 'Board Entry' })` inside a `prepare` carries
+   * one, and a naive `indexOf('name:')` walks off the end of the entry it was
+   * asked about and reads the next shot's `clip`.
+   */
+  const shotBlocks = (): Map<string, string> => {
+    const source = read(SHOTS_SCRIPT)
+    const starts = [...source.matchAll(/^ {4}name: '([a-z-]+)',$/gm)]
+    expect(starts.length, 'no shots parsed out of build-marketing-shots.mjs').toBeGreaterThan(3)
+    return new Map(
+      starts.map((match, index) => [
+        match[1],
+        source.slice(match.index ?? 0, starts[index + 1]?.index),
+      ]),
+    )
+  }
+
+  const clipOf = (name: string): string | null => {
+    const block = shotBlocks().get(name)
+    expect(block, `${name} is not a shot in build-marketing-shots.mjs`).toBeDefined()
+    return /^ {4}clip: '([^']+)',$/m.exec(block ?? '')?.[1] ?? null
+  }
+
+  test('the dialog header still sells a Pro feature — which is what the clip is for', () => {
+    // THE PREMISE OF EVERY OTHER TEST IN THIS BLOCK. If this goes red because
+    // the sentence was reworded, read it: the board-entry clip below may be
+    // widened back to the whole dialog, and this block deleted with it.
+    const description = /<DialogDescription>([^<]+)<\/DialogDescription>/.exec(read(ENTRY_SURFACE))
+    expect(description, 'the entry dialog has no DialogDescription at all').not.toBeNull()
+    expect(description?.[1]).toContain('import a screenshot')
+
+    // And that it is gated, from pro-benefits.ts rather than from memory: the
+    // sentence is only a problem because the thing it offers costs money.
+    const gated = PRO_BENEFITS.find((benefit) => benefit.id === 'import')
+    expect(gated?.gatedAt, 'import stopped being a Pro benefit').toBe(
+      'src/components/board-entry/form.tsx',
+    )
+  })
+
+  test('that sentence is in the header, and the form is its sibling', () => {
+    // THE STRUCTURAL HALF, and it is what makes a selector assertion mean
+    // anything: `[role="dialog"] form` excludes the description only because
+    // the description is not inside the form. Ordering positions rather than a
+    // parser, but the three inequalities together are containment — the
+    // description opens after `<DialogHeader` and closes before
+    // `</DialogHeader>`, and `<BoardEntryForm` starts after that.
+    const source = read(ENTRY_SURFACE)
+    const header = source.indexOf('<DialogHeader')
+    const description = source.indexOf('<DialogDescription>')
+    const headerEnd = source.indexOf('</DialogHeader>')
+    const form = source.indexOf('<BoardEntryForm')
+    for (const [label, index] of [
+      ['DialogHeader', header],
+      ['DialogDescription', description],
+      ['/DialogHeader', headerEnd],
+      ['BoardEntryForm', form],
+    ] as const) {
+      expect(index, `${label} is not in button.tsx any more`).toBeGreaterThan(-1)
+    }
+    expect(header).toBeLessThan(description)
+    expect(description).toBeLessThan(headerEnd)
+    expect(headerEnd).toBeLessThan(form)
+  })
+
+  test('so the capture clips the form, while its neighbour still clips the dialog', () => {
+    // THE PIN. Exact, not a `not.toBe('[role="dialog"]')`, for the reason the
+    // width/height pins above give: a re-framing should be a deliberate act
+    // with a failing test attached, not a silent one.
+    expect(clipOf('board-entry')).toBe('[role="dialog"] form')
+    // AND THE CONTRAST, so this reads as a judgement about ONE dialog's header
+    // rather than a blanket rule somebody would "tidy up" by applying to all
+    // three. create-team's header sells nothing.
+    expect(clipOf('create-team')).toBe('[role="dialog"]')
+  })
+
+  test('and the committed PNG is narrower than a whole-dialog capture', () => {
+    // THE ONLY ASSERTION HERE THAT READS THE SHIPPED BYTES. create-team IS
+    // clipped to `[role="dialog"]`, so its width is the dialog's own — which is
+    // why 512 is nowhere in this test. A board-entry file as wide as that one
+    // is a picture of a dialog and therefore of its header.
+    const dialogWidth = pngSize(fileFor('create-team', 'light')).width
+    for (const scheme of ['light', 'dark'] as const) {
+      expect(
+        pngSize(fileFor('board-entry', scheme)).width,
+        `board-entry-${scheme}.png is as wide as the dialog — it was re-shot unclipped`,
+      ).toBeLessThan(dialogWidth)
+    }
   })
 })
 
@@ -500,8 +644,8 @@ describe('what ProductShot emits for each of those', () => {
         imagesFor(props).map((img) => [img.props?.width, img.props?.height]),
       ),
     ).toEqual([
-      [512, 714],
-      [512, 714],
+      [478, 620],
+      [478, 620],
       [512, 326],
       [512, 326],
       [462, 236],

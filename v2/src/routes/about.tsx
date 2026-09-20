@@ -50,12 +50,25 @@ import { publicRouteHead } from '#/lib/seo'
  * this page — a dialog is the unit being explained here, and a 1440x900 frame
  * of the dashboard behind it is not. See that script's `clip`.
  *
+ * AND ONE OF THE THREE IS CLIPPED TIGHTER THAN A DIALOG, WHICH IS A CORRECTION
+ * RATHER THAN A REFINEMENT (wordle-teams-wty4.1.14.8). The board-entry shot
+ * frames the FORM inside the dialog, not the dialog: the dialog's header
+ * carries "Pick the day, then import a screenshot or type the board in", and
+ * screenshot import is gated by lib/pro-benefits.ts's `import`. That sentence
+ * was legible at 1:1 in the picture beside step one, two sections above this
+ * page's "Everything above is free" — a Pro feature published as a free one
+ * through the one medium none of the `checkedAgainst` tests can read. The
+ * capture script's `clip` for that shot carries the full note, including why
+ * seeding a free account would NOT have fixed it (the upsell's Pro badge lives
+ * on the step before the one photographed).
+ *
  * WHAT THAT COSTS, STATED RATHER THAN HIDDEN (wordle-teams-t40a). Every capture
  * is taken at a 1440x900 DESKTOP viewport, and this page is read on a phone.
  * For the three clipped shots the cost is small — ui/dialog.tsx caps a dialog at
- * `max-w-lg` (512px) on a laptop and `w-11/12` (~358px at 390px), so the file is
- * the same shape as the phone's own and about 40% wider — but it is not zero:
- * these are pictures of a dialog as a laptop draws it, and below `md`
+ * `max-w-lg` (512px) on a laptop and `w-11/12` (~358px at 390px), so the files
+ * are the same shape as the phone's own and between about 30% and 45% wider
+ * (the board-entry one is 478px, being the dialog less its padding) — but it is
+ * not zero: these are pictures of a dialog as a laptop draws it, and below `md`
  * board-entry/button.tsx renders a top SHEET rather than the dialog shown here.
  * Fixing that properly is t40a's phone-width pass, which is deliberately not
  * done here.
@@ -132,12 +145,22 @@ const STEPS = [
   {
     heading: 'Enter the day’s board',
     stem: 'board-entry',
-    alt: 'The board entry dialog: the day at the top, the day’s answer spelled out above a Wordle grid with two guesses filled in and the cursor waiting on the next tile.',
-    width: 512,
-    height: 714,
-    // Every clause is the dialog's own. "Pick the day, then ... type the board
-    // in" is board-entry/form.tsx's description; "Keep typing. Backspace goes
-    // back a letter" is entry-coach.ts's line; "about ten seconds" is
+    // "FORM", NOT "DIALOG", BECAUSE THE FRAME CHANGED AND THE ALT FOLLOWED IT
+    // (wordle-teams-wty4.1.14.8). The capture used to be clipped to
+    // `[role="dialog"]`, which put board-entry/button.tsx's own
+    // `DialogDescription` — "Pick the day, then import a screenshot or type the
+    // board in" — legibly inside the picture, two sections above this page's
+    // "Everything above is free", while import is Pro. The clip now starts at
+    // the form below that header, so the dialog's title and close button are
+    // out of frame along with the sentence. Read off the shipped PNG: the day,
+    // the coach line, the answer, the grid, Submit. No prose at all.
+    alt: 'The board entry form: the day at the top, the day’s answer spelled out above a Wordle grid with two guesses filled in and the cursor waiting on the next tile.',
+    width: 478,
+    height: 620,
+    // Every clause is the product's own. "Pick the day, then ... type the board
+    // in" is board-entry/button.tsx's description with its middle clause taken
+    // out; "Keep typing. Backspace goes back a letter" is entry-coach.ts's line,
+    // and it is the one sentence that IS in the picture; "about ten seconds" is
     // lib/onboarding-tasks.ts's hint on the same task.
     //
     // IT SAYS TYPE AND NEVER PASTE, which is the whole spec correction in one
@@ -145,6 +168,9 @@ const STEPS = [
     // screenshot is PRO — board-entry/form.tsx renders the importer on
     // `isPro === true` and an upsell on false — so offering it to a visitor who
     // has not signed up is the same defect as the Pro claims removed above.
+    // THE PICTURE HAD TO BE MADE TO AGREE WITH THIS SENTENCE, which is what
+    // wordle-teams-wty4.1.14.8 was: the prose was elided and the screenshot was
+    // not, so the frame said the word this line exists to avoid.
     body: 'Pick the day, then type in the answer and the guesses you made. The board fills as you type and backspace goes back a letter, so it is about ten seconds and you never leave the keyboard.',
   },
   {

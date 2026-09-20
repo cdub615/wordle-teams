@@ -239,6 +239,29 @@ export const CLOSING = {
  *
  * THE ALT TEXT IS A CLAIM LIKE ANY OTHER and is held to the same rule: it
  * describes what is in the frame after the crop, not what the product can do.
+ *
+ * AND FOR A SCREEN-READER USER IT IS NOT A LABEL, IT IS THE CONTENT
+ * (wordle-teams-wty4.1.14.9). The insights alt quoted a head-to-head of "nine
+ * to four over nineteen shared days" while the file on disk read 10 vs 3 over
+ * 20 — the alt landed in one task (9d70d972) and the PNG was re-shot by the
+ * next (204d8aa7), whose message says it re-shot "/about's images" and which
+ * re-shoots ALL SIX shots whatever it says.
+ * Nothing but a person opening the PNG can catch that, so:
+ *
+ *   ANY FIGURE WRITTEN BELOW MUST BE READ OFF THE FILE THAT SHIPS, AFTER THE
+ *   LAST RUN OF scripts/build-marketing-shots.mjs, NOT CARRIED FORWARD.
+ *
+ * That script is deterministic only WITHIN ONE CALENDAR DAY — `attemptsOn`
+ * hashes a date and the head-to-head is month-scoped, so a run tomorrow counts
+ * a different window — and its own banner now says so. The figures here, and
+ * the ones in insights-payoff.tsx's crop rationale, were read off the 2026-09-20
+ * capture.
+ *
+ * THE NUMBERLESS SHOTS ARE DESCRIBED WITHOUT NUMBERS ON PURPOSE. The dashboard
+ * and chat alts name what KIND of thing is in the frame, so a re-shoot on
+ * another day cannot make either false; only the insights one is pinned to a
+ * capture, because a head-to-head with no score in it is not a description of
+ * that picture at all.
  */
 export type Shot = {
   /** Basename without the `-light` / `-dark` suffix, under public/marketing/. */
@@ -253,10 +276,27 @@ export const SHOTS: Record<'dashboard' | 'insights' | 'chat', Shot> = {
   },
   insights: {
     stem: 'insights',
-    alt: 'An Insights panel showing one player leading a teammate nine to four over nineteen shared days, above their monthly averages and their best and worst days.',
+    // READ OFF public/marketing/insights-{light,dark}.png, WHICH AGREE: "You 10
+    // vs Jordan Hale 3", "7 ties over 20 shared days", and beneath it "Averages
+    // — team 3" with both players at "3 over 20 boards".
+    //
+    // THE BEST-AND-WORST-DAYS CLAUSE IS GONE AND THE NUMBERS ARE WHY IT WAS
+    // NOTICED. Those rows are at y=707..755 of the file, and insights-payoff.tsx
+    // crops to rows 296..676 at its tallest — so nothing on this page has ever
+    // shown them, and a description of a crop may not include them.
+    alt: 'An Insights panel showing one player leading a teammate ten to three, with seven ties over twenty shared days, above both players’ average guesses for the month.',
   },
   chat: {
     stem: 'chat',
-    alt: 'Team chat: two teammates trading messages about the day’s word and next month’s rematch.',
+    // NAMES OCTOBER RATHER THAN "NEXT MONTH", which is the more durable of the
+    // two: the last line of build-marketing-shots.mjs's CONVERSATION is
+    // literally "Rematch in October", so the picture says October whenever it
+    // is taken, while "next month" is only true of a September capture.
+    //
+    // AND IT IS ABOUT OPENERS, NOT "THE DAY'S WORD". also-free.tsx crops to the
+    // file's last 650 rows, which starts below the two lines about today's
+    // board; what a reader actually sees is CRANE versus ORATE, the month's
+    // scoreboard, and the rematch.
+    alt: 'Team chat: two teammates trading messages about their opening word, the month’s scoreboard, and a rematch in October.',
   },
 }

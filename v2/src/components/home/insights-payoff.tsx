@@ -17,19 +17,34 @@ import { ProductShot } from './product-shot.tsx'
  *
  * THE CROP IS THE POINT OF THE FRAMING, AND IT IS A JUDGEMENT ABOUT THE IMAGE
  * RATHER THAN A LAYOUT CHOICE. The capture leads with the trend panel, whose
- * seven bars sit between 2.9 and 3.3 and read as a flat row — honest (a
+ * seven bars sit between 2.8 and 3.4 and read as a flat row — honest (a
  * consistent player's months cluster, which trend-panel.tsx's own comment
  * discusses) and the weakest thing on the page. The head-to-head beneath it is a
- * "9 vs 4" in 48px type. This frames the second one.
+ * "10 vs 3" in 48px type. This frames the second one.
+ *
+ * EVERY NUMBER IN THIS COMMENT IS READ OFF public/marketing/insights-*.png AS
+ * IT SHIPS, and it has to be re-read after every capture run that lands on a
+ * different calendar day (wordle-teams-wty4.1.14.9). The head-to-head is
+ * MONTH-scoped and scripts/build-marketing-shots.mjs counts its seeded days back
+ * from the day it runs, so these figures are a fact about the 2026-09-20
+ * capture and not about the product. The GEOMETRY below — the row and column
+ * arithmetic — is a fact about the layout and survives a re-shoot; the FIGURES
+ * do not.
  *
  * `object-none`, NOT `object-cover`, AND THAT IS WHAT MAKES IT LEGIBLE ON A
  * PHONE. The files are 1440x900 desktop captures; `cover` scales them to the
  * container's width, which at 390px is 0.27 — the type in this card would render
  * at three or four pixels. `object-none` renders at the file's INTRINSIC size and
  * the box clips, so every viewport sees the same pixels at 1:1 and a narrow one
- * simply sees fewer of them. At 390px the frame lands on "You 9 — Jordan Hale 4,
- * 6 ties over 19 shared days"; at the 1024px cap it holds the entire card, since
- * the card spans x=336..1104 of the file and the centred window is x=208..1232.
+ * simply sees fewer of them. At 390px the frame lands on "You 10 — Jordan Hale 3,
+ * 7 ties over 20 shared days"; at the 1024px cap it holds the whole width of the
+ * card, since the card spans x=336..1104 of the file and the centred window is
+ * x=208..1232.
+ *
+ * WHAT IT NEVER HOLDS IS THE BOTTOM OF THAT CARD, and the alt text in
+ * marketing-copy.ts is written to match. The tallest frame here is 380px at
+ * 57%, i.e. rows 296..676; "Best and worst days" and "Consistency" begin at
+ * y=707. They are in the FILE and have never been on this PAGE.
  *
  * `object-[50%_57%]` IS AN ANCHOR, NOT A MAGIC NUMBER. With `object-none` the
  * percentage aligns the same relative point of the file and the box, so the

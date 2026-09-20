@@ -207,13 +207,48 @@ const SHOTS = [
       document.querySelectorAll('[data-testid="answer-slot"]').length >= 5,
     describe: 'the board open, two guesses in, the cursor on the next tile',
     /**
-     * THE DIALOG, NOT THE DASHBOARD BEHIND IT. This was a full 1440x900 frame
-     * until wordle-teams-wty4.1.14.5; /about is its only consumer and draws it
+     * THE FORM, NOT THE DIALOG, AND THE DIFFERENCE IS A PRO FEATURE SOLD AS
+     * FREE (wordle-teams-wty4.1.14.8).
+     *
+     * This was a full 1440x900 frame until wordle-teams-wty4.1.14.5, which
+     * clipped it to `[role="dialog"]`: /about is its only consumer and draws it
      * beside a sentence about entering a board, where four fifths of that frame
      * was a scoreboard nobody was being told to look at. See `clip` in this
      * table's header.
+     *
+     * THE DIALOG'S HEADER WAS THE REST OF THAT MISTAKE. board-entry/button.tsx
+     * puts a `DialogDescription` under the title reading "Pick the day, then
+     * import a screenshot or type the board in", and IMPORT IS PRO —
+     * lib/pro-benefits.ts's `import` entry gates it at board-entry/form.tsx.
+     * /about draws this picture two sections above "Everything above is free",
+     * so the frame was promising a paid feature to a reader being told the
+     * opposite, in the one medium none of that page's `checkedAgainst` tests can
+     * read. routes/about.tsx's own step-1 prose elides that clause on purpose;
+     * the picture beside it did not.
+     *
+     * SEEDING A FREE ACCOUNT DOES NOT FIX IT, WHICH IS WHY THIS IS A CLIP. The
+     * `ImportUpsell` that carries the `Pro` lock badge renders on form.tsx's
+     * FIRST step — the one that asks which day and how — and `prepare` above has
+     * already left it by clicking "Enter manually". A free viewer sees the same
+     * description over the same board with the badge a step behind them, so the
+     * frame would be unchanged and the seed would have cost /insights its Pro
+     * layers. Photographing the first step instead would be a picture of a date
+     * field, not of entering a board, which is the sentence this illustrates.
+     *
+     * SO THE CLIP STARTS BELOW THE HEADER. The `<form>` is DialogContent's
+     * second child and the header its first, so framing the form keeps
+     * everything /about's step-1 sentence describes — the day, "Keep typing.
+     * Backspace goes back a letter", the answer, the board mid-entry, Submit —
+     * and contains no sentence at all. What it costs is the dialog's own title
+     * and its close button, i.e. the chrome that says "this is a modal"; the
+     * step is captioned "Enter the day's board" on the page it appears on, so
+     * the chrome was carrying no information the reader did not already have.
+     *
+     * NOT SOLVED BY EDITING button.tsx. That sentence is TRUE IN THE APP — a Pro
+     * player really does get an importer there, and a free one gets the upsell
+     * under it — so the product is right and the crop was wrong.
      */
-    clip: '[role="dialog"]',
+    clip: '[role="dialog"] form',
     /**
      * Finishes the board and submits it, once, after both colour schemes have
      * been captured. The dialog closes ONLY on success, so waiting for the
@@ -819,9 +854,29 @@ async function main() {
    * one opener. `i % 3 !== 0` mirrors seedInsightsFor's own cycle, counting back
    * from `lastDay` exactly as it does.
    *
-   * DETERMINISTIC, NOT RANDOM (`attemptsOn`), so re-running this script produces
-   * the same images rather than a fresh set of numbers to re-approve. The two
-   * players are salted differently, which is the whole of the head-to-head.
+   * DETERMINISTIC WITHIN ONE CALENDAR DAY, NOT ACROSS THEM (`attemptsOn`), and
+   * the distinction is the difference between a re-run you can ignore and one
+   * whose numbers have to be read off the new files.
+   *
+   * `attemptsOn` hashes the DAY STRING, so a given date always scores the same
+   * — but the dates are `localDay(-1 - i)`, counted back from whenever the
+   * script runs, so tomorrow's run scores a window shifted by one day. The
+   * head-to-head the landing page is a picture of is worse than that: it is
+   * MONTH-scoped, so on the 2nd of a month it reads over two shared days and on
+   * the 28th over twenty-eight. The trend chart's months and its "best month"
+   * line move for the same reason.
+   *
+   * WHAT THAT MEANS FOR WHOEVER RE-RUNS THIS. Re-running on the SAME DAY
+   * reproduces the previous files; re-running on any other day produces a fresh
+   * set of numbers, and components/home/marketing-copy.ts's alt text and
+   * components/home/insights-payoff.tsx's crop rationale both QUOTE those
+   * numbers — so they have to be re-read off the images that actually ship.
+   * wordle-teams-wty4.1.14.9 is what happens when they are not: the alt said
+   * "nine to four over nineteen shared days" about a picture reading 10 vs 3
+   * over 20, which for a screen-reader user is the whole content of the image.
+   *
+   * The two players are salted differently, which is the whole of the
+   * head-to-head.
    *
    * ABOUT 270 MUTATIONS, measured at ~19 ms each against a local backend. Each
    * one also rolls the month up, which is the OTHER thing this loop is for:
