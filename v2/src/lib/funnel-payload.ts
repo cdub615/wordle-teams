@@ -26,6 +26,7 @@ const EVENT_SPECS: Record<FunnelEvent['name'], { event: string; icon: string }> 
   onboarding_task_click: { event: 'Onboarding task clicked', icon: '👉' },
   onboarding_complete: { event: 'Onboarding complete', icon: '🎉' },
   onboarding_dismiss: { event: 'Onboarding dismissed', icon: '🙈' },
+  onboarding_insights_click: { event: 'Onboarding insights clicked', icon: '📈' },
 }
 const EVENTS = new Map(Object.entries(EVENT_SPECS))
 
@@ -92,7 +93,7 @@ export function toLogSnagPayload(body: unknown, env: string): LogSnagPayload | n
 /**
  * THE LARGEST LEGITIMATE BODY THIS ENDPOINT EVER RECEIVES IS UNDER 100 BYTES.
  * `{"name":"onboarding_view","tasks":"board,team,invite"}` is the biggest of the
- * eight events, so 2KB is roughly 25x headroom and still refuses anything that
+ * nine events, so 2KB is roughly 25x headroom and still refuses anything that
  * could plausibly be an attack (wordle-teams-umeq).
  *
  * WHY A CAP AT ALL, given the payload builder above already discards junk: it

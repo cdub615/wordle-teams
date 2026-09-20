@@ -96,8 +96,79 @@ export function incompleteTasks(facts: OnboardingFacts): OnboardingTask[] {
 }
 
 export function shouldShowCard(facts: OnboardingFacts): boolean {
-  return !facts.dismissed && incompleteTasks(facts).length > 0
+  // TWO STATES NOW, NOT ONE. This used to also require an outstanding task,
+  // which is why the card vanished the moment onboarding finished. It renders
+  // the checklist while tasks remain and the graduation nudge afterwards, so
+  // the only thing that silences it is the dismissal.
+  return !facts.dismissed
 }
+
+/**
+ * Whether the card should show the graduation state — the nudge toward
+ * insights that replaces the nothing this card used to render once onboarding
+ * finished.
+ *
+ * IT IS THE SAME CARD AND THE SAME DISMISSAL, deliberately. A second
+ * dismissible thing on /app would need its own flag, its own server field and
+ * its own migration; reusing `dismissed` means a player who dismisses the
+ * checklist never sees the nudge either, which is the correct reading of that
+ * gesture — they have told us they do not want this card.
+ *
+ * WHY INSIGHTS IS THE RIGHT DESTINATION and not, say, an invite nudge: a
+ * player who has reached this state HAS a team, HAS invited someone and HAS
+ * entered a board. The next thing that makes the app worth reopening is what
+ * their boards say about how they play, which is the one surface they have no
+ * route to from this screen (wordle-teams-wty4.1.15: `to="/insights"` appears
+ * exactly once in the app, in the hamburger menu).
+ *
+ * FREE PLAYERS GET SOMETHING REAL HERE, which is what makes this honest rather
+ * than an upsell: Layer 1's benchmark on their most recent board and one team
+ * fact a day are free (convex/lib/insightsAccess.ts). This card does not
+ * mention Pro. See GRADUATION_BODY for what those two free slices actually
+ * say, which is NOT what the first draft of that sentence promised.
+ */
+export function shouldShowGraduation(facts: OnboardingFacts): boolean {
+  return !facts.dismissed && incompleteTasks(facts).length === 0
+}
+
+/**
+ * The graduation copy, pinned the way MODEL_LINE is and for the same reason:
+ * it is a claim about the product, and the gates cannot read prose.
+ *
+ * EVERY CLAIM HERE IS TRUE ON THE FREE TIER, WHICH IS THE CONSTRAINT THAT
+ * WROTE IT. The card is shown to a player who has just finished setting up and
+ * has paid nothing, and LAUNCH_AT is still the 2099 placeholder
+ * (convex/lib/insightsAccess.ts), so NO trial is running for anybody — free is
+ * what a graduating player gets, not a lesser branch of it. What that tier
+ * actually holds is two things:
+ *
+ *   layer1: 'free'  their MOST RECENT board, benchmarked — the opening word's
+ *                   rank among the 14,855 scored openers, plus the day's
+ *                   difficulty (components/insights/board-row.tsx).
+ *   layer3: 'free'  ONE fact about today: "You beat 3 of 5 teammates who have
+ *                   played today" (components/insights/daily-team-fact.tsx).
+ *
+ * THE PLAN'S DRAFTED BODY OVERSTATED BOTH HALVES AND WAS REWRITTEN. It read
+ * "See how your guesses compare with everyone else's, and where you are gaining
+ * on your team."
+ *
+ *   - "compare with everyone else's" is not what Layer 1 is. The opener corpus
+ *     is SIMULATED against a fixed answer pool (scripts/build-insights-corpus.mjs
+ *     measured two releases seven weeks apart with not one of the 14,855 ranks
+ *     moving) — it ranks words, not other players' guesses. Nothing on the page
+ *     compares a free player against the wider playerbase.
+ *   - "where you are gaining on your team" is a TREND claim, and trends are the
+ *     paid surface. Free gets today's standing and nothing historical; the
+ *     improvement and averages panels are gated on hasFullTeamMonth. A free
+ *     player following that sentence would find the thing it promised behind a
+ *     paywall, on a card whose entire justification is that it is not an upsell.
+ *
+ * What is below claims only the two slices above, and nothing beyond them.
+ */
+export const GRADUATION_TITLE = 'You are all set up'
+export const GRADUATION_BODY =
+  'See where your opening word ranks, and how you did against your team today.'
+export const GRADUATION_CTA = 'See your insights'
 
 export function cardHeading(facts: OnboardingFacts): string {
   return incompleteTasks(facts).length === 1 ? 'One more thing' : 'Get started'
@@ -111,11 +182,16 @@ export function cardHeading(facts: OnboardingFacts): string {
  * src/components/onboarding/next-step-card.tsx.
  *
  * RETURNS '' FOR AN EMPTY SET, which collides with the empty-string sentinel a
- * useRef dedupe would naturally start from. Not reachable through the card
- * today — shouldShowCard is false at zero tasks, so it never renders — but a
- * caller that compares against '' to mean "not yet emitted" would silently
- * suppress a genuine all-complete emission. Compare against a separate "seen"
- * flag, not against ''.
+ * useRef dedupe would naturally start from. THE CARD NOW RENDERS AT ZERO TASKS
+ * — shouldShowCard stopped gating on the task count when the graduation state
+ * arrived — so that empty key is reachable from the component for the first
+ * time, and it is exactly the key the card must NOT emit an onboarding_view
+ * for: every activated player mounts that state on every /app load. The guard
+ * is in next-step-card.tsx's view effect and is a `tasks.length > 0` test
+ * rather than a comparison against this string, on purpose. A caller that
+ * compares against '' to mean "not yet emitted" would silently suppress a
+ * genuine all-complete emission. Compare against a separate "seen" flag, not
+ * against ''.
  */
 export function taskSetKey(tasks: OnboardingTask[]): string {
   return tasks.map((task) => task.id).join(',')

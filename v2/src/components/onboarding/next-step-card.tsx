@@ -1,13 +1,18 @@
 import { useEffect, useRef } from 'react'
+import { Link } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import { trackFunnel } from '#/lib/funnel.ts'
 import {
+  GRADUATION_BODY,
+  GRADUATION_CTA,
+  GRADUATION_TITLE,
   MODEL_LINE,
   cardHeading,
   incompleteTasks,
   shouldShowCard,
+  shouldShowGraduation,
   taskSetKey,
   type OnboardingFacts,
   type OnboardingTaskId,
@@ -25,6 +30,13 @@ import {
  * PRESENTATIONAL. Every action is a callback, because the dialogs these open
  * are already mounted by routes/app.tsx and owning them here would mean a
  * second CreateTeamDialog on the same page.
+ *
+ * TWO STATES, NOT ONE (wordle-teams-wty4.1.14.6). While tasks remain this is
+ * the checklist; once none do it is the GRADUATION nudge toward /insights,
+ * where it used to render nothing at all. Same card, same dismissal, no new
+ * server flag — see shouldShowGraduation. The graduation CTA is the one action
+ * here that is NOT a callback, and for the same reason the others are: nothing
+ * needs mounting for a navigation, so it is a real `Link`.
  */
 export function NextStepCard({
   facts,
@@ -50,12 +62,17 @@ export function NextStepCard({
    *
    * A wrapper element in the grid would have solved the column half at the cost
    * of an empty grid item, and so a stray gap, on every render where this
-   * returns null — which is every render for an activated player.
+   * returns null. THAT USED TO BE EVERY RENDER FOR AN ACTIVATED PLAYER and is
+   * now only a DISMISSED one, since the graduation state renders a card where
+   * the finished checklist rendered nothing — the argument is unchanged, the
+   * frequency is not, and the sentence is corrected rather than deleted
+   * because a reader weighing the wrapper alternative needs the real number.
    */
   className?: string
 }) {
   const tasks = incompleteTasks(facts)
   const visible = shouldShowCard(facts)
+  const graduating = shouldShowGraduation(facts)
   const key = taskSetKey(tasks)
 
   /**
@@ -83,12 +100,29 @@ export function NextStepCard({
    */
   const reported = useRef<Set<string> | null>(null)
   useEffect(() => {
-    if (!visible) return
+    /*
+      `tasks.length === 0` IS THE GRADUATION GUARD AND IT IS LOAD-BEARING
+      (wordle-teams-wty4.1.14.6). `visible` alone stopped being enough the
+      moment shouldShowCard dropped its task-count test: the card now RENDERS
+      for a finished player, and onboarding_view is keyed to activation task
+      sets. taskSetKey([]) is '', so without this every activated player would
+      emit `onboarding_view` with an empty `tasks` on EVERY /app mount — the
+      exact swamping the per-mount Set below exists to prevent, except the Set
+      cannot help, because each mount is a fresh Set and a genuine new view.
+      That is the view/click ratio this epic is measured by, destroyed by a
+      denominator that counts the whole activated population every page load.
+      The graduation CTA has its own event instead (onboarding_insights_click).
+
+      A `tasks.length > 0` TEST RATHER THAN `key !== ''`, on purpose:
+      taskSetKey's own doc comment warns callers off treating its empty string
+      as a sentinel, and the count says what is meant without borrowing it.
+    */
+    if (!visible || tasks.length === 0) return
     const seen = (reported.current ??= new Set<string>())
     if (seen.has(key)) return
     seen.add(key)
     trackFunnel({ name: 'onboarding_view', tasks: key })
-  }, [visible, key])
+  }, [visible, tasks.length, key])
 
   /**
    * Completion, emitted once, ON THE TRANSITION rather than on the state.
@@ -126,6 +160,93 @@ export function NextStepCard({
 
   if (!visible) return null
 
+  /*
+    An icon-only control needs a real accessible name. v1's tooltip-only OAuth
+    labels are the cautionary tale this app already paid for
+    (wordle-teams-390): a Tooltip does not open on tap, and the login traffic
+    here is heavily iPhone.
+
+    40x40 (`size="icon"` is h-10 w-10), UNDER THE 44pt THE iOS HIG ASKS FOR,
+    AND KNOWINGLY SO. This is the primary escape hatch on a card shown to a
+    heavily-iPhone audience, so the question is a fair one — but every
+    `size="icon"` Button in this app is 40x40, and the two icon-only controls
+    in the dashboard toolbar are 34px wide with a recorded reason. Fixing it
+    HERE would make this the one control in the app with a bespoke touch target
+    and would not help the others; the fix belongs in ui/button.tsx's `icon`
+    size, as a project-wide call. Recorded rather than inherited silently.
+
+    ONE DISMISS CONTROL, SHARED BY BOTH STATES, and one label for both.
+    "Dismiss getting started" on a card headed "You are all set up" is a
+    slightly odd sentence, and it is still the right one: the flag it writes is
+    `players.onboardingDismissedAt`, and the only way back is app-menu.tsx's
+    "Show getting started" menu item. A screen-reader user who dismissed an
+    "insights tip" would be looking for a way to restore an insights tip and
+    would not find one — the dismiss and the undo have to name the same thing.
+    Changing both is a copy decision about the menu, not about this card.
+  */
+  const dismissButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Dismiss getting started"
+      className="absolute right-2 top-2"
+      onClick={() => {
+        trackFunnel({ name: 'onboarding_dismiss' })
+        onDismiss()
+      }}
+    >
+      <X size={16} />
+    </Button>
+  )
+
+  /*
+    THE GRADUATION STATE — what used to be `return null`.
+
+    A REAL `Link`, NOT A CALLBACK, which is the one place this card departs
+    from the "every action is a callback" rule above. That rule exists because
+    the task actions open DIALOGS that routes/app.tsx already mounts; a
+    navigation mounts nothing, and routing it through a prop would cost the
+    caller a `useRouter` and cost the reader the destination, which is the only
+    interesting thing about this control.
+
+    `asChild` PUTS THE BUTTON'S CLASSES ON THE ANCHOR rather than nesting an
+    <a> inside a <button> — the same pairing insights/no-team-card.tsx uses,
+    and the reason the router mock in this component's test must spread its
+    rest props: Slot merges className and the handler onto the child.
+
+    THE CLICK EMITS onboarding_insights_click AND NOT onboarding_task_click.
+    See lib/funnel.ts — this is a browse nudge at the END of activation, and
+    counting it as a task click would put it inside the denominators
+    wordle-teams-456 is measured by.
+  */
+  if (graduating) {
+    return (
+      <Card className={className}>
+        <CardHeader className="relative">
+          <CardTitle asChild>
+            <h2>{GRADUATION_TITLE}</h2>
+          </CardTitle>
+          {/* `pr-10` KEEPS THE BODY CLEAR OF THE 40x40 DISMISS BUTTON pinned at
+              `right-2 top-2`. The checklist's description is MODEL_LINE, which
+              wraps to two lines and clears it on its own; this one is shorter
+              and at ~400px its first line runs under the X without this. */}
+          <CardDescription className="pr-10">{GRADUATION_BODY}</CardDescription>
+          {dismissButton}
+        </CardHeader>
+        <CardContent>
+          <Button asChild className="w-full">
+            <Link
+              to="/insights"
+              onClick={() => trackFunnel({ name: 'onboarding_insights_click' })}
+            >
+              {GRADUATION_CTA}
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const act = (id: OnboardingTaskId, run: () => void) => () => {
     trackFunnel({ name: 'onboarding_task_click', task: id })
     run()
@@ -144,35 +265,7 @@ export function NextStepCard({
           <h2>{cardHeading(facts)}</h2>
         </CardTitle>
         <CardDescription>{MODEL_LINE}</CardDescription>
-        {/*
-          An icon-only control needs a real accessible name. v1's tooltip-only
-          OAuth labels are the cautionary tale this app already paid for
-          (wordle-teams-390): a Tooltip does not open on tap, and the login
-          traffic here is heavily iPhone.
-        */}
-        {/*
-          40x40 (`size="icon"` is h-10 w-10), UNDER THE 44pt THE iOS HIG ASKS
-          FOR, AND KNOWINGLY SO. This is the primary escape hatch on a card
-          shown to a heavily-iPhone audience, so the question is a fair one —
-          but every `size="icon"` Button in this app is 40x40, and the two
-          icon-only controls in the dashboard toolbar are 34px wide with a
-          recorded reason. Fixing it HERE would make this the one control in
-          the app with a bespoke touch target and would not help the others;
-          the fix belongs in ui/button.tsx's `icon` size, as a project-wide
-          call. Recorded rather than inherited silently.
-        */}
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Dismiss getting started"
-          className="absolute right-2 top-2"
-          onClick={() => {
-            trackFunnel({ name: 'onboarding_dismiss' })
-            onDismiss()
-          }}
-        >
-          <X size={16} />
-        </Button>
+        {dismissButton}
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {tasks.map((task) => (

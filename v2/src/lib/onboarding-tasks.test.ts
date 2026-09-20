@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import {
+  GRADUATION_BODY,
+  GRADUATION_CTA,
+  GRADUATION_TITLE,
   MODEL_LINE,
   cardHeading,
   incompleteTasks,
   shouldShowCard,
+  shouldShowGraduation,
   taskSetKey,
   type OnboardingFacts,
 } from './onboarding-tasks.ts'
@@ -90,18 +94,108 @@ describe('shouldShowCard', () => {
     expect(shouldShowCard(nothing)).toBe(true)
   })
 
-  test('retires when every task is complete', () => {
+  test('does NOT retire when every task is complete — it graduates', () => {
+    // THIS TEST ASSERTED THE OPPOSITE UNTIL wordle-teams-wty4.1.14.6, and is
+    // rewritten rather than deleted because the behaviour it guarded is the
+    // behaviour that changed. The card used to vanish here, which threw away
+    // the one moment a player has proved they are willing to set things up;
+    // it now shows the graduation nudge, and `shouldShowCard` is the predicate
+    // that says "draw a card at all" rather than "draw the checklist".
     const done: OnboardingFacts = {
       enteredBoard: true,
       hasTeam: true,
       hasInvited: true,
       dismissed: false,
     }
-    expect(shouldShowCard(done)).toBe(false)
+    expect(shouldShowCard(done)).toBe(true)
+    expect(shouldShowGraduation(done)).toBe(true)
   })
 
   test('a dismissal hides it even with work outstanding', () => {
     expect(shouldShowCard({ ...nothing, dismissed: true })).toBe(false)
+  })
+
+  test('the ONLY thing that hides the card now is the dismissal', () => {
+    // Over every fact combination, because the predicate is one boolean and a
+    // spot check cannot tell a rewritten rule from a coincidence. If a future
+    // edit reintroduces a task-count condition, this is where it fails.
+    for (const enteredBoard of [false, true]) {
+      for (const hasTeam of [false, true]) {
+        for (const hasInvited of [false, true]) {
+          expect(shouldShowCard({ enteredBoard, hasTeam, hasInvited, dismissed: false })).toBe(true)
+          expect(shouldShowCard({ enteredBoard, hasTeam, hasInvited, dismissed: true })).toBe(false)
+        }
+      }
+    }
+  })
+})
+
+describe('shouldShowGraduation', () => {
+  const done: OnboardingFacts = {
+    enteredBoard: true,
+    hasTeam: true,
+    hasInvited: true,
+    dismissed: false,
+  }
+
+  test('true once nothing is outstanding', () => {
+    expect(shouldShowGraduation(done)).toBe(true)
+  })
+
+  test('false while any task remains, in every combination that leaves one', () => {
+    // The two states are EXCLUSIVE and EXHAUSTIVE over an undismissed player:
+    // exactly one of "checklist" and "graduation" is true, so the card can
+    // never draw both and can never draw neither while it is visible.
+    for (const enteredBoard of [false, true]) {
+      for (const hasTeam of [false, true]) {
+        for (const hasInvited of [false, true]) {
+          const facts = { enteredBoard, hasTeam, hasInvited, dismissed: false }
+          const remaining = incompleteTasks(facts).length
+          expect(shouldShowGraduation(facts)).toBe(remaining === 0)
+          expect(shouldShowGraduation(facts)).toBe(shouldShowCard(facts) && remaining === 0)
+        }
+      }
+    }
+  })
+
+  test('a dismissal silences the nudge as well as the checklist', () => {
+    // THE WHOLE ARGUMENT FOR REUSING `dismissed` RATHER THAN ADDING A FLAG. A
+    // player who closed this card has said they do not want it; honouring that
+    // for the checklist and then showing them a second thing in the same slot
+    // would be the migration-free version of ignoring them.
+    expect(shouldShowGraduation({ ...done, dismissed: true })).toBe(false)
+  })
+})
+
+describe('the graduation copy', () => {
+  // PINNED THE WAY MODEL_LINE IS, and for a sharper reason: every claim here
+  // has to be true for a player who has paid nothing. See the constant's own
+  // comment for what the free tier actually holds — one benchmarked board and
+  // one fact about today.
+  test('never mentions Pro, upgrading, trials or paying', () => {
+    const copy = [GRADUATION_TITLE, GRADUATION_BODY, GRADUATION_CTA].join(' ').toLowerCase()
+    for (const word of ['pro', 'upgrade', 'trial', 'free', 'unlock', '$']) {
+      expect(copy).not.toContain(word)
+    }
+  })
+
+  test('does not promise a trend, a history, or a comparison against other players', () => {
+    // THE TWO OVERCLAIMS THE DRAFTED COPY MADE. Layer 1 ranks the opening word
+    // against a SIMULATED corpus, not against other people's guesses, and a
+    // free player gets today's team standing with nothing historical beside
+    // it — so "everyone else's" and "gaining" were both promises the page
+    // could not keep.
+    const body = GRADUATION_BODY.toLowerCase()
+    for (const word of ['everyone', 'gaining', 'trend', 'history', 'over time', 'average']) {
+      expect(body).not.toContain(word)
+    }
+  })
+
+  test('names the two free slices the page actually has', () => {
+    expect(GRADUATION_BODY).toContain('opening word')
+    expect(GRADUATION_BODY).toContain('today')
+    expect(GRADUATION_CTA).toBe('See your insights')
+    expect(GRADUATION_TITLE).toBe('You are all set up')
   })
 })
 
@@ -116,6 +210,11 @@ describe('cardHeading', () => {
   })
 
   test('reads "Get started" when nothing remains at all', () => {
+    // NO LONGER REACHABLE THROUGH THE CARD, and kept as a pure-function
+    // assertion rather than deleted: the zero-task state now renders the
+    // graduation heading (GRADUATION_TITLE) instead of calling this, so this
+    // pins the fallback branch for any future caller rather than a screen.
+
     const done: OnboardingFacts = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
     expect(cardHeading(done)).toBe('Get started')
   })

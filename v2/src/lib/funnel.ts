@@ -53,6 +53,16 @@ export type FunnelEvent =
   | { name: 'onboarding_task_click'; task: string }
   | { name: 'onboarding_complete' }
   | { name: 'onboarding_dismiss' }
+  // ITS OWN EVENT, AND DELIBERATELY NOT AN onboarding_task_click WITH AN
+  // 'insights' TASK (wordle-teams-wty4.1.14.6). The graduation state of the
+  // next-step card is a BROWSE NUDGE shown to a player who has already
+  // activated; the task events are the activation funnel, and their
+  // denominator is onboarding_view over incomplete task sets. Folding this in
+  // would add clicks that have no matching view and quietly inflate the one
+  // ratio wordle-teams-456 is measured by — and widening OnboardingTaskId to
+  // carry 'insights' would do the same to funnel-payload.ts's TASK_IDS tag.
+  // It carries no tag at all: there is exactly one CTA and one destination.
+  | { name: 'onboarding_insights_click' }
 
 /**
  * Ship one event to /api/funnel, which forwards it to LogSnag.

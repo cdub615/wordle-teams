@@ -118,6 +118,23 @@ describe('onboarding events', () => {
     )
   })
 
+  test('onboarding_insights_click is allowed, and carries no task tag', () => {
+    // THE GRADUATION CTA'S OWN EVENT. It is not an onboarding_task_click with
+    // an 'insights' task precisely so it stays out of the activation
+    // denominators (see lib/funnel.ts), and it names no task — so a body that
+    // arrives carrying one must not grow a tag from it either.
+    expect(toLogSnagPayload({ name: 'onboarding_insights_click' }, 'beta')?.event).toBe(
+      'Onboarding insights clicked',
+    )
+    // 'insights' MUST NOT BE AN ALLOWLISTED TASK ID. Adding it to TASK_IDS is
+    // the one-line change that would put this browse nudge back inside the
+    // `task` dimension the activation funnel is sliced by, and nothing else in
+    // the repo would go red.
+    const tagged = toLogSnagPayload({ name: 'onboarding_insights_click', task: 'insights' }, 'beta')
+    expect(tagged?.tags.task).toBeUndefined()
+    expect(tagged?.tags.env).toBe('beta')
+  })
+
   test('an unknown task id is dropped, not passed through', () => {
     // /api/funnel is public and unauthenticated. Tags are BUILT from
     // allowlists, never forwarded, or anyone could write arbitrary tags into
@@ -172,7 +189,7 @@ describe('declaresOversizedBody', () => {
   // bounded read is the half that holds when the header is absent.
 
   test('the cap leaves generous room for the largest real event', () => {
-    // The biggest of the eight, with every task id present. If a future event
+    // The biggest of the nine, with every task id present. If a future event
     // ever approaches the cap this is the assertion that should be reconsidered
     // rather than the cap quietly raised.
     const largest = JSON.stringify({ name: 'onboarding_view', tasks: 'board,team,invite' })

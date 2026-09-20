@@ -10,10 +10,16 @@
 // test — the card simply fires onboarding_view on every reactive invalidation
 // and drowns the LogSnag channel, which is only observable in production.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { createElement } from 'react'
+import { createElement, type MouseEvent, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { NextStepCard } from './next-step-card.tsx'
-import { MODEL_LINE, type OnboardingFacts } from '#/lib/onboarding-tasks.ts'
+import {
+  GRADUATION_BODY,
+  GRADUATION_CTA,
+  GRADUATION_TITLE,
+  MODEL_LINE,
+  type OnboardingFacts,
+} from '#/lib/onboarding-tasks.ts'
 
 const sent: string[] = []
 
@@ -23,6 +29,54 @@ vi.mock('#/lib/funnel.ts', () => ({
   },
   SIGNIN_PARAM: 'signin',
 }))
+
+// A plain anchor. The real Link needs a RouterProvider and nothing here is
+// about routing — routes.test.ts and e2e own the destinations.
+//
+// `...rest` IS NOT OPTIONAL, for the reason no-team-card.hook.test.ts spells
+// out: the CTA is `<Button asChild><Link/></Button>`, and asChild means Slot
+// renders no element of its own and MERGES its props onto the child. A mock
+// that destructures only `to` and `children` drops the merged className AND —
+// far worse here — the onClick that carries onboarding_insights_click, so the
+// click test would go green against a link that reports nothing.
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({
+    to,
+    children,
+    onClick,
+    ...rest
+  }: {
+    to: string
+    children?: ReactNode
+    onClick?: (event: MouseEvent<HTMLAnchorElement>) => void
+  }) =>
+    createElement(
+      'a',
+      {
+        href: to,
+        ...rest,
+        // PULLED OUT AND RE-ATTACHED RATHER THAN LEFT IN `rest`, so this mock
+        // can do the one thing a real Link does that matters to a click test:
+        // preventDefault. jsdom implements no navigation, so a bare anchor
+        // click prints "Not implemented: navigation to another Document" from
+        // jsdom itself on every run. The handler is still passed through
+        // untouched, so a Slot merge that stopped delivering it still fails.
+        onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+          event.preventDefault()
+          onClick?.(event)
+        },
+      },
+      children,
+    ),
+}))
+
+/** Board, team and invite all done — the state that used to render nothing. */
+const graduated: OnboardingFacts = {
+  enteredBoard: true,
+  hasTeam: true,
+  hasInvited: true,
+  dismissed: false,
+}
 
 const nothing: OnboardingFacts = {
   enteredBoard: false,
@@ -73,16 +127,82 @@ describe('NextStepCard', () => {
     expect(screen.queryByText('Invite someone')).toBeNull()
   })
 
-  test('renders nothing once every task is complete', () => {
-    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
-    const { container } = render(createElement(NextStepCard, { facts: done, ...handlers }))
+  test('graduates rather than vanishing once every task is complete', () => {
+    // THIS TEST ASSERTED AN EMPTY CONTAINER UNTIL wordle-teams-wty4.1.14.6.
+    // Rewritten, not deleted: the blank screen was the behaviour, and the
+    // behaviour changed. What has NOT changed is the silence — see below.
+    render(createElement(NextStepCard, { facts: graduated, ...handlers }))
+    expect(screen.getByText(GRADUATION_TITLE)).toBeTruthy()
+    expect(screen.getByText(GRADUATION_BODY)).toBeTruthy()
+    const cta = screen.getByRole('link', { name: GRADUATION_CTA })
+    expect(cta.getAttribute('href')).toBe('/insights')
+    // AND NOT THE CHECKLIST. The two states are exclusive, and the model line
+    // belongs to the one being replaced.
+    expect(screen.queryByText(MODEL_LINE)).toBeNull()
+    expect(screen.queryByText("Enter today's board")).toBeNull()
+  })
+
+  test('the graduation state emits NO onboarding_view — the funnel guard', () => {
+    // THE LOAD-BEARING ASSERTION IN THIS FILE, and the reason the card's view
+    // effect carries a `tasks.length === 0` test on top of `visible`.
+    //
+    // Until this card had a second state, `if (!visible) return` did this job
+    // by accident: a finished player rendered nothing, so there was nothing to
+    // report. Now they render a card, `visible` is true, and taskSetKey([]) is
+    // '' — so without the guard EVERY ACTIVATED PLAYER emits an
+    // `onboarding_view:` with an empty task set on EVERY /app mount. The
+    // per-mount Set cannot save it (each mount is a fresh Set and a genuine
+    // new view), and onboarding_view is the DENOMINATOR of the ratio
+    // wordle-teams-456 is measured by. MUTATION-TESTED: deleting
+    // `|| tasks.length === 0` from the effect turns this test red with
+    // ['onboarding_view:'] — an empty task set, which is the exact signature
+    // of the defect. It also reddens the CTA test below, which is collateral
+    // rather than coverage: that one is about which event a click emits, and
+    // it only notices because it asserts the WHOLE `sent` list.
+    render(createElement(NextStepCard, { facts: graduated, ...handlers }))
+    expect(sent.filter((entry) => entry.startsWith('onboarding_view'))).toEqual([])
+    // Nothing at all, in fact — a render is not a click and not a dismissal.
+    expect(sent).toEqual([])
+  })
+
+  test('the graduation CTA reports onboarding_insights_click, never a task click', () => {
+    // A DISTINCT EVENT ON PURPOSE. Adding 'insights' to OnboardingTaskId and
+    // reusing onboarding_task_click type-checks and reads fine, and it would
+    // put a browse nudge aimed at ALREADY-ACTIVATED players inside the
+    // activation click counts — clicks with no matching view, against a
+    // denominator that (correctly) never counts this state.
+    render(createElement(NextStepCard, { facts: graduated, ...handlers }))
+    fireEvent.click(screen.getByRole('link', { name: GRADUATION_CTA }))
+    expect(sent).toEqual(['onboarding_insights_click:'])
+    expect(sent.filter((entry) => entry.startsWith('onboarding_task_click'))).toEqual([])
+  })
+
+  test('a graduated player can still dismiss the card, and it reports', () => {
+    // ONE FLAG FOR BOTH STATES (shouldShowGraduation's comment). The control
+    // and its label are shared with the checklist deliberately, because
+    // app-menu's "Show getting started" is the only way back from either.
+    const calls: string[] = []
+    render(
+      createElement(NextStepCard, {
+        facts: graduated,
+        ...handlers,
+        onDismiss: () => calls.push('x'),
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss getting started' }))
+    expect(calls).toEqual(['x'])
+    expect(sent).toContain('onboarding_dismiss:')
+  })
+
+  test('renders nothing, and says nothing, for a dismissed graduate', () => {
+    // THE OTHER HALF OF REUSING `dismissed`: the nudge is silenced by the same
+    // gesture as the checklist. Without it this is the state EVERY activated
+    // player is in forever, which is the one shape that could make this card a
+    // permanent fixture rather than a one-time nod.
+    const { container } = render(
+      createElement(NextStepCard, { facts: { ...graduated, dismissed: true }, ...handlers }),
+    )
     expect(container.textContent).toBe('')
-    // SILENCE IS THE OTHER HALF, and textContent alone does not assert it: the
-    // blank screen comes from `if (!visible) return null` in the render path,
-    // so deleting the effect's own `if (!visible) return` leaves this passing
-    // while every activated player emits `onboarding_view:` on every /app load.
-    // That empty `tasks` is also exactly the empty-string key taskSetKey's doc
-    // comment warns callers about.
     expect(sent).toEqual([])
   })
 
