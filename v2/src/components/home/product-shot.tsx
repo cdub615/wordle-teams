@@ -33,21 +33,36 @@ import type { Shot } from './marketing-copy.ts'
  * this.
  *
  * WIDTH AND HEIGHT ARE THE INTRINSIC SIZE, NOT THE RENDERED ONE, so the box
- * reserves its space before the bytes arrive. Every file
- * scripts/build-marketing-shots.mjs writes is 1440x900; the crop is the
- * caller's `className` (an aspect ratio) plus `imgClassName` (an object-fit and
- * an object-position), never a second copy of the file.
+ * reserves its space before the bytes arrive. The landing page's three files
+ * are all 1440x900 full frames, which is why that pair is the default; the crop
+ * is the caller's `className` (an aspect ratio) plus `imgClassName` (an
+ * object-fit and an object-position), never a second copy of the file.
+ *
+ * AND THAT IS WHY THE PAIR IS NOW A PROP (wordle-teams-wty4.1.14.5). The
+ * capture script grew element-clipped shots for /about — a dialog is 512px
+ * wide, not 1440 — and a component that hardcoded 1440x900 would have handed
+ * the browser a 1.6:1 box to reserve for a 0.72:1 image, which is the exact
+ * reflow these attributes exist to prevent, written down on purpose. The
+ * default keeps every existing caller byte-identical; src/about-screenshots.test.ts
+ * checks each /about caller's pair against its PNG's own IHDR chunk, so a
+ * re-shot file that changes size fails a gate instead of shipping.
  */
 export function ProductShot({
   shot,
   className,
   imgClassName,
+  width = 1440,
+  height = 900,
 }: {
   shot: Shot
   /** The frame: a border, a radius, and the aspect ratio that does the cropping. */
   className?: string
-  /** How the 1440x900 file sits inside that frame — object-fit and -position. */
+  /** How the file sits inside that frame — object-fit and -position. */
   imgClassName?: string
+  /** The PNG's own intrinsic width. Both twins must share it. */
+  width?: number
+  /** The PNG's own intrinsic height. */
+  height?: number
 }) {
   const common = cn('h-full w-full', imgClassName)
 
@@ -61,8 +76,8 @@ export function ProductShot({
       <img
         src={`/marketing/${shot.stem}-light.png`}
         alt={shot.alt}
-        width={1440}
-        height={900}
+        width={width}
+        height={height}
         loading="lazy"
         decoding="async"
         className={cn(common, 'dark:hidden')}
@@ -73,8 +88,8 @@ export function ProductShot({
       <img
         src={`/marketing/${shot.stem}-dark.png`}
         alt={shot.alt}
-        width={1440}
-        height={900}
+        width={width}
+        height={height}
         loading="lazy"
         decoding="async"
         className={cn(common, 'hidden dark:block')}

@@ -521,6 +521,26 @@ criterion that every difference is either recorded here or filed as a bug. Row
 file's own header is not thereby recorded, because **the audit reads this
 table**.
 
+**Rows 25, 26 and 28 describe a page that no longer exists as written, and the
+parity audit must not chase them.** `wordle-teams-wty4.1.14.5` rewrote `/about`
+because six of its claims had gone false against the app — the install
+instruction named a menu `wordle-teams-lyab` deleted, the Pro sentence
+over-claimed three ways against `v2/src/lib/pro-benefits.ts`, and four of its
+eight screenshots were hand-captured pictures of **third-party** pages that had
+rotted (the feedback board photographed empty, the README photographed
+describing a Next.js and Supabase app). It is no longer a verbatim port of v1's
+prose, so there is nothing left to compare route-for-route: **treat `/about` as
+a v2 page, the way `/` and `/pricing` already are.** Specifically — row 25's
+four-image community grid is **gone**, images and all, though wt-ksh.12.5's
+ruling on the carousel dependency stands and is still pinned from both ends
+(`v2/src/about-screenshots.test.ts`); row 26's DOM-order rule still holds, now
+over three rows rather than four; row 28's sentence has been replaced outright.
+**Rows 27 and 29 are unchanged and still true** — no tilts, and the green
+outline is still half v1's width, now drawn outside `ProductShot`'s own 1px
+border so the two marketing surfaces frame a screenshot the same way. The
+screenshots themselves now come from `v2/scripts/build-marketing-shots.mjs`,
+light and dark, three of them element-clipped to the dialog being explained.
+
 Two Phase 5 notes that are **not** divergences, recorded because they look like
 ones. Identity resolution accepts **both** id namespaces — a Convex `Id` and a
 v1 uuid via `by_legacyId` — because v1 set Polar's `external_customer_id` to the

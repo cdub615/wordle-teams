@@ -1,63 +1,78 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
+import { ProductShot } from '#/components/home/product-shot.tsx'
+import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
 import { publicRouteHead } from '#/lib/seo'
 
 /**
- * Copy and screenshots ported from v1's src/components/about.tsx.
+ * THE HOW-TO WALKTHROUGH. Same URL, same job, re-checked against the app
+ * (wordle-teams-wty4.1.14.5).
  *
- * THE CAROUSEL IS DELIBERATELY NOT CARRIED OVER. v1 lays its last four
- * screenshots out in an aceternity `InfiniteMovingCards`; wt-ksh.12.5 ruled
- * that dependency out and Phase 7 Task 4 dropped its siblings (`HeroHighlight`,
- * `BorderBeam`, `framer-motion`) for the same reason. They are a plain
- * responsive grid here — two columns from `sm` up — which is all the four
- * images were ever doing: sitting next to each other so a reader can see that
- * Feedback, the Changelog, X and GitHub are real places. An auto-scrolling
- * marquee also moves under a reader who is trying to look at it, which is a
- * `prefers-reduced-motion` problem the grid simply does not have.
+ * IT MATTERS BECAUSE wordle-teams-456 MEASURES 87% OF PRODUCTION SIGNUPS NEVER
+ * ENTERING A BOARD. This is the page that explains how, so a stale instruction
+ * here is not cosmetic: somebody follows it. That is the defect class this
+ * rewrite removes, and every sentence below now names the file that makes it
+ * true in a comment beside it.
  *
- * EVERY <img> CARRIES ITS FILE'S REAL width AND height, AND THAT IS NOT
- * COSMETIC. v1 got the pair for free from `next/image` and a statically
- * imported asset; v2 has no equivalent, and without them the browser has no
- * aspect ratio to reserve space with, so each of eight images shoves the rest
- * of the page down as it arrives. Seven of the eight are below the fold at any
- * viewport, so that reflow lands under a reader who is already reading. The
- * numbers are
- * the INTRINSIC dimensions of the PNG, not the drawn size — CSS does the
- * scaling — and src/about-screenshots.test.ts reads each file's IHDR chunk to
- * prove the declared pair is the file's own.
+ * WHAT WAS FALSE WHEN THIS WAS OPENED, ALL OF IT SHIPPED AND ALL OF IT GREEN:
  *
- * TEXT FIRST IN THE DOM ON EVERY ROW, with `md:flex-row-reverse` alternating
- * the sides. v1 alternates with `flex-col-reverse` instead, which puts the
- * image ahead of its own annotation in the document for two of the four rows —
- * a WCAG 1.3.2 meaningful-sequence problem, since the sentence is what the
- * picture is captioned by. Reading order and DOM order agree here, and the
- * desktop zig-zag is unchanged. BOTH HALVES OF THAT SENTENCE ARE ASSERTED,
- * because the second is the half that makes the reorder defensible and it is
- * one class edit from being false: see *“the four annotated rows alternate
- * sides on desktop, as v1's do”* in src/about-screenshots.test.ts.
+ *   1. "the Install button in your user dropdown at the top right" — there has
+ *      been no Install button in any menu since wordle-teams-mwu0 folded
+ *      Profile, Install and Notifications into a single `Settings` item, and no
+ *      "user dropdown" since wordle-teams-lyab replaced it with one "Main menu"
+ *      whose trigger is a hamburger beside the avatar rather than the avatar.
+ *      Install is a TAB inside the settings dialog (settings-dialog.tsx).
+ *   2. public/install-button.png and public/upgrade-button.png were two crops
+ *      of that same dead v1 menu — Theme / Upgrade / About / Install / Log out,
+ *      a list with three wrong entries.
+ *   3. "Upgrade to unlock unlimited teams, access to all of your previous
+ *      months' scores, scoring system customization for your teams, and more."
+ *      Three over-claims against lib/pro-benefits.ts: the month window is
+ *      TEAM-scoped and roster-derived (reaching back to the team's first board,
+ *      which is not "your previous months"); custom scoring is the CURRENT
+ *      month on a team you OWN, not "your teams"; and the sentence omits the
+ *      two benefits a reader would most want to know about. Nothing on this
+ *      page writes a Pro claim by hand any more — see the Pro section below.
+ *   4. public/create-team.png was missing the `Show Letters in Completed
+ *      Boards` switch that teams/team-fields.tsx has shipped for months, and
+ *      quoted a dialog description that had since been reworded.
+ *   5. public/github-repo.png is a photograph of this repository's README
+ *      saying the app is "built with Next.js, Supabase, and shadcn/ui" with
+ *      "Lemon Squeezy" for payments. v2 is TanStack Start, Convex and Polar.
+ *      public/feedback-page.png says "No feedback yet"; public/changelog-page.png
+ *      shows June 2024 as the newest entry; public/twitter-acct.png is the v1
+ *      tagline and a follower count. All four were hand-captured pictures of
+ *      THIRD-PARTY pages, which no script here can re-shoot.
+ *   6. Every one of the eight was a DARK-THEME PNG, on a page that is light for
+ *      half its readers.
  *
- * v1's TILTS ARE DROPPED — the `md:` rotate utilities it puts on all four
- * shots, three degrees on the odd rows and minus six on the even ones
- * (src/components/about.tsx:40,48,65,73). A rotated element still reserves its
- * UNROTATED box, so a tilted screenshot and its outline overhang a column the
- * layout has not made room for — which is a thing to tune by hand at every
- * breakpoint, for an effect the rest of v2 does not use.
+ * SO THE SCREENSHOTS COME FROM scripts/build-marketing-shots.mjs NOW, light and
+ * dark, and three of them are new element-clipped captures that task added for
+ * this page — a dialog is the unit being explained here, and a 1440x900 frame
+ * of the dashboard behind it is not. See that script's `clip`.
  *
- * THE GREEN OUTLINE IS KEPT, RETOKENISED AND HALVED.
+ * WHAT THAT COSTS, STATED RATHER THAN HIDDEN (wordle-teams-t40a). Every capture
+ * is taken at a 1440x900 DESKTOP viewport, and this page is read on a phone.
+ * For the three clipped shots the cost is small — ui/dialog.tsx caps a dialog at
+ * `max-w-lg` (512px) on a laptop and `w-11/12` (~358px at 390px), so the file is
+ * the same shape as the phone's own and about 40% wider — but it is not zero:
+ * these are pictures of a dialog as a laptop draws it, and below `md`
+ * board-entry/button.tsx renders a top SHEET rather than the dialog shown here.
+ * Fixing that properly is t40a's phone-width pass, which is deliberately not
+ * done here.
  *
- *   Retokenised: `outline-accent-solid` in place of v1's raw palette utility
- *   (`outline-green-` plus the shade), because a raw palette colour outside
- *   src/styles.css is a missing token (rule 1 there).
+ * THE FOUR COMMUNITY SCREENSHOTS ARE GONE AND THE SECTION IS NOT. Its two
+ * paragraphs and all four links are unchanged; what went is four stale pictures
+ * of other people's websites, for reason 5 above. They were there "so a reader
+ * can see that Feedback, the Changelog, X and GitHub are real places" — which
+ * four links already do, and which a picture of an empty feedback board
+ * actively undoes. NOTE THIS MAKES §7a ROW 25 (the aceternity carousel that was
+ * ruled out) DESCRIBE A GRID THAT NO LONGER EXISTS; the row is annotated rather
+ * than deleted, because wt-ksh.12.5's decision about the DEPENDENCY still
+ * stands and is still pinned below.
  *
- *   Halved: `outline-2` where v1 writes `outline` + the 4px width utility. That
- *   is deliberate, not a port slip, and it is NOT the frame shrinking with the
- *   image — v2 draws these at v1's own rendered widths. v1's board shot is
- *   `height={400}`, which at 518×708 is 293px wide, and that is this page's
- *   `max-w-[293px]`; the other three carry no height in v1 and so render at
- *   their intrinsic widths, which are this page's other three max-widths. At
- *   the same drawn size a 4px green rule is simply the heaviest border anywhere
- *   in v2: every other framed surface on this page, the four community shots
- *   directly below included, is a 1px `border-line-subtle`. Recorded in §7a of
- *   docs/design-system/V2-ADDENDUM.md, because the audit reads that table.
+ * THE CAROUSEL IS STILL RULED OUT, and the test that proves it is still an
+ * assertion over this file's bounded, ordered import list — which is why adding
+ * an import here is a deliberate act with a failing test attached.
  *
  * THE UTILITY NAMES IN THIS COMMENT ARE SPELLED AROUND ON PURPOSE. Tailwind v4
  * scans this file as source TEXT, comments included, so a dropped or banned
@@ -68,35 +83,28 @@ import { publicRouteHead } from '#/lib/seo'
  * v2 does not use them. The comment banning a class was the only thing shipping
  * it.
  *
- * TWO DIVERGENCES FROM v1's TEXT, both because v1's sentence is not true of
- * this page:
+ * TEXT FIRST IN THE DOM ON EVERY ROW, with the `md:` row-reverse utility
+ * alternating the sides. v1 alternates with a column-reverse instead, which
+ * puts the image ahead of its own annotation in the document for half the rows
+ * — a WCAG 1.3.2 meaningful-sequence problem, since the sentence is what the
+ * picture is captioned by. Reading order and DOM order agree here, and the
+ * desktop zig-zag is unchanged. BOTH HALVES OF THAT SENTENCE ARE ASSERTED,
+ * because the second is one class edit from being false.
  *
- *   1. "create a team (button below)" loses its parenthetical. v1's /about
- *      requires a session (src/app/about/page.tsx redirects an anonymous
- *      visitor to /login) and passes in an `actionButton` that reads "Go to
- *      Dashboard" — so the parenthetical does not describe v1's own button
- *      either. v2's /about is public and edge-cacheable and has no button at
- *      all; the header's Sign In is the action for the visitor this page is
- *      written for. Pointing at a control that is not there is worse than the
- *      shorter sentence.
- *   2. v1's `title` and `actionButton` props are not ported, for the same
- *      reason: both are supplied by a page that has already established a
- *      session.
+ * v1's TILTS STAY DROPPED — the `md:` rotate utilities it puts on all four
+ * shots (src/components/about.tsx:40,48,65,73). A rotated element still
+ * reserves its UNROTATED box, so a tilted screenshot and its outline overhang a
+ * column the layout has not made room for.
  *
- * THE E2E SUITE NO LONGER DEPENDS ON THIS PAGE, as of Phase 7 Task 4.
- * playwright.config.ts pointed its webServer readiness probe at /about for as
- * long as `/` had no route — Playwright reads a 404 as "not ready yet" and
- * fails the whole run with `Timed out waiting for config.webServer`, naming the
- * dev server rather than the route. The marketing landing now renders at `/`
- * and the probe has moved back there (verified: `url: 'http://localhost:3000/'`).
- * Recorded here because the dependency ran both ways and someone reading only
- * this file would otherwise still believe it exists.
+ * THE GREEN OUTLINE IS KEPT, RETOKENISED AND HALVED — the accent-solid outline
+ * token in place of v1's raw palette utility, at half v1's width. §7a row 29.
+ * It now sits OUTSIDE ProductShot's own 1px subtle border, which is the frame
+ * the landing page's shots carry, so the two marketing surfaces agree about
+ * what a product shot looks like and this one keeps its accent.
  *
  * THIS PATH IS IN src/lib/cache-policy.ts's STATIC_DOCUMENTS, so an anonymous
  * document is published to the edge for a day. The images are static assets
- * served by the Worker's asset handler and never touch that policy; adding
- * them changed the page's WEIGHT (+462 KiB across eight files, all lazy) and
- * nothing about its headers.
+ * served by the Worker's asset handler and never touch that policy.
  */
 export const Route = createFileRoute('/about')({
   head: () => publicRouteHead('/about', 'About'),
@@ -104,33 +112,83 @@ export const Route = createFileRoute('/about')({
 })
 
 /**
- * The shared frame for a product shot: v1's green outline, retokenised and
- * halved as the header explains, plus the two sizing rules.
+ * The three things this page walks somebody through, and the picture of each.
  *
- * ONLY ONE OF THOSE TWO DOES WORK. `w-full` is what makes the image fill its
- * column, so the declared width/height act as an aspect ratio to scale by
- * rather than as a fixed box. `h-auto` RESTATES A DEFAULT: Tailwind's preflight
- * already emits `img,video{max-width:100%;height:auto}` for every image on the
- * page, so deleting it changes nothing that renders and no test here notices.
- * It is kept so the height rule is legible in the class string that governs
- * these images rather than being an invisible inherited one — and so that an
- * `h-` utility added to this string reads as the conflict it would be.
+ * HERE AS DATA FOR components/home/marketing-copy.ts's REASON, which is the
+ * strongest lesson of this plan: vitest.config.ts sets `environment:
+ * 'edge-runtime'`, nothing in this repo can mount a component, and a sentence
+ * typed into JSX is a product decision no gate can read. The difference from
+ * that file is that these sentences are not shared with another page, so they
+ * live beside the only component that renders them.
+ *
+ * `width` AND `height` ARE THE PNG's OWN, NOT THE DRAWN SIZE. CSS does the
+ * scaling; these give the browser an aspect ratio to reserve space with before
+ * the bytes arrive, and src/about-screenshots.test.ts reads each file's IHDR
+ * chunk to prove the declared pair is that file's. A wrong pair is worse than
+ * none — it reserves a box of the wrong shape, so the page reflows anyway, into
+ * a layout somebody wrote down on purpose.
  */
-const SHOT = 'h-auto w-full rounded-xl outline-2 outline-offset-2 outline-accent-solid'
+const STEPS = [
+  {
+    heading: 'Enter the day’s board',
+    stem: 'board-entry',
+    alt: 'The board entry dialog: the day at the top, the day’s answer spelled out above a Wordle grid with two guesses filled in and the cursor waiting on the next tile.',
+    width: 512,
+    height: 714,
+    // Every clause is the dialog's own. "Pick the day, then ... type the board
+    // in" is board-entry/form.tsx's description; "Keep typing. Backspace goes
+    // back a letter" is entry-coach.ts's line; "about ten seconds" is
+    // lib/onboarding-tasks.ts's hint on the same task.
+    //
+    // IT SAYS TYPE AND NEVER PASTE, which is the whole spec correction in one
+    // word and the second surface to need it. Filling a board in from a
+    // screenshot is PRO — board-entry/form.tsx renders the importer on
+    // `isPro === true` and an upsell on false — so offering it to a visitor who
+    // has not signed up is the same defect as the Pro claims removed above.
+    body: 'Pick the day, then type in the answer and the guesses you made. The board fills as you type and backspace goes back a letter, so it is about ten seconds and you never leave the keyboard.',
+  },
+  {
+    heading: 'Get a team around you',
+    stem: 'create-team',
+    alt: 'The Create Team dialog: a team name field, and switches for playing weekends and for showing letters in completed boards.',
+    width: 512,
+    height: 326,
+    // Three claims, three files. BOTH invite routes are named because
+    // teams/invite-player-dialog.tsx ships both and its own header says why:
+    // typing an address "is a terrible [tool] when you do not [know it]", and
+    // six of the eight most recently created production teams invited nobody.
+    // The link half mints a token (convex/inviteLinks.ts) that lands on
+    // routes/join.$token.tsx.
+    //
+    // "TWO TEAMS" IS A NUMBER SPELLED AS A WORD, which no template literal can
+    // keep honest. Solved as components/home/marketing-copy.ts solves it: the
+    // test pins FREE_TEAM_LIMIT, so moving the constant fails a gate instead of
+    // shipping stale copy behind four green ones. It says JOIN rather than
+    // create, because the cap is enforced on the join path and not on
+    // createTeam — the same distinction lib/pro-benefits.ts is careful about.
+    body: 'A scoreboard needs somebody to score against. Create a team and invite the people you already send your score to — by their email address, or by sharing a join link. If a friend invited you, they need the address you sign in with, or they can just send you the link. A free account can be on two teams.',
+  },
+  {
+    heading: 'Put it on your home screen',
+    stem: 'install-guide',
+    alt: 'The settings dialog on its Install tab, listing three steps: tap the three-dot or share icon, choose Add to Home Screen or Install app, then confirm.',
+    width: 462,
+    height: 236,
+    // The three steps are settings/install-guide-tab.tsx's, in its order and
+    // its words. The route to them is app-menu.tsx ("Main menu", top right,
+    // `Settings`) and settings-dialog.tsx (the `Install` tab) — the claim that
+    // was false on this page for the whole of wordle-teams-lyab's life.
+    //
+    // PUSH IS NOT MENTIONED. install-guide-tab.tsx's own note says iOS grants
+    // push only to an installed PWA and then adds that Push "will join, once
+    // the spike behind it lands" — a feature in the future tense is not
+    // something a how-to page gets to promise.
+    body: 'For a more app-like experience, install Wordle Teams to your home screen or desktop. Tap your browser’s three-dot menu or its Share icon, choose “Add to Home Screen” or “Install app”, then confirm. The same three steps live in the app under Settings, on the Install tab — open the menu at the top right.',
+  },
+] as const
 
-/**
- * The four places this project lives outside the app.
- *
- * A list rather than four hand-written <img> tags because they render as a
- * uniform grid, unlike the four annotated shots above them, which each sit
- * beside their own sentence.
- */
-const COMMUNITY = [
-  { src: '/feedback-page.png', alt: 'feedback screenshot', width: 786, height: 748 },
-  { src: '/changelog-page.png', alt: 'changelog screenshot', width: 747, height: 704 },
-  { src: '/twitter-acct.png', alt: 'twitter account screenshot', width: 604, height: 604 },
-  { src: '/github-repo.png', alt: 'github repo screenshot', width: 900, height: 900 },
-]
+/** The green outline, retokenised and halved, outside ProductShot's own frame. */
+const SHOT_FRAME = 'outline-2 outline-offset-2 outline-accent-solid'
 
 function About() {
   return (
@@ -140,132 +198,110 @@ function About() {
         <h1 className="font-display mb-3 text-4xl font-bold text-foreground sm:text-5xl">
           Wordle Teams
         </h1>
-        {/*
-          v1's FIRST ROW: the intro article and the board-entry shot side by
-          side. The two paragraphs are the annotation for that screenshot, which
-          is why it sits in this section rather than opening the run below.
-        */}
-        <div className="flex flex-col items-center gap-8 md:flex-row md:justify-center">
-          <div className="flex max-w-xl flex-col gap-4 text-base leading-8 text-muted-foreground">
-            <p className="m-0">
-              Wordle Teams is designed as a companion app to the New York Times Wordle game.*
-            </p>
-            <p className="m-0">
-              Play Wordle as you normally would in the official app or website, then come here to
-              enter the day&apos;s answer and your guesses and see how you stack up against your
-              friends.
-            </p>
-          </div>
-          <div className="w-full max-w-[293px] shrink-0">
-            <img
-              src="/board-entry.png"
-              alt="board entry screenshot"
-              width={518}
-              height={708}
-              loading="lazy"
-              decoding="async"
-              className={SHOT}
-            />
-          </div>
+        <div className="flex max-w-xl flex-col gap-4 text-base leading-8 text-muted-foreground">
+          <p className="m-0">
+            Wordle Teams is designed as a companion app to the New York Times Wordle game.*
+          </p>
+          <p className="m-0">
+            Play Wordle as you normally would in the official app or website, then come here to
+            enter the day&apos;s answer and your guesses and see how you stack up against your
+            friends.
+          </p>
         </div>
       </section>
 
       <div className="mt-16 flex flex-col gap-16 md:gap-24">
-        <section className="flex flex-col items-center gap-8 md:flex-row-reverse md:justify-center">
-          <p className="m-0 max-w-xl text-base leading-8 text-muted-foreground">
-            For a more app-like experience, you can install Wordle Teams to your home screen or
-            desktop using the instructions from the Install button in your user dropdown at the
-            top right.
-          </p>
-          <div className="w-full max-w-[234px] shrink-0">
-            <img
-              src="/install-button.png"
-              alt="install button screenshot"
-              width={234}
-              height={189}
-              loading="lazy"
-              decoding="async"
-              className={SHOT}
-            />
-          </div>
-        </section>
-
-        <section className="flex flex-col items-center gap-8 md:flex-row md:justify-center">
-          <p className="m-0 max-w-xl text-base leading-8 text-muted-foreground">
-            To get started, you&apos;ll need to either create a team, or ask for an invite to an
-            existing team if you heard about us from a friend. They&apos;ll just need the email
-            you used to sign in.
-          </p>
-          <div className="w-full max-w-[521px] shrink-0">
-            <img
-              src="/create-team.png"
-              alt="create team screenshot"
-              width={521}
-              height={312}
-              loading="lazy"
-              decoding="async"
-              className={SHOT}
-            />
-          </div>
-        </section>
-
-        <section className="flex flex-col items-center gap-8 md:flex-row-reverse md:justify-center">
-          <p className="m-0 max-w-xl text-base leading-8 text-muted-foreground">
-            Upgrade to unlock unlimited teams, access to all of your previous months&apos; scores,
-            scoring system customization for your teams, and more.
-          </p>
-          <div className="w-full max-w-[234px] shrink-0">
-            <img
-              src="/upgrade-button.png"
-              alt="upgrade button screenshot"
-              width={234}
-              height={189}
-              loading="lazy"
-              decoding="async"
-              className={SHOT}
-            />
-          </div>
-        </section>
-
-        <section className="flex flex-col items-center gap-8">
-          <div className="flex max-w-xl flex-col gap-4 text-base leading-8 text-muted-foreground">
-            <p className="m-0">
-              For any suggestions or issues, please see our{' '}
-              <a href="https://feedback.wordleteams.com/feedback" className="font-semibold">
-                Feedback
-              </a>{' '}
-              page. You can also follow us on{' '}
-              <a href="https://x.com/wordleteams" className="font-semibold">
-                X (Twitter)
-              </a>{' '}
-              and check out our{' '}
-              <a href="https://feedback.wordleteams.com/changelog" className="font-semibold">
-                Changelog
-              </a>{' '}
-              to learn about new features as they&apos;re released.
-            </p>
-            <p className="m-0">
-              For those interested, this is an open source project on{' '}
-              <a href="https://github.com/cdub615/wordle-teams" className="font-semibold">
-                GitHub
-              </a>
-              . Contributions are welcome.
-            </p>
-          </div>
-          <div className="grid w-full max-w-3xl grid-cols-1 gap-6 sm:grid-cols-2">
-            {COMMUNITY.map((shot) => (
-              <img
-                key={shot.src}
-                src={shot.src}
-                alt={shot.alt}
-                width={shot.width}
-                height={shot.height}
-                loading="lazy"
-                decoding="async"
-                className="h-auto w-full rounded-xl border border-line-subtle"
+        {STEPS.map((step, index) => (
+          <section
+            key={step.stem}
+            className={
+              // The zig-zag. `index % 2` rather than a literal per row, so a
+              // fourth step cannot land on the same side as the third by being
+              // added without thinking about it.
+              index % 2 === 0
+                ? 'flex flex-col items-center gap-8 md:flex-row md:justify-center'
+                : 'flex flex-col items-center gap-8 md:flex-row-reverse md:justify-center'
+            }
+          >
+            <div className="max-w-xl">
+              <h2 className="font-display mb-2 text-2xl font-semibold text-foreground">
+                {step.heading}
+              </h2>
+              <p className="m-0 text-base leading-8 text-muted-foreground">{step.body}</p>
+            </div>
+            {/*
+              THE COLUMN IS CAPPED AT THE FILE'S OWN WIDTH, never above it: these
+              are 1x captures, so drawing a 512px PNG at 640px is an upscale of a
+              screenshot, which reads as a blurry screenshot.
+            */}
+            <div className="w-full shrink-0" style={{ maxWidth: step.width }}>
+              <ProductShot
+                shot={{ stem: step.stem, alt: step.alt }}
+                width={step.width}
+                height={step.height}
+                className={SHOT_FRAME}
+                // h-auto REPLACES ProductShot's own h-full through
+                // tailwind-merge. That default is for the landing's cropped
+                // frames, which set an aspect ratio on the container; these
+                // frames have no height of their own and want the image's.
+                imgClassName="h-auto"
               />
+            </div>
+          </section>
+        ))}
+
+        <section className="flex flex-col gap-4">
+          <h2 className="font-display text-2xl font-semibold text-foreground">What Pro adds</h2>
+          <p className="m-0 max-w-xl text-base leading-8 text-muted-foreground">
+            Everything above is free. Pro adds:
+          </p>
+          {/*
+            RENDERED FROM lib/pro-benefits.ts, NOT RESTATED. That file is the
+            one list of what Pro includes, checked entry by entry against the
+            code that gates it, and its header says its consumers "describe one
+            tier and must not describe it twice". The sentence this replaces
+            wrote the list out by hand and got three of its four clauses wrong.
+
+            TITLES ONLY, AND THE LINK CARRIES THE REST. Printing every `body`
+            here would make /about a third copy of the tier table; /pricing is
+            the page whose job that is, and components/home/marketing-copy.ts
+            hands the tier question over the same way.
+          */}
+          <ul className="m-0 max-w-xl list-disc pl-5 text-base leading-8 text-muted-foreground">
+            {PRO_BENEFITS.map((benefit) => (
+              <li key={benefit.id}>{benefit.title}</li>
             ))}
-          </div>
+          </ul>
+          <p className="m-0 text-base leading-8 text-muted-foreground">
+            <Link to="/pricing" className="font-semibold">
+              See the full free and Pro comparison
+            </Link>
+          </p>
+        </section>
+
+        <section className="flex max-w-xl flex-col gap-4 text-base leading-8 text-muted-foreground">
+          <p className="m-0">
+            For any suggestions or issues, please see our{' '}
+            <a href="https://feedback.wordleteams.com/feedback" className="font-semibold">
+              Feedback
+            </a>{' '}
+            page. You can also follow us on{' '}
+            <a href="https://x.com/wordleteams" className="font-semibold">
+              X (Twitter)
+            </a>{' '}
+            and check out our{' '}
+            <a href="https://feedback.wordleteams.com/changelog" className="font-semibold">
+              Changelog
+            </a>{' '}
+            to learn about new features as they&apos;re released.
+          </p>
+          <p className="m-0">
+            For those interested, this is an open source project on{' '}
+            <a href="https://github.com/cdub615/wordle-teams" className="font-semibold">
+              GitHub
+            </a>
+            . Contributions are welcome.
+          </p>
         </section>
       </div>
 

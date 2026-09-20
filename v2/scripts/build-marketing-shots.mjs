@@ -142,6 +142,28 @@ const CONVERSATION = [
  * route responded", which a skeleton and a redirect to /login both satisfy.
  * `prepare` runs after the navigation and before the wait, for the one shot
  * that is a picture of a task in progress rather than of a page at rest.
+ *
+ * `clip` IS THE SECOND KIND OF SHOT, ADDED BY wordle-teams-wty4.1.14.5, AND IT
+ * IS WHAT LET /about STOP CARRYING HAND-CAPTURED PNGs. Three of the surfaces
+ * that page walks a newcomer through — entering a board, creating a team,
+ * finding the install guide — are DIALOGS, not pages. A full-viewport frame of
+ * one is mostly the dashboard behind it, and /about draws these in a column
+ * about 500px wide beside their own sentence, so the thing being explained
+ * would arrive a few hundred pixels tall. `clip` names a selector and the
+ * capture goes through `locator.screenshot()` instead of `page.screenshot()`,
+ * which writes the element's own box and nothing else.
+ *
+ * IT ALSO SIDESTEPS wordle-teams-t40a FOR THOSE THREE, WHICH IS A HAPPY
+ * ACCIDENT RATHER THAN A FIX. That issue is that every file here is a 1440x900
+ * DESKTOP frame rendered to a phone. A clipped dialog is not: ui/dialog.tsx
+ * caps at `max-w-lg` (512px) on a laptop and `w-11/12` (~358px at 390px), so
+ * the clipped file is within about 40% of what a phone draws and is the same
+ * shape. The four unclipped shots still have t40a's problem in full.
+ *
+ * THE CLIP IS AN ELEMENT, NEVER A RECTANGLE. Playwright also takes `clip: {x,
+ * y, width, height}`, which is a set of numbers that keeps meaning something
+ * after the layout under it moves — the failure mode this whole file exists to
+ * refuse. A selector either resolves or the run dies naming the shot.
  */
 const SHOTS = [
   /**
@@ -185,6 +207,14 @@ const SHOTS = [
       document.querySelectorAll('[data-testid="answer-slot"]').length >= 5,
     describe: 'the board open, two guesses in, the cursor on the next tile',
     /**
+     * THE DIALOG, NOT THE DASHBOARD BEHIND IT. This was a full 1440x900 frame
+     * until wordle-teams-wty4.1.14.5; /about is its only consumer and draws it
+     * beside a sentence about entering a board, where four fifths of that frame
+     * was a scoreboard nobody was being told to look at. See `clip` in this
+     * table's header.
+     */
+    clip: '[role="dialog"]',
+    /**
      * Finishes the board and submits it, once, after both colour schemes have
      * been captured. The dialog closes ONLY on success, so waiting for the
      * board to go is waiting for the write rather than for the click.
@@ -206,16 +236,45 @@ const SHOTS = [
     name: 'dashboard',
     path: () => '/app',
     /**
+     * THE ONBOARDING CARD IS DISMISSED FIRST, AND THAT IS A CORRECTION RATHER
+     * THAN A PREFERENCE (wordle-teams-wty4.1.14.5). wordle-teams-wty4.1.14.6
+     * landed AFTER this script did and gave onboarding/next-step-card.tsx a
+     * GRADUATION state — "You are all set up", with a See your insights button
+     * — which renders for exactly the player this run seeds: every task done,
+     * nothing dismissed. So a re-run started photographing a 194px onboarding
+     * nudge at the top of the frame, and the landing page's
+     * components/home/dashboard-preview.tsx crop (an `object-position`
+     * percentage into this file) framed the nudge instead of the scoreboard.
+     *
+     * Dismissing is the app's own control and is what any established player
+     * has already done, so this is a picture of the steady state rather than of
+     * a first week. It is a MUTATION — it writes `onboardingDismissedAt` — and
+     * therefore runs once in effect: the second colour scheme finds no card and
+     * the `.catch` below is that, not a swallowed failure.
+     *
+     * THE `ready` PREDICATE BELOW ASSERTS THE CARD IS GONE for this file's
+     * usual reason: the click dispatching and the write landing are two
+     * different claims, and a shot taken between them is the exact frame this
+     * step exists to avoid.
+     */
+    prepare: async (page) => {
+      const dismiss = page.getByRole('button', { name: 'Dismiss getting started' })
+      // Absent for a player who has already dismissed — which is every pass
+      // after the first — so its absence is the success case, not an error.
+      await dismiss.click({ timeout: 5_000 }).catch(() => {})
+    },
+    /**
      * SCORES IN CELLS, NOT A TABLE. scores-table.tsx renders the whole grid —
      * headers, empty day cells, both player rows — before a single board has
      * arrived, so `table` being visible is true of the empty state too.
      * `[data-day]` cells carrying text are boards.
      */
     ready: () =>
+      document.querySelector('[aria-label="Dismiss getting started"]') === null &&
       [...document.querySelectorAll('table [data-day]')].filter(
         (cell) => (cell.textContent ?? '').trim() !== '',
       ).length >= 10,
-    describe: 'at least ten day cells carrying a score',
+    describe: 'no onboarding card, and at least ten day cells carrying a score',
   },
   {
     name: 'insights',
@@ -263,6 +322,92 @@ const SHOTS = [
     },
     readyArg: () => CONVERSATION[CONVERSATION.length - 1].body,
     describe: 'the message list carrying the last line of the seeded conversation',
+  },
+  /**
+   * THE TWO /about SHOTS, LAST BECAUSE NEITHER NEEDS THE WORLD IN ANY
+   * PARTICULAR STATE and both open a modal over whatever is behind them.
+   *
+   * They replace public/create-team.png and public/install-button.png, which
+   * were v1 crops and were both WRONG by the time this ran: the create-team
+   * dialog has grown a third field since (`Show Letters in Completed Boards`,
+   * teams/team-fields.tsx) and its description sentence changed, and the
+   * install crop was a picture of a dropdown menu that no longer exists —
+   * wordle-teams-lyab rebuilt the bar's menu and wordle-teams-mwu0 folded
+   * Profile, Install and Notifications into one `Settings` item.
+   */
+  {
+    name: 'create-team',
+    path: () => '/app',
+    /**
+     * THROUGH THE TEAM PICKER, WHICH IS THE ROUTE A PLAYER WITH A TEAM TAKES.
+     * The onboarding card's "Create a team" is the other trigger and is the
+     * wrong one here: this run's viewer has a team and 200 boards, so that card
+     * has nothing to show.
+     *
+     * The trigger is matched by a REGEX over its accessible name rather than by
+     * the team's name exactly: team-picker.tsx's aria-label is
+     * `teamPickerLabel(name, unreadElsewhere)`, which appends an unread clause,
+     * and the teammate posted the last line of the conversation above.
+     */
+    prepare: async (page) => {
+      await page.getByRole('button', { name: new RegExp(TEAM_NAME) }).click()
+      await page.getByRole('menuitem', { name: 'New Team' }).click()
+    },
+    /**
+     * THE DIALOG'S OWN TITLE, not merely `[role="dialog"]` being present: the
+     * team picker's DropdownMenuContent is not a dialog, but a half-open Radix
+     * portal during the transition could still put one in the tree, and a shot
+     * of the wrong modal is the silent green this file is built to refuse.
+     */
+    ready: () => {
+      const dialog = document.querySelector('[role="dialog"]')
+      return dialog !== null && (dialog.textContent ?? '').includes('Create Team')
+    },
+    describe: 'the Create Team dialog open, with its name field and both switches',
+    clip: '[role="dialog"]',
+  },
+  {
+    name: 'install-guide',
+    path: () => '/app',
+    prepare: async (page) => {
+      await openMainMenu(page)
+      await page.getByRole('menuitem', { name: 'Settings' }).click()
+      await page.getByRole('dialog').waitFor({ timeout: READY_TIMEOUT })
+      await page.getByRole('tab', { name: 'Install' }).click()
+    },
+    /**
+     * `[data-state="active"]` IS NOT DECORATION ON THIS SELECTOR, AND A BARE
+     * `[role="tabpanel"]` IS WRONG. Radix mounts a panel element for EVERY tab
+     * — the three inactive ones are present, `hidden`, and EMPTY (their
+     * children are what Presence withholds) — so `querySelector` on the role
+     * alone returns Profile's empty box no matter which tab is open, and this
+     * predicate could never come true. Measured: it timed out on a dialog that
+     * was, by the same dump, correctly showing the Install tab.
+     */
+    ready: () => {
+      const panel = document.querySelector('[role="tabpanel"][data-state="active"]')
+      return panel !== null && (panel.textContent ?? '').includes('Add to Home Screen')
+    },
+    describe: 'the settings dialog on its Install tab, showing the three add-to-home-screen steps',
+    /**
+     * THE TABS, NOT THE WHOLE DIALOG, AND THE DIFFERENCE IS AN EMAIL ADDRESS.
+     * settings-dialog.tsx puts the signed-in player's NAME AND ADDRESS in the
+     * dialog header above the tab strip, and the account driving this script is
+     * `e2e+shots-<timestamp>a@wordleteams.com`. That is not a real person's
+     * address, but it is a throwaway one, and a marketing page explaining how
+     * to install the app should not be showing a reader anybody's inbox.
+     *
+     * Clipping the Tabs root keeps the half that carries the information — the
+     * strip that says Profile / Alerts / Security / Install, with Install
+     * selected, above its own three steps — so the frame still answers "where
+     * is this" and not only "what does it say".
+     *
+     * `:has(> [role="tablist"])` RATHER THAN A testid ADDED TO THE PRODUCT. The
+     * Tabs root is the element whose only distinguishing feature is that the
+     * tab strip is its first child; adding an attribute to src/ so a screenshot
+     * script can find it would be the product carrying the script's problem.
+     */
+    clip: '[role="dialog"] div:has(> [role="tablist"])',
   },
 ]
 
@@ -464,6 +609,39 @@ async function loadSignIn() {
 }
 
 /**
+ * Opens the app bar's one menu, and does not return until it is open.
+ *
+ * THE HEADER SERVER-RENDERS, so the trigger exists in the document before React
+ * has attached a handler to it and a click can land on a dead button —
+ * e2e/app-menu.ts's whole reason for existing. Guarded on `data-state` rather
+ * than clicked twice, because a Radix menu TOGGLES and a second click on an
+ * open one closes it.
+ *
+ * ON `until` RATHER THAN `expect(...).toPass`, AND THAT IS WHY IT IS A FUNCTION
+ * NOW. It was inline in renameThrough, which is handed `expect` by main(); a
+ * shot's `prepare` is handed only the page, and threading `expect` through the
+ * table so one entry could poll would be a worse trade than the four lines
+ * here. `until` already sleeps between attempts for the reason its own comment
+ * gives.
+ */
+async function openMainMenu(page) {
+  const trigger = page.getByRole('button', { name: 'Main menu' })
+  await trigger.waitFor({ state: 'visible', timeout: READY_TIMEOUT })
+  await until(
+    async () => {
+      if ((await trigger.getAttribute('data-state').catch(() => null)) !== 'open') {
+        // Swallowed: a click that races hydration is exactly the case this
+        // loop exists for, and the next pass retries it.
+        await trigger.click({ timeout: 2_000 }).catch(() => {})
+      }
+      return page.getByRole('menu').isVisible().catch(() => false)
+    },
+    15_000,
+    'the main menu to open',
+  )
+}
+
+/**
  * Gives an account a real-looking name through Settings -> Profile.
  *
  * See the header: this exists only because `ensureSharedTeamFor` names its two
@@ -477,15 +655,7 @@ async function loadSignIn() {
  * the next thing this script does is click things on the page behind it.
  */
 async function renameThrough(page, expect, { firstName, lastName }) {
-  const trigger = page.getByRole('button', { name: 'Main menu' })
-  // The header server-renders, so the trigger exists before React attaches a
-  // handler to it and a click can land on a dead button — e2e/app-menu.ts's
-  // whole reason for existing. Guarded on `data-state` rather than clicked
-  // twice, because a Radix menu TOGGLES.
-  await expect(async () => {
-    if ((await trigger.getAttribute('data-state')) !== 'open') await trigger.click()
-    await expect(page.getByRole('menu')).toBeVisible({ timeout: 1_000 })
-  }).toPass({ timeout: 15_000 })
+  await openMainMenu(page)
 
   await page.getByRole('menuitem', { name: 'Settings' }).click()
   const dialog = page.getByRole('dialog')
@@ -780,7 +950,15 @@ async function main() {
         }
 
         const file = path.join(OUT_DIR, name)
-        await page.screenshot({ path: file, fullPage: false })
+        if (shot.clip) {
+          // `locator.screenshot()` resolves the selector, scrolls it into view
+          // and frames its own box — so there is no `fullPage` to pass, and a
+          // selector that matches nothing (or two things) throws here naming
+          // the shot rather than writing a picture of the wrong thing.
+          await page.locator(shot.clip).screenshot({ path: file })
+        } else {
+          await page.screenshot({ path: file, fullPage: false })
+        }
         produced.push({ name, bytes: (await stat(file)).size })
         console.log(`[build-marketing-shots]   ${name}  ${(produced.at(-1).bytes / 1024).toFixed(0)} kB`)
       }
@@ -808,9 +986,14 @@ async function main() {
     return
   }
 
+  const clipped = SHOTS.filter((shot) => shot.clip).map((shot) => shot.name)
   console.log(
-    `[build-marketing-shots] wrote ${produced.length} shots to public/marketing/ ` +
-      `at ${VIEWPORT.width}x${VIEWPORT.height}, light and dark.`,
+    `[build-marketing-shots] wrote ${produced.length} shots to public/marketing/, light and dark: ` +
+      `${SHOTS.length - clipped.length} full frames at ${VIEWPORT.width}x${VIEWPORT.height}, ` +
+      // Named rather than counted, because the two kinds of file are read
+      // differently downstream: a full frame is cropped by its caller's CSS,
+      // a clipped one is drawn whole.
+      `and ${clipped.length} clipped to an element (${clipped.join(', ')}).`,
   )
 }
 
