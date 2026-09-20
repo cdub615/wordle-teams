@@ -95,8 +95,10 @@
  * below maps --muted to --surface-sunken and --muted-foreground to
  * --text-muted, so `bg-muted text-muted-foreground` is a pairing shadcn hands
  * out by default: it was already live in ui/tabs.tsx's TabsList and
- * ui/sonner.tsx's toast description before the marketing landing put six
- * paragraphs of body copy on that band (components/home/feature-cards.tsx).
+ * ui/sonner.tsx's toast description before the marketing landing put
+ * paragraphs of body copy on that band (components/home/how-it-works.tsx and
+ * components/home/also-free.tsx, which inherited the band from the deleted
+ * components/home/feature-cards.tsx).
  *
  * #6b6b74 measures 4.80 on --surface-sunken, 5.05 on --background and 5.28 on
  * --surface, so the token clears AA on every light surface it is used on

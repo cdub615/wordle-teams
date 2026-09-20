@@ -35,7 +35,7 @@
  * --brand-to, so nothing about the identity is lost by naming it differently.)
  *
  * The icon is therefore one token, --accent-solid, via `text-accent-solid` and
- * `fill='currentColor'` — the same treatment components/home/feature-cards.tsx
+ * `fill='currentColor'` — the same treatment components/home/also-free.tsx
  * gives its aria-hidden icons, and a pairing src/styles.test.ts already
  * measures against --surface in both themes. It is decorative and hidden from
  * assistive technology; the h1 says what the page is.

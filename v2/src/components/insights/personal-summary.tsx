@@ -84,7 +84,7 @@ export function PersonalSummary({ boards }: { boards: PersonalBoard[] }) {
                  dark surface put 14px semibold text at 3.74:1, below AA's
                  4.5:1 (WCAG-9F). --accent-solid is the established green
                  FOREGROUND token instead (maintenance.tsx,
-                 feature-cards.tsx, pull-to-refresh.tsx already use it this
+                 home/also-free.tsx, pull-to-refresh.tsx already use it this
                  way) — identical to --success in light mode (5.02:1,
                  unchanged) and 8.22:1 in dark. Do not "fix" this by giving
                  --success a dark-mode value; that changes the badge instead

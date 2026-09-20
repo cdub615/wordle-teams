@@ -11,7 +11,8 @@ import { codeOf } from '#/test-support/source-ast.ts'
  * computed once, against one background, and then quoted somewhere the pairing
  * is different. V2-ADDENDUM.md section 2 is a whole section about the bundle
  * doing it (5 of 7 pairs wrong in light, 6 of 7 in dark). Phase 7 Task 4 then
- * did it again in miniature — components/home/feature-cards.tsx asserted "both
+ * did it again in miniature — the since-deleted components/home/feature-cards.tsx
+ * asserted "both
  * greys clear AA" on --surface-sunken while the 4.63 it was leaning on had been
  * measured on --background, and the real figure on the sunken band was 4.40.
  *
@@ -225,12 +226,19 @@ describe('AA contrast for the two coloured pairs the marketing landing renders',
     expectRatio('dark', '--accent-solid-foreground', '--accent-solid', 4.5)
   })
 
-  test('the feature-card icons clear the 3:1 graphics bar on the sunken band', () => {
-    // 3:1, not 4.5: components/home/feature-cards.tsx renders --accent-solid as
-    // an aria-hidden icon, which is a non-text contrast case. It measures 4.56
-    // light and 7.48 dark, so this is headroom rather than a margin — but the
-    // bar it has to clear is the graphics one, and asserting 4.5 here would be
-    // asserting a rule that does not apply.
+  test('the landing’s accent marks clear the 3:1 bar on the sunken band', () => {
+    // 3:1, not 4.5, AND BOTH CONSUMERS LAND ON THAT BAR FOR DIFFERENT REASONS.
+    // components/home/also-free.tsx renders --accent-solid as an aria-hidden
+    // icon, which is a non-text contrast case. components/home/how-it-works.tsx
+    // renders it as the step numerals, which ARE text — but at `text-xl
+    // font-bold`, 20px bold, they are LARGE text under WCAG's 18.66px-bold
+    // threshold, so 3:1 is their bar too. (The pair this replaces was the
+    // deleted feature-cards.tsx's icons, same token, same surface.)
+    //
+    // It measures 4.56 light and 7.48 dark, so this is headroom rather than a
+    // margin — but asserting 4.5 here would be asserting a rule that does not
+    // apply to either consumer, and a guard that overstates its own bar is how
+    // a correct change gets reverted.
     expectRatio('light', '--accent-solid', '--surface-sunken', 3)
     expectRatio('dark', '--accent-solid', '--surface-sunken', 3)
   })

@@ -1,18 +1,38 @@
 import { Link } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '#/components/ui/button.tsx'
+import { HERO } from './marketing-copy.ts'
 
 /**
- * The hero. Copy ported verbatim from v1's src/components/home/title.tsx — the
- * logo, "Compete with friends", the bragging-rights line and "Get Started".
- * The MARKUP is rewritten; three of v1's dependencies are deliberately not.
+ * The hero, and the page's only <h1>.
  *
- * NO `Highlight` (@/components/ui/aceternity/hero-highlight). v1 wraps "ultimate
- * app for Wordle enthusiasts" in an aceternity component whose entire job is to
- * wipe a gradient background in over two seconds with framer-motion. wt-ksh.12.5
- * already ruled the aceternity dependency out for the About carousel and the
- * reasoning is identical here: the static end state of that animation is a
- * gradient-backed span, which is one `<span>`. It is rendered as one below.
+ * WHAT THIS TASK CHANGED, AND WHY. The headline, the logo and "Get Started" are
+ * v1's and are unchanged. v1's SUBTITLE is gone: "Keep score to establish
+ * bragging rights in the ultimate app for Wordle enthusiasts" is a sentence
+ * that tells a stranger nothing about what signing up would get them, and this
+ * page is written for a stranger. In its place is `MODEL_LINE`, imported —
+ * onboarding-tasks.ts calls that sentence the one statement of how the game
+ * works and notes it was "stated NOWHERE ELSE inside the app". See
+ * marketing-copy.ts, which holds the strings and is where the test can reach
+ * them.
+ *
+ * THE GRADIENT BAND MOVED ONTO THE HEADLINE'S LAST WORD, WHICH IS THE ONLY
+ * REASON THE MEASUREMENTS BELOW STILL APPLY. It used to sit under "ultimate app
+ * for Wordle enthusiasts" in the deleted subtitle; deleting the subtitle without
+ * moving the band would have taken the page's one piece of colour with it and
+ * orphaned the token pairing recorded in docs/design-system/V2-ADDENDUM.md §7a.
+ * `HERO.highlight` is sliced off the tail of `HERO.title` rather than typed
+ * twice, and marketing-copy.test.ts asserts it IS that tail — otherwise the
+ * slice would silently drop text from the h1 while the e2e assertion on its
+ * accessible name still passed, because a span inside a heading does not change
+ * that name.
+ *
+ * NO `Highlight` (@/components/ui/aceternity/hero-highlight). v1 wraps its
+ * highlighted phrase in an aceternity component whose entire job is to wipe a
+ * gradient background in over two seconds with framer-motion. wt-ksh.12.5 ruled
+ * that dependency out for the About carousel and the reasoning is identical: the
+ * static end state of that animation is a gradient-backed span, which is one
+ * `<span>`, rendered as one below.
  *
  * NO framer-motion. v2 does not have the dependency, and the only thing v1 uses
  * it for on this page is the wipe above plus one fade-in on the screenshot.
@@ -22,8 +42,8 @@ import { Button } from '#/components/ui/button.tsx'
  * the `font-display` token in src/styles.css; that is what it is for.
  *
  * THE HIGHLIGHT RUNS `from-brand-from via-brand-from to-warning` UNDER
- * `text-warning-foreground`. Both halves were re-decided by this task's review,
- * and every figure below was recomputed for it rather than quoted.
+ * `text-warning-foreground`. Both halves were decided by Phase 7 Task 4's review
+ * and every figure below was computed for it rather than quoted.
  *
  * v1's band is `from-green-600 via-green-600 to-yellow-400 dark:to-yellow-500`
  * (src/components/ui/aceternity/hero-highlight.tsx:79) under
@@ -44,28 +64,31 @@ import { Button } from '#/components/ui/button.tsx'
  *   light  #111113 on #16a34a   5.72:1     on #facc15  12.32:1
  *   dark   #111113 on #16a34a   5.72:1     on #eab308   9.83:1
  *
- * Worst case 5.72:1 in both themes. SAY THE REGRESSION OUT LOUD RATHER THAN THE
- * WIN ALONE: light mode gets slightly WORSE, 6.37 -> 5.72, because #111113 is
- * not #000000. It is still the right trade — it buys 1.92 -> 5.72 in dark — but
- * it is a real change to a case that already passed, and it is recorded as such
- * in V2-ADDENDUM.md section 7a alongside the theme-invariant foreground it
- * comes from.
+ * Worst case 5.72:1 in both themes, against a 4.5:1 bar it clears as normal text
+ * and a 3:1 one it clears with room as the large text it now is. SAY THE
+ * REGRESSION OUT LOUD RATHER THAN THE WIN ALONE: light mode is slightly WORSE
+ * than v1, 6.37 -> 5.72, because #111113 is not #000000. It is still the right
+ * trade — it buys 1.92 -> 5.72 in dark — and it is recorded as such in
+ * V2-ADDENDUM.md section 7a alongside the theme-invariant foreground it comes
+ * from.
  *
- * `to-warning`, NOT `to-brand-to`, AND THAT IS THE HALF THE REVIEW CHANGED.
- * --brand-to is #facc15 in BOTH themes, so ending the band there made v2's dark
- * highlight brighter than production's — an undocumented divergence introduced
- * by a token choice whose stated purpose was avoiding one. --warning is the
- * token --warning-foreground actually pairs with, so "background and foreground
- * travel together" is now literally true here instead of approximately, and the
- * colours match v1 in both themes. The cost is that in dark mode this yellow
- * (#eab308) differs from the header wordmark's --brand-to (#facc15) — which is
- * also v1's behaviour: its app bar ends at yellow-400 in both themes
- * (src/components/app-bar/app-bar-base.tsx:73) while its highlight ends at
- * yellow-500 in dark.
+ * `to-warning`, NOT `to-brand-to`. --brand-to is #facc15 in BOTH themes, so
+ * ending the band there made v2's dark highlight brighter than production's — an
+ * undocumented divergence introduced by a token choice whose stated purpose was
+ * avoiding one. --warning is the token --warning-foreground actually pairs with,
+ * so "background and foreground travel together" is literally true here instead
+ * of approximately, and the colours match v1 in both themes. The cost is that in
+ * dark mode this yellow (#eab308) differs from the header wordmark's --brand-to
+ * (#facc15) — which is also v1's behaviour: its app bar ends at yellow-400 in
+ * both themes (src/components/app-bar/app-bar-base.tsx:73) while its highlight
+ * ends at yellow-500 in dark.
  */
 export function Title() {
+  // The tail is pinned by test, so this slice cannot silently eat the headline.
+  const lead = HERO.title.slice(0, HERO.title.length - HERO.highlight.length)
+
   return (
-    <section className="flex flex-col items-center gap-4 px-4 py-12 text-center md:py-24">
+    <section className="flex flex-col items-center gap-4 px-4 pt-12 pb-8 text-center md:pt-24 md:pb-12">
       <img
         src="/wt-icon-144x144.png"
         alt="Wordle Teams logo"
@@ -73,20 +96,23 @@ export function Title() {
         height={144}
         className="h-20 w-20 md:h-36 md:w-36"
       />
-      <h1 className="font-display text-3xl font-bold text-foreground md:text-6xl">
-        Compete with friends
-      </h1>
-      <p className="font-display m-0 max-w-2xl px-2 text-lg text-muted-foreground md:text-3xl md:leading-10">
-        Keep score to establish bragging rights in the{' '}
-        <span className="rounded bg-gradient-to-r from-brand-from via-brand-from to-warning px-1 font-bold text-warning-foreground">
-          ultimate app for Wordle enthusiasts
+      <h1 className="font-display text-3xl font-bold text-balance text-foreground md:text-6xl">
+        {lead}
+        {/* `leading-tight` and the padding together: a gradient band on a 60px
+            line needs vertical room, and without it the band clips the
+            descenders of the word it is meant to hold. */}
+        <span className="rounded-lg bg-gradient-to-r from-brand-from via-brand-from to-warning px-2 py-0.5 leading-tight text-warning-foreground">
+          {HERO.highlight}
         </span>
+      </h1>
+      <p className="font-display m-0 max-w-2xl px-2 text-lg text-balance text-muted-foreground md:text-2xl md:leading-9">
+        {HERO.model}
       </p>
-      <Button asChild size="lg" className="mt-4 md:mt-8">
+      <Button asChild size="lg" className="mt-4 md:mt-6">
         {/* `no-underline` because src/styles.css's base layer styles every <a>,
             and asChild makes this anchor the button itself. */}
         <Link to="/login" className="group/get-started no-underline">
-          Get Started
+          {HERO.cta}
           <ArrowRight
             aria-hidden="true"
             className="transition-transform duration-300 ease-in-out group-hover/get-started:translate-x-0.5"

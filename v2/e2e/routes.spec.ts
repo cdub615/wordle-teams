@@ -87,7 +87,7 @@ test.describe('route shape', () => {
     ).toBeVisible()
   })
 
-  test('/home renders the whole landing — hero, all six feature cards, both CTAs', async ({
+  test('/home renders the whole landing — hero, every section, every CTA', async ({
     page,
   }) => {
     // v1's src/app/sitemap.ts lists /home at priority 0.9 and v1's own app bar
@@ -98,30 +98,49 @@ test.describe('route shape', () => {
     // hero-only /home would also satisfy, which is what the old, wider-named
     // version of this test would have passed on.
     //
-    // THE SIX CARDS ARE PINNED HERE AND NOWHERE ELSE IN THIS FILE. Their COPY
-    // is src/components/home/feature-cards.test.ts's job — v2 has no DOM under
-    // vitest, so that suite reads the exported FEATURES array. What only a
-    // browser can say is that they reach the page at all, and `/home` is the
-    // route whose entire justification is being identical to `/`.
+    // THE SECTIONS ARE PINNED HERE AND NOWHERE ELSE IN THIS FILE. Their COPY is
+    // src/components/home/marketing-copy.test.ts's job — v2 has no DOM under
+    // vitest, so that suite reads the exported constants. What only a browser
+    // can say is that they reach the page at all, and `/home` is the route
+    // whose entire justification is being identical to `/`.
+    //
+    // THIS REPLACES AN ASSERTION ON SIX FEATURE-CARD TITLES. The cards are
+    // deleted (wordle-teams-wty4.1.14.4); the property the old assertion had —
+    // a deleted section, a reorder and a reword all fail — is kept by reading
+    // the whole h2/h3 outline rather than a count.
     await page.goto('/home')
     await expect(page).toHaveURL('/home')
     await expect(
       page.getByRole('heading', { level: 1, name: 'Compete with friends', exact: true }),
     ).toBeVisible()
 
-    // toEqual on the whole list: a deleted card, a reorder and a reworded title
-    // all have to fail. `toHaveCount(6)` would miss two of the three.
-    await expect(page.getByRole('heading', { level: 3 })).toHaveText([
-      'Create Teams',
-      'Wordle Boards',
-      'Competitive Scoring',
-      'Go Pro',
-      'Easy Sign In',
-      'Privacy',
+    await expect(page.getByRole('heading', { level: 2 })).toHaveText([
+      'How it works',
+      'Find out whether that four was good',
+      'Included, free',
     ])
 
-    await expect(page.getByRole('link', { name: 'Get Started', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 3 })).toHaveText([
+      'Make a team',
+      'Enter your board',
+      'Scores settle',
+      'Team chat',
+      'Reminders',
+    ])
+
+    // EVERY SHOT REACHES THE PAGE, which nothing else can see. The files are
+    // public/marketing/*.png and marketing-copy.test.ts asserts they exist on
+    // disk — but a wrong path, a broken <picture> fallback or a theme class
+    // that hides both copies is a blank page section with every gate green.
+    // Two per shot: components/home/product-shot.tsx renders a light and a
+    // dark <img>, one of them `hidden`, so six is the whole-page count and
+    // three of them are visible.
+    await expect(page.locator('img[src^="/marketing/"]')).toHaveCount(6)
+    await expect(page.locator('img[src^="/marketing/"]:visible')).toHaveCount(3)
+
+    await expect(page.getByRole('link', { name: 'Get Started', exact: true })).toHaveCount(2)
     await expect(page.getByRole('link', { name: 'Sign In', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'See what Pro adds', exact: true })).toBeVisible()
   })
 
   test('a signed-in visitor to /home stays on /home', async ({ page }) => {
@@ -174,25 +193,45 @@ test.describe('route shape', () => {
     await expect(page).toHaveTitle('Wordle Teams: The ultimate app for Wordle enthusiasts')
   })
 
-  test('both of the landing\'s CTAs link to /login', async ({ page }) => {
+  test('every one of the landing\'s CTAs links to /login', async ({ page }) => {
     // The links the landing exists to hand over, asserted as the resolved href
     // of each element — not as "/login appears somewhere in the document",
     // which the Header's own markup would satisfy on its own.
     //
-    // BOTH, BECAUSE PINNING ONE WAS AN ASYMMETRY AND MUTATION FOUND IT. The
-    // hero's "Get Started" was covered from the start; dashboard-preview.tsx's
+    // ALL OF THEM, BECAUSE PINNING ONE WAS AN ASYMMETRY AND MUTATION FOUND IT.
+    // The hero's "Get Started" was covered from the start; dashboard-preview.tsx's
     // "Sign In" could be re-pointed at /app with every gate and every spec
-    // still green. They are two CTAs to the same destination on purpose — the
+    // still green. They are CTAs to the same destination on purpose — the
     // comment in dashboard-preview.tsx says so, v1 has both — so the second one
     // drifting is exactly the change nothing would have looked at.
+    //
+    // THERE ARE THREE NOW, AND TWO SHARE A NAME. closing-cta.tsx repeats "Get
+    // Started" at the foot of a page that is six sections long, so the locator
+    // matches two elements and `toHaveAttribute` on it would be a strict-mode
+    // failure rather than an assertion. `evaluateAll` over the resolved hrefs
+    // keeps the original property — every CTA, checked, not just the first one
+    // Playwright happens to find.
     await page.goto('/')
-    await expect(page.getByRole('link', { name: 'Get Started', exact: true })).toHaveAttribute(
-      'href',
-      '/login',
-    )
+    const getStarted = page.getByRole('link', { name: 'Get Started', exact: true })
+    await expect(getStarted).toHaveCount(2)
+    expect(
+      await getStarted.evaluateAll((links) =>
+        links.map((link) => link.getAttribute('href')),
+      ),
+    ).toEqual(['/login', '/login'])
+
     await expect(page.getByRole('link', { name: 'Sign In', exact: true })).toHaveAttribute(
       'href',
       '/login',
+    )
+
+    // The one link on this page that goes somewhere else. /pricing is where the
+    // tier comparison lives (wordle-teams-wty4.1.14.3) and the landing
+    // deliberately does not repeat it — so a landing that stopped linking there
+    // would leave the page with no route to the price at all.
+    await expect(page.getByRole('link', { name: 'See what Pro adds', exact: true })).toHaveAttribute(
+      'href',
+      '/pricing',
     )
   })
 

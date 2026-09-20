@@ -73,9 +73,10 @@ describe('no component paints TEXT with a BACKGROUND token', () => {
       /**
        * COMMENTS STRIPPED, the pattern routes.test.ts uses so that an
        * assertion reads the CODE. It is load-bearing here: this very file's
-       * header, feature-cards.tsx and maintenance.tsx all DISCUSS these
-       * utilities in prose, and the first version of this test failed on all
-       * three — flagging the explanations of the bug rather than the bug.
+       * header and maintenance.tsx both DISCUSS these utilities in prose —
+       * as did components/home/feature-cards.tsx until it was deleted — and
+       * the first version of this test failed on all three, flagging the
+       * explanations of the bug rather than the bug.
        *
        * Note the separate, opposite trap recorded in ui/calendar.tsx: Tailwind
        * 4 scans raw file text INCLUDING comments, so a utility named in prose
