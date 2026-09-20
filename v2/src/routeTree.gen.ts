@@ -13,6 +13,7 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as MaintenanceRouteImport } from './routes/maintenance'
 import { Route as LoginErrorRouteImport } from './routes/login-error'
@@ -46,6 +47,11 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PricingRoute = PricingRouteImport.update({
+  id: '/pricing',
+  path: '/pricing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MeRoute = MeRouteImport.update({
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/login-error': typeof LoginErrorRoute
   '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
+  '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/team': typeof TeamRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/login-error': typeof LoginErrorRoute
   '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
+  '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/team': typeof TeamRoute
@@ -172,6 +180,7 @@ export interface FileRoutesById {
   '/login-error': typeof LoginErrorRoute
   '/maintenance': typeof MaintenanceRoute
   '/me': typeof MeRoute
+  '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/team': typeof TeamRoute
@@ -194,6 +203,7 @@ export interface FileRouteTypes {
     | '/login-error'
     | '/maintenance'
     | '/me'
+    | '/pricing'
     | '/privacy'
     | '/sitemap.xml'
     | '/team'
@@ -214,6 +224,7 @@ export interface FileRouteTypes {
     | '/login-error'
     | '/maintenance'
     | '/me'
+    | '/pricing'
     | '/privacy'
     | '/sitemap.xml'
     | '/team'
@@ -234,6 +245,7 @@ export interface FileRouteTypes {
     | '/login-error'
     | '/maintenance'
     | '/me'
+    | '/pricing'
     | '/privacy'
     | '/sitemap.xml'
     | '/team'
@@ -255,6 +267,7 @@ export interface RootRouteChildren {
   LoginErrorRoute: typeof LoginErrorRoute
   MaintenanceRoute: typeof MaintenanceRoute
   MeRoute: typeof MeRoute
+  PricingRoute: typeof PricingRoute
   PrivacyRoute: typeof PrivacyRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TeamRoute: typeof TeamRoute
@@ -292,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pricing': {
+      id: '/pricing'
+      path: '/pricing'
+      fullPath: '/pricing'
+      preLoaderRoute: typeof PricingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/me': {
@@ -407,6 +427,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginErrorRoute: LoginErrorRoute,
   MaintenanceRoute: MaintenanceRoute,
   MeRoute: MeRoute,
+  PricingRoute: PricingRoute,
   PrivacyRoute: PrivacyRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TeamRoute: TeamRoute,

@@ -8,10 +8,20 @@ import { SITE_ORIGIN } from './seo'
 /**
  * THE SITEMAP, PORTED FROM v1's src/app/sitemap.ts.
  *
- * The entries and their priorities are v1's, unchanged: apex 1.0, /home 0.9,
- * /about 0.8, /privacy 0.7, /terms 0.6, /login 0.5, /maintenance 0.4. What
- * changed is `lastmod` and the reasoning about which routes belong; both are
- * argued below rather than left to be inferred.
+ * v1's entries and their priorities are carried unchanged: apex 1.0, /home 0.9,
+ * /about 0.8, /privacy 0.7, /terms 0.6, /login 0.5, /maintenance 0.4. TWO THINGS
+ * ARE NOT v1's — `lastmod`, which is dropped, and /pricing, which is added; both
+ * are argued below rather than left to be inferred.
+ *
+ * /pricing IS THE FIRST ENTRY THIS FILE HAS EVER HELD THAT v1 DID NOT
+ * (wordle-teams-wty4.1.14.3), so "these are v1's, unchanged" stopped being the
+ * whole story with it. The route is new public marketing surface — the first
+ * page on which this product states a price to somebody who has not signed up —
+ * and it is advertised at 0.8, DELIBERATELY EQUAL TO /about: both are primary
+ * marketing pages, below the two landing paths that outrank them and above the
+ * legal ones. Equal priorities are fine; `priority` is a relative hint Google
+ * has said for years it ignores anyway (see the note below), and inventing 0.75
+ * to break a tie would claim a distinction nobody has made.
  *
  * IT LIVES HERE RATHER THAN IN THE ROUTE FILE so that it can be IMPORTED by a
  * test. src/routes/sitemap[.]xml.ts calls createFileRoute, which cannot be
@@ -62,9 +72,10 @@ export interface SitemapEntry {
 /**
  * THE ROUTE SET, AND THE THREE KINDS OF ABSENCE.
  *
- * These are v1's seven, unchanged. v2 has routes v1 did not, and the decision
- * about each one is recorded here because "it is not in the list" is otherwise
- * indistinguishable from "nobody thought about it".
+ * These are v1's seven plus /pricing, which v1 never had — see the header for
+ * why it is here and why it sits at /about's priority. v2 has other routes v1
+ * did not, and the decision about each one is recorded here because "it is not
+ * in the list" is otherwise indistinguishable from "nobody thought about it".
  *
  * DISALLOWED, SO IT CANNOT BE LISTED — /app, /me, /complete-profile and the
  * /api routes. public/robots.txt excludes all four. A sitemap is a request to
@@ -105,6 +116,10 @@ export const SITEMAP_ENTRIES: readonly SitemapEntry[] = [
   { path: '', changefreq: 'monthly', priority: 1 },
   { path: '/home', changefreq: 'monthly', priority: 0.9 },
   { path: '/about', changefreq: 'monthly', priority: 0.8 },
+  // NEW IN v2, AND THE ONLY ENTRY HERE THAT IS. `monthly` rather than `yearly`
+  // because a price is the thing on this site most likely to change without the
+  // page around it changing, and 0.8 because it is /about's peer. See the header.
+  { path: '/pricing', changefreq: 'monthly', priority: 0.8 },
   { path: '/privacy', changefreq: 'yearly', priority: 0.7 },
   { path: '/terms', changefreq: 'yearly', priority: 0.6 },
   { path: '/login', changefreq: 'yearly', priority: 0.5 },

@@ -55,6 +55,10 @@ const STATIC_DOCUMENTS = new Set([
   '/',
   '/home',
   '/about',
+  // New in v2 and in the set for exactly /about's reasons: the document is
+  // rendered from compile-time constants, reads nothing per-request, and is
+  // byte-identical for every anonymous visitor. See routes/pricing.tsx.
+  '/pricing',
   '/privacy',
   '/terms',
   '/maintenance',

@@ -11,7 +11,19 @@ describe('cachePolicyFor', () => {
     // would assert nothing: a set that lost an entry would lose the case too.
     // The six that do not exist yet are here on purpose — later tasks in this
     // phase create them, and this is what pins them when they land.
-    for (const path of ['/', '/home', '/about', '/privacy', '/terms', '/maintenance', '/login-error'])
+    for (const path of [
+      '/',
+      '/home',
+      '/about',
+      // New in v2 (wordle-teams-wty4.1.14.3). Listed for /about's reasons: the
+      // document is compile-time constant, per-request-free and identical for
+      // every anonymous visitor — see routes/pricing.tsx.
+      '/pricing',
+      '/privacy',
+      '/terms',
+      '/maintenance',
+      '/login-error',
+    ])
       expect(cachePolicyFor(path, false)).toBe(STATIC_CACHE)
   })
 

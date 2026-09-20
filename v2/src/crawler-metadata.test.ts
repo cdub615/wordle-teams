@@ -266,8 +266,26 @@ const sitemap = parseUrlset(renderSitemap())
 /** Every URL the sitemap advertises, as a path: the apex becomes '/'. */
 const sitemapPaths = sitemap.map((entry) => new URL(entry.loc).pathname)
 
+/**
+ * THIS BLOCK USED TO SAY "v1'S SEVEN URLS AND NOTHING ELSE", AND IT WAS THE
+ * WHOLE RULE. v1 parity was the design: every entry, every priority and the
+ * order were ported unchanged, and the only deliberate divergence was the
+ * dropped `lastmod` argued in lib/sitemap.ts.
+ *
+ * /pricing IS THE FIRST ENTRY v1 NEVER HAD (wordle-teams-wty4.1.14.3), and the
+ * prose is amended along with the numbers so that the break in parity reads as
+ * the decision it is. It is new public marketing surface rather than a port, it
+ * is advertised at 0.8 — deliberately EQUAL to /about, both being primary
+ * marketing pages ranked below the two landing paths and above the legal ones —
+ * and `monthly`, because a price is the thing on this site most likely to change
+ * without the page around it changing.
+ *
+ * WHAT IS STILL PINNED IS STILL THE POINT. The other seven remain v1's, in v1's
+ * order, at v1's priorities, and the list is still exhaustive: a ninth entry
+ * added without a reason fails here exactly as an eighth used to.
+ */
 describe('/sitemap.xml', () => {
-  test('lists v1’s seven URLs, in v1’s order, and nothing else', () => {
+  test('lists v1’s seven URLs in v1’s order, plus /pricing, and nothing else', () => {
     // ABSOLUTE URLS SPELLED OUT. Asserting on paths alone would pass on a
     // sitemap of beta.wordleteams.com URLs, which is a request to index the
     // staging copy of the site.
@@ -275,6 +293,7 @@ describe('/sitemap.xml', () => {
       'https://wordleteams.com',
       'https://wordleteams.com/home',
       'https://wordleteams.com/about',
+      'https://wordleteams.com/pricing',
       'https://wordleteams.com/privacy',
       'https://wordleteams.com/terms',
       'https://wordleteams.com/login',
@@ -282,10 +301,11 @@ describe('/sitemap.xml', () => {
     ])
   })
 
-  test('carries v1’s priorities and change frequencies', () => {
+  test('carries v1’s priorities and change frequencies, and /pricing at /about’s', () => {
     expect(sitemap.map((entry) => entry.priority)).toEqual([
       '1',
       '0.9',
+      '0.8',
       '0.8',
       '0.7',
       '0.6',
@@ -296,11 +316,20 @@ describe('/sitemap.xml', () => {
       'monthly',
       'monthly',
       'monthly',
+      'monthly',
       'yearly',
       'yearly',
       'yearly',
       'yearly',
     ])
+
+    // THE TIE IS DELIBERATE, SO IT IS ASSERTED AS A TIE rather than as two
+    // numbers that happen to be equal. /pricing was ranked BY REFERENCE to
+    // /about — peers, both primary marketing pages — and a later edit that
+    // moved one of them apart from the other would be a decision, not a typo.
+    const priorityOf = (pathname: string) =>
+      sitemap.find((entry) => new URL(entry.loc).pathname === pathname)!.priority
+    expect(priorityOf('/pricing')).toBe(priorityOf('/about'))
   })
 
   test('carries no <lastmod> on any entry, which is the one change from v1', () => {
@@ -711,6 +740,7 @@ describe('the route files really call it', () => {
     '': './routes/index.tsx',
     '/home': './routes/home.tsx',
     '/about': './routes/about.tsx',
+    '/pricing': './routes/pricing.tsx',
     '/privacy': './routes/privacy.tsx',
     '/terms': './routes/terms.tsx',
     '/login': './routes/login.tsx',

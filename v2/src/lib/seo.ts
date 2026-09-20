@@ -168,6 +168,7 @@ export const CANONICAL_PATH_BY_ROUTE: Readonly<Record<string, string>> = {
   '': '',
   '/home': '',
   '/about': '/about',
+  '/pricing': '/pricing',
   '/privacy': '/privacy',
   '/terms': '/terms',
   '/login': '/login',

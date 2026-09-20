@@ -273,6 +273,31 @@ describe('/ bounces a signed-in visitor and /home deliberately does not', () => 
     expect(tree).toMatch(/path:\s*['"]\/home['"]/)
     expect(tree).toMatch(/path:\s*['"]\/['"]/)
   })
+
+  /**
+   * /pricing INHERITS /home's SIDE OF THAT ASYMMETRY, AND THE SAME HOLE
+   * (wordle-teams-wty4.1.14.3). It is a public marketing page rather than a
+   * welcome path: v1 never had it, so it is in no `welcomePaths` list, and no
+   * PWA relaunches onto it. A signed-in player who follows a link here — from
+   * the launch email, or from a friend — asked to read the page, and bouncing
+   * them to the dashboard answers a question they did not ask.
+   *
+   * IT IS PINNED HERE BECAUSE THE MUTATION ABOVE APPLIES UNCHANGED. A
+   * signed-in-only redirect is invisible to an anonymous visit, and every
+   * /pricing assertion in this repo — the crawler suite's canonical checks, the
+   * tier table's jsdom tests, e2e's route walk — is anonymous. Adding a
+   * `beforeLoad` to routes/pricing.tsx would leave all four gates and the whole
+   * e2e suite green while quietly making the page unreadable to exactly the
+   * audience the launch email is aimed at.
+   */
+  test('/pricing declares no beforeLoad either, for /home’s reason', () => {
+    expect(
+      codeOf(read('./routes/pricing.tsx')),
+      'src/routes/pricing.tsx has grown a beforeLoad. A signed-in visitor who ' +
+        'follows a link to the pricing page asked to read it; see the note at the ' +
+        'top of that file.',
+    ).not.toMatch(/beforeLoad/)
+  })
 })
 
 /**
