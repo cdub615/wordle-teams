@@ -1,0 +1,68 @@
+name: Check Polar prices
+
+# Does Polar still charge what v2/src/lib/plans.ts advertises?
+#
+# WEEKLY, NOT ON PUSH. The thing that drifts is Polar's dashboard, which this
+# repo never sees a commit for — so push-triggered is exactly the wrong
+# trigger: it would fire constantly on changes that cannot cause the fault and
+# never on the one that does. workflow_dispatch is here for the day someone
+# changes a price deliberately and wants to confirm the repo agrees.
+#
+# THE SCRIPT'S EXIT CODES ARE WHAT THIS JOB REPORTS: 0 agreement, 1 drift, 2
+# could not tell. A 2 fails the job too — a check that cannot check must not
+# read as a pass — but it says "Cannot check" and names the reason, which is
+# the difference between "go fix the prices" and "go fix the credentials".
+#
+# UNTIL THE THREE REPOSITORY SECRETS BELOW EXIST, EVERY RUN EXITS 2 AND SAYS
+# SO. That is the honest failure and not a bug in this file.
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Must precede setup-node: `cache: pnpm` needs the pnpm binary to exist
+      # before it can resolve the store path. No `version:` — that comes from
+      # packageManager in v2/package.json, and passing both is a hard error.
+      # package_json_file is spelled out because
+      # `defaults.run.working-directory` applies only to `run:` steps, never to
+      # `uses:` steps; left at its default this action reads the ROOT
+      # package.json, which pins a pnpm release CI's self-installer refuses.
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: v2/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: v2/pnpm-lock.yaml
+
+      # NO `pnpm install`, AND THE SCRIPT IS WRITTEN THAT WAY ON PURPOSE: it
+      # uses node builtins and fetch only. That is also why this is a workflow
+      # of its own rather than a step in deploy-v2.yml — it needs no dependency
+      # tree, no browser and no Convex backend, and must not wait on any of
+      # them to say whether a price moved.
+      - name: Compare src/lib/plans.ts against Polar
+        env:
+          POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
+          POLAR_PRO_ANNUAL_PRODUCT_ID: ${{ secrets.POLAR_PRO_ANNUAL_PRODUCT_ID }}
+          POLAR_PRO_MONTHLY_PRODUCT_ID: ${{ secrets.POLAR_PRO_MONTHLY_PRODUCT_ID }}
+          # Unset means production, which is the instance whose prices a
+          # customer actually pays. Set it to 'sandbox' only alongside a
+          # sandbox token and sandbox product ids — the four move as a set.
+          POLAR_SERVER: ${{ vars.POLAR_SERVER }}
+        run: node scripts/check-polar-prices.mjs

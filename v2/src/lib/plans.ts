@@ -15,9 +15,24 @@
  * customer only on Polar's hosted checkout, so a number in the codebase was a
  * second source of truth with no reader. A public /pricing page changes that:
  * a pricing page with no prices is not one. The departure is confined to this
- * module and will be backstopped by scripts/check-polar-prices.mjs, which
- * wordle-teams-wty4.1.14's plan owns and which is not written yet. The rule
- * stands everywhere else.
+ * module, and scripts/check-polar-prices.mjs backstops it: that script reads
+ * the two `price` fields below out of this file and compares them against what
+ * Polar charges for the two Pro products — Polar's dashboard being where a
+ * price is SUPPOSED to be edited, and an edit there changing nothing in this
+ * repo. .github/workflows/check-prices.yml runs it weekly and on demand, and
+ * deliberately not on push: a push is never the event that causes this drift.
+ *
+ * ITS EXIT CODES ARE THE INTERFACE. 0 means the two agree. 1 means they do not,
+ * and the message names the plan and both numbers. 2 means the check could not
+ * be made at all — no credentials, Polar unreachable, or a response the script
+ * does not recognise. The 2 is not a softer 1: it fails the job just the same,
+ * but it reads as "go fix the credentials" rather than "go fix the prices",
+ * which is what keeps a check nobody can trust from being muted. The workflow
+ * needs POLAR_ACCESS_TOKEN, POLAR_PRO_ANNUAL_PRODUCT_ID and
+ * POLAR_PRO_MONTHLY_PRODUCT_ID as repository secrets; without them every run
+ * exits 2 and says it cannot check.
+ *
+ * The rule stands everywhere else.
  *
  * ANNUAL LEADS, AND THE REASON IS THE FEE SCHEDULE RATHER THAN THE HEADLINE
  * NUMBER. wordle-teams-iht records Polar Starter at 5.0% + $0.50 per
