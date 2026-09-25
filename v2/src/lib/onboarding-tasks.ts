@@ -118,12 +118,15 @@ export function shouldShowCard(facts: OnboardingFacts): boolean {
  * player who has reached this state HAS a team, HAS invited someone and HAS
  * entered a board. The next thing that makes the app worth reopening is what
  * their boards say about how they play — and on /app nothing points there that
- * this player is sure to see. The app-menu item (app-menu.tsx) is behind
- * opening the dropdown, and today-panel.tsx's header link takes the slot only
- * once the player has entered TODAY'S board, which graduating does not require:
- * `enteredBoard` counts any board ever. Stated as that rule rather than as a
- * count of `to="/insights"` call sites, because the count is what went stale
- * here the first time (wordle-teams-wty4.1.15).
+ * this player is sure to see. THIS CARD'S OWN CTA IS NOT A COUNTEREXAMPLE even
+ * though it is on /app and links /insights (next-step-card.tsx): it is the link
+ * this paragraph exists to justify, so counting it would be circular. The two
+ * routes that are left are each easy to miss: the app-menu item (app-menu.tsx)
+ * is behind opening the dropdown, and today-panel.tsx's header link takes that
+ * slot only once the player has entered TODAY'S board, which graduating does
+ * not require: `enteredBoard` counts any board ever. Stated as that rule rather
+ * than as a count of `to="/insights"` call sites, because the count is what went
+ * stale here the first time (wordle-teams-wty4.1.15).
  *
  * FREE PLAYERS GET SOMETHING REAL HERE, which is what makes this honest rather
  * than an upsell: Layer 1's benchmark on their most recent board and one team

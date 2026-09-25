@@ -121,14 +121,16 @@ export function TodayPanel({
             personal average or trend — insightsAccess.ts returns
             `layer2: paid ? 'full' : 'none'`, so a free player has no personal
             history there and a trend hook would advertise a locked card. Not an
-            opener rank — openerRank takes the opening word and nothing else
-            (lib/insights-panel.ts), so it is a fact about that word rather than
-            about today. It names the page's SUBJECT instead, which is free at
-            every tier: layer1 is 'free' for free and 'full' for pro, and layer3
-            free is today's team fact plus a current-month standing headline —
-            a position when there is one to state (insights/team-locked-card.tsx
-            headlines all four teaser kinds, naming "You're Nth of M this month"
-            for a ranked player).
+            opener rank — lib/insights-panel.ts's benchmarkFor hands openerRank
+            (defined in lib/insights-benchmark.ts) the corpus and
+            `board.guesses[0]`, and nothing else of the board, so the rank is a
+            fact about the opening word rather than about today. It names the
+            page's SUBJECT instead, which is free at every tier: layer1 is
+            'free' for free and 'full' for pro, and layer3 free is today's team
+            fact plus a current-month standing headline — a position when there
+            is one to state (insights/team-locked-card.tsx headlines all four
+            teaser kinds, naming "You're Nth of M this month" for a ranked
+            player).
 
             IT KEEPS ITS TEXT BELOW md WHILE BoardEntryButton GOES ICON-ONLY. A
             `+` glyph carries "add" on its own, which is why that button can drop
