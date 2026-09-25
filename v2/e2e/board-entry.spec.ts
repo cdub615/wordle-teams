@@ -126,6 +126,33 @@ test('enter a board and see the score land', async ({ page }) => {
   // this test just made rather than to a column header that was always there.
   const row = page.getByRole('table').locator('tr').filter({ hasText: 'E2E' })
   await expect(row.locator(`[data-day="${day}"]`)).toHaveText('2')
+
+  // ── AND THE TODAY PANEL SWAPS ITS CONTROL (wordle-teams-wty4.1.15) ────────
+  //
+  // ASSERTED HERE RATHER THAN IN A SPEC OF ITS OWN because this test already
+  // owns the only state that shows it: a player who has entered TODAY's board.
+  // Reaching it again elsewhere would mean a second sign-in and a second board.
+  //
+  // WHAT THIS ADDS OVER today-panel.hook.test.ts's render tests, which count
+  // the row's controls and click the link in jsdom: this is the real Link
+  // inside the real `<Button asChild>`, so it proves the Slot merge and the
+  // router agree about the destination and the search param — a jsdom mock
+  // stands in for both of those. And it crosses the live `getTeamMonth`
+  // subscription: the panel flipped because the write landed, not because a
+  // fixture said so.
+  const todayPanel = page.getByTestId('today-panel')
+  const compare = todayPanel.getByRole('link', { name: 'How do you compare?' })
+  await expect(compare).toBeVisible()
+  // ONE CONTROL, NEVER TWO, is the whole property — so the board-entry control
+  // must be GONE from this panel, not merely joined by the link. app.tsx's
+  // toolbar keeps its own "Board Entry" button on this page, which is why the
+  // count is scoped to the panel and why the two controls have distinct
+  // accessible names (board-entry/button.tsx's `label`, wordle-teams-vgat).
+  await expect(todayPanel.getByRole('button', { name: "Enter Today's Board" })).toHaveCount(0)
+
+  await compare.click()
+  // The team travels with the link. No `month` — today-panel.tsx records why.
+  await expect(page).toHaveURL(/\/insights\?(?:.*&)?team=/)
 })
 
 /**

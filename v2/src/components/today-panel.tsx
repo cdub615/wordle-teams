@@ -131,7 +131,21 @@ export function TodayPanel({
             two other routes to this page spell the word out too (app-menu.tsx
             pairs the chart icon with "Insights", and next-step-card.tsx's
             GRADUATION_CTA is "See your insights"). So this control keeps its
-            text and leans on the row's `flex-wrap` above instead. */}
+            text and leans on the row's `flex-wrap` above instead.
+
+            AND THAT WRAP WAS MEASURED, NOT ASSUMED (2026-09-25, Chromium at
+            390x844 on /app, the e2e account's one-member team). The link does
+            take a line of its own: the row goes from 40px to 72px and the link
+            starts at the heading's left edge rather than beside it. Nothing
+            scrolls sideways — row, card, body and document all reported zero
+            horizontal overflow, in this state and in the board-entry one. The
+            card grew 4px overall (142 -> 146) because the "Waiting on" line
+            below is absent in the very state that wraps this row.
+            NO TEST ASSERTS THOSE NUMBERS, deliberately: this row wraps by
+            design, so a pixel budget here would measure something structurally
+            different from the overflow hazard app.tsx's controls row carries
+            (wordle-teams-5jcn.22). e2e/board-entry.spec.ts holds the
+            behavioural half — that the swap happens at all. */}
         {iPlayed ? (
           <Button variant="secondary" asChild>
             <Link
