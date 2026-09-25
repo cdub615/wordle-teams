@@ -138,18 +138,13 @@ export function TodayPanel({
             take a line of its own: the row goes from 40px to 72px and the link
             starts at the heading's left edge rather than beside it. Nothing
             scrolls sideways — row, card, body and document all reported zero
-            horizontal overflow, in this state and in the board-entry one. On
-            that one-member team the card grew only 4px overall (142 -> 146),
-            because its "Waiting on" line is gone once the single member has
-            played; on a larger team that line can still be there while this
-            row wraps, so read the 4px as a fact about the fixture rather than
-            about the swap.
+            horizontal overflow, in this state and in the board-entry one.
             NO TEST ASSERTS THOSE NUMBERS, deliberately: this row wraps by
             design, so a pixel budget here would measure something structurally
             different from the overflow hazard app.tsx's controls row carries
             (wordle-teams-5jcn.22). e2e/board-entry.spec.ts holds the
-            behavioural half: that the swap happens at all, and that the real
-            router serializes this `search` into `?team=` and nothing else. */}
+            behavioural half: that the real router serializes this `search`
+            into `?team=` and nothing else. */}
         {iPlayed ? (
           <Button variant="secondary" asChild>
             <Link

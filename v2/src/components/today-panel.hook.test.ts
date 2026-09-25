@@ -8,10 +8,10 @@
 // TWO KINDS OF ASSERTION HERE, AND THE SPLIT IS DELIBERATE. The header slot's
 // "one control, never two" invariant is a fact about the DOM, so it is rendered
 // and counted below — as are the link's destination, its params and the funnel
-// event its click emits. What is left to the source-text suite is only what a
+// event its click emits. What is left to the slot's source-text suite is only what a
 // render cannot see: the shape of the expression that produces the slot, and
-// two guards on words the component must NOT contain. Nothing is asserted in
-// both places.
+// two guards on words the component must NOT contain. Nothing is
+// independently asserted in both places.
 import { readFileSync } from 'node:fs'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type MouseEvent, type ReactNode } from 'react'
@@ -48,19 +48,27 @@ let teamMonth: {
   }>
 }
 
+/** Every distinct subscription the render opened, serialized. */
+const subscriptions = new Set<string>()
+
+// THE ARGS ARE IN THE KEY, AND THAT IS WHAT MAKES THE COUNT MEAN ANYTHING.
+// "NO NEW QUERY" is an args-level property — joining the dashboard's existing
+// `getTeamMonth` subscription means the same FUNCTION and the same
+// `{ teamId, month }` — so a key of the function name alone can distinguish
+// functions but never subscriptions, and a second getTeamMonth on another
+// month would read as the same query.
 vi.mock('@convex-dev/react-query', () => ({
-  convexQuery: (ref: FunctionReference<'query'>) => ({ queryKey: [getFunctionName(ref)] }),
+  convexQuery: (ref: FunctionReference<'query'>, args: unknown) => ({
+    queryKey: [getFunctionName(ref), args],
+  }),
 }))
 
-// ONE QUERY, AND THE THROW IS THE ASSERTION OF THAT. The panel's whole design
-// note is "NO NEW QUERY" — it joins the `getTeamMonth` subscription the
-// dashboard already holds. A second query added here would land in this branch
-// rather than quietly receiving the month payload.
 vi.mock('@tanstack/react-query', () => ({
-  useSuspenseQuery: ({ queryKey }: { queryKey: Array<string> }) => {
+  useSuspenseQuery: ({ queryKey }: { queryKey: [string, unknown] }) => {
     if (queryKey[0] !== getFunctionName(api.scores.getTeamMonth)) {
       throw new Error(`TodayPanel asked for an unexpected query: ${queryKey[0]}`)
     }
+    subscriptions.add(JSON.stringify(queryKey))
     return { data: teamMonth }
   },
 }))
@@ -74,12 +82,11 @@ vi.mock('@tanstack/react-query', () => ({
 // `<Button asChild><Link/></Button>`, and asChild means Radix's Slot renders no
 // element of its own — it MERGES the button's props onto this child. A mock
 // that destructured only `to` and `children` would drop the merged className
-// the `bg-secondary` assertion below reads, and the click test would go green
-// against a link that reported nothing.
+// the `bg-secondary` assertion below reads.
 //
 // `search` IS BUILT INTO THE href RATHER THAN SPREAD ONTO THE ANCHOR, which is
 // what a real Link does with it — and spreading the object would render
-// `search="[object Object]"` and trip React's unknown-attribute warning. It is
+// `search="[object Object]"`. It is
 // also what makes the link's params a rendered fact the test below can read off
 // the DOM instead of a regex over the source.
 vi.mock('@tanstack/react-router', () => ({
@@ -153,6 +160,7 @@ const headerControls = () => Array.from(headerRow().querySelectorAll('a, button'
 
 beforeEach(() => {
   sent.length = 0
+  subscriptions.clear()
   // Only Date is faked; faking timers wholesale takes the message channel
   // React's scheduler needs to flush anything (team-boards.hook.test.ts).
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -207,8 +215,16 @@ describe('TodayPanel guards the hydration hazard', () => {
 
   test('it renders nothing at all when the month does not contain today', () => {
     // Absent, not empty: a "Today" panel is meaningless while browsing March.
-    expect(source).toContain('monthContainsToday')
-    expect(source).toMatch(/return null/)
+    // RENDERED rather than regexed: `/return null/` matches either of this
+    // component's two early returns, so it barely constrained this at all.
+    const { container } = render(
+      createElement(TodayPanel, {
+        teamId: TEAM_ID,
+        month: '2026-07',
+        myPlayerId: 'p1' as Id<'players'>,
+      }),
+    )
+    expect(container.firstElementChild).toBeNull()
   })
 
   test('the waiting list is capped through waitingOnSummary, not sliced inline', () => {
@@ -220,6 +236,20 @@ describe('TodayPanel guards the hydration hazard', () => {
     // Two Adas must not both read as "Ada" here while the table below
     // disambiguates them.
     expect(source).toContain("from '#/lib/display-names.ts'")
+  })
+})
+
+describe('TodayPanel adds no query of its own', () => {
+  test("it joins the dashboard's getTeamMonth subscription, and opens exactly one", () => {
+    // THE COMPONENT'S OWN HEADLINE CLAIM, made executable: this panel costs no
+    // round-trip because it reads the subscription ScoresTable, TeamBoards and
+    // ScoringSystemCard already hold. Exact, so a SECOND getTeamMonth on a
+    // different month — which is a new subscription, not a shared one — fails
+    // here rather than quietly receiving this fixture.
+    render(panel('p1'))
+    expect([...subscriptions]).toEqual([
+      JSON.stringify([getFunctionName(api.scores.getTeamMonth), { teamId: TEAM_ID, month: MONTH }]),
+    ])
   })
 })
 
@@ -277,7 +307,7 @@ describe("the header slot's one control, rendered", () => {
     // the prop was written, not that anything delivers it. This clicks the
     // rendered element and reads the channel.
     render(panel('p1'))
-    fireEvent.click(headerControls()[0])
+    fireEvent.click(screen.getByRole('link', { name: 'How do you compare?' }))
     expect(sent).toEqual(['dashboard_insights_click'])
   })
 
@@ -303,6 +333,20 @@ describe("the header slot's one control, rendered", () => {
 
     render(panel('p2'))
     expect(headerControls()[0].className).toContain('bg-secondary')
+  })
+
+  test('the row is flex-wrap, which is what lets the link keep its text', () => {
+    // A PROXY FOR A MEASUREMENT THAT HAS NO GATE, the same trade
+    // src/routes.test.ts:741 makes for app.tsx's controls row. Measured at
+    // 390x844 this row wraps the link onto a second line with nothing
+    // scrolling sideways (today-panel.tsx carries the figures) — but
+    // playwright.config.ts sets no viewport, so e2e runs at 1280x720 and never
+    // reaches that width, and billing.spec.ts's overflow check is on a
+    // different page. Without this line, deleting `flex-wrap` keeps every gate
+    // green. If you are changing the row, re-measure rather than deleting the
+    // test.
+    render(panel('p1'))
+    expect(headerRow().className).toContain('flex-wrap')
   })
 })
 

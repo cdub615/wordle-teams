@@ -131,13 +131,13 @@ test('enter a board and see the score land', async ({ page }) => {
   //
   // ASSERTED HERE RATHER THAN IN A SPEC OF ITS OWN because this test already
   // owns the only state that shows it: a player who has entered TODAY's board.
-  // Reaching it again elsewhere would mean a second sign-in and a second board.
+  // Reaching it again elsewhere would mean a second sign-in.
   //
   // WHAT THIS ADDS OVER today-panel.hook.test.ts's render tests, which count
   // the row's controls and click the link in jsdom: the control here is the
   // REAL `@tanstack/react-router` Link inside the real `<Button asChild>`, so
-  // the href below is the router's own serialization of `search` through
-  // Radix's Slot rather than the jsdom mock's stand-in for both. And it
+  // the href below is the router's own serialization of `search` rather than
+  // the jsdom mock's stand-in for it. And it
   // crosses the live `getTeamMonth` subscription: the panel flipped because
   // the write landed, not because a fixture said so.
   const todayPanel = page.getByTestId('today-panel')
