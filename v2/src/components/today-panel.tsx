@@ -113,23 +113,25 @@ export function TodayPanel({
             resolveInsightsSearch (lib/insights-search.ts) falls back to on its
             own.
 
-            THE LABEL NAMES THE PAGE'S SUBJECT RATHER THAN A FIGURE, because no
-            figure there is both free and true of TODAY: the corpus rates only
-            globally completed days (insights/board-row.tsx), and a free
-            player's `layer2` is 'none' (convex/lib/insightsAccess.ts).
+            THE LABEL NAMES THE PAGE'S SUBJECT RATHER THAN A FIGURE. The
+            figures on that page are either not free — a personal average or
+            trend needs `layer2`, which is `paid ? 'full' : 'none'`
+            (convex/lib/insightsAccess.ts) — or not about today: the corpus
+            rates only globally completed days (insights/board-row.tsx), and the
+            opener rank is a fact about the opening word.
             wordle-teams-wty4.1.15 holds the alternatives this ruled out.
 
-            IT KEEPS ITS TEXT BELOW md WHILE BoardEntryButton GOES ICON-ONLY. A
-            `+` glyph carries "add" on its own, which is why that button can drop
-            its label at all; no glyph carries "how do you compare", and the
-            app's two other routes to this page spell the word out too
-            (app-menu.tsx pairs the chart icon with "Insights", and
-            next-step-card.tsx's GRADUATION_CTA is "See your insights"). So this
-            control keeps its text and leans on the row's `flex-wrap` above
-            instead. `variant="secondary"` matches BoardEntryButton's trigger in
-            both of its branches, so the slot keeps the same colour and border
-            treatment when its occupant changes — though not, below `md`, the
-            same width. */}
+            WHAT SURVIVES THE SWAP, AND WHAT CHANGES BELOW md.
+            `variant="secondary"` matches BoardEntryButton's trigger in both of
+            its branches, so the slot keeps the same colour and border treatment
+            whichever control holds it. The WIDTH does not survive: below `md`
+            that button is an icon-only square while this link keeps its text. A
+            `+` glyph carries "add" on its own, which is why it can drop its
+            label at all; no glyph carries "how do you compare", and the app's
+            two other routes to this page spell the word out too (app-menu.tsx
+            pairs the chart icon with "Insights", and next-step-card.tsx's
+            GRADUATION_CTA is "See your insights"). So this control keeps its
+            text and leans on the row's `flex-wrap` above instead. */}
         {iPlayed ? (
           <Button variant="secondary" asChild>
             <Link

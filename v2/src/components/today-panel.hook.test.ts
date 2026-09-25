@@ -12,6 +12,10 @@ afterEach(cleanup)
 // dashboard-skeletons.hook.test.ts's comment on the same line for why: this
 // file is also jsdom, and jsdom breaks that resolution the same way there.
 const source = readFileSync('src/components/today-panel.tsx', 'utf8')
+// BOTH, AND NOT ONE: the copy guards below forbid words the component's own note
+// on the label spells out as REJECTED options, so they have to read `codeOf`'s
+// comment-free text. The assertions above are about imports and control flow and
+// read the raw source.
 const code = codeOf(source)
 
 describe('TodayPanel guards the hydration hazard', () => {
