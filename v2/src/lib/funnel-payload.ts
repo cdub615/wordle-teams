@@ -93,9 +93,9 @@ export function toLogSnagPayload(body: unknown, env: string): LogSnagPayload | n
 
 /**
  * THE LARGEST LEGITIMATE BODY THIS ENDPOINT EVER RECEIVES IS UNDER 100 BYTES.
- * `{"name":"onboarding_view","tasks":"board,team,invite"}` is the biggest of the
- * nine events, so 2KB is roughly 25x headroom and still refuses anything that
- * could plausibly be an attack (wordle-teams-umeq).
+ * `{"name":"onboarding_view","tasks":"board,team,invite"}` is the biggest event
+ * body this endpoint accepts, so 2KB is roughly 25x headroom and still refuses
+ * anything that could plausibly be an attack (wordle-teams-umeq).
  *
  * WHY A CAP AT ALL, given the payload builder above already discards junk: it
  * discards it AFTER the body has been read and parsed. Measured on that issue, a

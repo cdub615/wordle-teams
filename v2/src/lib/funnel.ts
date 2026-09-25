@@ -64,13 +64,21 @@ export type FunnelEvent =
   // It carries no tag at all: there is exactly one CTA and one destination.
   | { name: 'onboarding_insights_click' }
   // A SEPARATE EVENT FROM onboarding_insights_click ON PURPOSE
-  // (wordle-teams-wty4.1.15). The graduation card above is shown only to
-  // players finishing onboarding and dismisses itself on click, so it can
-  // never account for already-activated players, players who dismissed it,
-  // or players who never graduate — this event is the one meant to cover
-  // them. Sharing one event name would make it impossible to learn whether
-  // the second placement is worth having. It carries no tag for the same
-  // reason its sibling does: one CTA, one destination.
+  // (wordle-teams-wty4.1.15). shouldShowGraduation (onboarding-tasks.ts:130)
+  // has no "just finished" latch — it shows the card whenever every task is
+  // complete and nothing is dismissed, so every activated player mounts it
+  // on every /app load (onboarding-tasks.ts:189-190, next-step-card.tsx:65-67).
+  // What IS one-shot is the CLICK: the CTA's onClick spends the shared
+  // onboardingDismissedAt flag alongside the navigation
+  // (next-step-card.tsx:260-263), so onboarding_insights_click can fire at
+  // most once per player, and never for one who dismissed the card or has
+  // not finished the checklist. The dashboard affordance carries no such
+  // latch — sharing a name would conflate a once-per-player event with a
+  // repeatable one. It carries no tag for the same reason its sibling does:
+  // one CTA, one destination.
+  //
+  // NO EMITTER YET. Added for the /insights link that task 2 of wty4.1.15
+  // puts in today-panel.tsx's header slot.
   | { name: 'dashboard_insights_click' }
 
 /**

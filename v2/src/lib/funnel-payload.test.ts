@@ -203,9 +203,9 @@ describe('declaresOversizedBody', () => {
   // bounded read is the half that holds when the header is absent.
 
   test('the cap leaves generous room for the largest real event', () => {
-    // The biggest of the nine, with every task id present. If a future event
-    // ever approaches the cap this is the assertion that should be reconsidered
-    // rather than the cap quietly raised.
+    // The biggest body any known event produces, with every task id present.
+    // If a future event ever approaches the cap this is the assertion that
+    // should be reconsidered rather than the cap quietly raised.
     const largest = JSON.stringify({ name: 'onboarding_view', tasks: 'board,team,invite' })
     expect(largest.length).toBeLessThan(MAX_FUNNEL_BODY_BYTES / 10)
   })
