@@ -70,12 +70,14 @@ export type FunnelEvent =
   // on every /app load (onboarding-tasks.ts:189-190, next-step-card.tsx:65-67).
   // What IS one-shot is the CLICK: the CTA's onClick spends the shared
   // onboardingDismissedAt flag alongside the navigation
-  // (next-step-card.tsx:260-263), so onboarding_insights_click can fire at
-  // most once per player, and never for one who dismissed the card or has
-  // not finished the checklist. The dashboard affordance carries no such
-  // latch — sharing a name would conflate a once-per-player event with a
-  // repeatable one. It carries no tag for the same reason its sibling does:
-  // one CTA, one destination.
+  // (next-step-card.tsx:260-263), so onboarding_insights_click fires at most
+  // once per arming of that card — and never for a player who dismissed it or
+  // has not finished the checklist. Only app-menu's "Show getting started"
+  // (convex/onboarding.ts, replay) clears the flag and re-arms the CTA. The
+  // dashboard affordance carries no such latch — sharing a name would
+  // conflate a latched, re-armable event with an unconditional, repeatable
+  // one. It carries no tag for the same reason its sibling does: one CTA, one
+  // destination.
   //
   // NO EMITTER YET. Added for the /insights link that task 2 of wty4.1.15
   // puts in today-panel.tsx's header slot.
