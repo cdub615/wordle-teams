@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { cleanup, render } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test } from 'vitest'
+import { codeOf } from '#/test-support/source-ast.ts'
 import { TodayPanelSkeleton } from './dashboard-skeletons.tsx'
 
 afterEach(cleanup)
@@ -11,6 +12,7 @@ afterEach(cleanup)
 // dashboard-skeletons.hook.test.ts's comment on the same line for why: this
 // file is also jsdom, and jsdom breaks that resolution the same way there.
 const source = readFileSync('src/components/today-panel.tsx', 'utf8')
+const code = codeOf(source)
 
 describe('TodayPanel guards the hydration hazard', () => {
   // THE TRAP THIS COMPONENT IS BUILT AROUND. "Today" is a client-only fact.
@@ -42,12 +44,6 @@ describe('TodayPanel guards the hydration hazard', () => {
     expect(source).toContain("from '#/lib/display-names.ts'")
   })
 })
-
-// COMMENTS STRIPPED, because the component's own rationale block NAMES the
-// claims that block rejects — "difficulty", "average", "trend" all appear there
-// as reasons. Asserting on the raw source would then fail on the explanation
-// rather than on anything the reader can see.
-const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
 describe("the header slot's one control", () => {
   // WHAT THIS SUITE CANNOT DO, said plainly: reading the source cannot prove
@@ -82,10 +78,10 @@ describe("the header slot's one control", () => {
     expect(code).toMatch(/to="\/insights"[\s\S]*?How do you compare\?/)
   })
 
-  test('it carries BoardEntryButton’s own variant, so the slot keeps its weight', () => {
+  test('it carries BoardEntryButton’s own variant', () => {
     // board-entry/button.tsx's trigger is `variant="secondary"` in both
-    // branches; matching it is why swapping the occupant does not change how
-    // heavy the corner of the panel looks.
+    // branches; matching it keeps the slot's colour and border treatment across
+    // the swap. Not its width — see the component's note on md.
     expect(code).toMatch(/<Button variant="secondary" asChild>/)
   })
 
@@ -97,12 +93,9 @@ describe("the header slot's one control", () => {
     expect(code).not.toContain('onboarding_insights_click')
   })
 
-  // A GUARD ON FUTURE COPY, NOT A FACT ABOUT THIS CHANGE — the old file made
-  // none of these claims either. It is here because the label was chosen
-  // against exactly this list: today never has a difficulty row (the corpus
-  // publishes only globally completed days), and personal history is
-  // `layer2: paid ? 'full' : 'none'`, so a free player cannot see an average or
-  // a trend. Comparison is what free actually gets.
+  // A GUARD ON FUTURE COPY, not a fact about this change — the old file made
+  // none of these claims either. Why these words and not others is the
+  // component's own note on the label.
   test('it promises nothing the free tier cannot show', () => {
     expect(code).not.toMatch(/difficult/i)
     expect(code).not.toMatch(/average|trend|streak/i)

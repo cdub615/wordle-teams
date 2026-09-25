@@ -99,10 +99,8 @@ export function TodayPanel({
             THAT A PROPERTY RATHER THAN A COINCIDENCE (wordle-teams-wty4.1.15).
             Written as two predicates — `{iPlayed && …}` beside the
             `{!iPlayed && …}` this replaced — "exactly one is on screen" would
-            be an invariant a later edit to either test could silently break. As
-            one expression it cannot be. `variant="secondary"` is the variant
-            BoardEntryButton's own trigger uses (board-entry/button.tsx), so the
-            slot does not change visual weight when its occupant changes.
+            be an invariant a later edit to either condition could silently
+            break. As one expression it cannot be.
 
             `search={{ team: teamId }}`, AND DELIBERATELY NO `month`.
             routes/insights.tsx's validateSearch records that these params name
@@ -111,33 +109,27 @@ export function TodayPanel({
             carries the reasoning for passing it explicitly rather than letting
             the destination default. `month` would be noise rather than state:
             this component has already returned null unless
-            monthContainsToday(month) above, so `month` here is provably the
-            value resolveInsightsSearch (lib/insights-search.ts) falls back to
-            on its own.
+            monthContainsToday(month) above, so `month` here is the value
+            resolveInsightsSearch (lib/insights-search.ts) falls back to on its
+            own.
 
-            WHAT THE LABEL DELIBERATELY DOES NOT PROMISE. Not difficulty —
-            insights/board-row.tsx records that the corpus publishes only
-            globally completed days, so today never has a difficulty row. Not a
-            personal average or trend — insightsAccess.ts returns
-            `layer2: paid ? 'full' : 'none'`, so a free player has no personal
-            history there and a trend hook would advertise a locked card. Not an
-            opener rank — lib/insights-panel.ts's benchmarkFor hands openerRank
-            (defined in lib/insights-benchmark.ts) the corpus and
-            `board.guesses[0]`, and nothing else of the board, so the rank is a
-            fact about the opening word rather than about today. It names the
-            page's SUBJECT instead, which is free at every tier: layer1 is
-            'free' for free and 'full' for pro, and layer3 free is today's team
-            fact plus a current-month standing headline — a position when there
-            is one to state (insights/team-locked-card.tsx headlines all four
-            teaser kinds, naming "You're Nth of M this month" for a ranked
-            player).
+            THE LABEL NAMES THE PAGE'S SUBJECT RATHER THAN A FIGURE, because no
+            figure there is both free and true of TODAY: the corpus rates only
+            globally completed days (insights/board-row.tsx), and a free
+            player's `layer2` is 'none' (convex/lib/insightsAccess.ts).
+            wordle-teams-wty4.1.15 holds the alternatives this ruled out.
 
             IT KEEPS ITS TEXT BELOW md WHILE BoardEntryButton GOES ICON-ONLY. A
             `+` glyph carries "add" on its own, which is why that button can drop
             its label at all; no glyph carries "how do you compare", and the
-            app's other route to this page spells the word out too (app-menu.tsx
-            pairs the chart icon with "Insights"). So this control keeps its text
-            and leans on the row's `flex-wrap` above instead. */}
+            app's two other routes to this page spell the word out too
+            (app-menu.tsx pairs the chart icon with "Insights", and
+            next-step-card.tsx's GRADUATION_CTA is "See your insights"). So this
+            control keeps its text and leans on the row's `flex-wrap` above
+            instead. `variant="secondary"` matches BoardEntryButton's trigger in
+            both of its branches, so the slot keeps the same colour and border
+            treatment when its occupant changes — though not, below `md`, the
+            same width. */}
         {iPlayed ? (
           <Button variant="secondary" asChild>
             <Link
