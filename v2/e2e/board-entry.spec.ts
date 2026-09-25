@@ -134,12 +134,12 @@ test('enter a board and see the score land', async ({ page }) => {
   // Reaching it again elsewhere would mean a second sign-in and a second board.
   //
   // WHAT THIS ADDS OVER today-panel.hook.test.ts's render tests, which count
-  // the row's controls and click the link in jsdom: this is the real Link
-  // inside the real `<Button asChild>`, so it proves the Slot merge and the
-  // router agree about the destination and the search param — a jsdom mock
-  // stands in for both of those. And it crosses the live `getTeamMonth`
-  // subscription: the panel flipped because the write landed, not because a
-  // fixture said so.
+  // the row's controls and click the link in jsdom: the control here is the
+  // REAL `@tanstack/react-router` Link inside the real `<Button asChild>`, so
+  // the href below is the router's own serialization of `search` through
+  // Radix's Slot rather than the jsdom mock's stand-in for both. And it
+  // crosses the live `getTeamMonth` subscription: the panel flipped because
+  // the write landed, not because a fixture said so.
   const todayPanel = page.getByTestId('today-panel')
   const compare = todayPanel.getByRole('link', { name: 'How do you compare?' })
   await expect(compare).toBeVisible()
@@ -150,8 +150,20 @@ test('enter a board and see the score land', async ({ page }) => {
   // accessible names (board-entry/button.tsx's `label`, wordle-teams-vgat).
   await expect(todayPanel.getByRole('button', { name: "Enter Today's Board" })).toHaveCount(0)
 
+  // THE href, AND IT IS ASSERTED BEFORE THE CLICK RATHER THAN AFTER IT.
+  // The landing URL cannot stand in for this: routes/insights.tsx's
+  // useSearchSync + resolveInsightsSearch CORRECT the URL after arrival, so
+  // `/insights` with no params at all becomes `?team=…` on its own. Mutating
+  // this component to `search={{}}` and asserting only the landed URL left
+  // this spec green — the destination page was satisfying it, not the link.
+  //
+  // EXACTLY ONE PARAM, AND IT IS `team`. `[^&]+` with the anchor at both ends
+  // is what makes this say "no month" (today-panel.tsx records why there is
+  // none) rather than merely "team is in there somewhere".
+  await expect(compare).toHaveAttribute('href', /^\/insights\?team=[^&]+$/)
+
+  // ...and it navigates, which the href alone does not show.
   await compare.click()
-  // The team travels with the link. No `month` — today-panel.tsx records why.
   await expect(page).toHaveURL(/\/insights\?(?:.*&)?team=/)
 })
 
