@@ -117,9 +117,13 @@ export function shouldShowCard(facts: OnboardingFacts): boolean {
  * WHY INSIGHTS IS THE RIGHT DESTINATION and not, say, an invite nudge: a
  * player who has reached this state HAS a team, HAS invited someone and HAS
  * entered a board. The next thing that makes the app worth reopening is what
- * their boards say about how they play, which is the one surface they have no
- * route to from this screen (wordle-teams-wty4.1.15: `to="/insights"` appears
- * exactly once in the app, in the hamburger menu).
+ * their boards say about how they play — and on /app nothing points there that
+ * this player is sure to see. The app-menu item (app-menu.tsx) is behind
+ * opening the dropdown, and today-panel.tsx's header link takes the slot only
+ * once the player has entered TODAY'S board, which graduating does not require:
+ * `enteredBoard` counts any board ever. Stated as that rule rather than as a
+ * count of `to="/insights"` call sites, because the count is what went stale
+ * here the first time (wordle-teams-wty4.1.15).
  *
  * FREE PLAYERS GET SOMETHING REAL HERE, which is what makes this honest rather
  * than an upsell: Layer 1's benchmark on their most recent board and one team

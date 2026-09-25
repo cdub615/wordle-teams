@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { convexQuery } from '@convex-dev/react-query'
 import { useSuspenseQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { api } from '../../convex/_generated/api'
 import { BoardEntryButton } from '#/components/board-entry/button.tsx'
 import { TodayPanelSkeleton } from '#/components/dashboard-skeletons.tsx'
 import { Button } from '#/components/ui/button.tsx'
+import { trackFunnel } from '#/lib/funnel.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { waitingOnSummary } from '#/lib/waiting-on.ts'
 import { displayNamesFor } from '#/lib/display-names.ts'
@@ -93,12 +95,65 @@ export function TodayPanel({
         <h2 className="text-sm font-semibold md:text-base">
           {iPlayed ? "You've played today" : 'You have not played today'}
         </h2>
-        {/* A distinct accessible name from the toolbar's own "Board Entry"
-            (board-entry/button.tsx, wordle-teams-vgat) — both buttons can be
-            on screen at once, since this panel's !iPlayed and the toolbar's
-            unconditional render are independent, and two controls sharing one
-            name is ambiguous to a locator and to a screen reader alike. */}
-        {!iPlayed && <BoardEntryButton teamId={teamId} month={month} label="Enter Today's Board" />}
+        {/* ONE CONTROL IN THIS SLOT, NEVER TWO, AND THE TERNARY IS WHAT MAKES
+            THAT A PROPERTY RATHER THAN A COINCIDENCE (wordle-teams-wty4.1.15).
+            Written as two predicates — `{iPlayed && …}` beside the
+            `{!iPlayed && …}` this replaced — "exactly one is on screen" would
+            be an invariant a later edit to either test could silently break. As
+            one expression it cannot be. `variant="secondary"` is the variant
+            BoardEntryButton's own trigger uses (board-entry/button.tsx), so the
+            slot does not change visual weight when its occupant changes.
+
+            `search={{ team: teamId }}`, AND DELIBERATELY NO `month`.
+            routes/insights.tsx's validateSearch records that these params name
+            what the page is showing and that the URL is the source of truth, so
+            the team travels with the link; routes/chat.tsx's back control
+            carries the reasoning for passing it explicitly rather than letting
+            the destination default. `month` would be noise rather than state:
+            this component has already returned null unless
+            monthContainsToday(month) above, so `month` here is provably the
+            value resolveInsightsSearch (lib/insights-search.ts) falls back to
+            on its own.
+
+            WHAT THE LABEL DELIBERATELY DOES NOT PROMISE. Not difficulty —
+            insights/board-row.tsx records that the corpus publishes only
+            globally completed days, so today never has a difficulty row. Not a
+            personal average or trend — insightsAccess.ts returns
+            `layer2: paid ? 'full' : 'none'`, so a free player has no personal
+            history there and a trend hook would advertise a locked card. Not an
+            opener rank — openerRank takes the opening word and nothing else
+            (lib/insights-panel.ts), so it is a fact about that word rather than
+            about today. It names the page's SUBJECT instead, which is free at
+            every tier: layer1 is 'free' for free and 'full' for pro, and layer3
+            free is today's team fact plus a current-month standing headline —
+            a position when there is one to state (insights/team-locked-card.tsx
+            headlines all four teaser kinds, naming "You're Nth of M this month"
+            for a ranked player).
+
+            IT KEEPS ITS TEXT BELOW md WHILE BoardEntryButton GOES ICON-ONLY. A
+            `+` glyph carries "add" on its own, which is why that button can drop
+            its label at all; no glyph carries "how do you compare", and the
+            app's other route to this page spells the word out too (app-menu.tsx
+            pairs the chart icon with "Insights"). So this control keeps its text
+            and leans on the row's `flex-wrap` above instead. */}
+        {iPlayed ? (
+          <Button variant="secondary" asChild>
+            <Link
+              to="/insights"
+              search={{ team: teamId }}
+              onClick={() => trackFunnel({ name: 'dashboard_insights_click' })}
+            >
+              How do you compare?
+            </Link>
+          </Button>
+        ) : (
+          /* A distinct accessible name from the toolbar's own "Board Entry"
+             (board-entry/button.tsx, wordle-teams-vgat) — both buttons can be
+             on screen at once, since this panel's !iPlayed and the toolbar's
+             unconditional render are independent, and two controls sharing one
+             name is ambiguous to a locator and to a screen reader alike. */
+          <BoardEntryButton teamId={teamId} month={month} label="Enter Today's Board" />
+        )}
       </div>
 
       <div className="mt-3">

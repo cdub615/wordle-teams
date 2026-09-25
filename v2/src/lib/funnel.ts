@@ -79,8 +79,9 @@ export type FunnelEvent =
   // one. It carries no tag for the same reason its sibling does: one CTA, one
   // destination.
   //
-  // NO EMITTER YET. Added for the /insights link that task 2 of wty4.1.15
-  // puts in today-panel.tsx's header slot.
+  // EMITTED FROM ONE PLACE: today-panel.tsx's header slot, which holds this
+  // link in place of the board-entry button once the player has entered
+  // today's board.
   | { name: 'dashboard_insights_click' }
 
 /**
