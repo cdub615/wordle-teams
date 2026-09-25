@@ -177,6 +177,35 @@ describe('NextStepCard', () => {
     expect(sent.filter((entry) => entry.startsWith('onboarding_task_click'))).toEqual([])
   })
 
+  test('acting on the nudge spends it — the CTA dismisses as well as navigates', () => {
+    // THE DEFECT THIS PINS (wordle-teams-wty4.1.14.15): the CTA used to
+    // navigate and nothing else, so a player who followed it came back to the
+    // dashboard and found the card still there, reading as an action the app
+    // was still waiting on — after they had taken it.
+    const calls: string[] = []
+    render(
+      createElement(NextStepCard, {
+        facts: graduated,
+        ...handlers,
+        onDismiss: () => calls.push('x'),
+      }),
+    )
+    fireEvent.click(screen.getByRole('link', { name: GRADUATION_CTA }))
+    expect(calls).toEqual(['x'])
+  })
+
+  test('and it does NOT report that as a dismissal', () => {
+    // ONE FLAG, TWO EVENTS, and this is the assertion that keeps them apart.
+    // onboarding_dismiss means the player rejected the nudge; emitting it here
+    // would count every engaged player as a rejection, inflate the dismiss
+    // rate and bury genuine rejection inside it. The `toEqual` is exact on
+    // purpose — a `not.toContain` would pass against a handler that also fired
+    // some third event nobody meant to add.
+    render(createElement(NextStepCard, { facts: graduated, ...handlers }))
+    fireEvent.click(screen.getByRole('link', { name: GRADUATION_CTA }))
+    expect(sent).toEqual(['onboarding_insights_click:'])
+  })
+
   test('a graduated player can still dismiss the card, and it reports', () => {
     // ONE FLAG FOR BOTH STATES (shouldShowGraduation's comment). The control
     // and its label are shared with the checklist deliberately, because

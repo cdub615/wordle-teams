@@ -218,6 +218,26 @@ export function NextStepCard({
     See lib/funnel.ts — this is a browse nudge at the END of activation, and
     counting it as a task click would put it inside the denominators
     wordle-teams-456 is measured by.
+
+    ACTING ON THE NUDGE ALSO SPENDS IT, which is why the CTA calls onDismiss
+    alongside the navigation. Without that, a player who follows it comes back
+    to the dashboard and finds the same card still asking — an outstanding
+    action they have already taken, which is the one thing a card like this
+    must not become (owner's report, wordle-teams-wty4.1.14.15).
+
+    IT DOES NOT EMIT onboarding_dismiss, AND THAT IS THE POINT OF SPLITTING
+    THEM. The X means "I do not want this"; the CTA means "yes". They write
+    the same flag because there is only one, but firing the dismissal event
+    here would count every engaged player as a rejection, inflate the dismiss
+    rate and hide real rejection inside it. One flag, two events, and the
+    event is the half that carries the intent.
+
+    THE SHARED FLAG HAS A CONSEQUENCE WORTH KNOWING, and it is the same one
+    the X already has: a later-incomplete task — a team deleted, an invite
+    cancelled — will not bring the checklist back for this player. Accepted,
+    because app-menu's "Show getting started" restores either state and
+    because someone who has finished activation once is not the population
+    that card exists for.
   */
   if (graduating) {
     return (
@@ -237,7 +257,10 @@ export function NextStepCard({
           <Button asChild className="w-full">
             <Link
               to="/insights"
-              onClick={() => trackFunnel({ name: 'onboarding_insights_click' })}
+              onClick={() => {
+                trackFunnel({ name: 'onboarding_insights_click' })
+                onDismiss()
+              }}
             >
               {GRADUATION_CTA}
             </Link>
