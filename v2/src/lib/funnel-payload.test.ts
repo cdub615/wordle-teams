@@ -182,6 +182,20 @@ describe('onboarding events', () => {
   })
 })
 
+describe('dashboard events', () => {
+  test('dashboard_insights_click is allowed, and carries no task tag', () => {
+    // A SEPARATE EVENT FROM onboarding_insights_click ON PURPOSE
+    // (wordle-teams-wty4.1.15) — see lib/funnel.ts for why. It names no task,
+    // so a body that arrives carrying one must not grow a tag from it either.
+    expect(toLogSnagPayload({ name: 'dashboard_insights_click' }, 'beta')?.event).toBe(
+      'Dashboard insights clicked',
+    )
+    const tagged = toLogSnagPayload({ name: 'dashboard_insights_click', task: 'insights' }, 'beta')
+    expect(tagged?.tags.task).toBeUndefined()
+    expect(tagged?.tags.env).toBe('beta')
+  })
+})
+
 describe('declaresOversizedBody', () => {
   // wordle-teams-umeq. /api/funnel had no size bound at all: a 60MB body cost
   // 1321ms of Worker CPU, of which JSON.parse was 18ms — the cost is receiving

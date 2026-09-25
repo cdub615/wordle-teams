@@ -27,6 +27,7 @@ const EVENT_SPECS: Record<FunnelEvent['name'], { event: string; icon: string }> 
   onboarding_complete: { event: 'Onboarding complete', icon: '🎉' },
   onboarding_dismiss: { event: 'Onboarding dismissed', icon: '🙈' },
   onboarding_insights_click: { event: 'Onboarding insights clicked', icon: '📈' },
+  dashboard_insights_click: { event: 'Dashboard insights clicked', icon: '📊' },
 }
 const EVENTS = new Map(Object.entries(EVENT_SPECS))
 

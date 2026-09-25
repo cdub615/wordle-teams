@@ -63,6 +63,15 @@ export type FunnelEvent =
   // carry 'insights' would do the same to funnel-payload.ts's TASK_IDS tag.
   // It carries no tag at all: there is exactly one CTA and one destination.
   | { name: 'onboarding_insights_click' }
+  // A SEPARATE EVENT FROM onboarding_insights_click ON PURPOSE
+  // (wordle-teams-wty4.1.15). The two affordances serve disjoint populations:
+  // the graduation card above reaches only players finishing onboarding and
+  // dismisses itself on click, while this one reaches everyone that card
+  // cannot — already-activated players, players who dismissed it, players who
+  // never graduate. Sharing one event name would make it impossible to learn
+  // whether the second placement is worth having. It carries no tag for the
+  // same reason its sibling does: one CTA, one destination.
+  | { name: 'dashboard_insights_click' }
 
 /**
  * Ship one event to /api/funnel, which forwards it to LogSnag.
