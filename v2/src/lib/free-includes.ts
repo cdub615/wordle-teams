@@ -8,7 +8,7 @@
  * reader of /pricing has never heard of the product — the thing they are being
  * asked to sign up for IS the free tier, and a column of refusals tells them it
  * does nothing. Every free account gets two teams, three months of scores, a
- * benchmark on its most recent board, a team fact every day, team chat with a
+ * benchmark on the last board it entered, a team fact every day, team chat with a
  * push behind it, and a reminder at a time of its own choosing. That is the
  * product; Pro is what it grows into.
  *

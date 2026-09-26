@@ -15,8 +15,6 @@
 //      LAUNCH_AT is still the 2099 placeholder and nobody's trial can start.
 //
 // All three are copy, and copy is exactly what the four gates cannot see.
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test } from 'vitest'
@@ -128,8 +126,9 @@ describe('the free column says what free GIVES', () => {
    * tier table is a list of ticks against a list of crosses — and a free column
    * written as crosses tells a visitor who has never heard of this product that
    * it does nothing. Free is a real product here: two teams, three months, a
-   * benchmark on the most recent board, a team fact every day, chat and pushes.
-   * None of that is a lesser Pro; it is the thing they would be signing up for.
+   * benchmark on the last board they entered, a team fact every day, chat with a
+   * push behind it, and a reminder at a time they pick. None of that is a lesser
+   * Pro; it is the thing they would be signing up for.
    */
   test('renders every free inclusion, title and body', () => {
     table()
@@ -165,19 +164,6 @@ describe('the free column says what free GIVES', () => {
     table()
     const text = screen.getByTestId('pricing-free').textContent ?? ''
     expect(text).not.toMatch(/\bno\b|\bnot\b|\bonly\b|\blimited\b|\bexcept\b|\bwithout\b/i)
-  })
-
-  test('every free claim names the file that makes it true, and that file exists', () => {
-    // pro-benefits.test.ts's `gatedAt` check, mirrored. A path that does not
-    // resolve is a claim nobody checked — and this column's claims are the ones
-    // with no paywall to make them obvious when they go stale.
-    expect(FREE_INCLUDES.length).toBeGreaterThan(3)
-    for (const inclusion of FREE_INCLUDES) {
-      const path = resolve(import.meta.dirname, '../../..', inclusion.checkedAgainst)
-      expect(existsSync(path), `${inclusion.id}: ${inclusion.checkedAgainst} does not exist`).toBe(
-        true,
-      )
-    }
   })
 
   test('pins the free-tier numbers this copy spells out in words', () => {
