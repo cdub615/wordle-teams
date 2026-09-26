@@ -301,6 +301,55 @@ describe('/ bounces a signed-in visitor and /home deliberately does not', () => 
 })
 
 /**
+ * /pricing DECIDES WHETHER A TRIAL IS ON OFFER; THE TIER TABLE ONLY RENDERS THE
+ * ANSWER (wordle-teams-wty4.1.14.10).
+ *
+ * The section used to be keyed to `!LAUNCH_AT_IS_PLACEHOLDER` inside
+ * components/pricing/tier-table.tsx, which flips when the CONSTANT IS EDITED.
+ * wordle-teams-kc8c sets LAUNCH_AT before the DNS cutover — "IT MUST BE SET
+ * BEFORE THE CUTOVER" — and `shouldStartTrial` gates on `enteredAt >= launchAt`,
+ * so those are two different moments and the page would have advertised a
+ * thirty-day trial nobody could start for the whole window between them.
+ *
+ * THREE FACTS, EACH SEPARATELY REMOVABLE, AND THE MECHANISM NEEDS ALL THREE:
+ *
+ *   - the loader asks `trialCanStart` with the clock. Asking it in the component
+ *     body instead is what re-creates the hydration mismatch the loader exists to
+ *     avoid; tier-table.hook.test.ts pins the other end of that rule, which is
+ *     that the component names no clock and no launch constant.
+ *   - the answer reaches `<TierTable>` as `trialOffered`. Computing it and not
+ *     passing it type-checks, lints and renders — the prop is optional and now
+ *     defaults to `false` — and leaves the page permanently silent about the
+ *     trial. A PROP rather than a `toMatch` over the file, for the reason
+ *     jsxPropsOf's own comment gives: `onUpgrade={() => {}}` passed everything.
+ *   - what is passed is the LOADER'S value, read back through `useLoaderData`,
+ *     which is what makes it the serialized one rather than a second reading.
+ *
+ * STRING-READ rather than imported, for the reason the blocks above give:
+ * createFileRoute cannot be imported under vitest.
+ */
+describe('/pricing offers the trial only when one can be started', () => {
+  const PRICING = './routes/pricing.tsx'
+
+  test('the loader asks trialCanStart, with the clock', () => {
+    const loader = parsed(PRICING, "createFileRoute('/pricing')").get('loader')
+    expect(
+      loader,
+      'routes/pricing.tsx has no loader. The trial section is decided there, ' +
+        'once per request, so the answer ships in the document rather than being ' +
+        'recomputed during hydration — see that file.',
+    ).toBeDefined()
+    // Comment-stripped: the loader's own prose names both of these repeatedly.
+    expect(codeOf(loader!.getText())).toMatch(/trialCanStart\(\{\s*now:\s*Date\.now\(\)\s*\}\)/)
+  })
+
+  test('and that answer is what the tier table is handed', () => {
+    expect(jsxProps(PRICING, 'TierTable').get('trialOffered')).toBe('trialOffered')
+    expect(codeOf(read(PRICING))).toMatch(/\{ trialOffered \} = Route\.useLoaderData\(\)/)
+  })
+})
+
+/**
  * THE TWO LEGAL PAGES' TITLES, AND THE FOOTER LINKS THAT ARE THE ONLY WAY TO
  * THEM — the half of Phase 7 Task 5 that CI could not see.
  *

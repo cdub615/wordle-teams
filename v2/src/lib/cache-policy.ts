@@ -55,9 +55,14 @@ const STATIC_DOCUMENTS = new Set([
   '/',
   '/home',
   '/about',
-  // New in v2 and in the set for exactly /about's reasons: the document is
-  // rendered from compile-time constants, reads nothing per-request, and is
-  // byte-identical for every anonymous visitor. See routes/pricing.tsx.
+  // New in v2. Listed for the property a SHARED cache actually requires — the
+  // document is identical for every CONCURRENT anonymous visitor — rather than
+  // for being timeless: it is the one entry here that reads something
+  // per-request, namely `trialCanStart({ now: Date.now() })` in its loader.
+  // routes/pricing.tsx's own comment has why that is read there, why it is
+  // serialized rather than recomputed in the browser, and what a day of
+  // freshness costs at the one instant the answer changes (it under-claims,
+  // and any deploy evicts every cached document).
   '/pricing',
   '/privacy',
   '/terms',

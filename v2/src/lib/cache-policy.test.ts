@@ -15,9 +15,11 @@ describe('cachePolicyFor', () => {
       '/',
       '/home',
       '/about',
-      // New in v2 (wordle-teams-wty4.1.14.3). Listed for /about's reasons: the
-      // document is compile-time constant, per-request-free and identical for
-      // every anonymous visitor — see routes/pricing.tsx.
+      // New in v2 (wordle-teams-wty4.1.14.3). Listed for the half of /about's
+      // reasons that shared freshness actually needs: the document is identical
+      // for every concurrent anonymous visitor. It is NOT per-request-free —
+      // its loader reads the clock (wordle-teams-wty4.1.14.10) — and
+      // routes/pricing.tsx has why that changes nothing here.
       '/pricing',
       '/privacy',
       '/terms',

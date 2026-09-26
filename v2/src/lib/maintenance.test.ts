@@ -210,9 +210,10 @@ describe('every route the app has, sorted into gated and not', () => {
       '/maintenance',
       // NOT GATED, added by wordle-teams-wty4.1.14.3, and for the reason this
       // file's allowlist gives for /home and /about: it is marketing surface
-      // that renders from compile-time constants and depends on nothing that
-      // can be down. An outage is also a poor moment to stop telling people
-      // what the product costs — the page is true whether or not the app is up.
+      // that depends on nothing which can be down. (Its loader does read the
+      // clock — wordle-teams-wty4.1.14.10 — which is not a service either.) An
+      // outage is also a poor moment to stop telling people what the product
+      // costs — the page is true whether or not the app is up.
       '/pricing',
       '/privacy',
       // NOT GATED, added by Phase 7 Task 8. It renders from a compile-time

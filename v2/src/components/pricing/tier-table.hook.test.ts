@@ -16,28 +16,36 @@
 //   2. The free column drifts into a list of refusals, which is the shape a tier
 //      table falls into by default and the one a cold visitor reads as "nothing".
 //   3. The trial gets described as something a visitor will get, on a day when
-//      LAUNCH_AT is still the 2099 placeholder and nobody's trial can start.
+//      nobody's trial can start — while LAUNCH_AT is still the 2099 placeholder,
+//      and again in the window after it is set and before it arrives.
 //
 // All three are copy, and copy is exactly what the four gates cannot see.
+import { readFileSync } from 'node:fs'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test } from 'vitest'
 import { FREE_INCLUDES } from '#/lib/free-includes.ts'
 import { MONTHLY_FINE_PRINT, PLANS, PRO_PRICE_LINE } from '#/lib/plans.ts'
 import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
+import { codeOf } from '#/test-support/source-ast.ts'
 import { FREE_TEAM_LIMIT } from '../../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../../convex/lib/monthWindow.ts'
-import {
-  INSIGHTS_TRIAL_DAYS,
-  LAUNCH_AT_IS_PLACEHOLDER,
-} from '../../../convex/lib/insightsAccess.ts'
+import { INSIGHTS_TRIAL_DAYS } from '../../../convex/lib/insightsAccess.ts'
 import { TierTable } from './tier-table.tsx'
 
 afterEach(cleanup)
 
-/** The default is the one a visitor gets today; the prop is the launched world. */
+/** No props is the silence the default gives; the prop is the launched world. */
 const table = (props?: { trialOffered?: boolean }) =>
   render(createElement(TierTable, props ?? {}))
+
+// A cwd-relative path, NOT `new URL(..., import.meta.url)`: this file declares
+// jsdom, where `import.meta.url` is not a `file:` URL and readFileSync answers
+// "The URL must be of scheme file" — dashboard-skeletons.hook.test.ts's comment
+// on the same line has it in full, and today-panel.hook.test.ts does the same.
+// Comment-free text, because this component's own prose names the very things
+// the assertion below forbids.
+const code = codeOf(readFileSync('src/components/pricing/tier-table.tsx', 'utf8'))
 
 const free = () => within(screen.getByTestId('pricing-free'))
 const pro = () => within(screen.getByTestId('pricing-pro'))
@@ -226,21 +234,52 @@ describe('the free column says what free GIVES', () => {
  * SO THE SECTION IS CONDITIONAL RATHER THAN REWORDED. A hedge ("at launch, a
  * trial will…") is worse than silence on a marketing page: it advertises a
  * feature to someone who cannot have it and dates the page the moment launch
- * happens. Setting LAUNCH_AT to the real cutover instant is one line, and it
- * turns this section on at the same moment it turns the trial on — which is what
- * makes the claim true exactly when it is made.
+ * happens.
+ *
+ * AND THE CONDITION IS THE CLOCK, NOT THE CONSTANT. Setting LAUNCH_AT does not
+ * turn this section on: wordle-teams-kc8c sets it BEFORE the DNS cutover, and
+ * until that instant arrives `trialCanStart` is still false and
+ * `shouldStartTrial` still stamps nobody. routes/pricing.tsx's loader computes
+ * the predicate and passes it in; this component's own default is `false`, so
+ * the silence a caller gets by saying nothing is unconditional rather than
+ * derived from a launch constant (wordle-teams-wty4.1.14.10).
  *
  * BOTH BRANCHES ARE ASSERTED. The launched branch is unreachable in production
  * today, so without a test of its own it would ship unread and unrendered, and
  * the one line that enables it would be the first thing to execute it.
  */
 describe('the thirty-day trial', () => {
-  test('LAUNCH_AT is still the placeholder, which is what makes the default right', () => {
-    // The premise of the next test, asserted rather than assumed: if this ever
-    // goes false the default flips and "says nothing about a trial" stops being
-    // the correct behaviour — so this is the line that tells the next reader
-    // why the page changed.
-    expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(true)
+  /**
+   * WHAT THIS REPLACED, AND WHY THE PROPERTY MOVED RATHER THAN LEFT.
+   *
+   * The test here used to be `expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(true)`,
+   * stating the premise of the default: while that flag held, the derived
+   * default was `false` and silence was correct. There is no such premise now —
+   * the default is the literal `false` and does not depend on any launch
+   * constant, so asserting the placeholder still stands would say nothing about
+   * this component. (It is still asserted where it is about something:
+   * convex/lib/insightsAccess.test.ts's "is still the obvious placeholder, and
+   * says so".)
+   *
+   * WHAT IS WORTH KEEPING IS THE OTHER HALF — that this component's answer comes
+   * from its caller and from nowhere else. That is not visible in a render:
+   * reverting the default to `!LAUNCH_AT_IS_PLACEHOLDER` renders EXACTLY the
+   * same page today, because the placeholder makes that expression `false` too,
+   * and it would silently become `true` on the day the owner edits LAUNCH_AT —
+   * which is the whole of wordle-teams-wty4.1.14.10. Only the source can say it,
+   * so the source is what is read.
+   *
+   * IT ALSO PINS THE HYDRATION RULE. routes/pricing.tsx computes this in its
+   * loader so the value is serialized into the document; a `Date.now()` here
+   * would be recomputed during hydration and could disagree with an edge-cached
+   * document, which is a minified React #418 in production.
+   */
+  test('reads no clock and no launch constant — the prop is the only input', () => {
+    expect(code).not.toMatch(/LAUNCH_AT/)
+    expect(code).not.toMatch(/Date\.now|new Date/)
+    // And the default is silence, rather than anything derived — which is what
+    // fails if a new constant is imported to key it on instead.
+    expect(code).toMatch(/trialOffered = false/)
   })
 
   test('says nothing at all about a trial while no trial can start', () => {

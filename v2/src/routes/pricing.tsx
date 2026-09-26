@@ -2,6 +2,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { Button } from '#/components/ui/button.tsx'
 import { TierTable } from '#/components/pricing/tier-table.tsx'
 import { publicRouteHead } from '#/lib/seo'
+import { trialCanStart } from '../../convex/lib/insightsAccess.ts'
 
 /**
  * THE FIRST PUBLIC PRICE THIS PRODUCT HAS EVER PUBLISHED (wordle-teams-wty4.1.14.3).
@@ -34,19 +35,81 @@ import { publicRouteHead } from '#/lib/seo'
  * lede, and the one thing this page exists to hand over — a link to /login.
  *
  * THIS PATH IS IN src/lib/cache-policy.ts's STATIC_DOCUMENTS, alongside /about
- * and the legal pages. The document is rendered from compile-time constants,
- * reads nothing per-request and is identical for every anonymous visitor, which
- * is the property that makes a day of shared edge freshness safe. It is
- * deliberately NOT in lib/maintenance.ts's gated set, for the same reason /about
- * is not: it renders fine while the app is down, and an outage is a poor moment
- * to also stop telling people what the product costs.
+ * and the legal pages, at a day of shared edge freshness. IT DOES READ ONE
+ * THING PER-REQUEST — the clock, in the loader below — and that is still safe,
+ * because shared freshness does not require a document to be timeless: it
+ * requires it to be identical for every CONCURRENT anonymous visitor, and
+ * nothing here varies by WHO is asking. Everything else on the page is a
+ * compile-time constant. What the clock costs is a TRANSITION rather than a
+ * correctness problem, and the loader's own comment below has it.
+ *
+ * It is deliberately NOT in lib/maintenance.ts's gated set, for the same reason
+ * /about is not: it renders fine while the app is down, and an outage is a poor
+ * moment to also stop telling people what the product costs.
  */
 export const Route = createFileRoute('/pricing')({
   head: () => publicRouteHead('/pricing', 'Pricing'),
+  /**
+   * THE CLOCK IS READ HERE, ONCE, AND THE ANSWER IS SERIALIZED. The component
+   * below never reads one, and neither does components/pricing/tier-table.tsx.
+   *
+   * WHAT IS BEING ASKED IS "CAN A TRIAL BE STARTED RIGHT NOW", which is
+   * convex/lib/insightsAccess.ts's `trialCanStart` — `shouldStartTrial`'s
+   * timing half, plus a refusal while LAUNCH_AT is still the placeholder
+   * sentinel. convex/lib/insightsAccess.test.ts asserts the two agree about
+   * that timing half, so the instant this page starts advertising a trial is
+   * the instant a board entered now would actually be stamped one. Before this
+   * existed the section was keyed to `!LAUNCH_AT_IS_PLACEHOLDER`, which flips
+   * when the constant is EDITED rather than when launch ARRIVES — and
+   * wordle-teams-kc8c sets it before the DNS cutover, so the two are not the
+   * same moment (wordle-teams-wty4.1.14.10).
+   *
+   * SERIALIZATION IS THE WHOLE MECHANISM, NOT A CONVENIENCE. Loader data is
+   * dehydrated into the document and assigned back on the client rather than
+   * recomputed — @tanstack/router-core's `dehydrateMatch` writes `loaderData`
+   * out under the key `l` and `hydrateMatch` reads it straight back, read out
+   * of the installed package rather than assumed, and lib/cache-policy.ts
+   * records the sibling field `b` (`__beforeLoadContext`) being observed in a
+   * real document. So the rendered HTML is the only source of this boolean. A
+   * component that called `Date.now()` itself would recompute during hydration
+   * and disagree with an edge-cached document rendered BEFORE the cutover — a
+   * minified React #418 in production, which is the hazard
+   * components/today-panel.tsx and components/scores-table.tsx both record at
+   * length.
+   *
+   * SERVER-RENDERED RATHER THAN REVEALED AFTER HYDRATION. A `useHydrated` gate
+   * is this repo's idiom for a client-only fact and would be exact from the
+   * cutover instant with no staleness at all — but a crawler never runs the
+   * effect, and /pricing is in lib/sitemap.ts and is not disallowed in
+   * robots.txt, so the trial section would be invisible to search
+   * indefinitely rather than for a transition.
+   *
+   * WHAT THE EDGE COSTS, STATED EXACTLY. This answer flips once, when `now`
+   * reaches LAUNCH_AT, and for up to a day after that the edge may still serve
+   * the copy rendered before it. That copy says nothing about a trial, which is
+   * UNDER-claiming — the same direction the section's own "silence rather than a
+   * hedge" rule already chooses — and it is fully mitigable without touching
+   * the policy: src/server.ts keys the document cache on
+   * `${origin}/__doc-cache/${version}${pathname}` where the version is the
+   * Cloudflare deploy id, so ANY deploy evicts every cached document at once.
+   * wordle-teams-kc8c's runbook carries "deploy again at or after the cutover
+   * instant" as a step for exactly this. Shortening `s-maxage` for a one-time
+   * transition would instead cost every visitor thereafter.
+   *
+   * A CLIENT-SIDE NAVIGATION IS CORRECT IMMEDIATELY whatever the edge holds:
+   * the loader runs again in the browser, against the browser's clock. Read out
+   * of the installed router-core rather than assumed — a navigation enters this
+   * match with `cause: 'enter'` and the default `staleTime` is 0, so the loader
+   * re-runs. components/home/closing-cta.tsx and routes/about.tsx are both such
+   * links.
+   */
+  loader: () => ({ trialOffered: trialCanStart({ now: Date.now() }) }),
   component: Pricing,
 })
 
 function Pricing() {
+  const { trialOffered } = Route.useLoaderData()
+
   return (
     <main className="page-wrap px-4 py-12">
       <section className="island-shell rounded-2xl p-6 sm:p-8">
@@ -59,7 +122,7 @@ function Pricing() {
           the paid one. Here is what each side of that actually holds.
         </p>
 
-        <TierTable />
+        <TierTable trialOffered={trialOffered} />
       </section>
 
       {/*

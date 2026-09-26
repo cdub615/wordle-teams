@@ -1,7 +1,6 @@
 import { FREE_INCLUDES } from '#/lib/free-includes.ts'
 import { MONTHLY_FINE_PRINT, PRO_PRICE_LINE } from '#/lib/plans.ts'
 import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
-import { LAUNCH_AT_IS_PLACEHOLDER } from '../../../convex/lib/insightsAccess.ts'
 
 /**
  * FREE AGAINST PRO, ON THE ONE PAGE A VISITOR CAN READ BEFORE SIGNING UP.
@@ -77,34 +76,53 @@ function Entry({ title, body }: { title: string; body: string }) {
 
 export function TierTable({
   /**
-   * WHETHER THERE IS A TRIAL TO DESCRIBE, AND WHY IT IS FALSE TODAY.
+   * WHETHER THERE IS A TRIAL TO DESCRIBE — AND THE ROUTE ANSWERS IT, NOT THIS
+   * COMPONENT.
    *
-   * convex/lib/insightsAccess.ts's LAUNCH_AT is `Date.UTC(2099, 0, 1)` — an
-   * obvious placeholder, and its header says what that means: "No board can be
-   * entered after it, so `shouldStartTrial` is false for everyone and NO trial
-   * is ever stamped while this value stands."
+   * The honest claim this section makes is "a trial can be started RIGHT NOW",
+   * which is convex/lib/insightsAccess.ts's `trialCanStart({ now })`: false
+   * while LAUNCH_AT is still the placeholder sentinel, and false until `now`
+   * has reached it. routes/pricing.tsx computes that in its loader and
+   * passes the answer down here; that file's header says why the clock is read
+   * there and nowhere else.
    *
-   * So on the day anyone reads this page, a thirty-day trial is a thing they
-   * will not get. A public page that describes one is making a false statement
-   * about price on the page whose entire job is being true about price — and
-   * the reader has no way to discover that it is false, because a trial that
-   * silently never starts looks exactly like a trial that has not started yet.
+   * SETTING LAUNCH_AT IS NOT WHAT TURNS THIS SECTION ON, and the sentence this
+   * paragraph replaced said it was — "setting LAUNCH_AT … turns this section on
+   * at the same moment it turns the trial on". That holds only if LAUNCH_AT is
+   * set to an instant already past, and wordle-teams-kc8c says the opposite:
+   * "IT MUST BE SET BEFORE THE CUTOVER". Between that deploy and the cutover
+   * instant, `shouldStartTrial`'s `enteredAt >= launchAt` still refuses every
+   * board — so a section keyed to the constant rather than to the clock would
+   * advertise a trial nobody could start, for the length of that window
+   * (wordle-teams-wty4.1.14.10).
    *
-   * SILENCE RATHER THAN A HEDGE. "At launch, your first board will start a
+   * WHY ABSENT RATHER THAN HEDGED, which is the rule the paragraph above
+   * protects. A public page that describes a thirty-day trial nobody can start
+   * is making a false statement about price on the page whose entire job is
+   * being true about price — and the reader has no way to discover that it is
+   * false, because a trial that silently never starts looks exactly like a
+   * trial that has not started yet. "At launch, your first board will start a
    * thirty-day trial" is worse than saying nothing: it advertises a feature to
    * someone who cannot have it, and it dates the page the moment launch
-   * happens. The section is therefore absent, and setting LAUNCH_AT to the real
-   * cutover instant — the single edit that switches the trial on — switches
-   * this on with it, so the claim becomes visible at exactly the moment it
-   * becomes true.
+   * happens.
    *
-   * A PROP WITH A DERIVED DEFAULT, NOT A BARE CONSTANT READ INSIDE THE BODY,
-   * for the reason shouldStartTrial takes `launchAt = LAUNCH_AT`: the launched
-   * branch is unreachable in production today, so without a seam it would ship
-   * unrendered and unread, and the one-line edit that enables the trial would
-   * be the first thing ever to execute it.
+   * THE DEFAULT IS `false`, SO A CALLER THAT FORGETS THE PROP GETS SILENCE —
+   * the safe direction, and the one that paragraph argues for. It is
+   * deliberately NOT derived from a launch constant any more: nothing in this
+   * file reads a clock or names LAUNCH_AT, which is what makes the server's
+   * rendered HTML the only source of this answer. A component that recomputed
+   * it during hydration could disagree with an edge-cached document rendered
+   * before the cutover, which is a minified React #418 in production;
+   * routes/pricing.tsx's loader comment has that hazard in full, and
+   * tier-table.hook.test.ts pins that this file names neither.
+   *
+   * IT IS STILL A PROP, for the reason shouldStartTrial takes
+   * `launchAt = LAUNCH_AT`: the launched branch is unreachable in production
+   * today, so without a seam it would ship unrendered and unread, and the
+   * cutover edit would be the first thing ever to execute it.
+   * tier-table.hook.test.ts renders both branches through this prop.
    */
-  trialOffered = !LAUNCH_AT_IS_PLACEHOLDER,
+  trialOffered = false,
 }: {
   trialOffered?: boolean
 }) {
@@ -162,8 +180,8 @@ export function TierTable({
             screenshot import are untouched by a trial.
           */}
           <p className="m-0 text-sm text-muted-foreground">
-            Enter your first board after launch and Insights opens for thirty days: the personal
-            history and the team month listed under Pro, before you have paid for anything.
+            Enter your first board and Insights opens for thirty days: the personal history and
+            the team month listed under Pro, before you have paid for anything.
           </p>
           <p className="m-0 text-sm text-muted-foreground">
             That board is what starts the clock. It covers those two and nothing else, and there
