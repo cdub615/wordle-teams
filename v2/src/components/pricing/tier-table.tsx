@@ -1,3 +1,4 @@
+import { FREE_INCLUDES } from '#/lib/free-includes.ts'
 import { MONTHLY_FINE_PRINT, PRO_PRICE_LINE } from '#/lib/plans.ts'
 import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
 import { LAUNCH_AT_IS_PLACEHOLDER } from '../../../convex/lib/insightsAccess.ts'
@@ -20,109 +21,13 @@ import { LAUNCH_AT_IS_PLACEHOLDER } from '../../../convex/lib/insightsAccess.ts'
  * better value "is a question of prominence and layout on the surface that
  * renders it". This is that surface, and that is what the placement test pins.
  *
- * FREE IS A COLUMN OF ITS OWN CONTENT, NOT THE ABSENCE OF THE OTHER ONE. See
- * FREE_INCLUDES below.
+ * FREE IS A COLUMN OF ITS OWN CONTENT, NOT THE ABSENCE OF THE OTHER ONE. Its
+ * entries are `FREE_INCLUDES` rendered, and lib/free-includes.ts's header carries
+ * both that argument and the claim behind each one. That inventory lives in lib/
+ * rather than here because a list exported from a component is a list no other
+ * surface will import, which is how the landing page came to write a second,
+ * disagreeing copy of the free story.
  */
-
-/**
- * WHAT A FREE ACCOUNT ACTUALLY GETS — the inventory the product has never had.
- *
- * WHY THIS EXISTS AT ALL. A tier table's default shape is a column of ticks
- * beside a column of crosses, and the cross column is written as the tick column
- * negated: "two teams max", "no custom scoring", "today only". That is a
- * perfectly accurate description of free and a disastrous pitch, because the
- * reader of this page has never heard of the product — the thing they are being
- * asked to sign up for IS the free tier, and a column of refusals tells them it
- * does nothing. Every free account here gets two teams, three months of scores, a
- * benchmark on its most recent board, a team fact every day, team chat and push
- * notifications. That is the product; Pro is what it grows into.
- *
- * `checkedAgainst` IS pro-benefits.ts's `gatedAt` FROM THE OTHER SIDE, and it is
- * here for a sharper reason than symmetry. A Pro claim that goes stale is noticed
- * the first time somebody pays and does not get it. A FREE claim that goes stale
- * has no such moment: nobody complains that a thing they were not charged for is
- * missing, so the sentence just stays wrong. The field names the file that makes
- * each claim true and the test asserts the path resolves, exactly as
- * pro-benefits.test.ts does for its own.
- *
- * THE NUMBERS ARE WORDS AND THE CONSTANTS ARE PINNED BY THE TEST. FREE_TEAM_LIMIT
- * and FREE_MONTHS are not imported here, because prose cannot embed a template
- * literal — the same problem pro-benefits.ts and plans.ts both have, solved the
- * same way, with a test that fails if either constant moves away from the word
- * above it.
- *
- * CHAT AND NOTIFICATIONS BELONG HERE AND NOWHERE ELSE. pro-benefits.ts's header
- * records their absence from the Pro list as a decision rather than an omission:
- * there is no `isProFor` anywhere in convex/chat.ts or convex/chatNotify.ts, so
- * they are part of the free product. Selling something already free is the same
- * defect as selling something that does not exist.
- */
-export type FreeInclusion = {
-  id: 'teams' | 'months' | 'benchmark' | 'team-fact' | 'chat'
-  /** A few words, headline case. */
-  title: string
-  /** One sentence, second person, stated as what arrives. */
-  body: string
-  /**
-   * Path to the file that makes this claim true, resolved against this package's
-   * root (`v2/`, not the outer repo) by the disk test.
-   */
-  checkedAgainst: string
-}
-
-export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
-  {
-    id: 'teams',
-    // FREE_TEAM_LIMIT is 2. Says JOIN rather than create, which is the same
-    // distinction pro-benefits.ts's `teams` entry is careful about: nothing
-    // stops a free account calling createTeam a sixth time, and the enforced
-    // path — invitePlayerFor, completeProfileFor, inviteLinks — is the join.
-    title: 'Two teams',
-    body: 'Join two teams and play with both — your own, and the one a friend invites you to.',
-    checkedAgainst: 'convex/lib/teamLimits.ts',
-  },
-  {
-    id: 'months',
-    // FREE_MONTHS is 3, and that constant's own comment spells the window out:
-    // "this month and the two before it". Deliberately silent about WHOSE rules
-    // score it — a custom scoring system is Pro, and "your team's own rules"
-    // would sell it from the free column by accident.
-    title: 'Three months of scores',
-    body: 'This month and the two before it, board by board, scored and settled.',
-    checkedAgainst: 'convex/lib/monthWindow.ts',
-  },
-  {
-    id: 'benchmark',
-    // Layer 1 is 'free' for everyone (insightsAccess.ts), and boardsForLayer1
-    // trims that to the most recent board. What the row then shows is
-    // board-row.tsx's two sentences: the opener's rank in the corpus and the
-    // day's difficulty percentile. NOT "against everyone who played that day" —
-    // the corpus is a static artifact of past puzzles, not a live field.
-    title: 'How your last board measured up',
-    body: 'Your most recent board, set against every past Wordle: how hard that day was, and where your opener ranks.',
-    checkedAgainst: 'src/lib/insights-panel.ts',
-  },
-  {
-    id: 'team-fact',
-    // Layer 3 is 'free' for everyone, and daily-team-fact.tsx is the sentence it
-    // buys: "You beat two of three teammates who have played today." It renders
-    // only once the viewer has entered, which is why the body says to enter
-    // first rather than promising a fact that is not there yet.
-    title: 'A team fact every day',
-    body: 'Enter today’s board and see how many of your teammates you beat.',
-    checkedAgainst: 'src/components/insights/daily-team-fact.tsx',
-  },
-  {
-    id: 'chat',
-    // Ungated in both directions: convex/chat.ts has no isProFor, and
-    // convex/chatNotify.ts sends to whoever subscribed. The notification carries
-    // the team's NAME and no message text, which is a privacy decision recorded
-    // in routes/privacy.tsx — so this says "hear about it", never "read it".
-    title: 'Team chat, and a push when it moves',
-    body: 'Talk to your team inside the app, and hear about it when someone posts.',
-    checkedAgainst: 'convex/chat.ts',
-  },
-]
 
 /**
  * A tier's column. Two of them, stacked on a phone and side by side from `md`.

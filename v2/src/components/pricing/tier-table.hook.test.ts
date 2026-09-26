@@ -20,7 +20,8 @@ import { resolve } from 'node:path'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test } from 'vitest'
-import { FREE_INCLUDES, TierTable } from './tier-table.tsx'
+import { TierTable } from './tier-table.tsx'
+import { FREE_INCLUDES } from '#/lib/free-includes.ts'
 import { MONTHLY_FINE_PRINT, PLANS, PRO_PRICE_LINE } from '#/lib/plans.ts'
 import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
 import { FREE_TEAM_LIMIT } from '../../../convex/lib/teamLimits.ts'
@@ -143,9 +144,17 @@ describe('the free column says what free GIVES', () => {
     // of insightsAccess.ts would be surprised to find on the free tier — layer1
     // is 'free' and layer3 is 'free' for everyone, trial or no trial — and they
     // are the first two a "free is Pro minus things" rewrite would drop.
+    //
+    // THE LAYER 1 PHRASE IS "the last board you entered", NOT "your most recent
+    // board", AND THE DIFFERENCE IS A GUARD RATHER THAN A PREFERENCE. The second
+    // wording shares exactly four consecutive words with pro-benefits.ts's
+    // `insights` body, which describes the free half before the paid one, and
+    // marketing-copy.test.ts fails a free-voice line at four. free-includes.ts's
+    // `benchmark` entry records the whole account; what this line pins is that the
+    // column still names Layer 1 at all.
     table()
     const text = screen.getByTestId('pricing-free').textContent ?? ''
-    expect(text).toContain('most recent board')
+    expect(text).toContain('last board you entered')
     expect(text).toContain('teammates')
   })
 
@@ -153,8 +162,24 @@ describe('the free column says what free GIVES', () => {
     // A negative over the whole column: free is described by what arrives, never
     // by what is withheld. "No custom scoring", "Limited to two teams" and
     // friends all land here.
+    //
+    // ONE CLAUSE IS PUT IN THE AFFIRMATIVE BEFORE THE MATCH, AND IT IS NOT AN
+    // EXEMPTION FOR THE ENTRY. The `reminders` body — the landing page's sentence,
+    // carried into free-includes.ts word for word so the two surfaces cannot
+    // disagree — promises a nudge "on the days you have not played yet". That
+    // "not" negates the READER's play rather than a capability, which makes it the
+    // one thing in this column the word list catches wrongly.
+    //
+    // IT FAILS SAFE, which is why it is a substitution and not a narrower regex:
+    // it is pinned to that exact sentence, so any other "not" in the column still
+    // fails here, a SECOND "not" in this same body still fails here, and rewording
+    // the sentence stops the substitution matching — which puts the raw "not" back
+    // in front of the guard rather than quietly widening the hole.
     table()
-    const text = screen.getByTestId('pricing-free').textContent ?? ''
+    const text = (screen.getByTestId('pricing-free').textContent ?? '').replace(
+      'on the days you have not played yet',
+      'on the days you have yet to play',
+    )
     expect(text).not.toMatch(/\bno\b|\bnot\b|\bonly\b|\blimited\b|\bexcept\b|\bwithout\b/i)
   })
 
