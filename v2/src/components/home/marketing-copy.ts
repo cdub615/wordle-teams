@@ -27,15 +27,26 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  * by id, rendered in the inventory's own words, the way
  * components/pricing/tier-table.tsx renders PRO_BENEFITS.
  *
- * ONE SENTENCE IS THE EXCEPTION AND IT CARRIES ITS OWN GUARANTEES. `HOW_IT_WORKS`'s
- * first step ends "Two teams are free" — the inventory's `teams` entry said in the
- * page's voice, inside a step about making a team, because a cold visitor meets the
- * cap there rather than in a list. It keeps a `checkedAgainst` of its own
- * (convex/lib/teamLimits.ts), marketing-copy.test.ts pins FREE_TEAM_LIMIT against
- * it, and the block on HOW_IT_WORKS below spells out why the number is a word.
- * Everything else this file writes is the page's own voice about something other
- * than what the tier includes: the hero, the two section headings, the other two
- * steps, the Insights section's framing, the shot captions and the closing line.
+ * TWO SENTENCES ARE THE EXCEPTION AND EACH CARRIES ITS OWN GUARANTEES. The first
+ * is `HOW_IT_WORKS`'s opening step, which ends "Two teams are free" — the
+ * inventory's `teams` entry said in the page's voice, inside a step about making a
+ * team, because a cold visitor meets the cap there rather than in a list. It keeps
+ * a `checkedAgainst` of its own (convex/lib/teamLimits.ts), marketing-copy.test.ts
+ * pins FREE_TEAM_LIMIT against it, and the block on HOW_IT_WORKS below spells out
+ * why the number is a word.
+ *
+ * The second is `PAYOFF.title`, "Find out whether that four was good", which tells
+ * a visitor they can find out — a claim by the test the block on PAYOFF states, and
+ * that block carries the whole argument: why it stays, that it is true today, and
+ * that what backs it is the `benchmark` entry rendered under it rather than a path
+ * named here.
+ *
+ * Everything else this file writes is about something other than what the tier
+ * includes: the hero's headline, its MODEL_LINE and its CTA label (`highlight` is
+ * a slice of the headline rather than a line of its own), the two section
+ * headings, the other two steps, PAYOFF's kicker and its lead — which that block
+ * qualifies rather than declaring claim-free — the screenshot caption, the alt
+ * text and all three of CLOSING's.
  *
  * SO `checkedAgainst` IS ON HOW_IT_WORKS AND NOWHERE ELSE. It is
  * lib/pro-benefits.ts's `gatedAt` from the free side — the same field, and the
@@ -93,10 +104,14 @@ export const HERO = {
  * HERE RATHER THAN IN THE JSX for this file's whole reason: a heading is copy,
  * and copy typed into a component is copy no gate can read. "Included, free"
  * is also the page's one load-bearing adjective — it is what tells a reader
- * that the section under it is not a teaser — so both headings are in
- * marketing-copy.test.ts's rendered corpus, held to the rules about what a reader
- * sees rather than left out of every corpus, which is where they sat until
- * wordle-teams-wty4.1.14.11.2 split the two.
+ * that the section under it is not a teaser.
+ *
+ * THIS BLOCK USED TO CALL THAT "WORTH A TEST OF ITS OWN" AND THERE WAS NONE — no
+ * test imported SECTION_TITLES at all. The claim was dropped rather than made
+ * true: both headings now sit in marketing-copy.test.ts's `renderedCopy`, which
+ * carries one rule, typographic apostrophes, and neither heading contains an
+ * apostrophe to get wrong. What actually pins these two strings is
+ * e2e/routes.spec.ts, which reads the landing's h2 outline in a browser.
  */
 export const SECTION_TITLES = {
   howItWorks: 'How it works',
@@ -185,10 +200,9 @@ export const HOW_IT_WORKS: ReadonlyArray<MarketingItem> = [
  * trims that to the last board entered. And the rule's own remedy is already
  * where it points — the sentence that backs this heading is the inventory's
  * `benchmark` entry, checked there and rendered in the same block, under the lead.
- * A claim whose
- * evidence is on the screen under it is a different thing from an unbacked one,
- * which is why the owner kept the h2 and why nothing here pretends the section
- * claims nothing.
+ * A claim whose evidence is on the screen under it is a different thing from an
+ * unbacked one, which is why the owner kept the h2 and why nothing here pretends
+ * the section claims nothing.
  *
  * NOT AN UPSELL, WITH ONE HONEST EXCEPTION. Nothing in this section sells
  * anything gated. But the only Insights screenshot that exists

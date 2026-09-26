@@ -15,9 +15,8 @@ import { ProductShot } from './product-shot.tsx'
  * good" is a thing a visitor can only do while Layer 1 is free — and what backs it
  * is the `benchmark` entry two elements down, in the list under the lead: the rule
  * on PAYOFF in marketing-copy.ts working rather than an exception to it. The only
- * Insights
- * capture scripts/build-marketing-shots.mjs takes is of a Pro account, so the
- * frame below contains a whole month of head to head. Saying which tier the
+ * Insights capture scripts/build-marketing-shots.mjs takes is of a Pro account, so
+ * the frame below contains a whole month of head to head. Saying which tier the
  * picture belongs to costs one muted line and is the difference between a
  * screenshot and an implication; the LINK to /pricing is the closing CTA's job,
  * not this section's, so nothing here is an upsell.

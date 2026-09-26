@@ -64,16 +64,19 @@ const claims = HOW_IT_WORKS.map(
  * section's heading and its lead. These are the lines no other test can see,
  * because they exist nowhere else.
  *
- * WHAT IS LEFT OUT IS LEFT OUT ON PURPOSE, listed so the gaps do not read as
- * oversights. `HERO.model` is MODEL_LINE, imported and pinned by identity, so the
- * rules over that sentence belong with it in lib/onboarding-tasks.ts.
- * `HERO.title` and the two `SECTION_TITLES` are a headline and two headings rather
- * than statements about what a visitor gets. `PAYOFF.shotNote`, `CLOSING.line` and
- * `CLOSING.proLink` are the page's three lines ABOUT the paid tier, which name Pro
- * and quote a price deliberately. And the four inventory entries the page selects
- * are absent because free-includes.test.ts holds all six of them to both of the
- * rules this corpus feeds — over a corpus that does not shrink when the landing
- * changes which two it shows.
+ * WHAT IS LEFT OUT IS LEFT OUT ON PURPOSE, and every omission is named here so no
+ * gap reads as an oversight. `HERO.model` is MODEL_LINE, imported and pinned by
+ * identity, so the rules over that sentence belong with it in
+ * lib/onboarding-tasks.ts. `HERO.title`, the two `SECTION_TITLES`, `PAYOFF.kicker`
+ * and the two CTA labels (`HERO.cta`, and `CLOSING.cta`, which is the same string)
+ * are a headline, three headings and two buttons — none of them a statement about
+ * what a visitor gets. `PAYOFF.shotNote`, `CLOSING.line` and `CLOSING.proLink` are
+ * the page's three lines ABOUT the paid tier, which name Pro and quote a price
+ * deliberately, and the `SHOTS` alts describe a picture rather than the product.
+ * And the four inventory entries the page selects are absent because
+ * free-includes.test.ts holds all six of them to both of the rules this corpus
+ * feeds — over a corpus that does not shrink when the landing changes which two it
+ * shows.
  */
 const authoredFreeVoice = [
   ...HOW_IT_WORKS.flatMap((item) => [item.title, item.body]),
@@ -82,10 +85,20 @@ const authoredFreeVoice = [
 ]
 
 /**
- * EVERY STRING THIS PAGE PUTS IN FRONT OF A VISITOR, with nothing left out: the
- * sentences above, the hero's two lines, both section headings, the four inventory
- * entries the selections render, the three alt texts, the screenshot caption and
- * both closing lines.
+ * EVERY STRING THIS PAGE PUTS IN FRONT OF A VISITOR, enumerated from what
+ * marketing-copy.ts exports rather than from what its sections happen to discuss:
+ * HERO's `title`, `model` and `cta`; both SECTION_TITLES; the three HOW_IT_WORKS
+ * steps, title and body; all four of PAYOFF's — `kicker`, `title`, `lead`,
+ * `shotNote`; the title and body of the four inventory entries the two selections
+ * render; CLOSING's `line`, `cta` and `proLink`; and the three SHOTS alts.
+ *
+ * THE EXPORTED STRINGS THAT ARE NOT HERE ARE NOT COPY. `HERO.highlight` is the
+ * tail of `HERO.title`, which title.tsx slices back off it rather than rendering
+ * separately; the three `checkedAgainst` values are paths and the three `SHOTS`
+ * stems are filenames. A string added to that module is copy until one of those
+ * two things is true of it, and belongs in this list. (`CLOSING.cta` IS
+ * `HERO.cta` — the closing button is the hero's by construction — so one string
+ * is in the corpus twice, which no rule over it cares about.)
  *
  * WHICH CORPUS A NEW RULE TAKES IS THE DECISION THESE TWO NAMES RECORD. A rule
  * about what free is promised takes the one above — it is the prose this file is
@@ -97,12 +110,15 @@ const renderedCopy = [
   ...authoredFreeVoice,
   HERO.title,
   HERO.model,
+  HERO.cta,
   SECTION_TITLES.howItWorks,
   SECTION_TITLES.alsoFree,
+  PAYOFF.kicker,
+  PAYOFF.shotNote,
   ...[...ALSO_FREE, ...PAYOFF_INCLUDES].flatMap((inclusion) => [inclusion.title, inclusion.body]),
   ...Object.values(SHOTS).map((shot) => shot.alt),
-  PAYOFF.shotNote,
   CLOSING.line,
+  CLOSING.cta,
   CLOSING.proLink,
 ]
 

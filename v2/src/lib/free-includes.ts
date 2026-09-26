@@ -258,10 +258,14 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
  *
  * THE THROW IS LOAD-BEARING AND MUST NOT BECOME A `!`. Two different edits reach
  * it and only one of them is a type error. A caller naming an id that is not in
- * the union above does not compile — measured, by renaming `chat` in the union and
- * the entry together: the landing stopped typechecking in two places, and two
- * assertions in free-includes.test.ts failed, the exact-six list and the
- * `grantedHere` partition. But DELETING AN ENTRY while the union keeps its name
+ * the union above does not compile — re-measured by renaming `chat` in the union
+ * and the entry together: `tsc --noEmit` reports three errors, two in the landing
+ * (also-free.tsx's icon map and marketing-copy.ts's selection) and one in
+ * free-includes.test.ts, whose order assertion names `'chat'` as well; three
+ * assertions in that file fail, the exact-six list, the order selection and the
+ * `grantedHere` partition; and marketing-copy.test.ts does not load at all,
+ * because the throw below fires on import. But DELETING AN ENTRY while the union
+ * keeps its name
  * typechecks clean: `ReadonlyArray<FreeInclusion>` obliges nobody to hold six of
  * them, so retiring a capability — the likeliest reason anyone edits this array —
  * reaches this line with no type error anywhere, measured at `tsc --noEmit` exit
