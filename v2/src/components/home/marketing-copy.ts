@@ -158,11 +158,23 @@ export const HOW_IT_WORKS: ReadonlyArray<MarketingItem> = [
  * decides where a sentence goes: IF A CHANGE TO convex/lib/insightsAccess.ts
  * COULD MAKE IT FALSE, IT IS A CLAIM AND BELONGS IN lib/free-includes.ts. That
  * file is what hands each layer out, so anything about what a reader GETS is
- * written where it is checked. The two capabilities under the lead are
+ * written where it is checked. `lead` passes that test: it names the section's
+ * subject and promises nothing. The two capabilities under it are
  * `PAYOFF_INCLUDES` — the inventory's `benchmark` and `team-fact`, rendered in
  * their own words — which is the owner's decision on wordle-teams-wty4.1.14.11,
  * taken over keeping a written paragraph behind a drift guard and over
  * concatenating the two bodies into one.
+ *
+ * `title` DOES NOT PASS THAT TEST, AND IT STAYS. "Find out whether that four was
+ * good" tells a visitor they can find out, and gating Layer 1 would make that
+ * false — so by the rule above it is a claim and not framing. It is true today:
+ * insightsAccess.ts returns `layer1: 'free'` for everybody and boardsForLayer1
+ * trims that to the last board entered. And the rule's own remedy is already
+ * where it points — the sentence that backs this heading is the inventory's
+ * `benchmark` entry, checked there and rendered directly beneath it. A claim whose
+ * evidence is on the screen under it is a different thing from an unbacked one,
+ * which is why the owner kept the h2 and why nothing here pretends the section
+ * claims nothing.
  *
  * NOT AN UPSELL, WITH ONE HONEST EXCEPTION. Nothing in this section sells
  * anything gated. But the only Insights screenshot that exists

@@ -249,9 +249,10 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
  * THE THROW NARROWS THE `find`; IT GUARDS NOTHING. The only way to reach it is a
  * caller naming an id this array does not hold, which is a type error at that call
  * site — measured, by renaming `chat` in the union and the entry together: the
- * landing stopped typechecking in two places and the exact-six assertion in
- * free-includes.test.ts failed. The throw is what that state looks like at import
- * time, not what catches it.
+ * landing stopped typechecking in two places, and two assertions in
+ * free-includes.test.ts failed, the exact-six list and the `grantedHere`
+ * partition. The throw is what that state looks like at import time, not what
+ * catches it.
  */
 export const freeInclusionsFor = (
   ids: ReadonlyArray<FreeInclusion['id']>,

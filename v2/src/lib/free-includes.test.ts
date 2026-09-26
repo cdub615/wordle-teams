@@ -76,6 +76,41 @@ describe('FREE_INCLUDES', () => {
     ])
   })
 
+  test('pins the six titles, which are shipped copy and nothing else can see', () => {
+    // THE SENTENCES ARE THE DELIVERABLE AND THIS IS THE ONLY GATE OVER THEM.
+    // Every surface that describes the free tier now renders these strings rather
+    // than writing its own — components/pricing/tier-table.tsx renders all six,
+    // components/home/also-free.tsx and components/home/insights-payoff.tsx render
+    // two each — so before this assertion existed a reworded title shipped behind
+    // four green gates. Measured before this assertion was written: rewording the
+    // `chat` title left every test in the suite passing.
+    //
+    // ONE SOURCE PLUS ONE TEST IS NOT THE DEFECT wordle-teams-wty4.1.14.11 WAS
+    // RAISED ABOUT, and the difference is worth stating because the two look alike
+    // from a distance. That issue was two SURFACES holding two copies of one
+    // sentence, which had to be edited in lockstep and drifted when they were not.
+    // A deliberate reword here is still one edit to the copy and one to the list
+    // below it, in the same file, with no surface to keep in step — the shape
+    // pro-benefits.test.ts's own id assertion argues for: copy is the one thing
+    // typecheck, lint and build cannot check.
+    //
+    // TITLES ONLY, AND THAT IS THE LINE. A body is a long sentence that changes
+    // for legitimate reasons — a clause corrected, a hedge removed — and pinning
+    // six of them here would turn every such edit into a diff of two identical
+    // paragraphs. The two load-bearing fragments are pinned where they are
+    // rendered instead: tier-table.hook.test.ts holds the free column to "last
+    // board you entered" and "teammates", so the two bodies that carry a
+    // capability a reader could be misled about still fail on a reword.
+    expect(FREE_INCLUDES.map((inclusion) => inclusion.title)).toEqual([
+      'Two teams',
+      'Three months of scores',
+      'How your last board measured up',
+      'A team fact every day',
+      'Team chat, and a push when it moves',
+      'Reminders',
+    ])
+  })
+
   test('every checkedAgainst path exists on disk, as a file', () => {
     // THE PROPERTY THAT KEEPS THIS HONEST, and it has to touch the filesystem to
     // have it. A suffix check (`/\.tsx?$/`) would pass for 'nonsense.ts' while the

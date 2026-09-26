@@ -170,16 +170,12 @@ describe('the landing page copy', () => {
     // rewording an entry on /pricing would mean editing this file in lockstep —
     // one of the three disagreements wordle-teams-wty4.1.14.11 was raised about.
     //
-    // WHAT THAT COSTS, STATED RATHER THAN GLOSSED. Nothing in this suite
-    // transcribes an inventory title, so rewording one is green here; the
-    // fragments tier-table.hook.test.ts pins on the rendered free column ("last
-    // board you entered", "teammates") are the only thing that would catch it.
-    // Measured, by rewording the `chat` title: every test in the suite stayed
-    // green. The browser does catch it — e2e/routes.spec.ts spells out the
-    // landing's whole h3 outline — and e2e is not one of the four gates, so a pin
-    // worth relying on would be the inventory's own, in one place. That trade is
-    // pro-benefits.test.ts's too: ids and no titles, while three surfaces render
-    // them.
+    // AND THE WORDING IS PINNED, ONE FILE AWAY. free-includes.test.ts asserts the
+    // six titles as a list beside the six ids, so a reworded entry fails there —
+    // in the file the sentence lives in, one edit rather than two surfaces in
+    // lockstep. The bodies are held to that file's rules, and the two fragments a
+    // reader could be misled about are pinned on the rendered column by
+    // tier-table.hook.test.ts. Nothing in this file asserts a word of it.
     expect(ALSO_FREE.map((inclusion) => inclusion.id)).toEqual(['chat', 'reminders'])
     expect(PAYOFF_INCLUDES.map((inclusion) => inclusion.id)).toEqual(['benchmark', 'team-fact'])
   })
