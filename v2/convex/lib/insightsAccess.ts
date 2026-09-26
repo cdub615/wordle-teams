@@ -35,8 +35,20 @@
  */
 export const LAUNCH_AT = Date.UTC(2099, 0, 1)
 
+/**
+ * The instant LAUNCH_AT holds while it is still the placeholder — a SEPARATE
+ * literal from LAUNCH_AT's own, on purpose. LAUNCH_AT above is the CURRENT
+ * value and is the line the owner edits (kc8c calls it "the single edit that
+ * switches it on"); this is the SENTINEL every check below compares against,
+ * and it must never change. Collapsing the two into one — say, spelling
+ * LAUNCH_AT as `= PLACEHOLDER_LAUNCH_AT` — would make LAUNCH_AT_IS_PLACEHOLDER
+ * trivially true forever and destroy the check it exists to make. Two
+ * literals is the floor here, not duplication to clean up.
+ */
+const PLACEHOLDER_LAUNCH_AT = Date.UTC(2099, 0, 1)
+
 /** True while LAUNCH_AT is still the placeholder rather than a real cutover. */
-export const LAUNCH_AT_IS_PLACEHOLDER = LAUNCH_AT === Date.UTC(2099, 0, 1)
+export const LAUNCH_AT_IS_PLACEHOLDER = LAUNCH_AT === PLACEHOLDER_LAUNCH_AT
 
 /** One month of Layers 2 and 3, per the spec's tier section. */
 export const INSIGHTS_TRIAL_DAYS = 30
@@ -98,10 +110,27 @@ export function shouldStartTrial({
  * make). Gating on it directly would make the `>=` comparison below
  * permanently unreachable in every test, which is indistinguishable from not
  * having it: the test suite could not tell `>=` from `>` in the boundary test.
- * Recomputing the sentinel check from `launchAt` keeps the same "fails safe by
- * default" behavior while leaving the comparison something a test — passing an
- * explicit `launchAt`, exactly as `shouldStartTrial`'s own tests do — can
- * actually exercise.
+ * Recomputing the sentinel check from `launchAt` — against the very same
+ * `PLACEHOLDER_LAUNCH_AT` that `LAUNCH_AT_IS_PLACEHOLDER` itself compares
+ * against, so there is exactly one spelling of the sentinel in this file, not
+ * two — keeps the same "fails safe by default" behavior while leaving the
+ * comparison something a test — passing an explicit `launchAt`, exactly as
+ * `shouldStartTrial`'s own tests do — can actually exercise.
+ *
+ * WHY THIS DOES NOT COLLAPSE TO `shouldStartTrial`'S OWN COMPARISON EVEN AT
+ * THE DEFAULT: past the literal placeholder instant itself (now >=
+ * PLACEHOLDER_LAUNCH_AT, i.e. real-world year 2099 with LAUNCH_AT never
+ * edited), `shouldStartTrial` would start reporting `true` — it has no
+ * placeholder concept, it only compares timestamps — while this stays `false`
+ * forever, because its gate does not reopen once `launchAt` is the sentinel.
+ * That is deliberate, not a bug the agreement property should be widened to
+ * catch: while `LAUNCH_AT` is the placeholder, the product is not offering a
+ * trial AT ALL, so /pricing saying nothing is the safe direction — and 2099 is
+ * chosen specifically so no real visitor's `now` reaches it before the owner
+ * edits `LAUNCH_AT` to something else, making the disagreement unreachable in
+ * practice. The test `diverges from shouldStartTrial at the literal
+ * placeholder instant, deliberately` pins this on purpose, so it reads as an
+ * intentional boundary rather than something to "fix" into agreement.
  */
 export function trialCanStart({
   now,
@@ -110,7 +139,7 @@ export function trialCanStart({
   now: number
   launchAt?: number
 }): boolean {
-  const launchAtIsPlaceholder = launchAt === Date.UTC(2099, 0, 1)
+  const launchAtIsPlaceholder = launchAt === PLACEHOLDER_LAUNCH_AT
   return !launchAtIsPlaceholder && now >= launchAt
 }
 

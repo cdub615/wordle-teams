@@ -121,6 +121,21 @@ describe('trialCanStart', () => {
       expect(trialCanStart({ now })).toBe(false)
     }
   })
+
+  // NOT A BUG: pinned so the asymmetry reads as intended rather than something
+  // a future editor "fixes" into agreement. shouldStartTrial has no placeholder
+  // concept — it only compares timestamps — so AT the literal placeholder
+  // instant itself it would say yes. trialCanStart's gate does not reopen just
+  // because `now` caught up to the sentinel `launchAt` still equals, because
+  // while LAUNCH_AT is the placeholder the product is not offering a trial AT
+  // ALL, and /pricing saying nothing is the safe direction. This only becomes
+  // reachable in production if LAUNCH_AT is never edited before real time gets
+  // there, which is exactly what the "obviously wrong" 2099 sentinel exists to
+  // prevent (see LAUNCH_AT's own header comment).
+  test('diverges from shouldStartTrial at the literal placeholder instant, deliberately', () => {
+    expect(shouldStartTrial({ trialEndsAt: undefined, enteredAt: LAUNCH_AT })).toBe(true)
+    expect(trialCanStart({ now: LAUNCH_AT })).toBe(false)
+  })
 })
 
 describe('trialEndsAtFor', () => {
