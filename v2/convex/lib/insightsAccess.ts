@@ -73,6 +73,47 @@ export function shouldStartTrial({
   return enteredAt >= launchAt
 }
 
+/**
+ * Whether the product is offering a trial AT ALL, right now — as distinct from
+ * whether any particular player qualifies for one.
+ *
+ * THIS IS THE OTHER HALF OF `shouldStartTrial`'s OWN CONDITION, pulled out
+ * because /pricing needs to answer it before any player exists to check:
+ * `shouldStartTrial` also refuses a player who already holds a trial
+ * (`trialEndsAt !== undefined`), which is a fact about that PLAYER, not about
+ * whether launch has happened. A marketing page has no player to ask, so it
+ * needs exactly this half — never the whole predicate — or it drifts back
+ * into the bug this function exists to close.
+ *
+ * `now >= launchAt`, MATCHING `shouldStartTrial` EXACTLY, so the two cannot
+ * disagree about the timing half: the moment a board entered right now would
+ * start a trial is the same moment this reports the trial as offered.
+ *
+ * THE PLACEHOLDER SENTINEL IS CHECKED AGAINST `launchAt` (the effective clock
+ * in play), NOT AGAINST THE EXPORTED `LAUNCH_AT_IS_PLACEHOLDER` FLAG. The two
+ * agree whenever `launchAt` is left at its default, which is the only case
+ * that runs in production. But `LAUNCH_AT_IS_PLACEHOLDER` is fixed by the real
+ * `LAUNCH_AT` and cannot be flipped from a test without editing that constant
+ * (out of scope, and rightly so — wordle-teams-kc8c is the owner's edit to
+ * make). Gating on it directly would make the `>=` comparison below
+ * permanently unreachable in every test, which is indistinguishable from not
+ * having it: the test suite could not tell `>=` from `>` in the boundary test.
+ * Recomputing the sentinel check from `launchAt` keeps the same "fails safe by
+ * default" behavior while leaving the comparison something a test — passing an
+ * explicit `launchAt`, exactly as `shouldStartTrial`'s own tests do — can
+ * actually exercise.
+ */
+export function trialCanStart({
+  now,
+  launchAt = LAUNCH_AT,
+}: {
+  now: number
+  launchAt?: number
+}): boolean {
+  const launchAtIsPlaceholder = launchAt === Date.UTC(2099, 0, 1)
+  return !launchAtIsPlaceholder && now >= launchAt
+}
+
 /** When a trial started by a board entered at `enteredAt` runs out. */
 export function trialEndsAtFor(enteredAt: number): number {
   return enteredAt + INSIGHTS_TRIAL_DAYS * MS_PER_DAY

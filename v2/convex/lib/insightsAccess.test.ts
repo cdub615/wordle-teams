@@ -8,6 +8,7 @@ import {
   hasFullTeamMonth,
   insightsAccess,
   shouldStartTrial,
+  trialCanStart,
   trialEndsAtFor,
 } from './insightsAccess.ts'
 
@@ -70,6 +71,55 @@ describe('shouldStartTrial', () => {
     expect(
       shouldStartTrial({ trialEndsAt: expired, enteredAt: LAUNCH + DAY, launchAt: LAUNCH }),
     ).toBe(false)
+  })
+})
+
+describe('trialCanStart', () => {
+  // THE HEADLINE PROPERTY, not a truth table: /pricing's trial section and the
+  // server's decision must not be able to disagree, or the page is back to
+  // advertising a trial the server refuses to stamp — the exact bug this
+  // predicate exists to close.
+  //
+  // `trialEndsAt: undefined` is held fixed on the shouldStartTrial side
+  // DELIBERATELY, not incidentally: shouldStartTrial also says no to a player
+  // who already holds a trial, and that refusal is a fact about the PLAYER,
+  // not about whether the product is offering trials at all. /pricing has no
+  // player to ask, so the only question in scope is the timing half, and
+  // holding trialEndsAt at "no trial yet" is what isolates that half.
+  test('agrees with shouldStartTrial for a player with no trial yet, for plausible instants', () => {
+    // Same instants the placeholder pin test below uses, so this and that test
+    // are provably looking at the same set of "plausible now" values.
+    for (const now of [Date.now(), Date.UTC(2026, 11, 25), Date.UTC(2030, 0, 1)]) {
+      expect(trialCanStart({ now })).toBe(
+        shouldStartTrial({ trialEndsAt: undefined, enteredAt: now }),
+      )
+    }
+  })
+
+  // Both sides of the boundary AND the boundary instant itself, with an
+  // explicit launchAt the way shouldStartTrial's own tests use `LAUNCH` —
+  // vacuous otherwise, per shouldStartTrial's own comment on testing a
+  // threshold in only one direction. This is also the test that would catch
+  // `>=` silently becoming `>`: at `now === launchAt` exactly, shouldStartTrial
+  // stays `true` (its own "exactly at launch starts it" test), so a `>` here
+  // would report `false` and disagree.
+  test('agrees with shouldStartTrial across the launch boundary, given the same launchAt', () => {
+    for (const now of [LAUNCH - DAY, LAUNCH, LAUNCH + DAY]) {
+      expect(trialCanStart({ now, launchAt: LAUNCH })).toBe(
+        shouldStartTrial({ trialEndsAt: undefined, enteredAt: now, launchAt: LAUNCH }),
+      )
+    }
+  })
+
+  // The same "fails safe" property LAUNCH_AT's own describe block pins for
+  // shouldStartTrial, restated for trialCanStart: while LAUNCH_AT stands at
+  // its 2099 placeholder, nothing /pricing does can make the trial section
+  // claim a trial is on for any now a real visitor could have.
+  test('fails safe: while LAUNCH_AT is the placeholder, no now can start it', () => {
+    expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(true)
+    for (const now of [Date.now(), Date.UTC(2026, 11, 25), Date.UTC(2030, 0, 1)]) {
+      expect(trialCanStart({ now })).toBe(false)
+    }
   })
 })
 
