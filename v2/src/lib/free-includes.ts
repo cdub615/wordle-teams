@@ -29,10 +29,11 @@
  * renders this list whole. components/home/marketing-copy.ts still writes its own
  * copies of the `chat` and `reminders` sentences, and its own near-twin of the
  * `benchmark` one in `PAYOFF.body`; folding those into a selection from this list
- * is the follow-up. Until that lands, the `chat` and `reminders` bodies here are
- * the LANDING's, word for word, so that pair cannot drift while it waits; the
- * `benchmark` body is not the landing's sentence but opens on the same clause, for
- * the reason its own comment gives.
+ * is the follow-up, and the landing inherits whatever this file says once it
+ * lands. The wording here is the landing's rather than the tier table's for that
+ * reason: `chat` word for word, `reminders` with its one negated clause put in the
+ * affirmative (see that entry), and `benchmark` opening on the landing's clause
+ * without being its sentence.
  *
  * `checkedAgainst` IS pro-benefits.ts's `gatedAt` FROM THE OTHER SIDE, and it is
  * here for a sharper reason than symmetry. A Pro claim that goes stale is noticed
@@ -142,9 +143,16 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     // own (REMINDER_TIMES in convex/lib/reminders.ts, set in settings'
     // notifications tab), the methods are email and push
     // (reminderDeliveryMethods), and a player who already entered is skipped
-    // ('already-entered'), which is what "on the days you have not played" is.
+    // ('already-entered'), which is what "the days you have yet to play" is.
+    //
+    // "THE DAYS YOU HAVE YET TO PLAY", NOT "THE DAYS YOU HAVE NOT PLAYED YET",
+    // AND THAT IS THIS COLUMN'S RULE RATHER THAN TASTE. tier-table.hook.test.ts
+    // holds the free column to "described by what arrives, never by what is
+    // withheld", and a day the reader has not played is an absence, while the day
+    // the nudge arrives on is what this entry is about. The same 'already-entered'
+    // skip stands behind either wording; only one of them is a thing free GIVES.
     title: 'Reminders',
-    body: 'A nudge at a time you pick, by email or push, on the days you have not played yet.',
+    body: 'A nudge at a time you pick, by email or push, on the days you have yet to play.',
     checkedAgainst: 'convex/reminders.ts',
   },
 ]

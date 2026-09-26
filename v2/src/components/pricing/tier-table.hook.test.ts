@@ -162,24 +162,8 @@ describe('the free column says what free GIVES', () => {
     // A negative over the whole column: free is described by what arrives, never
     // by what is withheld. "No custom scoring", "Limited to two teams" and
     // friends all land here.
-    //
-    // ONE CLAUSE IS PUT IN THE AFFIRMATIVE BEFORE THE MATCH, AND IT IS NOT AN
-    // EXEMPTION FOR THE ENTRY. The `reminders` body — the landing page's sentence,
-    // carried into free-includes.ts word for word so the two surfaces cannot
-    // disagree — promises a nudge "on the days you have not played yet". That
-    // "not" negates the READER's play rather than a capability, which makes it the
-    // one thing in this column the word list catches wrongly.
-    //
-    // IT FAILS SAFE, which is why it is a substitution and not a narrower regex:
-    // it is pinned to that exact sentence, so any other "not" in the column still
-    // fails here, a SECOND "not" in this same body still fails here, and rewording
-    // the sentence stops the substitution matching — which puts the raw "not" back
-    // in front of the guard rather than quietly widening the hole.
     table()
-    const text = (screen.getByTestId('pricing-free').textContent ?? '').replace(
-      'on the days you have not played yet',
-      'on the days you have yet to play',
-    )
+    const text = screen.getByTestId('pricing-free').textContent ?? ''
     expect(text).not.toMatch(/\bno\b|\bnot\b|\bonly\b|\blimited\b|\bexcept\b|\bwithout\b/i)
   })
 
