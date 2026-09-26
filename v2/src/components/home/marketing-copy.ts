@@ -1,3 +1,4 @@
+import { freeInclusionsFor } from '#/lib/free-includes.ts'
 import { MODEL_LINE } from '#/lib/onboarding-tasks.ts'
 import { PRO_PRICE_LINE } from '#/lib/plans.ts'
 
@@ -20,12 +21,22 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  * Pro month window, none of which the landing page mentioned at all.
  *
  * THE RULE THAT REPLACES IT: NO LINE HERE CLAIMS A CAPABILITY THE CODE DOES NOT
- * BACK, AND NO LINE DESCRIBES A GATED ONE AS THOUGH IT WERE FREE. Every entry
- * below carries a `checkedAgainst` path, which is lib/pro-benefits.ts's `gatedAt`
- * from the free side — the same field, and the same discipline, that
- * lib/free-includes.ts's FREE_INCLUDES uses. marketing-copy.test.ts asserts each
- * path resolves to a real file, and for the free extras it asserts the named file
- * contains no `isPro` at all.
+ * BACK, AND NO LINE DESCRIBES A GATED ONE AS THOUGH IT WERE FREE. The page keeps
+ * that rule by not writing a free-capability sentence at all. The ones it shows
+ * are lib/free-includes.ts's, selected by id — `ALSO_FREE` and `PAYOFF_INCLUDES`
+ * below — and rendered in the inventory's own words, the way
+ * components/pricing/tier-table.tsx renders PRO_BENEFITS. What this file writes is
+ * the page's own voice: the hero, the two section headings, the three
+ * HOW_IT_WORKS steps, the Insights section's framing, the shot captions and the
+ * closing line.
+ *
+ * SO `checkedAgainst` IS ON HOW_IT_WORKS AND NOWHERE ELSE. It is
+ * lib/pro-benefits.ts's `gatedAt` from the free side — the same field, and the
+ * same discipline, that lib/free-includes.ts uses — and marketing-copy.test.ts
+ * asserts each of those three paths resolves to a real file. The files behind the
+ * free claims belong to the inventory, and free-includes.test.ts is what resolves
+ * them, greps the two whose capability is granted in the files they name, and
+ * measures every line of all six against every PRO_BENEFITS text.
  *
  * WHY A FREE CLAIM NEEDS THE HARDER TEST, in lib/free-includes.ts's words: a Pro
  * claim that goes stale is noticed the first time somebody pays and does not get
@@ -39,10 +50,11 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  *
  * IT IS NOT THE THIRD COPY OF THE TIER TABLE. pro-benefits.ts's header names its
  * consumers — the upgrade dialog, /about and /pricing — and says they "describe
- * one tier and must not describe it twice". This file describes neither tier: it
- * describes what the app DOES, in the free product's terms, and hands the tier
- * question to /pricing with one link at the bottom. Nothing here enumerates what
- * Pro includes, which is why it can be read without PRO_BENEFITS in hand.
+ * one tier and must not describe it twice". This file describes neither tier in
+ * its own words: it says what the app DOES, in the free product's terms, and hands
+ * the tier question to /pricing with one link at the bottom. Nothing here
+ * enumerates what Pro includes, which is why it can be read without PRO_BENEFITS
+ * in hand.
  */
 
 /**
@@ -139,77 +151,63 @@ export const HOW_IT_WORKS: ReadonlyArray<MarketingItem> = [
 ]
 
 /**
- * The payoff section: what Insights gives a FREE account, and nothing else.
+ * The payoff section: the Insights story, FRAMED here and CLAIMED in the
+ * inventory.
  *
- * BOTH HALVES ARE FREE-TIER TRUE AND EACH IS A DIFFERENT LAYER.
- * lib/insightsAccess.ts returns `layer1: 'free'` and `layer3: 'free'` for
- * everybody: Layer 1's free slice is the most recent board (boardsForLayer1),
- * and Layer 3's is one team fact for today (daily-team-fact.tsx — "You beat two
- * of three teammates who have played today"), which renders only once the
- * viewer has entered, hence "enter today and".
+ * THE LEAD FRAMES, IT DOES NOT PROMISE, and the line between those two is what
+ * decides where a sentence goes: IF A CHANGE TO convex/lib/insightsAccess.ts
+ * COULD MAKE IT FALSE, IT IS A CLAIM AND BELONGS IN lib/free-includes.ts. That
+ * file is what hands each layer out, so anything about what a reader GETS is
+ * written where it is checked. The two capabilities under the lead are
+ * `PAYOFF_INCLUDES` — the inventory's `benchmark` and `team-fact`, rendered in
+ * their own words — which is the owner's decision on wordle-teams-wty4.1.14.11,
+ * taken over keeping a written paragraph behind a drift guard and over
+ * concatenating the two bodies into one.
  *
- * "SET AGAINST EVERY PAST WORDLE", NEVER "AGAINST EVERYONE WHO PLAYED THAT DAY".
- * The plan's draft said the latter and it is false: the benchmark corpus is a
- * static artifact the CDN serves (convex/insights.ts's header, public/insights/),
- * so what a board is measured against is the historical difficulty of that day
- * and the opener's rank among past openers — not a live field of today's
- * players. free-includes.ts's `benchmark` entry carries the same correction in
- * its own comment; this is the second surface to need it.
- *
- * NOT AN UPSELL, WITH ONE HONEST EXCEPTION. The prose sells nothing gated. But
- * the only Insights screenshot that exists (public/marketing/insights-*.png)
- * frames a Pro view — a whole month of head to head, and the personal trend
- * above it — so the section labels the picture rather than letting it imply the
- * prose. A caption that says which tier a screenshot belongs to is accuracy; it
- * is the closing CTA, not this section, that carries the link to /pricing.
+ * NOT AN UPSELL, WITH ONE HONEST EXCEPTION. Nothing in this section sells
+ * anything gated. But the only Insights screenshot that exists
+ * (public/marketing/insights-*.png) frames a Pro view — a whole month of head to
+ * head, and the personal trend above it — so the section labels the picture
+ * rather than letting it imply the words around it. A caption that says which
+ * tier a screenshot belongs to is accuracy; it is the closing CTA, not this
+ * section, that carries the link to /pricing.
  */
 export const PAYOFF = {
   kicker: 'Insights',
   title: 'Find out whether that four was good',
-  body: 'The last board you entered gets set against every past Wordle: how hard that day actually was, and where your opener ranks. Enter today and you also see how many of your teammates you beat.',
+  /**
+   * Names what the section is about, never what the tier includes. A noun phrase
+   * rather than a promise, for the reason above it.
+   */
+  lead: 'The numbers behind the board you just entered.',
   /** Names the tier the screenshot beside this prose belongs to. */
   shotNote: 'Pictured: the Pro view — a whole month of head to head, and the trend behind it.',
-  checkedAgainst: 'convex/lib/insightsAccess.ts',
 }
 
+/** The two free capabilities that section describes, in the order it shows them. */
+export const PAYOFF_INCLUDES = freeInclusionsFor(['benchmark', 'team-fact'])
+
 /**
- * FREE THINGS ONLY, AND THE TEST IS THE REASON TO TRUST THAT.
+ * FREE THINGS ONLY, AND TWO OF THEM RATHER THAN SIX.
  *
- * The spec's §6.1 asked this section to name "chat, notifications, custom
- * scoring, screenshot import". TWO OF THOSE FOUR ARE PRO: pro-benefits.ts gates
- * `scoring` (scoring-system-card.tsx's canEdit) and `import` (board-entry/
- * form.tsx's isPro), while chat and notifications are explicitly ungated —
- * pro-benefits.ts's header records their absence from the Pro list as a
- * decision, and its own test asserts the word "chat" appears nowhere in it.
- * Naming all four here as things the app does would have repeated, in the same
- * section, the defect this whole task exists to remove.
+ * WHICH TWO IS A DECISION, NOT A DEFAULT. The spec's §6.1 asked this section to
+ * name "chat, notifications, custom scoring, screenshot import". TWO OF THOSE
+ * FOUR ARE PRO: pro-benefits.ts gates `scoring` (scoring-system-card.tsx's
+ * canEdit) and `import` (board-entry/form.tsx's isPro), while chat and
+ * notifications are explicitly ungated — pro-benefits.ts's header records their
+ * absence from the Pro list as a decision, and its own test asserts the word
+ * "chat" appears nowhere in it. Naming all four here as things the app does would
+ * have repeated, in the same section, the defect this page was rebuilt to remove.
  *
- * `checkedAgainst` IS LOAD-BEARING HERE IN A WAY IT IS NOT ELSEWHERE. For the
- * steps above it names the file that implements the claim; for these two it
- * names the file whose LACK of an `isPro` is the claim, and the test greps for
- * exactly that. The day somebody gates team chat, this fails.
+ * IDS, AND THE INVENTORY'S OWN WORDS. Two entries chosen from
+ * lib/free-includes.ts, rendered by components/home/also-free.tsx with the
+ * section's chat screenshot beneath them. Selecting rather than restating is what
+ * keeps this section from drifting away from /pricing's free column — that file's
+ * header has the account of the three disagreements the landing's own copies
+ * produced. The other four are on /pricing, and two of those, `benchmark` and
+ * `team-fact`, are on this page as well, under Insights (`PAYOFF_INCLUDES`).
  */
-export const ALSO_FREE: ReadonlyArray<MarketingItem> = [
-  {
-    title: 'Team chat',
-    // A PUSH WHEN THE THREAD MOVES, NEVER THE MESSAGE ITSELF: chatNotify.ts
-    // sends the team's NAME and no message text, which is a privacy decision
-    // recorded in routes/privacy.tsx. lib/free-includes.ts's `chat` entry carries
-    // this same body and states the same rule in its own comment.
-    body: 'Argue about the word in the app, with the people who actually played it, and get a push when the thread moves.',
-    checkedAgainst: 'convex/chat.ts',
-  },
-  {
-    title: 'Reminders',
-    // Three claims, all in reminders.ts's `deliver`: the time is the player's
-    // own (REMINDER_TIMES in convex/lib/reminders.ts, set in settings'
-    // notifications tab), the methods are email and push
-    // (reminderDeliveryMethods), and a player who already entered is skipped
-    // ('already-entered'), which is what "on the days you have not played" is.
-    body: 'A nudge at a time you pick, by email or push, on the days you have not played yet.',
-    checkedAgainst: 'convex/reminders.ts',
-  },
-]
+export const ALSO_FREE = freeInclusionsFor(['chat', 'reminders'])
 
 /**
  * The closing call to action.

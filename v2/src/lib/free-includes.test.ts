@@ -152,9 +152,12 @@ describe('FREE_INCLUDES', () => {
     // sentence and three comments wrong. Same shape one step weaker on
     // `reminders`, whose "at a time you pick" is settled in convex/settings.ts.
     //
-    // WIDER THAN marketing-copy.test.ts'S COPY, which greps ALSO_FREE's two entry
-    // paths — convex/chat.ts and convex/reminders.ts — and neither of the two
-    // files their second halves depend on.
+    // AND THE ONLY GREP OF ITS KIND, WHICH IS ALSO A DECISION. marketing-copy.test.ts
+    // ran a narrower one over the landing's own two entries — convex/chat.ts and
+    // convex/reminders.ts, and neither of the two files their second halves depend
+    // on — and it was deleted rather than kept once the landing started rendering
+    // these entries instead of its own: two mechanisms guarding one fact means the
+    // weaker one is what the next reader happens to read.
     for (const inclusion of FREE_INCLUDES.filter((entry) => entry.grantedHere)) {
       for (const named of pathsOf(inclusion)) {
         const source = readFileSync(resolve(__dirname, '../..', named), 'utf8')

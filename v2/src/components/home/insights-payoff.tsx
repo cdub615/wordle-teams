@@ -1,19 +1,22 @@
-import { PAYOFF, SHOTS } from './marketing-copy.ts'
+import { PAYOFF, PAYOFF_INCLUDES, SHOTS } from './marketing-copy.ts'
 import { ProductShot } from './product-shot.tsx'
 
 /**
  * The payoff: what a free account gets out of Insights, and the one screenshot
  * on this page that has to be labelled.
  *
- * THE PROSE IS FREE-TIER TRUE AND THE PICTURE IS NOT, WHICH IS WHY THERE IS A
- * CAPTION. lib/insightsAccess.ts hands every account `layer1: 'free'` and
- * `layer3: 'free'` — the most recent board benchmarked, and one team fact a day
- * — and that is what PAYOFF.body describes. The only Insights capture Task 2's
- * script takes is of a Pro account, so the frame below contains a whole month of
- * head to head. Saying which tier the picture belongs to costs one muted line
- * and is the difference between a screenshot and an implication; the LINK to
- * /pricing is the closing CTA's job, not this section's, so nothing here is an
- * upsell.
+ * THE WORDS ARE FREE-TIER TRUE AND THE PICTURE IS NOT, WHICH IS WHY THERE IS A
+ * CAPTION. convex/lib/insightsAccess.ts hands every account `layer1: 'free'` and
+ * `layer3: 'free'` — the most recent board benchmarked, and one team fact a day —
+ * and the two entries under the lead are that pair, taken from
+ * lib/free-includes.ts (`benchmark` and `team-fact`) rather than written here.
+ * `PAYOFF.lead` above them frames the section and claims nothing; the rule that
+ * keeps those two apart is on PAYOFF in marketing-copy.ts. The only Insights
+ * capture scripts/build-marketing-shots.mjs takes is of a Pro account, so the
+ * frame below contains a whole month of head to head. Saying which tier the
+ * picture belongs to costs one muted line and is the difference between a
+ * screenshot and an implication; the LINK to /pricing is the closing CTA's job,
+ * not this section's, so nothing here is an upsell.
  *
  * THE CROP IS THE POINT OF THE FRAMING, AND IT IS A JUDGEMENT ABOUT THE IMAGE
  * RATHER THAN A LAYOUT CHOICE. The capture leads with the trend panel, whose
@@ -71,9 +74,20 @@ export function InsightsPayoff() {
             {PAYOFF.title}
           </h2>
           <p className="m-0 text-base leading-7 text-muted-foreground md:text-lg md:leading-8">
-            {PAYOFF.body}
+            {PAYOFF.lead}
           </p>
         </div>
+
+        <ul className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-8 md:grid-cols-2 md:gap-12">
+          {PAYOFF_INCLUDES.map((inclusion) => (
+            <li key={inclusion.id} className="flex flex-col items-center gap-3 text-center">
+              <h3 className="font-display m-0 text-xl font-bold text-foreground">
+                {inclusion.title}
+              </h3>
+              <p className="m-0 text-muted-foreground">{inclusion.body}</p>
+            </li>
+          ))}
+        </ul>
 
         <figure className="m-0 flex flex-col gap-3">
           <ProductShot

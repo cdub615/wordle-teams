@@ -26,11 +26,21 @@
  *
  * THE WORDING IS THE LANDING'S, NOT THE TIER TABLE'S, WHERE THE TWO DISAGREED:
  * `chat` verbatim, `reminders` with its one negated clause flipped (see that
- * entry), `benchmark` sharing its opening clause without being its sentence. The
- * landing is where a stranger meets the product, and a sentence written for
- * somebody who has never heard of it survives being read by somebody comparing
- * tiers better than the reverse. wordle-teams-wty4.1.14.11.2 folds the landing's
- * own copies into a selection from this list.
+ * entry), `benchmark` the tier table's sentence opened with the landing's clause
+ * (see that entry too). The landing is where a stranger meets the product, and a
+ * sentence written for somebody who has never heard of it survives being read by
+ * somebody comparing tiers better than the reverse.
+ *
+ * ONE SOURCE, DECLARED PER-SURFACE SUBSETS — because "one inventory" cannot mean
+ * "every surface renders all of it". components/pricing/tier-table.tsx renders the
+ * six in this order, and the landing renders two selections of it by id:
+ * components/home/marketing-copy.ts's `ALSO_FREE` (`chat`, `reminders`, under
+ * "Included, free") and `PAYOFF_INCLUDES` (`benchmark`, `team-fact`, under the
+ * Insights section), each with its own screenshot, because that page is a curated
+ * highlight rather than a column. `freeInclusionsFor` below is how a surface takes
+ * a subset. THE RULE THE SUBSETS EXIST TO KEEP: a surface may choose which entries
+ * to show and may frame them in its own voice, and may not write its own sentence
+ * for a free capability.
  *
  * `checkedAgainst` IS pro-benefits.ts's `gatedAt` WITH THE SIGN REVERSED, AND FOR
  * TWO ENTRIES IT IS LITERALLY THE SAME FILE. convex/lib/teamLimits.ts and
@@ -172,7 +182,8 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     // plans.test.ts argues for; marketing-copy.test.ts records the same collision
     // firing on the landing's first draft and being fixed by rewording rather
     // than by exempting the section. This entry takes that opening for the same
-    // reason, so one sentence survives the guard on either surface.
+    // reason, and it is the only benchmark sentence the product has: /pricing's
+    // free column and the landing's Insights section both render this one.
     title: 'How your last board measured up',
     body: 'The last board you entered, set against every past Wordle: how hard that day was, and where your opener ranks.',
     checkedAgainst: 'src/lib/insights-panel.ts',
@@ -226,3 +237,27 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     grantedHere: true,
   },
 ]
+
+/**
+ * The entries a surface names, in the order it names them.
+ *
+ * A SUBSET IS A LIST OF IDS, NEVER OF POSITIONS. That is what lets the landing
+ * show two of these six without holding a second copy of their words, and it is
+ * what took the positional lookup out of components/home/also-free.tsx, where an
+ * icon was matched to an entry by array index.
+ *
+ * THE THROW NARROWS THE `find`; IT GUARDS NOTHING. The only way to reach it is a
+ * caller naming an id this array does not hold, which is a type error at that call
+ * site — measured, by renaming `chat` in the union and the entry together: the
+ * landing stopped typechecking in two places and the exact-six assertion in
+ * free-includes.test.ts failed. The throw is what that state looks like at import
+ * time, not what catches it.
+ */
+export const freeInclusionsFor = (
+  ids: ReadonlyArray<FreeInclusion['id']>,
+): ReadonlyArray<FreeInclusion> =>
+  ids.map((id) => {
+    const inclusion = FREE_INCLUDES.find((entry) => entry.id === id)
+    if (!inclusion) throw new Error(`free-includes: no entry is named ${id}`)
+    return inclusion
+  })

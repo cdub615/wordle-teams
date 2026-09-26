@@ -1,4 +1,5 @@
-import { MessageSquare, BellRing } from 'lucide-react'
+import { MessageSquare, BellRing, type LucideIcon } from 'lucide-react'
+import type { FreeInclusion } from '#/lib/free-includes.ts'
 import { ALSO_FREE, SECTION_TITLES, SHOTS } from './marketing-copy.ts'
 import { ProductShot } from './product-shot.tsx'
 
@@ -12,11 +13,23 @@ import { ProductShot } from './product-shot.tsx'
  * months" this page was rebuilt to delete — the long version is in
  * marketing-copy.ts, and marketing-copy.test.ts fails if either creeps back in.
  *
+ * THE WORDS ARE THE INVENTORY'S. `ALSO_FREE` is two ids selected from
+ * lib/free-includes.ts, so this component renders a title and a body it did not
+ * write; /pricing's free column renders the same two among six. Nothing in this
+ * file is copy.
+ *
  * THE ICONS ARE DECORATION AND SAY SO. They carry `aria-hidden`, each entry's
- * heading is beside them, and they are matched to entries by INDEX rather than
- * stored on the copy — marketing-copy.ts holds strings only, the way
- * pro-benefits.ts does, so that nothing in it needs a component import to be
- * read by a test under edge-runtime.
+ * heading is beside them, and they live here rather than on the copy so that
+ * marketing-copy.ts and lib/free-includes.ts stay free of component imports, the
+ * way pro-benefits.ts is — a test under edge-runtime can read either of them.
+ *
+ * KEYED BY ENTRY ID, AND AN ENTRY WITH NO ICON DRAWS NONE. The lookup used to be
+ * `ICONS[index] ?? MessageSquare` into a two-element array, so a third id added
+ * to the selection would have been handed the chat bubble beside whatever it
+ * said — a wrong picture, and a silent one: no test renders this component, and
+ * e2e/routes.spec.ts reads the heading outline rather than the icons. By id, an
+ * entry this map does not name renders its heading and body with no icon, which
+ * is a gap a reader can see rather than a picture contradicting the words.
  *
  * `text-accent-solid` AGAIN, ON --background THIS TIME: #15803d measures 5.05:1
  * light and 7.86:1 dark there, both above the 4.5 bar they do not even need as
@@ -31,7 +44,10 @@ import { ProductShot } from './product-shot.tsx'
  * the composer, where the shape of the thing survives the scale even when the
  * words do not.
  */
-const ICONS = [MessageSquare, BellRing] as const
+const ICONS: Partial<Record<FreeInclusion['id'], LucideIcon>> = {
+  chat: MessageSquare,
+  reminders: BellRing,
+}
 
 export function AlsoFree() {
   return (
@@ -42,11 +58,11 @@ export function AlsoFree() {
         </h2>
 
         <ul className="mx-auto mt-10 grid max-w-3xl grid-cols-1 gap-8 md:grid-cols-2 md:gap-12">
-          {ALSO_FREE.map((item, index) => {
-            const Icon = ICONS[index] ?? MessageSquare
+          {ALSO_FREE.map((item) => {
+            const Icon = ICONS[item.id]
             return (
-              <li key={item.title} className="flex flex-col items-center gap-3 text-center">
-                <Icon className="h-9 w-9 text-accent-solid" aria-hidden="true" />
+              <li key={item.id} className="flex flex-col items-center gap-3 text-center">
+                {Icon && <Icon className="h-9 w-9 text-accent-solid" aria-hidden="true" />}
                 <h3 className="font-display m-0 text-xl font-bold text-foreground">{item.title}</h3>
                 <p className="m-0 text-muted-foreground">{item.body}</p>
               </li>

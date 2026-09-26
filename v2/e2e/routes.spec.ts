@@ -120,11 +120,21 @@ test.describe('route shape', () => {
       'Included, free',
     ])
 
+    // FOUR OF THESE SEVEN ARE lib/free-includes.ts ENTRIES, not sentences the
+    // landing wrote: components/home/insights-payoff.tsx renders the `benchmark`
+    // and `team-fact` entries under the Insights heading, and
+    // components/home/also-free.tsx renders `chat` and `reminders` under
+    // "Included, free" (wordle-teams-wty4.1.14.11). They are spelled out here
+    // anyway, because the outline is the property this test exists for — a
+    // deleted section, a reorder and a reword all have to fail — and deriving the
+    // list from the inventory it renders would keep passing through a reword.
     await expect(page.getByRole('heading', { level: 3 })).toHaveText([
       'Make a team',
       'Enter your board',
       'Scores settle',
-      'Team chat',
+      'How your last board measured up',
+      'A team fact every day',
+      'Team chat, and a push when it moves',
       'Reminders',
     ])
 
