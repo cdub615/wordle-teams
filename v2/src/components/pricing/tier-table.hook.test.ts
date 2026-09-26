@@ -8,7 +8,11 @@
 // somewhere else. Three separate drifts are possible and only one of them is
 // visible to lint, typecheck or build:
 //
-//   1. PRO_BENEFITS grows a sixth entry and this page goes on selling five.
+//   1. Either inventory grows an entry and this page goes on showing the old
+//      count — PRO_BENEFITS a sixth, or FREE_INCLUDES a seventh. The free half of
+//      that matters more than it looks: /pricing is the only surface that shows
+//      the whole free list, so an entry missing from this column is a capability
+//      no reader meets anywhere.
 //   2. The free column drifts into a list of refusals, which is the shape a tier
 //      table falls into by default and the one a cold visitor reads as "nothing".
 //   3. The trial gets described as something a visitor will get, on a day when
