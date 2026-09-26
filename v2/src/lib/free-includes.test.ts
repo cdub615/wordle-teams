@@ -10,7 +10,7 @@ import { describe, expect, test } from 'vitest'
 import { PRO_BENEFITS } from './pro-benefits.ts'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../convex/lib/monthWindow.ts'
-import { FREE_INCLUDES } from './free-includes.ts'
+import { FREE_INCLUDES, freeInclusionsFor } from './free-includes.ts'
 
 /** Every line a reader of the free column actually sees, title and body apart. */
 const lines = FREE_INCLUDES.flatMap((inclusion) => [inclusion.title, inclusion.body])
@@ -89,10 +89,17 @@ describe('FREE_INCLUDES', () => {
     // RAISED ABOUT, and the difference is worth stating because the two look alike
     // from a distance. That issue was two SURFACES holding two copies of one
     // sentence, which had to be edited in lockstep and drifted when they were not.
-    // A deliberate reword here is still one edit to the copy and one to the list
-    // below it, in the same file, with no surface to keep in step — the shape
-    // pro-benefits.test.ts's own id assertion argues for: copy is the one thing
-    // typecheck, lint and build cannot check.
+    // A deliberate reword here is one edit to the copy and one to the list below
+    // it, in the same file — the shape pro-benefits.test.ts's own id assertion
+    // argues for, copy being the one thing typecheck, lint and build cannot check.
+    //
+    // THERE IS A THIRD EDIT FOR FOUR OF THE SIX, AND IT IS OUTSIDE THE GATES.
+    // e2e/routes.spec.ts transcribes the landing's whole h3 outline, which spells
+    // out `benchmark`, `team-fact`, `chat` and `reminders` by title — its own
+    // comment records why it is transcribed rather than derived. So rewording one
+    // of those four costs three files across two test files, and the one this
+    // suite cannot see goes red in CI rather than here. Editing all three is the
+    // price of an outline pin; being ambushed by the third is not.
     //
     // TITLES ONLY, AND THAT IS THE LINE. A body is a long sentence that changes
     // for legitimate reasons — a clause corrected, a hedge removed — and pinning
@@ -109,6 +116,46 @@ describe('FREE_INCLUDES', () => {
       'Team chat, and a push when it moves',
       'Reminders',
     ])
+  })
+
+  test('a selection comes back in the order it was asked for', () => {
+    // THE ONE PROPERTY `freeInclusionsFor` EXISTS TO HAVE, and it needed an order
+    // this array does not have to be visible at all. Both of the landing's
+    // selections — ['chat', 'reminders'] and ['benchmark', 'team-fact'] — read the
+    // same either way, so the assertions in marketing-copy.test.ts cannot tell
+    // `ids.map` from `FREE_INCLUDES.filter((entry) => ids.includes(entry.id))`:
+    // measured, the filter body leaves this the only failing test in the suite.
+    //
+    // WHICH MATTERS BEFORE THE NEXT CONSUMER, not after. A surface declaring an
+    // order this file does not have is the first thing that would silently render
+    // its highlights back to front, and the guarantee it would be relying on is
+    // stated in freeInclusionsFor's own comment.
+    expect(freeInclusionsFor(['reminders', 'chat']).map((i) => i.id)).toEqual([
+      'reminders',
+      'chat',
+    ])
+  })
+
+  test('no entry reaches for Pro’s vocabulary', () => {
+    // THE SAME FIVE WORDS marketing-copy.test.ts REFUSES, OVER THE SIX ENTRIES
+    // THEMSELVES. That file holds the sentences IT wrote; these are checked here
+    // because this is where they live, and because /pricing shows all six to the
+    // same visitor who has not signed up. Holding them only through the landing's
+    // corpus would cover four of six, and only for as long as the landing went on
+    // selecting those four — dropping `chat` from ALSO_FREE would quietly take it
+    // out of the checked set, which is the shape of hole this file exists to close.
+    //
+    // EACH WORD IS A DEFECT THAT REACHED A DRAFT, in that file's account of them:
+    // "unlimited" is what feature-cards.tsx shipped over a three-month window,
+    // "paste"/"screenshot" is the import that board-entry/form.tsx renders only
+    // for `isPro === true`, and "custom"/"customizable" is scoring-system-card.tsx's
+    // canEdit. All five describe something Pro buys, so a free entry saying one is
+    // selling what it cannot give.
+    const prose = lines.join(' ').toLowerCase()
+
+    for (const word of ['unlimited', 'paste', 'screenshot', 'customizable', 'custom']) {
+      expect(prose, `a free inclusion says "${word}"`).not.toContain(word)
+    }
   })
 
   test('every checkedAgainst path exists on disk, as a file', () => {

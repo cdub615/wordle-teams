@@ -58,7 +58,9 @@
  * thing they were not charged for is missing, so the sentence just stays wrong.
  * free-includes.test.ts resolves every path to a real file, greps every file behind
  * a `grantedHere` entry for `isPro` — all of them, not just the first — measures
- * every line against every PRO_BENEFITS text, and holds all six to the rule below.
+ * every line against every PRO_BENEFITS text, pins the six ids AND the six titles
+ * as the shipped copy they are, refuses the same five Pro words the landing's own
+ * sentences are refused, and holds all six to the rule below.
  *
  * EVERY ENTRY STATES WHAT ARRIVES, NEVER WHAT IS WITHHELD. This is the editorial
  * rule the file turns on and the one a seventh entry is likeliest to break, so it
@@ -246,13 +248,26 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
  * what took the positional lookup out of components/home/also-free.tsx, where an
  * icon was matched to an entry by array index.
  *
- * THE THROW NARROWS THE `find`; IT GUARDS NOTHING. The only way to reach it is a
- * caller naming an id this array does not hold, which is a type error at that call
- * site — measured, by renaming `chat` in the union and the entry together: the
- * landing stopped typechecking in two places, and two assertions in
- * free-includes.test.ts failed, the exact-six list and the `grantedHere`
- * partition. The throw is what that state looks like at import time, not what
- * catches it.
+ * AND THE ORDER IS THE CALLER'S, WHICH IS THE WHOLE REASON THIS IS `ids.map` AND
+ * NOT A FILTER OVER THE ARRAY. `FREE_INCLUDES.filter((entry) =>
+ * ids.includes(entry.id))` returns THIS file's order instead, and the two are
+ * indistinguishable for any subset that happens to be declared in inventory order
+ * — which both of the landing's are. Measured: with that body, the one test in the
+ * suite that fails is the one asking for ['reminders', 'chat'], which is why
+ * free-includes.test.ts asks in an order this array does not have.
+ *
+ * THE THROW IS LOAD-BEARING AND MUST NOT BECOME A `!`. Two different edits reach
+ * it and only one of them is a type error. A caller naming an id that is not in
+ * the union above does not compile — measured, by renaming `chat` in the union and
+ * the entry together: the landing stopped typechecking in two places, and two
+ * assertions in free-includes.test.ts failed, the exact-six list and the
+ * `grantedHere` partition. But DELETING AN ENTRY while the union keeps its name
+ * typechecks clean: `ReadonlyArray<FreeInclusion>` obliges nobody to hold six of
+ * them, so retiring a capability — the likeliest reason anyone edits this array —
+ * reaches this line with no type error anywhere, measured at `tsc --noEmit` exit
+ * 0. The throw is what makes that state say `free-includes: no entry is named
+ * reminders` at import time instead of handing a component `undefined.title`, and
+ * free-includes.test.ts's list assertions are what fail in CI.
  */
 export const freeInclusionsFor = (
   ids: ReadonlyArray<FreeInclusion['id']>,

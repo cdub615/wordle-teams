@@ -22,13 +22,20 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  *
  * THE RULE THAT REPLACES IT: NO LINE HERE CLAIMS A CAPABILITY THE CODE DOES NOT
  * BACK, AND NO LINE DESCRIBES A GATED ONE AS THOUGH IT WERE FREE. The page keeps
- * that rule by not writing a free-capability sentence at all. The ones it shows
- * are lib/free-includes.ts's, selected by id — `ALSO_FREE` and `PAYOFF_INCLUDES`
- * below — and rendered in the inventory's own words, the way
- * components/pricing/tier-table.tsx renders PRO_BENEFITS. What this file writes is
- * the page's own voice: the hero, the two section headings, the three
- * HOW_IT_WORKS steps, the Insights section's framing, the shot captions and the
- * closing line.
+ * that rule by taking its free-capability sentences from lib/free-includes.ts
+ * rather than writing them: `ALSO_FREE` and `PAYOFF_INCLUDES` below are selections
+ * by id, rendered in the inventory's own words, the way
+ * components/pricing/tier-table.tsx renders PRO_BENEFITS.
+ *
+ * ONE SENTENCE IS THE EXCEPTION AND IT CARRIES ITS OWN GUARANTEES. `HOW_IT_WORKS`'s
+ * first step ends "Two teams are free" — the inventory's `teams` entry said in the
+ * page's voice, inside a step about making a team, because a cold visitor meets the
+ * cap there rather than in a list. It keeps a `checkedAgainst` of its own
+ * (convex/lib/teamLimits.ts), marketing-copy.test.ts pins FREE_TEAM_LIMIT against
+ * it, and the block on HOW_IT_WORKS below spells out why the number is a word.
+ * Everything else this file writes is the page's own voice about something other
+ * than what the tier includes: the hero, the two section headings, the other two
+ * steps, the Insights section's framing, the shot captions and the closing line.
  *
  * SO `checkedAgainst` IS ON HOW_IT_WORKS AND NOWHERE ELSE. It is
  * lib/pro-benefits.ts's `gatedAt` from the free side — the same field, and the
@@ -86,7 +93,10 @@ export const HERO = {
  * HERE RATHER THAN IN THE JSX for this file's whole reason: a heading is copy,
  * and copy typed into a component is copy no gate can read. "Included, free"
  * is also the page's one load-bearing adjective — it is what tells a reader
- * that the section under it is not a teaser — so it is worth a test of its own.
+ * that the section under it is not a teaser — so both headings are in
+ * marketing-copy.test.ts's rendered corpus, held to the rules about what a reader
+ * sees rather than left out of every corpus, which is where they sat until
+ * wordle-teams-wty4.1.14.11.2 split the two.
  */
 export const SECTION_TITLES = {
   howItWorks: 'How it works',
@@ -158,8 +168,11 @@ export const HOW_IT_WORKS: ReadonlyArray<MarketingItem> = [
  * decides where a sentence goes: IF A CHANGE TO convex/lib/insightsAccess.ts
  * COULD MAKE IT FALSE, IT IS A CLAIM AND BELONGS IN lib/free-includes.ts. That
  * file is what hands each layer out, so anything about what a reader GETS is
- * written where it is checked. `lead` passes that test: it names the section's
- * subject and promises nothing. The two capabilities under it are
+ * written where it is checked. `lead` passes that test as squarely as a sentence
+ * on this page can: it names the section's subject rather than promising anything,
+ * and read at its most demanding — as an assurance that there ARE numbers behind a
+ * board you just entered — it has the same backing the heading does, in the two
+ * entries rendered under it. The two capabilities under it are
  * `PAYOFF_INCLUDES` — the inventory's `benchmark` and `team-fact`, rendered in
  * their own words — which is the owner's decision on wordle-teams-wty4.1.14.11,
  * taken over keeping a written paragraph behind a drift guard and over
@@ -171,7 +184,8 @@ export const HOW_IT_WORKS: ReadonlyArray<MarketingItem> = [
  * insightsAccess.ts returns `layer1: 'free'` for everybody and boardsForLayer1
  * trims that to the last board entered. And the rule's own remedy is already
  * where it points — the sentence that backs this heading is the inventory's
- * `benchmark` entry, checked there and rendered directly beneath it. A claim whose
+ * `benchmark` entry, checked there and rendered in the same block, under the lead.
+ * A claim whose
  * evidence is on the screen under it is a different thing from an unbacked one,
  * which is why the owner kept the h2 and why nothing here pretends the section
  * claims nothing.

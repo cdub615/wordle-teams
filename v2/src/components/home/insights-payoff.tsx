@@ -10,11 +10,12 @@ import { ProductShot } from './product-shot.tsx'
  * `layer3: 'free'` — the most recent board benchmarked, and one team fact a day —
  * and the two entries under the lead are that pair, taken from
  * lib/free-includes.ts (`benchmark` and `team-fact`) rather than written here.
- * `PAYOFF.lead` above them frames the section and promises nothing. The h2 above
- * THAT does make a claim — "find out whether that four was good" is a thing a
- * visitor can only do while Layer 1 is free — and what backs it is the `benchmark`
- * entry rendered immediately below it, which is the rule on PAYOFF in
- * marketing-copy.ts working rather than an exception to it. The only Insights
+ * `PAYOFF.lead` between them and the h2 frames the section rather than promising
+ * anything. The h2 itself does make a claim — "find out whether that four was
+ * good" is a thing a visitor can only do while Layer 1 is free — and what backs it
+ * is the `benchmark` entry two elements down, in the list under the lead: the rule
+ * on PAYOFF in marketing-copy.ts working rather than an exception to it. The only
+ * Insights
  * capture scripts/build-marketing-shots.mjs takes is of a Pro account, so the
  * frame below contains a whole month of head to head. Saying which tier the
  * picture belongs to costs one muted line and is the difference between a

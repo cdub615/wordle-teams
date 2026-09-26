@@ -20,6 +20,7 @@ import {
   HOW_IT_WORKS,
   PAYOFF,
   PAYOFF_INCLUDES,
+  SECTION_TITLES,
   SHOTS,
 } from './marketing-copy.ts'
 
@@ -59,8 +60,20 @@ const claims = HOW_IT_WORKS.map(
 )
 
 /**
- * THE FREE-VOICE PROSE THIS FILE WROTE — the lines a reader takes as "what the
- * app does" and that no other test can see, because they exist nowhere else.
+ * THE FREE-VOICE SENTENCES THIS FILE WROTE: the three steps, and the Insights
+ * section's heading and its lead. These are the lines no other test can see,
+ * because they exist nowhere else.
+ *
+ * WHAT IS LEFT OUT IS LEFT OUT ON PURPOSE, listed so the gaps do not read as
+ * oversights. `HERO.model` is MODEL_LINE, imported and pinned by identity, so the
+ * rules over that sentence belong with it in lib/onboarding-tasks.ts.
+ * `HERO.title` and the two `SECTION_TITLES` are a headline and two headings rather
+ * than statements about what a visitor gets. `PAYOFF.shotNote`, `CLOSING.line` and
+ * `CLOSING.proLink` are the page's three lines ABOUT the paid tier, which name Pro
+ * and quote a price deliberately. And the four inventory entries the page selects
+ * are absent because free-includes.test.ts holds all six of them to both of the
+ * rules this corpus feeds — over a corpus that does not shrink when the landing
+ * changes which two it shows.
  */
 const authoredFreeVoice = [
   ...HOW_IT_WORKS.flatMap((item) => [item.title, item.body]),
@@ -69,16 +82,28 @@ const authoredFreeVoice = [
 ]
 
 /**
- * And every free-voice line the page RENDERS, which adds the inventory text the
- * two selections pull in. The two corpora are not interchangeable: a rule about
- * how this file writes belongs to the first, and a rule about what a visitor ends
- * up reading belongs to the second. Where the inventory's own test already holds
- * all six entries to a rule, the first is what is used here rather than checking
- * a subset of the same fact twice.
+ * EVERY STRING THIS PAGE PUTS IN FRONT OF A VISITOR, with nothing left out: the
+ * sentences above, the hero's two lines, both section headings, the four inventory
+ * entries the selections render, the three alt texts, the screenshot caption and
+ * both closing lines.
+ *
+ * WHICH CORPUS A NEW RULE TAKES IS THE DECISION THESE TWO NAMES RECORD. A rule
+ * about what free is promised takes the one above — it is the prose this file is
+ * answerable for, and the inventory answers for its own. A rule about what a
+ * reader SEES takes this one, which is why the paid-tier lines and the alt text
+ * belong in it and are excluded from the other.
  */
-const renderedFreeVoice = [
+const renderedCopy = [
   ...authoredFreeVoice,
+  HERO.title,
+  HERO.model,
+  SECTION_TITLES.howItWorks,
+  SECTION_TITLES.alsoFree,
   ...[...ALSO_FREE, ...PAYOFF_INCLUDES].flatMap((inclusion) => [inclusion.title, inclusion.body]),
+  ...Object.values(SHOTS).map((shot) => shot.alt),
+  PAYOFF.shotNote,
+  CLOSING.line,
+  CLOSING.proLink,
 ]
 
 /**
@@ -252,12 +277,13 @@ describe('the landing page copy', () => {
     // `isPro === true`; "customizable"/"custom" is the other half of the same
     // §6.1 sentence, gated by scoring-system-card.tsx's canEdit.
     //
-    // EVERYTHING THE PAGE RENDERS, INCLUDING THE INVENTORY TEXT IT SELECTS, and
-    // this is the one rule where that is the right corpus: a Pro word reaching a
-    // visitor who has not signed up is the defect, whichever file the sentence
-    // was typed into. The inventory's own test holds all six entries to its
-    // refusals rule; this word list exists nowhere else.
-    const prose = renderedFreeVoice.join(' ').toLowerCase()
+    // THE SENTENCES THIS FILE WROTE, AND THE INVENTORY HOLDS ITS OWN TO THE SAME
+    // FIVE WORDS. Running this over the selected entries as well would cover four
+    // of six, and only while the landing went on selecting those four — so the
+    // word list is repeated in free-includes.test.ts over all six instead, where
+    // /pricing's column is covered too. Not two mechanisms over one fact: two
+    // corpora with no overlap, each held where its sentences live.
+    const prose = authoredFreeVoice.join(' ').toLowerCase()
 
     for (const word of ['unlimited', 'paste', 'screenshot', 'customizable', 'custom']) {
       expect(prose, `free-voice copy says "${word}"`).not.toContain(word)
@@ -317,17 +343,15 @@ describe('the landing page copy', () => {
     // Same rule, same test, as pro-benefits.test.ts, plans.test.ts and
     // free-includes.test.ts — the whole set of files that carry it; the legal copy,
     // which this line used to cite, has no such test. One page mixing ' and ’ is
-    // visible to a reader and to nothing else. THE ALT TEXT
-    // IS IN SCOPE — it is copy that ships, and it is where most of this page's
-    // apostrophes live.
-    const prose = [
-      ...authoredFreeVoice,
-      ...Object.values(SHOTS).map((shot) => shot.alt),
-      PAYOFF.shotNote,
-      CLOSING.line,
-      CLOSING.proLink,
-      HERO.title,
-    ].join(' ')
+    // visible to a reader and to nothing else.
+    //
+    // OVER `renderedCopy`, WHICH IS THE POINT OF HAVING IT. Mixed quote marks are
+    // a fact about the page a visitor looks at, not about which sentence is
+    // answerable for a tier — so the alt text, the Pro caption and both closing
+    // lines are all in scope here, and the selected inventory text is measured on
+    // the surface it reaches as well as in free-includes.test.ts, where the data
+    // is.
+    const prose = renderedCopy.join(' ')
 
     expect(prose).not.toContain("'")
     // AND AT LEAST ONE IS PRESENT, so deleting every apostrophe — which would
