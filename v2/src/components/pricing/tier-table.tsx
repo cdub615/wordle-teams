@@ -87,13 +87,17 @@ export function TierTable({
    * there and nowhere else.
    *
    * SETTING LAUNCH_AT IS NOT WHAT TURNS THIS SECTION ON, and the sentence this
-   * paragraph replaced said it was — "setting LAUNCH_AT … turns this section on
-   * at the same moment it turns the trial on". That holds only if LAUNCH_AT is
-   * set to an instant already past, and wordle-teams-kc8c says the opposite:
-   * "IT MUST BE SET BEFORE THE CUTOVER". Between that deploy and the cutover
-   * instant, `shouldStartTrial`'s `enteredAt >= launchAt` still refuses every
-   * board — so a section keyed to the constant rather than to the clock would
-   * advertise a trial nobody could start, for the length of that window
+   * paragraph replaced said it was: "setting LAUNCH_AT to the real cutover
+   * instant — the single edit that switches the trial on — switches this on with
+   * it, so the claim becomes visible at exactly the moment it becomes true."
+   * (tier-table.hook.test.ts's banner put the same claim more bluntly still —
+   * "it turns this section on at the same moment it turns the trial on" — and is
+   * corrected with this.) Both hold only if LAUNCH_AT is set to an instant
+   * already past, and wordle-teams-kc8c says the opposite: "IT MUST BE SET
+   * BEFORE THE CUTOVER". Between that deploy and the cutover instant,
+   * `shouldStartTrial`'s `enteredAt >= launchAt` still refuses every board — so
+   * a section keyed to the constant rather than to the clock would advertise a
+   * trial nobody could start, for the length of that window
    * (wordle-teams-wty4.1.14.10).
    *
    * WHY ABSENT RATHER THAN HEDGED, which is the rule the paragraph above
@@ -106,25 +110,33 @@ export function TierTable({
    * someone who cannot have it, and it dates the page the moment launch
    * happens.
    *
-   * THE DEFAULT IS `false`, SO A CALLER THAT FORGETS THE PROP GETS SILENCE —
-   * the safe direction, and the one that paragraph argues for. It is
-   * deliberately NOT derived from a launch constant any more: nothing in this
-   * file reads a clock or names LAUNCH_AT, which is what makes the server's
-   * rendered HTML the only source of this answer. A component that recomputed
-   * it during hydration could disagree with an edge-cached document rendered
-   * before the cutover, which is a minified React #418 in production;
-   * routes/pricing.tsx's loader comment has that hazard in full, and
-   * tier-table.hook.test.ts pins that this file names neither.
+   * REQUIRED, WITH NO DEFAULT AT ALL — and that is a deliberate step past
+   * "default to silence". A default of `false` would be the safe direction for a
+   * caller who forgets, but a forgetful caller is exactly what the compiler can
+   * prevent, and SILENCE IS SILENT: the page would simply stop mentioning the
+   * trial and no gate would say so. A default is also the whole mutation surface
+   * this bug came from — the old one was `!LAUNCH_AT_IS_PLACEHOLDER`, a default
+   * re-derived from a constant, which rendered identically to `false` until the
+   * day the owner edited that constant. Requiring the prop deletes that surface
+   * rather than pinning it.
    *
-   * IT IS STILL A PROP, for the reason shouldStartTrial takes
-   * `launchAt = LAUNCH_AT`: the launched branch is unreachable in production
-   * today, so without a seam it would ship unrendered and unread, and the
-   * cutover edit would be the first thing ever to execute it.
-   * tier-table.hook.test.ts renders both branches through this prop.
+   * NOTHING IN THIS FILE READS A CLOCK OR NAMES LAUNCH_AT, which is what makes
+   * the server's rendered HTML the only source of this answer. A component that
+   * recomputed it during hydration could disagree with an edge-cached document
+   * rendered before the cutover, which is a minified React #418 in production;
+   * routes/pricing.tsx's loader comment has that hazard in full.
+   * tier-table.hook.test.ts pins both halves — the source, and a render with the
+   * clock spied on.
+   *
+   * IT IS STILL A PROP RATHER THAN THE ROUTE'S JSX INLINING THE SECTION, for the
+   * reason shouldStartTrial takes `launchAt = LAUNCH_AT`: the launched branch is
+   * unreachable in production today, so without a seam it would ship unrendered
+   * and unread, and the cutover edit would be the first thing ever to execute
+   * it. tier-table.hook.test.ts renders both branches through this prop.
    */
-  trialOffered = false,
+  trialOffered,
 }: {
-  trialOffered?: boolean
+  trialOffered: boolean
 }) {
   return (
     <div data-testid="pricing-tiers" className="flex flex-col gap-6">

@@ -311,19 +311,30 @@ describe('/ bounces a signed-in visitor and /home deliberately does not', () => 
  * so those are two different moments and the page would have advertised a
  * thirty-day trial nobody could start for the whole window between them.
  *
- * THREE FACTS, EACH SEPARATELY REMOVABLE, AND THE MECHANISM NEEDS ALL THREE:
+ * WHAT THE COMPILER COVERS AND THIS THEREFORE DOES NOT CLAIM: `trialOffered` is a
+ * REQUIRED prop with no default, so FORGETTING it is not a live mutation at all.
+ * Measured, both shapes: `<TierTable />` fails `tsc` with TS2741 whether the
+ * `useLoaderData` destructure goes with it (exit 2) or is left behind (exit 2,
+ * plus TS6133 and eslint's no-unused-vars at exit 1). An earlier version of this
+ * comment said that mutation "type-checks, lints and renders" — true of the
+ * `= false` default it was written against, false now, and the kind of sentence
+ * this phase keeps producing.
  *
- *   - the loader asks `trialCanStart` with the clock. Asking it in the component
- *     body instead is what re-creates the hydration mismatch the loader exists to
- *     avoid; tier-table.hook.test.ts pins the other end of that rule, which is
- *     that the component names no clock and no launch constant.
- *   - the answer reaches `<TierTable>` as `trialOffered`. Computing it and not
- *     passing it type-checks, lints and renders — the prop is optional and now
- *     defaults to `false` — and leaves the page permanently silent about the
- *     trial. A PROP rather than a `toMatch` over the file, for the reason
- *     jsxPropsOf's own comment gives: `onUpgrade={() => {}}` passed everything.
- *   - what is passed is the LOADER'S value, read back through `useLoaderData`,
- *     which is what makes it the serialized one rather than a second reading.
+ * WHAT IS LEFT FOR A TEST is which VALUE is passed and where it is computed.
+ * Neither is a type, and both were measured to pass tsc and lint:
+ *
+ *   - `trialOffered={true}` (or `{false}`) in place of the loader's value —
+ *     tsc 0, lint 0. The page then advertises the trial forever, or never, and
+ *     nothing else says so. jsxPropsOf reads the PROP rather than a `toMatch`
+ *     over the file, for the reason that helper's own comment gives:
+ *     `onUpgrade={() => {}}` passed everything.
+ *   - the same `trialCanStart({ now: Date.now() })` call moved out of the loader
+ *     into the component body — tsc 0, lint 0. That is the hydration mismatch the
+ *     loader exists to avoid, and tier-table.hook.test.ts pins the other end of
+ *     the rule: the component reads no clock, spied rather than grepped.
+ *
+ * So the two assertions below are one apiece, and each mutation above was
+ * measured to trip exactly one of them.
  *
  * STRING-READ rather than imported, for the reason the blocks above give:
  * createFileRoute cannot be imported under vitest.
@@ -340,6 +351,12 @@ describe('/pricing offers the trial only when one can be started', () => {
         'recomputed during hydration — see that file.',
     ).toBeDefined()
     // Comment-stripped: the loader's own prose names both of these repeatedly.
+    //
+    // ONE SPELLING, AND THE BRITTLENESS IS DELIBERATE BUT COSMETIC. This pins
+    // `trialCanStart({ now: Date.now() })` written inline;
+    // `const now = Date.now(); trialCanStart({ now })` is equally correct and
+    // would fail here. If that is why you are reading this, the failure is a
+    // formatting one — widen the pattern, do not move the call.
     expect(codeOf(loader!.getText())).toMatch(/trialCanStart\(\{\s*now:\s*Date\.now\(\)\s*\}\)/)
   })
 

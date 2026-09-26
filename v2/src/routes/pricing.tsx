@@ -35,13 +35,26 @@ import { trialCanStart } from '../../convex/lib/insightsAccess.ts'
  * lede, and the one thing this page exists to hand over — a link to /login.
  *
  * THIS PATH IS IN src/lib/cache-policy.ts's STATIC_DOCUMENTS, alongside /about
- * and the legal pages, at a day of shared edge freshness. IT DOES READ ONE
- * THING PER-REQUEST — the clock, in the loader below — and that is still safe,
- * because shared freshness does not require a document to be timeless: it
- * requires it to be identical for every CONCURRENT anonymous visitor, and
- * nothing here varies by WHO is asking. Everything else on the page is a
- * compile-time constant. What the clock costs is a TRANSITION rather than a
- * correctness problem, and the loader's own comment below has it.
+ * and the legal pages, at a day of shared freshness and a week of
+ * stale-while-revalidate. IT READS THE CLOCK, in the loader below — which makes
+ * it the only entry in that set whose ROUTE does, and a WHEN rather than a WHO.
+ * (`/` varies by who: its `beforeLoad` reads `context.isAuthenticated`. That is
+ * the axis the session half of the policy exists for, and a different question
+ * from this one. A when-varying value is NOT new to the set, though:
+ * components/Footer.tsx renders `new Date().getFullYear()` and __root.tsx puts
+ * it under every path here — so a stored copy spanning New Year shows last
+ * year's year, which is the same bounded, say-less staleness this page's own
+ * transition has.)
+ *
+ * THE TEST A SHARED ENTRY HAS TO PASS is not "the document is identical for
+ * every concurrent visitor" — it is that EVERY visitor who may be handed the
+ * SAME STORED COPY, across the whole window it can be served in, can acceptably
+ * receive it. Concurrency is the easy half; the window is the half that decides
+ * it, and it is why a genuinely time-sensitive page does not belong in that set
+ * however identical two simultaneous renders of it are. This page passes because
+ * its one time-dependent value flips ONCE, ever, and a stale copy errs toward
+ * saying less — the loader's own comment below has that in full. Everything else
+ * on the page is a compile-time constant.
  *
  * It is deliberately NOT in lib/maintenance.ts's gated set, for the same reason
  * /about is not: it renders fine while the app is down, and an outage is a poor
@@ -85,23 +98,39 @@ export const Route = createFileRoute('/pricing')({
    * indefinitely rather than for a transition.
    *
    * WHAT THE EDGE COSTS, STATED EXACTLY. This answer flips once, when `now`
-   * reaches LAUNCH_AT, and for up to a day after that the edge may still serve
-   * the copy rendered before it. That copy says nothing about a trial, which is
-   * UNDER-claiming — the same direction the section's own "silence rather than a
-   * hedge" rule already chooses — and it is fully mitigable without touching
-   * the policy: src/server.ts keys the document cache on
-   * `${origin}/__doc-cache/${version}${pathname}` where the version is the
+   * reaches LAUNCH_AT. After that the edge may still serve the copy rendered
+   * before it for A DAY OF SHARED FRESHNESS AND A WEEK OF
+   * STALE-WHILE-REVALIDATE — `s-maxage=86400, stale-while-revalidate=604800`,
+   * and BOTH numbers are the exposure, which is how lib/cache-policy.ts and
+   * src/server.ts each state it for the same header. That copy says nothing
+   * about a trial, which is UNDER-claiming — the same direction the section's own
+   * "silence rather than a hedge" rule already chooses — and it is fully
+   * mitigable without touching the policy: src/server.ts keys the document cache
+   * on `${origin}/__doc-cache/${version}${pathname}` where the version is the
    * Cloudflare deploy id, so ANY deploy evicts every cached document at once.
    * wordle-teams-kc8c's runbook carries "deploy again at or after the cutover
    * instant" as a step for exactly this. Shortening `s-maxage` for a one-time
    * transition would instead cost every visitor thereafter.
+   *
+   * AND THE EDGE IS SKIPPED ENTIRELY FOR A TAGGED LINK. src/server.ts requires
+   * `url.search === ''` before it will read from or write to the document cache,
+   * so anything arriving with a `?utm_…` renders fresh — which during the
+   * cutover window is most of the traffic this page gets, because the launch
+   * email and the marketing links are where its visitors come from.
    *
    * A CLIENT-SIDE NAVIGATION IS CORRECT IMMEDIATELY whatever the edge holds:
    * the loader runs again in the browser, against the browser's clock. Read out
    * of the installed router-core rather than assumed — a navigation enters this
    * match with `cause: 'enter'` and the default `staleTime` is 0, so the loader
    * re-runs. components/home/closing-cta.tsx and routes/about.tsx are both such
-   * links.
+   * links. ONE CAVEAT, so the word "immediately" is not doing more work than it
+   * can: router.tsx sets `defaultPreload: 'intent'` with
+   * `defaultPreloadStaleTime: 0`, so a hover has often already run this loader,
+   * and a reused preloaded match reloads in the BACKGROUND — meaning the first
+   * paint can come from the preload's value rather than the navigation's. For
+   * this boolean the two readings are the same unless the hover and the click
+   * straddle the cutover instant, so nothing is visible either way; for a value
+   * that changed more often it would be.
    */
   loader: () => ({ trialOffered: trialCanStart({ now: Date.now() }) }),
   component: Pricing,

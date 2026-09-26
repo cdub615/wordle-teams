@@ -23,11 +23,11 @@
 import { readFileSync } from 'node:fs'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { createElement } from 'react'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { FREE_INCLUDES } from '#/lib/free-includes.ts'
 import { MONTHLY_FINE_PRINT, PLANS, PRO_PRICE_LINE } from '#/lib/plans.ts'
 import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
-import { codeOf } from '#/test-support/source-ast.ts'
+import { codeOf, runtimeImportsOf } from '#/test-support/source-ast.ts'
 import { FREE_TEAM_LIMIT } from '../../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../../convex/lib/monthWindow.ts'
 import { INSIGHTS_TRIAL_DAYS } from '../../../convex/lib/insightsAccess.ts'
@@ -35,17 +35,24 @@ import { TierTable } from './tier-table.tsx'
 
 afterEach(cleanup)
 
-/** No props is the silence the default gives; the prop is the launched world. */
-const table = (props?: { trialOffered?: boolean }) =>
-  render(createElement(TierTable, props ?? {}))
+/**
+ * ALWAYS PASSES THE PROP, because `trialOffered` is REQUIRED and has no default
+ * — see the trial section below for why that is deliberate. `table()` is the
+ * silence a caller asks for explicitly; `table({ trialOffered: true })` is the
+ * launched world.
+ */
+const table = ({ trialOffered = false }: { trialOffered?: boolean } = {}) =>
+  render(createElement(TierTable, { trialOffered }))
 
 // A cwd-relative path, NOT `new URL(..., import.meta.url)`: this file declares
 // jsdom, where `import.meta.url` is not a `file:` URL and readFileSync answers
 // "The URL must be of scheme file" — dashboard-skeletons.hook.test.ts's comment
 // on the same line has it in full, and today-panel.hook.test.ts does the same.
-// Comment-free text, because this component's own prose names the very things
-// the assertion below forbids.
-const code = codeOf(readFileSync('src/components/pricing/tier-table.tsx', 'utf8'))
+const SOURCE_PATH = 'src/components/pricing/tier-table.tsx'
+const source = readFileSync(SOURCE_PATH, 'utf8')
+// Comment-free text where the assertion forbids a word this component's own
+// prose uses; `runtimeImportsOf` wants the real source and parses it.
+const code = codeOf(source)
 
 const free = () => within(screen.getByTestId('pricing-free'))
 const pro = () => within(screen.getByTestId('pricing-pro'))
@@ -236,13 +243,14 @@ describe('the free column says what free GIVES', () => {
  * feature to someone who cannot have it and dates the page the moment launch
  * happens.
  *
- * AND THE CONDITION IS THE CLOCK, NOT THE CONSTANT. Setting LAUNCH_AT does not
- * turn this section on: wordle-teams-kc8c sets it BEFORE the DNS cutover, and
- * until that instant arrives `trialCanStart` is still false and
- * `shouldStartTrial` still stamps nobody. routes/pricing.tsx's loader computes
- * the predicate and passes it in; this component's own default is `false`, so
- * the silence a caller gets by saying nothing is unconditional rather than
- * derived from a launch constant (wordle-teams-wty4.1.14.10).
+ * AND THE CONDITION IS THE CLOCK, NOT THE CONSTANT. The banner here used to say
+ * "Setting LAUNCH_AT to the real cutover instant is one line, and it turns this
+ * section on at the same moment it turns the trial on", which is false: kc8c
+ * sets LAUNCH_AT BEFORE the DNS cutover, and until that instant arrives
+ * `trialCanStart` is still false and `shouldStartTrial` still stamps nobody.
+ * routes/pricing.tsx's loader computes the predicate and passes it in, and the
+ * prop is REQUIRED with no default, so there is no constant left for this
+ * component to derive anything from (wordle-teams-wty4.1.14.10).
  *
  * BOTH BRANCHES ARE ASSERTED. The launched branch is unreachable in production
  * today, so without a test of its own it would ship unread and unrendered, and
@@ -250,39 +258,102 @@ describe('the free column says what free GIVES', () => {
  */
 describe('the thirty-day trial', () => {
   /**
-   * WHAT THIS REPLACED, AND WHY THE PROPERTY MOVED RATHER THAN LEFT.
+   * WHAT THESE TWO REPLACED, AND WHAT EACH ONE ACTUALLY KILLS.
    *
    * The test here used to be `expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(true)`,
-   * stating the premise of the default: while that flag held, the derived
-   * default was `false` and silence was correct. There is no such premise now —
-   * the default is the literal `false` and does not depend on any launch
-   * constant, so asserting the placeholder still stands would say nothing about
-   * this component. (It is still asserted where it is about something:
-   * convex/lib/insightsAccess.test.ts's "is still the obvious placeholder, and
-   * says so".)
+   * stating the premise of a DERIVED DEFAULT: while that flag held,
+   * `trialOffered = !LAUNCH_AT_IS_PLACEHOLDER` evaluated to `false` and silence
+   * was correct. That premise is gone twice over — the default was replaced by
+   * the literal `false`, and then the prop was made REQUIRED and the default
+   * deleted outright — so asserting the placeholder still stands would say
+   * nothing about this component. (It is still asserted where it is about
+   * something: convex/lib/insightsAccess.test.ts's "is still the obvious
+   * placeholder, and says so".)
    *
-   * WHAT IS WORTH KEEPING IS THE OTHER HALF — that this component's answer comes
-   * from its caller and from nowhere else. That is not visible in a render:
-   * reverting the default to `!LAUNCH_AT_IS_PLACEHOLDER` renders EXACTLY the
-   * same page today, because the placeholder makes that expression `false` too,
-   * and it would silently become `true` on the day the owner edits LAUNCH_AT —
-   * which is the whole of wordle-teams-wty4.1.14.10. Only the source can say it,
-   * so the source is what is read.
+   * WHAT IS WORTH KEEPING IS THE OTHER HALF: this component's answer comes from
+   * its caller and from nowhere else. A required prop is most of that, and it is
+   * the compiler's to enforce — `<TierTable />` no longer builds. What the
+   * compiler cannot say is that the file does not ALSO consult a clock or a
+   * launch constant and OR it in, which would render identically today and turn
+   * itself on the day the owner edits LAUNCH_AT. That is what these two are for.
    *
-   * IT ALSO PINS THE HYDRATION RULE. routes/pricing.tsx computes this in its
-   * loader so the value is serialized into the document; a `Date.now()` here
-   * would be recomputed during hydration and could disagree with an edge-cached
-   * document, which is a minified React #418 in production.
+   * THE SOURCE IS NOT THE ONLY WAY TO SEE IT — an earlier version of this comment
+   * said it was, and a render-level probe disproved it. So the clock half is now
+   * spied rather than grepped: `not.toMatch(/Date\.now|new Date/)` could only see
+   * a clock written in THIS file, and a spy sees one wherever the call ends up,
+   * including inside a helper this file imports. MEASURED, both arms: the spies
+   * kill `Date.now()` and `new Date()` in the render path, and they do NOT see
+   * `performance.now()` or `Intl.DateTimeFormat().format()`, which reach the
+   * clock without touching `Date` — so those two are still checked as text, with
+   * the residue named at that assertion. The source read otherwise keeps only
+   * what no render can see: the SHAPE of the prop, and the absence of the module
+   * the old default came from.
+   *
+   * A THIRD PROBE WAS WRITTEN AND IS DELIBERATELY NOT HERE. It mocked
+   * insightsAccess.ts with `LAUNCH_AT_IS_PLACEHOLDER: false` and asserted the
+   * page stays silent, which killed the derived default behaviourally. With the
+   * prop required there is no default to re-derive, and the import ban below
+   * fails before such a mutation could be rendered at all — so it would be a
+   * trap that cannot bite, and a test that cannot fail reads as coverage it is
+   * not.
    */
-  test('reads no clock and no launch constant — the prop is the only input', () => {
+  test('takes the answer as a required prop, with nothing behind it to derive', () => {
+    // REQUIRED, and no default: both halves, because either alone re-opens the
+    // hole. `trialOffered?: boolean` lets a caller omit it (silently falsy), and
+    // any `trialOffered = …` is a default that can be re-derived from a constant
+    // — which is exactly what wordle-teams-wty4.1.14.10 was filed about.
+    expect(code).toMatch(/trialOffered: boolean/)
+    expect(code).not.toMatch(/trialOffered\?/)
+    expect(code).not.toMatch(/trialOffered\s*=/)
+
+    // THE MODULE, NOT JUST THE CONSTANT'S NAME. `not.toMatch(/LAUNCH_AT/)` sees
+    // `LAUNCH_AT_IS_PLACEHOLDER` coming back, but not a NEW export of that file
+    // computed from LAUNCH_AT at module load — which no render can see either,
+    // because it is evaluated before any spy is installed. This file has no
+    // legitimate need for that module: the copy spells "thirty days" in prose
+    // rather than interpolating INSIGHTS_TRIAL_DAYS, which is why the constant is
+    // pinned by a test below instead of imported here.
     expect(code).not.toMatch(/LAUNCH_AT/)
-    expect(code).not.toMatch(/Date\.now|new Date/)
-    // And the default is silence, rather than anything derived — which is what
-    // fails if a new constant is imported to key it on instead.
-    expect(code).toMatch(/trialOffered = false/)
+    expect(runtimeImportsOf(SOURCE_PATH, source)).not.toContain(
+      '../../../convex/lib/insightsAccess.ts',
+    )
   })
 
-  test('says nothing at all about a trial while no trial can start', () => {
+  test('reads no clock while rendering', () => {
+    // THE HYDRATION RULE, BEHAVIOURALLY. routes/pricing.tsx computes the answer
+    // in its loader so it is serialized into the document; a clock read HERE
+    // would be read again during hydration and could disagree with an
+    // edge-cached document rendered before the cutover — a minified React #418
+    // in production, the hazard today-panel.tsx and scores-table.tsx record.
+    //
+    // BOTH BRANCHES ARE RENDERED under the spies, because the trial branch is
+    // the one with copy in it and is where a "days remaining" flourish would go.
+    const now = vi.spyOn(Date, 'now')
+    const ctor = vi.spyOn(globalThis, 'Date')
+    try {
+      table()
+      cleanup()
+      table({ trialOffered: true })
+      expect(now).not.toHaveBeenCalled()
+      expect(ctor).not.toHaveBeenCalled()
+    } finally {
+      now.mockRestore()
+      ctor.mockRestore()
+    }
+
+    // THE TWO CLOCKS THE SPIES ABOVE CANNOT SEE, measured rather than reasoned:
+    // a mutant gating the section on `performance.now()` and another on
+    // `Intl.DateTimeFormat().format()` both passed the spy assertions, because
+    // neither reaches the time through `Date`. Text, therefore — which only sees
+    // them written in THIS file rather than behind an import. That residue is
+    // accepted rather than closed: neither can answer "has LAUNCH_AT passed"
+    // (one is monotonic from page load, the other formats rather than compares),
+    // so a clock that actually decides this question goes through `Date` and is
+    // caught above wherever it is written.
+    expect(code).not.toMatch(/performance\s*\.\s*now|Intl\s*\.\s*DateTimeFormat/)
+  })
+
+  test('told there is no trial, says nothing at all about one', () => {
     table()
     expect(screen.queryByTestId('pricing-trial')).toBeNull()
     expect(pageText()).not.toMatch(/trial|thirty days|30 days|free for a month/i)

@@ -55,14 +55,22 @@ const STATIC_DOCUMENTS = new Set([
   '/',
   '/home',
   '/about',
-  // New in v2. Listed for the property a SHARED cache actually requires — the
-  // document is identical for every CONCURRENT anonymous visitor — rather than
-  // for being timeless: it is the one entry here that reads something
-  // per-request, namely `trialCanStart({ now: Date.now() })` in its loader.
-  // routes/pricing.tsx's own comment has why that is read there, why it is
-  // serialized rather than recomputed in the browser, and what a day of
-  // freshness costs at the one instant the answer changes (it under-claims,
-  // and any deploy evicts every cached document).
+  // New in v2, and the only entry here whose ROUTE reads the clock — its loader
+  // computes `trialCanStart({ now: Date.now() })`. That is a WHEN, not a WHO:
+  // `/` varies by who (its `beforeLoad` reads `isAuthenticated`), which is the
+  // axis the session half above handles, and a when-varying value is not new to
+  // this set either — components/Footer.tsx renders `new Date().getFullYear()`
+  // under every path in it.
+  //
+  // WHAT MAKES A SHARED ENTRY LEGAL IS NOT THAT IT IS TIMELESS, nor merely that
+  // two simultaneous renders agree: it is that everyone who may be handed the
+  // SAME STORED COPY, for as long as that copy may be served, can acceptably
+  // receive it. Concurrency is the easy half; the freshness window is the half
+  // that decides it, which is why a genuinely time-sensitive page does not
+  // belong here however identical two concurrent renders of it are. /pricing
+  // passes because its one time-dependent value flips ONCE and a stale copy
+  // errs toward saying LESS. routes/pricing.tsx has the whole argument, the
+  // exposure in both numbers, and what closes the window.
   '/pricing',
   '/privacy',
   '/terms',

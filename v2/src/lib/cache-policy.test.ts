@@ -15,11 +15,13 @@ describe('cachePolicyFor', () => {
       '/',
       '/home',
       '/about',
-      // New in v2 (wordle-teams-wty4.1.14.3). Listed for the half of /about's
-      // reasons that shared freshness actually needs: the document is identical
-      // for every concurrent anonymous visitor. It is NOT per-request-free —
-      // its loader reads the clock (wordle-teams-wty4.1.14.10) — and
-      // routes/pricing.tsx has why that changes nothing here.
+      // New in v2 (wordle-teams-wty4.1.14.3). It is NOT per-request-free — its
+      // loader reads the clock (wordle-teams-wty4.1.14.10) — and it is still
+      // legal here because everyone who may be handed the same stored copy, for
+      // as long as it may be served, can acceptably receive it: the one
+      // time-dependent value flips once and a stale copy says LESS. The module's
+      // own comment beside '/pricing' has that argument; routes/pricing.tsx has
+      // it in full.
       '/pricing',
       '/privacy',
       '/terms',
