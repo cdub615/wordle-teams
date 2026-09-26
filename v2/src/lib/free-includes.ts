@@ -42,6 +42,17 @@
  * to show and may frame them in its own voice, and may not write its own sentence
  * for a free capability.
  *
+ * AND THAT RULE IS THREE ASSERTIONS RATHER THAN AN INTENTION.
+ * components/home/marketing-copy.test.ts measures every sentence the landing WROTE
+ * against every title and body here and fails at four consecutive shared words, so
+ * a hand-written second copy of an entry is red rather than shipped;
+ * components/pricing/tier-table.hook.test.ts pins /pricing's free column to this
+ * list exactly, in this order, with nothing else headed, which is what makes that
+ * column the surface no entry can go unrendered by; and free-includes.test.ts
+ * censuses the modules that take this list at all, so a FOURTH surface — the one
+ * thing neither of the others can be answerable for — fails until somebody says
+ * how its prose is measured.
+ *
  * `checkedAgainst` IS pro-benefits.ts's `gatedAt` WITH THE SIGN REVERSED, AND FOR
  * TWO ENTRIES IT IS LITERALLY THE SAME FILE. convex/lib/teamLimits.ts and
  * convex/lib/monthWindow.ts each appear in both lists — once as the file a Pro
@@ -60,7 +71,8 @@
  * a `grantedHere` entry for `isPro` — all of them, not just the first — measures
  * every line against every PRO_BENEFITS text, pins the six ids AND the six titles
  * as the shipped copy they are, refuses the same five Pro words the landing's own
- * sentences are refused, and holds all six to the rule below.
+ * sentences are refused, censuses the modules that import this list, and holds all
+ * six to the rule below.
  *
  * EVERY ENTRY STATES WHAT ARRIVES, NEVER WHAT IS WITHHELD. This is the editorial
  * rule the file turns on and the one a seventh entry is likeliest to break, so it
@@ -180,8 +192,9 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     // describes the free half before the paid one — "Free shows your most recent
     // board, and today's team snapshot" — so the older opener shared exactly four
     // consecutive words with a Pro benefit. free-includes.test.ts measures every
-    // line here against every PRO_BENEFITS text and fails at four, the threshold
-    // plans.test.ts argues for; marketing-copy.test.ts records the same collision
+    // line here against every PRO_BENEFITS text and fails at four —
+    // `SHARED_RUN_LIMIT` in test-support/copy-claims.ts, which carries the argument
+    // for that number; marketing-copy.test.ts records the same collision
     // firing on the landing's first draft and being fixed by rewording rather
     // than by exempting the section. This entry takes that opening for the same
     // reason, and it is the only benchmark sentence the product has: /pricing's

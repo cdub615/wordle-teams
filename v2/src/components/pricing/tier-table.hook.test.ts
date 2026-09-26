@@ -138,6 +138,34 @@ describe('the free column says what free GIVES', () => {
     }
   })
 
+  test('writes no free copy of its own, and shows every entry there is', () => {
+    // THE FREE-SIDE HALF OF "MUST NOT DESCRIBE IT TWICE", which this column went
+    // without while the Pro one had it. The asymmetry became conspicuous when
+    // `Entry` was made "the same shape on both sides, deliberately": one column's
+    // headings were pinned to an inventory and the other's could grow a stray
+    // heading freely.
+    //
+    // EXACT IN BOTH DIRECTIONS, WHICH IS WHAT THE LOOP ABOVE IS NOT. That one
+    // asserts every entry APPEARS; this asserts the column IS the inventory — in
+    // its order, with nothing else headed. So it fails on a hand-written heading
+    // added here, and it fails on an entry this column stops rendering, which is
+    // the direction that matters: /pricing is the surface that shows all six, so an
+    // entry missing from it is a free capability the product never advertises
+    // anywhere. That is how `reminders` went missing before the inventory existed —
+    // a headline card on the landing page, absent from this column.
+    //
+    // WHAT IT STILL CANNOT SEE, stated rather than left to be discovered: an
+    // unheaded PARAGRAPH. A `<p>` restating an entry's body would pass this exactly
+    // as it would pass the Pro column's version, and only the refusals regex below
+    // reads the column's full text. A heading is what a skimming reader takes away
+    // and what a second description of a tier arrives as.
+    table()
+    const headings = free()
+      .getAllByRole('heading')
+      .map((node) => node.textContent)
+    expect(headings).toEqual(['Free', ...FREE_INCLUDES.map((inclusion) => inclusion.title)])
+  })
+
   test('the two the code grants and a cross-shaped table would omit', () => {
     // Named individually rather than counted, because they are the two a reader
     // of insightsAccess.ts would be surprised to find on the free tier — layer1

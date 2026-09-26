@@ -5,10 +5,17 @@
 // source of this file's own neighbour. pro-benefits.test.ts opens with the same
 // line for the same reason — "a path that does not resolve is a claim nobody
 // checked".
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
+import {
+  longestSharedRun,
+  notAFile,
+  SHARED_RUN_LIMIT,
+  words,
+} from '#/test-support/copy-claims.ts'
 import { objectLiteralAssignedTo, runtimeImportsOf } from '#/test-support/source-ast.ts'
+import { FREE_INCLUDES } from '#/lib/free-includes.ts'
 import { MODEL_LINE } from '#/lib/onboarding-tasks.ts'
 import { PLANS } from '#/lib/plans.ts'
 import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
@@ -39,13 +46,16 @@ import {
  * scoring systems, and more" for as long as month-picker.tsx offered everybody
  * three months. So the assertions here are about the RELATIONSHIP between the
  * copy and the code that backs it: which file makes each step's claim true, and
- * whether the words are lifted from a Pro benefit.
+ * whether the words are lifted from a Pro benefit or from a free one.
  *
  * AND THE FREE CAPABILITIES ARE NOT PINNED HERE AT ALL, which is the other way
  * to stop copy drifting. This page selects them from lib/free-includes.ts by id
  * and renders the inventory's own title and body, so what is asserted here is
  * WHICH entries it names; the sentences, the paths behind them and the greps over
- * those paths belong to free-includes.test.ts.
+ * those paths belong to free-includes.test.ts. What this file DOES hold against
+ * that inventory is its own prose: a sentence written here may not restate an
+ * entry, which is the defect this page shipped three of before it began selecting
+ * from the inventory instead of restating it.
  */
 
 const root = resolve(__dirname, '../../..')
@@ -73,10 +83,14 @@ const claims = HOW_IT_WORKS.map(
  * what a visitor gets. `PAYOFF.shotNote`, `CLOSING.line` and `CLOSING.proLink` are
  * the page's three lines ABOUT the paid tier, which name Pro and quote a price
  * deliberately, and the `SHOTS` alts describe a picture rather than the product.
- * And the four inventory entries the page selects are absent because
- * free-includes.test.ts holds all six of them to both of the rules this corpus
- * feeds — over a corpus that does not shrink when the landing changes which two it
- * shows.
+ * And the four inventory entries the page selects are absent for two different
+ * reasons, one per rule. TWO of the three rules this corpus feeds — the shared run
+ * against every PRO_BENEFITS text, and the five refused Pro words — are run over
+ * all six entries by free-includes.test.ts instead, on a corpus that does not
+ * shrink when the landing changes which two it shows. The THIRD, the shared run
+ * against the inventory itself, could not take them at any size: an entry measured
+ * against its own words scores every word it has, which is the trap that test's
+ * comment sets out.
  */
 const authoredFreeVoice = [
   ...HOW_IT_WORKS.flatMap((item) => [item.title, item.body]),
@@ -123,35 +137,12 @@ const renderedCopy = [
 ]
 
 /**
- * Words to word-lists, for the shared-run measure below. Lifted from
- * plans.test.ts, including the two decisions its comment records: typographic
- * apostrophes are normalised, and punctuation — hyphens included, so
- * "two-team" cannot hide an overlap with "two team" — becomes whitespace
- * rather than vanishing.
+ * Every title and body in the inventory, for the duplication measure below —
+ * INCLUDING the four entries this page selects, which is not a self-comparison:
+ * the corpus measured against it is `authoredFreeVoice`, which holds none of
+ * them.
  */
-const words = (text: string) =>
-  text
-    .toLowerCase()
-    .replace(/’/g, "'")
-    .replace(/[^a-z0-9']+/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-
-/** Classic longest-common-substring DP over words rather than characters. */
-const longestSharedRun = (a: string[], b: string[]) => {
-  let longest = 0
-  const runs = Array.from({ length: b.length + 1 }, () => 0)
-  for (const wordA of a) {
-    let diagonal = 0
-    for (let j = 0; j < b.length; j += 1) {
-      const above = runs[j + 1]
-      runs[j + 1] = wordA === b[j] ? diagonal + 1 : 0
-      longest = Math.max(longest, runs[j + 1])
-      diagonal = above
-    }
-  }
-  return longest
-}
+const inventoryTexts = FREE_INCLUDES.flatMap((inclusion) => [inclusion.title, inclusion.body])
 
 describe('the landing page copy', () => {
   test('the hero explains the game with MODEL_LINE itself, not a copy of it', () => {
@@ -222,23 +213,23 @@ describe('the landing page copy', () => {
   })
 
   test('every claim names a file that exists, as a file', () => {
-    // `.isFile()`, not just existsSync, for pro-benefits.test.ts's reason: a
-    // directory resolves too, and `checkedAgainst: 'convex'` would pass
-    // existsSync while saying nothing about which file carries the rule.
+    // `notAFile` RATHER THAN A HAND-ROLLED existsSync, for the reason its doc
+    // comment records (wordle-teams-vxkr): a directory resolves too, so
+    // `checkedAgainst: 'convex'` would satisfy an existence test while saying
+    // nothing about which file carries the rule — and the reason it hands back
+    // tells the two failures apart.
     for (const [label, path] of claims) {
-      const resolved = resolve(root, path)
-      expect(existsSync(resolved), `${label} -> ${path}`).toBe(true)
-      expect(statSync(resolved).isFile(), `${label} -> ${path}`).toBe(true)
+      expect(notAFile(resolve(root, path)), `${label} -> ${path}`).toBeNull()
     }
   })
 
   test('no free-voice line this page wrote lifts a phrase from a Pro benefit', () => {
     // The second half of the same guard, and it catches the case a grep cannot:
     // copy about a gated feature, written from scratch, in a section that reads
-    // as free. plans.test.ts measures the longest run of consecutive shared
-    // words for the sibling problem and records why the threshold is four —
-    // independent copy in this corpus tops out at two shared words, and three
-    // fails on a feature's own noun phrase alone ("three months", "two teams").
+    // as free. The measure and its threshold are test-support/copy-claims.ts's
+    // `longestSharedRun` and `SHARED_RUN_LIMIT`, whose doc comment carries the
+    // argument for four — in short, that three fails on a feature's own noun phrase
+    // alone ("three months", "two teams").
     //
     // TITLE AND BODY MEASURED SEPARATELY, never concatenated, so a run that
     // straddles the join between one entry's title and its body — a phrase no
@@ -263,19 +254,65 @@ describe('the landing page copy', () => {
     // lead, which claims nothing and is measured anyway, because a lead is still
     // a sentence this file wrote.
     //
-    // The DP is checked against a known answer first: an implementation that
-    // returned 0 for everything would satisfy every assertion below it.
-    expect(
-      longestSharedRun(words('let a screenshot fill the board in for you'), words(
-        'Paste or upload a screenshot of your Wordle and we’ll fill the board in for you — check it and submit.',
-      )),
-    ).toBe(6)
-
+    // The DP's own known-answer check — a measure that returned 0 for everything
+    // would satisfy every assertion below it — is copy-claims.test.ts's, which is
+    // what this test stopped carrying when the measure became a house helper.
     const benefitTexts = PRO_BENEFITS.flatMap((benefit) => [benefit.title, benefit.body]).map(words)
     for (const line of authoredFreeVoice) {
       for (const benefitText of benefitTexts) {
         const run = longestSharedRun(words(line), benefitText)
-        expect(run, `"${line}" vs "${benefitText.join(' ')}"`).toBeLessThan(4)
+        expect(run, `"${line}" vs "${benefitText.join(' ')}"`).toBeLessThan(SHARED_RUN_LIMIT)
+      }
+    }
+  })
+
+  test('no free-voice line this page wrote restates an inventory entry either', () => {
+    // THE GUARD THAT WOULD HAVE CAUGHT ALL THREE ORIGINAL DISAGREEMENTS, and the
+    // last of the three things wordle-teams-wty4.1.14.11 was raised about. Before
+    // the landing selected from lib/free-includes.ts it wrote its own chat
+    // sentence, its own reminders card and its own benchmark paragraph, and each
+    // was a second copy of an entry that had to be edited in lockstep. Single
+    // sourcing fixed those three by construction; only this stops the NEXT
+    // hand-written sentence, which arrives as ordinary-looking page copy in a
+    // section that describes something free.
+    //
+    // THE TRAP THIS CORPUS EXISTS TO AVOID. A surface that RENDERS an entry shares
+    // every word of it by design, so the inventory must never be measured against
+    // itself: `renderedCopy` holds the four entries the page selects and would
+    // score 100% on all four. `authoredFreeVoice` is the prose this file WROTE —
+    // the three steps, PAYOFF's title and its lead — which is exactly the corpus
+    // that block says a rule about what free is promised takes.
+    //
+    // MEASURED BEFORE THE THRESHOLD WAS ACCEPTED, because one live sentence is
+    // deliberately the substance of an entry: HOW_IT_WORKS' first step ends "Two
+    // teams are free", which is the `teams` entry in the page's own voice, inside
+    // a step about making a team. It measures 2 against that entry's title and 2
+    // against its body — "two teams", the noun phrase and nothing more — so it
+    // needs no exception and the threshold is not lowered to admit it. Across the
+    // whole corpus the maximum is 2, the same figure independent copy tops out at
+    // elsewhere, on five pairs: that step twice over, "the people" in the same step
+    // against `chat`'s body, "board you" in PAYOFF.lead against `benchmark`'s, and
+    // "a team" in the step title "Make a team" against `team-fact`'s title.
+    //
+    // AND IT IS THE THREE OLD COPIES THAT SAY WHAT IT CATCHES. Measured against the
+    // entries that replaced them, the bodies this page used to write share 22, 16
+    // and 9 consecutive words with `chat`, `reminders` and `benchmark` — so all
+    // three would be red here. Their TITLES would not: "Team chat" scores 2 against
+    // the entry that absorbed it and "Reminders" scores 1, because a two-word
+    // heading cannot share four consecutive words with anything. A duplicated
+    // HEADING is caught on /pricing, where tier-table.hook.test.ts pins the free
+    // column's outline to the inventory's titles, and is caught on this page only
+    // by e2e/routes.spec.ts's transcribed h3 outline.
+    //
+    // WHICH LEAVES THE OTHER THING IT CANNOT SEE, stated so it is known rather than
+    // discovered: `authoredFreeVoice` is an ENUMERATION, so a new export this file
+    // adds is outside it until somebody lists it there. That is the same hazard
+    // the `renderedCopy` block names, and the reason both lists spell out what
+    // they omit.
+    for (const line of authoredFreeVoice) {
+      for (const text of inventoryTexts) {
+        const run = longestSharedRun(words(line), words(text))
+        expect(run, `"${line}" vs inventory "${text}"`).toBeLessThan(SHARED_RUN_LIMIT)
       }
     }
   })
@@ -335,9 +372,7 @@ describe('the landing page copy', () => {
     for (const [key, shot] of Object.entries(SHOTS)) {
       for (const theme of ['light', 'dark']) {
         const path = `public/marketing/${shot.stem}-${theme}.png`
-        const resolved = resolve(root, path)
-        expect(existsSync(resolved), `${key} -> ${path}`).toBe(true)
-        expect(statSync(resolved).isFile(), `${key} -> ${path}`).toBe(true)
+        expect(notAFile(resolve(root, path)), `${key} -> ${path}`).toBeNull()
       }
     }
   })

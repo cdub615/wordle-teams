@@ -27,6 +27,18 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  * by id, rendered in the inventory's own words, the way
  * components/pricing/tier-table.tsx renders PRO_BENEFITS.
  *
+ * AND WRITING ONE ANYWAY IS A FAILING TEST, NOT A STYLE NOTE.
+ * marketing-copy.test.ts measures every sentence this file WROTE against every
+ * title and body in that inventory and fails at four consecutive shared words.
+ * Measured against the entries that replaced them, the three hand-written BODIES
+ * this page used to hold share 9, 16 and 22 consecutive words with their entry, so
+ * each would now be red; their two titles — "Team chat" and "Reminders" — are a
+ * word or two long and would not be, which no threshold that lets this page be
+ * written could change. The two sentences named below as exceptions are measured by
+ * it as well and clear it: the first step, which ends "Two teams are free", shares
+ * two consecutive words with the `teams` entry — the noun phrase and nothing more —
+ * and `PAYOFF.title` shares one with anything in the list.
+ *
  * TWO SENTENCES ARE THE EXCEPTION AND EACH CARRIES ITS OWN GUARANTEES. The first
  * is `HOW_IT_WORKS`'s opening step, which ends "Two teams are free" — the
  * inventory's `teams` entry said in the page's voice, inside a step about making a

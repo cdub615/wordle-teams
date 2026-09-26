@@ -27,6 +27,12 @@ import { LAUNCH_AT_IS_PLACEHOLDER } from '../../../convex/lib/insightsAccess.ts'
  * rather than here because a list exported from a component is a list no other
  * surface will import, which is how the landing page came to write a second,
  * disagreeing copy of the free story.
+ *
+ * AND THIS COLUMN IS HELD TO THE SAME OUTLINE ASSERTION AS THE PRO ONE: the whole
+ * array, in this order, with no heading in the column that is not an entry title.
+ * That is what makes /pricing the surface that cannot leave a free capability
+ * unadvertised — the landing shows two curated selections of this list, so an entry
+ * missing HERE is an entry a reader never meets.
  */
 
 /**

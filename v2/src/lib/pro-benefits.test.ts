@@ -3,9 +3,9 @@
 // node rather than the suite's default edge-runtime, because the gatedAt test
 // below reads the filesystem. That is the whole point of it: a path that does not
 // resolve is a claim nobody checked.
-import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
+import { notAFile } from '#/test-support/copy-claims.ts'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../convex/lib/monthWindow.ts'
 import { PRO_BENEFITS } from './pro-benefits.ts'
@@ -37,13 +37,13 @@ describe('PRO_BENEFITS', () => {
     // the comment claimed the entry named real code — which is the same shape as
     // the "unlimited months" claim this whole file exists to stop.
     //
-    // `.isFile()`, NOT JUST `existsSync`. A directory resolves too — `gatedAt:
-    // 'convex'` would pass existsSync and say nothing at all about which file
-    // carries the rule.
+    // `notAFile` IS THE HOUSE VERSION OF THE CHECK (wordle-teams-vxkr), and its
+    // doc comment carries the half worth spelling out: a directory resolves too,
+    // so `gatedAt: 'convex'` would satisfy an existence test and say nothing at
+    // all about which file carries the rule. It answers WHY a path fails rather
+    // than a boolean, so this one assertion diagnoses what two used to.
     for (const benefit of PRO_BENEFITS) {
-      const path = resolve(__dirname, '../..', benefit.gatedAt)
-      expect(existsSync(path), benefit.gatedAt).toBe(true)
-      expect(statSync(path).isFile(), benefit.gatedAt).toBe(true)
+      expect(notAFile(resolve(__dirname, '../..', benefit.gatedAt)), benefit.gatedAt).toBeNull()
     }
   })
 
