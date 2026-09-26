@@ -123,7 +123,7 @@ describe('UPGRADE_HEADLINES', () => {
     // with its body ("Pro lifts the cap"), nor `months` at 2. Both were reworded
     // by eye. A floor on phrase reuse, not a substitute for reading the dialog.
     //
-    // THE DP AND `words` ARE THE HOUSE VERSIONS (wordle-teams-vxkr), and the
+    // THE DP AND `words` ARE THE HOUSE VERSIONS (wordle-teams-qul0), and the
     // known-answer check this test used to open with — a measure that returned 0
     // for everything would satisfy every assertion below it — is
     // copy-claims.test.ts's now, on the same sentence pair.

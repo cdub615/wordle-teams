@@ -37,7 +37,7 @@ describe('PRO_BENEFITS', () => {
     // the comment claimed the entry named real code — which is the same shape as
     // the "unlimited months" claim this whole file exists to stop.
     //
-    // `notAFile` IS THE HOUSE VERSION OF THE CHECK (wordle-teams-vxkr), and its
+    // `notAFile` IS THE HOUSE VERSION OF THE CHECK (wordle-teams-qul0), and its
     // doc comment carries the half worth spelling out: a directory resolves too,
     // so `gatedAt: 'convex'` would satisfy an existence test and say nothing at
     // all about which file carries the rule. It answers WHY a path fails rather

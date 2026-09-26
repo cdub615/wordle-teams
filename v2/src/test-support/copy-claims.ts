@@ -3,14 +3,15 @@ import { existsSync, statSync } from 'node:fs'
 /**
  * THE CHECKS EVERY COPY CLAIM IN THIS REPO IS MADE OF, IN ONE PLACE.
  *
- * WHY A SHARED HOME, in test-support/source-ast.ts's words about itself: a
- * hand-rolled copy of a check that has a tested house version is how a guard
- * silently stops guarding. Counted before it was fixed: the longest-shared-run DP,
- * `words` and the threshold stood three times over, in src/lib/plans.test.ts,
+ * WHY A SHARED HOME, in test-support/source-ast.ts's words about itself: it lives
+ * in src/ rather than beside one test because two suites need it, and "a copy in
+ * each is how a helper drifts into two behaviours". Counted before it was fixed:
+ * the longest-shared-run DP, `words` and the threshold stood three times over, in
+ * src/lib/plans.test.ts,
  * src/lib/free-includes.test.ts and src/components/home/marketing-copy.test.ts; the
  * `existsSync` + `statSync().isFile()` pair stood four times, once each in
  * src/lib/pro-benefits.test.ts and free-includes.test.ts and twice inside
- * marketing-copy.test.ts. wordle-teams-vxkr is the issue those copies were filed
+ * marketing-copy.test.ts. wordle-teams-qul0 is the issue those copies were filed
  * under, and the fourth corpus for the measure — the landing's own prose against
  * the free inventory — is what would have made it a fourth copy rather than a
  * shared one.
@@ -105,6 +106,16 @@ export const longestSharedRun = (a: string[], b: string[]) => {
  * above them be written. This is a floor on phrase reuse, not a substitute for
  * reading the page — and the mutants above are worth re-running if the number is
  * ever changed, in every suite that imports it.
+ *
+ * WHAT CENTRALISING IT COSTS, WHICH IS THE HALF A SHARED CONSTANT HIDES. Four
+ * corpora now loosen together. Measured: editing this line to 8 reddens exactly ONE
+ * test — the pin in copy-claims.test.ts — while every collision assertion in
+ * plans.test.ts, free-includes.test.ts and marketing-copy.test.ts goes on passing at
+ * a threshold nobody chose for them. Before, the number stood as three separate `4`
+ * literals and all three had to be edited to do that. The pin is what makes the edit
+ * visible at all, and it is deliberately the whole of the compensation: a per-corpus
+ * threshold would be four numbers to argue about where the argument above applies to
+ * all of them equally.
  */
 export const SHARED_RUN_LIMIT = 4
 

@@ -18,7 +18,7 @@ import { longestSharedRun, notAFile, SHARED_RUN_LIMIT, words } from './copy-clai
  * free-includes.test.ts and marketing-copy.test.ts each opened their shared-run
  * test by measuring one sentence pair whose answer they knew, because the DP was
  * theirs and nothing else checked it. The DP is one function with one test now, so
- * each of those keeps a line naming this file instead — the trade wordle-teams-vxkr
+ * each of those keeps a line naming this file instead — the trade wordle-teams-qul0
  * was raised to make, and it is only sound while the assertions below are here.
  */
 

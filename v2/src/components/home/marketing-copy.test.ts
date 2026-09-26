@@ -214,7 +214,7 @@ describe('the landing page copy', () => {
 
   test('every claim names a file that exists, as a file', () => {
     // `notAFile` RATHER THAN A HAND-ROLLED existsSync, for the reason its doc
-    // comment records (wordle-teams-vxkr): a directory resolves too, so
+    // comment records (wordle-teams-qul0): a directory resolves too, so
     // `checkedAgainst: 'convex'` would satisfy an existence test while saying
     // nothing about which file carries the rule — and the reason it hands back
     // tells the two failures apart.

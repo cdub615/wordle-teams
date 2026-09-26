@@ -160,9 +160,11 @@ describe('the free column says what free GIVES', () => {
     //
     // WHAT IT STILL CANNOT SEE, stated rather than left to be discovered: an
     // unheaded PARAGRAPH. A `<p>` restating an entry's body would pass this exactly
-    // as it would pass the Pro column's version, and only the refusals regex below
-    // reads the column's full text. A heading is what a skimming reader takes away
-    // and what a second description of a tier arrives as.
+    // as it would pass the Pro column's version. Two tests below do read the
+    // column's full text, and neither closes that gap: the refusals regex is a
+    // negative over the whole column, and the Layer-1 phrase check is a `toContain`,
+    // which no addition can fail. A heading is what a skimming reader takes away and
+    // what a second description of a tier arrives as.
     table()
     const headings = free()
       .getAllByRole('heading')

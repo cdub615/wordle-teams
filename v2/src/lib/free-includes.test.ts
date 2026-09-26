@@ -40,14 +40,16 @@ const SRC = resolve(__dirname, '..')
  * inventory.
  *
  * THE SEVENTH WALKER IN THIS REPO, AND THE COUNT IS NOT AN ACCIDENT.
- * src/checkout-entry-point.test.ts enumerates the six that came before it and
- * states the rule for consolidating them: worth doing when two of them want the
- * SAME filter, not when a seventh appears. This one wants that file's filter
- * exactly — `.ts`/`.tsx`, `.test.ts` excluded — so it is the first pair that
- * qualifies, and it is left as a copy anyway because the two suites ask different
- * questions of the result and because wordle-teams-vxkr's consolidation is about
- * the copy-claim idioms, not the walkers. Named here so it is a decision on record
- * rather than a tally nobody kept.
+ * src/checkout-entry-point.test.ts enumerates the FIVE that came before it and
+ * calls itself the sixth, then states the rule for consolidating them: worth doing
+ * when two of them want the SAME filter, not when a seventh appears. This is the
+ * seventh, and it is the nearest thing yet to that pair — the same body over the
+ * same extensions with `.test.ts` excluded, differing in that this one sorts each
+ * directory for a deterministic list and that file's call site also drops the hook
+ * module it is asking about. Left as a copy anyway, because the two suites ask
+ * different questions of the result and because wordle-teams-qul0's consolidation is
+ * about the copy-claim idioms, not the walkers; the walker follow-up is filed as
+ * wordle-teams-hk9n rather than left as a tally nobody kept.
  */
 const sourceFiles = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true })
@@ -165,7 +167,7 @@ describe('FREE_INCLUDES', () => {
     // have it. A suffix check (`/\.tsx?$/`) would pass for 'nonsense.ts' while the
     // comment claimed the entry named real code.
     //
-    // `notAFile` IS THE HOUSE VERSION (wordle-teams-vxkr) and carries the rest of
+    // `notAFile` IS THE HOUSE VERSION (wordle-teams-qul0) and carries the rest of
     // the argument: a directory resolves too, so `checkedAgainst: 'convex'` would
     // satisfy an existence test and say nothing at all about which file makes the
     // claim true. The reason it returns names which of the two happened.
@@ -356,11 +358,31 @@ describe('the surfaces that render the inventory', () => {
     // `toMatch(/free-includes/)` over raw source would report a fourth surface
     // that does not exist.
     //
+    // DISCOVERED BY THE UNION OF BOTH HELPERS, AND A ONE-LINE RE-EXPORT IS WHY.
+    // `importedModulesOf`'s own doc says what it does not report: `export … from`
+    // and dynamic `import()`. Measured against the first version of this census,
+    // which gated discovery on that helper alone: a new src/lib/copy-inventory.ts
+    // holding `export { freeInclusionsFor } from './free-includes.ts'`, plus a new
+    // component importing through it and writing its own paragraph around two
+    // entries, left all 3815 tests passing and this list unchanged. That is the
+    // exact arrival the census exists to make loud, walked around by one line.
+    // `runtimeImportsOf` reports both of those forms, so the union sees the hop —
+    // and the hop is unavoidable: something has to name this module.
+    //
+    // WHICH BOUNDS WHAT IT CATCHES, AND THE BOUND IS WORTH STATING. It answers "who
+    // names the inventory", not "who renders free copy". A module that takes an
+    // already-made selection — `ALSO_FREE` out of marketing-copy.ts, the way
+    // also-free.tsx does — names nothing here and is invisible to this test; the
+    // prose such a component writes in its own JSX is invisible to every gate in the
+    // repo, which is marketing-copy.ts's whole reason for existing and a different
+    // hazard from this one.
+    //
     // VALUE OR TYPE, BECAUSE THE DIFFERENCE IS WHAT THE MODULE IS DOING.
     // `importedModulesOf` reports type-only declarations and `runtimeImportsOf`
     // does not, so the pair of them separates the two: also-free.tsx takes the
-    // `FreeInclusion` type to key an icon map and receives its entries as a prop,
-    // which makes it a renderer rather than a surface with a selection of its own;
+    // `FreeInclusion` type to key an icon map and gets the entries themselves from
+    // `ALSO_FREE` in ./marketing-copy.ts — the selection already made — which makes
+    // it a renderer rather than a surface with a selection of its own;
     // marketing-copy.ts is the only module that SELECTS (both landing sections);
     // tier-table.tsx takes the array itself, which is what makes /pricing the
     // exhaustive surface.
@@ -377,8 +399,11 @@ describe('the surfaces that render the inventory', () => {
           const source = readFileSync(path, 'utf8')
           const namesIt = (specifiers: string[]) =>
             specifiers.some((specifier) => specifier.includes('free-includes'))
-          if (!namesIt(importedModulesOf(path, source))) return []
-          return [[show(path), namesIt(runtimeImportsOf(path, source)) ? 'value' : 'type'] as const]
+          // The value answer is also the discovery half that sees a re-export, so a
+          // module reported by neither helper is the only one skipped.
+          const asValue = namesIt(runtimeImportsOf(path, source))
+          if (!asValue && !namesIt(importedModulesOf(path, source))) return []
+          return [[show(path), asValue ? 'value' : 'type'] as const]
         }),
     )
 
