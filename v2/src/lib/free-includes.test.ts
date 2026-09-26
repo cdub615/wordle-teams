@@ -16,6 +16,16 @@ import { FREE_INCLUDES } from './free-includes.ts'
 const lines = FREE_INCLUDES.flatMap((inclusion) => [inclusion.title, inclusion.body])
 
 /**
+ * Every file one entry's sentence rests on. BOTH disk-touching tests below read
+ * this, so neither can end up checking a subset of what an entry claims — which is
+ * exactly the defect `alsoGrantedIn` was added to fix.
+ */
+const pathsOf = (inclusion: (typeof FREE_INCLUDES)[number]) => [
+  inclusion.checkedAgainst,
+  ...inclusion.alsoGrantedIn,
+]
+
+/**
  * Words to word-lists, for the shared-run measure below. Lifted from
  * marketing-copy.test.ts, which lifted it from plans.test.ts, including the two
  * decisions that comment records: typographic apostrophes are normalised, and
@@ -75,9 +85,11 @@ describe('FREE_INCLUDES', () => {
     // `checkedAgainst: 'convex'` would pass existsSync and say nothing at all
     // about which file makes the claim true.
     for (const inclusion of FREE_INCLUDES) {
-      const path = resolve(__dirname, '../..', inclusion.checkedAgainst)
-      expect(existsSync(path), inclusion.checkedAgainst).toBe(true)
-      expect(statSync(path).isFile(), inclusion.checkedAgainst).toBe(true)
+      for (const named of pathsOf(inclusion)) {
+        const path = resolve(__dirname, '../..', named)
+        expect(existsSync(path), named).toBe(true)
+        expect(statSync(path).isFile(), named).toBe(true)
+      }
     }
   })
 
@@ -97,6 +109,20 @@ describe('FREE_INCLUDES', () => {
       'chat',
       'reminders',
     ])
+
+    // AND WHICH OF THEM SELLS TWO THINGS, exactly, for the same reason: the grep
+    // iterates these arrays, so emptying one would shrink what is checked while
+    // the entry went on promising both halves. `chat` sells the thread and the
+    // push (chatNotify.ts); `reminders` sells the nudge and the fact that its time
+    // and method are yours (settings.ts patches both fields).
+    expect(
+      Object.fromEntries(
+        FREE_INCLUDES.filter((i) => i.alsoGrantedIn.length > 0).map((i) => [i.id, i.alsoGrantedIn]),
+      ),
+    ).toEqual({
+      chat: ['convex/chatNotify.ts'],
+      reminders: ['convex/settings.ts'],
+    })
   })
 
   test('neither file that grants a free capability gates it on isPro', () => {
@@ -119,15 +145,21 @@ describe('FREE_INCLUDES', () => {
     // on passing. A guard that names a claim it cannot see is worse than no guard,
     // because the next reader trusts it.
     //
-    // THE SAME TWO FILES marketing-copy.test.ts GREPS, and the overlap is a
-    // coincidence of the landing's two free extras being these two entries rather
-    // than a reason to skip it. This copy is attached to the inventory, so a
-    // seventh `grantedHere` entry is covered by construction.
+    // EVERY FILE THE SENTENCE RESTS ON, NOT JUST THE FIRST. `chat` sells the
+    // thread and the push, and until `alsoGrantedIn` existed the grep saw only
+    // convex/chat.ts: somebody gating the push in convex/chatNotify.ts would have
+    // updated chatNotify.test.ts, kept all four gates green, and left a shipped
+    // sentence and three comments wrong. Same shape one step weaker on
+    // `reminders`, whose "at a time you pick" is settled in convex/settings.ts.
+    //
+    // WIDER THAN marketing-copy.test.ts'S COPY, which greps ALSO_FREE's two entry
+    // paths — convex/chat.ts and convex/reminders.ts — and neither of the two
+    // files their second halves depend on.
     for (const inclusion of FREE_INCLUDES.filter((entry) => entry.grantedHere)) {
-      const source = readFileSync(resolve(__dirname, '../..', inclusion.checkedAgainst), 'utf8')
-      expect(source, `${inclusion.id}: ${inclusion.checkedAgainst} gates on isPro`).not.toMatch(
-        /isPro/,
-      )
+      for (const named of pathsOf(inclusion)) {
+        const source = readFileSync(resolve(__dirname, '../..', named), 'utf8')
+        expect(source, `${inclusion.id}: ${named} gates on isPro`).not.toMatch(/isPro/)
+      }
     }
   })
 
@@ -184,9 +216,12 @@ describe('FREE_INCLUDES', () => {
   })
 
   test('uses typographic apostrophes and no typewriter ones', () => {
-    // Same rule and same test as pro-benefits.ts and the legal copy: one page
-    // mixing ' and ’ is visible to a reader and to nothing else, and this copy
-    // reaches /pricing with no other gate able to see it.
+    // Same rule and same test as pro-benefits.test.ts, plans.test.ts and
+    // marketing-copy.test.ts: one page mixing ' and ’ is visible to a reader and to
+    // nothing else, and this copy reaches /pricing with no other gate able to see
+    // it. (Those three are the whole set. An earlier draft of this line cited "the
+    // legal copy", which carries no such test — inherited verbatim from
+    // marketing-copy.test.ts, where it is now corrected too.)
     const prose = lines.join(' ')
 
     expect(prose).not.toContain("'")

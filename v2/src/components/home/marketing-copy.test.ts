@@ -270,8 +270,10 @@ describe('the landing page copy', () => {
   })
 
   test('uses typographic apostrophes and no typewriter ones', () => {
-    // Same rule, same test, as pro-benefits.ts and the legal copy: one page
-    // mixing ' and ’ is visible to a reader and to nothing else. THE ALT TEXT
+    // Same rule, same test, as pro-benefits.test.ts, plans.test.ts and
+    // free-includes.test.ts — the whole set of files that carry it; the legal copy,
+    // which this line used to cite, has no such test. One page mixing ' and ’ is
+    // visible to a reader and to nothing else. THE ALT TEXT
     // IS IN SCOPE — it is copy that ships, and it is where most of this page's
     // apostrophes live.
     const prose = [

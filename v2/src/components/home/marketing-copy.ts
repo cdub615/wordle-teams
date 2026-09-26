@@ -21,16 +21,16 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  *
  * THE RULE THAT REPLACES IT: NO LINE HERE CLAIMS A CAPABILITY THE CODE DOES NOT
  * BACK, AND NO LINE DESCRIBES A GATED ONE AS THOUGH IT WERE FREE. Every entry
- * below carries a `checkedAgainst` path, which is lib/pro-benefits.ts's
- * `gatedAt` from the free side — the same field, and the same discipline, that
- * lib/free-includes.ts's FREE_INCLUDES uses. marketing-copy.test.ts
- * asserts each path resolves to a real file, and for the free extras it asserts
- * the named file contains no `isPro` at all.
+ * below carries a `checkedAgainst` path, which is lib/pro-benefits.ts's `gatedAt`
+ * from the free side — the same field, and the same discipline, that
+ * lib/free-includes.ts's FREE_INCLUDES uses. marketing-copy.test.ts asserts each
+ * path resolves to a real file, and for the free extras it asserts the named file
+ * contains no `isPro` at all.
  *
- * WHY A FREE CLAIM NEEDS THE HARDER TEST, in lib/free-includes.ts's words: a Pro claim
- * that goes stale is noticed the first time somebody pays and does not get it; a
- * free claim that goes stale has no such moment, because nobody complains that a
- * thing they were not charged for is missing.
+ * WHY A FREE CLAIM NEEDS THE HARDER TEST, in lib/free-includes.ts's words: a Pro
+ * claim that goes stale is noticed the first time somebody pays and does not get
+ * it; a free claim that goes stale has no such moment, because nobody complains
+ * that a thing they were not charged for is missing.
  *
  * THE PAGE IS WRITTEN FOR SOMEONE WHO HAS NEVER HEARD OF THIS — the owner's
  * decision. The "what's new since v1" story belongs to the launch email
@@ -38,8 +38,8 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  * it would be stale the week after launch.
  *
  * IT IS NOT THE THIRD COPY OF THE TIER TABLE. pro-benefits.ts's header names its
- * consumers — the upgrade dialog, /about and /pricing — and says they "describe one
- * tier and must not describe it twice". This file describes neither tier: it
+ * consumers — the upgrade dialog, /about and /pricing — and says they "describe
+ * one tier and must not describe it twice". This file describes neither tier: it
  * describes what the app DOES, in the free product's terms, and hands the tier
  * question to /pricing with one link at the bottom. Nothing here enumerates what
  * Pro includes, which is why it can be read without PRO_BENEFITS in hand.
@@ -97,8 +97,8 @@ export type MarketingItem = {
  * The three steps, in the order onboarding-tasks.ts's TASK_COPY lists them.
  *
  * "TWO TEAMS ARE FREE" IS A NUMBER SPELLED AS A WORD, which no template literal
- * can keep honest — the problem pro-benefits.ts, plans.ts and free-includes.ts all
- * have. Solved the same way: the test pins FREE_TEAM_LIMIT, so moving the
+ * can keep honest — the problem pro-benefits.ts, plans.ts and free-includes.ts
+ * all have. Solved the same way: the test pins FREE_TEAM_LIMIT, so moving the
  * constant fails a gate instead of shipping stale copy behind four green ones.
  *
  * STEP 2 SAYS "TYPE", NEVER "PASTE", AND THAT IS THE WHOLE SPEC CORRECTION IN
@@ -153,8 +153,8 @@ export const HOW_IT_WORKS: ReadonlyArray<MarketingItem> = [
  * static artifact the CDN serves (convex/insights.ts's header, public/insights/),
  * so what a board is measured against is the historical difficulty of that day
  * and the opener's rank among past openers — not a live field of today's
- * players. free-includes.ts's `benchmark` entry carries the same correction in its
- * own comment; this is the second surface to need it.
+ * players. free-includes.ts's `benchmark` entry carries the same correction in
+ * its own comment; this is the second surface to need it.
  *
  * NOT AN UPSELL, WITH ONE HONEST EXCEPTION. The prose sells nothing gated. But
  * the only Insights screenshot that exists (public/marketing/insights-*.png)

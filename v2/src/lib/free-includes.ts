@@ -32,20 +32,23 @@
  * tiers better than the reverse. wordle-teams-wty4.1.14.11.2 folds the landing's
  * own copies into a selection from this list.
  *
- * `checkedAgainst` IS pro-benefits.ts's `gatedAt` WITH THE SIGN REVERSED, and for
- * `teams` it is LITERALLY THE SAME FILE: convex/lib/teamLimits.ts appears in both
- * lists, once as the file a Pro claim is measured against and once as the file a
- * free one is. So "the other side" is a loose way to put it — what differs is not
- * the file but which half of one rule the sentence sells, which is why
- * `grantedHere` sits beside the path. See both fields' doc comments.
+ * `checkedAgainst` IS pro-benefits.ts's `gatedAt` WITH THE SIGN REVERSED, AND FOR
+ * TWO ENTRIES IT IS LITERALLY THE SAME FILE. convex/lib/teamLimits.ts and
+ * convex/lib/monthWindow.ts each appear in both lists — once as the file a Pro
+ * claim is measured against, once as the file a free one is — which is what makes
+ * "the other side" a loose way to put it: what differs is not the file but which
+ * half of one rule the sentence sells. Those are also the two `gatedAt` entries
+ * pro-benefits.ts's header sets apart as naming a constant rather than a throw
+ * site, and the same pairing runs through `grantedHere` below. See both that
+ * field's doc comment and `alsoGrantedIn`'s.
  *
  * A FREE CLAIM NEEDS THE HARDER TEST, and that is why the field is here at all. A
  * Pro claim that goes stale is noticed the first time somebody pays and does not
  * get it. A FREE claim that goes stale has no such moment: nobody complains that a
  * thing they were not charged for is missing, so the sentence just stays wrong.
- * free-includes.test.ts resolves every path to a real file, greps the `grantedHere`
- * ones for `isPro`, measures every line against every PRO_BENEFITS text, and holds
- * all six to the rule below.
+ * free-includes.test.ts resolves every path to a real file, greps every file behind
+ * a `grantedHere` entry for `isPro` — all of them, not just the first — measures
+ * every line against every PRO_BENEFITS text, and holds all six to the rule below.
  *
  * EVERY ENTRY STATES WHAT ARRIVES, NEVER WHAT IS WITHHELD. This is the editorial
  * rule the file turns on and the one a seventh entry is likeliest to break, so it
@@ -66,7 +69,9 @@
  * CHAT AND NOTIFICATIONS BELONG IN THIS LIST AND NOT IN PRO'S. pro-benefits.ts's
  * header records their absence from the Pro list as a decision rather than an
  * omission: there is no `isProFor` anywhere in convex/chat.ts or
- * convex/chatNotify.ts, so they are part of the free product. Selling something
+ * convex/chatNotify.ts, so they are part of the free product. That sentence used
+ * to be asserted in three comments and checked in none; chatNotify.ts is in
+ * `alsoGrantedIn` now, so the grep is what keeps it true. Selling something
  * already free is the same defect as selling something that does not exist.
  */
 export type FreeInclusion = {
@@ -81,10 +86,31 @@ export type FreeInclusion = {
    */
   checkedAgainst: string
   /**
-   * Whether `checkedAgainst` is the file that actually hands this capability over
-   * — so a gate on it would have to land in THAT file, and the absence of `isPro`
-   * there is itself the claim. True for `chat` and `reminders`, and for them the
-   * grep in free-includes.test.ts is the whole guarantee.
+   * The rest of the files this one sentence rests on, resolved and greped exactly
+   * as `checkedAgainst` is. `[]` when one file carries the whole sentence.
+   *
+   * IT EXISTS BECAUSE TWO OF THESE SENTENCES SELL TWO THINGS. `chat` promises the
+   * thread AND the push, and the push is convex/chatNotify.ts's rather than
+   * convex/chat.ts's. `reminders` promises a nudge AND that the time and the
+   * method are the reader's own, which convex/settings.ts settles — it patches
+   * `reminderDeliveryTime` and `reminderDeliveryMethods`, and the only other
+   * writers are the signup default in players.ts, the migration and the fixtures.
+   * One path per entry left the grep covering half of each sentence while three
+   * comments — this file's header, pro-benefits.ts's and pro-benefits.test.ts's —
+   * asserted the other half unchecked, which is the exact shape of claim this list
+   * exists to stop.
+   *
+   * NON-OPTIONAL, AND `[]` RATHER THAN ABSENT, so a seventh entry has to decide
+   * rather than inherit silence. free-includes.test.ts pins which entries carry
+   * one, so emptying this array fails instead of quietly shrinking the grep.
+   */
+  alsoGrantedIn: ReadonlyArray<string>
+  /**
+   * Whether `checkedAgainst` and `alsoGrantedIn` are the files that actually hand
+   * this capability over — so a gate on it would have to land in ONE OF THEM, and
+   * the absence of `isPro` across them is itself the claim. True for `chat` and
+   * `reminders`, and for them the grep in free-includes.test.ts is the whole
+   * guarantee.
    *
    * FALSE IS THE COMMONER CASE HERE, and it is the distinction pro-benefits.ts's
    * header already draws about teamLimits.ts and monthWindow.ts: neither of those
@@ -111,6 +137,7 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'Two teams',
     body: 'Join two teams and play with both — your own, and the one a friend invites you to.',
     checkedAgainst: 'convex/lib/teamLimits.ts',
+    alsoGrantedIn: [],
     grantedHere: false,
   },
   {
@@ -122,17 +149,19 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'Three months of scores',
     body: 'This month and the two before it, board by board, scored and settled.',
     checkedAgainst: 'convex/lib/monthWindow.ts',
+    alsoGrantedIn: [],
     grantedHere: false,
   },
   {
     id: 'benchmark',
     // Layer 1 is 'free' for everyone (insightsAccess.ts), and boardsForLayer1
     // trims that to the most recent board — the code's behaviour, in the code's
-    // words, which are exactly the four this column may not use; see below. What
-    // the row then shows is board-row.tsx's two sentences: the opener's rank in
-    // the corpus and the day's difficulty percentile. NOT "against everyone who
-    // played that day" — the corpus is a static artifact of past puzzles, not a
-    // live field.
+    // words, which are three of the four the column may not write in a row. The
+    // fourth is "your", which pro-benefits.ts's `insights` body puts in front of
+    // them; see below. What the row then shows is board-row.tsx's two sentences:
+    // the opener's rank in the corpus and the day's difficulty percentile. NOT
+    // "against everyone who played that day" — the corpus is a static artifact of
+    // past puzzles, not a live field.
     //
     // "THE LAST BOARD YOU ENTERED", NOT "YOUR MOST RECENT BOARD", AND THE
     // WORDING IS FORCED RATHER THAN PREFERRED. pro-benefits.ts's `insights` body
@@ -147,6 +176,7 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'How your last board measured up',
     body: 'The last board you entered, set against every past Wordle: how hard that day was, and where your opener ranks.',
     checkedAgainst: 'src/lib/insights-panel.ts',
+    alsoGrantedIn: [],
     grantedHere: false,
   },
   {
@@ -158,6 +188,7 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'A team fact every day',
     body: 'Enter today’s board and see how many of your teammates you beat.',
     checkedAgainst: 'src/components/insights/daily-team-fact.tsx',
+    alsoGrantedIn: [],
     grantedHere: false,
   },
   {
@@ -171,6 +202,7 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'Team chat, and a push when it moves',
     body: 'Argue about the word in the app, with the people who actually played it, and get a push when the thread moves.',
     checkedAgainst: 'convex/chat.ts',
+    alsoGrantedIn: ['convex/chatNotify.ts'],
     grantedHere: true,
   },
   {
@@ -190,6 +222,7 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'Reminders',
     body: 'A nudge at a time you pick, by email or push, on the days you have yet to play.',
     checkedAgainst: 'convex/reminders.ts',
+    alsoGrantedIn: ['convex/settings.ts'],
     grantedHere: true,
   },
 ]
