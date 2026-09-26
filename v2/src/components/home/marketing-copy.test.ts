@@ -236,7 +236,7 @@ describe('the landing page copy', () => {
   test('pins the free-tier number the steps spell out as a word', () => {
     // HOW_IT_WORKS says "Two teams are free" in words, because prose cannot
     // embed a template literal — the same problem pro-benefits.ts, plans.ts and
-    // tier-table.tsx have, solved the same way. Move the constant without
+    // free-includes.ts have, solved the same way. Move the constant without
     // touching the copy and this fails instead of shipping a stale number.
     expect(FREE_TEAM_LIMIT).toBe(2)
   })

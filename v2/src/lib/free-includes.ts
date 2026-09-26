@@ -12,38 +12,50 @@
  * push behind it, and a reminder at a time of its own choosing. That is the
  * product; Pro is what it grows into.
  *
- * WHY IT IS IN lib/ RATHER THAN IN THE COMPONENT THAT RENDERS IT, which is the
- * defect this file was extracted to fix and not a tidying preference. The list
- * began as an export of components/pricing/tier-table.tsx, and an inventory
- * exported from a component is an inventory no other surface will import: the
- * landing page needed two of these sentences, had no reasonable way to reach into
- * a pricing component for them, and wrote its own. The free side then had two
- * inventories that disagreed — Reminders a headline card on the landing and
- * absent from /pricing, team chat written twice in different words, the benchmark
- * written twice in near-identical sentences that had to be edited in lockstep.
- * pro-benefits.ts is single-sourced against exactly that, and the three surfaces
- * that describe Pro — components/upgrade-dialog.tsx, routes/about.tsx and the tier
- * table — all take their words from it rather than writing their own.
+ * WHY IT IS IN lib/ AND NOT IN THE COMPONENT THAT RENDERS IT. The list began as
+ * an export of components/pricing/tier-table.tsx, and a list exported from a
+ * component is a list no other surface will import: the landing page needed three
+ * of these sentences, had no reasonable way to reach into a pricing component for
+ * them, and wrote its own. The free side then had two inventories that disagreed
+ * — Reminders a headline card on the landing and absent from /pricing, team chat
+ * written twice in different words, the benchmark written twice in near-identical
+ * sentences that had to be edited in lockstep. pro-benefits.ts is single-sourced
+ * against exactly that, and the three surfaces that describe Pro —
+ * components/upgrade-dialog.tsx, routes/about.tsx and the tier table — all take
+ * their words from it rather than writing their own.
  *
- * ONE CONSUMER TODAY, AND THE DUPLICATES ARE STILL STANDING. The tier table
- * renders this list whole. components/home/marketing-copy.ts still writes its own
- * copies of the `chat` and `reminders` sentences, and its own near-twin of the
- * `benchmark` one in `PAYOFF.body`; folding those into a selection from this list
- * is the follow-up, and the landing inherits whatever this file says once it
- * lands. The wording here is the landing's rather than the tier table's for that
- * reason: `chat` word for word, `reminders` with its one negated clause put in the
- * affirmative (see that entry), and `benchmark` opening on the landing's clause
- * without being its sentence.
+ * THE WORDING IS THE LANDING'S, NOT THE TIER TABLE'S, WHERE THE TWO DISAGREED:
+ * `chat` verbatim, `reminders` with its one negated clause flipped (see that
+ * entry), `benchmark` sharing its opening clause without being its sentence. The
+ * landing is where a stranger meets the product, and a sentence written for
+ * somebody who has never heard of it survives being read by somebody comparing
+ * tiers better than the reverse. wordle-teams-wty4.1.14.11.2 folds the landing's
+ * own copies into a selection from this list.
  *
- * `checkedAgainst` IS pro-benefits.ts's `gatedAt` FROM THE OTHER SIDE, and it is
- * here for a sharper reason than symmetry. A Pro claim that goes stale is noticed
- * the first time somebody pays and does not get it. A FREE claim that goes stale
- * has no such moment: nobody complains that a thing they were not charged for is
- * missing, so the sentence just stays wrong. The field names the file that makes
- * each claim true, and free-includes.test.ts asserts both that the path resolves
- * to a real file and that the file it names contains no `isPro` anywhere —
- * describing a gated capability as free is the defect this family of lists exists
- * to prevent.
+ * `checkedAgainst` IS pro-benefits.ts's `gatedAt` WITH THE SIGN REVERSED, and for
+ * `teams` it is LITERALLY THE SAME FILE: convex/lib/teamLimits.ts appears in both
+ * lists, once as the file a Pro claim is measured against and once as the file a
+ * free one is. So "the other side" is a loose way to put it — what differs is not
+ * the file but which half of one rule the sentence sells, which is why
+ * `grantedHere` sits beside the path. See both fields' doc comments.
+ *
+ * A FREE CLAIM NEEDS THE HARDER TEST, and that is why the field is here at all. A
+ * Pro claim that goes stale is noticed the first time somebody pays and does not
+ * get it. A FREE claim that goes stale has no such moment: nobody complains that a
+ * thing they were not charged for is missing, so the sentence just stays wrong.
+ * free-includes.test.ts resolves every path to a real file, greps the `grantedHere`
+ * ones for `isPro`, measures every line against every PRO_BENEFITS text, and holds
+ * all six to the rule below.
+ *
+ * EVERY ENTRY STATES WHAT ARRIVES, NEVER WHAT IS WITHHELD. This is the editorial
+ * rule the file turns on and the one a seventh entry is likeliest to break, so it
+ * is here rather than buried in the entry that last had to apply it. "Two teams
+ * max", "no custom scoring" and "today only" are all accurate and all describe the
+ * reader's loss; "Two teams", "Three months of scores" and a nudge "on the days
+ * you have yet to play" are the same facts as arrivals. free-includes.test.ts
+ * holds the whole inventory to a negative word list, and
+ * components/pricing/tier-table.hook.test.ts holds the rendered column to the
+ * same one.
  *
  * THE NUMBERS ARE WORDS AND THE CONSTANTS ARE PINNED BY THE TEST. FREE_TEAM_LIMIT
  * and FREE_MONTHS are not imported here, because prose cannot embed a template
@@ -68,6 +80,25 @@ export type FreeInclusion = {
    * root (`v2/`, not the outer repo) by free-includes.test.ts.
    */
   checkedAgainst: string
+  /**
+   * Whether `checkedAgainst` is the file that actually hands this capability over
+   * — so a gate on it would have to land in THAT file, and the absence of `isPro`
+   * there is itself the claim. True for `chat` and `reminders`, and for them the
+   * grep in free-includes.test.ts is the whole guarantee.
+   *
+   * FALSE IS THE COMMONER CASE HERE, and it is the distinction pro-benefits.ts's
+   * header already draws about teamLimits.ts and monthWindow.ts: neither of those
+   * turns anyone away itself. `teams` and `months` name a constant and a set of
+   * pure functions that the real enforcement reads — in teams.ts, players.ts,
+   * inviteLinks.ts and scores.ts — while `benchmark` and `team-fact` name a client
+   * helper and a component that render a decision convex/lib/insightsAccess.ts has
+   * already made. Gating any of those four leaves the file named here untouched,
+   * so a grep over all six would read as a guard on four claims it cannot see.
+   * Pointing those four at their real decision site instead would not rescue the
+   * grep: insightsAccess.ts holds seven `isPro` mentions, because deciding the
+   * tier is precisely its job.
+   */
+  grantedHere: boolean
 }
 
 export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
@@ -80,6 +111,7 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'Two teams',
     body: 'Join two teams and play with both — your own, and the one a friend invites you to.',
     checkedAgainst: 'convex/lib/teamLimits.ts',
+    grantedHere: false,
   },
   {
     id: 'months',
@@ -90,30 +122,32 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'Three months of scores',
     body: 'This month and the two before it, board by board, scored and settled.',
     checkedAgainst: 'convex/lib/monthWindow.ts',
+    grantedHere: false,
   },
   {
     id: 'benchmark',
     // Layer 1 is 'free' for everyone (insightsAccess.ts), and boardsForLayer1
-    // trims that to the most recent board. What the row then shows is
-    // board-row.tsx's two sentences: the opener's rank in the corpus and the
-    // day's difficulty percentile. NOT "against everyone who played that day" —
-    // the corpus is a static artifact of past puzzles, not a live field.
+    // trims that to the most recent board — the code's behaviour, in the code's
+    // words, which are exactly the four this column may not use; see below. What
+    // the row then shows is board-row.tsx's two sentences: the opener's rank in
+    // the corpus and the day's difficulty percentile. NOT "against everyone who
+    // played that day" — the corpus is a static artifact of past puzzles, not a
+    // live field.
     //
     // "THE LAST BOARD YOU ENTERED", NOT "YOUR MOST RECENT BOARD", AND THE
     // WORDING IS FORCED RATHER THAN PREFERRED. pro-benefits.ts's `insights` body
     // describes the free half before the paid one — "Free shows your most recent
-    // board, and today's team snapshot" — so the older opener shared exactly
-    // four consecutive words with a Pro benefit. marketing-copy.test.ts measures
-    // the longest shared run of any free-voice line against every PRO_BENEFITS
-    // text and fails at four, and its comment records this very collision firing
-    // on the landing's first draft and being fixed by this reword rather than by
-    // exempting the section. marketing-copy.ts's PAYOFF.body already opens "The
-    // last board you entered" for that reason; this is the same sentence-opening
-    // on the surface that sells the tier, so the two cannot disagree once one
-    // list feeds both.
+    // board, and today's team snapshot" — so the older opener shared exactly four
+    // consecutive words with a Pro benefit. free-includes.test.ts measures every
+    // line here against every PRO_BENEFITS text and fails at four, the threshold
+    // plans.test.ts argues for; marketing-copy.test.ts records the same collision
+    // firing on the landing's first draft and being fixed by rewording rather
+    // than by exempting the section. This entry takes that opening for the same
+    // reason, so one sentence survives the guard on either surface.
     title: 'How your last board measured up',
     body: 'The last board you entered, set against every past Wordle: how hard that day was, and where your opener ranks.',
     checkedAgainst: 'src/lib/insights-panel.ts',
+    grantedHere: false,
   },
   {
     id: 'team-fact',
@@ -124,6 +158,7 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'A team fact every day',
     body: 'Enter today’s board and see how many of your teammates you beat.',
     checkedAgainst: 'src/components/insights/daily-team-fact.tsx',
+    grantedHere: false,
   },
   {
     id: 'chat',
@@ -136,6 +171,7 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     title: 'Team chat, and a push when it moves',
     body: 'Argue about the word in the app, with the people who actually played it, and get a push when the thread moves.',
     checkedAgainst: 'convex/chat.ts',
+    grantedHere: true,
   },
   {
     id: 'reminders',
@@ -146,13 +182,14 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     // ('already-entered'), which is what "the days you have yet to play" is.
     //
     // "THE DAYS YOU HAVE YET TO PLAY", NOT "THE DAYS YOU HAVE NOT PLAYED YET",
-    // AND THAT IS THIS COLUMN'S RULE RATHER THAN TASTE. tier-table.hook.test.ts
-    // holds the free column to "described by what arrives, never by what is
-    // withheld", and a day the reader has not played is an absence, while the day
-    // the nudge arrives on is what this entry is about. The same 'already-entered'
-    // skip stands behind either wording; only one of them is a thing free GIVES.
+    // AND THAT IS THIS FILE'S RULE RATHER THAN TASTE — the header states it:
+    // what arrives, never what is withheld. A day the reader has not played is
+    // an absence; the day the nudge arrives on is what this entry is about. The
+    // same 'already-entered' skip stands behind either wording, and only one of
+    // them is a thing free GIVES.
     title: 'Reminders',
     body: 'A nudge at a time you pick, by email or push, on the days you have yet to play.',
     checkedAgainst: 'convex/reminders.ts',
+    grantedHere: true,
   },
 ]

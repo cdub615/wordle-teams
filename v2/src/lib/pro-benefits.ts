@@ -16,9 +16,11 @@
  * which is the reason every claim below is checked against the file it names
  * rather than trusted because it sounds right.)
  *
- * TWO CONSUMERS, BOTH DOWNSTREAM: wordle-teams-iht.1's upgrade interstitial and
- * wordle-teams-wty4.1.14's marketing pages. They describe one tier and must not
- * describe it twice.
+ * THREE CONSUMERS, ALL DOWNSTREAM: wordle-teams-iht.1's upgrade interstitial
+ * (components/upgrade-dialog.tsx) and wordle-teams-wty4.1.14's two marketing
+ * pages — components/pricing/tier-table.tsx, which renders title and body, and
+ * routes/about.tsx, which renders the titles alone. They describe one tier and
+ * must not describe it twice.
  *
  * `gatedAt` IS NOT DECORATION, AND IT IS NOT `enforcedAt`. Every entry names the
  * file this rule's source of truth lives in, and pro-benefits.test.ts asserts

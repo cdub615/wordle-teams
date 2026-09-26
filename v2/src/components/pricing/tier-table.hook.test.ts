@@ -18,7 +18,6 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test } from 'vitest'
-import { TierTable } from './tier-table.tsx'
 import { FREE_INCLUDES } from '#/lib/free-includes.ts'
 import { MONTHLY_FINE_PRINT, PLANS, PRO_PRICE_LINE } from '#/lib/plans.ts'
 import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
@@ -28,6 +27,7 @@ import {
   INSIGHTS_TRIAL_DAYS,
   LAUNCH_AT_IS_PLACEHOLDER,
 } from '../../../convex/lib/insightsAccess.ts'
+import { TierTable } from './tier-table.tsx'
 
 afterEach(cleanup)
 
@@ -45,7 +45,7 @@ describe('the Pro column', () => {
   /**
    * THE DRIFT GATE THIS PAGE EXISTS TO CARRY, and it is deliberately the same
    * assertion upgrade-dialog.hook.test.ts makes — pro-benefits.ts's header names
-   * those two surfaces as its only consumers and says they "must not describe it
+   * both of those surfaces among its consumers and says they "must not describe it
    * twice". A sixth benefit now fails in two places until both name it.
    *
    * TITLE AND BODY, BOTH, for the reason the dialog's own copy of this records:
@@ -147,10 +147,12 @@ describe('the free column says what free GIVES', () => {
     // THE LAYER 1 PHRASE IS "the last board you entered", NOT "your most recent
     // board", AND THE DIFFERENCE IS A GUARD RATHER THAN A PREFERENCE. The second
     // wording shares exactly four consecutive words with pro-benefits.ts's
-    // `insights` body, which describes the free half before the paid one, and
-    // marketing-copy.test.ts fails a free-voice line at four. free-includes.ts's
-    // `benchmark` entry records the whole account; what this line pins is that the
-    // column still names Layer 1 at all.
+    // `insights` body, which describes the free half before the paid one.
+    // free-includes.test.ts measures every line of the inventory against every
+    // PRO_BENEFITS text and fails at four, which is what makes the wording forced;
+    // free-includes.ts's `benchmark` entry records the whole account. What THIS
+    // line pins is only that the rendered column still names Layer 1 at all — so
+    // keep the two in step: a reworded entry lands here as a failure.
     table()
     const text = screen.getByTestId('pricing-free').textContent ?? ''
     expect(text).toContain('last board you entered')

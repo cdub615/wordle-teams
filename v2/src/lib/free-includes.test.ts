@@ -7,9 +7,44 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
+import { PRO_BENEFITS } from './pro-benefits.ts'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../convex/lib/monthWindow.ts'
 import { FREE_INCLUDES } from './free-includes.ts'
+
+/** Every line a reader of the free column actually sees, title and body apart. */
+const lines = FREE_INCLUDES.flatMap((inclusion) => [inclusion.title, inclusion.body])
+
+/**
+ * Words to word-lists, for the shared-run measure below. Lifted from
+ * marketing-copy.test.ts, which lifted it from plans.test.ts, including the two
+ * decisions that comment records: typographic apostrophes are normalised, and
+ * punctuation — hyphens included, so "two-team" cannot hide an overlap with "two
+ * team" — becomes whitespace rather than vanishing.
+ */
+const words = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/’/g, "'")
+    .replace(/[^a-z0-9']+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+
+/** Classic longest-common-substring DP over words rather than characters. */
+const longestSharedRun = (a: string[], b: string[]) => {
+  let longest = 0
+  const runs = Array.from({ length: b.length + 1 }, () => 0)
+  for (const wordA of a) {
+    let diagonal = 0
+    for (let j = 0; j < b.length; j += 1) {
+      const above = runs[j + 1]
+      runs[j + 1] = wordA === b[j] ? diagonal + 1 : 0
+      longest = Math.max(longest, runs[j + 1])
+      diagonal = above
+    }
+  }
+  return longest
+}
 
 describe('FREE_INCLUDES', () => {
   test('lists exactly the six things a free account gets today', () => {
@@ -46,7 +81,25 @@ describe('FREE_INCLUDES', () => {
     }
   })
 
-  test('no file behind a free claim gates anything on isPro', () => {
+  test('records which two entries name the file that grants the thing', () => {
+    // THE PARTITION ITSELF, EXACT IN BOTH DIRECTIONS, which is the shape
+    // pro-benefits.test.ts pins `serverEnforced` with. It matters here because the
+    // grep below runs over this filter and nothing else: a wrong `true` greps a
+    // file that was never going to mention `isPro` and reports a guard it is not
+    // performing, and a wrong `false` stops grepping the one file a gate would
+    // actually appear in.
+    //
+    // FOUR OF SIX ARE false, A HIGHER PROPORTION THAN PRO'S TWO OF FIVE, and the
+    // reason is in the field's doc comment: a free grant is usually the ABSENCE of
+    // a gate somewhere else, so the file worth naming for a reader is the constant
+    // or the view, not the branch.
+    expect(FREE_INCLUDES.filter((inclusion) => inclusion.grantedHere).map((i) => i.id)).toEqual([
+      'chat',
+      'reminders',
+    ])
+  })
+
+  test('neither file that grants a free capability gates it on isPro', () => {
     // THE ASSERTION THAT WOULD CATCH THE DEFECT THIS LIST IS MOST EXPOSED TO.
     // A free claim that goes stale has no moment of discovery — nobody complains
     // that a thing they were not charged for is missing — so the way this column
@@ -56,21 +109,90 @@ describe('FREE_INCLUDES', () => {
     // closed union, so `id !== 'chat'` is something TypeScript already knows and
     // a test of it proves nothing. `isPro` is the actual shape of every gate in
     // this codebase — `isProFor` on the server, the `amIPro` query's `isPro` in
-    // the client — so this fails on the day somebody gates team chat, reminders
-    // or the free benchmark, which is the event that would silently make this
-    // list false.
+    // the client — so this fails on the day somebody gates team chat or reminders.
     //
-    // WIDER THAN THE TEST IT IS MODELLED ON. marketing-copy.test.ts runs this
-    // grep over ALSO_FREE's two paths; every entry here is a free claim, so every
-    // entry here is in scope. That file keeps its own copy of the grep while the
-    // landing still writes its own copies of these sentences.
-    for (const inclusion of FREE_INCLUDES) {
+    // AND ONLY THOSE TWO, WHICH IS THE POINT OF `grantedHere`. An earlier draft of
+    // this ran over all six and claimed it would fail "on the day somebody gates
+    // team chat, reminders or the free benchmark". The last of those was false:
+    // gating Layer 1 means editing convex/lib/insightsAccess.ts, and
+    // src/lib/insights-panel.ts — which holds no `isPro` and never will — would go
+    // on passing. A guard that names a claim it cannot see is worse than no guard,
+    // because the next reader trusts it.
+    //
+    // THE SAME TWO FILES marketing-copy.test.ts GREPS, and the overlap is a
+    // coincidence of the landing's two free extras being these two entries rather
+    // than a reason to skip it. This copy is attached to the inventory, so a
+    // seventh `grantedHere` entry is covered by construction.
+    for (const inclusion of FREE_INCLUDES.filter((entry) => entry.grantedHere)) {
       const source = readFileSync(resolve(__dirname, '../..', inclusion.checkedAgainst), 'utf8')
-      expect(
-        source,
-        `${inclusion.id}: ${inclusion.checkedAgainst} gates on isPro`,
-      ).not.toMatch(/isPro/)
+      expect(source, `${inclusion.id}: ${inclusion.checkedAgainst} gates on isPro`).not.toMatch(
+        /isPro/,
+      )
     }
+  })
+
+  test('no entry lifts a phrase from a Pro benefit', () => {
+    // THE PROPERTY TWO COMMENTS ALREADY CLAIMED BEFORE ANYTHING MEASURED IT. The
+    // `benchmark` entry calls its own wording "FORCED RATHER THAN PREFERRED" by
+    // the four-word rule, and tier-table.hook.test.ts calls the same choice "A
+    // GUARD RATHER THAN A PREFERENCE" — but the rule lived in
+    // marketing-copy.test.ts over a corpus this list is not in. Measured: a body
+    // reading "The last board you entered, and today's team snapshot, set against
+    // every past Wordle: …" shares four words with the `insights` benefit, still
+    // contains the phrase tier-table.hook.test.ts pins, and passed all 3794 tests.
+    //
+    // FOUR IS THE THRESHOLD plans.test.ts argues for and marketing-copy.test.ts
+    // reuses: independent copy in this corpus tops out at two shared words, and
+    // three fails on a feature's own noun phrase alone ("three months", "two
+    // teams"). Measured over this list the maximum is three — "join two teams",
+    // which the Pro `teams` body also says, about the cap this one describes.
+    //
+    // TITLE AND BODY MEASURED SEPARATELY, never concatenated, so a run straddling
+    // the join between one entry's title and its body — a phrase no reader ever
+    // sees — cannot fail this.
+    //
+    // The DP is checked against a known answer first, because an implementation
+    // that returned 0 for everything would satisfy every assertion below it.
+    expect(
+      longestSharedRun(
+        words('let a screenshot fill the board in for you'),
+        words(
+          'Paste or upload a screenshot of your Wordle and we’ll fill the board in for you — check it and submit.',
+        ),
+      ),
+    ).toBe(6)
+
+    const benefitTexts = PRO_BENEFITS.flatMap((benefit) => [benefit.title, benefit.body]).map(words)
+    for (const line of lines) {
+      for (const benefitText of benefitTexts) {
+        const run = longestSharedRun(words(line), benefitText)
+        expect(run, `"${line}" vs "${benefitText.join(' ')}"`).toBeLessThan(4)
+      }
+    }
+  })
+
+  test('every entry states what arrives, never what is withheld', () => {
+    // THE HEADER'S EDITORIAL RULE, ENFORCED WHERE THE DATA LIVES. The same
+    // negative word list guards the rendered column in tier-table.hook.test.ts,
+    // and that test covers this only because the table happens to render the list
+    // whole — a render assertion cannot be the home of the rule the DATA is
+    // written to. "No custom scoring", "Limited to two teams" and "today only" all
+    // land here, whichever surface would have shown them.
+    const prose = lines.join(' ')
+
+    expect(prose).not.toMatch(/\bno\b|\bnot\b|\bonly\b|\blimited\b|\bexcept\b|\bwithout\b/i)
+  })
+
+  test('uses typographic apostrophes and no typewriter ones', () => {
+    // Same rule and same test as pro-benefits.ts and the legal copy: one page
+    // mixing ' and ’ is visible to a reader and to nothing else, and this copy
+    // reaches /pricing with no other gate able to see it.
+    const prose = lines.join(' ')
+
+    expect(prose).not.toContain("'")
+    // AND AT LEAST ONE IS PRESENT, so that deleting every apostrophe — which
+    // would also satisfy the line above — fails instead of passing.
+    expect(prose).toContain('’')
   })
 
   test('pins the free-tier numbers this copy spells out in words', () => {
@@ -78,9 +200,9 @@ describe('FREE_INCLUDES', () => {
     // inventory's header states the reason: the `teams` body says "two teams" and
     // the `months` entry says "Three months" and "the two before it" as WORDS,
     // because prose cannot embed a template literal. So the constants are pinned
-    // here instead, one to each spelled-out number. Change
-    // FREE_TEAM_LIMIT or FREE_MONTHS without rewriting the copy and this fails
-    // rather than shipping a stale number behind four green gates.
+    // here instead, one to each spelled-out number. Change FREE_TEAM_LIMIT or
+    // FREE_MONTHS without rewriting the copy and this fails rather than shipping a
+    // stale number behind four green gates.
     expect(FREE_TEAM_LIMIT).toBe(2)
     expect(FREE_MONTHS).toBe(3)
   })

@@ -7,7 +7,7 @@ import { LAUNCH_AT_IS_PLACEHOLDER } from '../../../convex/lib/insightsAccess.ts'
  * FREE AGAINST PRO, ON THE ONE PAGE A VISITOR CAN READ BEFORE SIGNING UP.
  *
  * The Pro column is `PRO_BENEFITS` rendered and nothing else. That file's header
- * names this page and the upgrade dialog as its only two consumers and says they
+ * names this page and the upgrade dialog among its consumers and says they
  * "describe one tier and must not describe it twice", so there is deliberately no
  * sentence here that summarises, shortens or re-pitches an entry of it — the
  * dialog does the same, and tier-table.hook.test.ts fails if a heading appears in

@@ -23,11 +23,11 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  * BACK, AND NO LINE DESCRIBES A GATED ONE AS THOUGH IT WERE FREE. Every entry
  * below carries a `checkedAgainst` path, which is lib/pro-benefits.ts's
  * `gatedAt` from the free side — the same field, and the same discipline, that
- * components/pricing/tier-table.tsx's FREE_INCLUDES uses. marketing-copy.test.ts
+ * lib/free-includes.ts's FREE_INCLUDES uses. marketing-copy.test.ts
  * asserts each path resolves to a real file, and for the free extras it asserts
  * the named file contains no `isPro` at all.
  *
- * WHY A FREE CLAIM NEEDS THE HARDER TEST, in tier-table.tsx's words: a Pro claim
+ * WHY A FREE CLAIM NEEDS THE HARDER TEST, in lib/free-includes.ts's words: a Pro claim
  * that goes stale is noticed the first time somebody pays and does not get it; a
  * free claim that goes stale has no such moment, because nobody complains that a
  * thing they were not charged for is missing.
@@ -38,7 +38,7 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  * it would be stale the week after launch.
  *
  * IT IS NOT THE THIRD COPY OF THE TIER TABLE. pro-benefits.ts's header names its
- * two consumers — the upgrade dialog and /pricing — and says they "describe one
+ * consumers — the upgrade dialog, /about and /pricing — and says they "describe one
  * tier and must not describe it twice". This file describes neither tier: it
  * describes what the app DOES, in the free product's terms, and hands the tier
  * question to /pricing with one link at the bottom. Nothing here enumerates what
@@ -97,7 +97,7 @@ export type MarketingItem = {
  * The three steps, in the order onboarding-tasks.ts's TASK_COPY lists them.
  *
  * "TWO TEAMS ARE FREE" IS A NUMBER SPELLED AS A WORD, which no template literal
- * can keep honest — the problem pro-benefits.ts, plans.ts and tier-table.tsx all
+ * can keep honest — the problem pro-benefits.ts, plans.ts and free-includes.ts all
  * have. Solved the same way: the test pins FREE_TEAM_LIMIT, so moving the
  * constant fails a gate instead of shipping stale copy behind four green ones.
  *
@@ -115,7 +115,7 @@ export const HOW_IT_WORKS: ReadonlyArray<MarketingItem> = [
     title: 'Make a team',
     // JOIN, not create — FREE_TEAM_LIMIT is enforced on the join path
     // (teams.ts, players.ts, inviteLinks.ts) and not on createTeam, the same
-    // distinction pro-benefits.ts's `teams` entry and tier-table.tsx's are
+    // distinction pro-benefits.ts's `teams` entry and free-includes.ts's are
     // careful about. "Two teams are free" is true of what a free account can
     // be holding, which is what the cap actually governs.
     body: 'Invite the people you already send your score to every morning. Two teams are free.',
@@ -153,7 +153,7 @@ export const HOW_IT_WORKS: ReadonlyArray<MarketingItem> = [
  * static artifact the CDN serves (convex/insights.ts's header, public/insights/),
  * so what a board is measured against is the historical difficulty of that day
  * and the opener's rank among past openers — not a live field of today's
- * players. tier-table.tsx's `benchmark` entry carries the same correction in its
+ * players. free-includes.ts's `benchmark` entry carries the same correction in its
  * own comment; this is the second surface to need it.
  *
  * NOT AN UPSELL, WITH ONE HONEST EXCEPTION. The prose sells nothing gated. But
@@ -192,9 +192,10 @@ export const PAYOFF = {
 export const ALSO_FREE: ReadonlyArray<MarketingItem> = [
   {
     title: 'Team chat',
-    // "Hear about it", never "read it": chatNotify.ts sends the team's NAME and
-    // no message text, which is a privacy decision recorded in routes/
-    // privacy.tsx and stated the same way by tier-table.tsx's `chat` entry.
+    // A PUSH WHEN THE THREAD MOVES, NEVER THE MESSAGE ITSELF: chatNotify.ts
+    // sends the team's NAME and no message text, which is a privacy decision
+    // recorded in routes/privacy.tsx. lib/free-includes.ts's `chat` entry carries
+    // this same body and states the same rule in its own comment.
     body: 'Argue about the word in the app, with the people who actually played it, and get a push when the thread moves.',
     checkedAgainst: 'convex/chat.ts',
   },
