@@ -137,9 +137,9 @@ test('enter a board and see the score land', async ({ page }) => {
   // the row's controls and click the link in jsdom: the control here is the
   // REAL `@tanstack/react-router` Link inside the real `<Button asChild>`, so
   // the href below is the router's own serialization of `search` rather than
-  // the jsdom mock's stand-in for it. And it
-  // crosses the live `getTeamMonth` subscription: the panel flipped because
-  // the write landed, not because a fixture said so.
+  // the jsdom mock's stand-in for it. And it crosses the live `getTeamMonth`
+  // subscription: the panel flipped because the write landed, not because a
+  // fixture said so.
   const todayPanel = page.getByTestId('today-panel')
   const compare = todayPanel.getByRole('link', { name: 'How do you compare?' })
   await expect(compare).toBeVisible()

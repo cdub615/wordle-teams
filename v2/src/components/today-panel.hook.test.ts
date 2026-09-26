@@ -215,8 +215,9 @@ describe('TodayPanel guards the hydration hazard', () => {
 
   test('it renders nothing at all when the month does not contain today', () => {
     // Absent, not empty: a "Today" panel is meaningless while browsing March.
-    // RENDERED rather than regexed: `/return null/` matches either of this
-    // component's two early returns, so it barely constrained this at all.
+    // RENDERED rather than regexed: an unanchored `/return null/` proved only
+    // that the string existed somewhere, tied to neither the month guard nor
+    // to the component actually rendering nothing.
     const { container } = render(
       createElement(TodayPanel, {
         teamId: TEAM_ID,
@@ -307,7 +308,9 @@ describe("the header slot's one control, rendered", () => {
     // the prop was written, not that anything delivers it. This clicks the
     // rendered element and reads the channel.
     render(panel('p1'))
-    fireEvent.click(screen.getByRole('link', { name: 'How do you compare?' }))
+    const controls = headerControls()
+    expect(controls).toHaveLength(1)
+    fireEvent.click(controls[0])
     expect(sent).toEqual(['dashboard_insights_click'])
   })
 
@@ -345,8 +348,10 @@ describe("the header slot's one control, rendered", () => {
     // different page. Without this line, deleting `flex-wrap` keeps every gate
     // green. If you are changing the row, re-measure rather than deleting the
     // test.
+    // TOKENS, NOT A SUBSTRING: `md:flex-wrap` contains `flex-wrap` and does
+    // not wrap at 390px at all, which is the edit this is here to catch.
     render(panel('p1'))
-    expect(headerRow().className).toContain('flex-wrap')
+    expect(headerRow().className.split(' ')).toContain('flex-wrap')
   })
 })
 
