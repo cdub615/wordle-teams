@@ -292,10 +292,11 @@ describe('the thirty-day trial', () => {
    * A THIRD PROBE WAS WRITTEN AND IS DELIBERATELY NOT HERE. It mocked
    * insightsAccess.ts with `LAUNCH_AT_IS_PLACEHOLDER: false` and asserted the
    * page stays silent, which killed the derived default behaviourally. With the
-   * prop required there is no default to re-derive, and the import ban below
-   * fails before such a mutation could be rendered at all — so it would be a
-   * trap that cannot bite, and a test that cannot fail reads as coverage it is
-   * not.
+   * prop required there is no default to re-derive, and the only mutation it
+   * could still catch — ORing that flag into the prop — has to import the module
+   * the assertion below forbids, so that assertion already fails on it. The probe
+   * would be a trap that cannot bite, and a test that cannot fail reads as
+   * coverage it is not.
    */
   test('takes the answer as a required prop, with nothing behind it to derive', () => {
     // REQUIRED, and no default: both halves, because either alone re-opens the
