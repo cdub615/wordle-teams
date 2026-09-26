@@ -42,16 +42,26 @@
  * to show and may frame them in its own voice, and may not write its own sentence
  * for a free capability.
  *
- * AND THAT RULE IS THREE ASSERTIONS RATHER THAN AN INTENTION.
- * components/home/marketing-copy.test.ts measures every sentence the landing WROTE
- * against every title and body here and fails at four consecutive shared words, so
- * a hand-written second copy of an entry is red rather than shipped;
- * components/pricing/tier-table.hook.test.ts pins /pricing's free column to this
- * list exactly, in this order, with nothing else headed, which is what makes that
- * column the surface no entry can go unrendered by; and free-includes.test.ts
- * censuses the modules that take this list at all, so a FOURTH surface — the one
- * thing neither of the others can be answerable for — fails until somebody says
- * how its prose is measured.
+ * WHAT STANDS BEHIND THAT RULE, PER ASSERTION, BECAUSE ONLY ONE OF THE THREE
+ * ENFORCES IT. components/home/marketing-copy.test.ts measures every sentence
+ * components/home/marketing-copy.ts WROTE against every title and body here and
+ * fails at four consecutive shared words: that is the rule, enforced over one
+ * module's enumerated exports and over nothing else.
+ * components/pricing/tier-table.hook.test.ts enforces a DIFFERENT rule — /pricing's
+ * free column is this list, in this order, with no heading of its own — which is
+ * what makes that column the surface no entry can go unrendered by.
+ * free-includes.test.ts's census enforces neither: it reports which modules name
+ * this file, so that a fourth one arriving is a failing test rather than a silent
+ * addition. Its remedy is a key added to an object literal; nothing in it obliges
+ * anyone to measure the new module's prose.
+ *
+ * WHICH LEAVES THE RULE UNENFORCED FOR A SENTENCE TYPED INTO A COMPONENT, and that
+ * is the honest state of it. No corpus contains JSX, so prose written inside
+ * components/home/insights-payoff.tsx or components/home/also-free.tsx — the two
+ * renderers, neither of which names this file for its data — is measured by nothing
+ * at all. The reason is marketing-copy.ts's own: copy inside a component is copy no
+ * gate can read. Moving such a sentence into that module is what makes it checkable,
+ * and that is a discipline rather than a gate.
  *
  * `checkedAgainst` IS pro-benefits.ts's `gatedAt` WITH THE SIGN REVERSED, AND FOR
  * TWO ENTRIES IT IS LITERALLY THE SAME FILE. convex/lib/teamLimits.ts and

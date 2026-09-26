@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest'
 import { notAFile } from '#/test-support/copy-claims.ts'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../convex/lib/monthWindow.ts'
-import { PRO_BENEFITS } from './pro-benefits.ts'
+import { PRO_BENEFITS, PRO_ONLY_WORDS } from './pro-benefits.ts'
 
 describe('PRO_BENEFITS', () => {
   test('lists exactly the five things Pro sells today', () => {
@@ -79,6 +79,20 @@ describe('PRO_BENEFITS', () => {
     // shipping stale copy behind four green gates.
     expect(FREE_TEAM_LIMIT).toBe(2)
     expect(FREE_MONTHS).toBe(3)
+  })
+
+  test('every Pro-only word is lowercase, which is how both refusal loops match', () => {
+    // THE ONE WAY A SHARED BLOCKLIST STOPS BLOCKING WITHOUT FAILING. Both callers —
+    // free-includes.test.ts over the six free entries and marketing-copy.test.ts over
+    // the landing's own sentences — lowercase their prose and then `toContain` each
+    // word, so a capitalised entry would match nothing and refuse nothing, and both
+    // tests would stay green. Cheap to state, silent otherwise.
+    for (const word of PRO_ONLY_WORDS) {
+      expect(word, `"${word}" would never match lowercased prose`).toBe(word.toLowerCase())
+    }
+    // And the list is not empty, so emptying it — which would also satisfy the loop
+    // above — turns both refusal tests into no-ops that pass.
+    expect(PRO_ONLY_WORDS.length).toBeGreaterThan(0)
   })
 
   test('says nothing about chat or notifications', () => {

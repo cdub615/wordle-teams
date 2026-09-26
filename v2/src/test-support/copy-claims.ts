@@ -25,8 +25,9 @@ import { existsSync, statSync } from 'node:fs'
  * stay at the call sites that made them.
  *
  * IT IMPORTS node:fs AT MODULE SCOPE, AND THAT COSTS THE WORD-MEASURE CALLERS
- * NOTHING. plans.test.ts needs only `words` and the DP and runs under the suite's
- * default edge-runtime environment; measured, `node:fs` resolves there —
+ * NOTHING. plans.test.ts touches no file — it takes the word measure and the
+ * threshold and nothing else here — and runs under the suite's default edge-runtime
+ * environment; measured, `node:fs` resolves there —
  * vitest's edge environment still runs on Node and Vite externalises the builtin.
  * Were that ever to stop being true it would stop loudly, in a suite that fails
  * to import, rather than silently.

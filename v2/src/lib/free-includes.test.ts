@@ -14,7 +14,7 @@ import {
   words,
 } from '#/test-support/copy-claims.ts'
 import { importedModulesOf, runtimeImportsOf } from '#/test-support/source-ast.ts'
-import { PRO_BENEFITS } from './pro-benefits.ts'
+import { PRO_BENEFITS, PRO_ONLY_WORDS } from './pro-benefits.ts'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../convex/lib/monthWindow.ts'
 import { FREE_INCLUDES, freeInclusionsFor } from './free-includes.ts'
@@ -43,17 +43,17 @@ const SRC = resolve(__dirname, '..')
  * src/checkout-entry-point.test.ts enumerates the FIVE that came before it and
  * calls itself the sixth, then states the rule for consolidating them: worth doing
  * when two of them want the SAME filter, not when a seventh appears. This is the
- * seventh, and it is the nearest thing yet to that pair — the same body over the
- * same extensions with `.test.ts` excluded, differing in that this one sorts each
- * directory for a deterministic list and that file's call site also drops the hook
- * module it is asking about. Left as a copy anyway, because the two suites ask
- * different questions of the result and because wordle-teams-qul0's consolidation is
- * about the copy-claim idioms, not the walkers; the walker follow-up is filed as
- * wordle-teams-hk9n rather than left as a tally nobody kept.
+ * seventh, and it is the nearest thing yet to that pair: the same body over the same
+ * extensions, with `.test.ts` excluded at the same call site. An earlier version of
+ * this comment claimed a difference — a `.sort()` for determinism — and the sort did
+ * no work, because the result feeds `Object.fromEntries` into an order-insensitive
+ * `toEqual` and a `toContain`; it is gone rather than cited. What is left is that the
+ * two suites ask different questions of the list, and that wordle-teams-qul0's
+ * consolidation is about the copy-claim idioms rather than the walkers. The walker
+ * follow-up is filed as wordle-teams-hk9n rather than left as a tally nobody kept.
  */
 const sourceFiles = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name))
     .flatMap((entry) => {
       const path = join(dir, entry.name)
       if (entry.isDirectory()) return sourceFiles(path)
@@ -141,23 +141,23 @@ describe('FREE_INCLUDES', () => {
   })
 
   test('no entry reaches for Pro’s vocabulary', () => {
-    // THE SAME FIVE WORDS marketing-copy.test.ts REFUSES, OVER THE SIX ENTRIES
-    // THEMSELVES. That file holds the sentences IT wrote; these are checked here
-    // because this is where they live, and because /pricing shows all six to the
-    // same visitor who has not signed up. Holding them only through the landing's
-    // corpus would cover four of six, and only for as long as the landing went on
-    // selecting those four — dropping `chat` from ALSO_FREE would quietly take it
-    // out of the checked set, which is the shape of hole this file exists to close.
+    // pro-benefits.ts's `PRO_ONLY_WORDS`, OVER THE SIX ENTRIES THEMSELVES.
+    // marketing-copy.test.ts refuses the same array over the sentences the landing
+    // wrote; these are checked here because this is where they live, and because
+    // /pricing shows all six to the same visitor who has not signed up. Holding them
+    // only through the landing's corpus would cover four of six, and only for as long
+    // as the landing went on selecting those four — dropping `chat` from ALSO_FREE
+    // would quietly take it out of the checked set, which is the shape of hole this
+    // file exists to close.
     //
-    // EACH WORD IS A DEFECT THAT REACHED A DRAFT, in that file's account of them:
-    // "unlimited" is what feature-cards.tsx shipped over a three-month window,
-    // "paste"/"screenshot" is the import that board-entry/form.tsx renders only
-    // for `isPro === true`, and "custom"/"customizable" is scoring-system-card.tsx's
-    // canEdit. All five describe something Pro buys, so a free entry saying one is
-    // selling what it cannot give.
+    // ONE ARRAY, TWO LOOPS, AND THAT IS NEW (wordle-teams-qul0). Both suites used to
+    // inline the same five strings while both comments asserted the lists matched, so
+    // a sixth word added to either left the other refusing five in silence. Each
+    // word's own defect, and why the list lives beside PRO_BENEFITS rather than in
+    // test-support/, are recorded on the export.
     const prose = lines.join(' ').toLowerCase()
 
-    for (const word of ['unlimited', 'paste', 'screenshot', 'customizable', 'custom']) {
+    for (const word of PRO_ONLY_WORDS) {
       expect(prose, `a free inclusion says "${word}"`).not.toContain(word)
     }
   })
@@ -324,7 +324,12 @@ describe('FREE_INCLUDES', () => {
 })
 
 /**
- * THE SURFACES, AS A CLOSED SET.
+ * THE SURFACES, AS A CLOSED SET — CLOSED OVER src/, WHICH IS THE WALK'S EDGE.
+ * convex/ is outside it, and it is not empty of customer copy: convex/authEmails.ts
+ * and convex/inviteEmails.ts write sentences a reader sees. Neither describes what
+ * the free tier includes today, and either could start to without this census
+ * noticing. Widening the walk is a one-line change to `sourceFiles`'s root and is
+ * deliberately not made on speculation.
  *
  * WHAT IS ALREADY TRUE WITHOUT A TEST, so that nothing below pretends to buy it.
  * A surface's declared ids RESOLVE by construction: `freeInclusionsFor` takes
@@ -370,12 +375,15 @@ describe('the surfaces that render the inventory', () => {
     // and the hop is unavoidable: something has to name this module.
     //
     // WHICH BOUNDS WHAT IT CATCHES, AND THE BOUND IS WORTH STATING. It answers "who
-    // names the inventory", not "who renders free copy". A module that takes an
-    // already-made selection — `ALSO_FREE` out of marketing-copy.ts, the way
-    // also-free.tsx does — names nothing here and is invisible to this test; the
-    // prose such a component writes in its own JSX is invisible to every gate in the
-    // repo, which is marketing-copy.ts's whole reason for existing and a different
-    // hazard from this one.
+    // names the inventory", not "who renders free copy", and
+    // components/home/insights-payoff.tsx is the module that proves the two are
+    // different: it renders two entries and names nothing from this file —
+    // `PAYOFF_INCLUDES` reaches it out of marketing-copy.ts, already selected — so it
+    // is absent from the list below, and a sentence typed into its JSX would be read
+    // by no gate in this repo. That is marketing-copy.ts's whole reason for existing
+    // and a different hazard from this one. (also-free.tsx is NOT that case, and the
+    // exemplar used to name it wrongly: it takes the `FreeInclusion` type, so it IS
+    // below, as `'type'`.)
     //
     // VALUE OR TYPE, BECAUSE THE DIFFERENCE IS WHAT THE MODULE IS DOING.
     // `importedModulesOf` reports type-only declarations and `runtimeImportsOf`
@@ -407,7 +415,10 @@ describe('the surfaces that render the inventory', () => {
         }),
     )
 
-    expect(consumers).toEqual({
+    expect(
+      consumers,
+      'a module now names lib/free-includes.ts — say how its prose is measured',
+    ).toEqual({
       'components/home/also-free.tsx': 'type',
       'components/home/marketing-copy.ts': 'value',
       'components/pricing/tier-table.tsx': 'value',

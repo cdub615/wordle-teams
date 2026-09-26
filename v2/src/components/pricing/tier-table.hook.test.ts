@@ -150,21 +150,22 @@ describe('the free column says what free GIVES', () => {
     // heading freely.
     //
     // EXACT IN BOTH DIRECTIONS, WHICH IS WHAT THE LOOP ABOVE IS NOT. That one
-    // asserts every entry APPEARS; this asserts the column IS the inventory — in
-    // its order, with nothing else headed. So it fails on a hand-written heading
-    // added here, and it fails on an entry this column stops rendering, which is
-    // the direction that matters: /pricing is the surface that shows all six, so an
-    // entry missing from it is a free capability the product never advertises
-    // anywhere. That is how `reminders` went missing before the inventory existed —
-    // a headline card on the landing page, absent from this column.
+    // asserts every entry APPEARS, and it already holds the direction that matters
+    // most on its own: /pricing is the surface that shows all six, so an entry
+    // missing from this column is a free capability the product never advertises
+    // anywhere — which is how `reminders` went missing before the inventory existed,
+    // a headline card on the landing page and absent from here. What THIS assertion
+    // adds is the two things a per-entry lookup cannot see: a heading the column has
+    // that the inventory does not, and the ORDER.
     //
     // WHAT IT STILL CANNOT SEE, stated rather than left to be discovered: an
-    // unheaded PARAGRAPH. A `<p>` restating an entry's body would pass this exactly
-    // as it would pass the Pro column's version. Two tests below do read the
-    // column's full text, and neither closes that gap: the refusals regex is a
-    // negative over the whole column, and the Layer-1 phrase check is a `toContain`,
-    // which no addition can fail. A heading is what a skimming reader takes away and
-    // what a second description of a tier arrives as.
+    // unheaded and REWORDED paragraph. A `<p>` repeating an entry's body VERBATIM is
+    // already caught, and not by this test — measured, it fails the loop above,
+    // because `getByText` refuses to match two elements ("Found multiple elements
+    // with the text"). A PARAPHRASE passes both, and passes the two tests below that
+    // read the column's whole text: the refusals regex is a negative, and the Layer-1
+    // phrase check is a `toContain`, which no addition can fail. A heading is what a
+    // skimming reader takes away and what a second description of a tier arrives as.
     table()
     const headings = free()
       .getAllByRole('heading')

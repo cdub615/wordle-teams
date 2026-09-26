@@ -18,7 +18,7 @@ import { objectLiteralAssignedTo, runtimeImportsOf } from '#/test-support/source
 import { FREE_INCLUDES } from '#/lib/free-includes.ts'
 import { MODEL_LINE } from '#/lib/onboarding-tasks.ts'
 import { PLANS } from '#/lib/plans.ts'
-import { PRO_BENEFITS } from '#/lib/pro-benefits.ts'
+import { PRO_BENEFITS, PRO_ONLY_WORDS } from '#/lib/pro-benefits.ts'
 import { FREE_TEAM_LIMIT } from '../../../convex/lib/teamLimits.ts'
 import {
   ALSO_FREE,
@@ -323,22 +323,22 @@ describe('the landing page copy', () => {
     // closing CTA quotes a price — they are banned from the sections that
     // describe what a visitor gets by signing up.
     //
-    // EACH ENTRY IS A DEFECT THAT ACTUALLY REACHED A DRAFT. "unlimited" is the
-    // word feature-cards.tsx shipped over a three-month window for months;
-    // "paste" and "screenshot" are the plan's own draft of step 2, which
-    // offered a free visitor an import that form.tsx renders only for
-    // `isPro === true`; "customizable"/"custom" is the other half of the same
-    // §6.1 sentence, gated by scoring-system-card.tsx's canEdit.
+    // EACH ENTRY IS A DEFECT THAT ACTUALLY REACHED A DRAFT, and pro-benefits.ts's
+    // `PRO_ONLY_WORDS` records which benefit each one belongs to. "paste" and
+    // "screenshot" are the plan's own draft of step 2, which offered a free visitor
+    // an import that form.tsx renders only for `isPro === true`.
     //
     // THE SENTENCES THIS FILE WROTE, AND THE INVENTORY HOLDS ITS OWN TO THE SAME
-    // FIVE WORDS. Running this over the selected entries as well would cover four
-    // of six, and only while the landing went on selecting those four — so the
-    // word list is repeated in free-includes.test.ts over all six instead, where
-    // /pricing's column is covered too. Not two mechanisms over one fact: two
-    // corpora with no overlap, each held where its sentences live.
+    // ARRAY — literally the same one now, imported rather than re-typed
+    // (wordle-teams-qul0): the two comments used to assert that parity with nothing
+    // checking it. Running this over the selected entries as well would cover four of
+    // six, and only while the landing went on selecting those four — so the loop in
+    // free-includes.test.ts covers all six instead, where /pricing's column is
+    // covered too. Not two mechanisms over one fact: two corpora with no overlap,
+    // each held where its sentences live.
     const prose = authoredFreeVoice.join(' ').toLowerCase()
 
-    for (const word of ['unlimited', 'paste', 'screenshot', 'customizable', 'custom']) {
+    for (const word of PRO_ONLY_WORDS) {
       expect(prose, `free-voice copy says "${word}"`).not.toContain(word)
     }
   })

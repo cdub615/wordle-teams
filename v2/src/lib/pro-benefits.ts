@@ -157,3 +157,37 @@ export const PRO_BENEFITS: ReadonlyArray<ProBenefit> = [
     serverEnforced: true,
   },
 ]
+
+/**
+ * THE FIVE WORDS FREE COPY MAY NOT USE, because each names something on the list
+ * above.
+ *
+ * WHY IT IS DATA AND NOT A LITERAL IN EACH TEST. Two suites refuse these words over
+ * two corpora with no overlap — free-includes.test.ts over all six inventory
+ * entries, marketing-copy.test.ts over the sentences the landing wrote — and both
+ * comments claimed the two lists matched while nothing checked that they did. Adding
+ * a sixth word to one left the other refusing five, silently, with both comments
+ * still asserting parity (wordle-teams-qul0). One array, two loops.
+ *
+ * WHY HERE AND NOT IN test-support/copy-claims.ts, where the other shared
+ * copy-claim checks went: that file's rule is that nothing in it knows what any
+ * surface says or which corpus is being measured, and a list of this product's Pro
+ * vocabulary is exactly that knowledge. It belongs with the tier it describes, in
+ * the module that is already the single source for what Pro sells and that both
+ * suites already import.
+ *
+ * EACH WORD IS A DEFECT THAT REACHED A DRAFT, and each maps to a benefit above.
+ * "unlimited" is what components/home/feature-cards.tsx shipped over a three-month
+ * window (`months`); "paste" and "screenshot" are the import
+ * components/board-entry/form.tsx renders only for `isPro === true` (`import`);
+ * "customizable" and "custom" are scoring-system-card.tsx's canEdit (`scoring`).
+ * Lowercase, because both loops lowercase their prose and match with `toContain` —
+ * a capitalised entry would refuse nothing and say nothing about it.
+ */
+export const PRO_ONLY_WORDS = [
+  'unlimited',
+  'paste',
+  'screenshot',
+  'customizable',
+  'custom',
+] as const
