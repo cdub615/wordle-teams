@@ -27,8 +27,9 @@
  * IT FAILS SAFE, WHICH IS WHY 2099 RATHER THAN 1970. No board can be entered
  * after it, so `shouldStartTrial` is false for everyone and NO trial is ever
  * stamped while this value stands. The feature is inert rather than wrong, and
- * `startsNoTrialWhileUnset` below is the test that says so out loud. Setting this
- * to the real cutover instant is the single edit that switches it on.
+ * `fails safe: while it is the placeholder, no board can start a trial` below
+ * is the test that says so out loud. Setting this to the real cutover instant
+ * is the single edit that switches it on.
  *
  * ONE CONSTANT, NOT A DATE THREADED THROUGH CALL SITES, so correcting it is one
  * line rather than a search.
@@ -36,16 +37,30 @@
 export const LAUNCH_AT = Date.UTC(2099, 0, 1)
 
 /**
- * The instant LAUNCH_AT holds while it is still the placeholder — a SEPARATE
- * literal from LAUNCH_AT's own, on purpose. LAUNCH_AT above is the CURRENT
- * value and is the line the owner edits (kc8c calls it "the single edit that
- * switches it on"); this is the SENTINEL every check below compares against,
- * and it must never change. Collapsing the two into one — say, spelling
- * LAUNCH_AT as `= PLACEHOLDER_LAUNCH_AT` — would make LAUNCH_AT_IS_PLACEHOLDER
- * trivially true forever and destroy the check it exists to make. Two
- * literals is the floor here, not duplication to clean up.
+ * THE SENTINEL EVERY PLACEHOLDER CHECK IN THIS FILE COMPARES AGAINST — defined
+ * exactly once so LAUNCH_AT_IS_PLACEHOLDER and trialCanStart's own gate read
+ * the same constant rather than each spelling out the comparison by hand and
+ * risking drift between the two. LAUNCH_AT above is the CURRENT value and is
+ * the line the owner edits before cutover (wordle-teams-kc8c: "IT MUST BE SET
+ * BEFORE THE CUTOVER"); this is the fixed value that means "still unset" and
+ * must never itself change.
+ *
+ * KEPT AS A SEPARATE LITERAL FROM LAUNCH_AT'S OWN — not folded into it as
+ * `export const LAUNCH_AT = PLACEHOLDER_LAUNCH_AT` — because that would make
+ * LAUNCH_AT_IS_PLACEHOLDER trivially true forever: LAUNCH_AT would always
+ * equal the very thing it is being compared against, and the check would stop
+ * being able to say anything. Two literals — LAUNCH_AT's current value and
+ * this sentinel — are the floor here, because they answer different
+ * questions ("what is the value now" vs "what value means unset"); this is
+ * still the ONE place either question is spelled out as a comparison target,
+ * which is the property that matters — nothing downstream repeats the literal
+ * to ask "is this the placeholder".
+ *
+ * EXPORTED so a test can assert against it directly rather than against
+ * `LAUNCH_AT`, a value the owner's cutover edit is expected to change out from
+ * under any test that names it.
  */
-const PLACEHOLDER_LAUNCH_AT = Date.UTC(2099, 0, 1)
+export const PLACEHOLDER_LAUNCH_AT = Date.UTC(2099, 0, 1)
 
 /** True while LAUNCH_AT is still the placeholder rather than a real cutover. */
 export const LAUNCH_AT_IS_PLACEHOLDER = LAUNCH_AT === PLACEHOLDER_LAUNCH_AT
@@ -89,13 +104,16 @@ export function shouldStartTrial({
  * Whether the product is offering a trial AT ALL, right now — as distinct from
  * whether any particular player qualifies for one.
  *
- * THIS IS THE OTHER HALF OF `shouldStartTrial`'s OWN CONDITION, pulled out
- * because /pricing needs to answer it before any player exists to check:
- * `shouldStartTrial` also refuses a player who already holds a trial
- * (`trialEndsAt !== undefined`), which is a fact about that PLAYER, not about
- * whether launch has happened. A marketing page has no player to ask, so it
- * needs exactly this half — never the whole predicate — or it drifts back
- * into the bug this function exists to close.
+ * `shouldStartTrial`'s TIMING HALF, PLUS A GATE `shouldStartTrial` DOES NOT
+ * HAVE. Pulled out because /pricing needs to answer it before any player
+ * exists to check: `shouldStartTrial` also refuses a player who already holds
+ * a trial (`trialEndsAt !== undefined`), which is a fact about that PLAYER,
+ * not about whether launch has happened, and a marketing page has no player
+ * to ask — dropping that half is exactly right. But this function ALSO
+ * refuses whenever the effective `launchAt` is still the placeholder sentinel
+ * (see below), which `shouldStartTrial` has no notion of at all. That
+ * addition is why the two are not simply "the same rule minus one condition"
+ * — see WHY THIS DOES NOT COLLAPSE below for the one instant where it shows.
  *
  * `now >= launchAt`, MATCHING `shouldStartTrial` EXACTLY, so the two cannot
  * disagree about the timing half: the moment a board entered right now would
@@ -108,29 +126,36 @@ export function shouldStartTrial({
  * `LAUNCH_AT` and cannot be flipped from a test without editing that constant
  * (out of scope, and rightly so — wordle-teams-kc8c is the owner's edit to
  * make). Gating on it directly would make the `>=` comparison below
- * permanently unreachable in every test, which is indistinguishable from not
- * having it: the test suite could not tell `>=` from `>` in the boundary test.
- * Recomputing the sentinel check from `launchAt` — against the very same
- * `PLACEHOLDER_LAUNCH_AT` that `LAUNCH_AT_IS_PLACEHOLDER` itself compares
- * against, so there is exactly one spelling of the sentinel in this file, not
- * two — keeps the same "fails safe by default" behavior while leaving the
- * comparison something a test — passing an explicit `launchAt`, exactly as
+ * unreachable in every test WHILE `LAUNCH_AT` IS THE PLACEHOLDER — which is
+ * indistinguishable from not having it, since that is every test run before
+ * cutover: the suite could not tell `>=` from `>` in the boundary test.
+ * Recomputing the sentinel check from `launchAt` — reading the same
+ * `PLACEHOLDER_LAUNCH_AT` constant `LAUNCH_AT_IS_PLACEHOLDER` itself compares
+ * against, rather than a second inline copy of that comparison — keeps the
+ * same "fails safe by default" behavior while leaving the comparison
+ * something a test — passing an explicit `launchAt`, exactly as
  * `shouldStartTrial`'s own tests do — can actually exercise.
  *
- * WHY THIS DOES NOT COLLAPSE TO `shouldStartTrial`'S OWN COMPARISON EVEN AT
- * THE DEFAULT: past the literal placeholder instant itself (now >=
- * PLACEHOLDER_LAUNCH_AT, i.e. real-world year 2099 with LAUNCH_AT never
- * edited), `shouldStartTrial` would start reporting `true` — it has no
- * placeholder concept, it only compares timestamps — while this stays `false`
- * forever, because its gate does not reopen once `launchAt` is the sentinel.
- * That is deliberate, not a bug the agreement property should be widened to
- * catch: while `LAUNCH_AT` is the placeholder, the product is not offering a
- * trial AT ALL, so /pricing saying nothing is the safe direction — and 2099 is
- * chosen specifically so no real visitor's `now` reaches it before the owner
- * edits `LAUNCH_AT` to something else, making the disagreement unreachable in
- * practice. The test `diverges from shouldStartTrial at the literal
- * placeholder instant, deliberately` pins this on purpose, so it reads as an
- * intentional boundary rather than something to "fix" into agreement.
+ * WHY THIS DOES NOT COLLAPSE TO `shouldStartTrial`'S OWN COMPARISON, EVEN WHEN
+ * `launchAt` EQUALS THE SENTINEL: at `now === PLACEHOLDER_LAUNCH_AT` with
+ * `launchAt` also `PLACEHOLDER_LAUNCH_AT`, `shouldStartTrial` reports `true` —
+ * `enteredAt >= launchAt` holds, and it has no placeholder concept, it only
+ * compares timestamps. This function reports `false` at that same instant,
+ * on ANY call where the effective `launchAt` is the sentinel, regardless of
+ * what `LAUNCH_AT` currently holds — its gate does not reopen just because
+ * `now` caught up to the value the sentinel represents. That is deliberate,
+ * not a bug the agreement property should be widened to catch: while the
+ * effective `launchAt` IS the placeholder, the product is not offering a
+ * trial AT ALL, so /pricing saying nothing is the safe direction. In
+ * production this instant is additionally unreachable in practice, because
+ * `launchAt` defaults to `LAUNCH_AT` and 2099 is chosen so no real visitor's
+ * `now` gets there before the owner edits `LAUNCH_AT` to something else — but
+ * the test below does not rely on that timing; it asserts the sentinel
+ * property directly, with `PLACEHOLDER_LAUNCH_AT` passed explicitly, so it
+ * stays true no matter what `LAUNCH_AT` is edited to. The test `diverges from
+ * shouldStartTrial at the literal placeholder instant, deliberately` pins
+ * this on purpose, so it reads as an intentional boundary rather than
+ * something to "fix" into agreement.
  */
 export function trialCanStart({
   now,

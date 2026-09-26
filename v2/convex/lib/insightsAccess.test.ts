@@ -5,6 +5,7 @@ import {
   INSIGHTS_TRIAL_DAYS,
   LAUNCH_AT,
   LAUNCH_AT_IS_PLACEHOLDER,
+  PLACEHOLDER_LAUNCH_AT,
   hasFullTeamMonth,
   insightsAccess,
   shouldStartTrial,
@@ -74,11 +75,23 @@ describe('shouldStartTrial', () => {
   })
 })
 
+// The one list of "plausible now" instants both the headline property and the
+// fails-safe pin below read, so a claim that the two look at the same set is
+// enforced rather than eyeballed from two hand-typed arrays.
+const PLAUSIBLE_NOWS = [Date.now(), Date.UTC(2026, 11, 25), Date.UTC(2030, 0, 1)]
+
 describe('trialCanStart', () => {
   // THE HEADLINE PROPERTY, not a truth table: /pricing's trial section and the
   // server's decision must not be able to disagree, or the page is back to
   // advertising a trial the server refuses to stamp — the exact bug this
   // predicate exists to close.
+  //
+  // VACUOUS TODAY, LOAD-BEARING ONCE LAUNCH_AT IS SET: every instant in
+  // PLAUSIBLE_NOWS is well before the 2099 placeholder, so both sides
+  // currently read `false` and this test cannot yet observe the two
+  // disagreeing. It starts doing real work — able to actually fail — the
+  // moment the owner's cutover edit lands and `now >= LAUNCH_AT` becomes
+  // reachable for a real instant.
   //
   // `trialEndsAt: undefined` is held fixed on the shouldStartTrial side
   // DELIBERATELY, not incidentally: shouldStartTrial also says no to a player
@@ -87,10 +100,8 @@ describe('trialCanStart', () => {
   // player to ask, so the only question in scope is the timing half, and
   // holding trialEndsAt at "no trial yet" is what isolates that half.
   test('agrees with shouldStartTrial for a player with no trial yet, for plausible instants', () => {
-    // Same instants the placeholder pin test below uses, so this and that test
-    // are provably looking at the same set of "plausible now" values.
-    for (const now of [Date.now(), Date.UTC(2026, 11, 25), Date.UTC(2030, 0, 1)]) {
-      expect(trialCanStart({ now })).toBe(
+    for (const now of PLAUSIBLE_NOWS) {
+      expect(trialCanStart({ now }), `now=${new Date(now).toISOString()}`).toBe(
         shouldStartTrial({ trialEndsAt: undefined, enteredAt: now }),
       )
     }
@@ -105,36 +116,52 @@ describe('trialCanStart', () => {
   // would report `false` and disagree.
   test('agrees with shouldStartTrial across the launch boundary, given the same launchAt', () => {
     for (const now of [LAUNCH - DAY, LAUNCH, LAUNCH + DAY]) {
-      expect(trialCanStart({ now, launchAt: LAUNCH })).toBe(
-        shouldStartTrial({ trialEndsAt: undefined, enteredAt: now, launchAt: LAUNCH }),
-      )
+      expect(
+        trialCanStart({ now, launchAt: LAUNCH }),
+        `now = LAUNCH ${(now - LAUNCH) / DAY >= 0 ? '+' : ''}${(now - LAUNCH) / DAY} day(s)`,
+      ).toBe(shouldStartTrial({ trialEndsAt: undefined, enteredAt: now, launchAt: LAUNCH }))
     }
   })
 
   // The same "fails safe" property LAUNCH_AT's own describe block pins for
   // shouldStartTrial, restated for trialCanStart: while LAUNCH_AT stands at
   // its 2099 placeholder, nothing /pricing does can make the trial section
-  // claim a trial is on for any now a real visitor could have.
+  // claim a trial is on for any now a real visitor could have. Like that
+  // sibling pin, this is EXPECTED TO FAIL once the owner's cutover edit lands
+  // — LAUNCH_AT_IS_PLACEHOLDER flips first and the assertion below it catches
+  // that, deliberately, the same way the LAUNCH_AT describe block's own test
+  // does.
   test('fails safe: while LAUNCH_AT is the placeholder, no now can start it', () => {
     expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(true)
-    for (const now of [Date.now(), Date.UTC(2026, 11, 25), Date.UTC(2030, 0, 1)]) {
-      expect(trialCanStart({ now })).toBe(false)
+    for (const now of PLAUSIBLE_NOWS) {
+      expect(trialCanStart({ now }), `now=${new Date(now).toISOString()}`).toBe(false)
     }
   })
 
   // NOT A BUG: pinned so the asymmetry reads as intended rather than something
-  // a future editor "fixes" into agreement. shouldStartTrial has no placeholder
-  // concept — it only compares timestamps — so AT the literal placeholder
-  // instant itself it would say yes. trialCanStart's gate does not reopen just
-  // because `now` caught up to the sentinel `launchAt` still equals, because
-  // while LAUNCH_AT is the placeholder the product is not offering a trial AT
-  // ALL, and /pricing saying nothing is the safe direction. This only becomes
-  // reachable in production if LAUNCH_AT is never edited before real time gets
-  // there, which is exactly what the "obviously wrong" 2099 sentinel exists to
-  // prevent (see LAUNCH_AT's own header comment).
+  // a future editor "fixes" into agreement. shouldStartTrial has no
+  // placeholder concept — it only compares timestamps — so AT the instant the
+  // sentinel represents it would say yes. trialCanStart's gate refuses that
+  // same instant on any call where the effective launchAt is the sentinel,
+  // because while launchAt IS the placeholder the product is not offering a
+  // trial AT ALL, and /pricing saying nothing is the safe direction.
+  //
+  // USES PLACEHOLDER_LAUNCH_AT DIRECTLY, NOT LAUNCH_AT, so this pin survives
+  // the owner's cutover edit rather than breaking at it: LAUNCH_AT changes at
+  // cutover (by design), PLACEHOLDER_LAUNCH_AT never does. Passing it as both
+  // `now` and an explicit `launchAt` tests the sentinel property on its own
+  // terms, independent of whatever LAUNCH_AT currently holds.
   test('diverges from shouldStartTrial at the literal placeholder instant, deliberately', () => {
-    expect(shouldStartTrial({ trialEndsAt: undefined, enteredAt: LAUNCH_AT })).toBe(true)
-    expect(trialCanStart({ now: LAUNCH_AT })).toBe(false)
+    expect(
+      shouldStartTrial({
+        trialEndsAt: undefined,
+        enteredAt: PLACEHOLDER_LAUNCH_AT,
+        launchAt: PLACEHOLDER_LAUNCH_AT,
+      }),
+    ).toBe(true)
+    expect(
+      trialCanStart({ now: PLACEHOLDER_LAUNCH_AT, launchAt: PLACEHOLDER_LAUNCH_AT }),
+    ).toBe(false)
   })
 })
 
