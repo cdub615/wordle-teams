@@ -49,6 +49,16 @@ const ALLOWED_EMAILS = [
   /@([a-z0-9-]+\.)*test$/i,
   /noreply@/i,
   /(^|\.)sentry\.io$/i, // Sentry DSNs look like <key>@o<org>.ingest.us.sentry.io
+  // Resend's public sandbox sender, which appears throughout their own docs and
+  // therefore throughout the vendored react-email skill under .agents/. It is a
+  // published fixture address owned by Resend, not a person's mailbox and not
+  // anybody's PII.
+  //
+  // THE EXACT ADDRESS, NOT THE DOMAIN. Allowing /@resend\.dev$/ would wave through
+  // a real support or staff address if one ever landed in vendored content, and
+  // this list is the only thing standing between third-party addresses and a
+  // public repo. Widen it to a domain only for a domain we own.
+  /^onboarding@resend\.dev$/i,
 ]
 
 // Package scopes and similar false positives that look like addresses.
