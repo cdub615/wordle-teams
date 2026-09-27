@@ -29,6 +29,7 @@ import { fillRect } from '#/lib/board-import/bitmap.ts'
 import { attemptsFor, boardIsValid } from '../../../convex/lib/board.ts'
 import { renderPlayedBoard } from '#/lib/board-import/testing/board-fixture.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { formatDayLabel } from '#/lib/format-day.ts'
 import { UPGRADE_HEADLINES } from '#/lib/plans.ts'
 import { BoardEntryForm } from './form.tsx'
 import { UpgradeDialogProvider } from '#/components/upgrade-dialog.tsx'
@@ -434,7 +435,7 @@ describe('the two-step flow', () => {
     goToEntry()
     typeKeys('CRANE')
     typeKeys('SLATE')
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(today) }))
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(formatDayLabel(today)) }))
 
     expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
     goToEntry()
@@ -465,7 +466,7 @@ describe('the import confirm step', () => {
     paste()
     await waitFor(() => expect(board()).toBe('SLATE,CRANE,,,,'))
 
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(today) }))
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(formatDayLabel(today)) }))
     expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
 
     goToEntry()
@@ -971,7 +972,7 @@ describe('focus does not outlive the input it belongs to', () => {
     expect(screen.getByTestId('board').getAttribute('data-cursor')).toBe('board:0:0')
 
     // 3. Back to step one. The input unmounts, and NOTHING fires a blur.
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(today) }))
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(formatDayLabel(today)) }))
     expect(screen.getByTestId('board-entry-choose')).toBeTruthy()
     expect(document.activeElement).toBe(document.body)
 

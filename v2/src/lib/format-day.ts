@@ -11,6 +11,7 @@ import { fromPuzzleDay, type PuzzleDay, type PuzzleMonth } from '../../convex/li
 
 const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' })
 const monthYear = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' })
+const longDay = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
 export function ordinal(n: number): string {
   // 11th, 12th and 13th are the exceptions to the 1st/2nd/3rd pattern.
@@ -48,4 +49,16 @@ export function formatDayHeaderParts(day: PuzzleDay): { weekday: string; ordinal
 /** 'Aug 2026' — the month picker's label. */
 export function formatMonthLabel(month: PuzzleMonth): string {
   return monthYear.format(fromPuzzleDay(`${month}-01`))
+}
+
+/**
+ * 'September 20, 2026' — the picked day, spelled out in full.
+ *
+ * Shared by the date picker's own trigger (date-picker.tsx) and board entry's
+ * back button (board-entry/form.tsx), which used to show the raw PuzzleDay
+ * string ('2026-09-20') instead — the only place in the flow that hadn't been
+ * formatted, and visible as such in the shipped board-entry-light.png asset.
+ */
+export function formatDayLabel(day: PuzzleDay): string {
+  return longDay.format(fromPuzzleDay(day))
 }

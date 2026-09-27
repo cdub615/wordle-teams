@@ -4,6 +4,7 @@ import { Button } from '#/components/ui/button.tsx'
 import { Calendar } from '#/components/ui/calendar.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover.tsx'
 import { cn } from '#/lib/utils.ts'
+import { formatDayLabel } from '#/lib/format-day.ts'
 import { fromPuzzleDay, toPuzzleDay, type PuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import type { Matcher } from 'react-day-picker'
 
@@ -72,11 +73,7 @@ export function DatePicker({
           )}
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
-          {day ? fromPuzzleDay(day).toLocaleDateString('en-US', {
-            month: 'long',
-            day: 'numeric',
-            year: 'numeric',
-          }) : <span>Pick a date</span>}
+          {day ? formatDayLabel(day) : <span>Pick a date</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0">

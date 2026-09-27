@@ -36,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
 import { BoardEntryForm } from './form.tsx'
 import { UpgradeDialogProvider } from '#/components/upgrade-dialog.tsx'
+import { formatDayLabel } from '#/lib/format-day.ts'
 import { monthOf, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import { boardIsValid } from '../../../convex/lib/board.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -299,6 +300,38 @@ describe('each branch hands DatePicker the right playWeekends', () => {
     renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
 
     expect(picker().getAttribute('data-play-weekends')).toBe('true')
+  })
+})
+
+/**
+ * THE BACK BUTTON'S LABEL, which used to be the raw PuzzleDay string
+ * ('2026-09-20') rather than a formatted one — visible as such in the shipped
+ * board-entry-light.png. It now shares date-picker.tsx's own formatter
+ * (`formatDayLabel`, lifted to format-day.ts), so this pins the CALL — that
+ * form.tsx actually formats `day` rather than rendering it raw — not the
+ * format string itself. The format string is already pinned, against a
+ * hardcoded literal ('August 20, 2026'), by date-picker.hook.test.ts, which
+ * this component now shares the formatter with.
+ */
+describe('the entry step back button', () => {
+  test('shows the picked day in long form, never its raw ISO shape', () => {
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+
+    expect(screen.getByRole('button', { name: formatDayLabel(today) })).toBeTruthy()
+    // The regression this guards: rendering `day` unformatted.
+    expect(screen.queryByRole('button', { name: today })).toBeNull()
+  })
+
+  test("falls back to 'Pick a day' when there is no day", () => {
+    // pickDefaultDay always returns a day, so the only way `day` is undefined
+    // here is through the picker's own onSelect — same as the coach-line test
+    // above ("a complete board with no day does NOT say to press Enter...").
+    renderForm(createElement(BoardEntryForm, { month: thisMonth, onSuccess: () => {} }))
+    goToEntry()
+    act(() => selectDay?.(undefined))
+
+    expect(screen.getByRole('button', { name: 'Pick a day' })).toBeTruthy()
   })
 })
 

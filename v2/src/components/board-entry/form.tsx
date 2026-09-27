@@ -18,6 +18,7 @@ import { ANSWER_LENGTH, backspace, cursorFor, moveZone, typeLetter } from './ent
 import type { EntryState, Refusal, Zone } from './entry-cursor.ts'
 import { coachFor } from './entry-coach.ts'
 import { boardErrorMessage } from '#/lib/convex-error.ts'
+import { formatDayLabel } from '#/lib/format-day.ts'
 import { cn } from '#/lib/utils.ts'
 import { boardIsValid, toRows } from '../../../convex/lib/board.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
@@ -987,7 +988,7 @@ function BoardEntryFields({
             onClick={() => setStep('choose')}
           >
             <ChevronLeft className="mr-1 h-4 w-4" />
-            {day ?? 'Pick a day'}
+            {day ? formatDayLabel(day) : 'Pick a day'}
           </Button>
         </div>
       </div>
