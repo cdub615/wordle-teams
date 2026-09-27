@@ -1114,9 +1114,11 @@ test.describe('crawler and social metadata', () => {
      * it held v1's seven and lib/sitemap.ts advertises eight, so /pricing — the
      * one entry v2 added — was the one advertised route this test never walked.
      * A list that has to be edited alongside another list is what produced that,
-     * so the PATHS below are read out of SITEMAP_ENTRIES and the set-equality
-     * assertion is what makes the next addition fail here until somebody states
-     * its canonical.
+     * so the table below is PINNED against SITEMAP_ENTRIES. Its paths are still
+     * literals; what is read out of the sitemap is the list they are compared
+     * with, and the SORTED-KEY EQUALITY assertion is what makes the next
+     * addition fail here, naming itself, until somebody states its canonical.
+     * Sorted arrays rather than sets so a duplicated entry fails too.
      *
      * THE EXPECTED CANONICALS ARE STILL WRITTEN OUT, ONE PER PATH, and that is
      * the half that must not be derived. `origin + path` is wrong for /home,
@@ -1125,11 +1127,27 @@ test.describe('crawler and social metadata', () => {
      * agree with whatever the page emitted and assert nothing about the one
      * route where the answer is interesting.
      *
+     * THE ORIGIN IS SPELLED OUT RATHER THAN IMPORTED FROM SITE_ORIGIN for the
+     * same reason one size up: an expectation built out of the module under
+     * test moves when that module moves, so importing it would leave this green
+     * for any value of SITE_ORIGIN. The og:image test above writes the same
+     * literal out for the same reason. Do not DRY these two together.
+     *
      * KEYED EXACTLY AS SITEMAP_ENTRIES SPELLS IT, so the apex is the empty
      * string and not '/'. Nothing is normalised on either side of the
      * comparison: a respelling over there is a red test here rather than
-     * something a `|| '/'` quietly absorbed. `page.goto` gets the '/' it needs
-     * at the point of navigation instead.
+     * something a `|| '/'` quietly absorbed. `page.goto` is handed '/'
+     * explicitly at the point of navigation instead — which is the readable
+     * spelling of an ''-keyed table rather than a dependency: Playwright
+     * resolves `goto('')` against baseURL to the same document, measured.
+     *
+     * THE LOOP DOES NOT ASSERT WHERE EACH NAVIGATION LANDED, and that is a
+     * decision. With no toHaveURL, a route that began redirecting to another
+     * ADVERTISED route with an IDENTICAL canonical would pass here silently.
+     * That is exactly one pair — / and /home, identical by design — and
+     * src/routes.test.ts already fails if home.tsx grows a beforeLoad, on a
+     * gate CI actually runs. Eight assertions to guard one by-design pair that
+     * another gate covers is cost with no failure behind it.
      */
     const expectedCanonical: Readonly<Record<string, string>> = {
       '': 'https://wordleteams.com',
