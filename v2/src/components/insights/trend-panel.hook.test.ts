@@ -149,6 +149,43 @@ describe('the latest bar is accented only when it is also the best month', () =>
   })
 })
 
+/*
+  wordle-teams-yulu: THE FOOTER'S OWN `board`/`boards`, WHICH NOTHING PINNED.
+  trend-panel.tsx's CardFooter renders `{trend.best.boards === 1 ? 'board' :
+  'boards'}` inline, and it is CORRECT -- but measured during the review of
+  wordle-teams-fqws.2, forcing it to plural-only left the whole suite green. The
+  gap was the missing test, not the idiom, so this pins it and deliberately does
+  NOT migrate the ternary to lib/pluralize.ts: that file's header states the rule
+  that an already-correct pluralisation moves only when its line is being changed
+  for another reason, and adding a test is not such a reason.
+
+  THE SCOPING IS THE WHOLE DIFFICULTY, and getting it wrong would make this test
+  pass for the wrong element. At one board the sr-only sentence ABOVE the footer
+  also contains the words "1 board" -- so `toContain('1 board')` over the panel is
+  satisfied by the line this file already pins at n=1, and would stay green with
+  the footer forced to plural. The two differ in punctuation: the sr-only line
+  reads `Aug 2026: 1 board, average 1 guess.` while the footer reads
+  `... — 1 board · avg 1`. Matching on the em dash and the middot therefore
+  identifies the footer and nothing else, without depending on a class name or on
+  CardFooter growing a test id.
+*/
+describe("the footer's best-month count agrees with its noun", () => {
+  test('one board in the best month reads "1 board", not "1 boards"', () => {
+    render_([board('2026-08-01', 1)])
+    const text = screen.getByTestId('insights-trend').textContent ?? ''
+    // Both arms: the plural form asserted absent as well, so a singular that
+    // silently became plural-only fails here rather than reading correctly.
+    expect(text).toMatch(/— 1 board · avg/)
+    expect(text).not.toMatch(/— 1 boards · avg/)
+  })
+
+  test('and more than one stays plural', () => {
+    render_(monthBoards('2026-08', 3, 4))
+    const text = screen.getByTestId('insights-trend').textContent ?? ''
+    expect(text).toMatch(/— 3 boards · avg/)
+  })
+})
+
 describe('the caption', () => {
   test('reads "your best month yet" when the latest month is the best', () => {
     const boards = [...monthBoards('2026-07', 3, 4), ...monthBoards('2026-08', 5, 2)]

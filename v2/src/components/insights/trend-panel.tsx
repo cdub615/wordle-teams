@@ -200,10 +200,20 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
             its line is being changed for another reason. Two idioms in one FILE
             is a cosmetic inconsistency; two in one SENTENCE (which is what the
             sr-only line had) is how the missing `guesses` half stayed hidden.
-            NOTHING PINS THIS ONE AT n=1: forcing it to 'boards' survives the
-            whole suite. Measured, not assumed, and filed as a follow-up rather
-            than fixed here, because a test for it is outside the blast radius
-            of the bug this file was opened for.
+            IT IS PINNED AT n=1 NOW (wordle-teams-yulu), and this paragraph used
+            to say the opposite: "nothing pins this one at n=1: forcing it to
+            'boards' survives the whole suite" — true when written, false from the
+            moment the test landed. trend-panel.hook.test.ts's "the footer's
+            best-month count agrees with its noun" matches on the em dash and the
+            middot, because at one board the sr-only sentence above ALSO contains
+            the words "1 board" and an unscoped assertion would be satisfied by
+            the line already pinned there. Mutation-verified: forcing this ternary
+            to 'boards' now fails that test and only that test.
+
+            THE TERNARY STAYS ANYWAY, which is the point yulu settled rather than
+            an omission: the gap was the missing test, not the idiom, and
+            pluralize.ts's rule is that an already-correct pluralisation moves
+            only when its line is being changed for another reason.
           */}
           {trend.best.boards === 1 ? 'board' : 'boards'} · avg {trend.best.meanAttempts}
         </CardFooter>
