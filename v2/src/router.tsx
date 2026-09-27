@@ -6,14 +6,19 @@ import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query
 import { routeTree } from './routeTree.gen'
 import { SENTRY_RELEASE, TRACES_SAMPLE_RATE, sentryEnvironment } from './lib/sentry-config'
 import { captureError } from './lib/sentry-capture'
+import { resolveConvexUrl } from './lib/convex-url'
 
 export function getRouter() {
   if (typeof window !== 'undefined') {
     notifyManager.setScheduler(window.requestAnimationFrame)
   }
 
-  const convexUrl = import.meta.env.VITE_CONVEX_URL
-  if (!convexUrl) throw new Error('VITE_CONVEX_URL is not set')
+  // The runtime var wins over the build-time literal, and the whole argument
+  // for that — plus the 500 it fixes — is in lib/convex-url.ts. The
+  // `import.meta.env` read stays HERE because vite substitutes that exact
+  // expression where it is written; moved into the helper it would resolve
+  // against the helper's own import.meta and inline as undefined.
+  const convexUrl = resolveConvexUrl(import.meta.env.VITE_CONVEX_URL)
 
   const convexQueryClient = new ConvexQueryClient(convexUrl, { expectAuth: true })
   const queryClient = new QueryClient({
