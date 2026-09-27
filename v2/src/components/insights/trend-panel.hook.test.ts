@@ -84,6 +84,33 @@ test('the mean is printed as VISIBLE text next to the bar, not only inside the s
   expect(months.querySelector('.sr-only')!.textContent).toContain('4.5')
 })
 
+/*
+  wordle-teams-fqws' FOURTH SENTENCE, and the second of the two it does not
+  name. The sr-only line already agreed on `board` (an inline `=== 1` ternary)
+  and did not agree on `guess` at all — half the agreement present beside the
+  other half missing — so both nouns go through lib/pluralize.ts now.
+
+  n=1 IS THE ONLY VALUE THAT EXPOSES EITHER HALF: at two boards or a mean of
+  two, plural-only copy reads correctly. The whole sentence is asserted with
+  `toBe` rather than `toContain` so a singular stuck where a plural belongs
+  fails too, not only the reverse.
+*/
+describe('the number and its noun agree at n = 1', () => {
+  test('one board solved in one guess reads "1 board, average 1 guess."', () => {
+    // attemptsFor (convex/lib/board.ts) scores a single-guess board as 1, so
+    // one board at n=1 puts BOTH counts in this sentence at one at once.
+    render_([board('2026-08-01', 1)])
+    const sentence = screen.getByTestId('insights-months').querySelector('.sr-only')
+    expect(sentence!.textContent).toBe('Aug 2026: 1 board, average 1 guess.')
+  })
+
+  test('and more than one of either stays plural', () => {
+    render_(monthBoards('2026-08', 3, 4))
+    const sentence = screen.getByTestId('insights-months').querySelector('.sr-only')
+    expect(sentence!.textContent).toBe('Aug 2026: 3 boards, average 4 guesses.')
+  })
+})
+
 describe('the bars scale from zero against the worst mean, not from the minimum', () => {
   test('a month at half the worst mean renders at half height, not zero', () => {
     // July: mean 2 (the best). August: mean 4 (the worst, and the window's

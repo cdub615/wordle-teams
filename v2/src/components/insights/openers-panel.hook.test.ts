@@ -71,7 +71,7 @@ describe('the advice callout', () => {
     expect(headline.textContent).toContain('It ranks')
     expect(headline.textContent).toContain('You average 5 guesses with it and 4 with CRANE')
     // The subtraction the spec says is the part worth paying for.
-    expect(headline.textContent).toContain('Opening CRANE instead would save you about 1 guesses a day')
+    expect(headline.textContent).toContain('Opening CRANE instead would save you about 1 guess a day')
 
     // The saving figure carries the one accent colour in the card — via
     // text-accent-solid, not text-success, which is a background token (see
@@ -112,6 +112,91 @@ describe('the advice callout', () => {
     const boards = openerBoards('MUSIC', 10, 5)
     render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
     expect(screen.queryByTestId('insights-headline')).toBeNull()
+  })
+})
+
+/*
+  wordle-teams-fqws: THREE OF ITS FOUR SENTENCES LIVE IN THIS PANEL, and n=1 is
+  the only value that exposes any of them — the same fixture at n=2 reads
+  correctly against the broken plural-only copy, so a test that does not
+  construct n=1 proves nothing about this bug. Each case below therefore pairs
+  an n=1 assertion with a non-1 one, so a helper stuck on the singular is
+  caught as well as one stuck on the plural.
+*/
+describe('the number and its noun agree at n = 1', () => {
+  /*
+    THE MOST REACHABLE OF THE THREE, and the one the issue itself did not name.
+    `headlineComparison` (insights-personal.ts) puts NO floor on `most.count` —
+    the only floor, MIN_OPENER_USES_FOR_ADVICE, gates the advice sentence's
+    `other`, not this — so a player who varies their opener every day renders
+    "opened with AAAAA 1 times" as soon as they reach MIN_BOARDS_FOR_STATS.
+    Five boards, five different openers, which is exactly that player.
+  */
+  test('a most-used opener used once reads "1 time", not "1 times"', () => {
+    const boards = ['AAAAA', 'BBBBB', 'CCCCC', 'DDDDD', 'EEEEE'].flatMap((word, i) =>
+      openerBoards(word, 1, 3, i * 20),
+    )
+    render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
+
+    // Every opener is tied at one use, so the total sort order falls to the
+    // alphabetical tiebreak and AAAAA is `most`.
+    const headline = screen.getByTestId('insights-headline').textContent ?? ''
+    expect(headline).toContain('You have opened with AAAAA 1 time.')
+    expect(headline).not.toContain('1 times')
+  })
+
+  test('and a count above one stays "times"', () => {
+    const boards = [...openerBoards('AAAAA', 2, 3), ...openerBoards('BBBBB', 1, 3, 50)]
+    render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
+    expect(screen.getByTestId('insights-headline').textContent).toContain(
+      'You have opened with AAAAA 2 times.',
+    )
+  })
+
+  /*
+    A mean of exactly 1.0 — every board with that opener solved on the first
+    guess. Representable and therefore renderable, effectively never reached in
+    real play; the fix is the one the two sentences either side of it need, so
+    it is pinned rather than argued about. CRANE is kept below
+    MIN_OPENER_USES_FOR_ADVICE so the advice sentence stays out of this case.
+  */
+  test('a mean of exactly one reads "1 guess with it", not "1 guesses"', () => {
+    const boards = [...openerBoards('MUSIC', 6, 1), ...openerBoards('CRANE', 3, 3, 100)]
+    render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
+
+    const headline = screen.getByTestId('insights-headline').textContent ?? ''
+    expect(headline).toContain('You average 1 guess with it and 3 with CRANE')
+    expect(headline).not.toContain('1 guesses')
+  })
+
+  test('and a mean above one stays "guesses"', () => {
+    const boards = [...openerBoards('MUSIC', 6, 2), ...openerBoards('CRANE', 3, 3, 100)]
+    render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
+    expect(screen.getByTestId('insights-headline').textContent).toContain(
+      'You average 2 guesses with it and 3 with CRANE',
+    )
+  })
+
+  /*
+    THE SENTENCE THE ISSUE WAS FILED ABOUT, and the one reachable in ordinary
+    play: `savingPerDay` is round1(most.meanAttempts - other.meanAttempts), so
+    any pair a whole guess apart lands on exactly 1.
+  */
+  test('a saving of exactly one reads "about 1 guess a day", not "1 guesses"', () => {
+    const boards = [...openerBoards('MUSIC', 10, 5), ...openerBoards('CRANE', 6, 4, 100)]
+    render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
+
+    const headline = screen.getByTestId('insights-headline').textContent ?? ''
+    expect(headline).toContain('would save you about 1 guess a day')
+    expect(headline).not.toContain('1 guesses')
+  })
+
+  test('and a saving above one stays "guesses"', () => {
+    const boards = [...openerBoards('MUSIC', 10, 5), ...openerBoards('CRANE', 6, 3, 100)]
+    render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
+    expect(screen.getByTestId('insights-headline').textContent).toContain(
+      'would save you about 2 guesses a day',
+    )
   })
 })
 

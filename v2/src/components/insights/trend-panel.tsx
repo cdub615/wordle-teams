@@ -1,6 +1,7 @@
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { TREND_MONTHS, attemptsByMonth, trendWindow, type PersonalBoard } from '#/lib/insights-personal.ts'
+import { pluralize } from '#/lib/pluralize.ts'
 
 /**
  * Twelve months, as a shape rather than a table.
@@ -97,7 +98,13 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
             // place (format-day.ts) instead of two.
             const shortName = label.split(' ')[0]!
             const initial = shortName[0]!
-            const boardsWord = row.boards === 1 ? 'board' : 'boards'
+            // BOTH NOUNS THROUGH THE SAME HELPER. `boardsWord` was an inline
+            // `=== 1` ternary while `guesses` beside it in the same sentence was
+            // not pluralised at all — half the agreement present, half missing.
+            // One idiom for both is what makes the missing half visible next
+            // time somebody edits this line.
+            const boardsWord = pluralize(row.boards, 'board', 'boards')
+            const guessesWord = pluralize(row.meanAttempts, 'guess', 'guesses')
 
             return (
               <div key={row.month} className="flex min-w-0 flex-1 flex-col items-center gap-1">
@@ -165,7 +172,7 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
                   assemble themselves.
                 */}
                 <span className="sr-only">
-                  {`${label}: ${row.boards} ${boardsWord}, average ${row.meanAttempts} guesses.`}
+                  {`${label}: ${row.boards} ${boardsWord}, average ${row.meanAttempts} ${guessesWord}.`}
                 </span>
                 {/* AN INITIAL ON MOBILE, A SHORT NAME FROM md: UP. Twelve short
                     month names ("Sep", "Oct", …) do not fit at a 358px phone

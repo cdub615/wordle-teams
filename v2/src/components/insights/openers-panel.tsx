@@ -11,6 +11,7 @@ import {
   type OpenerRow,
   type PersonalBoard,
 } from '#/lib/insights-personal.ts'
+import { pluralize } from '#/lib/pluralize.ts'
 import { WordTiles } from './mini-board.tsx'
 import { UnlockPrompt } from './unlock-prompt.tsx'
 
@@ -71,7 +72,7 @@ export function OpenersPanel({
             data-testid="insights-headline"
           >
             You have opened with <span className="font-medium">{headline.most.word}</span>{' '}
-            {headline.most.count} times.{' '}
+            {headline.most.count} {pluralize(headline.most.count, 'time', 'times')}.{' '}
             {headline.most.rank !== null && (
               <>
                 It ranks{' '}
@@ -83,7 +84,8 @@ export function OpenersPanel({
                 .{' '}
               </>
             )}
-            You average {headline.most.meanAttempts} guesses with it and{' '}
+            You average {headline.most.meanAttempts}{' '}
+            {pluralize(headline.most.meanAttempts, 'guess', 'guesses')} with it and{' '}
             {headline.other.meanAttempts} with{' '}
             <span className="font-medium">{headline.other.word}</span>.{' '}
             {/*
@@ -98,7 +100,7 @@ export function OpenersPanel({
               <>
                 Opening <span className="font-medium">{advice.to}</span> instead would save you
                 about <span className="text-accent-solid font-semibold">{advice.savingPerDay}</span>{' '}
-                guesses a day.
+                {pluralize(advice.savingPerDay, 'guess', 'guesses')} a day.
               </>
             )}
           </p>
