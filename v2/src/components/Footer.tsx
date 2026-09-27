@@ -33,7 +33,38 @@ import { Link } from '@tanstack/react-router'
  * survived a whole parity phase inside a file that had a test.
  */
 export default function Footer() {
-  const year = new Date().getFullYear()
+  /**
+   * THE BUILD'S YEAR, NOT THE CLOCK'S (wordle-teams-56ag). This was
+   * `new Date().getFullYear()`, read during render — and __root.tsx renders this
+   * component on every path `hidesSiteFooter` does not exclude, which is every
+   * document in cache-policy.ts's STATIC_DOCUMENTS.
+   *
+   * THE BUG WAS THE HYDRATION MISMATCH, not the staleness. The clock was read
+   * during SSR and AGAIN during hydration, so a load that straddles midnight on
+   * 31 December gets a different year on each side — a React #418 in production,
+   * on every static page at once. It is the same hazard today-panel.tsx and
+   * scores-table.tsx are built around. A `define` is a single text substitution,
+   * so both passes see one literal and there is nothing left to disagree about.
+   *
+   * IT ALSO RETIRES THE EDGE-STALENESS CASE, which was never worth fixing on its
+   * own: those documents carry s-maxage=86400 plus a week of
+   * stale-while-revalidate, so a copy rendered on 31 December could be served
+   * into January showing the old year. It said less than the truth by one year in
+   * a copyright line and misled nobody.
+   *
+   * WHY NOT THE OTHER TWO FIXES. Rendering no year at all is cheaper still and
+   * reads no clock, but it changes shipped copy to fix an engineering problem.
+   * `useHydrated`, which is what today-panel.tsx uses, is correct and is a
+   * subscription plus a re-render for a copyright line. A build constant keeps
+   * the year, matches __SENTRY_RELEASE__'s existing mechanism, and adds no
+   * runtime machinery.
+   *
+   * THE COST, STATED: the year is frozen at BUILD time, so a deployment left
+   * untouched across a New Year shows the previous year until it is rebuilt. That
+   * is the same one-year-understated copyright line the edge cache could already
+   * produce, now deterministic rather than a mismatch.
+   */
+  const year = __BUILD_YEAR__
 
   return (
     // `px-4` OFF THE FOOTER ELEMENT for the same reason it came off the header:

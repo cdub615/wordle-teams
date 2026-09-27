@@ -33,4 +33,16 @@ export default defineConfig({
     // exactly why the stale sentence was worth deleting rather than trusting.
     env: { SITE_URL: 'http://localhost:3000' },
   },
+  /**
+   * MIRRORS vite.config.ts's `define`, and it is not optional. `define` lives on
+   * the build config, which the test runner does not read, so a constant
+   * substituted there is plain `undefined` here — and Footer.tsx reads
+   * __BUILD_YEAR__ at render time, so the test that renders it would assert
+   * against `undefined` and pass for the wrong reason.
+   *
+   * COMPUTED THE SAME WAY RATHER THAN HARDCODED, so a test asserting the rendered
+   * year against `new Date().getFullYear()` stays true next January without anyone
+   * editing this file. See wordle-teams-56ag.
+   */
+  define: { __BUILD_YEAR__: JSON.stringify(new Date().getFullYear()) },
 })

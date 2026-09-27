@@ -55,7 +55,13 @@ const config = defineConfig({
   // JSON.stringify, not template interpolation: `define` performs a raw TEXT
   // substitution, so an unquoted SHA would be spliced in as a bare identifier
   // and fail to parse.
-  define: { __SENTRY_RELEASE__: JSON.stringify(RELEASE) },
+  // __BUILD_YEAR__ IS ALSO MIRRORED IN vitest.config.ts, and it has to be:
+  // `define` here does not reach the test runner, and Footer.tsx reads this
+  // constant at render time, so a test that renders it would see `undefined`.
+  define: {
+    __SENTRY_RELEASE__: JSON.stringify(RELEASE),
+    __BUILD_YEAR__: JSON.stringify(new Date().getFullYear()),
+  },
   /**
    * SOURCE MAPS EXIST AT ALL NOW, WHICH THEY DID NOT (wordle-teams-p1as).
    * `find dist -name "*.map"` returned nothing, so every Sentry stack trace on
