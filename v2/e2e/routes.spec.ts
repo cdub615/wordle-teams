@@ -436,13 +436,18 @@ test.describe('route shape', () => {
 
   /*
    * /pricing, THE ONE PUBLIC ROUTE NOTHING HAD EVER RENDERED
-   * (wordle-teams-wty4.1.14.12). components/pricing/tier-table.tsx has a jsdom
-   * suite, and src/routes.test.ts reads routes/pricing.tsx's SOURCE for the
-   * absence of a beforeLoad and for the loader that decides the trial — but the
-   * route's own body, the frame around that table, is imported by nothing except
-   * routeTree.gen.ts and had never been rendered by anything. Before these two
-   * tests the path appeared in this file in exactly one test, as the one landing
-   * link the CTA case above sends somewhere other than /login.
+   * (wordle-teams-wty4.1.14.12). /maintenance is the near miss rather than a
+   * counterexample: no browser navigates there either, but the `request.get` in
+   * its cache case makes the server render its body, and before these cases
+   * nothing had requested /pricing at all.
+   *
+   * components/pricing/tier-table.tsx has a jsdom suite, and src/routes.test.ts
+   * reads routes/pricing.tsx's SOURCE for the absence of a beforeLoad and for the
+   * loader that decides the trial — but the route's own body, the frame around
+   * that table, is imported by nothing except routeTree.gen.ts and had never been
+   * rendered by anything. Before these three cases the path appeared in this file
+   * in exactly one test, as the one landing link the CTA case above sends
+   * somewhere other than /login.
    *
    * MORE THAN THE h1, unlike /privacy's and /terms's three-line cases above.
    * Those two are prose pages whose heading is the only structural claim worth
@@ -481,6 +486,11 @@ test.describe('route shape', () => {
       page.getByText(
         'Wordle Teams is free to play, and free is a real tier rather than a trailer for ' +
           'the paid one. Here is what each side of that actually holds.',
+        // `exact`, like the h1 above and the h1s in /privacy's and /terms's render
+        // cases. Without it this is a case-insensitive SUBSTRING, so a lede that
+        // GAINS a sentence stays green — the reword mutation failed it either way,
+        // but an addition would only fail with this.
+        { exact: true },
       ),
     ).toBeVisible()
     await expect(page.getByRole('link', { name: 'Get Started', exact: true })).toHaveAttribute(
@@ -510,6 +520,60 @@ test.describe('route shape', () => {
     // the helper became.
     await page.goto('/pricing')
     await expect(page).toHaveTitle('Pricing - Wordle Teams')
+  })
+
+  test('the /pricing document a visitor is served names no trial', async ({ page }) => {
+    // THE CACHE WINDOW IS THE STAKE HERE, NOT THE SUBJECT, WHICH IS WHY THIS SITS
+    // WITH THE OTHER /pricing RENDER CASES. The answer to "can a trial be started
+    // right now" is computed once in the loader and serialized into the document —
+    // routes/pricing.tsx's loader comment has that mechanism in full — so the copy
+    // the edge may hold for a day plus a week, under the /pricing case in
+    // 'document cache headers', is THIS rendering of it. That is what makes the
+    // claim worth pinning; it is not what this test asserts. This one asserts a
+    // single fresh render and no header at all, so a failure here points first at
+    // components/pricing/tier-table.tsx or the loader rather than at server.ts or
+    // cache-policy.ts — which is where the other describe's name would have sent
+    // whoever was triaging it, on every failure, to buy a taxonomy that only ever
+    // read right once.
+    //
+    // THE HALF NO GATED TEST CAN SEE. tier-table.hook.test.ts's "told there is
+    // no trial, says nothing at all about one" pins the component in jsdom given
+    // the prop, and src/routes.test.ts pins in the source that the loader asks
+    // `trialCanStart` and that its answer is what the table is handed. What
+    // neither reaches is the whole chain landing in a real document: while
+    // LAUNCH_AT is still the 2099 placeholder, the page a visitor actually
+    // receives must name no trial.
+    //
+    // RENDERED TEXT, NOT RAW HTML, AND THE DIFFERENCE IS NOT COSMETIC. MEASURED
+    // against this server: the only occurrence of the word in the document is the
+    // serialized loader value — the dehydrated `l:` key carrying
+    // `{trialOffered:!1}` — inside the bootstrap script, which is not visible
+    // copy. (The `$R[n]` index it is written through moves with the route tree, so
+    // it is deliberately not quoted here.) Asserting over the raw document text
+    // would therefore fail today for a reason that has nothing to do with what a
+    // reader sees, and would start passing for an equally wrong reason the moment
+    // that key were renamed or serialized differently. innerText reads what a
+    // reader reads. Please do not "simplify" this into a request-level assertion.
+    //
+    // MEASURED THE OTHER WAY TOO: hardcode `trialOffered: true` in the loader and
+    // this case fails on the rendered copy, with the three other /pricing cases
+    // still green.
+    //
+    // IF YOU RE-MEASURE ANY OF THAT, MIND THE NUL BYTES. The served document
+    // contains them (`\x00pricing\x00pricing` around the match id), so `grep`
+    // treats the file as binary and prints NOTHING while exiting as though it had
+    // simply found no match. Use `grep -a`, or python. Two of us have now lost
+    // time to reading that silence as "the word is absent".
+    //
+    // SCOPED TO <main>, which is everything routes/pricing.tsx renders — the
+    // frame copy as well as the tier table, so the page cannot name a trial in
+    // its own prose either — and not the chrome __root.tsx puts around it, which
+    // renders no <main> of its own. The pattern is the jsdom sibling's, verbatim.
+    await page.goto('/pricing')
+    await expect(page.getByTestId('pricing-tiers')).toBeVisible()
+    expect(await page.locator('main').innerText()).not.toMatch(
+      /trial|thirty days|30 days|free for a month/i,
+    )
   })
 
   test('/login-error renders the failure page and offers a way back to sign in', async ({
@@ -902,15 +966,23 @@ test.describe('document cache headers', () => {
     // gate as well as this case.
     //
     // WHAT IS NOT GATED IS THIS PATH'S REAL RESPONSE: that it answers 200 as
-    // text/html at all, and that src/server.ts's rewrite reaches it. MEASURED —
+    // text/html at all, and that src/server.ts's document pipeline reaches it —
+    // the maintenance gate, then the edge-cache lookup, then `cachePolicyFor`
+    // applied to the real response. NOT "a rewrite", which this file used to say:
+    // the only place src/server.ts says that word is :264-265, and it says the
+    // OPPOSITE — v1's middleware rewrote, v2 sends a 307 instead, because a
+    // rewrite was measured producing "Minified React error #418 (hydration
+    // mismatch)" under `wrangler dev`. MEASURED —
     // make this route's loader throw and the response is a 500, which this case
     // fails on, while `cachePolicyFor('/pricing', false)` goes on returning
     // STATIC_CACHE because the path string it is asked about has not changed.
     // That is the gap a loader opens and the reason it is worth a case here.
     //
-    // THE WHOLE HEADER, like the five cases above, and here the value is exactly
-    // what the route's own prose reasons about: it states the exposure as BOTH
-    // numbers — a day of shared freshness and a week of stale-while-revalidate —
+    // THE WHOLE HEADER COMPARED WITH toBe, which this describe's own header makes
+    // the rule for every case in it — seven others assert this same literal, and
+    // the rest compare `private, no-store` just as wholly. Here the value is
+    // exactly what the route's own prose reasons about: it states the exposure as
+    // BOTH numbers — a day of shared freshness and a week of stale-while-revalidate —
     // so a case checking only for 'public' would not be reading the thing that
     // comment weighs.
     const response = await request.get('/pricing')
@@ -918,47 +990,6 @@ test.describe('document cache headers', () => {
     expect(response.headers()['content-type']).toContain('text/html')
     expect(response.headers()['cache-control']).toBe(
       'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
-    )
-  })
-
-  test('the /pricing document a visitor is served names no trial', async ({ page }) => {
-    // HERE RATHER THAN IN 'route shape', BECAUSE IT IS ABOUT THE SHARED COPY.
-    // The answer to "can a trial be started right now" is computed once in the
-    // loader and serialized into the document — routes/pricing.tsx's loader
-    // comment has that mechanism in full — so the /pricing the edge holds under
-    // the case above is THIS rendering of it, for up to the day plus the week
-    // that case asserts. That one says the document may be shared; this says
-    // what the document being shared actually claims.
-    //
-    // THE HALF NO GATED TEST CAN SEE. tier-table.hook.test.ts's "told there is
-    // no trial, says nothing at all about one" pins the component in jsdom given
-    // the prop, and src/routes.test.ts pins in the source that the loader asks
-    // `trialCanStart` and that its answer is what the table is handed. What
-    // neither reaches is the whole chain landing in a real document: while
-    // LAUNCH_AT is still the 2099 placeholder, the page a visitor actually
-    // receives must name no trial.
-    //
-    // RENDERED TEXT, NOT RAW HTML, AND THE DIFFERENCE IS NOT COSMETIC. MEASURED
-    // against this server: the only occurrence of the word in the document is the
-    // serialized loader value, `l:$R[14]={trialOffered:!1}` inside the bootstrap
-    // script, which is not visible copy. Asserting over the raw document text
-    // would therefore fail today for a reason that has nothing to do with what a
-    // reader sees, and would start passing for an equally wrong reason the moment
-    // that key were renamed or serialized differently. innerText reads what a
-    // reader reads. Please do not "simplify" this into a request-level assertion.
-    //
-    // MEASURED THE OTHER WAY TOO: hardcode `trialOffered: true` in the loader and
-    // this case fails on the rendered copy, with the three other /pricing cases
-    // still green.
-    //
-    // SCOPED TO <main>, which is everything routes/pricing.tsx renders — the
-    // frame copy as well as the tier table, so the page cannot name a trial in
-    // its own prose either — and not the chrome __root.tsx puts around it, which
-    // renders no <main> of its own. The pattern is the jsdom sibling's, verbatim.
-    await page.goto('/pricing')
-    await expect(page.getByTestId('pricing-tiers')).toBeVisible()
-    expect(await page.locator('main').innerText()).not.toMatch(
-      /trial|thirty days|30 days|free for a month/i,
     )
   })
 })
