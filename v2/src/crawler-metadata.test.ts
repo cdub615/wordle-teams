@@ -661,7 +661,10 @@ describe('robots.txt and the sitemap cannot contradict each other', () => {
  *
  * The assertions below are on the DATA and on the ROUTE SOURCE, not on a
  * rendered document, for the reason this whole file exists: vitest is the CI
- * gate and there is no DOM in it. e2e/routes.spec.ts checks the rendered head.
+ * gate, and THIS FILE declares no `@vitest-environment`, so it runs on the
+ * edge-runtime default where there is no DOM. That is a fact about this file and
+ * not about the runner — a suite that wants a DOM opts into jsdom, as 53
+ * *.hook.test.ts files do. e2e/routes.spec.ts checks the rendered head.
  */
 describe('the site-wide card no longer claims a URL', () => {
   test('og:url is absent from socialMetaTags', () => {

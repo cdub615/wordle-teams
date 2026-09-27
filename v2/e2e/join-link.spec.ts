@@ -20,10 +20,16 @@ import { completeProfile } from './complete-profile'
  *      `navigate()` is asynchronous — so the router still held `?join=` and
  *      handed it over again. Two toasts, and two mutations.
  *
- * Neither is reachable from `vitest run`: a route module registers against a
- * router that does not exist there, `Dashboard` is not exported, and the suite
- * runs on edge-runtime with no DOM at all. src/routes.test.ts pins the SHAPE
- * that ships and says so; this drives the thing.
+ * Neither is reachable from `vitest run`, and the two reasons that hold are
+ * specific: a route module registers against a router that does not exist
+ * there, and `Dashboard` is not exported. src/routes.test.ts pins the SHAPE that
+ * ships and says so; this drives the thing.
+ *
+ * THIS USED TO GIVE A THIRD REASON — "the suite runs on edge-runtime with no DOM
+ * at all" — AND IT IS FALSE as a statement about the suite: edge-runtime is the
+ * default, and 53 *.hook.test.ts files opt into jsdom and render. Dropping it
+ * costs the argument nothing, because the two reasons above are what actually
+ * make this route unreachable there. See wordle-teams-kpge.
  *
  * PLAYWRIGHT IS NOT A CI GATE (wt-ksh.8.49) — .github/workflows/deploy-v2.yml
  * runs lint, typecheck, `vitest run` and build. So this is a thing somebody

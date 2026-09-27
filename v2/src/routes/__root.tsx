@@ -142,10 +142,17 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         THE DESCRIPTION AND THE SOCIAL CARD, SPREAD RATHER THAN SPELLED OUT.
         Nineteen tags matched against what production emits today, tag for tag;
         the list and the argument for every value live in lib/seo.ts. They are
-        a data structure there because that is the only shape `vitest run` can
-        read — v2 has no component-rendering tests (the vitest environment is
-        edge-runtime, so no DOM) and CI runs no Playwright, so tags written
-        inline here would be pinned by nothing that CI executes.
+        a data structure there because that is the shape a gate can assert on
+        VALUES rather than on markup: `vitest run` imports the array and compares
+        every content string. Tags spelled inline in this head() would be pinned
+        by nothing that CI executes, because CI runs no Playwright (wt-ksh.8.49).
+
+        NOT BECAUSE "v2 HAS NO COMPONENT-RENDERING TESTS AND NO DOM" — this
+        comment used to say so and it is false. edge-runtime is vitest's DEFAULT,
+        not a ceiling, and 53 *.hook.test.ts files opt into jsdom and render. The
+        reason still holds without that claim: a rendered document tells you what
+        some component produced, where the question here is what THESE NINETEEN
+        VALUES are. See wordle-teams-kpge.
 
         SITE-WIDE, LIKE v1's. Next put openGraph and twitter in the root
         layout's metadata with no page overriding them, so every route in

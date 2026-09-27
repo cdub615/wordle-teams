@@ -107,10 +107,15 @@ export const OG_IMAGE_ALT = 'Wordle Teams'
  *
  * IT IS A DATA STRUCTURE AND NOT JSX so that `vitest run` can import it and
  * read the real values. Spelled into __root.tsx's head() by hand, these tags
- * would be reachable only from a rendered document, and v2 has no
- * component-rendering tests — the vitest environment is edge-runtime, so there
- * is no DOM — while CI runs no Playwright either (wt-ksh.8.49). As an array,
- * every content string is an assertion on a gate that actually runs.
+ * would be reachable only from a rendered document, and CI runs no Playwright
+ * (wt-ksh.8.49). As an array, every content string is an assertion on a gate
+ * that actually runs.
+ *
+ * THE OLD VERSION OF THIS PARAGRAPH ALSO CLAIMED v2 "has no component-rendering
+ * tests — the vitest environment is edge-runtime, so there is no DOM". That is
+ * false: edge-runtime is the DEFAULT and 53 *.hook.test.ts files opt into jsdom
+ * and render. The shape is still right, for the reason above rather than that
+ * one. See wordle-teams-kpge.
  */
 export const socialMetaTags = [
   { name: 'description', content: APP_DESCRIPTION },

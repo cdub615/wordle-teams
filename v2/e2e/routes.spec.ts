@@ -5,9 +5,23 @@ import { openAppMenu } from './app-menu.ts'
 import { signIn } from './sign-in'
 import { completeProfile } from './complete-profile'
 
-// REAL RESPONSES, NOT UNIT TESTS. v2 has no component-rendering tests — the
-// vitest environment is edge-runtime, so there is no DOM — which means the
-// wiring in server.ts and the route tree is reachable from nowhere else.
+// REAL RESPONSES, NOT UNIT TESTS. The wiring in server.ts and the route tree —
+// status codes, redirect chains, response headers, the document a crawler is
+// actually served — is reachable from nowhere else: vitest never boots the
+// server entry, so nothing there can observe a 307 or a cache-control header.
+//
+// NOT BECAUSE "v2 HAS NO COMPONENT-RENDERING TESTS AND NO DOM", WHICH IS WHAT
+// THIS COMMENT USED TO SAY AND IS FALSE. edge-runtime is the vitest DEFAULT, not
+// a ceiling: 53 *.hook.test.ts files open with @vitest-environment jsdom and
+// render, which is
+//
+//   grep -rl "@vitest-environment jsdom" src/ | grep -c hook.test.ts
+//
+// wordle-teams-1vbb corrected that claim in seven places and missed this one —
+// including the site further down THIS file, at the `/home` section check. The
+// distinction that survives is about WHAT is being asserted, not about what the
+// test runner can do: a rendered component cannot tell you what the server sent.
+// See wordle-teams-kpge.
 
 /**
  * Every path the browser was handed on the way to the page it ended on, oldest
