@@ -125,12 +125,14 @@ describe('the advice callout', () => {
 */
 describe('the number and its noun agree at n = 1', () => {
   /*
-    THE MOST REACHABLE OF THE THREE, and the one the issue itself did not name.
-    `headlineComparison` (insights-personal.ts) puts NO floor on `most.count` —
-    the only floor, MIN_OPENER_USES_FOR_ADVICE, gates the advice sentence's
-    `other`, not this — so a player who varies their opener every day renders
-    "opened with AAAAA 1 times" as soon as they reach MIN_BOARDS_FOR_STATS.
-    Five boards, five different openers, which is exactly that player.
+    REACHABLE ON THE SHORTEST HISTORY OF THE THREE — FIVE BOARDS — and the one
+    the issue itself did not name. `headlineComparison` (insights-personal.ts)
+    puts NO floor on `most.count`, and MIN_OPENER_USES_FOR_ADVICE (the only
+    floor anywhere on an opener's USE COUNT — that module's other floors all
+    count BOARDS) gates the advice sentence's `other`, not this. So a player who
+    varies their opener every day renders "opened with AAAAA 1 times" as soon as
+    they reach MIN_BOARDS_FOR_STATS. Five boards, five different openers, which
+    is exactly that player.
   */
   test('a most-used opener used once reads "1 time", not "1 times"', () => {
     const boards = ['AAAAA', 'BBBBB', 'CCCCC', 'DDDDD', 'EEEEE'].flatMap((word, i) =>
@@ -159,9 +161,17 @@ describe('the number and its noun agree at n = 1', () => {
     real play; the fix is the one the two sentences either side of it need, so
     it is pinned rather than argued about. CRANE is kept below
     MIN_OPENER_USES_FOR_ADVICE so the advice sentence stays out of this case.
+
+    THE OPENER IS THE ANSWER, WHICH IS THE ONLY WAY A ONE-GUESS BOARD IS A REAL
+    ONE. `attemptsFor` scores ['MUSIC'] against answer SPEED as 1 all the same,
+    so a fixture like that would pass — but `boardIsValid` (convex/lib/board.ts)
+    REJECTS it, since a board short of six rows is valid only when its last
+    guess is the answer. A fixture the product would refuse to store is a
+    stricter test than reality, which is the kind that later gets "fixed" by
+    someone who cannot tell it from a real state.
   */
   test('a mean of exactly one reads "1 guess with it", not "1 guesses"', () => {
-    const boards = [...openerBoards('MUSIC', 6, 1), ...openerBoards('CRANE', 3, 3, 100)]
+    const boards = [...openerBoards('SPEED', 6, 1), ...openerBoards('CRANE', 3, 3, 100)]
     render(createElement(OpenersPanel, { benchmark: benchmark(noDifficultyCoverage), boards }))
 
     const headline = screen.getByTestId('insights-headline').textContent ?? ''

@@ -7,12 +7,14 @@
  * of exactly one read "about 1 guesses a day" — on a paid surface, in the
  * sentence that argues the feature is worth money. Four sentences across two
  * panels had that shape, and all four are callers of this helper:
- *   - openers-panel.tsx — "You have opened with MUSIC {n} time(s)". THE MOST
- *     REACHABLE OF THE FOUR, and the one the issue did not name:
- *     `headlineComparison` (insights-personal.ts) puts no floor on
- *     `most.count` — the only floor, MIN_OPENER_USES_FOR_ADVICE, gates the
- *     advice sentence's `other` — so five boards with five different openers
- *     reach it as soon as MIN_BOARDS_FOR_STATS is met.
+ *   - openers-panel.tsx — "You have opened with MUSIC {n} time(s)". REACHABLE
+ *     ON THE SHORTEST HISTORY OF THE FOUR — FIVE BOARDS — and the one the
+ *     issue did not name: `headlineComparison` (insights-personal.ts) puts no
+ *     floor on `most.count`, and MIN_OPENER_USES_FOR_ADVICE (the only floor
+ *     anywhere on an opener's USE COUNT — insights-personal.ts's other floors
+ *     all count BOARDS) gates the advice sentence's `other`, not this. So five
+ *     boards with five different openers reach it as soon as
+ *     MIN_BOARDS_FOR_STATS is met.
  *   - openers-panel.tsx — "You average {n} guess(es) with it".
  *   - openers-panel.tsx — "would save you about {n} guess(es) a day".
  *   - trend-panel.tsx — the sr-only "{n} board(s), average {n} guess(es)",
@@ -30,14 +32,28 @@
  *
  * THE INLINE `=== 1` TERNARIES ALREADY IN THE REPO ARE DELIBERATELY NOT
  * MIGRATED — they are already correct, and churning correct code widens a bug
- * fix into a refactor. Reach for this helper in new copy; do not sweep the
- * old. NO COUNT IS GIVEN HERE ON PURPOSE: an earlier version of this comment
- * said "four" and named four, and a grep for the shape finds them in
- * components/board-entry/import-prefill.ts, components/today-panel.tsx,
- * components/insights/team-panel.tsx, components/insights/daily-team-fact.tsx,
- * routes/insights.tsx, lib/billing-copy.ts, convex/lib/otpExpiry.ts and
- * trend-panel.tsx's OWN card footer — so a number in a comment here would be
- * a claim nothing enforces and one new sentence away from being false.
+ * fix into a refactor.
+ *
+ * BUT THE RULE IS NARROWER THAN "NEVER SWEEP THE OLD", AND THIS MODULE'S OWN
+ * COMMIT IS WHY: trend-panel.tsx's sr-only sentence carried an inline
+ * `boardsWord` ternary that WAS old and WAS correct, and it was migrated
+ * anyway — because the `guesses` half of the same sentence was being fixed, and
+ * two idioms in one sentence is what let the missing half hide beside the
+ * present one. SO: MIGRATE AN ALREADY-CORRECT PLURALISATION ONLY WHEN ITS LINE
+ * IS BEING EDITED FOR ANOTHER REASON, never as a sweep of its own. The same
+ * file's card footer is the counter-example left standing, and it says so at
+ * its own line.
+ *
+ * NO COUNT OF THE REMAINING INLINE SITES IS GIVEN HERE ON PURPOSE: an earlier
+ * version of this comment said "four" and named four, and a grep for the shape
+ * finds them AMONG OTHERS in components/board-entry/import-prefill.ts,
+ * components/today-panel.tsx, components/insights/team-panel.tsx,
+ * components/insights/daily-team-fact.tsx, routes/insights.tsx,
+ * lib/billing-copy.ts, lib/insights-panel.ts:209 (count-driven agreement on a
+ * VERB — "shows"/"opens" — rather than a noun), convex/lib/otpExpiry.ts and
+ * trend-panel.tsx's own card footer. A number in a comment here would be a
+ * claim nothing enforces and one new sentence away from being false; so would
+ * a list that read as a complete grep output.
  *
  * TWO SITES LOOK LIKE THIS BUG AND ARE NOT — for different reasons, which is
  * the part worth stating:

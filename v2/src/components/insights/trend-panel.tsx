@@ -192,6 +192,19 @@ export function TrendPanel({ boards }: { boards: PersonalBoard[] }) {
         <CardFooter className="text-muted-foreground border-t pt-3 text-xs">
           {trend.latestIsBest ? 'Your best month yet' : 'Your best month'}:{' '}
           {formatMonthLabel(trend.best.month)} — {trend.best.boards}{' '}
+          {/*
+            STILL AN INLINE TERNARY, DELIBERATELY, WHILE THE sr-only SENTENCE
+            ABOVE GOES THROUGH lib/pluralize.ts. It is already correct and this
+            line was not being edited — which is exactly the rule pluralize.ts's
+            header states: migrate an already-correct pluralisation only when
+            its line is being changed for another reason. Two idioms in one FILE
+            is a cosmetic inconsistency; two in one SENTENCE (which is what the
+            sr-only line had) is how the missing `guesses` half stayed hidden.
+            NOTHING PINS THIS ONE AT n=1: forcing it to 'boards' survives the
+            whole suite. Measured, not assumed, and filed as a follow-up rather
+            than fixed here, because a test for it is outside the blast radius
+            of the bug this file was opened for.
+          */}
           {trend.best.boards === 1 ? 'board' : 'boards'} · avg {trend.best.meanAttempts}
         </CardFooter>
       )}
