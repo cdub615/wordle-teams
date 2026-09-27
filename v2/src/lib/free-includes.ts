@@ -218,9 +218,20 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
   {
     id: 'team-fact',
     // Layer 3 is 'free' for everyone, and daily-team-fact.tsx is the sentence it
-    // buys: "You beat two of three teammates who have played today." It renders
-    // only once the viewer has entered, which is why the body says to enter
-    // first rather than promising a fact that is not there yet.
+    // buys. RENDERED OUTPUT, NOT A LITERAL — grepping for it finds nothing, and
+    // wordle-teams-5kqn was filed believing that made it a false quotation. It
+    // does not: the 'beat' branch builds
+    //
+    //   `You beat ${count(beaten)} of ${count(compared)} ${
+    //     compared === 1 ? 'teammate who has' : 'teammates who have'} played today.`
+    //
+    // and at beaten=2, compared=3 that is exactly "You beat two of three
+    // teammates who have played today." — `count` spells 0-9 as words, and 3
+    // takes the plural branch. Quoted with its inputs now so the next reader who
+    // greps for it is not left doubting the comment.
+    //
+    // It renders only once the viewer has entered, which is why the body says to
+    // enter first rather than promising a fact that is not there yet.
     title: 'A team fact every day',
     body: 'Enter today’s board and see how many of your teammates you beat.',
     checkedAgainst: 'src/components/insights/daily-team-fact.tsx',
