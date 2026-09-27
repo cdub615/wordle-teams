@@ -26,10 +26,14 @@ import { ProductShot } from './product-shot.tsx'
  * KEYED BY ENTRY ID, AND AN ENTRY WITH NO ICON DRAWS NONE. The lookup used to be
  * `ICONS[index] ?? MessageSquare` into a two-element array, so a third id added
  * to the selection would have been handed the chat bubble beside whatever it
- * said — a wrong picture, and a silent one: no test renders this component, and
- * e2e/routes.spec.ts reads the heading outline rather than the icons. By id, an
- * entry this map does not name renders its heading and body with no icon, which
- * is a gap a reader can see rather than a picture contradicting the words.
+ * said — a wrong picture, and a silent one. THE SILENCE IS NOW PARTIAL RATHER
+ * THAN TOTAL: landing-sections.hook.test.ts renders this component and pins the
+ * heading outline, the prose, and the fact that every icon stays out of the
+ * accessibility tree. What it does not reach is THIS branch — an entry the map
+ * does not name — because reaching it needs a selection `ALSO_FREE` does not
+ * have; e2e/routes.spec.ts reads the heading outline rather than the icons. By
+ * id, an entry this map does not name renders its heading and body with no icon,
+ * which is a gap a reader can see rather than a picture contradicting the words.
  *
  * `text-accent-solid` AGAIN, ON --background THIS TIME: #15803d measures 5.05:1
  * light and 7.86:1 dark there, both above the 4.5 bar they do not even need as
