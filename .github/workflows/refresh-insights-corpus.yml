@@ -30,13 +30,12 @@ name: Refresh insights corpus
 #
 # GitHub runs scheduled workflows only from the DEFAULT BRANCH, which is main,
 # and its documentation says the same of workflow_dispatch — the file has to be on
-# the default branch for the event to fire at all, whatever ref you then pick. And
-# `v2/` does not exist on main:
-# the replatform lives entirely on feat/v2-replatform (verified 2026-09-27 —
-# `git ls-tree origin/main --name-only` lists no v2, and of the five workflow
-# files on this branch only ci.yaml, dev.yaml and prod.yaml are on main). So
-# until the branch lands there will be no runs of this workflow, scheduled or
-# manual, and no "Run workflow" button for it.
+# the default branch for the event to fire at all, whatever ref you then pick.
+# And `v2/` does not exist on main: the replatform lives entirely on
+# feat/v2-replatform (verified 2026-09-27 — `git ls-tree origin/main --name-only`
+# lists no v2, and of the six workflow files on this branch only ci.yaml, dev.yaml
+# and prod.yaml are on main). So until the branch lands there will be no runs of
+# this workflow, scheduled or manual, and no "Run workflow" button for it.
 #
 # DO NOT "FIX" THAT BY LANDING THIS FILE ON main AHEAD OF v2/. It would then run
 # every Monday against a tree with no v2/ directory, no build script and no
@@ -65,8 +64,8 @@ name: Refresh insights corpus
 #
 # THE PULL REQUEST BODY IS THE POINT, not the diff. Both artifacts are single-line
 # JSON — 5.9 KB and 73 KB as of 2026-09-27 — so `git diff` renders any change to
-# either as one rewritten line and shows a reviewer nothing.
-# A refresh also REVISES ALREADY-PUBLISHED HISTORY: qnde.1's 19-day refresh
+# either as one rewritten line and shows a reviewer nothing. And a
+# refresh REVISES ALREADY-PUBLISHED HISTORY: qnde.1's 19-day refresh
 # changed 305 of the 1,907 percentiles that were already shipped, with a largest
 # swing of 41 points, and moved 37 past boards across a difficulty label boundary
 # — a board that read "Tricky" yesterday reads "Hard" today, with no code change
@@ -216,7 +215,13 @@ jobs:
             exit 2
           fi
 
-          existing="$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')"
+          # Named separately from the create/edit below because it fails for a
+          # different reason — reading pull requests, not writing them — and
+          # because by this point the branch is already pushed.
+          if ! existing="$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')"; then
+            echo "::error::Pushed $BRANCH but could not list its pull requests, so this run cannot tell whether to open one or update one. Nothing was opened. Check pull-requests: write and that the GITHUB_TOKEN is not restricted for this repository."
+            exit 2
+          fi
 
           if [ -n "$existing" ]; then
             # An open PR from a previous week is superseded, not duplicated: its
