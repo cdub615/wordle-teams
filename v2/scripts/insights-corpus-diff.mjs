@@ -19,8 +19,9 @@
  *
  * That revision is BY DESIGN and is why the snapshot id travels inside the
  * artifact. What it is not is reviewable from a diff: the artifact is a single
- * 6 KB line of JSON, so `git diff` renders any change to it as one rewritten
- * line. A weekly automated refresh that arrives as "1 file changed" is a
+ * 5.9 KB line of JSON (measured 2026-09-27, in the same KB as
+ * insights-corpus.test.ts's size budget), so `git diff` renders any change to it
+ * as one rewritten line. A weekly automated refresh that arrives as "1 file changed" is a
  * rubber stamp. This script is what makes the review real — it turns the diff
  * into "305 of 1,907 revised, max swing 41, 37 label crossings".
  *
@@ -52,6 +53,8 @@
  * what count as a change.
  */
 import { readFile, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const MS_PER_DAY = 86_400_000
 const DIFFICULTY = 'benchmark-difficulty.json'
@@ -65,14 +68,27 @@ const EXIT_PR = 10
 class CannotTell extends Error {}
 
 /**
- * Reads the difficulty thresholds OUT OF difficultyLabel rather than repeating
- * them here. A copy would be a second definition of the product's labels that
- * nothing keeps in step, and the number this script reports that most depends on
- * them — label crossings — would then drift silently the first time a boundary
- * moves. Extraction that finds anything other than three ascending thresholds
- * throws, so an edit to difficultyLabel fails this loudly instead.
+ * Reads the difficulty thresholds AND THE LABEL NAMES out of difficultyLabel
+ * rather than repeating either here. A copy would be a second definition of the
+ * product's labels that nothing keeps in step, and the numbers this script reports
+ * that most depend on them — label crossings — would then drift silently the first
+ * time a boundary moved.
+ *
+ * THE NAMES ARE EXTRACTED FOR THE SAME REASON THE THRESHOLDS ARE, and getting that
+ * half wrong is the quieter failure. A hardcoded
+ * ['Easier for the solver', …] would keep the crossing COUNT correct after a
+ * rename of 'Tricky' — the count comes from the thresholds — while every label
+ * name printed in the PR body and the crossings table went stale with nothing to
+ * notice. A rename is at least as plausible an edit as a boundary move.
+ *
+ * One pass over the same slice yields both: each `if (percentile <= N) return 'X'`
+ * gives a threshold together with the name it guards, and the bare trailing
+ * `return 'Y'` gives the last bucket, which has no threshold. Anything other than
+ * three ascending thresholds and four distinct non-empty names throws, so a change
+ * to difficultyLabel's shape fails this loudly rather than reporting against a
+ * scheme the product no longer uses.
  */
-async function labelBoundaries() {
+export async function labelScheme() {
   let source
   try {
     source = await readFile(LABEL_SOURCE, 'utf8')
@@ -83,12 +99,15 @@ async function labelBoundaries() {
   if (start < 0) {
     throw new CannotTell(
       'difficultyLabel is no longer exported from src/lib/insights-benchmark.ts — ' +
-        'label crossings cannot be counted against thresholds that cannot be found',
+        'label crossings cannot be counted against a scheme that cannot be found',
     )
   }
   const end = source.indexOf('\n}', start)
   const body = source.slice(start, end < 0 ? undefined : end)
-  const bounds = [...body.matchAll(/percentile\s*<=\s*(\d+)/g)].map((m) => Number(m[1]))
+  const guarded = [...body.matchAll(/percentile\s*<=\s*(\d+)\)\s*return\s*'([^']+)'/g)]
+  const bounds = guarded.map((m) => Number(m[1]))
+  const names = guarded.map((m) => m[2])
+
   if (bounds.length !== 3 || bounds.some((b, i) => i > 0 && b <= bounds[i - 1])) {
     throw new CannotTell(
       `difficultyLabel yielded thresholds [${bounds}] — expected three ascending ones. ` +
@@ -96,7 +115,21 @@ async function labelBoundaries() {
         'reporting crossings against thresholds the product no longer uses',
     )
   }
-  return bounds
+
+  // The last bucket is the bare `return` with no threshold in front of it.
+  const trailing = /return\s*'([^']+)'\s*$/.exec(body)
+  if (trailing) names.push(trailing[1])
+
+  if (names.length !== 4 || names.some((name) => !name) || new Set(names).size !== 4) {
+    throw new CannotTell(
+      `difficultyLabel yielded labels [${names.map((name) => `'${name}'`).join(', ')}] — ` +
+        'expected four distinct non-empty ones, the last of them a bare `return` with no ' +
+        'threshold. Its shape changed; this script must be updated with it rather than ' +
+        'printing label names the product no longer uses',
+    )
+  }
+
+  return { bounds, names }
 }
 
 /**
@@ -133,7 +166,7 @@ const dayIndex = (day) => {
 const dayAt = (firstDay, offset) =>
   new Date((dayIndex(firstDay) + offset) * MS_PER_DAY).toISOString().slice(0, 10)
 
-function compareDifficulty(baseline, current, bounds) {
+export function compareDifficulty(baseline, current, bounds) {
   if (baseline.firstDay !== current.firstDay) {
     throw new CannotTell(
       `firstDay moved from ${baseline.firstDay} to ${current.firstDay}. The artifact ` +
@@ -172,12 +205,12 @@ function compareDifficulty(baseline, current, bounds) {
   }
 }
 
-function labelName(bounds, percentile) {
-  const names = ['Easier for the solver', 'Middle of the pack', 'Tricky', 'Hard for the solver']
-  return names[labeller(bounds)(percentile)] ?? `(unlabelled ${percentile})`
+/** The name difficultyLabel itself would return for this percentile. */
+function labelName(scheme, percentile) {
+  return scheme.names[labeller(scheme.bounds)(percentile)] ?? `(unlabelled ${percentile})`
 }
 
-function body(diff, openersChanged, bounds) {
+export function body(diff, openersChanged, scheme) {
   const pct = diff.overlap === 0 ? 0 : ((diff.revised / diff.overlap) * 100).toFixed(1)
   const crossed = diff.changes.filter((c) => c.crossed)
   const biggest = [...diff.changes].sort((a, b) => b.swing - a.swing).slice(0, 5)
@@ -233,7 +266,7 @@ function body(diff, openersChanged, bounds) {
     lines.push('### Largest swings', '', '| day | was | now | label |', '| --- | --- | --- | --- |')
     for (const c of biggest) {
       const move = c.crossed
-        ? `${labelName(bounds, c.from)} → ${labelName(bounds, c.to)}`
+        ? `${labelName(scheme, c.from)} → ${labelName(scheme, c.to)}`
         : 'unchanged'
       lines.push(`| ${c.day} | ${c.from} | ${c.to} | ${move} |`)
     }
@@ -251,7 +284,7 @@ function body(diff, openersChanged, bounds) {
     )
     for (const c of shown) {
       lines.push(
-        `| ${c.day} | ${c.from} — ${labelName(bounds, c.from)} | ${c.to} — ${labelName(bounds, c.to)} |`,
+        `| ${c.day} | ${c.from} — ${labelName(scheme, c.from)} | ${c.to} — ${labelName(scheme, c.to)} |`,
       )
     }
     if (crossed.length > shown.length) {
@@ -289,10 +322,14 @@ function body(diff, openersChanged, bounds) {
     '- **No CI ran on this PR, and that is expected, not a fault.** GitHub creates no',
     '  workflow runs for events authored by `GITHUB_TOKEN`, so neither `ci.yaml` (every',
     '  pull request) nor `deploy-v2.yml`’s pull-request run (a PR into `main` touching',
-    '  `v2/**`, which runs the gates and deploys nothing) will appear here. The artifact',
-    '  assertions in `v2/src/lib/insights-corpus.test.ts` have therefore not been run',
-    '  against these files — including the 12 KB size budget on the difficulty artifact.',
-    '  Push an empty commit as yourself, or run the gates locally, if you want them.',
+    '  `v2/**`, which runs the gates and deploys nothing) will appear here.',
+    '- **The gates are not skipped — they land one commit late.** Merging this authors a',
+    '  push to `main` touching `v2/**`, and `deploy-v2.yml`’s Lint, Typecheck and Unit',
+    '  tests steps carry no `if:`, so they run on that push. So the artifact assertions',
+    '  in `v2/src/lib/insights-corpus.test.ts` — including the 12 KB size budget on the',
+    '  difficulty artifact — do run, but a failure arrives as a red `main` deploy instead',
+    '  of a red check here. Run `pnpm test:once` in `v2/` against this branch first if',
+    '  you would rather find out before merging than after.',
     '',
     '🤖 Opened by `.github/workflows/refresh-insights-corpus.yml`.',
   )
@@ -300,71 +337,81 @@ function body(diff, openersChanged, bounds) {
   return lines.join('\n')
 }
 
-const args = process.argv.slice(2)
-const dirs = []
-let bodyPath = null
-for (let i = 0; i < args.length; i += 1) {
-  if (args[i] === '--body') {
-    bodyPath = args[i + 1]
-    i += 1
-  } else {
-    dirs.push(args[i])
+async function main(args) {
+  const dirs = []
+  let bodyPath = null
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === '--body') {
+      bodyPath = args[i + 1]
+      i += 1
+    } else {
+      dirs.push(args[i])
+    }
   }
-}
 
-// `--body` with nothing after it must be a usage error, not a silent skip: the
-// caller opens a pull request off that file, and an empty body is the failure
-// this whole script exists to prevent.
-if (dirs.length !== 2 || (args.includes('--body') && !bodyPath)) {
-  console.error(
-    'usage: node scripts/insights-corpus-diff.mjs <baseline-dir> <current-dir> [--body <path>]',
-  )
-  process.exit(EXIT_CANNOT_TELL)
-}
-
-const [baselineDir, currentDir] = dirs
-
-try {
-  const bounds = await labelBoundaries()
-  const baselineOpeners = await readArtifact(baselineDir, OPENERS)
-  const currentOpeners = await readArtifact(currentDir, OPENERS)
-  const baseline = await readArtifact(baselineDir, DIFFICULTY)
-  const current = await readArtifact(currentDir, DIFFICULTY)
-
-  const openersChanged = baselineOpeners.text !== currentOpeners.text
-  const diff = compareDifficulty(baseline.value, current.value, bounds)
-
-  console.log(
-    `[insights-diff] ${diff.overlap} overlapping days: ${diff.revised} percentiles revised, ` +
-      `max swing ${diff.maxSwing}, ${diff.crossings} label crossings; ` +
-      `${diff.daysAdded >= 0 ? '+' : ''}${diff.daysAdded} days; ` +
-      `snapshot ${diff.snapshotFrom} -> ${diff.snapshotTo}` +
-      (openersChanged ? '; OPENERS ARTIFACT ALSO CHANGED' : ''),
-  )
-
-  const substantive = diff.revised > 0 || diff.daysAdded !== 0 || openersChanged
-  if (!substantive) {
-    const metadataOnly = baseline.text !== current.text
-    console.log(
-      metadataOnly
-        ? '[insights-diff] METADATA ONLY — every percentile is identical and only the ' +
-            'snapshot id moved. Not worth a pull request; the committed snapshot id is ' +
-            'still a truthful record of where these numbers came from.'
-        : '[insights-diff] IDENTICAL — the regenerated artifacts match what is committed.',
+  // `--body` with nothing after it must be a usage error, not a silent skip: the
+  // caller opens a pull request off that file, and an empty body is the failure
+  // this whole script exists to prevent.
+  if (dirs.length !== 2 || (args.includes('--body') && !bodyPath)) {
+    console.error(
+      'usage: node scripts/insights-corpus-diff.mjs <baseline-dir> <current-dir> [--body <path>]',
     )
-    process.exit(EXIT_NO_PR)
+    return EXIT_CANNOT_TELL
   }
 
-  if (bodyPath) {
-    await writeFile(bodyPath, `${body(diff, openersChanged, bounds)}\n`)
-    console.log(`[insights-diff] wrote PR body to ${bodyPath}`)
+  const [baselineDir, currentDir] = dirs
+
+  try {
+    const scheme = await labelScheme()
+    const baselineOpeners = await readArtifact(baselineDir, OPENERS)
+    const currentOpeners = await readArtifact(currentDir, OPENERS)
+    const baseline = await readArtifact(baselineDir, DIFFICULTY)
+    const current = await readArtifact(currentDir, DIFFICULTY)
+
+    const openersChanged = baselineOpeners.text !== currentOpeners.text
+    const diff = compareDifficulty(baseline.value, current.value, scheme.bounds)
+
+    console.log(
+      `[insights-diff] ${diff.overlap} overlapping days: ${diff.revised} percentiles revised, ` +
+        `max swing ${diff.maxSwing}, ${diff.crossings} label crossings; ` +
+        `${diff.daysAdded >= 0 ? '+' : ''}${diff.daysAdded} days; ` +
+        `snapshot ${diff.snapshotFrom} -> ${diff.snapshotTo}` +
+        (openersChanged ? '; OPENERS ARTIFACT ALSO CHANGED' : ''),
+    )
+
+    const substantive = diff.revised > 0 || diff.daysAdded !== 0 || openersChanged
+    if (!substantive) {
+      const metadataOnly = baseline.text !== current.text
+      console.log(
+        metadataOnly
+          ? '[insights-diff] METADATA ONLY — every percentile is identical and only the ' +
+              'snapshot id moved. Not worth a pull request; the committed snapshot id is ' +
+              'still a truthful record of where these numbers came from.'
+          : '[insights-diff] IDENTICAL — the regenerated artifacts match what is committed.',
+      )
+      return EXIT_NO_PR
+    }
+
+    if (bodyPath) {
+      await writeFile(bodyPath, `${body(diff, openersChanged, scheme)}\n`)
+      console.log(`[insights-diff] wrote PR body to ${bodyPath}`)
+    }
+    return EXIT_PR
+  } catch (error) {
+    if (error instanceof CannotTell) {
+      console.error(`[insights-diff] CANNOT TELL: ${error.message}`)
+    } else {
+      console.error(`[insights-diff] CANNOT TELL: unexpected failure — ${error.stack ?? error}`)
+    }
+    return EXIT_CANNOT_TELL
   }
-  process.exit(EXIT_PR)
-} catch (error) {
-  if (error instanceof CannotTell) {
-    console.error(`[insights-diff] CANNOT TELL: ${error.message}`)
-  } else {
-    console.error(`[insights-diff] CANNOT TELL: unexpected failure — ${error.stack ?? error}`)
-  }
-  process.exit(EXIT_CANNOT_TELL)
+}
+
+// Only when run as a program, the way scripts/build-sw.mjs guards its own main:
+// importing this module — which a unit test would — must not read an artifact,
+// write a body, or exit the process. process.exit rather than process.exitCode
+// because .github/workflows/refresh-insights-corpus.yml branches on the code, and
+// 0 / 10 / 2 must be exactly what it sees.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exit(await main(process.argv.slice(2)))
 }

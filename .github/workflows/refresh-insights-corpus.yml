@@ -42,6 +42,14 @@ name: Refresh insights corpus
 # artifacts to compare, and fail every week for a reason that has nothing to do
 # with the corpus. When the branch merges, the script and this workflow arrive on
 # main together and there is nothing left to guard against.
+#
+# AND ONE REASON IT CAN STOP AFTER THE MERGE, so that the list above does not read
+# as "then it runs forever": GitHub DISABLES scheduled workflows in a repository
+# after 60 days with no activity, and re-enabling is a manual act. That is the
+# same "the mechanism quietly stopped producing" failure this whole issue is
+# about, one level up — a repository that goes quiet for two months loses the job
+# that was supposed to notice things going quiet. If runs stop appearing, check
+# whether the schedule was disabled before assuming anything in this file broke.
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # A RUN THAT CANNOT OPEN THE PULL REQUEST FAILS, LOUDLY, NAMING WHICH HALF IS
@@ -87,9 +95,10 @@ name: Refresh insights corpus
 # needing no dependency tree. The cost is stated rather than hidden: the artifact
 # assertions in v2/src/lib/insights-corpus.test.ts do not run here, and they will
 # not run on the PR either (see below), so the 12 KB size budget it enforces on
-# benchmark-difficulty.json is unchecked by this mechanism. Measured 2026-09-27:
-# 5.9 KB of that 12 KB, against the ~1.1 KB a year that test's own comment states
-# — which its 1,926 days corroborate — so roughly five years of headroom.
+# benchmark-difficulty.json is CHECKED AT MERGE RATHER THAN BEFORE IT. Measured
+# 2026-09-27: 5.9 KB of that 12 KB, against the ~1.1 KB a year that test's own
+# comment states — which its 1,926 days corroborate — so roughly five years of
+# headroom.
 #
 # AND NO CI RUNS ON THE PULL REQUEST, which the body says too. GitHub creates no
 # workflow runs for events authored by GITHUB_TOKEN, so neither ci.yaml (which
@@ -98,6 +107,14 @@ name: Refresh insights corpus
 # appears on it. Handing this a personal access token instead would fix that and
 # would also be the first PAT in this repository; it is a deliberate non-choice
 # here, not an oversight.
+#
+# THE GATES ARE NOT SKIPPED, THOUGH — THEY LAND ONE COMMIT LATE. Whoever merges
+# the PR authors a push to main touching v2/**, and deploy-v2.yml's Lint,
+# Typecheck and Unit tests steps carry no `if:`, so they run on that push. A
+# refresh that breaks the artifact assertions therefore fails as a red main
+# deploy rather than as a red check on the PR. That is a worse place to find out
+# than before merging, which is why the body asks for the gates locally — not
+# nowhere at all.
 
 on:
   schedule:
