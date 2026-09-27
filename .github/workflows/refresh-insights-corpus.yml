@@ -1,0 +1,233 @@
+name: Refresh insights corpus
+
+# Regenerates v2/public/insights/*.json from the FiveLetterWords feed and, when
+# the result differs from what is committed, opens a pull request against main.
+#
+# WHY IT EXISTS. scripts/build-insights-corpus.mjs is generate-on-demand and its
+# output is checked in, which is right — see its header — but until this file
+# there was nothing that ever ran it. The difficulty artifact covers only days the
+# feed has published, so it falls one day further behind every day nobody runs the
+# script. wordle-teams-qnde's body counts twelve such days on 2026-09-19, against
+# an artifact that stopped at 2026-09-07; by 2026-09-27 the same arithmetic gives
+# twenty. Task qnde.1 refreshed it to 1,926 days through 2026-09-26, which reset
+# that clock and did not wind it. One day behind is the floor, not a fault: the
+# feed publishes only globally completed days, so today never has a row.
+#
+# REGENERATE-AND-PR, NOT A STALENESS REPORT (owner's decision, 2026-09-27). A job
+# that only said "the corpus is N days behind" has the same shape as the thing it
+# is meant to fix: this issue exists BECAUSE a signal-shaped problem went
+# unactioned for weeks. A pull request is actionable by merging it.
+#
+# WEEKLY, NOT ON PUSH, for the reason check-prices.yml already argues at length:
+# the thing that drifts is someone else's published data, which this repo never
+# sees a commit for, so a push trigger would fire constantly on changes that
+# cannot cause the fault and never on the one that does. A corpus that rots
+# against the calendar is the same case. workflow_dispatch is for refreshing
+# deliberately.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# THIS FILE CANNOT RUN UNTIL feat/v2-replatform MERGES, AND THAT IS NOT A BUG.
+#
+# GitHub runs scheduled workflows only from the DEFAULT BRANCH, which is main,
+# and its documentation says the same of workflow_dispatch — the file has to be on
+# the default branch for the event to fire at all, whatever ref you then pick. And
+# `v2/` does not exist on main:
+# the replatform lives entirely on feat/v2-replatform (verified 2026-09-27 —
+# `git ls-tree origin/main --name-only` lists no v2, and of the five workflow
+# files on this branch only ci.yaml, dev.yaml and prod.yaml are on main). So
+# until the branch lands there will be no runs of this workflow, scheduled or
+# manual, and no "Run workflow" button for it.
+#
+# DO NOT "FIX" THAT BY LANDING THIS FILE ON main AHEAD OF v2/. It would then run
+# every Monday against a tree with no v2/ directory, no build script and no
+# artifacts to compare, and fail every week for a reason that has nothing to do
+# with the corpus. When the branch merges, the script and this workflow arrive on
+# main together and there is nothing left to guard against.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A RUN THAT CANNOT OPEN THE PULL REQUEST FAILS, LOUDLY, NAMING WHICH HALF IS
+# MISSING. Two things have to be true and only one of them is in this tree:
+#
+#   1. the `permissions:` block below — `contents: write` to push the branch and
+#      `pull-requests: write` to open the PR. No other workflow here asks for
+#      either: check-prices.yml and deploy-v2.yml both declare
+#      `permissions: contents: read`, and ci.yaml, dev.yaml and prod.yaml declare
+#      none at all.
+#   2. the repository setting Settings → Actions → General → Workflow
+#      permissions → "Allow GitHub Actions to create and approve pull requests".
+#      That lives in GitHub, not in this repository, so nobody can confirm it from
+#      a checkout — including whoever reviews this file.
+#
+# Regenerating, failing to open the PR, and exiting 0 is the worst outcome
+# available: the rot plus the illusion of a mechanism. So every push and PR
+# command below is checked and exits 2 with the reason, following
+# check-prices.yml — a check that cannot check must not read as a pass.
+#
+# THE PULL REQUEST BODY IS THE POINT, not the diff. Both artifacts are single-line
+# JSON — 5.9 KB and 73 KB as of 2026-09-27 — so `git diff` renders any change to
+# either as one rewritten line and shows a reviewer nothing.
+# A refresh also REVISES ALREADY-PUBLISHED HISTORY: qnde.1's 19-day refresh
+# changed 305 of the 1,907 percentiles that were already shipped, with a largest
+# swing of 41 points, and moved 37 past boards across a difficulty label boundary
+# — a board that read "Tricky" yesterday reads "Hard" today, with no code change
+# and nothing in the suite noticing. scripts/insights-corpus-diff.mjs measures
+# exactly that for the run at hand and writes it into the body, so the reviewer is
+# asked to judge "305 revised, max swing 41, 37 label crossings" rather than a
+# blob. It does NOT fail on the magnitude: bounding revision is
+# wordle-teams-xgkz, which is a test, not a workflow.
+#
+# METADATA-ONLY CHANGES DO NOT GET A PULL REQUEST. snapshotId embeds the feed's
+# date, so it moves on every refresh even when no percentile does; a weekly PR
+# whose whole content is a new provenance string for unchanged numbers is how this
+# mechanism would come to be ignored. The diff script decides this and exits 0,
+# and the job says so and stops.
+#
+# NO `pnpm install`, AND SO NO GATES RUN HERE. Both scripts use node builtins and
+# fetch only, which keeps this job unable to be blocked by an unrelated
+# dependency or toolchain failure — the same reason check-prices.yml gives for
+# needing no dependency tree. The cost is stated rather than hidden: the artifact
+# assertions in v2/src/lib/insights-corpus.test.ts do not run here, and they will
+# not run on the PR either (see below), so the 12 KB size budget it enforces on
+# benchmark-difficulty.json is unchecked by this mechanism. Measured 2026-09-27:
+# 5.9 KB of that 12 KB, against the ~1.1 KB a year that test's own comment states
+# — which its 1,926 days corroborate — so roughly five years of headroom.
+#
+# AND NO CI RUNS ON THE PULL REQUEST, which the body says too. GitHub creates no
+# workflow runs for events authored by GITHUB_TOKEN, so neither ci.yaml (which
+# triggers on every pull request, unfiltered) nor deploy-v2.yml's pull-request run
+# (a PR into main touching v2/**, which runs the gates and deploys nothing)
+# appears on it. Handing this a personal access token instead would fix that and
+# would also be the first PAT in this repository; it is a deliberate non-choice
+# here, not an oversight.
+
+on:
+  schedule:
+    # Monday morning UTC, matching check-prices.yml's weekly cadence, and a
+    # different minute from its 09:17 so the two do not queue together. Off the
+    # hour because GitHub's scheduler is busiest at :00 and delays runs queued
+    # there — that is GitHub's own guidance, not a reason check-prices.yml gives.
+    - cron: '47 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Two runs at once would both regenerate and both push the same branch, and the
+# loser's pull request body would describe artifacts that are no longer on it.
+# Queue rather than cancel: a run that has already pushed should be allowed to
+# finish opening its PR.
+concurrency:
+  group: refresh-insights-corpus
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+
+    env:
+      # OWNED BY THIS WORKFLOW AND REWRITTEN EVERY WEEK. One reused branch means
+      # at most one open corpus-refresh PR, always measured against main's
+      # committed artifacts and always current — rather than a pile of
+      # superseded dated PRs, each describing a refresh an older one already
+      # contains. Nothing should be committed to it by hand; the push below is
+      # forced.
+      BRANCH: insights/corpus-refresh
+      TITLE: 'chore(insights): weekly refresh of the benchmark corpus'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # No pnpm/action-setup and no `cache: pnpm`, unlike check-prices.yml: that
+      # job needs the pnpm binary only because it asks setup-node to resolve the
+      # pnpm store. Nothing here installs anything.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # The comparison baseline has to be taken BEFORE the build script runs,
+      # because it rewrites the artifacts in place.
+      - name: Keep the committed artifacts to compare against
+        run: |
+          mkdir -p "$RUNNER_TEMP/committed"
+          cp public/insights/benchmark-difficulty.json \
+             public/insights/benchmark-openers.json \
+             "$RUNNER_TEMP/committed/"
+
+      # Reaches fiveletterwords.io. It validates both sources and throws rather
+      # than writing a degraded artifact, so a moved or reformatted feed fails
+      # this step instead of arriving as a plausible-looking pull request.
+      - name: Regenerate the corpus
+        run: node scripts/build-insights-corpus.mjs
+
+      - name: Quantify what changed
+        id: diff
+        run: |
+          code=0
+          node scripts/insights-corpus-diff.mjs \
+            "$RUNNER_TEMP/committed" public/insights \
+            --body "$RUNNER_TEMP/pr-body.md" || code=$?
+          case "$code" in
+            0)
+              echo 'changed=false' >> "$GITHUB_OUTPUT"
+              ;;
+            10)
+              echo 'changed=true' >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              # Includes the script's own exit 2 (an artifact that will not
+              # parse, a firstDay that moved, difficultyLabel's thresholds no
+              # longer extractable) and any exit code it did not choose, which
+              # is why "there is a change" is 10 and not 1: a crash must never
+              # be indistinguishable from a result.
+              echo "::error::insights-corpus-diff.mjs exited $code — it could not tell what this refresh did, so no pull request was opened. Its message above names the reason."
+              exit 2
+              ;;
+          esac
+
+      - name: Nothing to do
+        if: steps.diff.outputs.changed == 'false'
+        run: echo 'No PR-worthy difference between the regenerated corpus and the committed one. See the message above for whether it was identical or metadata-only.'
+
+      - name: Commit, push and open the pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git add public/insights/benchmark-difficulty.json public/insights/benchmark-openers.json
+
+          # The diff script and git must agree. If they do not, one of them is
+          # wrong about the same two files and this must not proceed quietly.
+          if git diff --cached --quiet; then
+            echo '::error::insights-corpus-diff.mjs reported a change and git sees none in the two artifacts. Refusing to open an empty pull request; one of the two is wrong.'
+            exit 2
+          fi
+
+          git commit -m "$TITLE"
+
+          if ! git push --force origin "$BRANCH"; then
+            echo "::error::Could not push $BRANCH. The workflow declares contents: write, so check Settings → Actions → General → Workflow permissions is not set to read-only for this repository."
+            exit 2
+          fi
+
+          existing="$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')"
+
+          if [ -n "$existing" ]; then
+            # An open PR from a previous week is superseded, not duplicated: its
+            # branch now holds this refresh, and the body is rewritten with
+            # numbers measured against main as it stands today.
+            if ! gh pr edit "$existing" --title "$TITLE" --body-file "$RUNNER_TEMP/pr-body.md"; then
+              echo "::error::Pushed $BRANCH but could not update the open pull request #$existing with this run's numbers. Its body now describes an older refresh. Check pull-requests: write and the repository's Actions permissions."
+              exit 2
+            fi
+            echo "Updated #$existing with this refresh."
+          elif ! gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/pr-body.md"; then
+            echo "::error::Pushed $BRANCH but could not open a pull request for it. The commit is on the branch and the refresh is NOT under review. Two things are required and only the first is in this tree: pull-requests: write in this workflow, and Settings → Actions → General → Workflow permissions → 'Allow GitHub Actions to create and approve pull requests' enabled for this repository."
+            exit 2
+          fi
