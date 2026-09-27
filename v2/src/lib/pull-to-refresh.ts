@@ -8,10 +8,14 @@
  * single structural `closest()` call below — the actual gesture wiring
  * (attaching touch listeners, reading `window.scrollY`, calling
  * `window.location.reload()`) lives in components/pull-to-refresh.tsx and is
- * NOT covered by any test that renders it: no unit test in this suite can
- * render a component (wordle-teams-5jcn.14 — no harness stands up a DOM for
- * gesture code, and Playwright cannot install a PWA to exercise standalone
- * mode at all). What actually is pinned, exhaustively, is every decision
+ * NOT covered by any test that renders it — no test does, which is a gap rather
+ * than an impossibility. This used to say "no unit test in this suite can render
+ * a component"; that is false, and 53 *.hook.test.ts files declaring
+ * `// @vitest-environment jsdom` disprove it (wordle-teams-1vbb). The half of
+ * wordle-teams-5jcn.14 that survives is narrower: nothing here drives a touch
+ * sequence, so covering that wiring means building a gesture harness rather than
+ * rendering a component, and Playwright cannot install a PWA to exercise
+ * standalone mode at all. What actually is pinned, exhaustively, is every decision
  * below: whether a touch may arm the gesture, and how far a raw finger
  * movement translates into a pull distance and a trigger. See
  * pull-to-refresh.test.ts's mutation table.

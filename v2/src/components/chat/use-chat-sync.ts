@@ -1299,8 +1299,21 @@ export function teamPickerLabel(name: string, unreadElsewhere: boolean): string 
  * and not a rule applied to both.
  *
  * PURE, AND TESTED, FOR `hasUnread`'S REASON: it is a decision (what a screen
- * reader is told) rather than wiring, and routes/app.tsx is a `.tsx` file that
- * this suite — edge-runtime, no DOM, `*.test.ts` only — cannot render.
+ * reader is told) rather than wiring, and nothing renders routes/app.tsx to
+ * check it there.
+ *
+ * THAT IS A FACT ABOUT WHAT EXISTS, NOT ABOUT WHAT IS POSSIBLE. This used to say
+ * the suite — "edge-runtime, no DOM, `*.test.ts` only" — CANNOT render it. One
+ * third of that is true: vitest.config.ts's include pattern takes `.test.ts`
+ * under src/ and not `.test.tsx`, so a JSX test file does not run, which is why
+ * every render test here builds its tree with `createElement` rather than JSX.
+ * (The glob itself is not written out in this comment on purpose: it contains
+ * the sequence that would close the comment early.) The rest was false, and the
+ * conclusion with it — a `.test.ts` renders a `.tsx` component perfectly well,
+ * and 53 *.hook.test.ts files do exactly that behind
+ * `// @vitest-environment jsdom` (wordle-teams-1vbb). Pinning the pure function
+ * is still the better trade for a string this small; it is a choice now rather
+ * than a constraint.
  */
 export function chatEntryLabel(unread: boolean): string {
   return unread ? 'Team chat, unread messages' : 'Team chat'

@@ -7,11 +7,26 @@ import { PRO_PRICE_LINE } from '#/lib/plans.ts'
  *
  * This is the replacement for components/home/feature-cards.tsx's `FEATURES`,
  * and it exists for that file's stated reason rather than as a style
- * preference: vitest.config.ts sets `environment: 'edge-runtime'`, so nothing
- * in this repo can render a component, and copy living inside JSX is copy no
- * gate can read. feature-cards.tsx's banner put it plainly — "deleting a card
- * used to be invisible to every gate" — and mutation testing of that task
- * proved it. The components below this file are markup and nothing else.
+ * preference: copy living inside JSX is copy no CORPUS rule can read.
+ * feature-cards.tsx's banner put it plainly — "deleting a card used to be
+ * invisible to every gate" — and mutation testing of that task proved it. The
+ * components below this file are markup and nothing else.
+ *
+ * THE PREMISE THAT USED TO BE WRITTEN HERE WAS FALSE AND THE CONCLUSION IS STILL
+ * RIGHT, WHICH IS WHY THE CORRECTION IS SPELLED OUT RATHER THAN QUIETLY MADE.
+ * This paragraph used to reach that conclusion via "vitest.config.ts sets
+ * `environment: 'edge-runtime'`, so nothing in this repo can render a component".
+ * It can: 53 *.hook.test.ts files declare `// @vitest-environment jsdom` and
+ * render, measured with
+ * `grep -rl "@vitest-environment jsdom" src/ | grep -c hook.test.ts`
+ * (wordle-teams-1vbb). Single-sourcing the copy is not thereby obsolete, and
+ * reading this as an argument to move sentences back into JSX would be the wrong
+ * lesson: the rules that catch this page's actual defects are CORPUS rules —
+ * every free-voice line measured against every Pro benefit and every inventory
+ * entry, by `longestSharedRun` in marketing-copy.test.ts — and a corpus is a
+ * thing a module has and a component does not. A render test can say what one
+ * section emitted; it cannot say that no sentence anywhere on this page lifts
+ * four consecutive words from something Pro sells.
  *
  * WHAT WAS WRONG WITH WHAT THIS REPLACES. The six cards sold Pro as "unlimited
  * months, unlimited teams, customizable scoring systems, and more" — one clause

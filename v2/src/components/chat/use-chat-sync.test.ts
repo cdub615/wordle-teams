@@ -519,11 +519,20 @@ describe('chatHeading', () => {
 /**
  * THE SCROLL DECISIONS, WHICH ARE THE ONES MOST AT RISK OF NOT BEING TESTED AT
  * ALL. Every one of them is read from a live DOM element and acted on in an
- * effect, so the obvious place to write them is inline in message-list.tsx —
- * a `.tsx` file this suite (edge-runtime, no DOM, `*.test.ts` only) cannot
- * render at any price. Taking the three numbers as a plain object is what
- * makes them assertable; the component keeps only the reading and the
- * scrolling.
+ * effect, so the obvious place to write them is inline in message-list.tsx.
+ * Taking the three numbers as a plain object is what makes them assertable as
+ * decisions; the component keeps only the reading and the scrolling.
+ *
+ * NOT BECAUSE THE COMPONENT CANNOT BE RENDERED. This used to call message-list.tsx
+ * "a `.tsx` file this suite (edge-runtime, no DOM, `*.test.ts` only) cannot
+ * render at any price", and only the `.test.ts` clause was ever true — the
+ * include pattern in vitest.config.ts takes `.test.ts` and not `.test.tsx`,
+ * which is why render tests here build their trees with `createElement`.
+ * edge-runtime is the DEFAULT and not the ceiling: 53 *.hook.test.ts files
+ * declare `// @vitest-environment jsdom` and render (wordle-teams-1vbb). What
+ * survives is the reason that was always the better one — a number read off a
+ * live element inside an effect is a decision worth pinning directly, rather
+ * than inferred from whatever a scrolled jsdom container reports.
  */
 const position = (partial: Partial<ScrollPosition>): ScrollPosition => ({
   scrollTop: 0,

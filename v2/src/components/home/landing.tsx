@@ -20,11 +20,23 @@ import { Title } from './title.tsx'
  * tier's month window was three (wordle-teams-kusd shipped that) and silent
  * about every surface Phase 7 built.
  *
- * ALL THE COPY IS IN marketing-copy.ts AND NONE OF IT IS HERE. vitest runs under
- * `environment: 'edge-runtime'`, so no test in this repo can render a component;
- * a sentence inside JSX is a product decision no gate can read. That property was
- * feature-cards.tsx's, it is the one thing worth keeping from it, and
- * marketing-copy.test.ts is where it now lives.
+ * ALL THE COPY IS IN marketing-copy.ts AND NONE OF IT IS HERE — AND NOT BECAUSE
+ * A COMPONENT CANNOT BE RENDERED UNDER TEST. This comment used to say vitest's
+ * `environment: 'edge-runtime'` meant no test in this repo could render one.
+ * That was false, and it was load-bearing: it is the reason the two free-copy
+ * sections below went without render coverage (wordle-teams-1vbb). edge-runtime
+ * is the DEFAULT, not the ceiling — 53 *.hook.test.ts files open with
+ * `// @vitest-environment jsdom` and render, which is
+ * `grep -rl "@vitest-environment jsdom" src/ | grep -c hook.test.ts`.
+ *
+ * WHAT SURVIVES THE CORRECTION IS THE REASON THAT WAS ALWAYS THE REAL ONE: a
+ * sentence inside JSX is invisible to any rule that reads a MODULE's exports,
+ * and those are the rules this page turns on. marketing-copy.test.ts measures
+ * every line this page wrote against every Pro benefit and every inventory
+ * entry — a question about the whole corpus of free-voice prose, which no render
+ * of one section can answer. That property was feature-cards.tsx's, it is the
+ * one thing worth keeping from it, and marketing-copy.test.ts is where it now
+ * lives.
  *
  * Ported from v1's src/components/home/home.tsx, minus two things it composes
  * that v2's shell already provides: v1's `AppBar` and its own

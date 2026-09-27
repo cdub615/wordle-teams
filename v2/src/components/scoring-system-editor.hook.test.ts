@@ -10,11 +10,27 @@ import { codeOf } from '#/test-support/source-ast.ts'
 // dashboard-skeletons.hook.test.ts:181-187 for the reasoning; this file
 // follows the same convention.
 //
-// wordle-teams-5jcn.14: nothing in this repo can render
-// scoring-system-editor.tsx (Dialog/Sheet + useMediaQuery + Suspense query
-// wiring), so this is source assertions only — it does NOT claim to prove
-// the component renders, opens on the right preset, or that a click actually
-// leaves Save the only write path. It proves what the SOURCE TEXT commits to.
+// WHAT THIS FILE PROVES: source assertions only. It does NOT prove the
+// component renders, opens on the right preset, or that a click leaves Save the
+// only write path. It proves what the SOURCE TEXT commits to.
+//
+// THE REASON IT USED TO GIVE WAS FALSE ON ALL THREE COUNTS, and is corrected
+// here rather than repeated (wordle-teams-1vbb). It read: "nothing in this repo
+// can render scoring-system-editor.tsx (Dialog/Sheet + useMediaQuery + Suspense
+// query wiring)". Measured, each in turn:
+//
+//   Dialog/Sheet   settings-dialog.hook.test.ts renders the REAL dialog under
+//                  jsdom, and says so at its top.
+//   useMediaQuery  ten test files under src/ mock useMediaQuery or matchMedia
+//                  (`grep -rln "useMediaQuery\|matchMedia" src/**/*.test.ts |
+//                  wc -l`), so it is routine here rather than a barrier.
+//   Suspense       `grep -c Suspense src/components/scoring-system-editor.tsx`
+//                  is 0. That component takes a mutation, not a suspense query;
+//                  the barrier named does not exist in the file.
+//
+// The `// @vitest-environment jsdom` line at the top of THIS file is the
+// shortest disproof of the general claim. So what is here is a gap, not a
+// prohibition: rendering this component is work nobody has done.
 const source = readFileSync('src/components/scoring-system-editor.tsx', 'utf8')
 
 // Comments stripped, per source-ast.ts's own docstring, and used only for the

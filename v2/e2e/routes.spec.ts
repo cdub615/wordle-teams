@@ -100,10 +100,14 @@ test.describe('route shape', () => {
     // version of this test would have passed on.
     //
     // THE SECTIONS ARE PINNED HERE AND NOWHERE ELSE IN THIS FILE. Their COPY is
-    // src/components/home/marketing-copy.test.ts's job — v2 has no DOM under
-    // vitest, so that suite reads the exported constants. What only a browser
-    // can say is that they reach the page at all, and `/home` is the route
-    // whose entire justification is being identical to `/`.
+    // src/components/home/marketing-copy.test.ts's job: that suite reads the
+    // exported constants and measures them as a corpus. NOT because v2 "has no
+    // DOM under vitest" — this comment used to say so, and it is false: 53
+    // *.hook.test.ts files declare jsdom and render (wordle-teams-1vbb). The
+    // reason is that a corpus rule asks a different question from what any one
+    // section emits. What only a browser can say is that they reach the page at
+    // all, and `/home` is the route whose entire justification is being
+    // identical to `/`.
     //
     // THIS REPLACES AN ASSERTION ON SIX FEATURE-CARD TITLES. The cards are
     // deleted (wordle-teams-wty4.1.14.4); the property the old assertion had —
