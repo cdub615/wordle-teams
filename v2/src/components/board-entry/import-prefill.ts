@@ -110,6 +110,26 @@ export function importSummary(parse: BoardParse): string {
   switch (parse.outcome) {
     case 'ok':
       return parse.guesses.length === 1 ? 'Read 1 guess. Check it and submit.' : `Read ${parse.guesses.length} guesses. Check them and submit.`
+    // THE NOUN AGREES WITH THE TOTAL, AND "Read 0 of 1 guesses" CANNOT HAPPEN
+    // (wordle-teams-fg5y). The issue was filed on the arithmetic alone -- the
+    // total is 1 when nothing was read and exactly one row is unresolved -- and
+    // asked for reachability to be established BEFORE any fix. It was, and the
+    // state is unreachable:
+    //
+    //   lib/board-import/parse.ts classifies the outcome as
+    //     guesses.length === 0 ? 'no-consistent-word'
+    //       : unresolved.length === 0 ? 'ok'
+    //       : 'partial'
+    //
+    // so 'partial' implies at least one guess AND at least one unresolved row.
+    // The total is therefore always >= 2 and the plural is always right; a parse
+    // that read nothing is 'no-consistent-word', whose own sentence is below.
+    //
+    // SO THERE IS NO PLURALISATION TO ADD HERE, which is what the issue said the
+    // answer would be if the state could not occur. What the fix IS: this comment,
+    // plus the test in import-prefill.test.ts that pins parse.ts's ternary --
+    // because this paragraph is only true while that classification holds, and
+    // nothing was guarding it.
     case 'partial':
       return `Read ${parse.guesses.length} of ${parse.guesses.length + parse.unresolved.length} guesses. Fill in the rest and submit.`
     case 'share-card':

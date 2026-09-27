@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { BoardParse } from '#/lib/board-import/parse.ts'
 import { correctionsFrom, importSummary, prefillFrom } from './import-prefill.ts'
@@ -159,5 +160,46 @@ describe('importSummary', () => {
     for (const outcome of outcomes) {
       expect(importSummary(parse({ outcome })).length, outcome).toBeGreaterThan(10)
     }
+  })
+})
+
+/*
+  wordle-teams-fg5y: "Read 0 of 1 guesses" AND WHY IT CANNOT BE SAID.
+
+  importSummary's 'partial' sentence agrees its noun with the TOTAL, which is
+  right for "Read 1 of 5 guesses" and would be wrong for a total of exactly one.
+  The issue asked for reachability to be established before any fix, and it is
+  unreachable: lib/board-import/parse.ts classifies zero guesses as
+  'no-consistent-word' before 'partial' is ever considered, so 'partial' carries
+  at least one guess and at least one unresolved row, and the total is always >= 2.
+
+  BOTH HALVES ARE PINNED HERE, because the comment at the call site is only true
+  while that classification holds and nothing was guarding it. The first test is
+  the smallest total 'partial' can actually produce; the second is the invariant
+  that keeps it the smallest, read from parse.ts's source because no fixture built
+  in this file can prove what the real parser refuses to emit.
+*/
+describe('the partial sentence at its smallest reachable total', () => {
+  it('reads "Read 1 of 2 guesses" — plural, and correct, at the boundary', () => {
+    const smallest = parse({
+      outcome: 'partial',
+      guesses: [{ row: 0, word: 'SLATE', marks: ['absent', 'absent', 'present', 'absent', 'correct'] }],
+      unresolved: [{ row: 1, marks: ['absent', 'absent', 'absent', 'absent', 'absent'], letters: 'ABCDE' }],
+      answer: null,
+    })
+    expect(importSummary(smallest)).toBe('Read 1 of 2 guesses. Fill in the rest and submit.')
+  })
+
+  it("never classifies a zero-guess parse as 'partial', which is what keeps the total >= 2", () => {
+    // THE SOURCE, because this is a claim about what the parser will not produce.
+    // A BoardParse built by hand here can carry any shape at all -- the fixture
+    // above proves that -- so asserting on one would only restate the fixture.
+    const classification = readFileSync(
+      new URL('../../lib/board-import/parse.ts', import.meta.url),
+      'utf8',
+    )
+    expect(classification).toContain(
+      "guesses.length === 0 ? 'no-consistent-word' : unresolved.length === 0 ? 'ok' : 'partial'",
+    )
   })
 })
