@@ -434,6 +434,84 @@ test.describe('route shape', () => {
     )
   })
 
+  /*
+   * /pricing, THE ONE PUBLIC ROUTE NOTHING HAD EVER RENDERED
+   * (wordle-teams-wty4.1.14.12). components/pricing/tier-table.tsx has a jsdom
+   * suite, and src/routes.test.ts reads routes/pricing.tsx's SOURCE for the
+   * absence of a beforeLoad and for the loader that decides the trial — but the
+   * route's own body, the frame around that table, is imported by nothing except
+   * routeTree.gen.ts and had never been rendered by anything. Before these two
+   * tests the path appeared in this file in exactly one test, as the one landing
+   * link the CTA case above sends somewhere other than /login.
+   *
+   * MORE THAN THE h1, unlike /privacy's and /terms's three-line cases above.
+   * Those two are prose pages whose heading is the only structural claim worth
+   * pinning. This one has two parts its own file singles out:
+   *
+   *   - THE LEDE, which is the page's own framing. routes/pricing.tsx's header
+   *     says "THE PAGE WRITES NO BENEFIT COPY OF ITS OWN" — everything about
+   *     what Pro includes is TierTable rendering PRO_BENEFITS — so what this
+   *     file contributes is the frame, and the lede is the sentence of it that
+   *     tells a cold visitor free is a real tier rather than a trailer.
+   *   - THE LINK, which that file's own comment calls "THE ONE THING THIS PAGE
+   *     HANDS OVER". A render test that checked only the h1 would leave the
+   *     page's entire purpose unasserted — the same shape as the CTA asymmetry
+   *     mutation found on the landing, in the CTA case above.
+   *
+   * BOTH ADDITIONS WERE MUTATION-MEASURED, since an h1-only case would have read
+   * as covering them: repointing the Link at /app, and rewording four words of
+   * the lede, each fail this test and leave the three other /pricing cases green.
+   *
+   * THE RESOLVED href, AND IT IS /login RATHER THAN CHECKOUT: Polar's checkout
+   * needs a customer, so there is no route to paying that does not pass through
+   * signing in. Nothing in the chrome carries this accessible name, so unlike
+   * the landing's two "Get Started" CTAs this locator matches one element — and
+   * if a second ever appears, strict mode fails the test rather than silently
+   * asserting the first.
+   */
+  test('/pricing renders its heading, its lede and the link it exists to hand over', async ({
+    page,
+  }) => {
+    await page.goto('/pricing')
+    await expect(page).toHaveURL('/pricing')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Pricing', exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByText(
+        'Wordle Teams is free to play, and free is a real tier rather than a trailer for ' +
+          'the paid one. Here is what each side of that actually holds.',
+      ),
+    ).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Get Started', exact: true })).toHaveAttribute(
+      'href',
+      '/login',
+    )
+  })
+
+  test('/pricing carries its own page title', async ({ page }) => {
+    // routes/pricing.tsx declares `publicRouteHead('/pricing', 'Pricing')`, and
+    // the SEGMENT is what this pins. lib/seo.ts's pageTitle() interpolates it
+    // into APP_TITLE_TEMPLATE, `'%s - Wordle Teams'` — v1 got that from Next's
+    // `title.template` and TanStack has no equivalent, so the helper does the
+    // substitution by hand — and it returns APP_DEFAULT_TITLE instead when the
+    // segment is absent. So dropping the second argument gives this page the
+    // apex's title, which is the '/ and /home' test above in reverse: there the
+    // default is correct and a segment would be the bug. MEASURED: that deletion
+    // fails this case and leaves the three other /pricing cases green.
+    //
+    // ASSERTED END TO END BECAUSE NOTHING ELSE ASSERTS IT AT ALL. Unlike
+    // /privacy's and /terms's titles, which src/routes.test.ts also pins in the
+    // source, no gated test names this string — and this page is not a v1 parity
+    // port, so there is no production document to compare against either.
+    //
+    // THE LITERAL, NOT pageTitle() IMPORTED — the same reason the two sibling
+    // title tests above give: importing the helper would make this pass whatever
+    // the helper became.
+    await page.goto('/pricing')
+    await expect(page).toHaveTitle('Pricing - Wordle Teams')
+  })
+
   test('/login-error renders the failure page and offers a way back to sign in', async ({
     page,
   }) => {
@@ -795,6 +873,92 @@ test.describe('document cache headers', () => {
     expect(response.headers()['content-type']).toContain('text/html')
     expect(response.headers()['cache-control']).toBe(
       'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
+  })
+
+  test('an anonymous GET /pricing is edge-cacheable, with a loader that reads the clock', async ({
+    request,
+  }) => {
+    // THE ONE ASSERTION /pricing's e2e gap left over A LIVE RISK RATHER THAN A
+    // HYPOTHETICAL (wordle-teams-wty4.1.14.12).
+    //
+    // NOT A FLIP LIKE THE CASES ABOVE. /, /home, /privacy, /terms and
+    // /login-error were each listed in cache-policy.ts's STATIC_DOCUMENTS while
+    // still 404ing, and their cases mark the moment the listing took effect.
+    // /pricing entered that list in the SAME COMMIT that published the route
+    // (fba7d35c), so it has answered 200 and been shareable from its first day
+    // and there was never an inert period to pin.
+    //
+    // WHAT IS NEW IS THE LOADER. wordle-teams-wty4.1.14.10 gave this route
+    // `loader: () => ({ trialOffered: trialCanStart({ now: Date.now() }) })` —
+    // the route file calls it the only entry in that set whose ROUTE reads a
+    // clock — and nothing asserted that reading one left the RESPONSE shareable.
+    //
+    // WHAT IS ALREADY GATED, STATED SO THIS CASE IS NOT READ AS MORE THAN IT IS.
+    // lib/cache-policy.test.ts names '/pricing' in its static set and asserts
+    // `cachePolicyFor('/pricing', false)` is STATIC_CACHE, with the argument for
+    // a clock-reading route belonging there written beside the entry. So the
+    // POLICY is covered by a test CI runs, and unlisting the path fails that
+    // gate as well as this case.
+    //
+    // WHAT IS NOT GATED IS THIS PATH'S REAL RESPONSE: that it answers 200 as
+    // text/html at all, and that src/server.ts's rewrite reaches it. MEASURED —
+    // make this route's loader throw and the response is a 500, which this case
+    // fails on, while `cachePolicyFor('/pricing', false)` goes on returning
+    // STATIC_CACHE because the path string it is asked about has not changed.
+    // That is the gap a loader opens and the reason it is worth a case here.
+    //
+    // THE WHOLE HEADER, like the five cases above, and here the value is exactly
+    // what the route's own prose reasons about: it states the exposure as BOTH
+    // numbers — a day of shared freshness and a week of stale-while-revalidate —
+    // so a case checking only for 'public' would not be reading the thing that
+    // comment weighs.
+    const response = await request.get('/pricing')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('text/html')
+    expect(response.headers()['cache-control']).toBe(
+      'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800',
+    )
+  })
+
+  test('the /pricing document a visitor is served names no trial', async ({ page }) => {
+    // HERE RATHER THAN IN 'route shape', BECAUSE IT IS ABOUT THE SHARED COPY.
+    // The answer to "can a trial be started right now" is computed once in the
+    // loader and serialized into the document — routes/pricing.tsx's loader
+    // comment has that mechanism in full — so the /pricing the edge holds under
+    // the case above is THIS rendering of it, for up to the day plus the week
+    // that case asserts. That one says the document may be shared; this says
+    // what the document being shared actually claims.
+    //
+    // THE HALF NO GATED TEST CAN SEE. tier-table.hook.test.ts's "told there is
+    // no trial, says nothing at all about one" pins the component in jsdom given
+    // the prop, and src/routes.test.ts pins in the source that the loader asks
+    // `trialCanStart` and that its answer is what the table is handed. What
+    // neither reaches is the whole chain landing in a real document: while
+    // LAUNCH_AT is still the 2099 placeholder, the page a visitor actually
+    // receives must name no trial.
+    //
+    // RENDERED TEXT, NOT RAW HTML, AND THE DIFFERENCE IS NOT COSMETIC. MEASURED
+    // against this server: the only occurrence of the word in the document is the
+    // serialized loader value, `l:$R[14]={trialOffered:!1}` inside the bootstrap
+    // script, which is not visible copy. Asserting over the raw document text
+    // would therefore fail today for a reason that has nothing to do with what a
+    // reader sees, and would start passing for an equally wrong reason the moment
+    // that key were renamed or serialized differently. innerText reads what a
+    // reader reads. Please do not "simplify" this into a request-level assertion.
+    //
+    // MEASURED THE OTHER WAY TOO: hardcode `trialOffered: true` in the loader and
+    // this case fails on the rendered copy, with the three other /pricing cases
+    // still green.
+    //
+    // SCOPED TO <main>, which is everything routes/pricing.tsx renders — the
+    // frame copy as well as the tier table, so the page cannot name a trial in
+    // its own prose either — and not the chrome __root.tsx puts around it, which
+    // renders no <main> of its own. The pattern is the jsdom sibling's, verbatim.
+    await page.goto('/pricing')
+    await expect(page.getByTestId('pricing-tiers')).toBeVisible()
+    expect(await page.locator('main').innerText()).not.toMatch(
+      /trial|thirty days|30 days|free for a month/i,
     )
   })
 })
