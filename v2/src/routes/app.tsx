@@ -745,10 +745,25 @@ function Dashboard() {
       // whole. The card does not hide optimistically, so a failure leaves the
       // X visibly doing nothing, and without this line that is invisible
       // everywhere: no toast, no Sentry event, no retry. It matters more than
-      // the usual fire-and-forget because dismiss is the ONLY escape for the
-      // population this card is newly permanent for — a v1 migrant on a solo
-      // team sees "One more thing / Invite someone" on every load, and
-      // replay-from-the-menu (qt4.9) is still an open task.
+      // the usual fire-and-forget because dismiss is the only way OUT OF THE
+      // CARD for the population it is otherwise permanent for — a v1 migrant on
+      // a solo team sees "One more thing / Invite someone" on every load.
+      //
+      // REPLAY-FROM-THE-MENU HAS SINCE SHIPPED (qt4.9), and this comment claimed
+      // it was still open long after it landed — see wordle-teams-0w6j.
+      // components/app-menu.tsx's "Show getting started" item calls
+      // convex/onboarding.ts's `replay`, which patches onboardingDismissedAt
+      // back to undefined, so DISMISSAL IS REVERSIBLE and nothing here should be
+      // read as saying otherwise. A stale version of this sentence already
+      // produced one wrong claim elsewhere: the first draft of funnel.ts's
+      // dashboard_insights_click comment said the graduation CTA "can fire at
+      // most once per player", which the replay path falsifies.
+      //
+      // THE ARGUMENT FOR REPORTING RATHER THAN TOASTING IS UNAFFECTED by that,
+      // because replay is gated on `onboardingStatus?.dismissed` — it only
+      // appears once a dismiss has SUCCEEDED. A dismiss that fails leaves the X
+      // visibly doing nothing and offers no menu item either, which is exactly
+      // the invisible failure this line exists to make visible.
       onDismiss={() =>
         dismissOnboarding.mutate(
           {},
