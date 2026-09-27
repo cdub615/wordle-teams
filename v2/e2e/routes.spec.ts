@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
+import { SITEMAP_ENTRIES } from '../src/lib/sitemap.ts'
 import { openAppMenu } from './app-menu.ts'
 import { signIn } from './sign-in'
 import { completeProfile } from './complete-profile'
@@ -1108,28 +1109,59 @@ test.describe('crawler and social metadata', () => {
      * EXACTLY ONE OF EACH IS THE ASSERTION. Two canonicals is the failure mode
      * that would follow from putting og:url back in the root as well, and a
      * document with two canonical links has none as far as Google is concerned.
+     *
+     * "EVERY ADVERTISED ROUTE" USED TO BE A HAND-TYPED LIST, and it was false:
+     * it held v1's seven and lib/sitemap.ts advertises eight, so /pricing — the
+     * one entry v2 added — was the one advertised route this test never walked.
+     * A list that has to be edited alongside another list is what produced that,
+     * so the PATHS below are read out of SITEMAP_ENTRIES and the set-equality
+     * assertion is what makes the next addition fail here until somebody states
+     * its canonical.
+     *
+     * THE EXPECTED CANONICALS ARE STILL WRITTEN OUT, ONE PER PATH, and that is
+     * the half that must not be derived. `origin + path` is wrong for /home,
+     * which points at the apex rather than at itself (see
+     * CANONICAL_PATH_BY_ROUTE in lib/seo.ts) — a computed expectation would
+     * agree with whatever the page emitted and assert nothing about the one
+     * route where the answer is interesting.
+     *
+     * KEYED EXACTLY AS SITEMAP_ENTRIES SPELLS IT, so the apex is the empty
+     * string and not '/'. Nothing is normalised on either side of the
+     * comparison: a respelling over there is a red test here rather than
+     * something a `|| '/'` quietly absorbed. `page.goto` gets the '/' it needs
+     * at the point of navigation instead.
      */
-    const expected: Readonly<Record<string, string>> = {
-      '/': 'https://wordleteams.com',
+    const expectedCanonical: Readonly<Record<string, string>> = {
+      '': 'https://wordleteams.com',
       // The duplicate-content case: /home renders the same component as / and
-      // points at it rather than at itself.
+      // points at it rather than at itself. This is the line a derived
+      // expectation would get wrong.
       '/home': 'https://wordleteams.com',
       '/about': 'https://wordleteams.com/about',
+      '/pricing': 'https://wordleteams.com/pricing',
       '/privacy': 'https://wordleteams.com/privacy',
       '/terms': 'https://wordleteams.com/terms',
       '/login': 'https://wordleteams.com/login',
       '/maintenance': 'https://wordleteams.com/maintenance',
     }
 
-    for (const [path, canonical] of Object.entries(expected)) {
-      await page.goto(path)
+    // Sorted rather than set-compared so the failure message names the path
+    // nobody stated a canonical for — the same shape src/crawler-metadata.test.ts
+    // uses where it pins CANONICAL_PATH_BY_ROUTE against this same list.
+    expect(Object.keys(expectedCanonical).sort()).toEqual(
+      SITEMAP_ENTRIES.map((entry) => entry.path).sort(),
+    )
+
+    for (const [path, canonical] of Object.entries(expectedCanonical)) {
+      const url = path || '/'
+      await page.goto(url)
       const links = page.locator('link[rel="canonical"]')
-      await expect(links, `${path} canonical count`).toHaveCount(1)
-      expect(await links.getAttribute('href'), `${path} canonical`).toBe(canonical)
+      await expect(links, `${url} canonical count`).toHaveCount(1)
+      expect(await links.getAttribute('href'), `${url} canonical`).toBe(canonical)
 
       const ogUrls = page.locator('meta[property="og:url"]')
-      await expect(ogUrls, `${path} og:url count`).toHaveCount(1)
-      expect(await ogUrls.getAttribute('content'), `${path} og:url`).toBe(canonical)
+      await expect(ogUrls, `${url} og:url count`).toHaveCount(1)
+      expect(await ogUrls.getAttribute('content'), `${url} og:url`).toBe(canonical)
     }
   })
 })
