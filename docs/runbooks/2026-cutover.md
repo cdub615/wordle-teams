@@ -8,6 +8,15 @@ The deployment that becomes production is the one beta already runs on —
 Convex `fabulous-goldfish-949`, Cloudflare Worker `wordle-teams-v2`. **Nothing
 is created at cutover.** The domain moves and the configuration changes.
 
+> **A SEPARATE DEV ENVIRONMENT NOW EXISTS ALONGSIDE IT** (`wordle-teams-qjh3`,
+> 2026-09-28), and it changes nothing on this day except by taking work off it.
+> Convex `successful-canary-135` (project `wordle-teams-dev`) and Worker
+> `wordle-teams-v2-dev` on `dev.wordleteams.com`, deployed from the `dev` branch
+> via wrangler's `env.dev`. **None of it is touched at cutover.** What it buys
+> here: §1.3's dry run no longer rehearses against the deployment that becomes
+> production, and the sentinel rule in §0 now has three machines to tell apart
+> rather than two.
+
 **Written 2026-09-02 by Phase 7 Task 20.** It supersedes the runbook prose in
 `wt-ksh.9`'s description, two bullets of which are now factually wrong — see
 §7.3 for what changed and why, if you want to know before trusting this.
@@ -48,6 +57,39 @@ box is `anonymous:anonymous-v2`. On 2026-09-01 a bare
 `E2E_TEST_MODE` absent, exit code 0, with `Environment variable "E2E_TEST_MODE"
 not found` on stdout. **Match the TEXT, never the exit code.** Any check in this
 runbook whose evidence is an exit status is not evidence.
+
+**3. THERE ARE NOW THREE MACHINES TO CONFUSE, not two** (2026-09-28). Local,
+`successful-canary-135` (dev), and `fabulous-goldfish-949` (the one that becomes
+production). The sentinel above still works and is still the rule, but read it
+knowing which of the three answers you expect:
+
+| Deployment | `SITE_URL` reads |
+| --- | --- |
+| local backend | `http://localhost:3000` |
+| `successful-canary-135` | `https://dev.wordleteams.com` |
+| `fabulous-goldfish-949` | `https://beta.wordleteams.com` → the apex after §4.6 |
+
+**4. A CONVEX DEPLOY KEY CANNOT READ ENVIRONMENT VARIABLES AT ALL.** Measured on
+2026-09-28 (CI run 36474279805): a deploy key answers
+`You do not have permission to perform this operation (deployment:env:view)`, and
+`convex deployment token create` offers no scope to widen. So **every env check in
+this runbook needs an ACCOUNT login** (`npx convex login`), not the deploy key —
+and it must be run from a directory with **no `.env.local`**, because a deploy key
+sitting in that file masks the account login completely: `convex login status`
+reports "Not logged in" from `v2/` and "Logged in" from a clean directory, with
+the same token on disk (`wordle-teams-ldm8`).
+
+> **One command does §2.1's check and more, and builds its own clean directory
+> so the masking cannot bite:**
+>
+> ```
+> cd v2 && node scripts/check-deployment-env.mjs '' fabulous-goldfish-949
+> ```
+>
+> It asserts `SITE_URL` is set and `E2E_TEST_MODE` is ABSENT, errors on either
+> failing, and warns while `POLAR_SERVER` is still `sandbox` — which it is today,
+> and which §2.2 is where you fix. `dev successful-canary-135` checks the other
+> one. **NEVER `convex env list`:** it prints every value in plaintext.
 
 ---
 
@@ -99,8 +141,24 @@ runbook whose evidence is an exit status is not evidence.
   covers the new signing secret that came with it.
 
 - [ ] **1.3 — One full dry run: purge + copy + verify, no DNS flip.** §4.2–§4.5
-      exactly as written, against beta, the week before. The cutover window is not
-      where you want to discover the copy's shape for the first time.
+      exactly as written, **against the DEV deployment** (`successful-canary-135`),
+      the week before. The cutover window is not where you want to discover the
+      copy's shape for the first time.
+
+      **IT USED TO SAY "against beta", AND THAT WAS THE ONLY OPTION** until a dev
+      environment existed (`wordle-teams-qjh3`, 2026-09-28). Rehearsing on the
+      deployment that becomes production meant purging and re-copying the very
+      thing being protected. Dev is a better rehearsal in every respect: the same
+      sequence, the same script, the same reports, and a mistake costs nothing.
+
+      **The copy now names its target before it writes a row**, so the dry run
+      also proves you can read that banner and recognise the wrong answer:
+
+      ```
+      ==============================================================================
+        WRITING TO: dev — dev.wordleteams.com (successful-canary-135)
+      ==============================================================================
+      ```
 
       **This now starts by emptying beta** (§4.2's purge step). That is fine and
       is the point — everything in the beta deployment is testing data
@@ -311,7 +369,17 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
 
 - [ ] **3.1 — `ENVIRONMENT` must become `production`.** It is a wrangler var in
       `v2/wrangler.jsonc`, currently `"beta"`. Every LogSnag funnel event is
-      tagged with it, so leaving it mistags all production analytics. Check with:
+      tagged with it, so leaving it mistags all production analytics.
+
+      **CHANGE THE TOP-LEVEL BLOCK ONLY.** `wrangler.jsonc` now also carries an
+      `env.dev` block whose `ENVIRONMENT` is `"development"` and must stay that
+      way. The two blocks do not share values — wrangler's `vars` is
+      *notInheritable*, so each declares its own complete set, and
+      `src/wrangler-environments.test.ts` fails if either goes incomplete or if a
+      hostname stops agreeing with its `ENVIRONMENT`. Run `pnpm test:once` after
+      editing and that test will tell you before a deploy does.
+
+      Check with:
 
   ```
   curl -sI -X POST -d '{"name":"login_view"}' https://wordleteams.com/api/funnel
@@ -322,18 +390,35 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
 - [ ] **3.2 — `MAINTENANCE` set to `"false"`** in `wrangler.jsonc` (it is a
       string compared to exactly `"true"`). See §4.1 for the flip itself.
 
-- [ ] **3.3 — Routes and the custom domain.** `wrangler.jsonc` carries
-      `beta.wordleteams.com` as a `custom_domain`. Add the apex.
+- [ ] **3.3 — Routes and the custom domain.** The TOP-LEVEL `routes` in
+      `wrangler.jsonc` carries `beta.wordleteams.com` as a `custom_domain`. Add
+      the apex.
+
+  **LEAVE `env.dev`'s ROUTE ALONE.** It declares `dev.wordleteams.com` and must
+  keep declaring it. `routes` *is* inheritable, unlike `vars` — so an `env.dev`
+  that lost its own route would silently inherit the top-level one and the dev
+  Worker would try to claim production's domain. That is the single most damaging
+  edit anyone could make to this file on this day, and
+  `src/wrangler-environments.test.ts` is what catches it.
 
   **A wildcard `*.wordleteams.com` A record points at Vercel.** An explicit
   record outranks it — but **if any hostname ever serves a Vercel 404 again,
   suspect that wildcard first.** It is the reason beta resolved before it existed.
 
+  **AFTER cutover, when beta is retired**, three things go together and none of
+  them is urgent — do them as one change once the apex is proven:
+  `beta.wordleteams.com` out of the top-level `routes`, out of `NOINDEX_HOSTS` in
+  `src/lib/robots-policy.ts`, and out of `HOST_ENVIRONMENTS` in
+  `src/lib/sentry-config.ts`. Both of those files say so in their own headers.
+
 - [ ] **3.4 — The `noindex` needs NO action, and that is deliberate. Verify it
       rather than change it.** Beta sends `X-Robots-Tag: noindex, nofollow`;
-      production must not, and **it is the same deployment** — which is exactly
-      why this is keyed on the REQUEST HOSTNAME rather than on the `ENVIRONMENT`
-      var (`v2/src/lib/robots-policy.ts`, `wt-ksh.8.54`). A var is a property of
+      production must not, and **beta and the apex are the same deployment** —
+      which is exactly why this is keyed on the REQUEST HOSTNAME rather than on
+      the `ENVIRONMENT` var (`v2/src/lib/robots-policy.ts`, `wt-ksh.8.54`).
+      (`dev.wordleteams.com` is a different deployment and is also noindexed, by
+      the same list; the argument below is about beta and the apex, which one
+      Worker answers on at once.) A var is a property of
       the deployment and cannot tell two hostnames apart on the day this Worker
       answers on both; the hostname can, so the apex is indexable the moment it
       is added and beta stays suppressed, with nothing to flip.
@@ -434,6 +519,24 @@ next navigation and the blast radius is one visitor rather than everyone — a
 property to know about, **not a step to run.**
 
 ### 4.2 — The final copy
+
+> **"THE FINAL COPY" MEANS PRODUCTION, AND ONLY PRODUCTION.** Since
+> `wordle-teams-qjh3` there are two deployments a copy could run against, and
+> dev's is a separate, owner-scoped thing (`--scope=mine`) that is never part of
+> this day. Everything in §4.2–§4.5 targets `fabulous-goldfish-949`.
+>
+> **The copy announces its target before it writes a row**, so this is checkable
+> rather than assumed — and it REFUSES outright on a deployment
+> `wrangler.jsonc` does not declare:
+>
+> ```
+> ==============================================================================
+>   WRITING TO: (top level) — beta.wordleteams.com (fabulous-goldfish-949)
+> ==============================================================================
+> ```
+>
+> Read that line. If it names dev, stop: `CONVEX_URL` is pointing at the wrong
+> deployment and the purge below would empty the wrong database.
 
 - [ ] **PURGE FIRST. This step is not optional and its ORDER is the whole point.**
 
