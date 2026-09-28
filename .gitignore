@@ -61,7 +61,14 @@ next-env.d.ts
 
 # One-off production remediation scripts. These hardcode real user email
 # addresses, and this repo is public — never commit them.
+#
+# BOTH LINES ARE NEEDED. A gitignore pattern containing a slash is anchored to
+# the directory holding the .gitignore, so `scripts/*-prod.mjs` covers the root
+# scripts/ and says nothing at all about v2/scripts/ — which is now where a
+# one-off prod script naturally lands, since that is where its imports
+# (lib/supabase-scope.mjs, convex/_generated) and its node_modules live.
 scripts/*-prod.mjs
+v2/scripts/*-prod.mjs
 
 # v2 replatform build output. v2/ holds tracked SOURCE on feat/v2-replatform
 # (guarded by its own v2/.gitignore), but on other branches only these
