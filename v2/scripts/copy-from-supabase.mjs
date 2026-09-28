@@ -52,12 +52,14 @@
  *
  * PRINTS COUNTS, NEVER ADDRESSES. This repository is public.
  */
+import { fileURLToPath } from 'node:url'
 import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
 import { explainTeamMemberDrops, selectCopyable } from './lib/copy-filters.mjs'
 import { reminderFieldsFor } from './lib/copy-reminder-policy.mjs'
 import { readCounts } from './lib/count-tables.mjs'
+import { describeCopyTarget, environmentsFromWranglerConfig } from './lib/copy-target.mjs'
 import {
   formatClobberReport,
   formatInsertReport,
@@ -69,6 +71,15 @@ const args = process.argv.slice(2)
 const has = (flag) => args.includes(flag)
 const scope = (args.find((a) => a.startsWith('--scope=')) ?? '--scope=mine').split('=')[1]
 const dryRun = has('--dry-run')
+
+/*
+  ACKNOWLEDGES A TARGET wrangler.jsonc DOES NOT DECLARE (wordle-teams-qjh3.12).
+  Needed only for an UNRECOGNISED deployment; the declared environments and a
+  local backend proceed without it, so the runbook's commands are unchanged. It
+  exists so that "I am writing to a deployment this repository has never heard of"
+  has to be said out loud rather than discovered afterwards.
+*/
+const acknowledgedTarget = has('--i-know-this-target')
 
 /**
  * THE CUTOVER FLAG (wt-ksh.7.32). Off by default, and that default is the whole
@@ -297,6 +308,52 @@ if (dryRun) {
 }
 
 // --- writing -----------------------------------------------------------------
+
+/*
+  THE TARGET, ANNOUNCED BEFORE A SINGLE ROW IS WRITTEN (wordle-teams-qjh3.12).
+
+  docs/runbooks/2026-cutover.md's section 0 is a rule: read a sentinel first, in
+  every shell, because there are two silent ways to address the wrong machine.
+  With THREE deployments now in play -- local, dev, and the one that becomes
+  production -- that rule is doing more work than it used to, and a rule is a
+  thing an operator follows at 6am with DNS waiting. This is the same rule as a
+  mechanism.
+
+  IT RESOLVES AGAINST wrangler.jsonc, so the deployment-to-environment mapping
+  has one home rather than a copy kept here.
+
+  A FAILURE TO IDENTIFY THE TARGET DOES NOT STOP THE COPY, and that is deliberate:
+  the same principle the insert report already follows -- a report about the copy
+  must not be able to kill the copy. An unreadable config degrades to 'unknown',
+  which asks for an acknowledgement rather than throwing.
+*/
+let environments = []
+try {
+  const { experimental_readRawConfig } = await import('wrangler')
+  const { rawConfig } = experimental_readRawConfig({
+    config: fileURLToPath(new URL('../wrangler.jsonc', import.meta.url)),
+  })
+  environments = environmentsFromWranglerConfig(rawConfig)
+} catch (error) {
+  console.warn(`Could not read wrangler.jsonc to identify the target: ${error.message}`)
+}
+
+const target = describeCopyTarget(CONVEX_URL, environments)
+console.log('')
+console.log('='.repeat(78))
+console.log(`  WRITING TO: ${target.label}`)
+console.log('='.repeat(78))
+
+if (target.kind === 'unknown' && !acknowledgedTarget) {
+  console.error('')
+  console.error('REFUSING TO WRITE. The target is not a deployment wrangler.jsonc declares,')
+  console.error('so nothing here can tell you whether it is dev, production, or something')
+  console.error('else entirely. Check CONVEX_URL against the deployment you meant.')
+  console.error('')
+  console.error('If it IS right -- a deployment this repo does not declare -- say so:')
+  console.error('  --i-know-this-target')
+  process.exit(1)
+}
 
 const convex = new ConvexHttpClient(CONVEX_URL)
 convex.setAdminAuth(CONVEX_MIGRATION_KEY)
