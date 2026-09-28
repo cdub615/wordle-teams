@@ -1,9 +1,28 @@
-name: Deploy v2 (beta)
+name: Deploy v2
 
-# Builds and deploys the v2 replatform to beta.wordleteams.com on any push that
-# touches v2/. The v1 Next.js app on Vercel is untouched by this workflow, and
-# Vercel's own auto-deploy of dev is untouched by it too — the two pipelines
-# share a repository and nothing else.
+# Builds and deploys the v2 replatform on any push that touches v2/. The v1
+# Next.js app on Vercel is untouched by this workflow, and Vercel's own
+# auto-deploy of dev is untouched by it too — the two pipelines share a
+# repository and nothing else.
+#
+# TWO ENVIRONMENTS SINCE wordle-teams-qjh3.6, selected from the branch:
+#
+#   dev                  -> the dev Convex deployment + wordle-teams-v2-dev
+#                           (dev.wordleteams.com), via wrangler's env.dev
+#   main                 -> production, unchanged
+#   feat/v2-replatform   -> production, unchanged
+#
+# THE LAST LINE IS DELIBERATE AND IS NOT AN OVERSIGHT. The working branch keeps
+# deploying to the deployment that BECOMES production, exactly as it did before
+# this change, because that deployment is what cutover is rehearsed against
+# (epic decision 11). Moving it to dev would leave nothing keeping prod-to-be
+# current before the flip. The switch to the final model — dev -> dev,
+# main -> prod, this branch retired — belongs to cutover, not here.
+#
+# ONE VARIABLE DRIVES EVERYTHING: CLOUDFLARE_ENV, below. It selects the wrangler
+# environment at BUILD time, which is the only time it can be selected — the
+# vite plugin bakes the resolved config into dist/server/wrangler.json and
+# wrangler refuses a --env that disagrees with it. Empty means the top level.
 
 on:
   push:
@@ -28,16 +47,55 @@ on:
 # leaving whichever finished last in charge regardless of which was newer.
 # Queue them instead — and do NOT cancel in progress: a half-applied Convex
 # schema push is worse than a slightly delayed one.
+#
+# PER-ENVIRONMENT SINCE wordle-teams-qjh3.6, and the group name is the whole
+# point. A single `deploy-v2` group made a push to dev QUEUE BEHIND a production
+# deploy, which the reason above does not justify: the race it exists to prevent
+# is two runs against the SAME deployment, and two different deployments cannot
+# race each other.
+#
+# PULL REQUESTS GET A GROUP OF THEIR OWN, per PR. They deploy nothing, so
+# putting them in a deploy group would make an expensive gate run block a real
+# deploy for no benefit.
 concurrency:
-  group: deploy-v2
+  group: deploy-v2-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || (github.ref_name == 'dev' && 'dev' || 'production') }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
+env:
+  # THE ONE SWITCH. Read by @cloudflare/vite-plugin to choose the wrangler
+  # environment, and by scripts/print-build-env.mjs to choose which vars block to
+  # export, so the Worker's config and the client bundle's inlined values cannot
+  # name different Convex deployments. EMPTY IS MEANINGFUL: it selects the top
+  # level, which is production. Both readers treat '' as "no environment".
+  CLOUDFLARE_ENV: ${{ (github.event_name == 'push' && github.ref_name == 'dev') && 'dev' || '' }}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    # WHICH SECRETS THIS RUN CAN SEE. An ENVIRONMENT secret SHADOWS a repository
+    # secret of the same name, which is what makes this a one-line change rather
+    # than a migration: the `dev` environment holds its own CONVEX_DEPLOY_KEY and
+    # wins for dev runs, while `production` holds none and falls through to the
+    # repository-level CONVEX_DEPLOY_KEY that has been deploying beta all along.
+    # THE WORKING PRODUCTION SECRET IS THEREFORE NOT TOUCHED by this change.
+    #
+    # 'production' RESOLVES TO THE EXISTING 'Production' environment. GitHub
+    # treats environment names case-insensitively and keeps the first casing —
+    # measured on a throwaway name rather than assumed (see wordle-teams-qjh3.6).
+    # That environment was created by the Vercel link in 2023 and holds no
+    # secrets and no protection rules; vercel[bot] still writes v1 deployment
+    # records into it, which is why its history will show two products until
+    # cutover. Vercel reads nothing from GitHub environment secrets, so sharing
+    # it cannot affect v1.
+    #
+    # EMPTY ON A PULL REQUEST, so a PR neither claims an environment nor leaves a
+    # deployment record that reads as "this was deployed". PRs deploy nothing.
+    environment: ${{ github.event_name == 'push' && (github.ref_name == 'dev' && 'dev' || 'production') || '' }}
+
     defaults:
       run:
         working-directory: v2
@@ -286,9 +344,29 @@ jobs:
           fi
           echo "present: SENTRY_AUTH_TOKEN is set (validity is not checked here)"
 
+      # THE BUILD VALUES COME FROM wrangler.jsonc, NOT FROM A SECOND FILE
+      # (wordle-teams-qjh3.5). scripts/print-build-env.mjs prints the selected
+      # environment's VITE_ vars as shell assignments and `set -a` exports them,
+      # so vite inlines them into the client bundle — process.env beats
+      # .env.production in vite's loadEnv, which is what makes this work without
+      # a per-environment .env file or a mode change.
+      #
+      # VITE_CONVEX_URL IS THEN OVERWRITTEN BY convex deploy, deliberately.
+      # --cmd-url-env-var-name injects the URL of whatever deployment the deploy
+      # key points at, and that value wins for the build subprocess. The two are
+      # supposed to be identical, and vite.config.ts's convexDeploymentGuard
+      # FAILS THE BUILD if they are not — which is the case where this job
+      # selected one environment while holding the other's key, and would
+      # otherwise produce a working-looking bundle aimed at the wrong backend.
       - name: Deploy Convex and build the client
         if: github.event_name == 'push'
-        run: pnpm exec convex deploy --cmd 'pnpm build' --cmd-url-env-var-name VITE_CONVEX_URL
+        run: |
+          set -euo pipefail
+          set -a
+          eval "$(node scripts/print-build-env.mjs "${CLOUDFLARE_ENV:-}")"
+          set +a
+          echo "building for ${CLOUDFLARE_ENV:-(top level)} against $VITE_CONVEX_SITE_URL"
+          pnpm exec convex deploy --cmd 'pnpm build' --cmd-url-env-var-name VITE_CONVEX_URL
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           # THE SOURCE MAP UPLOAD HAPPENS INSIDE THIS STEP, because it is a Vite
@@ -468,14 +546,24 @@ jobs:
       # route module loads server-side and refuses an anonymous visitor. It says
       # NOTHING about the lazily loaded component chunk, which is where the
       # 2026-09-06 fault actually was. Do not read it as "chat works".
-      - name: Smoke test beta (signed-out routes only)
+      # THE HOSTNAME IS READ FROM THE BUILD OUTPUT, not from a branch expression
+      # repeated a third time (wordle-teams-qjh3.6). dist/server/wrangler.json is
+      # the RESOLVED config the Worker was just deployed from, so its route is by
+      # construction the name this deployment actually claims. A literal here
+      # would be a fourth place the environment mapping lives, and the one nobody
+      # would think to update.
+      - name: Smoke test the deployed host (signed-out routes only)
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
 
+          host=$(node -p "require('./dist/server/wrangler.json').routes[0].pattern")
+          test -n "$host"
+          echo "smoke testing https://$host"
+
           body=$(mktemp)
-          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 https://beta.wordleteams.com/login)
-          echo "beta.wordleteams.com/login -> $code"
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 "https://$host/login")
+          echo "$host/login -> $code"
           test "$code" = "200"
 
           if grep -aqi 'something went wrong' "$body"; then
@@ -486,6 +574,6 @@ jobs:
           grep -aq 'Send code' "$body"
           echo "/login rendered the sign-in form, not an error page"
 
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://beta.wordleteams.com/chat)
-          echo "beta.wordleteams.com/chat (no session) -> $code"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "https://$host/chat")
+          echo "$host/chat (no session) -> $code"
           test "$code" = "307"
