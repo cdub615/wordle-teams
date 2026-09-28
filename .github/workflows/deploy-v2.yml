@@ -1,9 +1,10 @@
 name: Deploy v2
 
-# Builds and deploys the v2 replatform on any push that touches v2/. The v1
-# Next.js app on Vercel is untouched by this workflow, and Vercel's own
-# auto-deploy of dev is untouched by it too — the two pipelines share a
-# repository and nothing else.
+# Builds and deploys the app. Since wordle-teams-4m96 this repository IS the app:
+# v2 came up from v2/ to the root and v1's Next.js source was deleted, so there is
+# no second pipeline to stay out of the way of. Vercel's git integration is
+# disconnected; its last production deployment still serves wordleteams.com until
+# the DNS flip, but nothing here builds it.
 #
 # TWO ENVIRONMENTS SINCE wordle-teams-qjh3.6, selected from the branch:
 #
@@ -27,9 +28,17 @@ name: Deploy v2
 on:
   push:
     branches: [dev, main, feat/v2-replatform]
-    paths:
-      - 'v2/**'
-      - '.github/workflows/deploy-v2.yml'
+    # INVERTED BY THE MOVE (wordle-teams-4m96.4). This was `paths: ['v2/**']`,
+    # which selected the app when the app was a subdirectory. The app is now the
+    # whole repository, so an allow-list would mean "everything" — and listing
+    # everything is how a new top-level directory silently stops deploying.
+    # A deny-list is the shape that keeps working: anything not named here is
+    # app code and deploys, which is also the safe direction to be wrong in.
+    paths-ignore:
+      - '.beads/**'
+      - 'docs/**'
+      - 'supabase/**'
+      - '**.md'
   # PULL REQUESTS RUN THE GATES AND DEPLOY NOTHING. Every deploy step below is
   # guarded on `github.event_name == 'push'`, and that guard is load-bearing
   # rather than tidy: this repository is PUBLIC, so without it a fork's pull
@@ -37,9 +46,11 @@ on:
   # credentials.
   pull_request:
     branches: [dev, main]
-    paths:
-      - 'v2/**'
-      - '.github/workflows/deploy-v2.yml'
+    paths-ignore:
+      - '.beads/**'
+      - 'docs/**'
+      - 'supabase/**'
+      - '**.md'
   workflow_dispatch:
 
 # Two pushes in quick succession would otherwise race two `convex deploy` runs
@@ -96,10 +107,6 @@ jobs:
     # deployment record that reads as "this was deployed". PRs deploy nothing.
     environment: ${{ github.event_name == 'push' && (github.ref_name == 'dev' && 'dev' || 'production') || '' }}
 
-    defaults:
-      run:
-        working-directory: v2
-
     steps:
       - uses: actions/checkout@v7
 
@@ -107,24 +114,22 @@ jobs:
       # before it can resolve the store path.
       #
       # No `version:` on purpose — the version comes from packageManager in
-      # v2/package.json, and passing both is a hard error ("Multiple versions
-      # of pnpm specified").
+      # package.json, and passing both is a hard error ("Multiple versions of
+      # pnpm specified").
       #
-      # package_json_file must be spelled out because
-      # `defaults.run.working-directory` applies only to `run:` steps, never to
-      # `uses:` steps. Left at its default this action reads the ROOT
-      # package.json, which pins pnpm@11.13.0 — a release pnpm has since marked
-      # broken, and which CI's self-installer refuses outright. Pointing at v2's
-      # own manifest also honours the island rule: v2 owns its toolchain.
+      # THE `package_json_file:` LINE THAT USED TO BE HERE IS GONE, and it is
+      # unnecessary rather than merely simplified (wordle-teams-4m96.4). It
+      # existed because the ROOT manifest pinned pnpm@11.13.0 — a release pnpm
+      # marked broken and CI's self-installer refuses outright — so the action had
+      # to be pointed at v2/package.json instead. The root manifest IS that
+      # manifest now, pinning pnpm@11.20.0, so there is nothing to route around.
       - uses: pnpm/action-setup@v6
-        with:
-          package_json_file: v2/package.json
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: v2/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 
@@ -175,7 +180,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/convex
-          key: convex-backend-${{ runner.os }}-${{ hashFiles('v2/pnpm-lock.yaml') }}
+          key: convex-backend-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: convex-backend-${{ runner.os }}-
 
       - name: Install the Chromium Playwright drives
@@ -255,12 +260,12 @@ jobs:
         with:
           name: playwright-report
           path: |
-            v2/playwright-report
-            v2/test-results
+            playwright-report
+            test-results
           retention-days: 7
 
       # THE MOST DANGEROUS LINE IN THIS FILE IS THE ONE THAT WOULD BE MISSING
-      # HERE. `convex init` above WRITES v2/.env.local, and it points at the
+      # HERE. `convex init` above WRITES .env.local, and it points at the
       # local backend:
       #
       #     CONVEX_DEPLOYMENT=anonymous:anonymous-agent
@@ -282,7 +287,7 @@ jobs:
           set -euo pipefail
           rm -f .env.local
           test ! -e .env.local
-          echo "removed v2/.env.local — the build below uses .env.production"
+          echo "removed .env.local — the build below uses .env.production"
 
       # THE ONLY GATE A PULL REQUEST WAS MISSING (wordle-teams-tkqr). Every
       # deploy step here is guarded on `github.event_name == 'push'`, because
@@ -339,7 +344,7 @@ jobs:
           if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
             echo "::error::SENTRY_AUTH_TOKEN is empty, so source maps will be built,"
             echo "deleted, and never uploaded -- silently. Set the repository secret."
-            echo "See v2/vite.config.ts (sentryTanstackStart) and wordle-teams-p1as."
+            echo "See vite.config.ts (sentryTanstackStart) and wordle-teams-p1as."
             exit 1
           fi
           echo "present: SENTRY_AUTH_TOKEN is set (validity is not checked here)"
@@ -380,17 +385,17 @@ jobs:
           #
           # The token is a REAL secret, unlike SENTRY_DSN which is public by
           # design and lives in wrangler.jsonc. Org and project slugs are not
-          # secret and are inline in v2/vite.config.ts.
+          # secret and are inline in vite.config.ts.
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       # RETIRED 2026-09-13 (wordle-teams-dt6t). A step called "The auth module
       # must not reach the client bundle" stood here — "THE CHECK THAT WOULD
       # HAVE CAUGHT THE 2026-09-06 BETA OUTAGE" — and it grepped dist/client for
       # 'SITE_URL is not set'. It is gone, not moved: the check now lives in
-      # v2/src/frontend-import-graph.test.ts and runs in the vitest gate above,
+      # src/frontend-import-graph.test.ts and runs in the vitest gate above,
       # walking the import graph from every file under src/ and failing with the
       # chain named. THE FULL ACCOUNT — the incident, the control measurement
-      # and both its arms — is on v2/convex/lib/chatLimits.ts, where the seven
+      # and both its arms — is on convex/lib/chatLimits.ts, where the seven
       # other comments on this rule already point. What follows is only what a
       # person standing in THIS file needs before re-adding a bundle check.
       #
@@ -419,7 +424,7 @@ jobs:
       # in source rather than in a build artefact.
       #
       # AND DO NOT RESURRECT THE GREP AS WRITTEN, whatever string it is given:
-      # the pattern 'SITE_URL is not set' also matches v2/src/lib/auth-server.ts's
+      # the pattern 'SITE_URL is not set' also matches src/lib/auth-server.ts's
       # 'VITE_CONVEX_SITE_URL is not set', which IS in dist/server today. It
       # could fire for a reason unrelated to the bug it names.
 
@@ -463,7 +468,7 @@ jobs:
             echo "::error::Source maps survived into the PUBLIC asset directory."
             echo "$found"
             echo "These would be served from beta/production and expose the source."
-            echo "See v2/vite.config.ts: sentryTanstackStart's filesToDeleteAfterUpload."
+            echo "See vite.config.ts: sentryTanstackStart's filesToDeleteAfterUpload."
             exit 1
           fi
           echo "clean: no .map in dist/client"
@@ -499,7 +504,7 @@ jobs:
           echo "clean: insights corpus is a static file, not a bundled chunk"
 
       # Publishes the Worker and keeps the beta.wordleteams.com custom domain
-      # binding declared in v2/wrangler.jsonc. Uploads dist/ from the build above.
+      # binding declared in wrangler.jsonc. Uploads dist/ from the build above.
       - name: Deploy the Worker
         if: github.event_name == 'push'
         uses: cloudflare/wrangler-action@v4

@@ -1,6 +1,6 @@
 name: Refresh insights corpus
 
-# Regenerates v2/public/insights/*.json from the FiveLetterWords feed and, when
+# Regenerates public/insights/*.json from the FiveLetterWords feed and, when
 # the result differs from what is committed, opens a pull request against main.
 #
 # WHY IT EXISTS. scripts/build-insights-corpus.mjs is generate-on-demand and its
@@ -26,6 +26,14 @@ name: Refresh insights corpus
 # deliberately.
 #
 # ─────────────────────────────────────────────────────────────────────────────
+# STILL TRUE AFTER THE MOVE, FOR A CHANGED REASON (wordle-teams-4m96.4). The
+# argument below is written in terms of `v2/` not existing on main. Since v2 came
+# up to the repository root that wording is stale, but the CONCLUSION is not: main
+# still has no TanStack app, no build script and no public/insights — it has v1.
+# So this workflow still cannot run there until feat/v2-replatform merges. The
+# paths below are updated; the reasoning is left as written rather than rewritten
+# from memory, because it records how the constraint was originally established.
+#
 # THIS FILE CANNOT RUN UNTIL feat/v2-replatform MERGES, AND THAT IS NOT A BUG.
 #
 # GitHub runs scheduled workflows only from the DEFAULT BRANCH, which is main,
@@ -93,7 +101,7 @@ name: Refresh insights corpus
 # fetch only, which keeps this job unable to be blocked by an unrelated
 # dependency or toolchain failure — the same reason check-prices.yml gives for
 # needing no dependency tree. The cost is stated rather than hidden: the artifact
-# assertions in v2/src/lib/insights-corpus.test.ts do not run here, and they will
+# assertions in src/lib/insights-corpus.test.ts do not run here, and they will
 # not run on the PR either (see below), so the 12 KB size budget it enforces on
 # benchmark-difficulty.json is CHECKED AT MERGE RATHER THAN BEFORE IT. Measured
 # 2026-09-27: 5.9 KB of that 12 KB, against the ~1.1 KB a year that test's own
