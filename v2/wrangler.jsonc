@@ -146,6 +146,72 @@
 		 * key here has to be repeated in full in env.dev. This one would have
 		 * been duplicated, kept in sync, and read by nobody, in two places.
 		 */
+	},
+
+	/**
+	 * THE DEV ENVIRONMENT (wordle-teams-qjh3).
+	 *
+	 * Selected at BUILD time by CLOUDFLARE_ENV=dev, not at deploy time.
+	 * @cloudflare/vite-plugin resolves this block into dist/server/wrangler.json and
+	 * records a `targetEnvironment` there; v2/.wrangler/deploy/config.json redirects
+	 * a plain `wrangler deploy` to that file, and wrangler THROWS if a --env at
+	 * deploy time disagrees with what was built. So build and deploy cannot silently
+	 * diverge — which is the opposite of how the Convex half fails, and worth
+	 * leaning on.
+	 *
+	 * `name` IS DELIBERATELY ABSENT. It is one of the few inheritable fields, and it
+	 * inherits through `appendEnvName` — so this environment is published as
+	 * `wordle-teams-v2-dev` with nothing to keep in sync. Adding a `name` here would
+	 * work and would be one more string to get wrong.
+	 *
+	 * `vars` IS REPEATED IN FULL, AND HAS TO BE. Unlike `name`, `vars` is
+	 * notInheritable and defaults to {} — an omitted key here is ABSENT, not
+	 * inherited from the block above. Leaving out ENVIRONMENT would not give this
+	 * Worker "beta"; it would give it nothing, and src/server.ts would tag its Sentry
+	 * events "production" while /api/funnel tagged them "beta". Both fallbacks are
+	 * deliberate (a missing var must never hide a real incident), which is exactly
+	 * what makes the omission invisible.
+	 *
+	 * `routes` IS ALSO REPEATED, for the OPPOSITE reason: routes IS inheritable, so
+	 * an environment that declares none silently adopts beta.wordleteams.com and this
+	 * Worker would try to take production's custom domain.
+	 *
+	 * src/wrangler-environments.test.ts pins both of those, by reading this file's
+	 * RAW config so that "declared" and "would have been inherited" stay
+	 * distinguishable. It also pins the things a reader cannot check by eye: that the
+	 * hostname below agrees with what sentry-config.ts and robots-policy.ts say about
+	 * it, and that the two Convex URLs name one deployment.
+	 */
+	"env": {
+		"dev": {
+			"routes": [
+				{
+					"pattern": "dev.wordleteams.com",
+					"custom_domain": true
+				}
+			],
+			"vars": {
+				// The same DSN as production. It is public by design and only permits
+				// ingestion; the two environments are separated by the ENVIRONMENT tag
+				// below and by the hostname the browser keys on, not by the project.
+				"SENTRY_DSN": "https://b709a5bb4e96c621ab3267a5efc1dbfa@o177762.ingest.us.sentry.io/4511848703918080",
+
+				// Tags BOTH the worker's Sentry events and /api/funnel's LogSnag events.
+				// This is the var whose absence would report dev's errors as production.
+				"ENVIRONMENT": "development",
+
+				// Same switch as production, same rule: only the exact string "true" is on.
+				"MAINTENANCE": "false",
+
+				// Convex project wordle-teams-dev, deployment successful-canary-135
+				// (reference christian-white:wordle-teams-dev:development, type prod).
+				// These two must name the SAME deployment as each other AND as whatever
+				// the dev CONVEX_DEPLOY_KEY points at — see src/lib/convex-url.ts for
+				// why a mismatch presents as the app half-working rather than failing.
+				"VITE_CONVEX_URL": "https://successful-canary-135.convex.cloud",
+				"VITE_CONVEX_SITE_URL": "https://successful-canary-135.convex.site"
+			}
+		}
 	}
 	/**
 	 * Smart Placement
