@@ -89,11 +89,19 @@ writeFileSync(
  */
 function readVar(key) {
   try {
-    const output = execFileSync(
-      process.execPath,
-      [convexBin, 'env', 'get', key, '--deployment', deployment],
-      { cwd: workdir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-    )
+    // THE FLAG IS CONDITIONAL AND MUST STAY SO. `convex env get` REFUSES
+    // `--deployment` when CONVEX_DEPLOY_KEY is set — "The `--deployment` flag
+    // cannot be used with CONVEX_DEPLOY_KEY" — because the key already names one
+    // deployment and two answers would be ambiguous. Passing it unconditionally
+    // broke run 36496923726, which is how this comment came to exist.
+    const args = [convexBin, 'env', 'get', key]
+    if (deployment) args.push('--deployment', deployment)
+
+    const output = execFileSync(process.execPath, args, {
+      cwd: workdir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
     return parseEnvGet(output)
   } catch (error) {
     const stderr = String(error?.stderr ?? '')
