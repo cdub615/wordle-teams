@@ -89,26 +89,18 @@ describe('the decisions that are easy to undo by tidying', () => {
 })
 
 describe('the post-deploy environment assertion', () => {
-  test('runs after the Worker is deployed, and only on a push', () => {
-    const step = /- name: The deployment's variables must match the environment[\s\S]{0,400}/.exec(
-      WORKFLOW,
-    )?.[0]
-    expect(step, 'the assertion step is gone').toBeDefined()
-    expect(step).toMatch(/if: github\.event_name == 'push'/)
-    expect(step).toMatch(/check-deployment-env\.mjs/)
-  })
-
-  test('it is told which environment it is checking', () => {
-    // Without CLOUDFLARE_ENV it would check every deployment against
-    // production's rules, which would fail every dev deploy on E2E_TEST_MODE --
-    // a check that is wrong in the loud direction, but wrong.
-    expect(WORKFLOW).toMatch(/check-deployment-env\.mjs "\$\{CLOUDFLARE_ENV:-\}"/)
+  test('is documented as absent rather than silently missing', () => {
+    // It was wired for exactly one run and removed: a Convex DEPLOY KEY cannot
+    // read environment variables (deployment:env:view), and there is no scope to
+    // widen. The comment is what stops the next person re-adding the same step
+    // and spending another run finding out.
+    expect(WORKFLOW).toMatch(/deployment:env:view/)
+    expect(WORKFLOW).not.toMatch(/run: node scripts\/check-deployment-env\.mjs/)
   })
 
   test('no COMMAND in the workflow runs `convex env list`', () => {
     // It prints every variable's value in plaintext, and this repository's CI
-    // logs are public. The assertion step reads variables one at a time for
-    // exactly that reason.
+    // logs are public.
     //
     // COMMENT LINES ARE EXCLUDED, and the distinction is load-bearing rather
     // than pedantic: the e2e step's comment legitimately DISCUSSES `convex env
