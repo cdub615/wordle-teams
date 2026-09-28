@@ -770,11 +770,15 @@ export const parityProbe = internalQuery({
  *   sweepEligible    both halves at once — timeZone AND a known method. This is
  *                    the number that would mean a real person could receive a
  *                    reminder from beta, and it is the one that must be zero.
- *                    REMINDERS_ENABLED is unset on beta and reminders.ts gates
- *                    on it, so this being non-zero would still not send mail
- *                    today; it would mean the second layer had failed and the
- *                    env switch was again the only thing protecting, which is
- *                    the state wt-ksh.7.32 exists to end.
+ *                    REMINDERS_ENABLED reads 'true' on beta, so a non-zero here
+ *                    is NOT held back by the env switch — an earlier version of
+ *                    this line said it was, and that was false. What stands
+ *                    between a copied row and a real email is Gate 2, the
+ *                    allowlist, checked per player at delivery now that the
+ *                    per-player chain has replaced the hourly sweep. A non-zero
+ *                    here would mean the second layer had failed and the
+ *                    allowlist was the only thing protecting, which is the
+ *                    state wt-ksh.7.32 exists to end.
  */
 export const reminderProbe = internalQuery({
   args: {},

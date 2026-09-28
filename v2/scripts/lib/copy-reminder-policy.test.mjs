@@ -13,10 +13,12 @@ import { reminderFieldsFor } from './copy-reminder-policy.mjs'
 // pinned, exactly as copy-filters.mjs and verify-filters.mjs do for the row
 // filters.
 //
-// The env kill switch (REMINDERS_ENABLED, unset on beta) protects regardless.
-// That is not a reason to weaken this: wt-ksh.7.32 records that the switch is
-// now the ONLY thing protecting rather than a second layer, and this restores
-// the second layer.
+// THE ENV KILL SWITCH IS NOT WHAT PROTECTS BETA. REMINDERS_ENABLED reads 'true'
+// there, and since the sweep's deletion it is checked per player at delivery;
+// Gate 2, the allowlist, is what holds. See copy-reminder-policy.mjs's own
+// header for the whole argument. That is precisely why this file matters:
+// wt-ksh.7.32 records the switch having become the ONLY thing protecting, and
+// the withholding pinned here is the second layer it restores.
 
 /** A production player with reminders fully switched on — the case that matters. */
 const enrolled = () => ({

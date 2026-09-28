@@ -81,8 +81,10 @@ console.log('')
 if (failures.length > 0) {
   for (const f of failures) console.log(`FAIL  ${f}`)
   console.log('\nThe withholding policy did not hold on this deployment.')
-  console.log('REMINDERS_ENABLED gates the sweep, so this is not sending mail today —')
-  console.log('but it means that env switch is again the only thing protecting.')
+  console.log('This is NOT held back by REMINDERS_ENABLED: that reads "true" on beta, and')
+  console.log('since the sweep was deleted it is checked per player at delivery. What stands')
+  console.log('between a copied row and a real email is the allowlist (REMINDERS_ALLOWLIST) —')
+  console.log('and it is again the only thing protecting.')
   process.exit(1)
 }
 

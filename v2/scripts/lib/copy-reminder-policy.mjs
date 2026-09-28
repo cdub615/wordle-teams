@@ -36,11 +36,19 @@
 // work at module scope against production and a live deployment and cannot be
 // imported by a test. Same reason copy-filters.mjs and verify-filters.mjs exist.
 //
-// THE ENV KILL SWITCH IS NOT A SUBSTITUTE. REMINDERS_ENABLED is unset on beta
-// and convex/reminders.ts:81 gates on it, so a sweep cannot fire regardless. But
-// wt-ksh.7.32 records that the switch had become the ONLY thing protecting; this
-// is the second layer, and a second layer is only worth having if it holds on
-// its own.
+// THE ENV KILL SWITCH IS NOT A SUBSTITUTE, AND ON BETA IT IS NOT EVEN SHUT.
+// REMINDERS_ENABLED reads 'true' there — re-read 2026-09-27, and the
+// authoritative statement is convex/reminders.ts's "IT IS NOT A FUTURE COST"
+// paragraph. Since the sweep was deleted it is Gate 1, checked per player at
+// DELIVERY rather than ahead of a scan, so there is no arrangement under which
+// it makes a copied row harmless.
+//
+// WHAT ACTUALLY PROTECTS A REAL PERSON IS GATE 2, the REMINDERS_ALLOWLIST check
+// — and this policy, which withholds timeZone and sends reminderDeliveryMethods
+// empty so a copied row is ineligible on its own terms. That second half is the
+// layer wt-ksh.7.32 exists to restore, after the switch had become the ONLY
+// thing protecting; and a second layer is only worth having if it holds without
+// the switch.
 
 /**
  * The reminder-related fields to spread into a shaped player row.
