@@ -556,7 +556,7 @@ describe('applyPushToggle — turning push ON', () => {
     })
 
     // ORDER, not merely membership. 'push' in reminderDeliveryMethods is a
-    // promise to the reminder sweep that a delivery will work; writing it
+    // promise to `reminders.deliver` that a delivery will work; writing it
     // before the subscription is stored makes that promise against a row that
     // does not exist yet. Swapping the last two is a mutant the whole suite
     // missed until this assertion existed.
@@ -674,7 +674,7 @@ describe('applyPushToggle — turning push OFF', () => {
     })
 
     // Nothing to tear down and no endpoint to name — but the METHOD goes,
-    // which is what actually stops the reminder sweep.
+    // which is what actually stops reminder delivery.
     expect(calls).toEqual(['setMethod'])
     expect(effects.removeStored).not.toHaveBeenCalled()
     expect(effects.setMethod).toHaveBeenCalledWith(false)

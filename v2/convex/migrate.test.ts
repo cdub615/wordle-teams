@@ -569,7 +569,7 @@ describe('reminderProbe', () => {
   // where withAnyMethod and withKnownMethod happen to be equal cannot catch the
   // probe conflating them, and conflating them is the specific mistake that
   // would overstate safety (see METHODS in convex/lib/reminders.ts: a copied row
-  // can carry an unvalidated 'sms' that the sweep would never act on).
+  // can carry an unvalidated 'sms' that delivery would never act on).
   const seed = async (t: ReturnType<typeof convexTest>) =>
     await t.run(async (ctx) => {
       const base = { firstName: 'Ada', lastName: 'Lovelace', hasPwa: false, reminderDeliveryTime: '18:00:00' }
@@ -581,7 +581,7 @@ describe('reminderProbe', () => {
         timeZone: 'America/New_York',
         reminderDeliveryMethods: ['email'],
       })
-      // COPIED, non-empty but INERT — 'sms' is not in METHODS, so the sweep
+      // COPIED, non-empty but INERT — 'sms' is not in METHODS, so delivery
       // skips it. This row is the whole reason withAnyMethod and withKnownMethod
       // are two numbers rather than one.
       await ctx.db.insert('players', {
@@ -643,7 +643,7 @@ describe('reminderProbe', () => {
 
     // 'email', 'sms' and 'email' are non-empty; the cleared row is not.
     expect(probe.copied.withAnyMethod).toBe(3)
-    // Only the two 'email' rows are methods the sweep would act on.
+    // Only the two 'email' rows are methods delivery would act on.
     expect(probe.copied.withKnownMethod).toBe(2)
     // The gap is the point: these must never be the same number, or the probe
     // cannot distinguish "looks armed" from "is armed".

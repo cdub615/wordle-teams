@@ -80,8 +80,8 @@ export function decideLocalCapture({
   // an existing zone. `updateTimeZoneFor` rejects `''` and nothing in this
   // app's picker writes it, but a copied row could carry it, and reading `''`
   // as "already has a zone" would leave that player permanently invisible to
-  // the reminder sweep (convex/reminders.ts's `if (!timeZone) return []`)
-  // with no write ever attempted to fix it.
+  // reminder delivery (convex/reminders.ts skips a falsy `timeZone` with the
+  // reason 'no-time-zone') with no write ever attempted to fix it.
   const hasTimeZone = storedTimeZone !== null && storedTimeZone.length > 0
   const isStandalone = isStandaloneDisplay({ displayModeStandalone, navigatorStandalone })
   return {
@@ -94,7 +94,7 @@ export function decideLocalCapture({
  * Records two things the player never tells us directly: which zone they are
  * in, and whether they have installed the app.
  *
- * PORTED FROM v1 (app-bar-base.tsx:31-68) AND LOAD-BEARING. The reminder sweep
+ * PORTED FROM v1 (app-bar-base.tsx:31-68) AND LOAD-BEARING. Reminder delivery
  * skips any player with no timeZone, and until this ran, nobody who signed up in
  * v2 had one — so the whole feature was silently inert for every new account
  * while looking configured. THIS HOOK BEING MOUNTED IS THE ONLY THING THAT

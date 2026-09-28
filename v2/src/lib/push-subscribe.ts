@@ -317,7 +317,7 @@ export type PushToggleOutcome =
  *
  * TURNING PUSH ON — `subscribe`, then `save`, THEN `setMethod`, and any
  * failure before the last one returns or throws. 'push' in
- * reminderDeliveryMethods is a promise to the reminder sweep that a delivery
+ * reminderDeliveryMethods is a promise to `reminders.deliver` that a delivery
  * will work; writing it before the subscription is stored makes that promise
  * against something that does not exist yet, and writing it when the subscribe
  * failed makes it against something that never will. A method the browser will

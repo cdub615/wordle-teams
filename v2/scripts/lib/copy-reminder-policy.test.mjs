@@ -51,7 +51,7 @@ describe('reminderFieldsFor, before cutover', () => {
 
   // The second half of eligibility: convex/reminders.ts skips anyone without a
   // timeZone, so withholding it is a second independent reason no copied player
-  // can be swept up.
+  // is eligible for a delivery.
   test('timeZone is withheld entirely', () => {
     expect('timeZone' in held()).toBe(false)
   })

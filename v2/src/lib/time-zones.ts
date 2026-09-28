@@ -90,8 +90,8 @@ export const TIME_ZONE_GROUPS: Array<TimeZoneGroup> = [
  * stored zone up in TIME_ZONE_GROUPS by exact string match, which only lists
  * the IANA spelling, so a copied 'Asia/Calcutta' row missed every entry and
  * fell through to "Select a time zone" — telling a player their zone was
- * unset when the sweep (reminders.test.ts) was resolving it correctly the
- * whole time. Nothing was cosmetic; nothing had zero importers before this
+ * unset when reminder delivery (reminders.test.ts) was resolving it correctly
+ * the whole time. Nothing was cosmetic; nothing had zero importers before this
  * revision made it have one.
  *
  * STILL ONLY FIXES DISPLAY FOR 'Asia/Calcutta' IN PRACTICE. TIME_ZONE_GROUPS
@@ -131,7 +131,7 @@ export function canonicalTimeZone(zone: string | null): string | null {
  * players span 57. A copied player whose zone is not one of the 27 opened the
  * Alerts tab (named "Notifications" then) and saw "Select a time zone" — the
  * placeholder, as though nothing were configured — even though a zone IS set
- * and the reminder sweep resolves it correctly. The placeholder then invited
+ * and reminder delivery resolves it correctly. The placeholder then invited
  * them to pick, and picking REPLACED a correct zone with a neighbouring one,
  * silently moving when their daily email arrives.
  *

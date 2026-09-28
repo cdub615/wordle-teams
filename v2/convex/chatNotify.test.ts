@@ -409,7 +409,7 @@ describe('sweep', () => {
   })
 
   test('still marks an unreachable player notified, so they are not re-swept forever', async () => {
-    // Claim regardless of delivery, exactly as reminders.sweep does. Skipping
+    // Claim regardless of delivery, exactly as `reminders.deliver` does. Skipping
     // the write would make every hourly run re-read the same rows to reach the
     // same "cannot deliver" answer, for as long as the message stays unread.
     const t = convexTest(schema, modules)

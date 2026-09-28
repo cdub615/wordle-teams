@@ -53,9 +53,9 @@ const probe = await convex.query(internal.migrate.reminderProbe, {})
 const show = (label, t) => {
   console.log(`\n${label}  (${t.total} players)`)
   console.log(`  non-empty reminderDeliveryMethods   ${t.withAnyMethod}`)
-  console.log(`  ...of those, a method the sweep acts on   ${t.withKnownMethod}`)
+  console.log(`  ...of those, a deliverable method   ${t.withKnownMethod}`)
   console.log(`  timeZone present                    ${t.withTimeZone}`)
-  console.log(`  BOTH halves — could be swept        ${t.sweepEligible}`)
+  console.log(`  BOTH halves — eligible to deliver   ${t.sweepEligible}`)
 }
 
 show('COPIED from production (legacyId present)', probe.copied)
@@ -88,7 +88,7 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log('PASS  no copied player can be swept.')
+console.log('PASS  no copied player is eligible for a reminder delivery.')
 if (probe.copied.withTimeZone > 0) {
   console.log('')
   console.log(`NOTE  ${probe.copied.withTimeZone} copied player(s) carry a timeZone. Expected, and inert`)

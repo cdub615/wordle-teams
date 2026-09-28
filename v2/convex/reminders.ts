@@ -486,7 +486,7 @@ export const deliver = internalMutation({
     // timeZone moved backwards after a board was entered puts a row in the
     // player's future — and it errs toward reminding, so the widening would be
     // harmless. It is still a behaviour change the rest of this comment would
-    // have been claiming parity over, so the window matches the sweep's exactly
+    // have been claiming parity over, so the window matches what the sweep's was
     // and both edges are pinned by tests: a board on `activityFloor(local.day)`
     // counts, a board after `local.day` does not.
     const recent = await ctx.db

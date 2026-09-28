@@ -140,7 +140,7 @@ describe('deliverTo', () => {
     // The DEFAULT, exercised end to end rather than read off the source.
     // src/lib/sw-push.test.ts pins the literal itself byte-identical to the
     // service worker's fallback; this pins that the literal is what actually
-    // goes on the wire for the caller — reminders.sweep — that passes nothing.
+    // goes on the wire for the caller — `reminders.deliver` — that passes nothing.
     const t = convexTest(schema, modules)
     const playerId = await seed(t)
     sendNotification.mockResolvedValue(SEND_OK)

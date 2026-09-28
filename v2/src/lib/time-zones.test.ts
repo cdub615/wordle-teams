@@ -21,7 +21,7 @@ describe('canonicalTimeZone', () => {
   })
 
   // Every pair this table knows about, matched against the same list
-  // convex/lib/reminders.test.ts pins for the sweep — proof the two files
+  // convex/lib/reminders.test.ts pins for reminder delivery — proof the two files
   // agree on which spelling is "the Postgres one" for all five, not just
   // Kolkata.
   test('every mapped pair resolves Postgres -> IANA, matching reminders.test.ts', () => {

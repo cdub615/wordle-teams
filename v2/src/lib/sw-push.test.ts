@@ -232,7 +232,7 @@ describe('REMINDER_FALLBACK', () => {
     //
     // THE SECOND NOTIFICATION TYPE ARRIVED. `deliverTo` now takes an optional
     // `notification` — chatNotify.sweep passes the team's batched line, and
-    // reminders.sweep passes nothing — so the literal moved out of the
+    // `reminders.deliver` passes nothing — so the literal moved out of the
     // `JSON.stringify` call and into a module-scope const. That is what the
     // anchor follows. The bound is the const's own closing brace at column
     // zero, which is why `'\n}'` and not `'}'`: the first `}` inside the

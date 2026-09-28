@@ -192,7 +192,7 @@ const playerRows = copyable.players.map((p) => ({
   lastName: opt(p.last_name),
   // THE FIVE REMINDER FIELDS GO THROUGH A POLICY, NOT STRAIGHT ACROSS
   // (wt-ksh.7.32). Before cutover two of them are held back, because together
-  // they decide whether the reminder sweep picks a player up, and beta holds
+  // they decide whether reminder delivery picks a player up, and beta holds
   // copied production rows belonging to people who do not know this beta exists
   // and who already get real reminders from v1. The other three still cross —
   // one of them SUPPRESSES a send and would make things worse if withheld.

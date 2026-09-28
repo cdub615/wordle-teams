@@ -243,17 +243,17 @@ export async function markChatNotifiedFor(
  * The hourly sweep, scheduled by crons.ts at half past — see that file for why
  * it does not share the top of the hour with the board-entry reminders.
  *
- * A MUTATION, NOT AN ACTION, for the reason reminders.sweep is one: the
+ * A MUTATION, NOT AN ACTION, for the reason `reminders.deliver` is one: the
  * decision and the claim that suppresses it next hour have to commit in the
  * same transaction. Split across an action calling out to mutations, a failure
  * between the two is a duplicate notification — and unlike a duplicate email,
  * a duplicate push is the exact thing this feature is designed not to produce.
  *
  * CLAIM BEFORE DELIVERING, UNCONDITIONALLY, and not behind an `if` on whether
- * a push was scheduled. Same rule as reminders.sweep, for a slightly different
- * reason: an unread message stays unread, so a player we cannot reach would
- * otherwise be re-evaluated on every run for as long as they ignore it, paying
- * the same reads each time to reach the same answer.
+ * a push was scheduled. Same rule as `reminders.deliver`, for a slightly
+ * different reason: an unread message stays unread, so a player we cannot reach
+ * would otherwise be re-evaluated on every run for as long as they ignore it,
+ * paying the same reads each time to reach the same answer.
  *
  * DELIVERY IS SCHEDULED, NEVER AWAITED. `deliverTo` is a 'use node' action that
  * talks to a push service over the network; awaiting it would let one dead

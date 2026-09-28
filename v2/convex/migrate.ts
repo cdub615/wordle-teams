@@ -785,10 +785,10 @@ export const reminderProbe = internalQuery({
   handler: async (ctx) => {
     const players = await ctx.db.query('players').collect()
 
-    // Read through the same predicate the sweep uses rather than a restatement
+    // Read through the same predicate DELIVERY uses rather than a restatement
     // of it. reminders.ts checks `.some((m) => METHODS.includes(m))`; a copy of
     // that condition here could drift from the thing it is supposed to measure,
-    // and a probe that disagrees with the sweep is worse than no probe.
+    // and a probe that disagrees with `deliver` is worse than no probe.
     const hasKnownMethod = (p: Doc<'players'>) =>
       p.reminderDeliveryMethods.some((m) => (METHODS as ReadonlyArray<string>).includes(m))
 

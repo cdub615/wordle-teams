@@ -64,13 +64,14 @@ const notificationValidator = v.object({
  * it. One retry, then log and stop. The bound is an argument checked in one
  * place rather than a comment promising restraint.
  *
- * WHY A RETRY AT ALL: sweep claims a player before delivering (divergence 16),
- * and the hour window makes each player eligible during exactly one cron run
- * per day — so a failure here is not picked up by the next tick. Nothing else
- * would try again.
+ * WHY A RETRY AT ALL: `reminders.deliver` claims a player before delivering
+ * (divergence 16), and each player carries exactly one scheduled job per day —
+ * so a failure here is not picked up by anything later. There is no next tick to
+ * be picked up by: the hourly sweep that used to provide one is deleted, and
+ * nothing else would try again.
  *
  * `notification` MAKES THIS SERVE TWO SENDERS, and defaulting is the whole
- * point of its being optional: reminders.sweep passes nothing and gets the
+ * point of its being optional: `reminders.deliver` passes nothing and gets the
  * board-entry copy it always got, chatNotify.sweep passes the team's batched
  * line and its `/chat?team=<id>` deep link. The alternative was a second action
  * with its own copy of the VAPID setup, the endpoint loop, the 404/410 cleanup

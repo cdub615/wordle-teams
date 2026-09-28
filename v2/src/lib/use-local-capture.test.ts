@@ -27,7 +27,7 @@ describe('decideLocalCapture', () => {
   // v1's guard (app-bar-base.tsx:51) treats an empty string the same as
   // missing. A stored '' read as "already has a zone" would never be filled,
   // and convex/reminders.ts skips a falsy timeZone — that player would be
-  // permanently invisible to the sweep with no write ever attempted.
+  // permanently invisible to reminder delivery with no write ever attempted.
   test('treats a stored empty string the same as no zone at all', () => {
     const result = decideLocalCapture({
       storedTimeZone: '',
