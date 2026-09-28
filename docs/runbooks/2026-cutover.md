@@ -39,14 +39,14 @@ Every environment check below is run under time pressure with DNS waiting, and
 there are **two ways to read the wrong machine, both silent**.
 
 **1. `convex env --prod` can talk to your LOCAL backend and report success.**
-It resolves "prod" from `CONVEX_DEPLOYMENT` in `v2/.env.local`, which on a dev
+It resolves "prod" from `CONVEX_DEPLOYMENT` in `.env.local`, which on a dev
 box is `anonymous:anonymous-v2`. On 2026-09-01 a bare
 `npx convex env get SITE_URL --prod` returned `http://localhost:3000`.
 
 > **Read the sentinel first, in every shell, before believing anything else:**
 >
 > ```
-> cd v2 && npx convex env get SITE_URL --prod
+> npx convex env get SITE_URL --prod
 > ```
 >
 > It must print the production origin. If it prints `http://localhost:3000`, you
@@ -76,14 +76,15 @@ knowing which of the three answers you expect:
 this runbook needs an ACCOUNT login** (`npx convex login`), not the deploy key —
 and it must be run from a directory with **no `.env.local`**, because a deploy key
 sitting in that file masks the account login completely: `convex login status`
-reports "Not logged in" from `v2/` and "Logged in" from a clean directory, with
+reports "Not logged in" from the repository root and "Logged in" from a clean
+directory elsewhere, with
 the same token on disk (`wordle-teams-ldm8`).
 
 > **One command does §2.1's check and more, and builds its own clean directory
 > so the masking cannot bite:**
 >
 > ```
-> cd v2 && node scripts/check-deployment-env.mjs '' fabulous-goldfish-949
+> node scripts/check-deployment-env.mjs '' fabulous-goldfish-949
 > ```
 >
 > It asserts `SITE_URL` is set and `E2E_TEST_MODE` is ABSENT, errors on either
@@ -106,7 +107,7 @@ the same token on disk (`wordle-teams-ldm8`).
   name), `github`, `discord`.
 
   ```
-  node v2/scripts/check-oauth-callbacks.mjs https://wordleteams.com
+  node scripts/check-oauth-callbacks.mjs https://wordleteams.com
   ```
 
   **THAT SCRIPT CAN ONLY PROVE GOOGLE.** Only Google validates `redirect_uri`
@@ -184,7 +185,7 @@ the same token on disk (`wordle-teams-ldm8`).
   the app has that path burned in. Install from v1 *now*, keep the install, and
   after the flip confirm it still opens correctly.
 
-  `v2/src/routes/me.tsx` redirects `/me` → `/app` **carrying the query string**,
+  `src/routes/me.tsx` redirects `/me` → `/app` **carrying the query string**,
   because v1's checkout sets `successUrl: .../me?checkout=success` and a checkout
   in flight across the window comes back to it.
 
@@ -368,7 +369,7 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
 ## 3. Worker and DNS configuration
 
 - [ ] **3.1 — `ENVIRONMENT` must become `production`.** It is a wrangler var in
-      `v2/wrangler.jsonc`, currently `"beta"`. Every LogSnag funnel event is
+      `wrangler.jsonc`, currently `"beta"`. Every LogSnag funnel event is
       tagged with it, so leaving it mistags all production analytics.
 
       **CHANGE THE TOP-LEVEL BLOCK ONLY.** `wrangler.jsonc` now also carries an
@@ -415,7 +416,7 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
       rather than change it.** Beta sends `X-Robots-Tag: noindex, nofollow`;
       production must not, and **beta and the apex are the same deployment** —
       which is exactly why this is keyed on the REQUEST HOSTNAME rather than on
-      the `ENVIRONMENT` var (`v2/src/lib/robots-policy.ts`, `wt-ksh.8.54`).
+      the `ENVIRONMENT` var (`src/lib/robots-policy.ts`, `wt-ksh.8.54`).
       (`dev.wordleteams.com` is a different deployment and is also noindexed, by
       the same list; the argument below is about beta and the apex, which one
       Worker answers on at once.) A var is a property of
@@ -541,7 +542,7 @@ property to know about, **not a step to run.**
 - [ ] **PURGE FIRST. This step is not optional and its ORDER is the whole point.**
 
   ```
-  cd v2 && node --env-file=../.env.production.local --env-file=<convex env> \
+  node --env-file=.env.production.local --env-file=<convex env> \
     scripts/purge-copied-data.mjs --confirm-deployment=$CONVEX_URL
   ```
 
@@ -576,7 +577,7 @@ property to know about, **not a step to run.**
 - [ ] **Run it WITH `--with-reminders`. This flag is the whole restoration.**
 
   ```
-  cd v2 && node --env-file=../.env.production.local --env-file=<beta convex env> \
+  node --env-file=.env.production.local --env-file=<beta convex env> \
     scripts/copy-from-supabase.mjs --scope=all --with-reminders
   ```
 
@@ -684,7 +685,7 @@ and before the DNS flip**, then re-read the counts. There is no tombstone.
 ### 4.5 — Verify
 
 - [ ] ```
-      cd v2 && node scripts/verify-parity.mjs --scope=all
+      node scripts/verify-parity.mjs --scope=all
       ```
       **Counts come from `countTable`, which loops across transactions and is not
       a consistent snapshot.** If a count is off by one or two, **re-run before
@@ -759,7 +760,7 @@ beta-native row. They are what §4.2's purge now removes, not a delta to expect.
 - [ ] **5.2 — The `/me` PWA install from §1.5 still lands correctly.**
 - [ ] **5.3 — Re-run the parity harness against production:**
       ```
-      cd v2 && node scripts/parity-routes.mjs --beta=https://wordleteams.com
+      node scripts/parity-routes.mjs --beta=https://wordleteams.com
       ```
       Compare against `docs/superpowers/audits/2026-09-01-parity-routes.md`.
       Known differences live in `V2-ADDENDUM.md` §7a, and **anything not in that
@@ -802,7 +803,7 @@ beta-native row. They are what §4.2's purge now removes, not a delta to expect.
   irreversible in effect.
 
   ```
-  cd v2 && CONVEX_URL=<production> CONVEX_MIGRATION_KEY=<key> \
+  CONVEX_URL=<production> CONVEX_MIGRATION_KEY=<key> \
     node scripts/verify-reminder-policy.mjs
   ```
 
@@ -893,7 +894,7 @@ beta-native row. They are what §4.2's purge now removes, not a delta to expect.
   another run is needed.
 
   Two `--prod` hazards compound, and either alone is reason to prefer the
-  dashboard over trusting CLI output: `CONVEX_DEPLOY_KEY` in `v2/.env.local`
+  dashboard over trusting CLI output: `CONVEX_DEPLOY_KEY` in `.env.local`
   outranks `CONVEX_DEPLOYMENT` (§0), and `convex run --prod` has separately
   been observed silently hitting the LOCAL deployment. A CLI run can
   therefore write to the wrong deployment and still report success.
@@ -916,9 +917,20 @@ it** — that is the failure mode `wt-ksh.8.46` was filed to prevent.
 
 ## 6. Rollback
 
-The flip is DNS, so rollback is DNS. v1 on Vercel is **untouched by this entire
-process** — the workflow that deploys v2 shares a repository with it and nothing
-else.
+The flip is DNS, so rollback is DNS — but **read the next paragraph before you
+rely on it**, because what "untouched" means changed on 2026-09-28.
+
+v1's RUNNING DEPLOYMENT on Vercel is untouched and still serves. What is no longer
+true is that it could be REBUILT: `wordle-teams-4m96` deleted v1's source from
+this branch, and its git integration is disconnected, so nothing in this
+repository can produce a new v1 deployment.
+
+**So rollback means re-pointing DNS at a deployment that ALREADY EXISTS, and
+never redeploying it.** Vercel deployments are immutable, so the one currently
+promoted keeps serving indefinitely — do not delete the Vercel project, do not
+"clean up" old deployments, and do not attempt a rebuild to fix anything. If that
+deployment is ever lost, rollback is `git revert` of the move plus a Vercel
+rebuild, which is not a cutover-day operation.
 
 - [ ] Point DNS back at Vercel.
 - [ ] **v1's Supabase data is authoritative and was only ever READ.** The copy is
@@ -1083,7 +1095,7 @@ the last seven days sees the old one once, and the correct one thereafter.** It
 costs one stale view per visitor per change, not a persistent wrong page.
 
 - [ ] **If a copy fix must be seen immediately by everyone**, shortening
-      `stale-while-revalidate` in `v2/src/lib/cache-policy.ts` is the only lever,
+      `stale-while-revalidate` in `src/lib/cache-policy.ts` is the only lever,
       and it has to ship *before* the change it is meant to expedite — a shorter
       window does not shorten one a browser has already been given.
 
