@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 
@@ -110,5 +111,40 @@ describe('the post-deploy environment assertion', () => {
     // has to be precise now.
     const commands = WORKFLOW.split('\n').filter((line) => !/^\s*#/.test(line))
     expect(commands.join('\n')).not.toMatch(/convex env list/)
+  })
+})
+
+/**
+ * NO WORKFLOW MAY STILL POINT AT A v2 DIRECTORY (wordle-teams-4m96.4).
+ *
+ * THIS TEST EXISTS BECAUSE ITS ABSENCE COST A CI RUN. After the move, every
+ * workflow was swept for stale paths with a grep for `v2/` — anchored on the
+ * slash. `cloudflare/wrangler-action@v4` takes its path as a bare token,
+ * `workingDirectory: v2`, so the sweep walked straight past it. The run then
+ * deployed Convex, built the client, and died on "Directory v2 does not exist"
+ * at the Worker step, with every gate green beforehand.
+ *
+ * IT CHECKS EVERY WORKFLOW, not just this one, because the file that broke was
+ * not the file being edited at the time. And it matches a BARE token as well as
+ * a path prefix, which is the whole lesson.
+ *
+ * COMMENT LINES ARE EXCLUDED. Several workflows legitimately discuss the old
+ * layout in prose — refresh-insights-corpus.yml's argument about main is written
+ * in those terms on purpose, and deploy-v2.yml explains why a pnpm workaround
+ * used to be needed. A test that fired on prose would be weakened the first time
+ * it was hit.
+ */
+describe('no workflow still points at a v2 directory', () => {
+  const dir = fileURLToPath(new URL('../.github/workflows/', import.meta.url))
+
+  test.each(readdirSync(dir))('%s', (file) => {
+    const commands = readFileSync(join(dir, file), 'utf8')
+      .split('\n')
+      .filter((line) => !/^\s*#/.test(line))
+      .join('\n')
+    // `v2` as a path, bare or prefixed — but not inside an action version like
+    // `novuhq/actions-novu-sync@v2`, and not in this repo's own workflow name.
+    expect(commands).not.toMatch(/(working[-_]?[Dd]irectory|cache-dependency-path|package_json_file|paths?):\s*\[?'?v2\b/)
+    expect(commands, 'a v2/ path survives in a command').not.toMatch(/\bv2\//)
   })
 })
