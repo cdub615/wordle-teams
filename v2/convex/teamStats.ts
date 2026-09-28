@@ -3,6 +3,7 @@ import { internal } from './_generated/api'
 import { internalMutation } from './_generated/server'
 import { aggregateTeamMonth, sameStats } from './lib/teamStats.ts'
 import { monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
+import { sweepsEnabled } from './lib/sweeps.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 import type { PuzzleMonth } from './lib/puzzleDay.ts'
@@ -151,6 +152,22 @@ function toStats(row: Doc<'teamMonthStats'>): TeamMonthStats<Id<'players'>> {
 export const sweep = internalMutation({
   args: {},
   handler: async (ctx) => {
+    // THE SWITCH, BEFORE THE SCAN (wordle-teams-qjh3.1). See convex/lib/sweeps.ts
+    // for the polarity and for why the cron entry stays rather than being
+    // removed. The `teams` collect on the next line is the whole cost this
+    // exists to remove — wordle-teams-yhii identified this sweep as the heaviest
+    // of the three crons and the dominant consumer of the free-tier
+    // database-I/O allowance — so anything that reads the database must come
+    // after it.
+    //
+    // THAT ORDERING IS ENFORCED IN SOURCE, by the first-statement assertion in
+    // convex/lib/sweeps.test.ts, and it needs to be: a mutant that moved this
+    // line to just after the collect below SURVIVED every behavioural test in
+    // the suite. A sweep that scans and then returns writes exactly as little as
+    // one that returns first, so nothing observable could tell them apart —
+    // while the switch had quietly stopped saving anything.
+    if (!sweepsEnabled(process.env.SWEEPS_ENABLED)) return { teams: 0, skipped: true as const }
+
     const month = monthOf(toPuzzleDay(new Date()))
     const teams = await ctx.db.query('teams').collect()
     /*

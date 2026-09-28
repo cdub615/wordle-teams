@@ -1,5 +1,5 @@
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import schema from './schema'
 import { internal } from './_generated/api'
 import { aPlayer, aTeam } from './fixtures.ts'
@@ -470,5 +470,99 @@ describe('sweep', () => {
     await t.mutation(internal.chatNotify.sweep, {})
 
     expect(await scheduledPushJobs(t)).toHaveLength(0)
+  })
+})
+
+/**
+ * THE SWEEP SWITCH (wordle-teams-qjh3.1). See convex/lib/sweeps.ts for why the
+ * polarity is what it is; sweeps.test.ts owns the value parsing. What is tested
+ * HERE is the only thing that file cannot see: that this handler consults it, and
+ * that it does so BEFORE it consumes anything.
+ */
+describe('sweep honours SWEEPS_ENABLED', () => {
+  let saved: string | undefined
+  beforeEach(() => {
+    saved = process.env.SWEEPS_ENABLED
+  })
+  afterEach(() => {
+    if (saved === undefined) delete process.env.SWEEPS_ENABLED
+    else process.env.SWEEPS_ENABLED = saved
+  })
+
+  /** One team with one member owed a batched push. */
+  async function owedOne(t: ReturnType<typeof convexTest>) {
+    return await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const bob = await ctx.db.insert(
+        'players',
+        aPlayer({ email: 'bob@example.com', reminderDeliveryMethods: ['push'] }),
+      )
+      const team = await ctx.db.insert('teams', aTeam({ playerIds: [ada, bob], owner: ada }))
+      await sendMessageFor(ctx, ada, team, 'hello')
+      return { bob, team }
+    })
+  }
+
+  test('schedules nothing when SWEEPS_ENABLED is exactly "false"', async () => {
+    const t = convexTest(schema, modules)
+    await owedOne(t)
+
+    process.env.SWEEPS_ENABLED = 'false'
+    const result = await t.mutation(internal.chatNotify.sweep, {})
+
+    expect(result).toEqual({ notified: 0, skipped: true })
+    expect(await scheduledPushJobs(t)).toHaveLength(0)
+  })
+
+  /**
+   * THE GATE MUST PRECEDE `markChatNotifiedFor`, and this is the test that says
+   * so. A gate placed anywhere after it would schedule no push — passing the
+   * assertion above — while still stamping every owed member as notified, so the
+   * message would be silently swallowed and NEVER delivered once the switch went
+   * back on. That is a worse outcome than not having the switch at all, and the
+   * count above cannot see it.
+   */
+  test('consumes nothing, so the same message is still delivered once it is back on', async () => {
+    const t = convexTest(schema, modules)
+    const { bob, team } = await owedOne(t)
+
+    process.env.SWEEPS_ENABLED = 'false'
+    await t.mutation(internal.chatNotify.sweep, {})
+
+    delete process.env.SWEEPS_ENABLED
+    const result = await t.mutation(internal.chatNotify.sweep, {})
+
+    expect(result).toEqual({ notified: 1 })
+    const jobs = await scheduledPushJobs(t)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]!.args[0]).toMatchObject({
+      playerId: bob,
+      notification: { url: `/chat?team=${team}` },
+    })
+  })
+
+  test('an unset variable leaves the sweep running', async () => {
+    const t = convexTest(schema, modules)
+    await owedOne(t)
+
+    delete process.env.SWEEPS_ENABLED
+    const result = await t.mutation(internal.chatNotify.sweep, {})
+
+    expect(result).toEqual({ notified: 1 })
+    expect(await scheduledPushJobs(t)).toHaveLength(1)
+  })
+
+  // The near-miss, at the handler rather than at the helper: a deployment whose
+  // sweeps stopped because somebody typed 'False' is the silent failure the
+  // polarity exists to prevent, and this is the level it would be noticed at.
+  test('the near-miss "False" leaves the sweep running', async () => {
+    const t = convexTest(schema, modules)
+    await owedOne(t)
+
+    process.env.SWEEPS_ENABLED = 'False'
+    const result = await t.mutation(internal.chatNotify.sweep, {})
+
+    expect(result).toEqual({ notified: 1 })
+    expect(await scheduledPushJobs(t)).toHaveLength(1)
   })
 })

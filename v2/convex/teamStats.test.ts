@@ -1,5 +1,5 @@
 import { convexTest } from 'convex-test'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { internal } from './_generated/api'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
@@ -281,5 +281,86 @@ describe('sweep delegates one execution per team', () => {
       expect(row).not.toBeNull()
       expect(row!.members.map((m) => m.playerId)).toContain(playerId)
     })
+  })
+})
+
+/**
+ * THE SWEEP SWITCH (wordle-teams-qjh3.1). convex/lib/sweeps.ts holds the argument
+ * for the polarity and sweeps.test.ts owns the value parsing; what is tested here
+ * is that THIS handler consults it, and that it does so before the `teams` scan —
+ * which is the entire cost this switch exists to remove.
+ */
+describe('sweep honours SWEEPS_ENABLED', () => {
+  let saved: string | undefined
+  beforeEach(() => {
+    saved = process.env.SWEEPS_ENABLED
+  })
+  afterEach(() => {
+    if (saved === undefined) delete process.env.SWEEPS_ENABLED
+    else process.env.SWEEPS_ENABLED = saved
+  })
+
+  /** Three teams, each with a board today, so a running sweep has work to find. */
+  async function threeTeamsWithBoards(t: ReturnType<typeof convexTest>) {
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 3; i++) {
+        const p = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('teams', aTeam({ playerIds: [p] }))
+        await ctx.db.insert('dailyScores', aBoard(p, today, 3))
+      }
+    })
+  }
+
+  test('schedules no rollups when SWEEPS_ENABLED is exactly "false"', async () => {
+    const t = convexTest(schema, modules)
+    await threeTeamsWithBoards(t)
+
+    process.env.SWEEPS_ENABLED = 'false'
+    vi.useFakeTimers()
+    const result = await t.mutation(internal.teamStats.sweep, {})
+
+    expect(result).toEqual({ teams: 0, skipped: true })
+
+    // THE AGGREGATE IS WHAT PROVES IT, not the return value. If the scan had run
+    // and scheduled three rollupOne jobs, finishing the scheduler would write
+    // three teamMonthStats rows — the same evidence the delegation test above
+    // uses, read for the opposite conclusion.
+    await t.finishAllScheduledFunctions(vi.runAllTimers)
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query('teamMonthStats').collect()).toHaveLength(0)
+    })
+    vi.useRealTimers()
+  })
+
+  test('an unset variable leaves the sweep running', async () => {
+    const t = convexTest(schema, modules)
+    await threeTeamsWithBoards(t)
+
+    delete process.env.SWEEPS_ENABLED
+    vi.useFakeTimers()
+    const result = await t.mutation(internal.teamStats.sweep, {})
+
+    expect(result.teams).toBe(3)
+    await t.finishAllScheduledFunctions(vi.runAllTimers)
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query('teamMonthStats').collect()).toHaveLength(3)
+    })
+    vi.useRealTimers()
+  })
+
+  test('the near-miss "False" leaves the sweep running', async () => {
+    const t = convexTest(schema, modules)
+    await threeTeamsWithBoards(t)
+
+    process.env.SWEEPS_ENABLED = 'False'
+    vi.useFakeTimers()
+    const result = await t.mutation(internal.teamStats.sweep, {})
+
+    expect(result.teams).toBe(3)
+    await t.finishAllScheduledFunctions(vi.runAllTimers)
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query('teamMonthStats').collect()).toHaveLength(3)
+    })
+    vi.useRealTimers()
   })
 })

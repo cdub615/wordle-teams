@@ -1,6 +1,7 @@
 import { internalMutation } from './_generated/server'
 import { internal } from './_generated/api'
 import { METHODS } from './lib/reminders.ts'
+import { sweepsEnabled } from './lib/sweeps.ts'
 import type { Id } from './_generated/dataModel'
 import type { ReaderCtx, WriterCtx } from './winners.ts'
 
@@ -272,6 +273,18 @@ export async function markChatNotifiedFor(
 export const sweep = internalMutation({
   args: {},
   handler: async (ctx) => {
+    // THE SWITCH, AND IT HAS TO BE THE FIRST STATEMENT (wordle-teams-qjh3.1).
+    // See convex/lib/sweeps.ts for the polarity and why the cron entry stays.
+    //
+    // WHAT THE POSITION BUYS is the thing a count of scheduled pushes cannot
+    // see: `markChatNotifiedFor` below is what CONSUMES the pending state, so a
+    // gate placed after it would schedule nothing while still stamping every
+    // owed member as notified — the messages would be silently swallowed and
+    // never delivered once the switch went back on, which is worse than having
+    // no switch. chatNotify.test.ts pins that with a disabled run followed by an
+    // enabled one.
+    if (!sweepsEnabled(process.env.SWEEPS_ENABLED)) return { notified: 0, skipped: true as const }
+
     const pending = await pendingChatNotificationsFor(ctx)
     let notified = 0
 

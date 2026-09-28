@@ -47,6 +47,31 @@ const crons = cronJobs()
  * supplied, just with nothing in it. MEASURED: dropping the `{}` fails
  * typecheck with "Expected 4 arguments, but got 3".
  */
+/*
+ * DELIBERATELY NOT GATED ON SWEEPS_ENABLED, unlike the two crons below
+ * (wordle-teams-qjh3.1). This is a decision, not an omission, and "finishing the
+ * job" by adding it here would break something quiet.
+ *
+ * DO NOT CONFUSE THIS WITH THE OTHER REASON `maintain` IS UNGATED. The doc
+ * comment on `maintain` itself explains why it ignores REMINDERS_ENABLED: that
+ * flag gates DELIVERY, and gating the schedule too would mean the flag had to
+ * cancel and recreate every pending job. That argument is about a different
+ * variable and does not carry across.
+ *
+ * THE REASON HERE IS WHAT `maintain` IS FOR. It bootstraps a player who never
+ * had a chain and repairs one whose job never fired — so on a deployment with
+ * SWEEPS_ENABLED=false, a newly created player would simply never receive a
+ * reminder, and "reminders work on this deployment" would be quietly false with
+ * nothing failing. That is exactly the shape of silent failure the switch's own
+ * polarity exists to avoid, so buying a little I/O with it would be self
+ * defeating.
+ *
+ * AND IT IS NOT WHERE THE COST IS. The switch was built for the two crons below:
+ * wordle-teams-yhii measured `teamStats.sweep` as the dominant consumer and
+ * `chatNotify.sweep` is the only HOURLY cron left in the deployment. This one
+ * runs once a day and its cost is O(players), which on a dev deployment holding
+ * one person's rows is one document.
+ */
 crons.daily('reminder maintenance', { hourUTC: 1, minuteUTC: 15 }, internal.reminders.maintain, {})
 
 /**
