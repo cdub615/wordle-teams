@@ -1,0 +1,390 @@
+import { convexTest } from 'convex-test'
+import { describe, expect, test } from 'vitest'
+import schema from './schema'
+import { aPlayer } from './fixtures.ts'
+import {
+  mySettingsFor,
+  setReminderMethodFor,
+  updateReminderMethodsFor,
+  updateReminderTimeFor,
+  updateTimeZoneFor,
+  markPwaInstalledFor,
+} from './settings.ts'
+import { localParts } from './lib/reminders.ts'
+import type { Id } from './_generated/dataModel'
+
+const modules = import.meta.glob('./**/*.ts')
+
+describe('updateReminderMethodsFor', () => {
+  test('accepts email and push, in any combination', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+
+    for (const methods of [[], ['email'], ['push'], ['email', 'push']]) {
+      await t.run(async (ctx) => updateReminderMethodsFor(ctx, playerId, methods))
+      const player = await t.run(async (ctx) => ctx.db.get(playerId))
+      expect(player!.reminderDeliveryMethods).toEqual(methods)
+    }
+  })
+
+  test('rejects anything else', async () => {
+    // The schema cannot express this: reminderDeliveryMethods is
+    // v.array(v.string()) because narrowing it would be validated against every
+    // COPIED row on push, and schema.ts:44-66 records what that cost when
+    // firstName was narrowed. So the constraint lives here, and this is the
+    // test that it exists.
+    //
+    // 'Email' pins case-sensitivity specifically: it is rejected today only
+    // because nothing lowercases the input before comparing against METHODS,
+    // and a mutant that added a `.toLowerCase()` survived until this case was
+    // added.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    for (const bad of ['sms', 'Email']) {
+      await expect(
+        t.run(async (ctx) => updateReminderMethodsFor(ctx, playerId, [bad])),
+      ).rejects.toThrow()
+    }
+  })
+
+  test('rejects duplicates', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    await expect(
+      t.run(async (ctx) => updateReminderMethodsFor(ctx, playerId, ['email', 'email'])),
+    ).rejects.toThrow()
+  })
+})
+
+describe('updateReminderTimeFor', () => {
+  test('accepts each of the eighteen offered times', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    for (let hour = 5; hour <= 22; hour += 1) {
+      const time = `${String(hour).padStart(2, '0')}:00:00`
+      await t.run(async (ctx) => updateReminderTimeFor(ctx, playerId, time))
+      const player = await t.run(async (ctx) => ctx.db.get(playerId))
+      expect(player!.reminderDeliveryTime).toBe(time)
+    }
+  })
+
+  test('rejects a malformed time', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    for (const bad of ['9am', '25:00:00', '09:00', '', '09:00:00 ']) {
+      await expect(
+        t.run(async (ctx) => updateReminderTimeFor(ctx, playerId, bad)),
+      ).rejects.toThrow()
+    }
+  })
+
+  test('rejects a well-formed time the picker does not offer', async () => {
+    // The gap a shape-only check misses: '23:30:00' is a perfectly valid
+    // 'HH:MM:SS' string, and nothing about its shape says the picker never
+    // offered it. REMINDER_TIMES (lib/reminders.ts) is the only list that does,
+    // and its doc comment records both what this used to protect against under
+    // the hourly sweep and why the guard still earns its place now that the
+    // sweep is gone. A shape-only validator would have stored this. '04:00:00'
+    // pins the other boundary — one hour before the earliest offered time,
+    // 05:00:00.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    for (const bad of ['23:30:00', '24:00:00', '23:60:00', '04:00:00']) {
+      await expect(
+        t.run(async (ctx) => updateReminderTimeFor(ctx, playerId, bad)),
+      ).rejects.toThrow()
+    }
+  })
+})
+
+describe('updateTimeZoneFor', () => {
+  test('stores a zone Intl can resolve', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    await t.run(async (ctx) => updateTimeZoneFor(ctx, playerId, 'America/Chicago'))
+    const player = await t.run(async (ctx) => ctx.db.get(playerId))
+    expect(player!.timeZone).toBe('America/Chicago')
+  })
+
+  test('rejects a zone Intl cannot resolve', async () => {
+    // An unresolvable zone cannot be scheduled: `deliver` retires the job as
+    // 'bad-time-zone' and `maintain` can only re-log the row, daily, forever.
+    // Refuse it at the door. See the PRECONDITION note on localParts in
+    // lib/reminders.ts.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    for (const bad of ['Mars/Olympus_Mons', '', 'GMT+5', '  UTC ']) {
+      await expect(
+        t.run(async (ctx) => updateTimeZoneFor(ctx, playerId, bad)),
+      ).rejects.toThrow()
+    }
+  })
+})
+
+describe('markPwaInstalledFor', () => {
+  // NOT "and is idempotent": the helper unconditionally patches hasPwa: true,
+  // with no branch on the prior value, so a second call cannot be observably
+  // different from the first under any mutant this suite plants. Asserting it
+  // would be a claim this test cannot actually falsify. What IS real, and
+  // documented on the helper itself, is that hasPwa is SET-ONLY — nothing ever
+  // clears it, so a player who later uninstalls the PWA keeps it true.
+  test('sets hasPwa to true', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', aPlayer({ hasPwa: false })),
+    )
+    await t.run(async (ctx) => markPwaInstalledFor(ctx, playerId))
+    const player = await t.run(async (ctx) => ctx.db.get(playerId))
+    expect(player!.hasPwa).toBe(true)
+  })
+})
+
+describe('mySettingsFor', () => {
+  test('reads back all four fields, and null for an unset timeZone', async () => {
+    // toEqual, not toMatchObject: an extra field on the wire is exactly the kind
+    // of thing the wrapper-vs-helper split in this file exists to catch, and a
+    // partial match would let one slip through unnoticed.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert(
+        'players',
+        aPlayer({ hasPwa: true, reminderDeliveryMethods: ['push'], reminderDeliveryTime: '09:00:00' }),
+      ),
+    )
+    const settings = await t.run(async (ctx) => mySettingsFor(ctx, playerId))
+    expect(settings).toEqual({
+      timeZone: null,
+      reminderDeliveryTime: '09:00:00',
+      reminderDeliveryMethods: ['push'],
+      hasPwa: true,
+    })
+  })
+
+  test('reads back a stored timeZone verbatim, never a default', async () => {
+    // Pins against a mutant that defaults an absent/odd timeZone to 'UTC'
+    // instead of null — a silent wrong-zone guess is worse than an honest null,
+    // because `scheduleNextFor` would compute an occurrence against it as if
+    // the player had actually said so.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' })),
+    )
+    const settings = await t.run(async (ctx) => mySettingsFor(ctx, playerId))
+    expect(settings.timeZone).toBe('America/Chicago')
+  })
+})
+
+describe('setReminderMethodFor', () => {
+  // wordle-teams-069. The client used to compute the whole array from the row
+  // it had rendered with and send that, so a write issued after a slow browser
+  // flow carried a stale view of the OTHER method. The push permission prompt
+  // is MODAL and can stay open for minutes, which is the window.
+  //
+  // These tests exercise the fix at the level the bug lives at: the read and
+  // the write are in ONE transaction, so what is stored is composed from the
+  // current row rather than from whatever the client last saw.
+
+  // STARTING STATE IS ALWAYS EXPLICIT. aPlayer() defaults to ['email'], and a
+  // first draft of these tests leaned on that without saying so — which made
+  // 'adds a method' pass while its email half was a no-op against a value that
+  // was already there.
+  const player = async (methods: Array<string> = []) => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) =>
+      ctx.db.insert('players', aPlayer({ reminderDeliveryMethods: methods })),
+    )
+    return {
+      t,
+      playerId,
+      methods: async () =>
+        (await t.run(async (ctx) => ctx.db.get(playerId)))!.reminderDeliveryMethods,
+    }
+  }
+
+  test('adds a method without disturbing the other one', async () => {
+    const { t, playerId, methods } = await player()
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'email', true))
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'push', true))
+    expect(await methods()).toEqual(['email', 'push'])
+  })
+
+  test('removes a method without disturbing the other one', async () => {
+    const { t, playerId, methods } = await player(['email', 'push'])
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'push', false))
+    expect(await methods()).toEqual(['email'])
+  })
+
+  // THE LOST UPDATE THIS EXISTS TO PREVENT, written as the sequence that used to
+  // produce it: the client renders with ['email'], the player turns Email OFF in
+  // another tab, and only THEN does the slow push flow complete. The old code
+  // sent `[...currentMethods, 'push']` built from the stale render and put
+  // 'email' back. Composing from the row cannot.
+  test('a write issued against a stale view does not resurrect a removed method', async () => {
+    const { t, playerId, methods } = await player(['email'])
+
+    // The other tab wins the race.
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'email', false))
+    // The slow flow finally lands, knowing only that PUSH should go on.
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'push', true))
+
+    expect(await methods()).toEqual(['push'])
+  })
+
+  test('enabling twice is idempotent rather than a duplicate', async () => {
+    const { t, playerId, methods } = await player()
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'email', true))
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'email', true))
+    expect(await methods()).toEqual(['email'])
+  })
+
+  test('disabling one that is already off is a no-op, not an error', async () => {
+    const { t, playerId, methods } = await player()
+    await t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'push', false))
+    expect(await methods()).toEqual([])
+  })
+
+  // Validated on the METHOD, not only on the resulting array. Disabling an
+  // unknown method produces an array that is itself valid — the filter simply
+  // matches nothing — so delegating validation to updateReminderMethodsFor
+  // alone would let a typo through silently in exactly one direction.
+  test.each([true, false])('rejects an unknown method when enabled=%s', async (enabled) => {
+    const { t, playerId } = await player()
+    await expect(
+      t.run(async (ctx) => setReminderMethodFor(ctx, playerId, 'carrier-pigeon', enabled)),
+    ).rejects.toThrow()
+  })
+})
+
+describe('reminder rescheduling on settings changes', () => {
+  const pendingFor = async (t: ReturnType<typeof convexTest>, playerId: Id<'players'>) => {
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    return player?.nextReminderAt
+  }
+
+  test('changing the reminder time reschedules', async () => {
+    // Asserts the ACTUAL wall-clock instant, not just that two numbers differ.
+    // `second !== first` alone is satisfied by scheduling against either the
+    // OLD reminderDeliveryTime or the new one, as long as they land at
+    // different instants — which is exactly the reordering bug (reschedule
+    // reading the row before the patch lands) that this test exists to catch.
+    // Resolving nextReminderAt back through localParts pins which value was
+    // actually used.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
+    )
+    await t.run((ctx) => updateReminderTimeFor(ctx, playerId, '09:00:00'))
+    const first = await pendingFor(t, playerId)
+
+    await t.run((ctx) => updateReminderTimeFor(ctx, playerId, '18:00:00'))
+    const second = await pendingFor(t, playerId)
+
+    expect(first).toBeDefined()
+    expect(second).not.toBe(first)
+    expect(localParts('America/Chicago', new Date(first!)).time).toBe('09:00:00')
+    expect(localParts('America/Chicago', new Date(second!)).time).toBe('18:00:00')
+  })
+
+  test('changing the time zone reschedules', async () => {
+    // Same reasoning as the reminder-time test above: assert the instant
+    // resolves back to reminderDeliveryTime (aPlayer()'s default '18:00:00',
+    // unchanged throughout) in the NEW zone specifically. A reschedule reading
+    // the row before the zone patch lands would compute `second` against the
+    // OLD zone, America/Chicago -- resolving THAT instant in Asia/Tokyo would
+    // not generally land back on '18:00:00', which is what catches it.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
+    )
+    await t.run((ctx) => updateTimeZoneFor(ctx, playerId, 'America/Chicago'))
+    const first = await pendingFor(t, playerId)
+
+    await t.run((ctx) => updateTimeZoneFor(ctx, playerId, 'Asia/Tokyo'))
+    const second = await pendingFor(t, playerId)
+
+    expect(second).not.toBe(first)
+    expect(localParts('America/Chicago', new Date(first!)).time).toBe('18:00:00')
+    expect(localParts('Asia/Tokyo', new Date(second!)).time).toBe('18:00:00')
+  })
+
+  test('a player with no time zone is scheduled the moment they get one', async () => {
+    // There is no natural trigger otherwise — use-local-capture writes the zone
+    // only when it is ABSENT, so this fires exactly once per player, on their
+    // first authenticated load.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer()))
+    expect(await pendingFor(t, playerId)).toBeUndefined()
+
+    await t.run((ctx) => updateTimeZoneFor(ctx, playerId, 'America/Chicago'))
+    expect(await pendingFor(t, playerId)).toBeDefined()
+  })
+
+  test('updateReminderMethodsFor reschedules', async () => {
+    // The only test pinning the updateReminderMethodsFor call site itself --
+    // the setReminderMethodFor block elsewhere in this file composes through
+    // it, but starts from aPlayer({timeZone}) with no chain yet, so it never
+    // exercises this reschedule. Starts from an EMPTY methods array so the
+    // write is a real change, not a no-op over aPlayer()'s ['email'] default
+    // (an earlier draft used ['email'] over ['email'] and asserted nothing
+    // about the change itself).
+    //
+    // This used to carry a second half calling setReminderMethodFor and
+    // re-asserting reminderDeliveryMethods/reminderJobId, which duplicated
+    // the existing setReminderMethodFor block below and 'reschedules once,
+    // not twice' -- deleted rather than kept as prose defending duplicate
+    // coverage.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert(
+        'players',
+        aPlayer({ timeZone: 'America/Chicago', playsWeekends: true, reminderDeliveryMethods: [] }),
+      ),
+    )
+    await t.run((ctx) => updateReminderMethodsFor(ctx, playerId, ['email']))
+    expect(await pendingFor(t, playerId)).toBeDefined()
+  })
+
+  test('a rejected settings change schedules nothing', async () => {
+    // NOT evidence of the ordering, and — an earlier draft of this comment
+    // overstated it — NOT proof of a transactional guarantee either. Under
+    // the shipped order the guard throws before the reschedule is ever
+    // reached, so `jobs` being empty is ENTAILED by that throw: there was
+    // never a job to roll back, and `rejects.toThrow()` alone already
+    // duplicates 'rejects a well-formed time the picker does not offer'
+    // above. This test earns its keep only as a forward guard: if validation
+    // and the write ever split across transactions, this is what would catch
+    // a job getting scheduled for a change that was refused.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' })),
+    )
+    await expect(
+      t.run((ctx) => updateReminderTimeFor(ctx, playerId, '23:30:00')),
+    ).rejects.toThrow()
+
+    const jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+    expect(jobs).toHaveLength(0)
+  })
+
+  test('setReminderMethodFor reschedules once, not twice', async () => {
+    // setReminderMethodFor delegates to updateReminderMethodsFor and must NOT
+    // also call reschedulePlayerReminderFor itself — a second call there would
+    // double-reschedule. Asserting only that a job exists afterward can't tell
+    // one reschedule from two: each reschedule cancels the prior job rather
+    // than deleting its row, so `_scheduled_functions` accumulates one row per
+    // reschedule regardless of how many end up canceled. Starting from a player
+    // with an already-pending job (one row) isolates exactly how many MORE
+    // rows one setReminderMethodFor call adds.
+    const t = convexTest(schema, modules)
+    const playerId = await t.run((ctx) =>
+      ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', playsWeekends: true })),
+    )
+    await t.run((ctx) => updateReminderMethodsFor(ctx, playerId, ['email']))
+    const before = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+
+    await t.run((ctx) => setReminderMethodFor(ctx, playerId, 'push', true))
+    const after = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect())
+
+    expect(after.length - before.length).toBe(1)
+  })
+})

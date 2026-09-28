@@ -22,3 +22,18 @@ if command -v bd >/dev/null 2>&1; then
   if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
 fi
 # --- END BEADS INTEGRATION v1.0.3 ---
+
+# --- PII guard (NOT managed by beads) -----------------------------------------
+# Blocks third-party user data from reaching this PUBLIC repo. See
+# scripts/check-no-pii.mjs and wordle-teams-xka.
+#
+# IT LIVES HERE BECAUSE beads SET core.hooksPath TO THIS DIRECTORY, which
+# OVERRIDES .git/hooks ENTIRELY. The copy in .git/hooks/pre-commit therefore
+# stopped running the moment beads installed its hooks, and nothing said so:
+# a commit carrying a third-party address succeeded with exit 0, verified by
+# probe on 2026-09-02. The project's CLAUDE.md still said "--no-verify chains
+# to the PII guard", which had quietly become false.
+#
+# Placed AFTER the END marker on purpose: beads rewrites only the region
+# between its markers, so this survives `bd hooks install` re-running.
+node scripts/check-no-pii.mjs || exit 1

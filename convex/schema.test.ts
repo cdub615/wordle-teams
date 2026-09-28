@@ -1,0 +1,528 @@
+import { convexTest } from 'convex-test'
+import { describe, expect, test } from 'vitest'
+import { internal } from './_generated/api'
+import schema from './schema'
+
+const modules = import.meta.glob('./**/*.ts')
+
+// Insert/read coverage for each of the six ported tables, plus the three
+// corrections the 2026-07-16 design could not have known about. These are
+// schema tests: they exercise the shape and the indexes, not business logic,
+// which arrives with the phases that own it.
+
+const aPlayer = (over: Partial<Record<string, unknown>> = {}) => ({
+  legacyId: '11111111-1111-4111-8111-111111111111',
+  email: 'player@example.com',
+  // Named by default since Phase 4 — see schema.ts's note on players.firstName.
+  // A nameless player is no longer a state the table can hold, so a factory that
+  // produced one could not be inserted anywhere.
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  hasPwa: false,
+  reminderDeliveryMethods: ['email'],
+  reminderDeliveryTime: '18:00:00',
+  ...over,
+})
+
+const aTeam = (over: Partial<Record<string, unknown>> = {}) => ({
+  legacyId: 206,
+  name: 'team 206',
+  playerIds: [],
+  invited: [],
+  oneGuess: 6,
+  twoGuesses: 5,
+  threeGuesses: 4,
+  fourGuesses: 3,
+  fiveGuesses: 2,
+  sixGuesses: 1,
+  failed: 0,
+  nA: 0,
+  playWeekends: true,
+  showLetters: true,
+  ...over,
+})
+
+describe('players', () => {
+  test('round-trips and is reachable by legacyId and by email', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', aPlayer())
+
+      const byLegacy = await ctx.db
+        .query('players')
+        .withIndex('by_legacyId', (q) => q.eq('legacyId', '11111111-1111-4111-8111-111111111111'))
+        .unique()
+      expect(byLegacy?._id).toBe(id)
+      expect(byLegacy?.firstName).toBe('Ada')
+      expect(byLegacy?.lastName).toBe('Lovelace')
+
+      const byEmail = await ctx.db
+        .query('players')
+        .withIndex('by_email', (q) => q.eq('email', 'player@example.com'))
+        .unique()
+      expect(byEmail?._id).toBe(id)
+    })
+  })
+})
+
+describe('teams', () => {
+  test('round-trips with player references and per-team scoring', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+
+      const team = await ctx.db.get(teamId)
+      expect(team?.playerIds).toEqual([playerId])
+      expect(team?.oneGuess).toBe(6)
+      expect(team?.owner).toBeUndefined()
+    })
+  })
+
+  test('invited holds lowercase addresses — the bug a faithful port would inherit', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      // What the copy script must write: normalised on the way in. v1 stored
+      // 'Case.Test@example.com' here while auth stored the lowercase form, so
+      // handle_invited_signup never matched and the invitee never joined.
+      const teamId = await ctx.db.insert('teams', aTeam({ invited: ['case.test@example.com'] }))
+      const team = await ctx.db.get(teamId)
+      expect(team?.invited).toEqual(['case.test@example.com'])
+      expect(team?.invited.every((e) => e === e.toLowerCase())).toBe(true)
+    })
+  })
+})
+
+describe('dailyScores', () => {
+  test('round-trips and is reachable by player and puzzle day', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('dailyScores', {
+        legacyId: 1,
+        playerId,
+        puzzleDay: '2026-08-11',
+        date: Date.parse('2026-08-11T06:00:00Z'),
+        guesses: ['crane', 'slate', 'tests'],
+        answer: 'tests',
+      })
+
+      const found = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) =>
+          q.eq('playerId', playerId).eq('puzzleDay', '2026-08-11'),
+        )
+        .unique()
+      expect(found?.guesses).toHaveLength(3)
+      expect(found?.answer).toBe('tests')
+    })
+  })
+
+  test('a board is found by its puzzle day regardless of the viewer, which is the v1 bug', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+
+      // A traveller in Auckland (UTC+13) enters the 12 August puzzle at 09:00
+      // local — which is 2026-08-11T20:00Z, still the 11th in UTC and the 11th
+      // in the US. v1 stored only that instant and each viewer re-derived the
+      // day locally, so a teammate in Chicago looked for the 12th and found
+      // nothing. Here the day is a stored fact, so the lookup is viewer-independent.
+      await ctx.db.insert('dailyScores', {
+        legacyId: 3,
+        playerId,
+        puzzleDay: '2026-08-12',
+        date: Date.parse('2026-08-11T20:00:00Z'),
+        guesses: ['crane'],
+      })
+
+      const asTeammateSees = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) =>
+          q.eq('playerId', playerId).eq('puzzleDay', '2026-08-12'),
+        )
+        .unique()
+      expect(asTeammateSees).not.toBeNull()
+
+      // And it must NOT appear on the day a naive UTC read of the instant gives.
+      const naiveUtcDay = await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) =>
+          q.eq('playerId', playerId).eq('puzzleDay', '2026-08-11'),
+        )
+        .unique()
+      expect(naiveUtcDay).toBeNull()
+    })
+  })
+
+  test('answer is optional — v1 rows exist without one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const id = await ctx.db.insert('dailyScores', {
+        legacyId: 2,
+        playerId,
+        puzzleDay: '2026-08-10',
+        date: Date.parse('2026-08-10T06:00:00Z'),
+        guesses: [],
+      })
+      expect((await ctx.db.get(id))?.answer).toBeUndefined()
+    })
+  })
+})
+
+describe('monthlyWinners', () => {
+  test('round-trips and is reachable by team, year and month', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      await ctx.db.insert('monthlyWinners', {
+        legacyId: 1,
+        playerId,
+        teamId,
+        year: 2026,
+        month: 7,
+        hasSeenCelebration: [playerId],
+      })
+
+      const found = await ctx.db
+        .query('monthlyWinners')
+        .withIndex('by_team_year_month', (q) =>
+          q.eq('teamId', teamId).eq('year', 2026).eq('month', 7),
+        )
+        .unique()
+      expect(found?.playerId).toBe(playerId)
+      expect(found?.hasSeenCelebration).toEqual([playerId])
+    })
+  })
+})
+
+describe('playerMembership', () => {
+  test('round-trips every status the Postgres enum allowed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      for (const status of ['new', 'free', 'pro', 'cancelled', 'expired'] as const) {
+        const id = await ctx.db.insert('playerMembership', {
+          legacyId: `legacy-${status}`,
+          playerId,
+          membershipStatus: status,
+        })
+        expect((await ctx.db.get(id))?.membershipStatus).toBe(status)
+      }
+    })
+  })
+
+  test('carries no customerId or membershipVariant — the Polar migration dropped both', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const id = await ctx.db.insert('playerMembership', {
+        legacyId: 'legacy-1',
+        playerId,
+        membershipStatus: 'pro',
+      })
+      const row = await ctx.db.get(id)
+      // Guards against someone "restoring parity" with the pre-migration schema.
+      expect(row).not.toHaveProperty('customerId')
+      expect(row).not.toHaveProperty('membershipVariant')
+    })
+  })
+})
+
+describe('webhookEvents', () => {
+  test('accepts a Standard Webhooks id, which is not a uuid', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      // The literal example from the Standard Webhooks spec. A uuid column
+      // rejected exactly this in v1 and put Polar into an infinite retry loop.
+      const webhookId = 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W'
+      await ctx.db.insert('webhookEvents', {
+        legacyId: 1,
+        webhookId,
+        playerId,
+        eventName: 'subscription.active',
+        body: { data: { id: 'sub_123' } },
+        processed: true,
+      })
+
+      const found = await ctx.db
+        .query('webhookEvents')
+        .withIndex('by_webhookId', (q) => q.eq('webhookId', webhookId))
+        .unique()
+      expect(found?.eventName).toBe('subscription.active')
+    })
+  })
+
+  test('by_webhookId supports the replay guard Convex cannot express as a constraint', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const webhookId = 'msg_duplicate'
+      const base = {
+        playerId,
+        eventName: 'subscription.active',
+        body: {},
+        processed: true,
+        webhookId,
+      }
+      await ctx.db.insert('webhookEvents', { ...base, legacyId: 1 })
+      await ctx.db.insert('webhookEvents', { ...base, legacyId: 2 })
+
+      // Convex has no unique index, so a duplicate CAN be written. Phase 5's
+      // handler must look here first and return early — this asserts the index
+      // makes that lookup possible, and documents why the guard is code.
+      const all = await ctx.db
+        .query('webhookEvents')
+        .withIndex('by_webhookId', (q) => q.eq('webhookId', webhookId))
+        .collect()
+      expect(all).toHaveLength(2)
+    })
+  })
+
+  test('webhookId is optional — legacy Lemon Squeezy rows predate it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const id = await ctx.db.insert('webhookEvents', {
+        legacyId: 3,
+        playerId,
+        eventName: 'subscription_created',
+        body: {},
+        processed: true,
+      })
+      expect((await ctx.db.get(id))?.webhookId).toBeUndefined()
+    })
+  })
+})
+
+describe('natively-created rows', () => {
+  test('a board entered in v2 needs no legacyId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      // No legacyId: this row was born in v2, not copied from Supabase.
+      const id = await ctx.db.insert('dailyScores', {
+        playerId,
+        puzzleDay: '2026-08-18',
+        date: 1_755_500_000_000,
+        answer: 'SPEED',
+        guesses: ['GEESE', 'SPEED'],
+      })
+      const row = await ctx.db.get(id)
+      expect(row?.legacyId).toBeUndefined()
+    })
+  })
+
+  test('a winner row computed in v2 needs no legacyId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [playerId] }))
+      const id = await ctx.db.insert('monthlyWinners', {
+        playerId,
+        teamId,
+        year: 2026,
+        month: 8,
+        hasSeenCelebration: [],
+      })
+      const row = await ctx.db.get(id)
+      expect(row?.legacyId).toBeUndefined()
+    })
+  })
+
+  test('playerMembership and webhookEvents accept a native row with no legacyId', async () => {
+    const t = convexTest(schema, modules)
+
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer({ legacyId: undefined }))
+
+      // Born in v2: no Supabase identity to carry, and a synthesised value would
+      // lie to by_legacyId and to Phase 7's reconciliation.
+      const membershipId = await ctx.db.insert('playerMembership', {
+        playerId,
+        membershipStatus: 'pro',
+      })
+
+      const eventId = await ctx.db.insert('webhookEvents', {
+        webhookId: 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W',
+        playerId,
+        eventName: 'subscription.active',
+        body: {},
+        processed: true,
+      })
+
+      // Round-trips ABSENT, not merely accepted — matching the two tests above.
+      // An insert that only has to succeed would still pass if a default were
+      // ever introduced, and a default is exactly what would destroy the
+      // copied/native distinction these two fields exist to carry.
+      expect((await ctx.db.get(membershipId))?.legacyId).toBeUndefined()
+      expect((await ctx.db.get(eventId))?.legacyId).toBeUndefined()
+    })
+  })
+})
+
+describe('teams.legacyId', () => {
+  test('accepts a team created natively in v2, with no legacyId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      // aTeam()'s spread merge (`...defaults, ...over`) means `legacyId:
+      // undefined` here overwrites the default 206 with an explicit
+      // `undefined` VALUE — the key is still present on the object. Convex
+      // strips keys whose value is `undefined` before validating (the same
+      // way `JSON.stringify` drops them), so this reaches the validator as a
+      // genuinely absent field, exactly like a caller who omitted it. Proven
+      // below: reverting legacyId to required makes this test fail with
+      // "Missing required field", not a type-mismatch error.
+      const id = await ctx.db.insert('teams', aTeam({ legacyId: undefined }))
+      const team = await ctx.db.get(id)
+      expect(team?.legacyId).toBeUndefined()
+    })
+  })
+
+  test('still accepts a copied team carrying its Supabase primary key', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      // aTeam()'s default IS a copied team: legacyId: 206.
+      const id = await ctx.db.insert('teams', aTeam())
+      expect((await ctx.db.get(id))?.legacyId).toBe(206)
+    })
+  })
+})
+
+describe('players name requirement', () => {
+  test('rejects an insert with no firstName', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        await ctx.db.insert('players', {
+          email: 'x@a.test',
+          lastName: 'Lovelace',
+          hasPwa: false,
+          reminderDeliveryMethods: ['email'],
+          reminderDeliveryTime: '10:00:00',
+        } as never)
+      }),
+    ).rejects.toThrow()
+  })
+
+  // The symmetric case. Not redundant: mutation testing found that narrowing
+  // firstName alone left lastName free to go back to v.optional() with every
+  // test still green, because the case above supplies a lastName. Both fields
+  // were narrowed, so both are pinned.
+  test('rejects an insert with no lastName', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        await ctx.db.insert('players', {
+          email: 'x@a.test',
+          firstName: 'Ada',
+          hasPwa: false,
+          reminderDeliveryMethods: ['email'],
+          reminderDeliveryTime: '10:00:00',
+        } as never)
+      }),
+    ).rejects.toThrow()
+  })
+
+  test('accepts an insert with no legacyId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', {
+        email: 'x@a.test',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        hasPwa: false,
+        reminderDeliveryMethods: ['email'],
+        reminderDeliveryTime: '10:00:00',
+      })
+      expect((await ctx.db.get(id))!.legacyId).toBeUndefined()
+    })
+  })
+})
+
+describe('players reminder scheduling fields', () => {
+  test('accepts a scheduled job id, its due instant, and a weekend flag', async () => {
+    const t = convexTest(schema, modules)
+    const playerId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', aPlayer())
+      // This test is about whether the schema accepts an Id<'_scheduled_functions'>;
+      // WHICH function was scheduled is incidental. pushSend.deliverTo is used
+      // because it is the stable choice: it predates the per-player reminder
+      // work and outlived it, whereas reminders.deliver was added partway
+      // through and reminders.sweep was deleted by it, so either would have
+      // coupled this test to another task's sequencing. `deliver`'s own push
+      // branch in convex/reminders.ts schedules this same function with these
+      // same args, so this follows an established call rather than inventing
+      // one. Named by symbol rather than by line: this cited a line number and
+      // the deletion moved it.
+      const jobId = await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, {
+        playerId: id,
+        attempt: 0,
+      })
+      await ctx.db.patch(id, {
+        reminderJobId: jobId,
+        nextReminderAt: 1_760_000_000_000,
+        playsWeekends: true,
+      })
+      return id
+    })
+
+    const player = await t.run((ctx) => ctx.db.get(playerId))
+    expect(player?.nextReminderAt).toBe(1_760_000_000_000)
+    expect(player?.playsWeekends).toBe(true)
+    expect(player?.reminderJobId).toBeDefined()
+  })
+
+  test('all three are optional, so an unscheduled player is a valid row', async () => {
+    // Existing players have none of them. This is what makes the maintenance
+    // pass's bootstrap the same case as a broken chain rather than a separate
+    // migration.
+    //
+    // AT RUNTIME THIS TEST IS NEARLY VACUOUS, AND THAT IS WORTH KNOWING RATHER
+    // THAN DISCOVERING. Measured by deleting the three schema fields: this test
+    // still PASSED, because reading `player?.nextReminderAt` off a row that has no
+    // such field just yields undefined either way. What actually enforces the
+    // fields' existence is `tsc` — the same deletion produces TS2353 plus six
+    // TS2339s here — and CI runs typecheck (deploy-v2.yml:91) BEFORE the suite.
+    // So the guard is real, but it lives in the type checker, not in this
+    // assertion. The test above it is the one with runtime teeth: the same
+    // deletion fails it outright.
+    //
+    // THE REASON JUST GIVEN IS THE NARROWER ONE, though. The deeper reason is
+    // that this test shares the test above's `aPlayer()` insert, which supplies
+    // none of the three fields -- so any mutant that narrows one of them back to
+    // required breaks that same insert in the test above FIRST. This test
+    // catches no mutant the one above misses.
+    const t = convexTest(schema, modules)
+    const player = await t.run(async (ctx) => {
+      const id = await ctx.db.insert('players', aPlayer())
+      return await ctx.db.get(id)
+    })
+    expect(player?.nextReminderAt).toBeUndefined()
+    expect(player?.reminderJobId).toBeUndefined()
+    expect(player?.playsWeekends).toBeUndefined()
+  })
+
+  // The same class of reversion the players-name tests above guard against
+  // ("narrowing firstName alone left lastName free to go back to v.optional()
+  // with every test still green") is possible here too, and less visible:
+  // v.optional(v.id('_scheduled_functions')) can widen to v.optional(v.string())
+  // with BOTH typecheck and the "all three are optional" test still green,
+  // because `Id<T>` is `string & { __tableName: T }` -- assignable to string --
+  // and the only value ever written already satisfies v.string(). convex-test
+  // does enforce the branded table at runtime, though, rejecting a wrong-table
+  // id. This test is what makes that enforcement load-bearing rather than
+  // incidental; without it, the referential typing v.id(...) buys is unpinned.
+  test('rejects a player id as a reminderJobId', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        const id = await ctx.db.insert('players', aPlayer())
+        await ctx.db.patch(id, { reminderJobId: id as never })
+      }),
+    ).rejects.toThrow()
+  })
+})

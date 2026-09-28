@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body, [data-theme="light"] {
+    --background: 0 0% 97%;
+    --foreground: 240 10% 0.9%;
+    --muted: 240 4.8% 92.9%;
+    --muted-foreground: 240 3.8% 43.1%;
+    --popover: 0 0% 97%;
+    --popover-foreground: 240 10% 0.9%;
+    --card: 0 0% 97%;
+    --card-foreground: 240 10% 0.9%;
+    --border: 240 5.9% 87%;
+    --input: 240 5.9% 87%;
+    --primary: 240 5.9% 7%;
+    --primary-foreground: 0 0% 95%;
+    --secondary: 240 4.8% 92.9%;
+    --secondary-foreground: 240 5.9% 7%;
+    --accent: 240 4.8% 92.9%;
+    --accent-foreground: 240 5.9% 7%;
+    --destructive: 0 84.2% 57.2%;
+    --destructive-foreground: 0 0% 95%;
+    --ring: 142 76% 34%;
+    --radius: 0.5rem;
+    --color-stop-1: 142 76% 37%;
+    --color-stop-2: 119 65% 75%;
+    --color-stop-3: 49 91% 52%;
+    --wordle-correct: #16a34a;
+    --wordle-present: #facc15;
+    --brand-mid: #22c55e;
+  }
+  [data-theme="dark"] {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 85.7% 97.3%;
+    --ring: 142 69% 36%;
+    --radius: 0.5rem;
+    --color-stop-1: 142 76% 37%;
+    --color-stop-2: 119 65% 75%;
+    --color-stop-3: 49 91% 52%;
+    --wordle-correct: #15803d;
+    --wordle-present: #eab308;
+    --brand-mid: #86efac;
+  }
+  @keyframes wt-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .5 } }
+  @keyframes wt-spin { to { transform: rotate(360deg) } }
+  @keyframes wt-gradient { to { background-position: 200% 0 } }
+  @keyframes wt-caret { 0%,70%,100% { opacity: 1 } 20%,50% { opacity: 0 } }
+  @keyframes wt-flip { 0% { transform: rotateX(0) } 50% { transform: rotateX(-90deg) } 100% { transform: rotateX(0) } }
+  a { color: hsl(var(--foreground)); text-decoration: underline; text-underline-offset: 4px; }
+  a:hover { color: #16a34a; }
+</style>
+</helmet>
+<div data-theme="{{ theme }}" style="background: hsl(var(--background)); color: hsl(var(--foreground)); min-height: 100vh; font-family: Inter, system-ui, sans-serif;">
+
+  <header style="position: sticky; top: 0; z-index: 30; backdrop-filter: blur(8px); background: hsl(var(--background) / 0.85); border-bottom: 1px solid hsl(var(--border));">
+    <div style="display: flex; align-items: center; gap: 16px; padding: 14px 24px; max-width: 1240px; margin: 0 auto;">
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; background-image: linear-gradient(to right, #16a34a, var(--brand-mid), #facc15); -webkit-background-clip: text; background-clip: text; color: transparent;">Wordle Teams</h1>
+      <span style="font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Design System · captured from production</span>
+      <div style="flex: 1"></div>
+      <div style="display: flex; gap: 4px; padding: 4px; border-radius: 8px; background: hsl(var(--muted));">
+        <button onClick="{{ setLight }}" style="border: 0; cursor: pointer; font: 500 13px Inter, sans-serif; padding: 6px 14px; border-radius: 6px; background: {{ lightBtnBg }}; color: hsl(var(--foreground));">Light</button>
+        <button onClick="{{ setDark }}" style="border: 0; cursor: pointer; font: 500 13px Inter, sans-serif; padding: 6px 14px; border-radius: 6px; background: {{ darkBtnBg }}; color: hsl(var(--foreground));">Dark</button>
+      </div>
+    </div>
+  </header>
+
+  <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 48px; max-width: 1240px; margin: 0 auto; padding: 40px 24px 120px;">
+
+    <nav style="position: sticky; top: 88px; align-self: start; display: flex; flex-direction: column; gap: 2px; font-size: 13px;">
+      <a href="#foundations" style="text-decoration: none; padding: 6px 8px; border-radius: 6px; color: hsl(var(--muted-foreground));">Foundations</a>
+      <a href="#color" style="text-decoration: none; padding: 6px 8px 6px 20px; border-radius: 6px; color: hsl(var(--muted-foreground));">Color tokens</a>
+      <a href="#brand" style="text-decoration: none; padding: 6px 8px 6px 20px; border-radius: 6px; color: hsl(var(--muted-foreground));">Brand &amp; gradients</a>
+      <a href="#type" style="text-decoration: none; padding: 6px 8px 6px 20px; border-radius: 6px; color: hsl(var(--muted-foreground));">Typography</a>
+      <a href="#space" style="text-decoration: none; padding: 6px 8px 6px 20px; border-radius: 6px; color: hsl(var(--muted-foreground));">Space, radius, shadow</a>
+      <a href="#icons" style="text-decoration: none; padding: 6px 8px 6px 20px; border-radius: 6px; color: hsl(var(--muted-foreground));">Icons</a>
+      <a href="#board" style="text-decoration: none; padding: 6px 8px; border-radius: 6px; margin-top: 10px; color: hsl(var(--muted-foreground));">Wordle board</a>
+      <a href="#components" style="text-decoration: none; padding: 6px 8px; border-radius: 6px; margin-top: 10px; color: hsl(var(--muted-foreground));">Components</a>
+      <a href="#patterns" style="text-decoration: none; padding: 6px 8px; border-radius: 6px; margin-top: 10px; color: hsl(var(--muted-foreground));">Patterns</a>
+      <a href="#motion" style="text-decoration: none; padding: 6px 8px; border-radius: 6px; margin-top: 10px; color: hsl(var(--muted-foreground));">Motion</a>
+      <a href="#drift" style="text-decoration: none; padding: 6px 8px; border-radius: 6px; margin-top: 10px; color: hsl(var(--muted-foreground));">Drift &amp; v2 notes</a>
+      <a href="#v2" style="text-decoration: none; padding: 6px 8px; border-radius: 6px; margin-top: 10px; color: hsl(var(--muted-foreground));">v2 token set</a>
+    </nav>
+
+    <main style="display: flex; flex-direction: column; gap: 72px; min-width: 0;">
+
+      <section style="display: flex; flex-direction: column; gap: 16px;">
+        <p style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 32px; line-height: 1.2; max-width: 34ch; text-wrap: pretty;">The system behind Wordle Teams, written down.</p>
+        <p style="margin: 0; font-size: 16px; line-height: 1.7; max-width: 68ch; color: hsl(var(--muted-foreground)); text-wrap: pretty;">Tokens, type, and components lifted from the live Next.js app — shadcn/ui on Tailwind with CSS-variable theming, a neutral base, and a green-to-yellow Wordle accent. Every value below is the value in production today; where the app has drifted from itself, it is flagged rather than silently fixed.</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px;">
+          <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid hsl(var(--border)); padding: 3px 10px; font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground));">shadcn/ui · default style</span>
+          <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid hsl(var(--border)); padding: 3px 10px; font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground));">baseColor: neutral</span>
+          <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid hsl(var(--border)); padding: 3px 10px; font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground));">Tailwind · cssVariables</span>
+          <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid hsl(var(--border)); padding: 3px 10px; font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground));">Radix primitives</span>
+          <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid hsl(var(--border)); padding: 3px 10px; font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground));">light · dark · system</span>
+        </div>
+      </section>
+
+      <section id="foundations" style="display: flex; flex-direction: column; gap: 40px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <h2 style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Foundations</h2>
+          <div style="height: 1px; background: hsl(var(--border));"></div>
+        </div>
+
+        <div id="color" style="display: flex; flex-direction: column; gap: 20px;">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Color tokens</h3>
+            <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Declared as bare HSL triplets in <code style="font-family: ui-monospace, monospace; font-size: 13px;">globals.css</code> and consumed as <code style="font-family: ui-monospace, monospace; font-size: 13px;">hsl(var(--token))</code> through <code style="font-family: ui-monospace, monospace; font-size: 13px;">tailwind.config.ts</code>. Dark mode is a <code style="font-family: ui-monospace, monospace; font-size: 13px;">.dark</code> class on <code style="font-family: ui-monospace, monospace; font-size: 13px;">&lt;html&gt;</code> via next-themes.</p>
+          </div>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground)); background: hsl(var(--muted)); padding: 10px 16px;">
+              <div>Token</div><div>Light</div><div>Dark</div>
+            </div>
+            <sc-for list="{{ tokens }}" as="t" hint-placeholder-count="10">
+              <div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr; align-items: center; gap: 0; padding: 10px 16px; border-top: 1px solid hsl(var(--border)); font-size: 13px;">
+                <code style="font-family: ui-monospace, monospace; font-size: 13px;">--{{ t.name }}</code>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 26px; height: 26px; border-radius: 6px; border: 1px solid hsl(var(--border)); background: {{ t.lightHex }};"></span>
+                  <span style="font-family: ui-monospace, monospace; color: hsl(var(--muted-foreground));">{{ t.light }}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 26px; height: 26px; border-radius: 6px; border: 1px solid hsl(var(--border)); background: {{ t.darkHex }};"></span>
+                  <span style="font-family: ui-monospace, monospace; color: hsl(var(--muted-foreground));">{{ t.dark }}</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div id="brand" style="display: flex; flex-direction: column; gap: 20px;">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Brand &amp; gradients</h3>
+            <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">The only saturated color in the product. Green means correct and yellow means close — the same semantics as the game, reused for brand.</p>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="height: 56px; border-radius: 8px; background: #16a34a;"></div>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <strong style="font-size: 14px;">green-600</strong>
+                <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">#16a34a</code>
+                <span style="font-size: 12px; color: hsl(var(--muted-foreground));">Correct tile, success badge, focus ring, logo start</span>
+              </div>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="height: 56px; border-radius: 8px; background: #15803d;"></div>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <strong style="font-size: 14px;">green-700</strong>
+                <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">#15803d</code>
+                <span style="font-size: 12px; color: hsl(var(--muted-foreground));">Dark-mode substitute for green-600</span>
+              </div>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="height: 56px; border-radius: 8px; background: #facc15;"></div>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <strong style="font-size: 14px;">yellow-400</strong>
+                <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">#facc15</code>
+                <span style="font-size: 12px; color: hsl(var(--muted-foreground));">Present tile, logo end, beam end</span>
+              </div>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="height: 56px; border-radius: 8px; background: #eab308;"></div>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <strong style="font-size: 14px;">yellow-500</strong>
+                <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">#eab308</code>
+                <span style="font-size: 12px; color: hsl(var(--muted-foreground));">Dark-mode substitute for yellow-400</span>
+              </div>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Wordmark gradient</div>
+              <div style="font-size: 30px; font-weight: 700; background-image: linear-gradient(to right, #16a34a, var(--brand-mid), #facc15); -webkit-background-clip: text; background-clip: text; color: transparent;">Wordle Teams</div>
+              <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground)); line-height: 1.6;">bg-gradient-to-r from-green-600 via-green-500 to-yellow-400<br />dark: via-green-300</code>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Icon stops</div>
+              <div style="height: 44px; border-radius: 8px; background: linear-gradient(to right, hsl(var(--color-stop-1)), hsl(var(--color-stop-2)), hsl(var(--color-stop-3)));"></div>
+              <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground)); line-height: 1.6;">--color-stop-1: 142 76% 37%<br />--color-stop-2: 119 65% 75%<br />--color-stop-3: 49 91% 52%</code>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Border beam</div>
+              <div style="height: 44px; border-radius: 8px; background: linear-gradient(to left, #16a34a, #facc15, transparent);"></div>
+              <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground)); line-height: 1.6;">colorFrom #16a34a → colorTo #facc15<br />size 200 · duration 15s · borderWidth 1.5</code>
+            </div>
+          </div>
+        </div>
+
+        <div id="type" style="display: flex; flex-direction: column; gap: 20px;">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Typography</h3>
+            <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Two families in production: <strong>Inter</strong> on <code style="font-family: ui-monospace, monospace; font-size: 13px;">&lt;body&gt;</code> for all UI, <strong>Geist Sans</strong> applied per-element on marketing headlines. Tailwind's default scale, no custom sizes.</p>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 8px;">
+              <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Inter — UI</div>
+              <div style="font-family: Inter, sans-serif; font-size: 34px;">Aa Bb Cc 123</div>
+              <span style="font-size: 13px; color: hsl(var(--muted-foreground));">next/font, latin subset. Weights in use: 400, 500, 600, 700.</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 8px;">
+              <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Geist Sans — display</div>
+              <div style="font-family: Geist, Inter, sans-serif; font-size: 34px;">Aa Bb Cc 123</div>
+              <span style="font-size: 13px; color: hsl(var(--muted-foreground));">Home hero h1 and hero paragraph only.</span>
+            </div>
+          </div>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden;">
+            <sc-for list="{{ typeScale }}" as="s" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: 120px 110px minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 14px 18px; border-top: 1px solid hsl(var(--border));">
+                <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">{{ s.cls }}</code>
+                <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">{{ s.size }}</code>
+                <div style="font-size: {{ s.px }}; line-height: 1.25; text-wrap: pretty;">{{ s.usage }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div id="space" style="display: flex; flex-direction: column; gap: 20px;">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Space, radius, elevation</h3>
+            <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Tailwind's 4px step scale. The app leans on a small vocabulary: 2 · 4 · 6 · 8 · 12 units, with mobile-first doubling at <code style="font-family: ui-monospace, monospace; font-size: 13px;">md:</code>.</p>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+              <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Spacing in use</div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 12px;"><span style="width: 8px; height: 14px; background: #16a34a; border-radius: 2px;"></span><code style="font-family: ui-monospace, monospace; font-size: 12px;">2 · 8px</code><span style="font-size: 12px; color: hsl(var(--muted-foreground));">grid gap, mobile padding</span></div>
+                <div style="display: flex; align-items: center; gap: 12px;"><span style="width: 16px; height: 14px; background: #16a34a; border-radius: 2px;"></span><code style="font-family: ui-monospace, monospace; font-size: 12px;">4 · 16px</code><span style="font-size: 12px; color: hsl(var(--muted-foreground));">card padding-x, page gutter</span></div>
+                <div style="display: flex; align-items: center; gap: 12px;"><span style="width: 24px; height: 14px; background: #16a34a; border-radius: 2px;"></span><code style="font-family: ui-monospace, monospace; font-size: 12px;">6 · 24px</code><span style="font-size: 12px; color: hsl(var(--muted-foreground));">card padding, desktop grid gap</span></div>
+                <div style="display: flex; align-items: center; gap: 12px;"><span style="width: 48px; height: 14px; background: #16a34a; border-radius: 2px;"></span><code style="font-family: ui-monospace, monospace; font-size: 12px;">12 · 48px</code><span style="font-size: 12px; color: hsl(var(--muted-foreground));">desktop page padding, section rhythm</span></div>
+              </div>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+              <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Radius — <code style="font-family: ui-monospace, monospace;">--radius: 0.5rem</code></div>
+              <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><span style="width: 52px; height: 52px; border: 1px solid hsl(var(--border)); background: hsl(var(--muted)); border-radius: 4px;"></span><code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">sm 4px</code></div>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><span style="width: 52px; height: 52px; border: 1px solid hsl(var(--border)); background: hsl(var(--muted)); border-radius: 6px;"></span><code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">md 6px</code></div>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><span style="width: 52px; height: 52px; border: 1px solid hsl(var(--border)); background: hsl(var(--muted)); border-radius: 8px;"></span><code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">lg 8px</code></div>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><span style="width: 52px; height: 52px; border: 1px solid hsl(var(--border)); background: hsl(var(--muted)); border-radius: 12px;"></span><code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">xl 12px</code></div>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><span style="width: 52px; height: 52px; border: 1px solid hsl(var(--border)); background: hsl(var(--muted)); border-radius: 9999px;"></span><code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">full</code></div>
+              </div>
+              <span style="font-size: 12px; color: hsl(var(--muted-foreground));">Buttons/inputs md · cards lg · skeletons and previews xl · badges and avatars full. Wordle tiles are square — 0.</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+              <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Elevation</div>
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 12px;"><span style="width: 64px; height: 34px; border-radius: 8px; background: hsl(var(--background)); border: 1px solid hsl(var(--border)); box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);"></span><code style="font-family: ui-monospace, monospace; font-size: 12px;">shadow-sm</code><span style="font-size: 12px; color: hsl(var(--muted-foreground));">Card, active tab</span></div>
+                <div style="display: flex; align-items: center; gap: 12px;"><span style="width: 64px; height: 34px; border-radius: 8px; background: hsl(var(--background)); border: 1px solid hsl(var(--border)); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);"></span><code style="font-family: ui-monospace, monospace; font-size: 12px;">shadow-md</code><span style="font-size: 12px; color: hsl(var(--muted-foreground));">Select, dropdown</span></div>
+                <div style="display: flex; align-items: center; gap: 12px;"><span style="width: 64px; height: 34px; border-radius: 8px; background: hsl(var(--background)); border: 1px solid hsl(var(--border)); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);"></span><code style="font-family: ui-monospace, monospace; font-size: 12px;">shadow-lg</code><span style="font-size: 12px; color: hsl(var(--muted-foreground));">Dialog, sheet, toast, switch thumb</span></div>
+              </div>
+              <span style="font-size: 12px; color: hsl(var(--muted-foreground));">Dark mode keeps the same shadows; separation comes from <code style="font-family: ui-monospace, monospace;">--border</code>, since <code style="font-family: ui-monospace, monospace;">--card</code> equals <code style="font-family: ui-monospace, monospace;">--background</code> in both themes.</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="icons" style="display: flex; flex-direction: column; gap: 20px;">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Icons</h3>
+            <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">lucide-react throughout (a few Radix icons on the home page). Stroke 2, <code style="font-family: ui-monospace, monospace; font-size: 13px;">currentColor</code>. Buttons force <code style="font-family: ui-monospace, monospace; font-size: 13px;">size-4</code> on any nested svg.</p>
+          </div>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-end;">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">16 · inline</code>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+              <code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">20 · button</code>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              <code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">22 · icon button</code>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg>
+              <code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">48 · feature</code>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin-left: auto;">
+              <div style="display: flex; align-items: center; gap: 10px; color: #ee3636;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              </div>
+              <code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">destructive · text-red-500</code>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="board" style="display: flex; flex-direction: column; gap: 24px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <h2 style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Signature component</h2>
+          <div style="height: 1px; background: hsl(var(--border));"></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Wordle board &amp; tiles</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground)); max-width: 70ch;">A 5-column grid with a 1-unit gap, six rows, fixed 320px width on desktop. Tiles are square-cornered, uppercase, <code style="font-family: ui-monospace, monospace; font-size: 13px;">text-3xl md:text-4xl</code>, and carry a border when empty. Letters can be hidden per team until a player submits.</p>
+        </div>
+        <div style="display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 40px; align-items: start;">
+          <div style="display: grid; grid-template-rows: repeat(6, 64px); gap: 4px;">
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;">
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 400; text-transform: uppercase; background: hsl(var(--muted)); border: 1px solid hsl(var(--border));">c</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-present); color: #111113; border: 1px solid hsl(var(--border));">r</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: hsl(var(--muted)); border: 1px solid hsl(var(--border));">a</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: hsl(var(--muted)); border: 1px solid hsl(var(--border));">n</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">e</div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;">
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-present); color: #111113; border: 1px solid hsl(var(--border));">t</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: hsl(var(--muted)); border: 1px solid hsl(var(--border));">i</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-present); color: #111113; border: 1px solid hsl(var(--border));">g</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: hsl(var(--muted)); border: 1px solid hsl(var(--border));">h</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">t</div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;">
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">g</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">r</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: hsl(var(--muted)); border: 1px solid hsl(var(--border));">a</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">v</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">e</div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;">
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">g</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">r</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">o</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">v</div>
+              <div style="display: flex; align-items: center; justify-content: center; font-size: 32px; text-transform: uppercase; background: var(--wordle-correct); color: #f2f2f2; border: 1px solid hsl(var(--border));">e</div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;">
+              <div style="border: 1px solid hsl(var(--border));"></div><div style="border: 1px solid hsl(var(--border));"></div><div style="border: 1px solid hsl(var(--border));"></div><div style="border: 1px solid hsl(var(--border));"></div><div style="border: 1px solid hsl(var(--border));"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;">
+              <div style="border: 1px solid hsl(var(--border));"></div><div style="border: 1px solid hsl(var(--border));"></div><div style="border: 1px solid hsl(var(--border));"></div><div style="border: 1px solid hsl(var(--border));"></div><div style="border: 1px solid hsl(var(--border));"></div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid hsl(var(--border)); border-radius: 10px;">
+              <span style="width: 40px; height: 40px; background: var(--wordle-correct); display: flex; align-items: center; justify-content: center; color: #f2f2f2; font-size: 20px; text-transform: uppercase;">e</span>
+              <div style="display: flex; flex-direction: column;"><strong style="font-size: 14px;">Correct</strong><code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">bg-green-600 dark:bg-green-700</code></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid hsl(var(--border)); border-radius: 10px;">
+              <span style="width: 40px; height: 40px; background: var(--wordle-present); display: flex; align-items: center; justify-content: center; color: #111113; font-size: 20px; text-transform: uppercase;">r</span>
+              <div style="display: flex; flex-direction: column;"><strong style="font-size: 14px;">Present</strong><code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">bg-yellow-400 dark:bg-yellow-500</code></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid hsl(var(--border)); border-radius: 10px;">
+              <span style="width: 40px; height: 40px; background: hsl(var(--muted)); display: flex; align-items: center; justify-content: center; font-size: 20px; text-transform: uppercase;">a</span>
+              <div style="display: flex; flex-direction: column;"><strong style="font-size: 14px;">Absent</strong><code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">bg-muted</code></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid hsl(var(--border)); border-radius: 10px;">
+              <span style="width: 40px; height: 40px; border: 1px solid hsl(var(--border));"></span>
+              <div style="display: flex; flex-direction: column;"><strong style="font-size: 14px;">Empty</strong><code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">border only, no fill</code></div>
+            </div>
+            <div style="padding: 14px 16px; border: 1px solid hsl(var(--border)); border-radius: 10px; font-size: 13px; line-height: 1.6; color: hsl(var(--muted-foreground));">Scoring: 7 attempts renders as <strong style="color: hsl(var(--foreground));">X</strong> (failed), a missed day before today scores <strong style="color: hsl(var(--foreground));">0</strong>, and non-play weekends render <strong style="color: hsl(var(--foreground));">N/A</strong> in muted text.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="components" style="display: flex; flex-direction: column; gap: 40px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <h2 style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Components</h2>
+          <div style="height: 1px; background: hsl(var(--border));"></div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Button</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Height 40 default · 36 sm · 44 lg · 40 square icon. Radius md, <code style="font-family: ui-monospace, monospace; font-size: 13px;">text-sm font-medium</code>, gap 2 between label and icon, 150ms color transition, ring on keyboard focus, 50% opacity when disabled.</p>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 24px;">
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); transition: background-color .15s;" style-hover="background: hsl(var(--primary) / 0.9)">Get Started</button>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); display: inline-flex; align-items: center; gap: 8px; transition: background-color .15s;" style-hover="background: hsl(var(--secondary) / 0.8)">Board Entry<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg></button>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--background)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--input)); transition: background-color .15s;" style-hover="background: hsl(var(--accent))">Outline</button>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: transparent; color: hsl(var(--foreground)); transition: background-color .15s;" style-hover="background: hsl(var(--accent))">Ghost</button>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); transition: background-color .15s;" style-hover="background: hsl(var(--destructive) / 0.9)">Delete</button>
+              <button style="height: 40px; padding: 0; border: 0; background: none; cursor: pointer; font: 500 14px Inter, sans-serif; color: hsl(var(--foreground)); text-underline-offset: 4px;" style-hover="text-decoration: underline">Link</button>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); opacity: .5; cursor: default;">Disabled</button>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+              <button style="height: 36px; padding: 0 12px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));">sm · h-9</button>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));">default · h-10</button>
+              <button style="height: 44px; padding: 0 32px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));">lg · h-11</button>
+              <button style="height: 40px; width: 40px; border-radius: 6px; cursor: pointer; background: hsl(var(--background)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--input)); display: inline-flex; align-items: center; justify-content: center;" aria-label="Toggle theme"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.9 4.9 1.4 1.4"></path><path d="m17.7 17.7 1.4 1.4"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.3 17.7-1.4 1.4"></path><path d="m19.1 4.9-1.4 1.4"></path></svg></button>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); display: inline-flex; align-items: center; gap: 8px;"><span style="display: inline-flex; animation: wt-spin 1s linear infinite;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg></span>Removing</button>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+              <span style="font-size: 13px; color: hsl(var(--muted-foreground));">Focus ring:</span>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));">Focused</button>
+              <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">ring-2 ring-ring ring-offset-2 — the ring is the one green accent in the app chrome</code>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Badge</h3>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+            <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid transparent; padding: 2px 10px; font-size: 12px; font-weight: 600; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));">Pro</span>
+            <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid transparent; padding: 2px 10px; font-size: 12px; font-weight: 600; background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground));">Free</span>
+            <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid transparent; padding: 2px 10px; font-size: 12px; font-weight: 600; background: var(--wordle-correct); color: hsl(var(--secondary-foreground));">Winner</span>
+            <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid transparent; padding: 2px 10px; font-size: 12px; font-weight: 600; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground));">Expired</span>
+            <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid hsl(var(--border)); padding: 2px 10px; font-size: 12px; font-weight: 600; color: hsl(var(--foreground));">Outline</span>
+            <span style="font-size: 12px; color: hsl(var(--muted-foreground)); margin-left: auto;">success adds a green variant not present in stock shadcn</span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Form controls</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 8px;">
+              <label style="font-size: 14px; font-weight: 500;">Team name</label>
+              <input type="text" value="Wordle Wizards" style="height: 40px; width: 100%; box-sizing: border-box; border-radius: 6px; border: 1px solid hsl(var(--input)); background: hsl(var(--background)); color: hsl(var(--foreground)); padding: 0 12px; font: 400 16px Inter, sans-serif;" />
+              <span style="font-size: 14px; color: hsl(var(--muted-foreground));">h-10 · text-base · border-input</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 8px;">
+              <label style="font-size: 14px; font-weight: 500;">Invite email</label>
+              <input type="text" value="friend@example.com" style="height: 40px; width: 100%; box-sizing: border-box; border-radius: 6px; border: 1px solid hsl(var(--input)); background: hsl(var(--background)); color: hsl(var(--foreground)); padding: 0 12px; font: 400 16px Inter, sans-serif; box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));" />
+              <span style="font-size: 14px; color: hsl(var(--destructive));">Focused state — ring-2 ring-ring</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 8px;">
+              <label style="font-size: 14px; font-weight: 500;">Month</label>
+              <div style="height: 40px; width: 100%; box-sizing: border-box; border-radius: 6px; border: 1px solid hsl(var(--input)); background: transparent; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 14px;">
+                <span>August 2026</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: .5"><path d="m6 9 6 6 6-6"></path></svg>
+              </div>
+              <span style="font-size: 14px; color: hsl(var(--muted-foreground));">Select trigger — bg-transparent, text-sm</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 14px; font-weight: 500;">Play weekends</span>
+                <span style="width: 44px; height: 24px; border-radius: 9999px; background: hsl(var(--primary)); border: 2px solid transparent; display: inline-flex; align-items: center; padding: 0 2px;"><span style="width: 20px; height: 20px; border-radius: 9999px; background: hsl(var(--background)); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); transform: translateX(18px);"></span></span>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 14px; font-weight: 500;">Show letters</span>
+                <span style="width: 44px; height: 24px; border-radius: 9999px; background: hsl(var(--input)); border: 2px solid transparent; display: inline-flex; align-items: center; padding: 0 2px;"><span style="width: 20px; height: 20px; border-radius: 9999px; background: hsl(var(--background)); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);"></span></span>
+              </div>
+              <span style="font-size: 14px; color: hsl(var(--muted-foreground));">Switch — 44×24, thumb 20</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: inline-flex; height: 40px; align-items: center; justify-content: center; border-radius: 6px; background: hsl(var(--muted)); padding: 4px; color: hsl(var(--muted-foreground)); width: fit-content;">
+                <span style="display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 500; background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);">Boards</span>
+                <span style="display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 500;">Scores</span>
+                <span style="display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 500;">Teams</span>
+              </div>
+              <span style="font-size: 14px; color: hsl(var(--muted-foreground));">Tabs — active tab lifts to bg-background + shadow-sm</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; gap: 8px;">
+                <span style="width: 40px; height: 40px; border: 1px solid hsl(var(--input)); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 18px;">4</span>
+                <span style="width: 40px; height: 40px; border: 1px solid hsl(var(--input)); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 18px;">2</span>
+                <span style="width: 40px; height: 40px; border: 1px solid hsl(var(--ring)); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 18px; box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));"><span style="animation: wt-caret 1.25s ease-out infinite;">|</span></span>
+                <span style="width: 40px; height: 40px; border: 1px solid hsl(var(--input)); border-radius: 6px;"></span>
+                <span style="width: 40px; height: 40px; border: 1px solid hsl(var(--input)); border-radius: 6px;"></span>
+                <span style="width: 40px; height: 40px; border: 1px solid hsl(var(--input)); border-radius: 6px;"></span>
+              </div>
+              <span style="font-size: 14px; color: hsl(var(--muted-foreground));">OTP input — caret-blink 1.25s ease-out infinite</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Card</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Radius lg, 1px border, shadow-sm, background equal to the page. Header and content pad <code style="font-family: ui-monospace, monospace; font-size: 13px;">px-4 py-6</code> on mobile and <code style="font-family: ui-monospace, monospace; font-size: 13px;">p-6</code> from md up; content drops its top padding. Title is <code style="font-family: ui-monospace, monospace; font-size: 13px;">text-2xl font-semibold</code> — large, and typically holds a right-aligned action row.</p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--card)); box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); height: fit-content;">
+              <div style="display: flex; flex-direction: column; gap: 6px; padding: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <h4 style="margin: 0; font-size: 24px; font-weight: 600; line-height: 1; letter-spacing: -0.01em;">Scoring System</h4>
+                  <button style="height: 36px; padding: 0 12px; border-radius: 6px; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--background)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--input));">Customize</button>
+                </div>
+                <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Points awarded by number of attempts</p>
+              </div>
+              <div style="padding: 0 24px 24px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                  <thead>
+                    <tr style="border-bottom: 1px solid hsl(var(--border));"><th style="height: 48px; padding: 0 16px; text-align: left; font-weight: 500; color: hsl(var(--muted-foreground));">Attempts</th><th style="height: 48px; padding: 0 16px; text-align: left; font-weight: 500; color: hsl(var(--muted-foreground));">Points</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr style="border-bottom: 1px solid hsl(var(--border));"><td style="padding: 16px;">1</td><td style="padding: 16px;">6</td></tr>
+                    <tr style="border-bottom: 1px solid hsl(var(--border));"><td style="padding: 16px;">2</td><td style="padding: 16px;">5</td></tr>
+                    <tr style="border-bottom: 1px solid hsl(var(--border));"><td style="padding: 16px;">3</td><td style="padding: 16px;">4</td></tr>
+                    <tr><td style="padding: 16px;">X</td><td style="padding: 16px;">0</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--card)); box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); height: fit-content;">
+              <div style="padding: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <h4 style="margin: 0; font-size: 24px; font-weight: 600; line-height: 1; letter-spacing: -0.01em;">Wordle Wizards</h4>
+                  <div style="display: flex; gap: 8px;">
+                    <button style="height: 40px; width: 40px; border-radius: 6px; cursor: pointer; background: hsl(var(--background)); border: 1px solid hsl(var(--input)); color: hsl(var(--foreground)); display: inline-flex; align-items: center; justify-content: center;" aria-label="Update team"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button>
+                    <button style="height: 40px; width: 40px; border-radius: 6px; cursor: pointer; background: hsl(var(--background)); border: 1px solid hsl(var(--input)); color: hsl(var(--foreground)); display: inline-flex; align-items: center; justify-content: center;" aria-label="Invite player"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 19a6 6 0 0 0-12 0"></path><circle cx="8" cy="9" r="4"></circle><path d="M22 11h-6"></path></svg></button>
+                  </div>
+                </div>
+              </div>
+              <div style="padding: 0 24px 24px; display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 16px;"><span>Christian White</span><span style="color: #ee3636; display: inline-flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path></svg></span></div>
+                <div style="height: 1px; background: hsl(var(--border));"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 16px;"><span>Dana Reed</span><span style="color: #ee3636; display: inline-flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path></svg></span></div>
+                <div style="height: 1px; background: hsl(var(--border));"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 16px;"><span>Marcus Liu</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Overlays</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; background: hsl(var(--muted) / 0.4); display: flex; flex-direction: column; gap: 12px;">
+              <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Dialog · desktop</span>
+              <div style="border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--background)); padding: 24px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); display: grid; gap: 16px; position: relative;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <strong style="font-size: 18px; font-weight: 600; line-height: 1; letter-spacing: -0.01em;">Add or Update Board</strong>
+                  <span style="font-size: 14px; color: hsl(var(--muted-foreground));">Enter the day's answer and then your guesses</span>
+                </div>
+                <input type="text" value="GROVE" style="height: 40px; box-sizing: border-box; border-radius: 6px; border: 1px solid hsl(var(--input)); background: hsl(var(--background)); color: hsl(var(--foreground)); padding: 0 12px; font: 400 16px Inter, sans-serif; text-transform: uppercase; letter-spacing: 0.2em;" />
+                <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                  <button style="height: 40px; padding: 0 16px; border-radius: 6px; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--background)); border: 1px solid hsl(var(--input)); color: hsl(var(--foreground));">Cancel</button>
+                  <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));">Save</button>
+                </div>
+                <span style="position: absolute; right: 16px; top: 16px; opacity: .7; display: inline-flex;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></span>
+              </div>
+              <span style="font-size: 13px; color: hsl(var(--muted-foreground));">max-w-lg · overlay bg-black/80 · 200ms fade + zoom-95 · on mobile the same content becomes a top Sheet</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+              <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Toast · sonner</span>
+              <div style="border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--background)); padding: 14px 16px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); display: flex; flex-direction: column; gap: 4px;">
+                <strong style="font-size: 14px; font-weight: 600;">Team deleted</strong>
+                <span style="font-size: 13px; color: hsl(var(--muted-foreground));">Wordle Wizards is gone for good.</span>
+              </div>
+              <div style="border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--background)); padding: 14px 16px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <strong style="font-size: 14px; font-weight: 600;">Couldn't save board</strong>
+                  <span style="font-size: 13px; color: hsl(var(--muted-foreground));">Check your connection and retry.</span>
+                </div>
+                <button style="height: 32px; padding: 0 12px; border-radius: 6px; border: 0; cursor: pointer; font: 500 13px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));">Retry</button>
+              </div>
+              <span style="font-size: 13px; color: hsl(var(--muted-foreground));">Success and error both use the neutral surface; only the copy differentiates them. Theme follows next-themes.</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Loading, empty, error</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px;">
+              <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Skeleton</span>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span style="height: 40px; width: 112px; border-radius: 8px; background: hsl(var(--muted)); animation: wt-pulse 2s cubic-bezier(.4,0,.6,1) infinite;"></span>
+                <span style="height: 40px; width: 112px; border-radius: 8px; background: hsl(var(--muted)); animation: wt-pulse 2s cubic-bezier(.4,0,.6,1) infinite;"></span>
+                <span style="flex: 1"></span>
+                <span style="height: 40px; width: 112px; border-radius: 8px; background: hsl(var(--muted)); animation: wt-pulse 2s cubic-bezier(.4,0,.6,1) infinite;"></span>
+              </div>
+              <span style="height: 100px; border-radius: 12px; background: hsl(var(--muted)); animation: wt-pulse 2s cubic-bezier(.4,0,.6,1) infinite;"></span>
+              <span style="font-size: 13px; color: hsl(var(--muted-foreground));">animate-pulse · rounded-md, overridden to lg/xl per slot</span>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px; align-items: center; text-align: center; justify-content: center;">
+              <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground)); align-self: flex-start;">Empty</span>
+              <p style="margin: 24px 0 0; font-size: 16px; color: hsl(var(--muted-foreground)); max-width: 30ch;">Visible after today's submission</p>
+              <p style="margin: 0 0 24px; font-size: 13px; color: hsl(var(--muted-foreground));">No board for player on this date</p>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px; align-items: center; text-align: center;">
+              <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground)); align-self: flex-start;">Error</span>
+              <p style="margin: 0; font-size: 20px;">Ruh roh, something went wrong!</p>
+              <p style="margin: 0; font-size: 16px; color: hsl(var(--muted-foreground)); max-width: 34ch;">Please try again. If the issue persists, let us know at <a href="#drift">feedback.wordleteams.com</a></p>
+              <button style="height: 40px; padding: 0 16px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));">Try again</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="patterns" style="display: flex; flex-direction: column; gap: 32px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <h2 style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Patterns</h2>
+          <div style="height: 1px; background: hsl(var(--border));"></div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">App bar</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Gradient wordmark left, user affordance right, a full-width separator underneath. Padding <code style="font-family: ui-monospace, monospace; font-size: 13px;">px-4 py-2</code> → <code style="font-family: ui-monospace, monospace; font-size: 13px;">md:px-12 md:py-6</code>. Signed out shows the theme toggle; signed in shows the avatar dropdown.</p>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 24px 48px;">
+              <span style="font-size: 30px; font-weight: 700; background-image: linear-gradient(to right, #16a34a, var(--brand-mid), #facc15); -webkit-background-clip: text; background-clip: text; color: transparent;">Wordle Teams</span>
+              <div style="display: flex; align-items: center; gap: 16px;">
+                <span style="display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid transparent; padding: 2px 10px; font-size: 12px; font-weight: 600; background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground));">Pro</span>
+                <span style="width: 40px; height: 40px; border-radius: 9999px; background: hsl(var(--muted)); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 500;">CW</span>
+              </div>
+            </div>
+            <div style="height: 1px; background: hsl(var(--border));"></div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Dashboard grid</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">One column on mobile, three from md. Action row and scores table span all three; Team Boards spans three rows in the first column, Scoring System spans three rows in the third. Page padding 8px → 48px, gap 8px → 24px.</p>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; background: hsl(var(--muted) / 0.35);">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+              <div style="grid-column: span 3; display: flex; align-items: center; gap: 16px; padding: 12px; border: 1px dashed hsl(var(--border)); border-radius: 8px; font-size: 13px; color: hsl(var(--muted-foreground));">
+                <span style="padding: 6px 12px; border-radius: 6px; background: hsl(var(--background)); border: 1px solid hsl(var(--border));">August 2026</span>
+                <span style="padding: 6px 12px; border-radius: 6px; background: hsl(var(--background)); border: 1px solid hsl(var(--border)); flex: 1;">Wordle Wizards</span>
+                <span style="padding: 6px 12px; border-radius: 6px; background: hsl(var(--background)); border: 1px solid hsl(var(--border));">Refresh</span>
+                <span style="padding: 6px 12px; border-radius: 6px; background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground));">Board Entry +</span>
+              </div>
+              <div style="grid-column: span 3; height: 88px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); display: flex; align-items: center; justify-content: center; font-size: 13px; color: hsl(var(--muted-foreground));">Scores table · md:col-span-3</div>
+              <div style="grid-row: span 3; min-height: 260px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); display: flex; align-items: center; justify-content: center; font-size: 13px; color: hsl(var(--muted-foreground)); text-align: center; padding: 8px;">Team Boards<br />md:row-span-3</div>
+              <div style="border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); min-height: 80px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: hsl(var(--muted-foreground));">Current Team</div>
+              <div style="grid-row: span 3; min-height: 260px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); display: flex; align-items: center; justify-content: center; font-size: 13px; color: hsl(var(--muted-foreground)); text-align: center; padding: 8px;">Scoring System<br />md:row-span-3</div>
+              <div style="border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); min-height: 80px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: hsl(var(--muted-foreground));">My Teams</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Leaderboard table</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Horizontally scrolling month grid inside a <code style="font-family: ui-monospace, monospace; font-size: 13px;">rounded-md border</code>. Player column pins left, Score column pins right, both painted with <code style="font-family: ui-monospace, monospace; font-size: 13px;">bg-background</code> so rows slide underneath. Rows sort by month total descending; header text is muted, score is bold and right-aligned; rows hover at <code style="font-family: ui-monospace, monospace; font-size: 13px;">bg-muted/50</code>.</p>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 6px; overflow: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px; min-width: 720px;">
+              <thead>
+                <tr style="border-bottom: 1px solid hsl(var(--border));">
+                  <th style="height: 48px; padding: 0 16px; text-align: left; font-weight: 500; font-size: 13px; color: hsl(var(--muted-foreground)); position: sticky; left: 0; background: hsl(var(--background));">Player</th>
+                  <th style="height: 48px; padding: 0 12px; text-align: left; font-weight: 500; font-size: 13px; color: hsl(var(--muted-foreground));">Sat 1st</th>
+                  <th style="height: 48px; padding: 0 12px; text-align: left; font-weight: 500; font-size: 13px; color: hsl(var(--muted-foreground));">Mon 3rd</th>
+                  <th style="height: 48px; padding: 0 12px; text-align: left; font-weight: 500; font-size: 13px; color: hsl(var(--muted-foreground));">Tue 4th</th>
+                  <th style="height: 48px; padding: 0 12px; text-align: left; font-weight: 500; font-size: 13px; color: hsl(var(--muted-foreground));">Wed 5th</th>
+                  <th style="height: 48px; padding: 0 12px; text-align: left; font-weight: 500; font-size: 13px; color: hsl(var(--muted-foreground));">Thu 6th</th>
+                  <th style="height: 48px; padding: 0 16px; text-align: right; font-weight: 700; font-size: 13px; color: hsl(var(--muted-foreground)); position: sticky; right: 0; background: hsl(var(--background));">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom: 1px solid hsl(var(--border));">
+                  <td style="padding: 16px; position: sticky; left: 0; background: hsl(var(--background));">Christian</td>
+                  <td style="padding: 16px 12px; color: hsl(var(--muted-foreground)); font-size: 12px;">N/A</td>
+                  <td style="padding: 16px 12px;">3</td><td style="padding: 16px 12px;">4</td><td style="padding: 16px 12px;">2</td><td style="padding: 16px 12px;">3</td>
+                  <td style="padding: 16px; text-align: right; font-weight: 700; position: sticky; right: 0; background: hsl(var(--background));">64</td>
+                </tr>
+                <tr style="border-bottom: 1px solid hsl(var(--border));">
+                  <td style="padding: 16px; position: sticky; left: 0; background: hsl(var(--background));">Dana</td>
+                  <td style="padding: 16px 12px; color: hsl(var(--muted-foreground)); font-size: 12px;">N/A</td>
+                  <td style="padding: 16px 12px;">4</td><td style="padding: 16px 12px;">X</td><td style="padding: 16px 12px;">3</td><td style="padding: 16px 12px;">4</td>
+                  <td style="padding: 16px; text-align: right; font-weight: 700; position: sticky; right: 0; background: hsl(var(--background));">51</td>
+                </tr>
+                <tr>
+                  <td style="padding: 16px; position: sticky; left: 0; background: hsl(var(--background));">Marcus</td>
+                  <td style="padding: 16px 12px; color: hsl(var(--muted-foreground)); font-size: 12px;">N/A</td>
+                  <td style="padding: 16px 12px;">5</td><td style="padding: 16px 12px;">4</td><td style="padding: 16px 12px;">0</td><td style="padding: 16px 12px;">3</td>
+                  <td style="padding: 16px; text-align: right; font-weight: 700; position: sticky; right: 0; background: hsl(var(--background));">43</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Marketing hero</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground));">Geist headline, muted subhead with a green-to-yellow highlight sweep, single primary CTA, then a bordered product screenshot with an animated beam. Feature grid below sits on an inverted band; footer is muted text at xs/sm.</p>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden;">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 56px 24px;">
+              <img src="assets/wt-icon-144x144.png" alt="Wordle Teams logo" width="72" height="72" style="display: block;" />
+              <h4 style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 48px; font-weight: 400; text-align: center;">Compete with friends</h4>
+              <p style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 22px; line-height: 1.5; text-align: center; max-width: 30ch; color: hsl(var(--muted-foreground));">Keep score to establish bragging rights in the <span style="background-image: linear-gradient(to right, #16a34a, #16a34a, var(--wordle-present)); border-radius: 6px; padding: 0 4px; font-weight: 700; color: hsl(var(--foreground));">ultimate app for Wordle enthusiasts</span></p>
+              <button style="height: 40px; padding: 0 16px; margin-top: 12px; border-radius: 6px; border: 0; cursor: pointer; font: 500 14px Inter, sans-serif; background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); display: inline-flex; align-items: center; gap: 8px;">Get Started<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></button>
+            </div>
+            <div style="background: #000; padding: 48px 24px; display: flex; justify-content: center;">
+              <div style="position: relative; max-width: 640px; width: 100%; border-radius: 12px; padding: 2px; background: linear-gradient(120deg, #16a34a, #facc15, transparent 60%);">
+                <img src="assets/welcome-screenshot.png" alt="Wordle Teams dashboard" style="display: block; width: 100%; border-radius: 10px;" />
+              </div>
+            </div>
+            <div style="background: hsl(var(--secondary-foreground)); padding: 48px 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 40px;">
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fafafa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                <strong style="font-size: 20px; color: #fafafa;">Create Teams</strong>
+                <span style="font-size: 14px; color: #9ca3af;">Invite your friends to join your Wordle team and compete together.</span>
+              </div>
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fafafa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="14" rx="1"></rect><rect width="7" height="7" x="3" y="14" rx="1"></rect></svg>
+                <strong style="font-size: 20px; color: #fafafa;">Wordle Boards</strong>
+                <span style="font-size: 14px; color: #9ca3af;">Enter your daily Wordle board and track your progress.</span>
+              </div>
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fafafa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg>
+                <strong style="font-size: 20px; color: #fafafa;">Competitive Scoring</strong>
+                <span style="font-size: 14px; color: #9ca3af;">Compete to earn the highest score and win.</span>
+              </div>
+            </div>
+          </div>
+          <p style="margin: 0; font-size: 13px; color: hsl(var(--muted-foreground));">Note: the feature band paints on <code style="font-family: ui-monospace, monospace;">bg-secondary-foreground</code> in light mode and <code style="font-family: ui-monospace, monospace;">bg-secondary</code> in dark — an inverted surface with hardcoded <code style="font-family: ui-monospace, monospace;">gray-50</code>/<code style="font-family: ui-monospace, monospace;">gray-400</code> text. Flagged below.</p>
+        </div>
+      </section>
+
+      <section id="motion" style="display: flex; flex-direction: column; gap: 24px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <h2 style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Motion</h2>
+          <div style="height: 1px; background: hsl(var(--border));"></div>
+        </div>
+        <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden;">
+          <div style="display: grid; grid-template-columns: 1fr 1.1fr 1.4fr; padding: 10px 18px; background: hsl(var(--muted)); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">
+            <div>Animation</div><div>Timing</div><div>Where</div>
+          </div>
+          <sc-for list="{{ motion }}" as="m" hint-placeholder-count="6">
+            <div style="display: grid; grid-template-columns: 1fr 1.1fr 1.4fr; gap: 12px; padding: 12px 18px; border-top: 1px solid hsl(var(--border)); font-size: 13px; align-items: center;">
+              <code style="font-family: ui-monospace, monospace; font-size: 13px;">{{ m.name }}</code>
+              <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">{{ m.timing }}</code>
+              <span style="color: hsl(var(--muted-foreground));">{{ m.where }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; align-items: center;">
+            <div style="font-size: 26px; font-weight: 700; background-image: linear-gradient(to right, #facc15, #16a34a, #facc15); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: wt-gradient 8s linear infinite;">Wordle Teams</div>
+            <code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">animate-gradient · 8s linear</code>
+          </div>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; align-items: center;">
+            <span style="display: inline-flex; animation: wt-spin 3s linear infinite; color: #16a34a;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg></span>
+            <code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">animate-spin-slow · 3s</code>
+          </div>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; align-items: center;">
+            <span style="width: 100%; height: 30px; border-radius: 8px; background: hsl(var(--muted)); animation: wt-pulse 2s cubic-bezier(.4,0,.6,1) infinite;"></span>
+            <code style="font-family: ui-monospace, monospace; font-size: 11px; color: hsl(var(--muted-foreground));">animate-pulse · skeletons</code>
+          </div>
+        </div>
+      </section>
+
+      <section id="drift" style="display: flex; flex-direction: column; gap: 24px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <h2 style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Drift &amp; v2 notes</h2>
+          <div style="height: 1px; background: hsl(var(--border));"></div>
+        </div>
+        <p style="margin: 0; font-size: 15px; line-height: 1.7; max-width: 72ch; color: hsl(var(--muted-foreground)); text-wrap: pretty;">Places where today's code disagrees with itself. Documented as-is above; here is what to decide before rebuilding.</p>
+        <sc-if value="{{ showDrift }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <sc-for list="{{ drift }}" as="d" hint-placeholder-count="7">
+              <div style="border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 16px 18px; display: grid; grid-template-columns: 8px minmax(0,1fr); gap: 16px; align-items: start;">
+                <span style="width: 8px; height: 8px; border-radius: 9999px; background: {{ d.dot }}; margin-top: 7px;"></span>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                  <strong style="font-size: 15px;">{{ d.title }}</strong>
+                  <span style="font-size: 14px; line-height: 1.6; color: hsl(var(--muted-foreground)); text-wrap: pretty;">{{ d.body }}</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 10px; background: hsl(var(--muted) / 0.4);">
+          <strong style="font-size: 15px;">Carry forward, unchanged</strong>
+          <span style="font-size: 14px; line-height: 1.7; color: hsl(var(--muted-foreground)); text-wrap: pretty;">The neutral-plus-one-accent discipline, the CSS-variable theme contract, the green/yellow game semantics, the pinned-column leaderboard, and the dialog-on-desktop / sheet-on-mobile split. Those are the system's real identity — everything else above is implementation.</span>
+        </div>
+      </section>
+
+      <section id="v2" style="display: flex; flex-direction: column; gap: 32px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <h2 style="margin: 0; font-family: Geist, Inter, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Proposed for v2</h2>
+          <div style="height: 1px; background: hsl(var(--border));"></div>
+        </div>
+        <p style="margin: 0; font-size: 15px; line-height: 1.7; max-width: 74ch; color: hsl(var(--muted-foreground)); text-wrap: pretty;">A three-layer set that keeps the shadcn contract intact — <code style="font-family: ui-monospace, monospace; font-size: 14px;">--background</code>, <code style="font-family: ui-monospace, monospace; font-size: 14px;">--primary</code>, <code style="font-family: ui-monospace, monospace; font-size: 14px;">--muted</code> and friends stay, so components need no edits — and adds the two things today's set is missing: real surface steps, and names for the accent instead of inline <code style="font-family: ui-monospace, monospace; font-size: 14px;">green-600</code>. Values are hex here for legibility; ship them as HSL triplets exactly as today.</p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Layer 1 · Primitives</span>
+            <strong style="font-size: 15px;">Raw ramps, never used in a component</strong>
+            <span style="font-size: 14px; line-height: 1.6; color: hsl(var(--muted-foreground));">Tailwind neutral plus a five-stop brand ramp. The only place a hex literal is allowed to live.</span>
+          </div>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Layer 2 · Semantics</span>
+            <strong style="font-size: 15px;">What a color means</strong>
+            <span style="font-size: 14px; line-height: 1.6; color: hsl(var(--muted-foreground));">Surfaces, text ranks, borders, status, and game state. Every pair ships its own foreground so contrast can't drift.</span>
+          </div>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Layer 3 · shadcn aliases</span>
+            <strong style="font-size: 15px;">Compatibility shims</strong>
+            <span style="font-size: 14px; line-height: 1.6; color: hsl(var(--muted-foreground));">The existing token names, redefined to point at layer 2. Nothing in <code style="font-family: ui-monospace, monospace; font-size: 13px;">ui/*</code> changes on day one.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Surface steps</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground)); max-width: 74ch;">Today <code style="font-family: ui-monospace, monospace; font-size: 13px;">--card</code> equals <code style="font-family: ui-monospace, monospace; font-size: 13px;">--background</code>, so a card is only visible by its border. Four named steps fix that without introducing shadows in dark mode.</p>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: 1.4fr 1fr 1fr 1.4fr; padding: 10px 18px; background: hsl(var(--muted)); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">
+              <div>Token</div><div>Light</div><div>Dark</div><div>Use</div>
+            </div>
+            <sc-for list="{{ v2Surface }}" as="v" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: 1.4fr 1fr 1fr 1.4fr; gap: 12px; align-items: center; padding: 10px 18px; border-top: 1px solid hsl(var(--border)); font-size: 13px;">
+                <code style="font-family: ui-monospace, monospace; font-size: 13px;">--{{ v.name }}</code>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 24px; height: 24px; border-radius: 6px; border: 1px solid hsl(var(--border)); background: {{ v.light }};"></span>
+                  <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">{{ v.light }}</code>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 24px; height: 24px; border-radius: 6px; border: 1px solid hsl(var(--border)); background: {{ v.dark }};"></span>
+                  <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">{{ v.dark }}</code>
+                </div>
+                <span style="font-size: 13px; color: hsl(var(--muted-foreground)); text-wrap: pretty;">{{ v.use }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 4px;">
+            <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground)); margin-bottom: 8px;">Stacked, dark theme values</span>
+            <div style="background: #0a0a0a; border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+              <span style="font-size: 12px; color: #a3a3a3;">background · #0a0a0a</span>
+              <div style="background: #121212; border: 1px solid #292929; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                <span style="font-size: 12px; color: #a3a3a3;">surface · #121212 — cards, dialogs, popovers</span>
+                <div style="background: #1c1c1c; border-radius: 6px; padding: 12px;">
+                  <span style="font-size: 12px; color: #a3a3a3;">surface-sunken · #1c1c1c — table headers, tab tracks, absent tiles</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Accent, status &amp; game state</h3>
+          <p style="margin: 0; font-size: 14px; color: hsl(var(--muted-foreground)); max-width: 74ch;">Every entry ships a matching foreground. That single rule kills the success-badge contrast bug: yellow always pairs with near-black, green always with near-white.</p>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.3fr; padding: 10px 18px; background: hsl(var(--muted)); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">
+              <div>Token</div><div>Light</div><div>Dark</div><div>Use</div>
+            </div>
+            <sc-for list="{{ v2Accent }}" as="v" hint-placeholder-count="10">
+              <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.3fr; gap: 12px; align-items: center; padding: 10px 18px; border-top: 1px solid hsl(var(--border)); font-size: 13px;">
+                <code style="font-family: ui-monospace, monospace; font-size: 13px;">--{{ v.name }}</code>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 24px; height: 24px; border-radius: 6px; border: 1px solid hsl(var(--border)); background: {{ v.light }};"></span>
+                  <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">{{ v.light }}</code>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 24px; height: 24px; border-radius: 6px; border: 1px solid hsl(var(--border)); background: {{ v.dark }};"></span>
+                  <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground));">{{ v.dark }}</code>
+                </div>
+                <span style="font-size: 13px; color: hsl(var(--muted-foreground)); text-wrap: pretty;">{{ v.use }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Before / after</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+              <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">Today</span>
+              <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+                <span style="display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: var(--wordle-correct); color: hsl(var(--secondary-foreground));">Winner</span>
+                <span style="display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: var(--wordle-present); color: hsl(var(--secondary-foreground));">Close</span>
+                <span style="display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground));">Expired</span>
+              </div>
+              <code style="font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.7; color: hsl(var(--muted-foreground));">bg-green-600 text-secondary-foreground<br />→ 2.1:1 in light mode</code>
+            </div>
+            <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+              <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #16a34a;">v2</span>
+              <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+                <span style="display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: #16a34a; color: #ffffff;">Winner</span>
+                <span style="display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: #facc15; color: #111113;">Close</span>
+                <span style="display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: #dc2626; color: #ffffff;">Expired</span>
+              </div>
+              <code style="font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.7; color: hsl(var(--muted-foreground));">bg-success text-success-foreground<br />→ 4.6:1 · 12.4:1 · 4.8:1</code>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <h3 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Migration map</h3>
+          <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: 1.2fr 1.2fr 1.6fr; padding: 10px 18px; background: hsl(var(--muted)); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--muted-foreground));">
+              <div>Today</div><div>v2</div><div>Change</div>
+            </div>
+            <sc-for list="{{ v2Migration }}" as="m" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: 1.2fr 1.2fr 1.6fr; gap: 12px; align-items: start; padding: 12px 18px; border-top: 1px solid hsl(var(--border)); font-size: 13px;">
+                <code style="font-family: ui-monospace, monospace; font-size: 12px; color: hsl(var(--muted-foreground)); text-wrap: pretty;">{{ m.from }}</code>
+                <code style="font-family: ui-monospace, monospace; font-size: 12px; text-wrap: pretty;">{{ m.to }}</code>
+                <span style="font-size: 13px; line-height: 1.6; color: hsl(var(--muted-foreground)); text-wrap: pretty;">{{ m.note }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px; background: hsl(var(--muted) / 0.4);">
+          <strong style="font-size: 15px;">Three rules that keep it from drifting again</strong>
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.6; color: hsl(var(--muted-foreground));">
+            <span>1 · No Tailwind color utility in a component. If <code style="font-family: ui-monospace, monospace; font-size: 13px;">green-600</code> appears outside the token file, it's a missing token.</span>
+            <span>2 · Background and foreground travel together. Never set one without the other from the same pair.</span>
+            <span>3 · One accent per surface. Green earns attention; yellow means "close"; nothing else gets to be saturated.</span>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'light' | 'dark'&quot;},&quot;showDrift&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { theme: this.props.defaultTheme ?? 'light' };
+
+  renderVals() {
+    const t = this.state.theme;
+    return {
+      theme: t,
+      lightBtnBg: t === 'light' ? 'hsl(var(--background))' : 'transparent',
+      darkBtnBg: t === 'dark' ? 'hsl(var(--background))' : 'transparent',
+      setLight: () => this.setState({ theme: 'light' }),
+      setDark: () => this.setState({ theme: 'dark' }),
+      showDrift: this.props.showDrift ?? true,
+      tokens: [
+        { name: 'background', light: '0 0% 97%', lightHex: '#f7f7f7', dark: '0 0% 3.9%', darkHex: '#0a0a0a' },
+        { name: 'foreground', light: '240 10% 0.9%', lightHex: '#020203', dark: '0 0% 98%', darkHex: '#fafafa' },
+        { name: 'card / popover', light: '0 0% 97%', lightHex: '#f7f7f7', dark: '0 0% 3.9%', darkHex: '#0a0a0a' },
+        { name: 'muted / secondary / accent', light: '240 4.8% 92.9%', lightHex: '#ececee', dark: '0 0% 14.9%', darkHex: '#262626' },
+        { name: 'muted-foreground', light: '240 3.8% 43.1%', lightHex: '#6a6a72', dark: '0 0% 63.9%', darkHex: '#a3a3a3' },
+        { name: 'border / input', light: '240 5.9% 87%', lightHex: '#dcdce0', dark: '0 0% 14.9%', darkHex: '#262626' },
+        { name: 'primary', light: '240 5.9% 7%', lightHex: '#111113', dark: '0 0% 98%', darkHex: '#fafafa' },
+        { name: 'primary-foreground', light: '0 0% 95%', lightHex: '#f2f2f2', dark: '0 0% 9%', darkHex: '#171717' },
+        { name: 'secondary-foreground / accent-foreground', light: '240 5.9% 7%', lightHex: '#111113', dark: '0 0% 98%', darkHex: '#fafafa' },
+        { name: 'destructive', light: '0 84.2% 57.2%', lightHex: '#ee3636', dark: '0 62.8% 30.6%', darkHex: '#7f1d1d' },
+        { name: 'destructive-foreground', light: '0 0% 95%', lightHex: '#f2f2f2', dark: '0 85.7% 97.3%', darkHex: '#fef2f2' },
+        { name: 'ring', light: '142 76% 34%', lightHex: '#159945', dark: '142 69% 36%', darkHex: '#1c9b4b' },
+        { name: 'color-stop-1', light: '142 76% 37%', lightHex: '#16a34a', dark: '142 76% 37%', darkHex: '#16a34a' },
+        { name: 'color-stop-2', light: '119 65% 75%', lightHex: '#97e996', dark: '119 65% 75%', darkHex: '#97e996' },
+        { name: 'color-stop-3', light: '49 91% 52%', lightHex: '#f4cb15', dark: '49 91% 52%', darkHex: '#f4cb15' }
+      ],
+      typeScale: [
+        { cls: 'text-xs', size: '12 / 16px', px: '12px', usage: 'Footer legal, N/A cells, mobile table text' },
+        { cls: 'text-sm', size: '14 / 20px', px: '14px', usage: 'Buttons, table body, card descriptions, toasts' },
+        { cls: 'text-base', size: '16 / 24px', px: '16px', usage: 'Inputs, list rows, hero subhead on mobile' },
+        { cls: 'text-lg', size: '18 / 28px', px: '18px', usage: 'Dialog titles, error headline' },
+        { cls: 'text-2xl', size: '24 / 32px', px: '24px', usage: 'Card titles, app bar wordmark, empty-state heading' },
+        { cls: 'text-3xl', size: '30 / 36px', px: '30px', usage: 'Wordle tiles (mobile), desktop wordmark, mobile hero' },
+        { cls: 'text-4xl', size: '36 / 40px', px: '36px', usage: 'Wordle tiles (desktop), welcome headline' },
+        { cls: 'text-6xl', size: '60 / 60px', px: '60px', usage: 'Marketing hero h1 from md up (Geist)' }
+      ],
+      motion: [
+        { name: 'accordion-down / up', timing: '0.2s ease-out', where: 'Radix accordion content height' },
+        { name: 'dialog / sheet / select', timing: '200ms fade + zoom-95 + slide', where: 'All Radix overlays via tailwindcss-animate' },
+        { name: 'animate-pulse', timing: '2s cubic-bezier(.4,0,.6,1)', where: 'Skeletons, loading table, route loading' },
+        { name: 'border-beam', timing: '15s linear, offset-path', where: 'Dashboard screenshot on home' },
+        { name: 'animate-gradient', timing: '8s linear infinite', where: 'Animated gradient text on first-run intro' },
+        { name: 'shimmer', timing: '8s infinite', where: 'Magic UI shimmer button' },
+        { name: 'spin-slow / spin-super-slow', timing: '3s / 5s linear', where: 'Decorative spinners' },
+        { name: 'caret-blink', timing: '1.25s ease-out infinite', where: 'OTP input caret' },
+        { name: 'transition-colors', timing: '150ms default', where: 'Every button, table row hover, tab' },
+        { name: 'framer-motion hero', timing: '0.5s, cubic-bezier(.4,0,.2,1)', where: 'Home headline rise; 2s highlight sweep at 0.5s delay' }
+      ],
+      v2Surface: [
+        { name: 'background', light: '#fafafa', dark: '#0a0a0a', use: 'Page. Normalized off the neutral ramp (was 97% / 3.9%)' },
+        { name: 'surface', light: '#ffffff', dark: '#121212', use: 'Cards, dialogs, popovers, sheets — a half step off the page' },
+        { name: 'surface-sunken', light: '#f4f4f5', dark: '#1c1c1c', use: 'Table headers, tab tracks, skeletons, absent tiles' },
+        { name: 'surface-inverse', light: '#18181b', dark: '#fafafa', use: 'The marketing feature band; replaces bg-secondary-foreground' },
+        { name: 'text', light: '#0a0a0b', dark: '#fafafa', use: 'Primary copy. Replaces the one-off 240 10% 0.9%' },
+        { name: 'text-muted', light: '#71717a', dark: '#a3a3a3', use: 'Descriptions, table headers, footer' },
+        { name: 'text-subtle', light: '#9f9fa8', dark: '#737373', use: 'N/A cells, timestamps, placeholder' },
+        { name: 'border-subtle', light: '#e4e4e7', dark: '#292929', use: 'Default hairline — cards, tiles, table rows' },
+        { name: 'border-strong', light: '#c9c9cf', dark: '#424242', use: 'Inputs, empty tiles, anything interactive' }
+      ],
+      v2Accent: [
+        { name: 'brand-from', light: '#16a34a', dark: '#16a34a', use: 'Wordmark gradient start, beam start' },
+        { name: 'brand-via', light: '#22c55e', dark: '#86efac', use: 'Wordmark midpoint — the one value that already forks by theme' },
+        { name: 'brand-to', light: '#facc15', dark: '#facc15', use: 'Wordmark end, beam end' },
+        { name: 'accent', light: '#16a34a', dark: '#22c55e', use: 'Focus ring, links, active nav. Replaces --ring' },
+        { name: 'accent-foreground', light: '#ffffff', dark: '#052e16', use: 'Text on a filled accent' },
+        { name: 'success', light: '#16a34a', dark: '#15803d', use: 'Winner badge, saved toast' },
+        { name: 'success-foreground', light: '#ffffff', dark: '#f0fdf4', use: 'Fixes the light-mode badge contrast bug' },
+        { name: 'warning', light: '#facc15', dark: '#eab308', use: 'Close / partial states, trial ending' },
+        { name: 'warning-foreground', light: '#111113', dark: '#111113', use: 'Yellow never takes light text, in either theme' },
+        { name: 'danger', light: '#dc2626', dark: '#ef4444', use: 'Destructive actions. Dark was #7f1d1d — too dark to read as an alert' },
+        { name: 'danger-foreground', light: '#ffffff', dark: '#ffffff', use: 'Text on a filled danger surface' },
+        { name: 'wordle-correct', light: '#16a34a', dark: '#15803d', use: 'Correct tile fill' },
+        { name: 'wordle-present', light: '#facc15', dark: '#eab308', use: 'Present tile fill' },
+        { name: 'wordle-absent', light: '#f4f4f5', dark: '#1c1c1c', use: 'Absent tile — aliases surface-sunken' },
+        { name: 'wordle-tile-border', light: '#c9c9cf', dark: '#424242', use: 'Empty tile outline — aliases border-strong' }
+      ],
+      v2Migration: [
+        { from: '--card, --popover', to: '--surface', note: 'Now a real step above the page instead of an identical value.' },
+        { from: '--muted, --secondary, --accent (three names, one value)', to: '--surface-sunken', note: 'Collapse to one surface token; keep the three as shadcn aliases pointing at it.' },
+        { from: '--muted-foreground', to: '--text-muted', note: 'Same role, ranked name. A third rank (--text-subtle) is added.' },
+        { from: '--ring: 142 76% 34% / 142 69% 36%', to: '--accent', note: 'Two near-identical greens become one accent that also drives links and active nav.' },
+        { from: '--border, --input', to: '--border-subtle, --border-strong', note: 'Split by role: hairlines vs interactive outlines. Today both are the same value.' },
+        { from: 'bg-green-600 dark:bg-green-700', to: '--wordle-correct', note: 'Remove the inline pair from wordle-board.tsx, badge.tsx, and app-bar.' },
+        { from: 'bg-yellow-400 dark:bg-yellow-500', to: '--wordle-present', note: 'Same, and always with --warning-foreground.' },
+        { from: 'text-gray-50 / text-gray-400 on bg-secondary-foreground', to: '--surface-inverse + --text on inverse', note: 'The feature band stops reaching outside the token set.' },
+        { from: '--color-stop-1..3', to: '--brand-from / -via / -to', note: 'Named by position in the gradient, so the icon and wordmark share one source.' },
+        { from: '--destructive dark: 0 62.8% 30.6%', to: '--danger dark: #ef4444', note: 'Raise for legibility; the current dark red reads as a disabled state.' }
+      ],
+      drift: [
+        { dot: '#ee3636', title: 'Success badge is unreadable in light mode', body: 'badge variant "success" pairs bg-green-600 with text-secondary-foreground, which is near-black in light mode — roughly 2:1 contrast. Should be primary-foreground, or a dedicated --success / --success-foreground pair.' },
+        { dot: '#ee3636', title: 'Two home pages exist', body: 'welcome.tsx (h1 + screenshot + fixed footer) and components/home/* (icon, Geist hero, highlight sweep, beam, feature band, footer) are both live entry points with different heroes. v2 should ship one.' },
+        { dot: '#facc15', title: 'Accents are hardcoded, not tokenized', body: 'green-600 / green-700 / yellow-400 / yellow-500 and gray-50 / gray-400 appear inline across board, badge, app bar, and feature cards. --color-stop-1..3 exist but are barely used. Promote to --wordle-correct, --wordle-present, --brand-from/via/to.' },
+        { dot: '#facc15', title: 'Card padding is forked', body: 'Card header/content/footer use px-4 py-6 md:p-6 instead of stock p-6, so mobile cards are taller than they are wide-padded. Pick one and let consumers override.' },
+        { dot: '#facc15', title: 'Two type families, applied per-element', body: 'Inter is the body font; Geist is added via className on individual marketing headings. Make display vs UI an explicit font token instead of an import at the call site.' },
+        { dot: '#facc15', title: 'Card and background are the same color', body: '--card equals --background in both themes, so every surface relies on --border for separation. Fine, but intentional-and-documented beats accidental — or give cards a half-step surface in v2.' },
+        { dot: '#159945', title: 'Odd lightness values', body: '--foreground: 240 10% 0.9% and --background: 0 0% 97% are one-off values rather than points on the neutral ramp. Normalize to 0 0% 98% / 240 10% 4% unless the exact off-black is deliberate.' },
+        { dot: '#159945', title: 'Radius vocabulary is loose', body: 'rounded-md, -lg, -xl, and one-off rounded-[6px] all appear at the same level of hierarchy. Bind each component class to a single step off --radius.' },
+        { dot: '#159945', title: 'Toast severity is invisible', body: 'sonner success and error render identically on the neutral surface. v2 should carry an accent edge or icon so the outcome reads without parsing copy.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

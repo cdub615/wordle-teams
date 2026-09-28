@@ -1,0 +1,107 @@
+# Cache policy for the STATIC ASSETS, which src/server.ts never sees.
+#
+# Workers Assets serves these without entering the Worker's fetch handler, so
+# lib/cache-policy.ts — which only reaches text/html documents — covers none of
+# them. Until this file existed there was no policy at all and everything got
+# Workers Assets' default of `public, max-age=0, must-revalidate`, including
+# content-hashed bundles. That is wordle-teams-82zq, and it was measured wider
+# than the issue described: /assets/index-*.js was revalidating on every
+# request too, not just the OpenGraph image.
+#
+# THE APEX INHERITS WHATEVER THIS SAYS at cutover, so the values are chosen to
+# be right for production rather than convenient for beta.
+#
+# WHAT IS DELIBERATELY NOT LISTED, because immutable is the wrong answer for it:
+#
+#   /sw.js          THE ONE THAT MUST NEVER BE IMMUTABLE. The service worker is
+#                   the file that controls every future update; a browser
+#                   holding a year-old copy cannot be reached by shipping a new
+#                   one. It keeps Workers Assets' revalidate-always default,
+#                   which is correct.
+#   /robots.txt     A policy file. Short-lived is the point.
+#   /favicon.ico    Production also serves this on the default, so leaving it is
+#                   parity rather than an omission.
+#   the /about screenshots  Stable names like the OpenGraph image, but far less
+#                   load-bearing, and freezing eight PNGs for a year to save a
+#                   revalidation on one page is not a trade worth making
+#                   without asking.
+
+# CONTENT-HASHED BY VITE, so the filename changes whenever the bytes do. This is
+# the case immutable exists for and it carries no risk at all: a stale copy can
+# never be requested, because a new build produces a new URL. Highest value here
+# too — these are the JS and CSS every visitor fetches.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# SELF-HOSTED FONTS (wordle-teams-c0f.7). Safe to freeze for exactly the reason
+# /assets/* is: the filenames come from Google and are content-derived, and
+# scripts/fetch-fonts.mjs clears public/fonts/ before each run, so a refreshed
+# face arrives under a NEW name and the old one stops being referenced. A stale
+# immutable copy can never be requested.
+#
+# THESE WENT SAME-ORIGIN TO GET OFF THE COLD-START PATH. The Google @import they
+# replaced was serial and landed on a new origin — measured at 70-90ms on
+# broadband and several hundred on cellular, on every cold launch of the
+# installed app. Leaving them on the revalidate-always default would hand part
+# of that back.
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# EXACTLY WHAT PRODUCTION SENDS, byte for byte, which is the parity this issue
+# asked for. Safe for the same reason lib/seo.ts already records: Facebook's and
+# LinkedIn's scrapers cache the card image BY URL, so redrawing it means
+# shipping it under a NEW FILENAME rather than overwriting this one. That
+# constraint is pre-existing and is what makes a year of immutability free.
+/opengraph-image.png
+  Cache-Control: public, immutable, no-transform, max-age=31536000
+
+# THE iOS LAUNCH SCREENS (wordle-teams-c0f.8). A DAY, and deliberately NOT
+# immutable — which is the opposite call from /assets/* and /fonts/* above, so
+# the difference is worth stating plainly.
+#
+# Those two are safe to freeze because their FILENAMES ARE CONTENT-DERIVED: new
+# bytes mean a new URL, so a stale copy can never be requested. These are not.
+# scripts/build-splash-screens.mjs writes iphone-15-portrait-dark.png under that
+# exact name on every run, so an immutable copy could NEVER BE REPLACED and a
+# redraw would stay invisible for a year to everyone who had already fetched
+# one. That is wordle-teams-v917's argument for /manifest.json, and it applies
+# here for the same reason.
+#
+# Nor the Workers Assets default, though: there are 60 of these, and making an
+# install revalidate all of them buys nothing. iOS fetches a launch image when
+# it installs or refreshes the app, not on every launch, so a day is long enough
+# to make that cheap and short enough that a redraw propagates without anyone
+# having to remember this file exists.
+#
+# IF IMMUTABLE IS EVER WANTED HERE, the way to earn it is to content-hash the
+# filenames in the generator and derive the <link href> from the same manifest —
+# not to shorten this comment.
+/splash/*
+  Cache-Control: public, max-age=86400
+
+# A MIDDLE TTL, AND THE ONLY RULE HERE THAT DELIBERATELY MATCHES NEITHER
+# PRODUCTION NOR THE DEFAULT (wordle-teams-v917, the owner's call 2026-09-04).
+#
+# Production sends `public, immutable, no-transform, max-age=31536000` — but it
+# has that because Next set it, not because anyone chose it. An immutable
+# manifest freezes the app NAME, THEME COLOUR, ICONS and START_URL for a year in
+# any browser that fetched it, and all four are things this project is about to
+# change:
+#
+#   - wordle-teams-c0f (PWA launch screen, post-v2 roadmap) is likely to edit
+#     manifest fields. Freezing them for a year immediately beforehand is the
+#     wrong order.
+#   - start_url CHANGES AT CUTOVER. Production's manifest says `/me` and v2's
+#     says `/app`. An immutable copy would keep the cutover's own manifest
+#     change invisible to a pre-cutover visitor for up to a year.
+#   - The manifest only became load-bearing recently: __root.tsx started LINKING
+#     it during this phase, so before that no browser had reason to fetch it and
+#     the app was not installable at all. The blast radius is larger now than
+#     the header's age suggests.
+#
+# The Workers Assets default (`max-age=0, must-revalidate`) is also defensible —
+# a 304 on a small file is nearly free — but it is EQUALLY a divergence from
+# production, so it buys no simplification. An hour is what the file actually
+# wants: it changes rarely, and it must be able to change.
+/manifest.json
+  Cache-Control: public, max-age=3600

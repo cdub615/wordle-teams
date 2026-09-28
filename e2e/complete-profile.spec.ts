@@ -1,0 +1,204 @@
+import { expect, test } from '@playwright/test'
+import { signIn } from './sign-in'
+import { completeProfile } from './complete-profile'
+
+/**
+ * THE CEILING FOR "THE DASHBOARD HAS FINISHED ARRIVING", and for nothing else
+ * (wordle-teams-usgy).
+ *
+ * The onboarding card is gated on onboarding.getStatus resolving, so until it
+ * does the heading exists nowhere and this locator is indistinguishable from a
+ * dashboard that rendered the wrong thing. Each of the three uses below sits
+ * immediately after a navigation or a reload, which means one assertion is
+ * absorbing the hop, the route's pending state, the auth handshake and a
+ * reactive query at the suite's strict 5s ceiling. It failed exactly there on a
+ * full local run at two workers, sitting on `/app` with no heading.
+ *
+ * Every assertion that follows one keeps the default. What the card OFFERS,
+ * once it is on screen, is a render away — and the tasks it lists are the whole
+ * subject of this file, so those must stay strict.
+ */
+const DASHBOARD_READY = { timeout: 20_000 }
+
+
+/**
+ * Onboarding, end to end (wt-ksh.5.18).
+ *
+ * THIS FILE EXISTS BECAUSE THE UNIT SUITE CANNOT REACH THIS CODE AT ALL
+ * (wordle-teams-obw): convex-test cannot stand up a Better Auth session, so the
+ * body of every authed query and mutation wrapper — `needsProfile` included —
+ * is unreachable there, and `needsProfile` is the one whose inversion is
+ * catastrophic rather than merely wrong. Inverted, it is either an infinite
+ * redirect to a form the user has already filled in, or an onboarding form
+ * nobody with an incomplete profile ever sees. Nothing else in the repo catches
+ * that. Driving a brand-new address through the real route exercises the
+ * predicate in BOTH directions against a real deployment, which is the whole
+ * point — obw explicitly rules out "fixing" this by extracting a
+ * `needsProfileFor` helper for a single row-existence check.
+ *
+ * Every account here is created by signIn() and never seeded, which is what
+ * makes it a cold signup: e2eSeed's helpers exist precisely because a fresh
+ * sign-in has no players row at all.
+ */
+
+test('a cold signup lands on /complete-profile and reaches the dashboard once named', async ({
+  page,
+}) => {
+  await signIn(page)
+
+  // DIRECTION ONE — needsProfile true. Before Task 6 this account reached the
+  // dashboard instead: getMyTeams returns [] for a playerless caller rather
+  // than throwing, so the no-team branch rendered, and the only call to action
+  // on it failed with NO_PLAYER (wt-ksh.5.1).
+  await expect(page).toHaveURL('/complete-profile')
+  await expect(page.getByRole('heading', { name: /complete your profile/i })).toBeVisible()
+
+  await completeProfile(page, { lastName: 'Onboarder' })
+
+  // DIRECTION TWO — needsProfile false, which is the half that cannot be
+  // asserted anywhere else. The dashboard's own beforeLoad re-reads the
+  // predicate on this hop, so arriving here at all proves the mutation flipped
+  // it; the onboarding card proves the page rendered through rather than dying
+  // on NO_PLAYER.
+  await expect(page).toHaveURL('/app')
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible(
+    DASHBOARD_READY,
+  )
+
+  // THE TWO TASKS A PLAYER WITH NOTHING ACTUALLY OWES, AND THE ONE THEY MUST
+  // NOT BE OFFERED. "Invite someone" shipped here briefly and was a dead end:
+  // with no team it navigated to /team, which redirects a team-less player
+  // straight back to /app, having emitted a funnel click that could never
+  // convert. incompleteTasks now gates it on hasTeam. Asserted in a real
+  // browser as well as in the unit and jsdom suites because this is the screen
+  // wordle-teams-456 is about, and the failure was invisible to every gate.
+  await expect(page.getByRole('button', { name: /Enter today's board/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Create a team/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Invite someone/ })).toBeHidden()
+
+  // AND STAYS. A cached `true` surviving the hop would bounce the user back to
+  // the form they just completed — the loop obw warns about — and would do it
+  // slightly after arrival, so this reloads rather than merely re-reading the
+  // URL a moment later.
+  await page.reload()
+  await expect(page).toHaveURL('/app')
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible(
+    DASHBOARD_READY,
+  )
+
+  // The guard runs the other way too: with a player, the form is unreachable.
+  await page.goto('/complete-profile')
+  await expect(page).toHaveURL('/app')
+})
+
+test('a name of only whitespace is refused locally, with an error and no navigation', async ({
+  page,
+}) => {
+  await signIn(page)
+  await expect(page).toHaveURL('/complete-profile')
+
+  // Submit is gated on HYDRATION ALONE, never on the content of the fields —
+  // a content-gated `disabled` takes the button out of the focus order, kills
+  // Enter and hover, and explains nothing. Empty fields must still leave a
+  // live button.
+  await expect(page.getByRole('button', { name: 'Submit' })).toBeEnabled()
+
+  // OFFLINE ON PURPOSE, and it is what gives this test teeth. Whitespace
+  // satisfies the fields' `required` but not isCompleteName, and the server
+  // rejects the same input with the same INVALID_NAME copy — so a run with the
+  // network up cannot tell a local rejection from a round trip, and deleting
+  // the client-side check would leave this test green. With no network, only
+  // the local check can produce the message at all.
+  await page.context().setOffline(true)
+  try {
+    await page.getByLabel('First Name').fill('   ')
+    await page.getByLabel('Last Name').fill('   ')
+    await page.getByRole('button', { name: 'Submit' }).click()
+
+    await expect(page.getByRole('alert')).toHaveText('Enter both a first and a last name.')
+    await expect(page).toHaveURL('/complete-profile')
+  } finally {
+    await page.context().setOffline(false)
+  }
+
+  // THIS TEST DELIBERATELY STOPS HERE, AND MUST NOT SUBMIT AGAIN.
+  //
+  // setOffline(false) restores the network but NOT the Convex client's auth
+  // token: a submit after this point reaches the server unauthenticated and
+  // completeProfile throws `Unauthenticated` from getAuthUser. Because that is a
+  // bare ConvexError rather than accessError('UNAUTHENTICATED'), the page shows
+  // its generic fallback, which is why the failure reads as a mystery rather
+  // than as a session problem.
+  //
+  // The window is short, not permanent. Frame capture shows the client sending
+  // `Authenticate tokenType:"None"` on reconnect and a real `tokenType:"User"`
+  // about 200ms later, so a mutation is only rejected if it lands inside that
+  // gap — which is why the failure was ~1 run in 5 under parallel load rather
+  // than deterministic. The client recovers; this test simply has no reason to
+  // gamble on winning the race.
+  //
+  // One earlier attempt read it as a slow websocket reconnect and gave the
+  // assertion a 15s timeout, which only delays the same rejection. Named here so
+  // nobody tries a third variation on a timeout.
+})
+
+test('a one-character first and last name saves without bouncing back', async ({ page }) => {
+  // v1's own latent bug, asserted so v2 cannot reacquire it: v1 saved any
+  // non-empty name but guarded its /complete-profile redirect on `length > 1`,
+  // so a one-character name saved and then redirected to the form forever. v2
+  // has no second opinion — needsProfile checks for a ROW.
+  await signIn(page)
+  await expect(page).toHaveURL('/complete-profile')
+
+  // NON-STICKINESS OF THE ALERT IS NOT PINNED HERE, OR ANYWHERE — see
+  // wordle-teams-ckx. A reject-then-correct block used to sit here, claiming to
+  // prove it. It did not: deleting `setError(null)` from the route leaves all
+  // four of these tests green. The claim was also impossible as written, because
+  // the page unmounts on `navigate({ to: '/app' })`, so the error state is
+  // destroyed whether or not it was cleared — the only observable window is
+  // between the click and the navigation, and nothing asserts there.
+  await completeProfile(page, { firstName: 'A', lastName: 'B' })
+
+  await expect(page).toHaveURL('/app')
+  await expect(page.getByRole('heading', { name: 'Get started', exact: true })).toBeVisible(
+    DASHBOARD_READY,
+  )
+  await page.reload()
+  await expect(page).toHaveURL('/app')
+})
+
+test('without JavaScript the form cannot be submitted before it is interactive', async ({
+  page,
+  browser,
+}) => {
+  // `!hydrated` is the ONLY thing that disables Submit now, which makes it
+  // load-bearing rather than incidental: with JavaScript off the page still
+  // renders — it is server-rendered — and that is exactly the state a real user
+  // sees for the moments before hydration. A click then fires a native GET that
+  // carries nothing and reads as a broken app, on the screen that creates the
+  // account. Directly analogous to login.spec.ts's assertion of the same
+  // guarantee (wt-ksh.2.2).
+  //
+  // The session has to be minted with JavaScript ON — the OTP flow is a React
+  // form — so this hands the signed-in cookies to a second, script-free context
+  // rather than declaring `javaScriptEnabled: false` for the whole test. That
+  // also means baseURL has to be passed explicitly: a context built by hand
+  // does not inherit playwright.config.ts's `use`.
+  await signIn(page)
+  await expect(page).toHaveURL('/complete-profile')
+  const storageState = await page.context().storageState()
+
+  const scriptless = await browser.newContext({
+    javaScriptEnabled: false,
+    storageState,
+    baseURL: 'http://localhost:3000',
+  })
+  try {
+    const bare = await scriptless.newPage()
+    await bare.goto('/complete-profile')
+    await expect(bare.getByRole('heading', { name: /complete your profile/i })).toBeVisible()
+    await expect(bare.getByRole('button', { name: 'Submit' })).toBeDisabled()
+  } finally {
+    await scriptless.close()
+  }
+})

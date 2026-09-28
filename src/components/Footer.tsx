@@ -1,0 +1,118 @@
+import { Link } from '@tanstack/react-router'
+
+/**
+ * Ported from v1's src/components/home/footer.tsx.
+ *
+ * THE LEGAL LINKS ARE BACK. They were omitted from Phase 0 through Phase 7
+ * Task 4 because /privacy and /terms had no route in v2 and a footer full of
+ * 404s is worse than a shorter footer; Task 5 landed both routes, so the
+ * omission — and the comment recording it — are gone.
+ *
+ * ONE COPYRIGHT ROW, NOT TWO. v1's bottom row is a bare "Wordle Teams" span
+ * opposite the two links; v2's already carried `© {year} Wordle Teams` on its
+ * own line. Merging them keeps v1's layout (identity left, legal right) without
+ * printing the name twice.
+ *
+ * "SOURCE CODE" DOES NOT POINT WHERE v1 POINTS IT, and that is the one link
+ * here that is deliberately not a faithful port. v1's own footer links
+ * github.com/cdub615/wordleteams, which 404s — the repository is
+ * cdub615/wordle-teams, with the hyphen, which is what v1's OWN About page
+ * links (src/components/about.tsx) and what this file now links too
+ * (wordle-teams-xmk, measured: 404 against the first, 200 against the second).
+ * It matters more in v2 than it did in v1: v1 imports its footer only from the
+ * home component, so the dead link sat on one page, while __root.tsx renders
+ * this under every route. Recorded in §7a of
+ * docs/design-system/V2-ADDENDUM.md so the parity audit does not read the
+ * difference as a regression.
+ *
+ * EVERY LABEL/TARGET PAIR BELOW IS PINNED, both the `<Link>`s and the `<a>`s,
+ * by *"the footer sends each label to the destination it names"* in
+ * src/routes.test.ts. It is worth saying why that test grew: it existed, it was
+ * exhaustive, and it read `<Link to=` only — so it was structurally incapable
+ * of seeing the class of link the dead URL was in. A one-character error
+ * survived a whole parity phase inside a file that had a test.
+ */
+export default function Footer() {
+  /**
+   * THE BUILD'S YEAR, NOT THE CLOCK'S (wordle-teams-56ag). This was
+   * `new Date().getFullYear()`, read during render — and __root.tsx renders this
+   * component on every path `hidesSiteFooter` does not exclude, which is every
+   * document in cache-policy.ts's STATIC_DOCUMENTS.
+   *
+   * THE BUG WAS THE HYDRATION MISMATCH, not the staleness. The clock was read
+   * during SSR and AGAIN during hydration, so a load that straddles midnight on
+   * 31 December gets a different year on each side — a React #418 in production,
+   * on every static page at once. It is the same hazard today-panel.tsx and
+   * scores-table.tsx are built around. A `define` is a single text substitution,
+   * so both passes see one literal and there is nothing left to disagree about.
+   *
+   * IT ALSO RETIRES THE EDGE-STALENESS CASE, which was never worth fixing on its
+   * own: those documents carry s-maxage=86400 plus a week of
+   * stale-while-revalidate, so a copy rendered on 31 December could be served
+   * into January showing the old year. It said less than the truth by one year in
+   * a copyright line and misled nobody.
+   *
+   * WHY NOT THE OTHER TWO FIXES. Rendering no year at all is cheaper still and
+   * reads no clock, but it changes shipped copy to fix an engineering problem.
+   * `useHydrated`, which is what today-panel.tsx uses, is correct and is a
+   * subscription plus a re-render for a copyright line. A build constant keeps
+   * the year, matches __SENTRY_RELEASE__'s existing mechanism, and adds no
+   * runtime machinery.
+   *
+   * THE COST, STATED: the year is frozen at BUILD time, so a deployment left
+   * untouched across a New Year shows the previous year until it is rebuilt. That
+   * is the same one-year-understated copyright line the edge cache could already
+   * produce, now deterministic rather than a mismatch.
+   */
+  const year = __BUILD_YEAR__
+
+  return (
+    // `px-4` OFF THE FOOTER ELEMENT for the same reason it came off the header:
+    // the inner band below carries the gutter, so this was a second one stacked
+    // on the first. The element still spans full width for its top border.
+    // `pb-[max(3.5rem,env(safe-area-inset-bottom))]` REPLACES `pb-14`
+    // (wordle-teams-8h2p). Nothing here is positioned, but under
+    // `viewport-fit=cover` the END of the document is the physical bottom edge
+    // of the screen, and this is the last element in it on every route that
+    // keeps the footer — so the bottom of the legal row is where the home
+    // indicator gets drawn.
+    //
+    // `max()`, not `+`, and here that IS the right shape: 3.5rem is an
+    // existing spacing value this declaration REPLACES rather than adds to.
+    // 56px already exceeds the 34px inset of every portrait iPhone, so on
+    // today's hardware this evaluates to exactly the `pb-14` it replaces and
+    // the footer does not move; it only grows if a device ever reports more.
+    // Written out rather than left as `pb-14` so the guarantee is in the code
+    // instead of in a fact about current hardware.
+    <footer className="mt-20 border-t border-line-subtle pb-[max(3.5rem,env(safe-area-inset-bottom))] pt-10 text-sm text-muted-foreground">
+      {/*
+        `page-max`, THE SAME BAND THE HEADER AND THE DASHBOARD USE. All three
+        share one rule — cap, centring and a gutter that tracks the grid's gap,
+        all of it in styles.css — so they line up at every width rather than
+        only above the cap. See Header.tsx for the measurements that showed
+        page-wrap and page-max disagreeing below ~1472.
+      */}
+      <div className="page-max flex flex-col gap-8">
+        <div className="flex flex-wrap gap-x-24 gap-y-6">
+          <div className="flex flex-col gap-2">
+            <a href="https://feedback.wordleteams.com/feedback">Feedback</a>
+            <a href="https://feedback.wordleteams.com/changelog">Changelog</a>
+            <a href="mailto:support@wordleteams.com">Support</a>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Link to="/about">About</Link>
+            <a href="https://github.com/cdub615/wordle-teams">Source Code</a>
+            <a href="https://twitter.com/wordleteams">X</a>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-xs">
+          <p className="m-0">&copy; {year} Wordle Teams</p>
+          <div className="flex gap-6">
+            <Link to="/privacy">Privacy Policy</Link>
+            <Link to="/terms">Terms</Link>
+          </div>
+        </div>
+      </div>
+    </footer>
+  )
+}

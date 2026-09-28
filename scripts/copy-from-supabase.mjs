@@ -1,0 +1,538 @@
+#!/usr/bin/env node
+/**
+ * Copies real data out of Supabase into Convex. Read-only against Supabase.
+ *
+ * This is not a one-shot. It runs for the owner's teams now, for everyone at the
+ * Phase 7 parity audit, and once more inside the cutover window — so every write
+ * is an upsert keyed on the Supabase primary key, and running it twice must be
+ * indistinguishable from running it once.
+ *
+ *   node --env-file=../.env.production.local scripts/copy-from-supabase.mjs --scope=mine --dry-run
+ *
+ * Required environment:
+ *   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY   (or PROD_URL / PROD_KEY)
+ *   CONVEX_URL                                             the target deployment
+ *   CONVEX_MIGRATION_KEY                                   admin auth for internal functions
+ *   ME_EMAIL                                               only for --scope=mine
+ *
+ * The migration key is deliberately NOT the everyday deploy key. It needs
+ * deployment:functions:runInternalMutations and :runInternalQueries — the power
+ * to rewrite every table — which the day-to-day key has no business carrying.
+ * Keep it until cutover, since this script runs again at the Phase 7 parity
+ * audit and inside the cutover window, then revoke it in Phase 9.
+ *
+ * Scope:
+ *   --scope=mine  (default) teams ME_EMAIL belongs to, and everyone in them.
+ *   --scope=all             every team and player.
+ *
+ * Reminders:
+ *   --with-reminders        carry the reminder settings across. CUTOVER ONLY.
+ *
+ * REMINDER SETTINGS ARE HELD BACK BY DEFAULT (wt-ksh.7.32), and that default is
+ * a decision, not an oversight: a re-copy must not be able to switch reminders
+ * on for someone who does not know this beta exists and who already gets real
+ * reminders from v1. Two of the five reminder fields are withheld, three still
+ * cross, and one of those three SUPPRESSES a send rather than enabling one.
+ * lib/copy-reminder-policy.mjs holds the ranking and the tests.
+ *
+ * So beta legitimately differs from production on reminder_delivery_methods and
+ * time_zone until cutover. That is an EXPECTED §7a divergence. The cutover
+ * runbook restores it by running the final copy with --with-reminders, and that
+ * single step is the whole restoration.
+ *
+ * NOT EVERY ROW IN SCOPE IS COPIED, since Phase 4. Nameless players and teams
+ * left with no members are skipped — see lib/copy-filters.mjs for both rules and
+ * why they are safe. The run summary reports both counts.
+ *
+ * verify-parity.mjs KNOWS ABOUT THIS, as of wt-ksh.13.7. It narrows its own
+ * scoped read through lib/verify-filters.mjs — which calls the same
+ * selectCopyable, so the two cannot drift — and prints what it left out. Changing
+ * either rule below therefore changes what the verifier expects, in the same
+ * commit, which is the point of them sharing one implementation.
+ *
+ * PRINTS COUNTS, NEVER ADDRESSES. This repository is public.
+ */
+import { fileURLToPath } from 'node:url'
+import { ConvexHttpClient } from 'convex/browser'
+import { internal } from '../convex/_generated/api.js'
+import { connect, readScoped, puzzleDayFor } from './lib/supabase-scope.mjs'
+import { explainTeamMemberDrops, selectCopyable } from './lib/copy-filters.mjs'
+import { reminderFieldsFor } from './lib/copy-reminder-policy.mjs'
+import { readCounts } from './lib/count-tables.mjs'
+import { describeCopyTarget, environmentsFromWranglerConfig } from './lib/copy-target.mjs'
+import {
+  formatClobberReport,
+  formatInsertReport,
+  formatTally,
+  mergeTally,
+} from './lib/copy-tallies.mjs'
+
+const args = process.argv.slice(2)
+const has = (flag) => args.includes(flag)
+const scope = (args.find((a) => a.startsWith('--scope=')) ?? '--scope=mine').split('=')[1]
+const dryRun = has('--dry-run')
+
+/*
+  ACKNOWLEDGES A TARGET wrangler.jsonc DOES NOT DECLARE (wordle-teams-qjh3.12).
+  Needed only for an UNRECOGNISED deployment; the declared environments and a
+  local backend proceed without it, so the runbook's commands are unchanged. It
+  exists so that "I am writing to a deployment this repository has never heard of"
+  has to be said out loud rather than discovered afterwards.
+*/
+const acknowledgedTarget = has('--i-know-this-target')
+
+/**
+ * THE CUTOVER FLAG (wt-ksh.7.32). Off by default, and that default is the whole
+ * protection: reminder settings arrive at cutover, not before, so a Phase 7
+ * re-copy cannot switch reminders on for someone who does not know this beta
+ * exists and who already gets real reminders from v1.
+ *
+ * The cutover runbook (wt-ksh.8.43) runs the FINAL copy with --with-reminders,
+ * and that one step is the entire restoration. Until then, beta legitimately
+ * differs from production on reminder_delivery_methods and time_zone, which is
+ * an EXPECTED §7a divergence rather than a defect.
+ *
+ * See lib/copy-reminder-policy.mjs: three of the five fields cross either way,
+ * and one of those three suppresses a send rather than enabling one.
+ */
+const withReminders = has('--with-reminders')
+
+if (!['mine', 'all'].includes(scope)) {
+  console.error(`Unknown --scope=${scope}. Use 'mine' or 'all'.`)
+  process.exit(1)
+}
+
+const CONVEX_URL = process.env.CONVEX_URL
+const CONVEX_MIGRATION_KEY = process.env.CONVEX_MIGRATION_KEY
+const ME = (process.env.ME_EMAIL || '').toLowerCase()
+
+if (scope === 'mine' && !ME) {
+  console.error('Set ME_EMAIL for --scope=mine. Kept out of source: this repo is public.')
+  process.exit(1)
+}
+if (!dryRun && (!CONVEX_URL || !CONVEX_MIGRATION_KEY)) {
+  console.error('Set CONVEX_URL and CONVEX_MIGRATION_KEY, or pass --dry-run.')
+  process.exit(1)
+}
+
+const supabase = connect()
+
+const ms = (t) => (t ? new Date(t).getTime() : undefined)
+const opt = (s) => (s === null || s === undefined || s === '' ? undefined : s)
+
+// Announced on every run, in both directions. A silent default is how a
+// cutover-only flag ends up either forgotten at cutover or set by accident
+// before it — and this one decides whether real people start getting reminders
+// from a deployment they have never heard of.
+console.log(
+  withReminders
+    ? '\nREMINDER SETTINGS: CARRIED (--with-reminders). This is a CUTOVER-ONLY mode.'
+    : '\nReminder settings: held back (wt-ksh.7.32). Pass --with-reminders at cutover.',
+)
+console.log(`Reading Supabase (scope=${scope})...`)
+const src = await readScoped(supabase, scope, ME)
+const {
+  players: scopedPlayers,
+  teams: scopedTeams,
+  scores: scopedScores,
+  winners: scopedWinners,
+  memberships: scopedMemberships,
+  webhooks: scopedWebhooks,
+  totals,
+} = src
+
+console.log('\nIn scope:')
+console.log(`  players          ${scopedPlayers.length} of ${totals.players}`)
+console.log(`  teams            ${scopedTeams.length} of ${totals.teams}`)
+console.log(`  dailyScores      ${scopedScores.length} of ${totals.dailyScores}`)
+console.log(`  monthlyWinners   ${scopedWinners.length} of ${totals.monthlyWinners}`)
+console.log(`  playerMembership ${scopedMemberships.length} of ${totals.playerMembership}`)
+console.log(`  webhookEvents    ${scopedWebhooks.length} of ${totals.webhookEvents}`)
+
+// --- exclusions ---------------------------------------------------------------
+
+// SINCE PHASE 4, NOT EVERY SCOPED ROW IS COPIED. players.firstName/lastName are
+// required now, so a nameless player is a row the schema cannot hold, and a team
+// left with none of its members is a row nobody could reach. See
+// lib/copy-filters.mjs for both rules and the evidence they are safe to apply.
+//
+// Reported unconditionally, zero included: a zero is the statement that the
+// filters ran and found nothing, rather than silence that could equally mean
+// they never ran. Counts only — this repository is public.
+//
+// Only players and teams are narrowed here. Scores, winners, memberships and
+// webhooks belonging to a skipped player or team need no filter of their own:
+// each upsert mutation resolves its parent by legacyId first and counts the row
+// into its `skipped` tally when the parent is not there. Deliberately left to
+// them, so that one mechanism reports every orphan — including the ones a scoped
+// copy produces, which have nothing to do with these two rules.
+//
+// verify-parity.mjs additionally narrows MEMBERSHIPS by player, because it has
+// to predict the row count upsertMemberships will produce rather than merely
+// report what it skipped. That narrowing lives in lib/verify-filters.mjs and is
+// not wanted here: nothing in this script would read it.
+const copyable = selectCopyable(scopedPlayers, scopedTeams)
+console.log('\nSkipped (not copied):')
+console.log(`  nameless players ${copyable.skippedPlayers} of ${scopedPlayers.length} in scope`)
+console.log(`  memberless teams ${copyable.skippedTeams} of ${scopedTeams.length} in scope`)
+
+// How many invited addresses production stores in a form that would never have
+// matched. Reported because it quantifies the v1 bug this copy silently repairs.
+// Counted over the teams that will actually be written, not every scoped team —
+// an invite on a team the copy is skipping is not going to be normalised, and
+// claiming otherwise would overstate the repair.
+const mixedCaseInvites = copyable.teams
+  .flatMap((t) => t.invited || [])
+  .filter((e) => e !== e.toLowerCase()).length
+if (mixedCaseInvites > 0) {
+  console.log(`\n  ${mixedCaseInvites} invited address(es) are mixed-case and will be normalised.`)
+}
+
+// --- shaping -----------------------------------------------------------------
+
+const playerRows = copyable.players.map((p) => ({
+  legacyId: p.id,
+  email: (p.email || '').toLowerCase(),
+  // Still through opt(), even though selectCopyable has already guaranteed both
+  // are truthy. opt('') is undefined, which migrate.ts's now-required firstName
+  // rejects by name; a bare `p.first_name` would hand an empty string to a
+  // v.string() that accepts it, and an empty-string name is exactly the state
+  // this whole change exists to make unrepresentable. If the filter ever
+  // regresses, this is what makes it fail loudly instead of quietly.
+  firstName: opt(p.first_name),
+  lastName: opt(p.last_name),
+  // THE FIVE REMINDER FIELDS GO THROUGH A POLICY, NOT STRAIGHT ACROSS
+  // (wt-ksh.7.32). Before cutover two of them are held back, because together
+  // they decide whether reminder delivery picks a player up, and beta holds
+  // copied production rows belonging to people who do not know this beta exists
+  // and who already get real reminders from v1. The other three still cross —
+  // one of them SUPPRESSES a send and would make things worse if withheld.
+  // lib/copy-reminder-policy.mjs has the ranking, both halves of the omission,
+  // and the tests.
+  ...reminderFieldsFor(
+    {
+      hasPwa: !!p.has_pwa,
+      timeZone: opt(p.time_zone),
+      reminderDeliveryMethods: p.reminder_delivery_methods || [],
+      reminderDeliveryTime: p.reminder_delivery_time,
+      lastBoardEntryReminder: ms(p.last_board_entry_reminder),
+    },
+    { includeReminderSettings: withReminders },
+  ),
+  createdAt: ms(p.created_at),
+}))
+
+const teamRows = copyable.teams.map((t) => ({
+  legacyId: t.id,
+  name: t.name,
+  creatorLegacyId: opt(t.creator),
+  playerLegacyIds: t.player_ids || [],
+  invited: (t.invited || []).map((e) => e.toLowerCase()),
+  oneGuess: t.one_guess,
+  twoGuesses: t.two_guesses,
+  threeGuesses: t.three_guesses,
+  fourGuesses: t.four_guesses,
+  fiveGuesses: t.five_guesses,
+  sixGuesses: t.six_guesses,
+  failed: t.failed,
+  nA: t.n_a,
+  playWeekends: !!t.play_weekends,
+  showLetters: !!t.show_letters,
+  createdAt: ms(t.created_at),
+}))
+
+// scopedPlayers, NOT copyable.players, and that is load-bearing: the map is read
+// once per SCOPED score below, including any owned by a player this run is
+// skipping. Narrowing it would silently fall back to HOME_TZ for those rows and
+// compute a puzzleDay in the wrong timezone. (verify-parity.mjs builds the same
+// map from its narrowed list, which is safe there because it only ever looks up
+// players it is already iterating.)
+const tzByPlayerId = new Map(scopedPlayers.map((p) => [p.id, p.time_zone]))
+
+const scoreRows = scopedScores.map((s) => ({
+  legacyId: s.id,
+  playerLegacyId: s.player_id,
+  puzzleDay: puzzleDayFor(s.date, tzByPlayerId.get(s.player_id)),
+  date: ms(s.date),
+  guesses: s.guesses || [],
+  answer: opt(s.answer),
+  createdAt: ms(s.created_at),
+}))
+
+// How many rows the backfill rule places on a different day than a naive UTC
+// read would. Reported because it is the size of the bug being repaired, and
+// because a sudden change in this number means the rule or the data moved.
+const utcDay = (iso) =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(iso))
+const movedByBackfill = scopedScores.filter(
+  (s) => puzzleDayFor(s.date, tzByPlayerId.get(s.player_id)) !== utcDay(s.date),
+).length
+console.log(
+  `\n  puzzleDay backfill: ${movedByBackfill} of ${scopedScores.length} rows resolve to a different day in the player's own timezone than in UTC.`,
+)
+
+const winnerRows = scopedWinners.map((w) => ({
+  legacyId: w.id,
+  playerLegacyId: w.player_id,
+  teamLegacyId: w.team_id,
+  year: w.year,
+  month: w.month,
+  hasSeenCelebrationLegacyIds: w.has_seen_celebration || [],
+}))
+
+const membershipRows = scopedMemberships.map((m) => ({
+  legacyId: m.id,
+  playerLegacyId: m.player_id,
+  membershipStatus: m.membership_status,
+}))
+
+const webhookRows = scopedWebhooks.map((w) => ({
+  legacyId: w.id,
+  webhookId: opt(w.webhook_id),
+  playerLegacyId: w.player_id,
+  eventName: w.event_name,
+  body: w.body,
+  processed: !!w.processed,
+  processingError: opt(w.processing_error),
+  createdAt: ms(w.created_at),
+}))
+
+if (dryRun) {
+  console.log('\n--dry-run: nothing written.')
+  process.exit(0)
+}
+
+// --- writing -----------------------------------------------------------------
+
+/*
+  THE TARGET, ANNOUNCED BEFORE A SINGLE ROW IS WRITTEN (wordle-teams-qjh3.12).
+
+  docs/runbooks/2026-cutover.md's section 0 is a rule: read a sentinel first, in
+  every shell, because there are two silent ways to address the wrong machine.
+  With THREE deployments now in play -- local, dev, and the one that becomes
+  production -- that rule is doing more work than it used to, and a rule is a
+  thing an operator follows at 6am with DNS waiting. This is the same rule as a
+  mechanism.
+
+  IT RESOLVES AGAINST wrangler.jsonc, so the deployment-to-environment mapping
+  has one home rather than a copy kept here.
+
+  A FAILURE TO IDENTIFY THE TARGET DOES NOT STOP THE COPY, and that is deliberate:
+  the same principle the insert report already follows -- a report about the copy
+  must not be able to kill the copy. An unreadable config degrades to 'unknown',
+  which asks for an acknowledgement rather than throwing.
+*/
+let environments = []
+try {
+  const { experimental_readRawConfig } = await import('wrangler')
+  const { rawConfig } = experimental_readRawConfig({
+    config: fileURLToPath(new URL('../wrangler.jsonc', import.meta.url)),
+  })
+  environments = environmentsFromWranglerConfig(rawConfig)
+} catch (error) {
+  console.warn(`Could not read wrangler.jsonc to identify the target: ${error.message}`)
+}
+
+const target = describeCopyTarget(CONVEX_URL, environments)
+console.log('')
+console.log('='.repeat(78))
+console.log(`  WRITING TO: ${target.label}`)
+console.log('='.repeat(78))
+
+if (target.kind === 'unknown' && !acknowledgedTarget) {
+  console.error('')
+  console.error('REFUSING TO WRITE. The target is not a deployment wrangler.jsonc declares,')
+  console.error('so nothing here can tell you whether it is dev, production, or something')
+  console.error('else entirely. Check CONVEX_URL against the deployment you meant.')
+  console.error('')
+  console.error('If it IS right -- a deployment this repo does not declare -- say so:')
+  console.error('  --i-know-this-target')
+  process.exit(1)
+}
+
+const convex = new ConvexHttpClient(CONVEX_URL)
+convex.setAdminAuth(CONVEX_MIGRATION_KEY)
+
+// Convex bounds how much a single mutation may write, so batch. Small enough to
+// stay well inside the limit even for the widest rows (webhook bodies).
+const CHUNK = 200
+
+async function writeAll(label, fn, rows) {
+  // Named `tallies`, not `totals`: `totals` is already the Supabase row counts
+  // destructured above, and shadowing it here would be quietly confusing.
+  const tallies = {}
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    // The adding-up lives in scripts/lib/copy-tallies.mjs, and is tested there:
+    // this script runs against a live deployment at module scope, so nothing
+    // written inline here can be executed by a test. It is not bookkeeping any
+    // more either — three of these mutations now return a nested `clobbered`
+    // record (wt-ksh.13), and getting the merge wrong prints garbage instead of
+    // reporting an overwrite.
+    mergeTally(tallies, await convex.mutation(fn, { rows: rows.slice(i, i + CHUNK) }))
+  }
+  // formatTally prints the flat counters only. The `clobbered` records the three
+  // diffing mutations return are held back for the block after all six writes.
+  console.log(`  ${label.padEnd(17)} ${formatTally(tallies)}`)
+  return tallies
+}
+
+// THE TEAM FILTER HAS NO SECOND GATE, so it gets one here.
+//
+// A nameless PLAYER that slipped past selectCopyable would still be refused at
+// the boundary — migrate.ts's playerInput requires firstName/lastName, so the
+// run fails loudly. A memberless TEAM has no such backstop: `playerIds: []` is a
+// perfectly valid teams document, so a regression that shaped these rows from
+// the unscoped list would silently copy 29 dead teams, at cutover, with nobody
+// watching a diff. Reverting either `.map` below to scopedPlayers/scopedTeams
+// passes every test, tsc and build — this assertion is what makes that visible.
+if (teamRows.length !== copyable.teams.length || playerRows.length !== copyable.players.length) {
+  console.error(
+    `\nRefusing: shaped ${playerRows.length} players / ${teamRows.length} teams, but the ` +
+      `filter selected ${copyable.players.length} / ${copyable.teams.length}. ` +
+      `The rows being written are not the rows that were selected.`,
+  )
+  process.exit(1)
+}
+
+// ORDER MATTERS, and this list is what pins it: teams reference players, and
+// everything else references both. Written sequentially, top to bottom.
+//
+// Each label is written ONCE, and is both what prints in the per-table line and
+// the key its tally is stored under, so the two cannot drift apart. The `teams`
+// lookup below is the one place that still names a table independently of this
+// list; the clobber report itself just reads whatever keys are here.
+const TABLES = [
+  ['players', internal.migrate.upsertPlayers, playerRows],
+  ['teams', internal.migrate.upsertTeams, teamRows],
+  ['dailyScores', internal.migrate.upsertDailyScores, scoreRows],
+  ['monthlyWinners', internal.migrate.upsertMonthlyWinners, winnerRows],
+  ['playerMembership', internal.migrate.upsertMemberships, membershipRows],
+  ['webhookEvents', internal.migrate.upsertWebhookEvents, webhookRows],
+]
+
+// THE DEPLOYMENT'S ROW COUNTS, READ BEFORE ANYTHING IS WRITTEN. This is the
+// trigger for the insert report at the bottom: a copy into a deployment that
+// already holds rows is a RE-RUN, and a re-run against unchanged v1 data should
+// insert nothing. Measured rather than flagged on purpose — a --expect-no-inserts
+// flag is a thing the operator forgets at the one moment it matters. Counts only,
+// no values. Not reached under --dry-run, which exits above.
+//
+// IT MUST NOT BE ABLE TO STOP THE COPY, which is what a bare top-level await
+// here would do. readCounts is not one call: it walks each of the six tables a
+// page at a time (lib/count-tables.mjs) — nine round trips at production's size,
+// four of them for daily scores and one each for the other five tables — and any
+// one of them can fail where a single query could only fail once. The same read
+// runs at the END of this
+// script, where a failure costs the closing summary of a copy that already
+// succeeded. In FRONT of the writes an unhandled failure costs the entire copy,
+// at cutover, to protect a report about it. So it degrades: the writes go ahead
+// and the insert check announces that it did not run, rather than the operator
+// reading its silence as a clean bill of health.
+//
+// It is also not a consistent snapshot — the pages are separate transactions —
+// which is fine precisely here: nothing else is writing to the deployment during
+// a copy, and this reads before the copy's own writes begin.
+let countsBefore = null
+try {
+  countsBefore = await readCounts(convex, internal)
+} catch (err) {
+  console.log(`\n  Could not read the deployment's row counts before writing: ${err.message}`)
+  console.log('  The copy continues. See the insert check below the write summary.')
+}
+
+console.log('\nWriting to Convex...')
+const talliesByTable = {}
+for (const [label, fn, rows] of TABLES) {
+  talliesByTable[label] = await writeAll(label, fn, rows)
+}
+
+/**
+ * DROPPED MEMBERSHIPS, ACCOUNTED FOR RATHER THAN MERELY COUNTED.
+ *
+ * The previous version of this note said "Expected with --scope=mine. It would
+ * be a real problem with --scope=all." That predated the skip filters and was
+ * measurably wrong: a real --scope=all run against beta dropped 6 and was told
+ * it had a real problem (wordle-teams-vlve). Under --scope=all the nameless
+ * filter alone accounts for them, because a member the copy did not write is a
+ * uuid upsertTeams cannot resolve.
+ *
+ * So the drops are predicted here from the same two rules that cause them, and
+ * only the REMAINDER is an alarm. A remainder means upsertTeams failed to
+ * resolve a uuid belonging to a player this copy did write, which is the one
+ * shape that would be a genuine fault — and which the old note could never have
+ * distinguished from the 151 routine ones.
+ */
+if (talliesByTable.teams.droppedMembers > 0) {
+  const explained = explainTeamMemberDrops(scopedPlayers, copyable)
+  const unexplained = talliesByTable.teams.droppedMembers - explained.total
+  const causes = [
+    explained.nameless > 0 ? `${explained.nameless} nameless` : null,
+    explained.outOfScope > 0 ? `${explained.outOfScope} out of scope` : null,
+  ].filter(Boolean)
+
+  console.log(
+    `\n  note: ${talliesByTable.teams.droppedMembers} team membership(s) were dropped; ` +
+      `${explained.total} accounted for (${causes.join(', ')}).`,
+  )
+  if (unexplained > 0) {
+    // THE ONLY LINE HERE THAT IS AN ALARM, and it is deliberately the only one
+    // phrased as one. Everything above is arithmetic the operator can check.
+    console.log(
+      `  PROBLEM: ${unexplained} dropped membership(s) are NOT explained by the ` +
+        'nameless filter or the scope. A member this copy DID write failed to resolve.',
+    )
+  }
+}
+
+// WHAT THIS COPY OVERWROTE — first of the run's two report blocks, and near the
+// end because it is what the person running this at cutover is watching for. The
+// insert block below it and the counts block are both short, so it stays on
+// screen. Rendered in lib/copy-tallies.mjs and tested there; loud when non-zero,
+// one line when zero. Counts only: this repository is public and the overwritten
+// fields include team names and invited addresses.
+console.log(`\n${formatClobberReport(talliesByTable)}`)
+
+// WHAT THIS COPY PUT BACK — a DETECTOR, not a fix, and the comment says so
+// because the block does. A row v2 DELETED leaves nothing for the block above to
+// diff against, so it returns counted as an insert, indistinguishable from a new
+// v1 row (wt-ksh.13.10). This cannot tell those two apart either. What it does is
+// make the insert VISIBLE on a re-run, which is the thing a diff-based report
+// structurally cannot do, and it covers all six tables where the clobber report
+// covers three. Silent on a first copy into an empty deployment, where every row
+// is an insert legitimately. Rendered and tested in lib/copy-tallies.mjs.
+//
+// PRINTED AFTER THE CLOBBER BLOCK, deliberately, as two separate frames with one
+// blank line between them. They share the `#` frame because the frame means
+// "stop and read" and a second border style would be a second alarm to learn;
+// each carries its own ALL-CAPS headline so neither reads as the other's footer.
+// This one goes last — closest to the counts, hardest to scroll past — because a
+// resurrected board or team rewrites scoring history where an overwritten name is
+// cosmetic, which is why 13.10 is P1. It also puts the pair on screen in the same
+// order as the cutover runbook's steps 1 and 2 (wt-ksh.9).
+//
+// `countsBefore` is null when the pre-write read failed above. That prints as an
+// explicit "did not run" line rather than as nothing, because nothing here is
+// the FIRST-COPY signal and would be read as an all-clear.
+const insertReport = formatInsertReport(talliesByTable, countsBefore)
+if (insertReport) console.log(`\n${insertReport}`)
+
+// GUARDED FOR EXACTLY THE REASON THE PRE-WRITE READ ABOVE IS, which this block
+// was left out of until review caught it. This is the same ~nine round trips,
+// and it runs AFTER every write has landed: an unhandled failure here would exit
+// the script non-zero over a cosmetic summary, telling the operator at cutover
+// that a copy which fully succeeded had failed. A copy that wrote everything and
+// then could not read it back is still a copy that wrote everything, and the
+// write summary above is the record of it.
+try {
+  const counts = await readCounts(convex, internal)
+  console.log('\nConvex now holds:')
+  for (const [table, n] of Object.entries(counts)) console.log(`  ${table.padEnd(17)} ${n}`)
+} catch (err) {
+  console.log(`\n  Could not read the closing row counts: ${err.message}`)
+  console.log('  THE COPY ITSELF SUCCEEDED — the write summary above is what to trust.')
+}

@@ -1,0 +1,305 @@
+import { ConvexError } from 'convex/values'
+import { SYSTEM_VALUE_MAX, SYSTEM_VALUE_MIN } from '../../convex/lib/scoringSystem.ts'
+import type { AccessCode } from '../../convex/access'
+
+/**
+ * The typed code behind a thrown ConvexError, or null for anything else.
+ *
+ * The parent design's error-handling contract is "mutations throw ConvexError
+ * with typed codes; UI maps codes to sonner toasts". Everything that is not one
+ * of ours — a dropped connection, a platform 5xx — returns null and gets the
+ * generic recovery message, which is the case that must never lose a board.
+ *
+ * THIS CHAIN MUST BE EXTENDED BY HAND EVERY TIME AccessCode GROWS, AND NO
+ * COMPILER WILL TELL YOU. `typedCodeMessage` below is exhaustive — its `default`
+ * assigns to a `never`, so a new member of the union stops the build until a case
+ * exists. This function is not, and cannot be: it narrows an arbitrary `string`
+ * from the wire, so its `||` chain is hand-written and its `return null` swallows
+ * anything it has not been told about. Miss a code here and the case you
+ * carefully wrote in `typedCodeMessage` is unreachable, every user sees the
+ * generic "Something went wrong" fallback instead, and lint, tsc and build all
+ * stay green while it happens.
+ *
+ * A TEST DOES TELL YOU, since wordle-teams-kusd. convex-error.test.ts parses the
+ * union out of convex/access.ts and asserts every member of it appears in this
+ * chain — textual, because the property lives in the shape of this function
+ * rather than in its types. That is the mechanism; this paragraph is only the
+ * explanation. If you are here because that test failed, add the `code === '…'`
+ * line, and write the copy in `typedCodeMessage` too.
+ */
+export function convexErrorCode(error: unknown): AccessCode | null {
+  if (!(error instanceof ConvexError)) return null
+  const data = error.data as { code?: string } | undefined
+  const code = data?.code
+  if (
+    code === 'UNAUTHENTICATED' ||
+    code === 'NO_PLAYER' ||
+    code === 'NOT_A_MEMBER' ||
+    code === 'INVALID_BOARD' ||
+    code === 'NOT_TEAM_OWNER' ||
+    code === 'INVALID_TEAM' ||
+    code === 'INVALID_DATE' ||
+    code === 'OWNER_NOT_REMOVABLE' ||
+    code === 'INVALID_SYSTEM' ||
+    code === 'INVALID_EMAIL' ||
+    code === 'INVALID_NAME' ||
+    code === 'INVALID_REMINDER_METHOD' ||
+    code === 'INVALID_REMINDER_TIME' ||
+    code === 'INVALID_TIME_ZONE' ||
+    code === 'INVALID_PUSH_ENDPOINT' ||
+    code === 'INVALID_MESSAGE' ||
+    code === 'RATE_LIMITED' ||
+    code === 'SCROLL_RATE_LIMITED' ||
+    code === 'INVITE_LINK_INVALID' ||
+    code === 'TEAM_LIMIT_REACHED' ||
+    code === 'MONTH_OUT_OF_WINDOW' ||
+    code === 'INVALID_AVATAR' ||
+    code === 'AVATAR_RATE_LIMITED' ||
+    code === 'INVALID_PUZZLE_DAY'
+  ) {
+    return code
+  }
+  return null
+}
+
+/**
+ * Copy for the typed codes, shared by every screen that surfaces a
+ * ConvexError. `boardErrorMessage` and `dashboardErrorMessage` below differ
+ * only in what they say when `error` is NOT one of these — that fallback
+ * depends on whether the user was submitting something or just loading a
+ * page, but the typed cases themselves don't.
+ *
+ * Exhaustive over AccessCode on purpose: if access.ts's AccessCode ever grows
+ * a member, the `default` branch's `never` assignment stops compiling —
+ * for BOTH callers below, since both delegate here — instead of silently
+ * routing the new code to a generic message. See the comment on AccessCode
+ * itself.
+ *
+ * EXPORTED for one caller that has no ConvexError to map: routes/complete-
+ * profile.tsx checks isCompleteName locally before it submits, and shows this
+ * exact string for INVALID_NAME. It reuses the copy rather than writing its own
+ * so a client-side rejection and the server's rejection of the same name cannot
+ * read differently. Reach for the three wrappers below in every other case —
+ * they are what turn an unknown failure into something useful.
+ */
+export function typedCodeMessage(code: AccessCode): string {
+  switch (code) {
+    case 'UNAUTHENTICATED':
+      return 'Your session expired. Please sign in again.'
+    case 'NO_PLAYER':
+      // NOT "your session expired", which is what this shared a case with until
+      // Phase 4. Their session is fine — they simply have no player record yet,
+      // and signing in again does not help. Before Phase 4 that was a dead end
+      // in the literal sense: a cold signup reached the dashboard, pressed the
+      // only call to action, and got a message describing the wrong problem,
+      // because nothing in v2 could create a player at all (wt-ksh.5.1).
+      return 'Finish setting up your profile to continue.'
+    case 'NOT_A_MEMBER':
+      return 'You are not on that team any more.'
+    case 'INVALID_BOARD':
+      return 'That board is not complete. Check the answer and your guesses.'
+    case 'NOT_TEAM_OWNER':
+      // SAYS "OWNER", NOT "THE PERSON WHO CREATED IT", and that is the whole
+      // point of the wording. It used to say "created", which was true only
+      // while every team's owner was also its creator. Phase 5's softened
+      // downgrade reassigns `owner` to the earliest-joined remaining member,
+      // so a team's owner is now routinely somebody who did not create it —
+      // and the old sentence would have told that person something false about
+      // themselves. Nothing would have caught it: these are string literals in
+      // a switch, so lint, tsc, build and the whole suite stay green while the
+      // copy lies. Keep any future rewording true of the OWNER FIELD alone.
+      return "Only this team's owner can change it."
+    case 'INVALID_TEAM':
+      return 'A team needs a name.'
+    case 'INVALID_DATE':
+      // Fires when the client's `today` is more than a day off the server
+      // clock — a wrong device clock or a hostile client, never a timezone
+      // difference. "Refresh and try again" would not fix a genuinely wrong
+      // clock, so this points at the actual cause instead.
+      return "Your device's clock looks off. Check your date and time settings and try again."
+    case 'OWNER_NOT_REMOVABLE':
+      // Says "owner" for the reason NOT_TEAM_OWNER above does.
+      return "This team's owner can't be removed as a member."
+    case 'INVALID_SYSTEM':
+      return `Points must be whole numbers between ${SYSTEM_VALUE_MIN} and ${SYSTEM_VALUE_MAX}.`
+    case 'INVALID_EMAIL':
+      // Thrown by invitePlayerFor and cancelInviteFor (convex/teams.ts) when
+      // normaliseInviteEmail rejects the submitted address. Deliberately
+      // permissive on the server — see EMAIL_SHAPE in convex/lib/invite.ts — so
+      // this fires on a typo, not on an unusual but valid address.
+      return 'That does not look like an email address.'
+    case 'INVALID_NAME':
+      // Says "both" because that is the only way to fail it: completeProfile
+      // trims each name and rejects when either side is empty.
+      return 'Enter both a first and a last name.'
+    case 'INVALID_REMINDER_METHOD':
+      // Thrown by updateReminderMethodsFor (convex/settings.ts) on TWO branches
+      // — an unrecognised method, and a recognised one repeated — so this has to
+      // be true of either. "Reminders can be sent by email or push
+      // notification." used to sit here, and was false on the duplicates
+      // branch: it describes a constraint ['email','email'] already satisfies.
+      // The NOT_TEAM_OWNER hazard applies here too: a literal in a switch, so
+      // every gate stays green while the copy lies about which branch fired.
+      return 'Choose email, push notification, or both.'
+    case 'INVALID_REMINDER_TIME':
+      return 'Pick a reminder time from the list.'
+    case 'INVALID_TIME_ZONE':
+      // NOT "that time zone is not one we recognise" — the user never typed or
+      // picked one. updateTimeZoneFor (convex/settings.ts) stores whatever
+      // Intl.DateTimeFormat().resolvedOptions().timeZone reports, so a rejection
+      // here means the BROWSER handed over something Intl itself cannot
+      // resolve, and telling the user their non-existent choice was wrong would
+      // be lying about the cause — the same reason INVALID_DATE points at the
+      // device clock instead of the input.
+      return "We could not read your device's time zone, so reminders can't be scheduled yet."
+    case 'INVALID_PUSH_ENDPOINT':
+      // Thrown by saveSubscriptionFor (convex/push.ts) when the browser's own
+      // PushSubscription.endpoint is not a parseable https: URL. This should
+      // never happen from a real browser's Push API — it fires on a hand-built
+      // or tampered request — so the copy does not try to explain a cause the
+      // user can act on, and it does NOT echo the submitted value back: that
+      // value is exactly what this check exists to keep out of view.
+      return 'That push subscription is not valid.'
+    case 'INVALID_MESSAGE':
+      return 'A message needs some text, and has to be under 2000 characters.'
+    case 'RATE_LIMITED':
+      return 'You are sending messages very quickly — give it a moment.'
+    case 'SCROLL_RATE_LIMITED':
+      return "You're scrolling back very quickly — give it a moment."
+    case 'AVATAR_RATE_LIMITED':
+      // NAMES THE HOUR, unlike the two above. Those refusals clear in seconds and
+      // "give it a moment" is honest for them; this window is an hour long, and
+      // telling someone to wait a moment for something that will still refuse
+      // them in five minutes is worse than saying nothing.
+      return 'You have changed your picture several times just now — try again in an hour.'
+    case 'INVITE_LINK_INVALID':
+      // Read by someone a friend handed a link to, who has done NOTHING wrong:
+      // the link expired, or the team's owner withdrew it. So the copy names
+      // the link as the thing that stopped working and points at the one action
+      // that helps — ask for another — rather than implying the holder turned
+      // up somewhere they should not have. It also does not say WHICH of
+      // expired/revoked/unknown it was: revokeLinkFor and the consume path
+      // answer all three identically on purpose (see AccessCode in
+      // convex/access.ts), and copy that distinguished them would leak back
+      // exactly what the single code exists to hide.
+      return 'That invite link no longer works. Ask whoever shared it for a new one.'
+    case 'TEAM_LIMIT_REACHED':
+      // The one typed code whose copy names the UPGRADE, because upgrading is
+      // the only thing that resolves it. Thrown by consumeLinkFor
+      // (convex/inviteLinks.ts) when a non-pro joiner following a good link is
+      // already on FREE_TEAM_LIMIT teams. Deliberately NOT worded like the
+      // dead-link refusal above: the link works, the holder did nothing wrong,
+      // and there is an action here that helps. Says "free plan" rather than a
+      // number so the copy cannot drift out of step with FREE_TEAM_LIMIT — a
+      // literal in a switch, so every gate stays green while it lies.
+      return "You're on as many teams as the free plan allows. Upgrade to join another."
+    case 'MONTH_OUT_OF_WINDOW':
+      // MOSTLY A BACKSTOP, WHICH IS WHY THIS DOES NOT READ LIKE
+      // TEAM_LIMIT_REACHED's COPY ABOVE — but "nothing in the UI can produce it"
+      // stopped being true at wordle-teams-kusd.6 and this comment should not go
+      // on asserting it. What IS true:
+      //
+      // THE DROPDOWN CANNOT OFFER AN OUT-OF-WINDOW MONTH. routes/app.tsx builds
+      // it from the same convex/lib/monthWindow.ts rule the server gates on, and
+      // `validateSearch` there drops a `?month=` that is not 'YYYY-MM' before any
+      // of it runs. So picking a month, for either tier, cannot land here.
+      //
+      // THE CORRECTION RUNS AFTER COMMIT, NOT BEFORE THE QUERIES. An
+      // out-of-window `?month=` that arrives by URL is moved back inside by
+      // lib/dashboard-months.ts — from a useEffect, which is to say AFTER the
+      // render that has already issued six useSuspenseQuery(getTeamMonth) calls
+      // with it. That file's header says so at length and explains why the
+      // alternative (telling a downgrade apart from a team switch) was dropped.
+      // So a hand-typed old month reaches this code for the frame before the
+      // correction lands, by design rather than by oversight.
+      //
+      // AND ONE REAL RACE IS OPEN: wordle-teams-alr7. A team switch preserves
+      // `?month=` while the new team's window is still loading, so a Pro viewer
+      // moving from a team with history to a younger one can put all six of
+      // those queries here at once. That one ends at DashboardError, not at this
+      // string, but it is the same gate throwing.
+      //
+      // The code exists so the tier is real against a direct API call; the free
+      // player's actual upgrade prompt is the dropdown's "Back to <month> · Pro"
+      // row, and the upgrade flow itself belongs to wordle-teams-iht.1.
+      //
+      // SAYS NOTHING ABOUT WHICH MONTHS ARE REACHABLE. The same code answers a
+      // malformed month and a month below the caller's floor (see AccessCode in
+      // convex/access.ts), so any copy naming a boundary would be wrong for one
+      // of the two — and would also hand a prober the floor it is guessing at.
+      return 'That month is part of Pro.'
+    case 'INVALID_AVATAR':
+      // Thrown by setAvatarFor (convex/players.ts) when an uploaded file fails
+      // the server-side type or size check. Deliberately does not say WHY —
+      // too big, wrong type, or something else entirely — because the upload
+      // flow always resizes and re-encodes client-side first, so a rejection
+      // here means something upstream of that resize went wrong, and the
+      // useful next step is the same regardless: pick a different image.
+      return 'That image could not be used. Try a different one.'
+    case 'INVALID_PUZZLE_DAY':
+      // Thrown by requirePlausiblePuzzleDay (convex/access.ts) when upsertBoard
+      // is handed a day that is not a real calendar day, is before Wordle's own
+      // first puzzle, or is in the future.
+      //
+      // UNREACHABLE FROM THE FORM, which is why this reads as a backstop rather
+      // than as guidance. board-entry's DatePicker offers a calendar and
+      // disables everything after today, so a player cannot pick any of the
+      // three. Reaching this means a direct API call or a client bug.
+      //
+      // POINTS AT THE DAY AND NOT AT THE DEVICE, which is the whole reason this
+      // is not INVALID_DATE. That code's copy sends the reader to their system
+      // clock settings, and the clock is not what is wrong here — the day the
+      // board was filed under is.
+      return "That puzzle day isn't one we can save a board for. Pick the day from the calendar."
+    default: {
+      const _exhaustive: never = code
+      return _exhaustive
+    }
+  }
+}
+
+/**
+ * What to tell the user after a failed board-submission MUTATION (upsertBoard).
+ *
+ * Do not touch the null-branch wording: it is the a335ae8 message, quoted
+ * verbatim, and it earns its specificity — there really is a typed board still
+ * on screen for the user to be reassured about.
+ */
+export function boardErrorMessage(error: unknown): string {
+  const code = convexErrorCode(error)
+  if (code === null) {
+    return 'Could not save your board. Your entry is still here — please try again.'
+  }
+  return typedCodeMessage(code)
+}
+
+/**
+ * What to tell the user after a failed page-load QUERY (e.g. getTeamMonth via
+ * ScoresTable's useSuspenseQuery).
+ *
+ * The null case here is NOT an edge case — it's everything that isn't one of
+ * our typed codes, which in practice means a dropped connection or a
+ * platform 5xx, and it is the single most likely real failure. Unlike
+ * boardErrorMessage, nothing was submitted and there is no board to reassure
+ * anyone about, so that copy would be actively wrong here.
+ */
+export function dashboardErrorMessage(error: unknown): string {
+  const code = convexErrorCode(error)
+  if (code === null) {
+    return 'Something went wrong loading this page. Please try again.'
+  }
+  return typedCodeMessage(code)
+}
+
+/**
+ * What to tell the user after a failed TEAM mutation.
+ *
+ * A third sibling of boardErrorMessage and dashboardErrorMessage, and it exists
+ * for the same reason they are separate: the typed cases read identically, but
+ * the fallback has to say something true about what just failed. `fallback` is
+ * the caller's own wording for "this specific thing did not work".
+ */
+export function mutationErrorMessage(error: unknown, fallback: string): string {
+  const code = convexErrorCode(error)
+  return code ? typedCodeMessage(code) : fallback
+}

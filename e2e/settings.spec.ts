@@ -1,0 +1,364 @@
+import { expect, test } from '@playwright/test'
+import { openAppMenu } from './app-menu.ts'
+import { ConvexHttpClient } from 'convex/browser'
+import { api } from '../convex/_generated/api'
+import { signIn } from './sign-in'
+import type { Page } from '@playwright/test'
+
+/**
+ * Phase 6, Task 6 — the settings menu, its dialog, and the Alerts tab's two
+ * persisted controls. Read teams.spec.ts and sign-in.ts before touching
+ * this file; the setup below follows both exactly, including the strict 5s
+ * default on every assertion after sign-in has landed.
+ *
+ * Seeds through e2eSeed.ensureTeamFor rather than a bare signIn(), the same
+ * choice teams.spec.ts makes: a bare signIn() leaves the account with no
+ * `players` row at all, and api.settings.mySettings (requirePlayer) throws
+ * NO_PLAYER without one — the Alerts tab would show its error state
+ * instead of ever offering a control to interact with. The seeded row starts
+ * with reminderDeliveryMethods: [] and reminderDeliveryTime: '18:00:00',
+ * which is what the persistence assertions below change away from.
+ */
+async function signInWithPlayer(page: Page, timeZone?: string): Promise<string> {
+  const email = `e2e+${Date.now()}-${Math.floor(Math.random() * 1e6)}@wordleteams.com`
+  const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+  await convex.mutation(api.e2eSeed.ensureTeamFor, { email, timeZone })
+  await signIn(page, email)
+  // RETURNED SO A CALLER CAN WAIT ON THE BACKEND, which the zone-capture test
+  // below has to (wordle-teams-h1rg). Same shape as sign-in.ts, which returns
+  // the address it used for the same reason.
+  return email
+}
+
+/**
+ * Opens the settings dialog through the ONE menu item that opens it, and taps
+ * across to the tab the caller wants.
+ *
+ * WHY EVERY CALLER NEEDS THIS NOW (wordle-teams-mwu0). Three menu items used to
+ * deep-link three tabs, so a spec that wanted the reminder controls clicked
+ * "Notifications" and was there. Those three collapsed into one "Settings"
+ * item that opens on Profile, so reaching any other tab is two steps, and
+ * every spec below that wanted the reminder controls has to take both.
+ *
+ * IT ASSERTS THE LANDING RATHER THAN ASSUMING IT. Radix switches tabs on
+ * mousedown and the panel swaps synchronously, but the dialog itself is
+ * portalled on open — so without waiting for the trigger to actually read
+ * `data-state="active"` a caller can start asserting against the panel that
+ * was showing a moment ago and get a confusing "Email switch not found"
+ * instead of "the tab never opened".
+ */
+async function openSettingsOn(
+  page: Page,
+  tab: 'Profile' | 'Alerts' | 'Security' | 'Install',
+): Promise<void> {
+  await openAppMenu(page)
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Settings' }).click()
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  // Profile is where every open lands, so asking for it is already done — and
+  // clicking it anyway would prove nothing about where the dialog STARTS.
+  if (tab !== 'Profile') {
+    await page.getByRole('tab', { name: tab, exact: true }).click()
+  }
+  await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveAttribute(
+    'data-state',
+    'active',
+  )
+}
+
+test('one Settings item opens the dialog on Profile, and the other tabs are a tap away', async ({
+  page,
+}) => {
+  await signInWithPlayer(page)
+
+  // The trigger's only content is an icon, so `aria-label="Main menu"` is
+  // the whole of its accessible name — this locator fails outright if that
+  // attribute regresses to something decorative-only.
+  await openAppMenu(page)
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem', { name: 'Settings' })).toBeVisible()
+  /**
+   * AND THE THREE IT REPLACED ARE GONE (wordle-teams-mwu0). `toHaveCount(0)`
+   * rather than `toBeHidden()`, which also passes for an element that never
+   * existed and would therefore keep this green if the locator itself drifted.
+   * This is the only place in the suite that would notice one of them creeping
+   * back in — the item-set assertion in app-menu.hook.test.ts covers the
+   * component, but nothing else covers the rendered app.
+   */
+  await expect(menu.getByRole('menuitem', { name: 'Notifications' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Profile' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Install', exact: true })).toHaveCount(0)
+
+  // Seeded name is 'E2E Tester' (e2eSeed.ts), so the label reads that back —
+  // proof the menu is reading the PLAYERS row, not Better Auth's own `name`
+  // (which the OTP sign-in path never sets at all). Scoped to the menu itself
+  // — 'E2E Tester' also names this account's row on the Current Team card
+  // rendered behind it, same ambiguity teams.spec.ts scopes around.
+  await expect(menu.getByText('E2E Tester')).toBeVisible()
+  await expect(menu.getByText('Free')).toBeVisible()
+
+  // THE HEADLINE PROPERTY OF THIS WHOLE REDESIGN, and otherwise uncovered:
+  // v1 wrapped its avatar in `role="button"` (user-dropdown.tsx:117), and
+  // every other assertion in this file would stay green even if that
+  // regressed back in, since none of them click the avatar to open anything.
+  // initialsFor('E2E', 'Tester') is 'ET' (initials.ts) — asserting there is
+  // no `[role="button"]` carrying that text, scoped to the header, is a
+  // direct check that the fallback letters are identity, not a control.
+  // Scoped to `banner` (the `<header>`'s implicit role) rather than the whole
+  // page: TanStack's dev-only router devtools panel renders a real
+  // `role="button"` elsewhere on the page whose text — "complete-profile" —
+  // contains "et" too, and an unscoped locator matches that instead.
+  // Scoped to the <header> tag rather than a role locator: this app's
+  // `<header>` measures as having NO computed `banner` landmark role in
+  // Chromium's accessibility tree (verified directly — `getByRole('banner')`
+  // finds nothing here even though `header` and `nav` both resolve to
+  // exactly one element each), so a role-based scope would silently search
+  // the whole page instead of narrowing anything.
+  const header = page.locator('header')
+  await expect(header.locator('[role="button"]', { hasText: 'ET' })).toHaveCount(0)
+  // Scoped to <header>, not the whole page: scores-table.tsx also renders an
+  // (unrelated) exact 'ET' text node off-screen for narrow viewports.
+  await expect(header.getByText('ET', { exact: true })).toBeVisible()
+
+  await menu.getByRole('menuitem', { name: 'Settings' }).click()
+
+  // The dialog's OWN accessible name — settings-dialog.tsx's VisuallyHidden
+  // `<DialogTitle>Settings</DialogTitle>`. Without it Radix omits
+  // `aria-labelledby` entirely and a screen reader announces an unnamed
+  // "dialog"; the visible tab heading below does not substitute for this,
+  // since it is a plain `<h3>`, not a `DialogPrimitive.Title`.
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+
+  /**
+   * WHERE A FRESH OPEN LANDS, WHICH NO CALLER GETS TO DECIDE ANY MORE.
+   * settings-dialog.tsx's `defaultValue="profile"` is the whole of it now that
+   * `defaultTab` is gone, and the panel heading is checked as well as the
+   * trigger's state: a highlighted trigger with the wrong panel under it is a
+   * real Radix failure mode (a `value` that pairs with no `TabsContent`) and
+   * `data-state` alone would not see it.
+   */
+  await expect(page.getByRole('tab', { name: 'Profile' })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('heading', { name: 'Picture' })).toBeVisible()
+
+  /**
+   * AND THE STRIP IS THE WAY TO THE REST. 'Alerts' is the renamed
+   * Notifications tab (wordle-teams-wty4.1.7.7) — the label that finally makes
+   * the four-tab row fit a phone — so this is also the assertion that fails if
+   * it ever drifts back to a longer word.
+   */
+  await page.getByRole('tab', { name: 'Alerts', exact: true }).click()
+  await expect(page.getByRole('tab', { name: 'Alerts', exact: true })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('heading', { name: 'Notification Settings' })).toBeVisible()
+
+  await page.getByRole('tab', { name: 'Install', exact: true }).click()
+  await expect(page.getByRole('tab', { name: 'Install', exact: true })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible()
+  await expect(page.getByText('Add to Home Screen')).toBeVisible()
+})
+
+test('changing the reminder time and toggling Email each report success and persist', async ({
+  page,
+}) => {
+  await signInWithPlayer(page)
+
+  await openSettingsOn(page, 'Alerts')
+
+  // Seeded reminderDeliveryTime is '18:00:00' -> '6:00 PM' (notifications-tab.tsx
+  // label()), so this locator also pins the display format is what the tab
+  // actually loaded, not a placeholder.
+  //
+  // '6:00 PM' RATHER THAN '6 PM' SINCE wordle-teams-8klr. The hand-rolled
+  // 12-hour arithmetic that produced the shorter string is gone; the label is
+  // now the locale's own short-time pattern, which for en-US carries the
+  // minutes. The locale is pinned in playwright.config.ts, without which this
+  // reads '18:00' on a browser launched anywhere that writes a 24-hour clock.
+  //
+  // 20s ON THE FIRST READ OF THE TAB, per wordle-teams-usgy. Everything this
+  // assertion covers is upstream of the test's subject: openSettingsOn has just
+  // navigated and opened a tab, and the combobox reads the placeholder until
+  // mySettings resolves. The write assertions below keep the strict default,
+  // because a toast that takes longer than 5s to answer a click IS the defect
+  // this test is for.
+  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('6:00 PM', {
+    timeout: 20_000,
+  })
+  await page.getByRole('combobox', { name: 'Board Entry Reminder' }).click()
+  await page.getByRole('option', { name: '9:00 AM' }).click()
+  await expect(page.getByText('Delivery time updated')).toBeVisible()
+
+  // Seeded reminderDeliveryMethods is [] -> the switch starts unchecked.
+  const emailSwitch = page.getByRole('switch', { name: 'Email' })
+  await expect(emailSwitch).not.toBeChecked()
+  await emailSwitch.click()
+  await expect(page.getByText('Delivery methods updated')).toBeVisible()
+  await expect(emailSwitch).toBeChecked()
+
+  await page.reload()
+  await openSettingsOn(page, 'Alerts')
+
+  // The same reload, the same cold read of mySettings — and this is the half
+  // that PROVES persistence, so it must not be the half that times out for
+  // being cold.
+  await expect(page.getByRole('combobox', { name: 'Board Entry Reminder' })).toHaveText('9:00 AM', {
+    timeout: 20_000,
+  })
+  await expect(page.getByRole('switch', { name: 'Email' })).toBeChecked()
+})
+
+test('a time zone copied in its Postgres spelling displays correctly, and changing it persists', async ({
+  page,
+}) => {
+  // 'Asia/Calcutta' is exactly what a row COPIED from v1 carries for anyone
+  // whose browser reports 'Asia/Kolkata' — v1's app-bar-base.tsx wrote that
+  // spelling before every save (time-zones.ts's timeZoneMapping; identically
+  // paired in convex/lib/reminders.test.ts). ensureTeamFor's optional
+  // `timeZone` writes it directly, bypassing updateTimeZoneFor's own Intl
+  // validation entirely on purpose — that validation is settings.test.ts's
+  // job; what this test is for is the PICKER's display of an already-stored
+  // alias, which the picker itself can never produce (it only ever writes
+  // the IANA spellings in TIME_ZONE_GROUPS).
+  await signInWithPlayer(page, 'Asia/Calcutta')
+
+  await openSettingsOn(page, 'Alerts')
+
+  // canonicalTimeZone (time-zones.ts) maps the stored Postgres spelling back
+  // to the IANA one TIME_ZONE_GROUPS lists, so this must show India Standard
+  // Time rather than the "Select a time zone" placeholder Calcutta fell back
+  // to before that mapping was inverted to run this direction.
+  const timeZoneSelect = page.getByRole('combobox', { name: 'Time Zone' })
+  await expect(timeZoneSelect).toHaveText('India Standard Time (IST)')
+
+  await timeZoneSelect.click()
+  await page.getByRole('option', { name: 'Eastern Standard Time (EST)' }).click()
+  await expect(page.getByText('Time zone updated')).toBeVisible()
+
+  await page.reload()
+  await openSettingsOn(page, 'Alerts')
+  await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText('Eastern Standard Time (EST)')
+})
+
+test.describe('a brand-new signup with no stored zone', () => {
+  // Pins the browser's reported zone to one TIME_ZONE_GROUPS actually lists
+  // (time-zones.ts:21), so the assertion below can check a real display
+  // string instead of a mere absence.
+  test.use({ timezoneId: 'America/Denver' })
+
+  // THE ONLY THING STANDING BETWEEN THIS FEATURE AND SILENT INERTNESS. No
+  // gate (lint/typecheck/test/build) exercises useLocalCapture.ts's own
+  // wiring into Header.tsx — src/lib/use-local-capture.test.ts and
+  // use-local-capture.hook.test.ts pin the decision logic and the hook's
+  // internal behaviour, but nothing there fails if useLocalCapture() is ever
+  // deleted from Header.tsx, or Header stops being mounted where it can
+  // reach ConvexBetterAuthProvider. Delete that one call and every gate stays
+  // green while convex/reminders.ts:146 silently skips every new signup
+  // forever, because nothing ever wrote their timeZone. This spec is what
+  // actually notices.
+  test('signing in with no seeded zone captures the browser one, silently', async ({ page }) => {
+    // signInWithPlayer(page) with NO timeZone argument — e2eSeed.ensureTeamFor
+    // omits the field entirely (convex/e2eSeed.ts), so this player's row
+    // starts with no timeZone at all, exactly like a real v2 signup.
+    const email = await signInWithPlayer(page)
+
+    // THE PRECONDITION, WAITED ON EXPLICITLY RATHER THAN ABSORBED BY THE
+    // ASSERTION BELOW (wordle-teams-h1rg). useLocalCapture fires after mount and
+    // is silent by design — no toast, no spinner, no disabled control — so
+    // there is nothing in the UI to wait on, and the assertion below used to
+    // have to cover the whole chain: the auth handshake, mySettings resolving,
+    // the mutation, the invalidation and the re-render. That flaked about one CI
+    // run in four, and once e2e became a deploy gate it blocked deploys for
+    // changes that could not have caused it. The convex log from run
+    // 34257817281 showed settings:updateTimeZone running two seconds AFTER the
+    // 20s assertion had already given up — late, not broken.
+    //
+    // 20s HERE IS GENEROUS ON PURPOSE and the assertion below is strict: this is
+    // the unbounded part, so the generosity belongs here, where a failure means
+    // the capture genuinely never happened.
+    //
+    // THIS DOES NOT WEAKEN WHAT THE TEST IS FOR. Delete `useLocalCapture()` from
+    // Header.tsx and nothing ever writes a zone, so this poll fails — the same
+    // defect, caught, just with the right name on the failure.
+    const convex = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+    await expect
+      .poll(async () => await convex.query(api.e2eSeed.timeZoneFor, { email }), {
+        timeout: 20_000,
+      })
+      .toBe('America/Denver')
+
+    await openSettingsOn(page, 'Alerts')
+
+    // 'Mountain Standard Time (MST)' is TIME_ZONE_GROUPS's label for
+    // 'America/Denver' (time-zones.ts:21) — what Intl resolves to under the
+    // timezoneId set above. If useLocalCapture never ran (or never landed),
+    // this reads notifications-tab.tsx's placeholder, "Select a time zone",
+    // instead — the same failure mode a deleted `useLocalCapture()` call
+    // produces for every real signup.
+    //
+    // BACK AT THE SUITE'S STRICT DEFAULT, and that is the point of the poll
+    // above. This assertion used to carry 20s because it was absorbing the whole
+    // capture chain; with the write already waited on, the only thing left is
+    // the Convex subscription pushing the new mySettings and React rendering it,
+    // which is fast and bounded. A failure here now means the picker did not
+    // DISPLAY a zone the row demonstrably has — a real defect in
+    // notifications-tab.tsx or in time-zones.ts's label lookup, and worth
+    // failing fast on rather than waiting 20s to report.
+    await expect(page.getByRole('combobox', { name: 'Time Zone' })).toHaveText(
+      'Mountain Standard Time (MST)',
+    )
+  })
+})
+
+/**
+ * Phase 6, Task 12 — rule 1 of the Push switch: hidden entirely where the
+ * deployment has no VAPID key.
+ *
+ * WHAT THIS SPEC DOES NOT COVER, AND WHY IT CANNOT. The subscribe path — a
+ * granted permission, `pushManager.subscribe`, and the subscription reaching
+ * `savePushSubscription` — is NOT exercised anywhere in e2e, and the plan's
+ * acceptance criterion asking for it is unreachable here. Three separate
+ * blockers, each measured rather than assumed:
+ *
+ *   1. `VAPID_PUBLIC_KEY` is not set on the local anonymous Convex deployment
+ *      (`convex env get` reports it not found), so `api.push.publicKey`
+ *      returns null and the switch this file looks for is correctly absent.
+ *   2. There is no service worker in dev at all. Registration is gated on
+ *      `import.meta.env.PROD` (register-sw.ts) and `/sw.js` is a build
+ *      artifact scripts/build-sw.mjs writes after `vite build`, which
+ *      `pnpm dev` never runs — and playwright.config.ts's `webServer` is
+ *      `pnpm dev`. `pushManager.subscribe` needs an active registration.
+ *   3. Headless Chromium cannot reach a real push service.
+ *
+ * A mocked subscribe would only prove the mock was called. The real coverage
+ * lives in src/lib/push-subscribe.test.ts, which drives every branch of the
+ * flow through injected browser surfaces, and in a human watching a
+ * notification arrive on a real device (Task 11).
+ *
+ * So this asserts the one rule a real deployment CAN check, and it is the rule
+ * that protects players: a control that cannot work is not shown at all.
+ */
+test('the Push switch is absent where no VAPID key is configured, and Email still works', async ({
+  page,
+}) => {
+  await signInWithPlayer(page)
+
+  await openSettingsOn(page, 'Alerts')
+
+  // The tab really rendered its controls — without this the absence assertion
+  // below would pass just as happily on a crashed tab, a loading spinner, or
+  // the NO_PLAYER error state.
+  await expect(page.getByRole('heading', { name: 'Notification Settings' })).toBeVisible()
+  const emailSwitch = page.getByRole('switch', { name: 'Email' })
+  await expect(emailSwitch).toBeVisible()
+
+  // THE ASSERTION. `toHaveCount(0)` rather than `toBeHidden()`: the switch is
+  // not rendered at all, and `toBeHidden` also passes for an element that does
+  // not exist — which would keep this green if the locator name ever drifted.
+  // Counting pins that the Push control is genuinely absent from the tree.
+  await expect(page.getByRole('switch', { name: 'Push' })).toHaveCount(0)
+  await expect(page.getByText('Push', { exact: true })).toHaveCount(0)
+
+  // And Email is unaffected by the switch's absence — the shared
+  // reminderDeliveryMethods array and the shared `disabled` flags mean a
+  // mistake in the push branch is entirely capable of breaking this one.
+  await emailSwitch.click()
+  await expect(page.getByText('Delivery methods updated')).toBeVisible()
+  await expect(emailSwitch).toBeChecked()
+})

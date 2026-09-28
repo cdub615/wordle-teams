@@ -1,0 +1,162 @@
+/* eslint-disable */
+/**
+ * Generated `api` utility.
+ *
+ * THIS CODE IS AUTOMATICALLY GENERATED.
+ *
+ * To regenerate, run `npx convex dev`.
+ * @module
+ */
+
+import type * as access from "../access.js";
+import type * as auth from "../auth.js";
+import type * as authEmails from "../authEmails.js";
+import type * as billing from "../billing.js";
+import type * as boardImport from "../boardImport.js";
+import type * as chat from "../chat.js";
+import type * as chatNotify from "../chatNotify.js";
+import type * as crons from "../crons.js";
+import type * as e2ePrune from "../e2ePrune.js";
+import type * as e2eSeed from "../e2eSeed.js";
+import type * as email from "../email.js";
+import type * as fixtures from "../fixtures.js";
+import type * as http from "../http.js";
+import type * as insights from "../insights.js";
+import type * as inviteEmails from "../inviteEmails.js";
+import type * as inviteLinks from "../inviteLinks.js";
+import type * as lib_avatar from "../lib/avatar.js";
+import type * as lib_board from "../lib/board.js";
+import type * as lib_chat from "../lib/chat.js";
+import type * as lib_chatLimits from "../lib/chatLimits.js";
+import type * as lib_e2e from "../lib/e2e.js";
+import type * as lib_globalThreshold from "../lib/globalThreshold.js";
+import type * as lib_html from "../lib/html.js";
+import type * as lib_insightsAccess from "../lib/insightsAccess.js";
+import type * as lib_invite from "../lib/invite.js";
+import type * as lib_monthWindow from "../lib/monthWindow.js";
+import type * as lib_otpExpiry from "../lib/otpExpiry.js";
+import type * as lib_polarErrors from "../lib/polarErrors.js";
+import type * as lib_polarEvents from "../lib/polarEvents.js";
+import type * as lib_polarIdentity from "../lib/polarIdentity.js";
+import type * as lib_polarVersion from "../lib/polarVersion.js";
+import type * as lib_pushErrors from "../lib/pushErrors.js";
+import type * as lib_puzzleDay from "../lib/puzzleDay.js";
+import type * as lib_relyingParty from "../lib/relyingParty.js";
+import type * as lib_reminders from "../lib/reminders.js";
+import type * as lib_scoring from "../lib/scoring.js";
+import type * as lib_scoringSystem from "../lib/scoringSystem.js";
+import type * as lib_teamLimits from "../lib/teamLimits.js";
+import type * as lib_teamStats from "../lib/teamStats.js";
+import type * as me from "../me.js";
+import type * as migrate from "../migrate.js";
+import type * as onboarding from "../onboarding.js";
+import type * as players from "../players.js";
+import type * as polar from "../polar.js";
+import type * as push from "../push.js";
+import type * as pushSend from "../pushSend.js";
+import type * as reminderEmails from "../reminderEmails.js";
+import type * as reminders from "../reminders.js";
+import type * as scores from "../scores.js";
+import type * as scoringSystems from "../scoringSystems.js";
+import type * as settings from "../settings.js";
+import type * as status from "../status.js";
+import type * as teamStats from "../teamStats.js";
+import type * as teams from "../teams.js";
+import type * as testOtps from "../testOtps.js";
+import type * as winners from "../winners.js";
+
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
+
+declare const fullApi: ApiFromModules<{
+  access: typeof access;
+  auth: typeof auth;
+  authEmails: typeof authEmails;
+  billing: typeof billing;
+  boardImport: typeof boardImport;
+  chat: typeof chat;
+  chatNotify: typeof chatNotify;
+  crons: typeof crons;
+  e2ePrune: typeof e2ePrune;
+  e2eSeed: typeof e2eSeed;
+  email: typeof email;
+  fixtures: typeof fixtures;
+  http: typeof http;
+  insights: typeof insights;
+  inviteEmails: typeof inviteEmails;
+  inviteLinks: typeof inviteLinks;
+  "lib/avatar": typeof lib_avatar;
+  "lib/board": typeof lib_board;
+  "lib/chat": typeof lib_chat;
+  "lib/chatLimits": typeof lib_chatLimits;
+  "lib/e2e": typeof lib_e2e;
+  "lib/globalThreshold": typeof lib_globalThreshold;
+  "lib/html": typeof lib_html;
+  "lib/insightsAccess": typeof lib_insightsAccess;
+  "lib/invite": typeof lib_invite;
+  "lib/monthWindow": typeof lib_monthWindow;
+  "lib/otpExpiry": typeof lib_otpExpiry;
+  "lib/polarErrors": typeof lib_polarErrors;
+  "lib/polarEvents": typeof lib_polarEvents;
+  "lib/polarIdentity": typeof lib_polarIdentity;
+  "lib/polarVersion": typeof lib_polarVersion;
+  "lib/pushErrors": typeof lib_pushErrors;
+  "lib/puzzleDay": typeof lib_puzzleDay;
+  "lib/relyingParty": typeof lib_relyingParty;
+  "lib/reminders": typeof lib_reminders;
+  "lib/scoring": typeof lib_scoring;
+  "lib/scoringSystem": typeof lib_scoringSystem;
+  "lib/teamLimits": typeof lib_teamLimits;
+  "lib/teamStats": typeof lib_teamStats;
+  me: typeof me;
+  migrate: typeof migrate;
+  onboarding: typeof onboarding;
+  players: typeof players;
+  polar: typeof polar;
+  push: typeof push;
+  pushSend: typeof pushSend;
+  reminderEmails: typeof reminderEmails;
+  reminders: typeof reminders;
+  scores: typeof scores;
+  scoringSystems: typeof scoringSystems;
+  settings: typeof settings;
+  status: typeof status;
+  teamStats: typeof teamStats;
+  teams: typeof teams;
+  testOtps: typeof testOtps;
+  winners: typeof winners;
+}>;
+
+/**
+ * A utility for referencing Convex functions in your app's public API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = api.myModule.myFunction;
+ * ```
+ */
+export declare const api: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "public">
+>;
+
+/**
+ * A utility for referencing Convex functions in your app's internal API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = internal.myModule.myFunction;
+ * ```
+ */
+export declare const internal: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "internal">
+>;
+
+export declare const components: {
+  betterAuth: import("../betterAuth/_generated/component.js").ComponentApi<"betterAuth">;
+  resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
+};

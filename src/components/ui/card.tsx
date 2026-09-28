@@ -1,6 +1,7 @@
 import * as React from "react"
+import { Slot } from "radix-ui"
 
-import { cn } from "@/lib/utils"
+import { cn } from "#/lib/utils.ts"
 
 const Card = React.forwardRef<
   HTMLDivElement,
@@ -23,17 +24,28 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("flex flex-col space-y-1.5 px-4 py-6 md:p-6", className)}
+    className={cn("flex flex-col space-y-1.5 p-6", className)}
     {...props}
   />
 ))
 CardHeader.displayName = "CardHeader"
 
+/**
+ * asChild added on top of stock shadcn (wt-ksh.12.7).
+ *
+ * CardTitle renders a plain <div>, so a Card used as a page's main region
+ * silently leaves that page with no <h1>. That is an accessibility defect, not
+ * just a testing inconvenience — it broke the e2e assertion on /login that
+ * looks for a heading role. asChild lets the caller supply the correct heading
+ * level while keeping the typographic styling.
+ */
 const CardTitle = React.forwardRef<
-  HTMLParagraphElement,
-  React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
-  <h3
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement> & { asChild?: boolean }
+>(({ className, asChild = false, ...props }, ref) => {
+  const Comp = asChild ? Slot.Root : "div"
+  return (
+  <Comp
     ref={ref}
     className={cn(
       "text-2xl font-semibold leading-none tracking-tight",
@@ -41,14 +53,15 @@ const CardTitle = React.forwardRef<
     )}
     {...props}
   />
-))
+  )
+})
 CardTitle.displayName = "CardTitle"
 
 const CardDescription = React.forwardRef<
-  HTMLParagraphElement,
-  React.HTMLAttributes<HTMLParagraphElement>
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
-  <p
+  <div
     ref={ref}
     className={cn("text-sm text-muted-foreground", className)}
     {...props}
@@ -60,7 +73,7 @@ const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("px-4 py-6 md:p-6 pt-0", className)} {...props} />
+  <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
 ))
 CardContent.displayName = "CardContent"
 
@@ -70,7 +83,7 @@ const CardFooter = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("flex items-center px-4 py-6 md:p-6 pt-0", className)}
+    className={cn("flex items-center p-6 pt-0", className)}
     {...props}
   />
 ))

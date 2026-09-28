@@ -1,0 +1,126 @@
+import { useEffect, useState } from 'react'
+import { Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { useConvexMutation } from '@convex-dev/react-query'
+import { useMutation } from '@tanstack/react-query'
+import type { FormEventHandler } from 'react'
+import { api } from '../../../convex/_generated/api'
+import { Button } from '#/components/ui/button.tsx'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog.tsx'
+import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
+import { TeamFields } from './team-fields.tsx'
+import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import type { Id } from '../../../convex/_generated/dataModel'
+
+/**
+ * Rename a team and set its two flags. Ports v1's update-team.tsx.
+ *
+ * Turning Play Weekends off re-scores every month the team has a winner row
+ * for — weekends stop contributing to any total — so the mutation recomputes.
+ * That is server-side; nothing here has to know about it.
+ */
+export function UpdateTeamDialog({
+  open,
+  onOpenChange,
+  team,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  team: { id: string; name: string; playWeekends: boolean; showLetters: boolean }
+}) {
+  const update = useMutation({ mutationFn: useConvexMutation(api.teams.updateTeam) })
+  const { height, offsetTop } = useVisualViewport()
+  const [name, setName] = useState(team.name)
+  const [playWeekends, setPlayWeekends] = useState(team.playWeekends)
+  const [showLetters, setShowLetters] = useState(team.showLetters)
+  const [submitting, setSubmitting] = useState(false)
+
+  // Re-seed on OPEN, when the selected team changes underneath an open dialog,
+  // and when a live update changes the settings from another browser.
+  //
+  // `open` is in the deps for the same reason CreateTeamDialog resets on open:
+  // this component is mounted unconditionally — only Radix's Dialog.Content
+  // toggles — so a cancelled edit would otherwise survive and come back on the
+  // next open looking like the team's real settings. Without `open`, none of
+  // the other deps change on a cancel-then-reopen, so nothing would re-seed.
+  useEffect(() => {
+    setName(team.name)
+    setPlayWeekends(team.playWeekends)
+    setShowLetters(team.showLetters)
+  }, [open, team.id, team.name, team.playWeekends, team.showLetters])
+
+  const handleSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
+    event.preventDefault()
+    setSubmitting(true)
+    try {
+      await update.mutateAsync({
+        teamId: team.id as Id<'teams'>,
+        name,
+        playWeekends,
+        showLetters,
+        today: toPuzzleDay(new Date()),
+      })
+      toast.success('Successfully updated team')
+      onOpenChange(false)
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Team update failed, please try again'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* THE `w-11/12 rounded-lg` THAT USED TO BE HERE IS NOW ui/dialog.tsx's
+          default (wordle-teams-2uet) — five of seven callers were pasting it.
+          v1's own team dialogs override shadcn the same way, so this is still
+          parity with them; it is just no longer this file's job to say so. */}
+      {/*
+        Same keyboard-aware centering as create-team-dialog.tsx: this Dialog
+        is centered at every width via `top-[50%] translate-y-[-50%]`, not a
+        top Sheet, so binding useVisualViewport means re-anchoring `top` to
+        the VISIBLE viewport's own midpoint (offsetTop + height / 2) rather
+        than repositioning to the viewport's top edge the way board-entry's
+        and the scoring editor's mobile Sheets do. Without it, iOS Safari's
+        unshrunk layout viewport leaves the dialog centered against the
+        pre-keyboard height, and the footer's Update button can end up under
+        the keyboard.
+      */}
+      <DialogContent
+        style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
+      >
+        <DialogHeader>
+          <DialogTitle>Update Team</DialogTitle>
+          <DialogDescription>
+            Enter your team&apos;s name and select desired team settings
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="w-full space-y-6">
+          <TeamFields
+            idPrefix="update"
+            name={name}
+            onNameChange={setName}
+            playWeekends={playWeekends}
+            onPlayWeekendsChange={setPlayWeekends}
+            showLetters={showLetters}
+            onShowLettersChange={setShowLetters}
+          />
+          <DialogFooter>
+            <Button type="submit" variant="secondary" disabled={submitting} aria-disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Update
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
