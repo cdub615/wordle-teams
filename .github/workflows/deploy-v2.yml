@@ -546,6 +546,31 @@ jobs:
       # route module loads server-side and refuses an anonymous visitor. It says
       # NOTHING about the lazily loaded component chunk, which is where the
       # 2026-09-06 fault actually was. Do not read it as "chat works".
+      # ASSERTS THE DEPLOYMENT'S OWN ENVIRONMENT VARIABLES (wordle-teams-qjh3.7).
+      # Three cutover checklist items stop being things somebody remembers at 6am:
+      # E2E_TEST_MODE must be ABSENT on production (wordle-teams-7az), Polar must
+      # not be pointed at real checkouts from dev, and SITE_URL must exist or every
+      # authenticated request throws.
+      #
+      # IT MATCHES TEXT, NEVER AN EXIT CODE. `convex env get` exits 0 whether or
+      # not the variable exists — measured, and recorded in the cutover runbook's
+      # section 0. A check built on `$?` would read every absent variable as
+      # present-and-empty, which for E2E_TEST_MODE is exactly the wrong answer.
+      #
+      # IT NEEDS NO DEPLOYMENT NAME. CONVEX_DEPLOY_KEY is the same key `convex
+      # deploy` just used, so the deployment it asserts about and the deployment
+      # just deployed to are the same by construction. This is the one place the
+      # key's dominance (wordle-teams-ldm8) is a feature.
+      #
+      # AFTER the Worker deploy rather than before it, because a variable set
+      # wrongly is worth knowing about even once the code is live — and failing
+      # here still fails the run, which is what gets it looked at.
+      - name: The deployment's variables must match the environment
+        if: github.event_name == 'push'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: node scripts/check-deployment-env.mjs "${CLOUDFLARE_ENV:-}"
+
       # THE HOSTNAME IS READ FROM THE BUILD OUTPUT, not from a branch expression
       # repeated a third time (wordle-teams-qjh3.6). dist/server/wrangler.json is
       # the RESOLVED config the Worker was just deployed from, so its route is by

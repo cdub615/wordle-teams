@@ -87,3 +87,36 @@ describe('the decisions that are easy to undo by tidying', () => {
     }
   })
 })
+
+describe('the post-deploy environment assertion', () => {
+  test('runs after the Worker is deployed, and only on a push', () => {
+    const step = /- name: The deployment's variables must match the environment[\s\S]{0,400}/.exec(
+      WORKFLOW,
+    )?.[0]
+    expect(step, 'the assertion step is gone').toBeDefined()
+    expect(step).toMatch(/if: github\.event_name == 'push'/)
+    expect(step).toMatch(/check-deployment-env\.mjs/)
+  })
+
+  test('it is told which environment it is checking', () => {
+    // Without CLOUDFLARE_ENV it would check every deployment against
+    // production's rules, which would fail every dev deploy on E2E_TEST_MODE --
+    // a check that is wrong in the loud direction, but wrong.
+    expect(WORKFLOW).toMatch(/check-deployment-env\.mjs "\$\{CLOUDFLARE_ENV:-\}"/)
+  })
+
+  test('no COMMAND in the workflow runs `convex env list`', () => {
+    // It prints every variable's value in plaintext, and this repository's CI
+    // logs are public. The assertion step reads variables one at a time for
+    // exactly that reason.
+    //
+    // COMMENT LINES ARE EXCLUDED, and the distinction is load-bearing rather
+    // than pedantic: the e2e step's comment legitimately DISCUSSES `convex env
+    // list`, as the thing that silently revives a dead local backend and makes
+    // provisioning look healthy. A test that fired on prose would be weakened
+    // the first time someone hit it, and the weakening would be right — so it
+    // has to be precise now.
+    const commands = WORKFLOW.split('\n').filter((line) => !/^\s*#/.test(line))
+    expect(commands.join('\n')).not.toMatch(/convex env list/)
+  })
+})
