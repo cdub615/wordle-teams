@@ -42,11 +42,22 @@ const environmentName = process.argv[2] ?? ''
 const deployment = process.argv[3]
 const KEYS = ['SITE_URL', 'E2E_TEST_MODE', 'POLAR_SERVER', 'SWEEPS_ENABLED']
 
-if (!deployment) {
+// TWO WAYS TO SAY WHICH DEPLOYMENT, and the difference is who is running this.
+//
+// BY NAME, for a human with an account login: the name is explicit and the
+// credential can reach any deployment, so it has to be told which one.
+//
+// BY DEPLOY KEY, for CI: CONVEX_DEPLOY_KEY is scoped to exactly one deployment
+// and is the same key `convex deploy` just used, so the deployment asserted about
+// and the deployment just deployed to are the same BY CONSTRUCTION. There is no
+// name to pass and therefore none to get wrong. Do not "improve" the CI call by
+// adding one — a name that disagreed with the key would be silently ignored.
+if (!deployment && !process.env.CONVEX_DEPLOY_KEY) {
   console.error(
     "Pass the environment and the deployment, e.g.\n" +
       "  node scripts/check-deployment-env.mjs ''  fabulous-goldfish-949\n" +
-      '  node scripts/check-deployment-env.mjs dev successful-canary-135',
+      '  node scripts/check-deployment-env.mjs dev successful-canary-135\n' +
+      '\nOr set CONVEX_DEPLOY_KEY to let the key name its own deployment.',
   )
   process.exit(2)
 }
@@ -89,9 +100,11 @@ function readVar(key) {
     if (stderr.includes('not found')) return null
     if (stderr.includes('deployment:env:view')) {
       throw new Error(
-        `Cannot read ${key}: this credential lacks deployment:env:view. A Convex ` +
-          `DEPLOY KEY cannot read environment variables — run under an account login ` +
-          `(npx convex login).`,
+        `Cannot read ${key}: this credential lacks deployment:env:view.\n` +
+          `A deploy key created before ~2026-09 cannot read environment variables. A key ` +
+          `minted since can (measured 2026-09-28). If this is CI, regenerate ` +
+          `CONVEX_DEPLOY_KEY with \`convex deployment token create\`; if this is a person, ` +
+          `run under an account login (npx convex login).`,
         { cause: error },
       )
     }
@@ -101,7 +114,7 @@ function readVar(key) {
 
 try {
   const label = environmentName === '' ? 'production (top level)' : environmentName
-  console.log(`checking ${deployment} against the rules for: ${label}`)
+  console.log(`checking ${deployment ?? "the deploy key's deployment"} against the rules for: ${label}`)
 
   const values = {}
   for (const key of KEYS) values[key] = readVar(key)
@@ -115,10 +128,10 @@ try {
   for (const message of errors) console.log(`::error::${message}`)
 
   if (errors.length > 0) {
-    console.log(`${errors.length} environment problem(s) on ${deployment}.`)
+    console.log(`${errors.length} environment problem(s) on ${deployment ?? "this deployment"}.`)
     process.exitCode = 1
   } else {
-    console.log(`ok: ${deployment} is consistent with the ${label} rules.`)
+    console.log(`ok: ${deployment ?? "this deployment"} is consistent with the ${label} rules.`)
   }
 } finally {
   rmSync(workdir, { recursive: true, force: true })

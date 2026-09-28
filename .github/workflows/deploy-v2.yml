@@ -503,6 +503,40 @@ jobs:
           fi
           echo "clean: insights corpus is a static file, not a bundled chunk"
 
+      # ASSERTS THE CONVEX DEPLOYMENT'S OWN ENVIRONMENT VARIABLES
+      # (wordle-teams-qjh3.7). Three cutover checklist items stop being things
+      # somebody remembers at 6am: E2E_TEST_MODE absent on production
+      # (wordle-teams-7az), Polar never pointed at real checkouts from dev, and
+      # SITE_URL present or every authenticated request throws.
+      #
+      # BEFORE THE WORKER DEPLOY, NOT AFTER IT, and the order is the point. The
+      # variables belong to the Convex deployment that `convex deploy` has just
+      # updated, so this is the last moment a bad one can stop the Worker from
+      # shipping. An earlier draft of this step sat after the Worker deploy,
+      # which would have reported the problem only once it was live.
+      #
+      # IT MATCHES TEXT, NEVER AN EXIT CODE. `convex env get` exits 0 whether or
+      # not the variable exists — measured, and recorded in the cutover runbook's
+      # section 0. A check built on `$?` would read every absent variable as
+      # present-and-empty, which for E2E_TEST_MODE is exactly the wrong answer.
+      #
+      # IT NAMES NO DEPLOYMENT. CONVEX_DEPLOY_KEY is the same key `convex deploy`
+      # used moments ago, so the deployment asserted about and the deployment just
+      # deployed to are the same by construction.
+      #
+      # THIS STEP FAILED ONCE ALREADY, on run 36474279805, with
+      # `You do not have permission to perform this operation
+      # (deployment:env:view)`. The repository secret was a deploy key created
+      # 2026-08-03; a key minted since can read environment variables (measured
+      # 2026-09-28 against a throwaway key). The secret was regenerated. If this
+      # step ever returns that error again, the key is the thing to look at — not
+      # the script.
+      - name: The deployment's variables must match the environment
+        if: github.event_name == 'push'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: node scripts/check-deployment-env.mjs "${CLOUDFLARE_ENV:-}"
+
       # Publishes the Worker and keeps the beta.wordleteams.com custom domain
       # binding declared in wrangler.jsonc. Uploads dist/ from the build above.
       - name: Deploy the Worker
@@ -550,31 +584,6 @@ jobs:
       # route module loads server-side and refuses an anonymous visitor. It says
       # NOTHING about the lazily loaded component chunk, which is where the
       # 2026-09-06 fault actually was. Do not read it as "chat works".
-      # THE POST-DEPLOY ENVIRONMENT ASSERTION IS NOT WIRED HERE, and the reason
-      # is a hard limit rather than an omission (wordle-teams-qjh3.7).
-      #
-      # A step running scripts/check-deployment-env.mjs stood here for exactly one
-      # run (36474279805) and failed:
-      #
-      #     ✖ You do not have permission to perform this operation
-      #       (deployment:env:view).
-      #       This is determined by the permissions granted to CONVEX_DEPLOY_KEY.
-      #
-      # A CONVEX DEPLOY KEY CAN DEPLOY BUT CANNOT READ ENVIRONMENT VARIABLES, and
-      # there is no scope to widen: `convex deployment token create` takes only
-      # targeting flags (--prod, --deployment), no permissions. So the assumption
-      # that the deploy key both names the right deployment AND can inspect it was
-      # half right — it names it and cannot read it.
-      #
-      # THE SCRIPT AND ITS LOGIC ARE KEPT and are run by hand against either
-      # deployment with an account login, which CAN read env. Wiring it back needs
-      # a credential decision that has privilege consequences on a PUBLIC
-      # repository, so it is deliberately not made here.
-      #
-      # DO NOT REPLACE IT WITH A STEP THAT WARNS AND PASSES ON THE PERMISSION
-      # ERROR. That is the "check that cannot fail" this workflow already warns
-      # about elsewhere, and it would read as coverage while asserting nothing.
-
       # THE HOSTNAME IS READ FROM THE BUILD OUTPUT, not from a branch expression
       # repeated a third time (wordle-teams-qjh3.6). dist/server/wrangler.json is
       # the RESOLVED config the Worker was just deployed from, so its route is by
