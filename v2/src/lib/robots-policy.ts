@@ -35,7 +35,18 @@
  * unless workers_dev is explicitly disabled. It is exactly the kind of second
  * public URL for the same content that this header exists to stop.
  */
-const NOINDEX_HOSTS = new Set(['beta.wordleteams.com'])
+/**
+ * dev IS THE STANDING ENTRY AND beta IS THE TEMPORARY ONE (wordle-teams-qjh3).
+ * dev.wordleteams.com is listed here BEFORE the host exists, because the day it
+ * does it serves the same landing page, /home, /about, /privacy and /terms as
+ * production on a real hostname — adding it afterwards is the forgotten step.
+ * src/lib/sentry-config.ts lists it for the same reason and says so.
+ *
+ * beta.wordleteams.com goes away after cutover and ITS entry goes with it; the
+ * paragraph above about one deployment answering on two names is about beta and
+ * the apex during the cutover window, not about dev.
+ */
+const NOINDEX_HOSTS = new Set(['dev.wordleteams.com', 'beta.wordleteams.com'])
 const NOINDEX_HOST_SUFFIXES = ['.workers.dev'] as const
 
 /**

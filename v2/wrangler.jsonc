@@ -130,18 +130,22 @@
 		 * mechanisms, not redundancy — but they must agree, so change together.
 		 */
 		"VITE_CONVEX_URL": "https://fabulous-goldfish-949.convex.cloud",
-		"VITE_CONVEX_SITE_URL": "https://fabulous-goldfish-949.convex.site",
+		"VITE_CONVEX_SITE_URL": "https://fabulous-goldfish-949.convex.site"
 
 		/**
-		 * Carried because Task 9 specifies it, but NOTHING READS IT TODAY — no
-		 * reference exists in src/, convex/ or e2e/. The value that actually
-		 * drives auth callbacks is SITE_URL set on the Convex deployment
-		 * itself (convex/auth.ts:14), which is a different variable. Kept
-		 * because Better Auth callback config is likely to want it in Phase 1;
-		 * delete it if that never materialises rather than letting it look
-		 * load-bearing.
+		 * VITE_SITE_URL WAS DELETED HERE on 2026-09-28 (wordle-teams-qjh3.2),
+		 * on the instruction its own comment left: it was "carried because
+		 * Task 9 specifies it" and to be deleted "if that never materialises
+		 * rather than letting it look load-bearing". It never did — a search of
+		 * src/, convex/, scripts/ and e2e/ found wrangler.jsonc as the only
+		 * occurrence in the tree. What actually drives auth callbacks is
+		 * SITE_URL on the Convex deployment (convex/auth.ts:14).
+		 *
+		 * THE REASON TO DO IT NOW rather than leave a harmless unused var:
+		 * wrangler's `vars` is NOT inherited by a named environment, so every
+		 * key here has to be repeated in full in env.dev. This one would have
+		 * been duplicated, kept in sync, and read by nobody, in two places.
 		 */
-		"VITE_SITE_URL": "https://beta.wordleteams.com"
 	}
 	/**
 	 * Smart Placement

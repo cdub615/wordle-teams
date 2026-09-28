@@ -43,6 +43,27 @@ describe('the staging copies are noindexed', () => {
     expect(shouldNoindex('  beta.wordleteams.com  ')).toBe(true)
   })
 
+  /**
+   * LISTED BEFORE THE HOST EXISTS (wordle-teams-qjh3.2). dev.wordleteams.com
+   * becomes a real hostname serving the same landing page, /home, /about,
+   * /privacy and /terms as production, so the day it is created it is a
+   * fully crawlable duplicate of the site — the exposure wt-ksh.8.54 was filed
+   * for. src/lib/sentry-config.ts already lists it for the same reason; adding
+   * it afterwards is the step that gets forgotten.
+   *
+   * BETA IS TEMPORARY AND DEV IS NOT. beta.wordleteams.com goes away after
+   * cutover and its entry goes with it; this one is the standing arrangement.
+   */
+  test('dev is noindexed', () => {
+    expect(shouldNoindex('dev.wordleteams.com')).toBe(true)
+  })
+
+  test('case and a stray port do not let dev through either', () => {
+    expect(shouldNoindex('DEV.WordleTeams.com')).toBe(true)
+    expect(shouldNoindex('dev.wordleteams.com:3000')).toBe(true)
+    expect(shouldNoindex('  dev.wordleteams.com  ')).toBe(true)
+  })
+
   test('workers.dev is covered by suffix, since that name is assigned not chosen', () => {
     expect(shouldNoindex('wordle-teams-v2.someaccount.workers.dev')).toBe(true)
   })
