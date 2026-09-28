@@ -17,6 +17,13 @@
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    /* vite.config.ts imports scripts/lib/build-env.mjs (the deployment guard,
+       wordle-teams-qjh3.5). allowJs lets tsc infer that module's types from its
+       own source, so there is no hand-written .d.mts to drift from it. checkJs
+       stays off (the default), so the .mjs itself is not type-checked -- only
+       read for types. It pulls in nothing else: `include` is .ts/.tsx only, so
+       the only JS in the program is what a TS file actually imports. */
+    "allowJs": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
 

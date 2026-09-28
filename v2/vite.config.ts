@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { defineConfig } from 'vite'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, loadEnv } from 'vite'
+import { experimental_readRawConfig } from 'wrangler'
+import { convexMismatch, varsForEnvironment } from './scripts/lib/build-env.mjs'
 import { devtools } from '@tanstack/devtools-vite'
 
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -51,6 +54,48 @@ function sentryRelease(): string | null {
 
 const RELEASE = sentryRelease()
 
+/**
+ * REFUSES TO BUILD A BUNDLE AIMED AT THE WRONG CONVEX DEPLOYMENT
+ * (wordle-teams-qjh3.5).
+ *
+ * `convex deploy --cmd 'pnpm build' --cmd-url-env-var-name VITE_CONVEX_URL`
+ * injects the URL of whatever deployment ITS KEY points at. So a workflow that
+ * selects CLOUDFLARE_ENV=dev while holding production's deploy key produces a
+ * perfectly valid bundle aimed at production, and nothing downstream can notice:
+ * both URLs are real and both deployments answer. The worker would then serve one
+ * backend while every browser query went to the other, which presents as the app
+ * HALF-WORKING rather than as an error. src/lib/convex-url.ts's header is the full
+ * account; this is the check that makes it impossible rather than documented.
+ *
+ * IT COMPARES WHAT THE BUILD ACTUALLY RESOLVED, not what was exported. `loadEnv`
+ * is the same function vite uses to populate `import.meta.env`, so this reads the
+ * value that will really be inlined -- after .env.production, after .env.local,
+ * and after process.env wins over both. Comparing the exported variable instead
+ * would miss a .env file overriding it, which is half the ways this goes wrong.
+ *
+ * BUILD ONLY. `vite dev` against a local backend is not a deploy and must not be
+ * gated; loopback values are skipped too, so a local `pnpm build` with a
+ * .env.local present still works. scripts/lib/build-env.mjs holds that rule and
+ * its tests.
+ */
+function convexDeploymentGuard() {
+  return {
+    name: 'wordle-teams:convex-deployment-guard',
+    config(_config: unknown, { command, mode }: { command: string; mode: string }) {
+      if (command !== 'build') return
+      const root = fileURLToPath(new URL('.', import.meta.url))
+      const { rawConfig } = experimental_readRawConfig({ config: `${root}wrangler.jsonc` })
+      const declared = varsForEnvironment(rawConfig, process.env.CLOUDFLARE_ENV)
+      const problem = convexMismatch(declared, loadEnv(mode, root, 'VITE_'))
+      if (problem) {
+        throw new Error(
+          `[convex-deployment-guard] CLOUDFLARE_ENV=${process.env.CLOUDFLARE_ENV ?? '(top level)'}\n${problem}`,
+        )
+      }
+    },
+  }
+}
+
 const config = defineConfig({
   // JSON.stringify, not template interpolation: `define` performs a raw TEXT
   // substitution, so an unquoted SHA would be spliced in as a bare identifier
@@ -89,6 +134,7 @@ const config = defineConfig({
   resolve: { tsconfigPaths: true },
   ssr: { noExternal: ['@convex-dev/better-auth'] },
   plugins: [
+    convexDeploymentGuard(),
     devtools(),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tailwindcss(),
