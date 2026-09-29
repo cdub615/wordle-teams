@@ -94,6 +94,12 @@ console.log(`  memberless teams  ${src.skipped.teams} of ${scoped.teams.length} 
 console.log(
   `  their memberships ${src.skipped.memberships} of ${scoped.memberships.length} in scope`,
 )
+// Winners have their own line because under an owner-scoped copy this is the
+// BIGGEST of the four and the only one that is not about the two skip filters:
+// 43 of 67 on the first --scope=solo run, every one of them a month another
+// member of the owner's team won. Printing it is what stops the next reader
+// mistaking a deliberate exclusion for 43 lost rows (wordle-teams-696k).
+console.log(`  others' winners   ${src.skipped.winners} of ${scoped.winners.length} in scope`)
 
 const convex = new ConvexHttpClient(CONVEX_URL)
 convex.setAdminAuth(CONVEX_MIGRATION_KEY)

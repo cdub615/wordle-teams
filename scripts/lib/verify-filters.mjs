@@ -48,36 +48,65 @@ import { selectCopyable } from './copy-filters.mjs'
  * looking at. Whoever sees 152 against 151 at the Phase 7 audit should query the
  * table for the SKIPPED players' rows, not read this file.
  *
- * SCORES, WINNERS AND WEBHOOKS ARE PASSED THROUGH UNTOUCHED, deliberately. The
- * Phase 4 measurement (2026-08-20, in the Phase 4 invites design doc) found that
- * nameless players own 0 daily scores and 0 monthly-winner rows, so there is
- * nothing here for a filter to remove; webhook_events was never claimed to be
- * affected. Each upsert mutation already counts any orphan it meets into its own
- * `skipped` tally. A verified shortfall on one of those three would be a new
- * finding to investigate, which is exactly what not filtering them preserves.
+ * SCORES AND WEBHOOKS ARE PASSED THROUGH UNTOUCHED, deliberately. The Phase 4
+ * measurement (2026-08-20, in the Phase 4 invites design doc) found that nameless
+ * players own 0 daily scores, so there is nothing here for a filter to remove;
+ * webhook_events was never claimed to be affected. Both are also filtered BY
+ * PLAYER inside readScoped, so under every scope each row they carry names a
+ * player the copy is writing. Each upsert mutation already counts any orphan it
+ * meets into its own `skipped` tally, and a verified shortfall on either would be
+ * a new finding to investigate — which is exactly what not filtering them
+ * preserves.
+ *
+ * WINNERS ARE NARROWED, AND THEY ARE THE EXCEPTION FOR ONE SPECIFIC REASON:
+ * readScoped filters monthly_winners BY TEAM, not by player — the only table it
+ * treats that way. So a month that another member of the owner's team won is in
+ * scope by team while naming a player an owner-scoped copy does not write.
+ * upsertMonthlyWinners resolves the player, finds nobody, and skips the row.
+ *
+ * THIS WAS FOUND THE EXPENSIVE WAY (wordle-teams-696k, 2026-09-29). The predicate
+ * was harmless for as long as the only scopes were 'all' and 'mine', because
+ * every winner row in those selects names a player they also select — measured on
+ * production, 67 of 67 under 'mine'. The first --scope=solo copy reported
+ * monthlyWinners inserted=24 skipped=43 and verify-parity then reported PARITY
+ * FAILED, 67 against 24: the verifier disagreeing with the copier it checks,
+ * which is the one failure the header above says must never happen. The lesson
+ * generalises — a new scope has to be pushed through THIS module too, not only
+ * through supabase-scope.mjs.
  *
  * `copiedPlayerIds` is returned as well as used, because a surviving team's
  * ROSTER needs the same narrowing at a finer grain — see expectedMemberCount.
  *
- * @returns the scoped result with `players`, `teams` and `memberships` narrowed
- *   and every other key passed through, plus the copied player ids and `skipped`
- *   counts for the three.
+ * @returns the scoped result with `players`, `teams`, `memberships` and `winners`
+ *   narrowed and every other key passed through, plus the copied player ids and
+ *   `skipped` counts for the four.
  */
 export function narrowToCopied(src) {
   const { players, teams, skippedPlayers, skippedTeams } = selectCopyable(src.players, src.teams)
   const copiedPlayerIds = new Set(players.map((p) => p.id))
+  const copiedTeamIds = new Set(teams.map((t) => t.id))
   const memberships = src.memberships.filter((m) => copiedPlayerIds.has(m.player_id))
+
+  // WINNERS NARROW ON BOTH HALVES, because upsertMonthlyWinners skips on
+  // `!player || !team` (convex/migrate.ts) and the verifier must expect exactly
+  // what the copy wrote. See the module note above for why this is the only one
+  // of scores/winners/webhooks that needs it.
+  const winners = src.winners.filter(
+    (w) => copiedPlayerIds.has(w.player_id) && copiedTeamIds.has(w.team_id),
+  )
 
   return {
     ...src,
     players,
     teams,
     memberships,
+    winners,
     copiedPlayerIds,
     skipped: {
       players: skippedPlayers,
       teams: skippedTeams,
       memberships: src.memberships.length - memberships.length,
+      winners: src.winners.length - winners.length,
     },
   }
 }

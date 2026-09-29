@@ -112,26 +112,88 @@ describe('narrowToCopied', () => {
     expect([...got.copiedPlayerIds]).toEqual(['named'])
   })
 
-  test('passes scores, winners, webhooks and totals through untouched', () => {
-    // These three are left to each upsert mutation's own orphan tally on
-    // purpose: nameless players own 0 boards and 0 winner rows, so a shortfall
-    // on one of them is a finding to chase, not something to filter away.
+  test('passes scores, webhooks and totals through untouched', () => {
+    // These two are left to each upsert mutation's own orphan tally on purpose:
+    // nameless players own 0 boards, and readScoped already filters both tables
+    // BY PLAYER, so under every scope each row it returns names a player the copy
+    // is writing. A shortfall on one of them is a finding to chase, not something
+    // to filter away. Winners are the exception — see the test below.
     const src = scoped({
       players: [player('named'), player('nameless', { first_name: null })],
       scores: [{ id: 's1', player_id: 'nameless' }],
-      winners: [{ id: 'w1', player_id: 'nameless' }],
       webhooks: [{ id: 'h1', player_id: 'nameless' }],
     })
 
     const got = narrowToCopied(src)
 
     expect(got.scores).toBe(src.scores)
-    expect(got.winners).toBe(src.winners)
     expect(got.webhooks).toBe(src.webhooks)
     expect(got.totals).toBe(src.totals)
   })
 
-  test('reports three zeroes when nothing is excluded', () => {
+  test('drops a winner row naming a player the copy did not write, and counts it', () => {
+    // WINNERS ARE THE ONE TABLE readScoped FILTERS BY TEAM RATHER THAN BY PLAYER,
+    // which is why they alone need narrowing here. A month another member of the
+    // owner's team won is IN SCOPE by team and names a player that --scope=solo
+    // does not copy, so upsertMonthlyWinners resolves the player, finds nobody,
+    // and counts the row into its own `skipped` tally.
+    //
+    // Measured 2026-09-29: the real solo copy reported monthlyWinners
+    // inserted=24 skipped=43, and verify-parity then reported PARITY FAILED
+    // 67 vs 24 — a verifier disagreeing with the copier it checks, which is the
+    // exact failure this module exists to prevent (wordle-teams-696k).
+    const src = scoped({
+      players: [player('me')],
+      teams: [team(1, ['me'])],
+      winners: [
+        { id: 'w-mine', player_id: 'me', team_id: 1 },
+        { id: 'w-theirs', player_id: 'teammate', team_id: 1 },
+      ],
+    })
+
+    const got = narrowToCopied(src)
+
+    expect(got.winners.map((w) => w.id)).toEqual(['w-mine'])
+    expect(got.skipped.winners).toBe(1)
+  })
+
+  test('drops a winner row naming a team the copy did not write', () => {
+    // upsertMonthlyWinners skips on `!player || !team`, so the verifier must
+    // narrow on both halves or it would expect a row the copy never wrote.
+    const src = scoped({
+      players: [player('me')],
+      teams: [team(1, ['me'])],
+      winners: [
+        { id: 'w-kept', player_id: 'me', team_id: 1 },
+        { id: 'w-gone', player_id: 'me', team_id: 999 },
+      ],
+    })
+
+    const got = narrowToCopied(src)
+
+    expect(got.winners.map((w) => w.id)).toEqual(['w-kept'])
+    expect(got.skipped.winners).toBe(1)
+  })
+
+  test('keeps every winner row when the whole roster was copied', () => {
+    // The --scope=all and --scope=mine case, which must not regress: when every
+    // player a winner row can name is present, nothing is excluded.
+    const src = scoped({
+      players: [player('a'), player('b')],
+      teams: [team(1, ['a', 'b'])],
+      winners: [
+        { id: 'w-a', player_id: 'a', team_id: 1 },
+        { id: 'w-b', player_id: 'b', team_id: 1 },
+      ],
+    })
+
+    const got = narrowToCopied(src)
+
+    expect(got.winners.map((w) => w.id)).toEqual(['w-a', 'w-b'])
+    expect(got.skipped.winners).toBe(0)
+  })
+
+  test('reports four zeroes when nothing is excluded', () => {
     // The control, and the reason the verifier prints these counts even at zero:
     // a zero says the narrowing ran and found nothing, where silence could
     // equally mean it never ran.
@@ -144,7 +206,7 @@ describe('narrowToCopied', () => {
       }),
     )
 
-    expect(got.skipped).toEqual({ players: 0, teams: 0, memberships: 0 })
+    expect(got.skipped).toEqual({ players: 0, teams: 0, memberships: 0, winners: 0 })
     expect(got.players).toHaveLength(2)
     expect(got.teams).toHaveLength(1)
     expect(got.memberships).toHaveLength(2)
