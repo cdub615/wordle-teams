@@ -6,6 +6,10 @@
  *   ME_EMAIL=... CONVEX_URL=... CONVEX_MIGRATION_KEY=... \
  *     node --env-file=../.env.production.local scripts/verify-parity.mjs --scope=mine
  *
+ * The scope must be the one that was COPIED — 'mine', 'solo' or 'all'. Verifying
+ * a solo-seeded deployment against --scope=mine would report 17 missing players
+ * and 6384 missing scores, all of which were deliberately never sent.
+ *
  * WHY THIS EXISTS. The copy runs three times — the owner's teams now, everyone
  * at the Phase 7 parity audit, and once more inside the cutover window. The last
  * of those happens with production in maintenance mode and a DNS flip waiting on
@@ -35,8 +39,10 @@ import { readCounts } from './lib/count-tables.mjs'
 
 const args = process.argv.slice(2)
 const scope = (args.find((a) => a.startsWith('--scope=')) ?? '--scope=mine').split('=')[1]
-if (!['mine', 'all'].includes(scope)) {
-  console.error(`Unknown --scope=${scope}. Use 'mine' or 'all'.`)
+// KEEP THIS LIST IN STEP WITH copy-from-supabase.mjs — see lib/supabase-scope.mjs's
+// header on why the copier and the verifier must agree about scope.
+if (!['mine', 'solo', 'all'].includes(scope)) {
+  console.error(`Unknown --scope=${scope}. Use 'mine', 'solo' or 'all'.`)
   process.exit(1)
 }
 
@@ -47,8 +53,10 @@ if (!CONVEX_URL || !CONVEX_MIGRATION_KEY) {
   console.error('Set CONVEX_URL and CONVEX_MIGRATION_KEY.')
   process.exit(1)
 }
-if (scope === 'mine' && !ME) {
-  console.error('Set ME_EMAIL for --scope=mine.')
+// Both owner-relative scopes need the address, for the reason
+// copy-from-supabase.mjs states at the same check.
+if (scope !== 'all' && !ME) {
+  console.error(`Set ME_EMAIL for --scope=${scope}.`)
   process.exit(1)
 }
 

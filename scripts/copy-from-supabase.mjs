@@ -23,7 +23,14 @@
  *
  * Scope:
  *   --scope=mine  (default) teams ME_EMAIL belongs to, and everyone in them.
+ *   --scope=solo            those same teams, but ONLY ME_EMAIL's own rows.
  *   --scope=all             every team and player.
+ *
+ * WHICH SCOPE FOR WHICH TARGET. 'mine' is for a parity check against production,
+ * because it selects what production holds. 'solo' is for seeding dev, where
+ * epic wordle-teams-qjh3's decision 8 forbids another user's row or address —
+ * 'mine' selects 18 people and 93% of every dailyScore, 'solo' selects 1 and
+ * 11%. The teams are identical either way; only the people differ.
  *
  * Reminders:
  *   --with-reminders        carry the reminder settings across. CUTOVER ONLY.
@@ -97,8 +104,12 @@ const acknowledgedTarget = has('--i-know-this-target')
  */
 const withReminders = has('--with-reminders')
 
-if (!['mine', 'all'].includes(scope)) {
-  console.error(`Unknown --scope=${scope}. Use 'mine' or 'all'.`)
+// KEEP THIS LIST IN STEP WITH verify-parity.mjs. lib/supabase-scope.mjs's header
+// is explicit that the copier and the verifier must never disagree about what a
+// scope means, and a scope one of them refuses at the front door is the loudest
+// possible disagreement.
+if (!['mine', 'solo', 'all'].includes(scope)) {
+  console.error(`Unknown --scope=${scope}. Use 'mine', 'solo' or 'all'.`)
   process.exit(1)
 }
 
@@ -106,8 +117,12 @@ const CONVEX_URL = process.env.CONVEX_URL
 const CONVEX_MIGRATION_KEY = process.env.CONVEX_MIGRATION_KEY
 const ME = (process.env.ME_EMAIL || '').toLowerCase()
 
-if (scope === 'mine' && !ME) {
-  console.error('Set ME_EMAIL for --scope=mine. Kept out of source: this repo is public.')
+// BOTH OWNER-RELATIVE SCOPES NEED THE ADDRESS. Without this, --scope=solo would
+// pass the front door and exit(1) from inside readScoped instead, after reading
+// all six tables — a slower failure with a message about production data rather
+// than about the flag the operator got wrong.
+if (scope !== 'all' && !ME) {
+  console.error(`Set ME_EMAIL for --scope=${scope}. Kept out of source: this repo is public.`)
   process.exit(1)
 }
 if (!dryRun && (!CONVEX_URL || !CONVEX_MIGRATION_KEY)) {
