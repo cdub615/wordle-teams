@@ -186,10 +186,12 @@ export function NextStepCard({
     Changing both is a copy decision about the menu, not about this card.
   */
   /*
-    NO X AT ALL WHILE THERE IS NOTHING BEHIND THE CARD (canDismissCard). A player
-    with no team and no board who closes this is left with an empty <main> —
-    reported from dev 2026-09-29 — so the gesture is withheld until /app has
-    something else on it.
+    NO X AT ALL WHILE THERE IS NOTHING BEHIND THE CARD (canDismissCard). A
+    team-less player who closes this is left with an empty <main> — reported from
+    dev 2026-09-29 — so the gesture is withheld until /app has something else on
+    it, which in practice means until they have a team. A BOARD IS NOT ENOUGH and
+    that correction came from the owner the same day: routes/app.tsx's team-less
+    branch renders no board panel at all, so entering one changes nothing here.
 
     ABSENT, NOT DISABLED. A disabled control is a promise the UI will not keep:
     it advertises an escape hatch, takes the tap, and does nothing, with no way
@@ -206,8 +208,8 @@ export function NextStepCard({
     thing to have done.
 
     THE GRADUATION STATE ALWAYS KEEPS ITS X, and gets it for free rather than by
-    a special case — graduating requires hasTeam AND enteredBoard AND hasInvited,
-    so canDismissCard is necessarily true by the time that state can render. Worth
+    a special case — graduating requires hasTeam (among the rest), so
+    canDismissCard is necessarily true by the time that state can render. Worth
     stating because `dismissButton` is shared by both branches below and a reader
     checking whether the finished card can be closed should not have to derive it.
   */

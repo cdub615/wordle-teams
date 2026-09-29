@@ -412,16 +412,18 @@ describe('NextStepCard', () => {
     expect(screen.queryByRole('button', { name: /Dismiss/ })).toBeNull()
   })
 
-  test('offers the dismiss control as soon as EITHER a team or a board exists', () => {
-    // Both halves of canDismissCard's `||`, from the component's side. A mutant
-    // turning it into `&&` leaves each of these with no X and fails here.
-    for (const facts of [
-      { ...nothing, hasTeam: true },
-      { ...nothing, enteredBoard: true },
-    ]) {
-      const { unmount } = render(createElement(NextStepCard, { facts, ...handlers }))
-      expect(screen.getByRole('button', { name: /Dismiss/ })).toBeTruthy()
-      unmount()
-    }
+  test('offers the dismiss control once a team exists', () => {
+    render(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
+    expect(screen.getByRole('button', { name: /Dismiss/ })).toBeTruthy()
+  })
+
+  test('offers NO dismiss control for a board with no team', () => {
+    // CORRECTED 2026-09-29: the first cut of this rule treated a board as enough,
+    // and it is not — routes/app.tsx's team-less branch renders no board panel at
+    // all (TodayPanel is below the `teams.length === 0` early return), so a player
+    // here who dismissed would still be looking at an empty dashboard. This is the
+    // case the owner caught.
+    render(createElement(NextStepCard, { facts: { ...nothing, enteredBoard: true }, ...handlers }))
+    expect(screen.queryByRole('button', { name: /Dismiss/ })).toBeNull()
   })
 })

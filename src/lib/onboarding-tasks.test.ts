@@ -112,9 +112,17 @@ describe('shouldShowCard', () => {
     expect(shouldShowGraduation(done)).toBe(true)
   })
 
-  test('a dismissal hides it once the player has a team or a board', () => {
+  test('a dismissal hides it once the player has a team', () => {
     expect(shouldShowCard({ ...nothing, hasTeam: true, dismissed: true })).toBe(false)
-    expect(shouldShowCard({ ...nothing, enteredBoard: true, dismissed: true })).toBe(false)
+  })
+
+  test('a dismissal still does NOT hide it for a player with a board but no team', () => {
+    // CORRECTED 2026-09-29, and it was wrong in the first cut of this rule: a
+    // board does NOT put anything on /app. routes/app.tsx returns early at
+    // `teams.length === 0` (line 882) and TodayPanel is mounted ~500 lines below
+    // that return, so the team-less branch shows the onboarding card, two
+    // dialogs and a visually-hidden <h1> — entering a board changes none of it.
+    expect(shouldShowCard({ ...nothing, enteredBoard: true, dismissed: true })).toBe(true)
   })
 
   test('a dismissal does NOT hide it while the dashboard would be empty', () => {
@@ -158,28 +166,44 @@ describe('shouldShowCard', () => {
 })
 
 describe('canDismissCard', () => {
-  test('false only when there is no team and no board', () => {
+  test('false for a player with no team', () => {
     expect(canDismissCard(nothing)).toBe(false)
   })
 
-  test('true as soon as EITHER exists, because either one fills the dashboard', () => {
-    // A board fills today-panel.tsx; a team fills the grid. Either is enough for
-    // the dashboard to be worth looking at, so either one restores the escape
-    // hatch. Deliberately OR and not AND: requiring both would hold a player who
-    // has built a team hostage to entering a board, and this card is a nudge
-    // rather than a gate.
+  test('A TEAM IS THE ONLY THING THAT UNLOCKS IT, and a board specifically does not', () => {
+    // THE ORIGINAL RULE SAID `hasTeam || enteredBoard` AND THAT WAS WRONG —
+    // corrected 2026-09-29 after the owner pointed out that entering a board with
+    // no team still leaves the dashboard empty. It does: routes/app.tsx returns
+    // early at `teams.length === 0` (line 882), and every panel that could render
+    // a board — TodayPanel at line ~1419, ScoresTable, TeamBoards — is below it.
+    // What the team-less branch renders is the onboarding card, CreateTeamDialog,
+    // the passkey offer and a visually-hidden <h1>. `boardSurface` is on that
+    // branch, but it is BoardEntrySurface, a dialog keyed to `boardOpen` — not
+    // content.
+    //
+    // So a team is not merely SUFFICIENT, it is NECESSARY: it is what moves the
+    // player onto the dashboard branch at all.
     expect(canDismissCard({ ...nothing, hasTeam: true })).toBe(true)
-    expect(canDismissCard({ ...nothing, enteredBoard: true })).toBe(true)
+    expect(canDismissCard({ ...nothing, enteredBoard: true })).toBe(false)
     expect(canDismissCard({ ...nothing, hasTeam: true, enteredBoard: true })).toBe(true)
   })
 
-  test('ignores hasInvited and dismissed, which say nothing about an empty dashboard', () => {
+  test('ignores every fact except hasTeam', () => {
     // An invite is not content on /app — it is someone else's pending state — so
-    // it must not unlock the dismissal on its own. And whether the player already
-    // dismissed cannot decide whether they MAY: that would make the rule
-    // self-satisfying for exactly the accounts it exists to repair.
+    // it must not unlock the dismissal. And whether the player already dismissed
+    // cannot decide whether they MAY: that would make the rule self-satisfying
+    // for exactly the accounts it exists to repair.
     expect(canDismissCard({ ...nothing, hasInvited: true })).toBe(false)
     expect(canDismissCard({ ...nothing, dismissed: true })).toBe(false)
+    // And hasTeam alone carries it regardless of what the others say.
+    for (const enteredBoard of [false, true]) {
+      for (const hasInvited of [false, true]) {
+        for (const dismissed of [false, true]) {
+          expect(canDismissCard({ hasTeam: true, enteredBoard, hasInvited, dismissed })).toBe(true)
+          expect(canDismissCard({ hasTeam: false, enteredBoard, hasInvited, dismissed })).toBe(false)
+        }
+      }
+    }
   })
 })
 

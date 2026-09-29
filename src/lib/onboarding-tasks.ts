@@ -109,20 +109,33 @@ export function incompleteTasks(facts: OnboardingFacts): OnboardingTask[] {
  * keep true, and it would say exactly what this card already says — the card IS
  * the empty state, and it is the one with working buttons in it.
  *
- * `||`, NOT `&&`, AND THE DIFFERENCE IS A TRAP. Either a team or a board is
- * enough to make /app worth looking at — a board fills today-panel.tsx, a team
- * fills the grid — and requiring BOTH would hold a player who has built a team
- * hostage to entering a board before they could close a nudge. This card is a
- * nudge, not a gate; the only thing being prevented is a dead end.
+ * A TEAM IS THE WHOLE CONDITION, AND `enteredBoard` IS DELIBERATELY NOT PART OF
+ * IT. This first shipped as `hasTeam || enteredBoard` and that was wrong; the
+ * owner caught it on 2026-09-29. Entering a board does not put anything on /app,
+ * because routes/app.tsx returns early at `teams.length === 0` (line 882) and
+ * every panel that could show a board — TodayPanel around line 1419, ScoresTable,
+ * TeamBoards — is mounted several hundred lines BELOW that return. The team-less
+ * branch renders this card, CreateTeamDialog, the passkey offer and a
+ * visually-hidden <h1>, and that is all. `boardSurface` is on that branch too,
+ * but it is BoardEntrySurface — a dialog keyed to `boardOpen`, not content.
  *
- * `hasInvited` IS DELIBERATELY NOT PART OF IT. A pending invite is somebody
- * else's state, not content on this player's dashboard, so it cannot be what
- * unlocks the dismissal. `dismissed` is excluded for a sharper reason: letting
- * it count would make the rule self-satisfying for precisely the accounts it
- * exists to rescue.
+ * So having a team is not merely SUFFICIENT to fill the dashboard, it is
+ * NECESSARY: it is the thing that moves the player onto the dashboard branch at
+ * all. Which makes this predicate, read honestly, "is this player past the
+ * team-less branch yet".
+ *
+ * IT IS STILL NOT A GATE ON THE BOARD TASK. A player may enter boards from here
+ * as much as they like — `onBoard` opens the same surface it always did — they
+ * just cannot dismiss the one thing on the page until the page has something
+ * else. Creating a team is one tap, in a button on this card.
+ *
+ * `hasInvited` IS EXCLUDED for the same reason it always was: a pending invite is
+ * somebody else's state, not content on this player's dashboard. `dismissed` is
+ * excluded for a sharper one — letting it count would make the rule
+ * self-satisfying for precisely the accounts it exists to rescue.
  */
 export function canDismissCard(facts: OnboardingFacts): boolean {
-  return facts.hasTeam || facts.enteredBoard
+  return facts.hasTeam
 }
 
 export function shouldShowCard(facts: OnboardingFacts): boolean {
