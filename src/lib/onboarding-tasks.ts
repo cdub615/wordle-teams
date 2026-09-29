@@ -95,12 +95,52 @@ export function incompleteTasks(facts: OnboardingFacts): OnboardingTask[] {
   return ids.map((id) => ({ id, ...TASK_COPY[id] }))
 }
 
+/**
+ * Whether the player is allowed to dismiss the card at all.
+ *
+ * THE DASHBOARD BEHIND IT HAS TO BE WORTH SEEING. routes/app.tsx's zero-teams
+ * branch renders this card and essentially nothing else, so a player with no
+ * team and no board who dismisses it is left looking at an empty <main>. That
+ * was reported from dev on 2026-09-29: dismissal "works", and the reward is a
+ * blank page.
+ *
+ * SO THE FIX IS TO WITHHOLD THE GESTURE, NOT TO INVENT A SECOND EMPTY STATE.
+ * A bespoke "nothing here yet" panel would be a new surface to design, write and
+ * keep true, and it would say exactly what this card already says — the card IS
+ * the empty state, and it is the one with working buttons in it.
+ *
+ * `||`, NOT `&&`, AND THE DIFFERENCE IS A TRAP. Either a team or a board is
+ * enough to make /app worth looking at — a board fills today-panel.tsx, a team
+ * fills the grid — and requiring BOTH would hold a player who has built a team
+ * hostage to entering a board before they could close a nudge. This card is a
+ * nudge, not a gate; the only thing being prevented is a dead end.
+ *
+ * `hasInvited` IS DELIBERATELY NOT PART OF IT. A pending invite is somebody
+ * else's state, not content on this player's dashboard, so it cannot be what
+ * unlocks the dismissal. `dismissed` is excluded for a sharper reason: letting
+ * it count would make the rule self-satisfying for precisely the accounts it
+ * exists to rescue.
+ */
+export function canDismissCard(facts: OnboardingFacts): boolean {
+  return facts.hasTeam || facts.enteredBoard
+}
+
 export function shouldShowCard(facts: OnboardingFacts): boolean {
   // TWO STATES NOW, NOT ONE. This used to also require an outstanding task,
   // which is why the card vanished the moment onboarding finished. It renders
   // the checklist while tasks remain and the graduation nudge afterwards, so
-  // the only thing that silences it is the dismissal.
-  return !facts.dismissed
+  // a dismissal is the only thing that silences it — and only once there is
+  // something to silence it in FAVOUR of.
+  //
+  // THE SECOND CLAUSE ALSO REPAIRS ACCOUNTS ALREADY STRANDED, which is why the
+  // rule lives here and not only on the X in next-step-card.tsx. Hiding the
+  // button stops the next player reaching this state; it does nothing for one
+  // whose `players.onboardingDismissedAt` is already stamped. Reading that stamp
+  // through this predicate brings their card back on the next load, with no
+  // migration and no write — and the moment they make a team or enter a board
+  // the stamp starts being honoured again, so nobody who dismissed deliberately
+  // has to dismiss twice.
+  return !facts.dismissed || !canDismissCard(facts)
 }
 
 /**
