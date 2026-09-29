@@ -131,14 +131,53 @@ export const PRO_BENEFITS: ReadonlyArray<ProBenefit> = [
   },
   {
     id: 'insights',
-    // "Full" and "everything you have done" are both false above
-    // PRO_BOARD_LIMIT (insights.ts) — 400 boards, "a bit over a year" by that
-    // file's own comment, above which myBenchmarkBoards truncates even a Pro
-    // caller. Free Layer 1 is the most recent board, not "today" — that half
-    // of the old copy described Layer 3 (today's team fact) and was wrong for
-    // Layer 1, so the two are named separately below.
-    title: 'Your history, and your team’s whole month',
-    body: 'Free shows your most recent board, and today’s team snapshot. Pro shows a long personal history of your own boards, and how the whole team’s month is going rather than just one day of it.',
+    // REWRITTEN 2026-09-29: the old copy sold a LONGER LIST, and what Pro
+    // actually unlocks is a DIFFERENT KIND OF PAGE. "A long personal history of
+    // your own boards, and how the whole team's month is going" describes
+    // storage — more of the same rows — when Layer 2 and Layer 3 are a
+    // statistics product. Every claim below was read off the component that
+    // renders it, in the order the page renders them:
+    //
+    //   personal-summary.tsx  mean attempts as the hero, set against the
+    //                         player's own record (its comment: "THE COMPARISON
+    //                         IS THE POINT, NOT THE FIGURE"), plus
+    //                         attemptDistribution, solvedRate, streaks,
+    //                         consistency and trailingForm.
+    //   openers-panel.tsx     openerRepertoire and difficultySplit.
+    //   trend-panel.tsx       attemptsByMonth as bars, TREND_MONTHS deep — its
+    //                         own comment calls the shape "the reason the panel
+    //                         exists at all, on a page pitched at $49.99/yr".
+    //   team-panel.tsx        headToHead, memberAverages, memberConsistency and
+    //                         bestAndWorstDays, for the month the controls pick.
+    //
+    // All four sit behind `access.layer2 === 'full'` / `layer3 === 'full'`
+    // (routes/insights.tsx), so every one of them is Pro-or-trial.
+    //
+    // WHAT IS DELIBERATELY NOT SOLD HERE, all three verified this session:
+    //
+    //   - LAYER 4. globalComparison is isPro-gated and server-enforced, and
+    //     still has NO consumer anywhere in src/ — grepped, zero hits. Selling a
+    //     surface nobody can reach is the defect this file's header names. So no
+    //     "see how you rank against every player" line, tempting as it is.
+    //   - COMPLETENESS. PRO_BOARD_LIMIT is 400 (insights.ts:24) and
+    //     myBenchmarkBoards `.take()`s it, so "every board" and "full history"
+    //     are false for exactly the players most likely to read this — the
+    //     owner's own copied account holds 838. The body claims a SHAPE ("how
+    //     your form moves") and never a total, and pro-benefits.test.ts now
+    //     refuses the completeness vocabulary outright.
+    //   - A BOARD COUNT OR A MONTH COUNT. TREND_MONTHS is 12 and
+    //     MIN_BOARDS_FOR_STATS is 5, and a number in prose is a second source of
+    //     truth — the rule this file already applies to the price.
+    //
+    // IT NO LONGER DESCRIBES THE FREE TIER. The old body spent its first sentence
+    // on what Free shows, which is half a Pro cell explaining the column next to
+    // it — /pricing renders a free column of its own, from free-includes.ts, and
+    // the upgrade dialog is reached by someone who has already hit the wall.
+    // That also retires a copy collision rather than working around it: see the
+    // `benchmark` entry in free-includes.ts, whose opener was reworded to clear
+    // four shared words with the sentence this edit deletes.
+    title: 'The numbers behind your guesses, and your team’s',
+    body: 'Your guess average against your own record, how your attempts are spread, which openers actually work for you, and how your form moves month by month — then the same depth on your team, member by member, for any month you choose.',
     gatedAt: 'convex/insights.ts',
     serverEnforced: true,
   },

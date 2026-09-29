@@ -245,14 +245,21 @@ describe('the landing page copy', () => {
     // THE PAYOFF IS IN SCOPE, AND ITS FIRST DRAFT IS WHY THE INVENTORY READS AS
     // IT DOES. That section used to describe the free benchmark in a paragraph of
     // its own, and "your most recent board" collided at exactly 4 with the
-    // `insights` benefit, whose body describes the FREE half before the paid one
-    // ("Free shows your most recent board, and today's team snapshot"). That was
-    // a legitimate overlap rather than a lifted phrase — but a reader meets the
-    // two sentences on two pages a click apart, and the fix was to reword rather
-    // than to exempt the section. lib/free-includes.ts's `benchmark` entry now
-    // carries that opener for both surfaces. What is left here is the framing
+    // `insights` benefit, whose body then described the FREE half before the paid
+    // one ("Free shows your most recent board, and today's team snapshot"). That
+    // was a legitimate overlap rather than a lifted phrase — but a reader meets
+    // the two sentences on two pages a click apart, and the fix was to reword
+    // rather than to exempt the section. lib/free-includes.ts's `benchmark` entry
+    // now carries that opener for both surfaces. What is left here is the framing
     // lead, which claims nothing and is measured anyway, because a lead is still
     // a sentence this file wrote.
+    //
+    // THE BENEFIT SENTENCE IN THAT STORY IS GONE (2026-09-29): `insights` was
+    // rewritten to sell the statistics panels and no longer mentions the free
+    // tier, so this particular collision cannot recur. The history is kept
+    // because it explains why two files word things the way they do, and the loop
+    // below is unchanged — it measures against whatever PRO_BENEFITS says today,
+    // which is the property that made it survive the rewrite without an edit.
     //
     // The DP's own known-answer check — a measure that returned 0 for everything
     // would satisfy every assertion below it — is copy-claims.test.ts's, which is

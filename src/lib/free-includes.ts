@@ -197,18 +197,31 @@ export const FREE_INCLUDES: ReadonlyArray<FreeInclusion> = [
     // "against everyone who played that day" — the corpus is a static artifact of
     // past puzzles, not a live field.
     //
-    // "THE LAST BOARD YOU ENTERED", NOT "YOUR MOST RECENT BOARD", AND THE
-    // WORDING IS FORCED RATHER THAN PREFERRED. pro-benefits.ts's `insights` body
-    // describes the free half before the paid one — "Free shows your most recent
-    // board, and today's team snapshot" — so the older opener shared exactly four
-    // consecutive words with a Pro benefit. free-includes.test.ts measures every
-    // line here against every PRO_BENEFITS text and fails at four —
-    // `SHARED_RUN_LIMIT` in test-support/copy-claims.ts, which carries the argument
-    // for that number; marketing-copy.test.ts records the same collision
-    // firing on the landing's first draft and being fixed by rewording rather
-    // than by exempting the section. This entry takes that opening for the same
-    // reason, and it is the only benchmark sentence the product has: /pricing's
-    // free column and the landing's Insights section both render this one.
+    // "THE LAST BOARD YOU ENTERED", NOT "YOUR MOST RECENT BOARD". THE COLLISION
+    // THAT FORCED THIS IS GONE, AND THE WORDING STAYS ANYWAY.
+    //
+    // It was forced: pro-benefits.ts's `insights` body used to describe the free
+    // half before the paid one — "Free shows your most recent board, and today's
+    // team snapshot" — so the older opener here shared exactly four consecutive
+    // words with a Pro benefit. free-includes.test.ts measures every line here
+    // against every PRO_BENEFITS text and fails at four (`SHARED_RUN_LIMIT` in
+    // test-support/copy-claims.ts, which carries the argument for that number),
+    // and marketing-copy.test.ts records the same collision firing on the
+    // landing's first draft and being fixed by rewording rather than by exempting
+    // the section.
+    //
+    // THAT SENTENCE NO LONGER EXISTS (2026-09-29): the `insights` benefit was
+    // rewritten to sell the statistics panels and stopped describing the free
+    // tier at all, so nothing in PRO_BENEFITS now says "your most recent board"
+    // and the constraint that chose these words has lifted. Kept regardless,
+    // because it is the better sentence on its own merits — it names the act the
+    // player performed rather than a row's position in a list — and because
+    // rewording customer copy to chase a constraint that has expired is churn a
+    // reader would have to re-learn. Recorded so the next person does not read a
+    // dead constraint as a live one, or "fix" prose that is not broken.
+    //
+    // It is the only benchmark sentence the product has: /pricing's free column
+    // and the landing's Insights section both render this one.
     title: 'How your last board measured up',
     body: 'The last board you entered, set against every past Wordle: how hard that day was, and where your opener ranks.',
     checkedAgainst: 'src/lib/insights-panel.ts',
