@@ -30,7 +30,25 @@ import { POLAR_API_VERSION } from './lib/polarVersion.ts'
 
 const modules = import.meta.glob('./**/*.ts')
 
-const SECRET = 'test_webhook_secret_not_a_real_one'
+/**
+ * SHAPED LIKE A REAL POLAR SECRET, AND THAT SHAPE IS NOW LOAD-BEARING
+ * (wordle-teams-02c, 2026-09-29). Polar issues `whsec_` + base64, and the two
+ * key derivations this suite now exercises only DIFFER for a secret of that
+ * shape: the spec key is `base64decode(secret.slice(6))`, which is undecodable
+ * for an arbitrary string. The old value here was
+ * 'test_webhook_secret_not_a_real_one' — no prefix, not base64 — so the spec key
+ * could not exist and the gap below was unreachable even in principle.
+ *
+ * 32 random-looking bytes, base64'd, which is what a real one decodes to.
+ */
+const SECRET = 'whsec_dGVzdFNlY3JldEJ5dGVzRm9yV29yZGxlVGVhbXMxMjM0NQ=='
+
+/**
+ * A secret whose remainder is NOT valid base64, so only the UTF-8 key exists.
+ * Guards the fallback in convex/http.ts: a deployment holding a hand-written
+ * secret must still verify rather than 500 on a decode that throws.
+ */
+const UNDECODABLE_SECRET = 'not_base64_$$$_and_no_prefix'
 const WEBHOOK_ID = 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W'
 
 /**
@@ -62,19 +80,45 @@ const aBody = (data: Record<string, unknown> = {}, type = 'subscription.active')
   })
 
 /**
- * Signs a delivery exactly as the handler expects to receive one.
+ * The two keys a Polar secret can produce, and the reason this suite has both.
  *
- * The key is the secret's UTF-8 bytes via `format: 'raw'`, which is what
- * `@polar-sh/sdk` derives by base64-encoding the secret and letting
- * `standardwebhooks` decode it straight back.
+ * `@polar-sh/sdk`'s `hmacKeys` (dist/webhooks-*.mjs) builds BOTH and verifies
+ * against either:
+ *
+ *   utf8  new TextEncoder().encode(secret)        — the whole string, prefix included
+ *   spec  base64decode(secret.slice('whsec_'.length))  — the Standard Webhooks key
+ *
+ * POLAR SIGNS WITH THE SPEC KEY. Measured against the sandbox on 2026-09-29: 54
+ * real deliveries across BOTH endpoints answered 403, and a probe that sent the
+ * same payload with the same fresh timestamp under each key got 202 for utf8 and
+ * 403 for spec — so the handler was accepting only the key Polar does not use.
+ *
+ * THIS SUITE COULD NOT HAVE CAUGHT IT, and that is the lesson rather than an
+ * excuse: `signed` below signed with the SAME derivation the handler verified
+ * with, so it agreed with itself no matter which key was wrong. A signer and a
+ * verifier sharing a key prove only that HMAC is deterministic. The file header
+ * said as much — "nothing here proves what Polar actually sends" — and the
+ * sandbox pass it pointed at is what found this.
  */
-const signed = (body: string, webhookId = WEBHOOK_ID, extraHeaders: Record<string, string> = {}) => {
+const utf8Key = (secret: string) => new Webhook(new TextEncoder().encode(secret), { format: 'raw' })
+const specKey = (secret: string) => new Webhook(secret)
+
+/**
+ * Signs a delivery the way Polar actually signs one — with the SPEC key.
+ *
+ * This is the default for every test below, deliberately: the suite's fixtures
+ * should look like production traffic, so a regression that breaks the real key
+ * breaks most of the file rather than one test.
+ */
+const signed = (
+  body: string,
+  webhookId = WEBHOOK_ID,
+  extraHeaders: Record<string, string> = {},
+  signer: (secret: string) => Webhook = specKey,
+  secret: string = SECRET,
+) => {
   const timestamp = new Date()
-  const signature = new Webhook(new TextEncoder().encode(SECRET), { format: 'raw' }).sign(
-    webhookId,
-    timestamp,
-    body,
-  )
+  const signature = signer(secret).sign(webhookId, timestamp, body)
 
   return {
     method: 'POST',
@@ -125,6 +169,46 @@ test('400 when the webhook-id header is missing', async () => {
   expect(await res.text()).toBe('Missing webhook-id')
 })
 
+test('verifies a delivery signed with the SPEC key, which is what Polar sends', async () => {
+  // THE REGRESSION TEST FOR wordle-teams-02c. Before the fix this was a 403 and
+  // every real Polar delivery to both deployments was rejected the same way: 54
+  // of them, silently, with the upgrades in them lost.
+  const t = convexTest(schema, modules)
+
+  const res = await post(t, signed(aBody(), WEBHOOK_ID, {}, specKey))
+
+  expect(res.status).toBe(202)
+  expect(await res.text()).toBe('Accepted, no matching player')
+})
+
+test('still verifies a delivery signed with the UTF-8 key', async () => {
+  // Both keys stay accepted, mirroring the SDK's hmacKeys rather than swapping
+  // one exclusive derivation for another. Polar uses the spec key today; the SDK
+  // accepts either, and narrowing to one is how this broke in the first place.
+  const t = convexTest(schema, modules)
+
+  const res = await post(t, signed(aBody(), WEBHOOK_ID, {}, utf8Key))
+
+  expect(res.status).toBe(202)
+  expect(await res.text()).toBe('Accepted, no matching player')
+})
+
+test('verifies against a secret whose remainder is not base64', async () => {
+  // The spec key cannot be derived here — base64 decoding '$$$' throws — so the
+  // handler must fall back to the UTF-8 key rather than 500 on the decode. A
+  // deployment holding a hand-written secret is the case this protects.
+  const t = convexTest(schema, modules)
+  process.env.POLAR_WEBHOOK_SECRET = UNDECODABLE_SECRET
+
+  const res = await post(
+    t,
+    signed(aBody(), WEBHOOK_ID, {}, utf8Key, UNDECODABLE_SECRET),
+  )
+
+  expect(res.status).toBe(202)
+  expect(await res.text()).toBe('Accepted, no matching player')
+})
+
 test('403 when the signature does not match', async () => {
   const t = convexTest(schema, modules)
   const init = signed(aBody())
@@ -147,6 +231,28 @@ test('403 when the body was changed after signing', async () => {
   const res = await post(t, { ...init, body: aBody({ customer_id: 'cus_2' }) })
 
   expect(res.status).toBe(403)
+})
+
+test('400, not 403, when a body that VERIFIED is not JSON at all', async () => {
+  // THE ORDERING TRAP THE TWO-KEY LOOP INTRODUCES, and a mutation test found it
+  // unguarded. `verify()` parses only AFTER the signature matches, so a signed
+  // body that is not JSON throws a SyntaxError from INSIDE the loop — and a loop
+  // that treats every error as "wrong key, try the next one" then moves on, meets
+  // a genuine verification miss on the other key, and reports THAT instead. The
+  // delivery is ours and unparseable (400, no redelivery can fix it), not foreign
+  // (403).
+  //
+  // SIGNED WITH THE UTF-8 KEY DELIBERATELY, because that is the order in which the
+  // bug is visible: the real error arrives on the FIRST verifier and the spec key's
+  // miss would overwrite it. Signing with the spec key puts the SyntaxError last,
+  // where even a broken loop happens to report it correctly — so that version of
+  // this test passes against the mutant and proves nothing.
+  const t = convexTest(schema, modules)
+
+  const res = await post(t, signed('this is not json', WEBHOOK_ID, {}, utf8Key))
+
+  expect(res.status).toBe(400)
+  expect(await res.text()).toBe('Invalid payload')
 })
 
 test('400 when a verified body carries no event type', async () => {

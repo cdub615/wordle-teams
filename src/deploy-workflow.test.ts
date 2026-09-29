@@ -90,13 +90,59 @@ describe('the decisions that are easy to undo by tidying', () => {
 })
 
 describe('the post-deploy environment assertion', () => {
-  test('is documented as absent rather than silently missing', () => {
-    // It was wired for exactly one run and removed: a Convex DEPLOY KEY cannot
-    // read environment variables (deployment:env:view), and there is no scope to
-    // widen. The comment is what stops the next person re-adding the same step
-    // and spending another run finding out.
+  /**
+   * THE STEP, BOUNDED AT THE NEXT `- name:` RATHER THAN BY A CHARACTER COUNT.
+   *
+   * The first version of this helper grabbed a fixed 400-character window, which
+   * ran past the end of the step and into the one after it — so deleting this
+   * step's own `if: github.event_name == 'push'` still matched, against the NEXT
+   * step's guard. Caught by mutation: the mutant that dropped the push guard
+   * survived. A windowed regex over structured text reads whatever happens to be
+   * adjacent.
+   */
+  function stepNamed(name: string): string | undefined {
+    const lines = WORKFLOW.split('\n')
+    const start = lines.findIndex((l) => l.includes(`- name: ${name}`))
+    if (start === -1) return undefined
+    const rest = lines.slice(start + 1)
+    const end = rest.findIndex((l) => /^\s*- name: /.test(l))
+    return [lines[start], ...(end === -1 ? rest : rest.slice(0, end))].join('\n')
+  }
+
+  test('runs, and only on a push', () => {
+    const step = stepNamed("The deployment's variables must match the environment")
+    expect(step, 'the assertion step is gone').toBeDefined()
+    // THE PUBLIC-REPO GUARD. Without it a pull request from a branch of this
+    // repository would run this against production with a live deploy key.
+    expect(step).toMatch(/if: github\.event_name == 'push'/)
+    expect(step).toMatch(/check-deployment-env\.mjs/)
+  })
+
+  test('is told which environment it is checking', () => {
+    // Without CLOUDFLARE_ENV it would check every deployment against
+    // production's rules, which would fail every dev deploy on E2E_TEST_MODE —
+    // wrong in the loud direction, but wrong.
+    expect(WORKFLOW).toMatch(/check-deployment-env\.mjs "\$\{CLOUDFLARE_ENV:-\}"/)
+  })
+
+  test('runs BEFORE the Worker deploy, so a bad environment stops the ship', () => {
+    // THE ORDER IS THE POINT, and it is the one thing about this step that a
+    // reader would not think to preserve. The variables belong to the Convex
+    // deployment `convex deploy` has just updated, so this is the last moment a
+    // bad one can stop the Worker going live. An earlier draft sat after the
+    // Worker deploy and would have reported the problem only once it was serving.
+    const assertion = WORKFLOW.indexOf("- name: The deployment's variables must match")
+    const worker = WORKFLOW.indexOf('- name: Deploy the Worker')
+    const convex = WORKFLOW.indexOf('- name: Deploy Convex and build the client')
+    expect(assertion).toBeGreaterThan(convex)
+    expect(assertion).toBeLessThan(worker)
+  })
+
+  test('the permission failure that removed it once is still explained', () => {
+    // Run 36474279805 died here on deployment:env:view because the repository
+    // secret was a deploy key from 2026-08-03. Keeping the account of it in the
+    // file is what stops the next person debugging the script instead of the key.
     expect(WORKFLOW).toMatch(/deployment:env:view/)
-    expect(WORKFLOW).not.toMatch(/run: node scripts\/check-deployment-env\.mjs/)
   })
 
   test('no COMMAND in the workflow runs `convex env list`', () => {

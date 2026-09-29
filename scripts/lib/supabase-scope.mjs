@@ -52,16 +52,33 @@ export async function readScoped(supabase, scope, meEmail) {
   let scopedTeams = teams
   let scopedPlayerIds = new Set(players.map((p) => p.id))
 
-  if (scope === 'mine') {
+  if (scope === 'mine' || scope === 'solo') {
     const me = players.find((p) => (p.email || '').toLowerCase() === meEmail)
     if (!me) {
       console.error('ME_EMAIL does not match any player in production.')
       process.exit(1)
     }
+    // TEAMS RESOLVE THE SAME WAY FOR BOTH SCOPES — membership or authorship.
+    // Only the PLAYER set differs, so a team the owner merely joined crosses
+    // under 'solo' too; without it dev would not hold the team whose scoreboard
+    // the owner actually uses.
     scopedTeams = teams.filter((t) => (t.player_ids || []).includes(me.id) || t.creator === me.id)
-    // Everyone in those teams, so scoreboards have real opponents rather than a
-    // single player talking to themselves.
-    scopedPlayerIds = new Set([me.id, ...scopedTeams.flatMap((t) => t.player_ids || [])])
+    scopedPlayerIds =
+      scope === 'solo'
+        ? // JUST THE OWNER (wordle-teams-696k). Epic wordle-teams-qjh3's decision
+          // 8 is that no other user's row or address goes onto dev, and 'mine'
+          // cannot honour it: measured against production on 2026-09-29 it
+          // selects 18 people and 93% of every dailyScore, where this selects 1
+          // and 11%. The teams still carry their other members' uuids in
+          // `player_ids`; upsertTeams resolves each one and counts the 21 it
+          // cannot find into `droppedMembers`, so the omission is reported
+          // rather than silent.
+          new Set([me.id])
+        : // Everyone in those teams, so scoreboards have real opponents rather
+          // than a single player talking to themselves. This is what
+          // verify-parity.mjs needs — it compares against what production holds,
+          // and production holds the opponents.
+          new Set([me.id, ...scopedTeams.flatMap((t) => t.player_ids || [])])
   }
 
   const scopedTeamIds = new Set(scopedTeams.map((t) => t.id))

@@ -119,6 +119,27 @@ the same token on disk (`wordle-teams-ldm8`).
   **Microsoft spans 12 tenants** (`wordle-teams-bnv`), each with its own consent
   policy. One tenant consenting does not mean the rest will.
 
+  **THE REGISTRATION HALF OF THIS STEP IS ALREADY DONE (2026-09-29,
+  `wordle-teams-qjh3.10`).** All four apps already carry
+  `https://wordleteams.com/api/auth/callback/<id>` alongside their existing beta
+  URL, because the owner added the production callback while in each console for
+  dev's. So on the day there is **nothing to register** — only the verification
+  below to perform, and it cannot be done earlier because it needs the apex
+  actually serving v2.
+
+  **DEV IS NOT PART OF THIS STEP AND MUST NOT BE TOUCHED ON THE DAY.** All four
+  apps also carry `https://dev.wordleteams.com/api/auth/callback/<id>`, and all
+  four were confirmed by a real hand sign-in on dev on 2026-09-29. Adding a
+  redirect URI does not re-trigger consent, so none of that is at risk from the
+  production work here.
+
+  **GITHUB IS THE ONE ASYMMETRY.** Google, Microsoft and Discord reuse a single
+  app across dev and production; GitHub does **not**, because a GitHub OAuth App
+  accepts exactly ONE callback URL. Dev runs a separate "Dev" app, so
+  `GITHUB_CLIENT_ID`/`_SECRET` legitimately DIFFER between the two deployments —
+  measured 2026-09-29. Do not "fix" that by copying one to the other; it would
+  break GitHub sign-in on whichever deployment lost its own app.
+
 - [ ] **1.2 — Point Polar's webhook at the production origin.**
 
   The URL is on **`.convex.site`, NOT `.convex.cloud`** — Convex serves
@@ -141,6 +162,21 @@ the same token on disk (`wordle-teams-ldm8`).
   **The endpoint this names was REPLACED on 2026-09-14** — see §1.6, which also
   covers the new signing secret that came with it.
 
+  **DEV HAS ITS OWN ENDPOINT AND IT IS NOT PART OF THE DAY**
+  (`wordle-teams-qjh3.11`, 2026-09-29):
+  `https://successful-canary-135.convex.site/polar/webhook`, pinned to
+  `api_version: 2026-10`, on the SANDBOX account. Both probes above were run
+  against it on 2026-09-29 and answered 400 and 403 as tabled. Nothing in this
+  step or §1.6 should re-register or re-secret it.
+
+  **THE SANDBOX ACCOUNT NOW HOLDS TWO ENDPOINTS, ONE PER ENVIRONMENT, AND THAT IS
+  CORRECT.** Beta points at `fabulous-goldfish-949.convex.site`, dev at
+  `successful-canary-135.convex.site`. That is NOT the "two enabled endpoints"
+  hazard §1.6 warns about — that hazard is two endpoints on the SAME URL, which
+  double-deliver every event. Two endpoints on two different URLs each receive
+  their own deployment's traffic. Beta moves to the PRODUCTION Polar account at
+  cutover (§2.2), which leaves dev alone on sandbox.
+
 - [ ] **1.3 — One full dry run: purge + copy + verify, no DNS flip.** §4.2–§4.5
       exactly as written, **against the DEV deployment** (`successful-canary-135`),
       the week before. The cutover window is not where you want to discover the
@@ -161,12 +197,23 @@ the same token on disk (`wordle-teams-ldm8`).
       ==============================================================================
       ```
 
-      **This now starts by emptying beta** (§4.2's purge step). That is fine and
-      is the point — everything in the beta deployment is testing data
-      permanently, per the owner's 2026-08-24 decision recorded in §4.2. It also
-      makes the dry run worth more than it used to be: it exercises the exact
-      sequence cutover day runs, and §4.5 coming back clean on beta is the
-      evidence that it will on production.
+      **This starts by emptying DEV** (§4.2's purge step). That is fine and is the
+      point: dev holds one person's copied rows by design
+      (`wordle-teams-qjh3.12`), so there is nothing there a re-copy cannot
+      rebuild. It exercises the exact sequence cutover day runs, and §4.5 coming
+      back clean on dev is the evidence that it will on production.
+
+      **THE DRY RUN'S COPY IS `--scope=all`, LIKE THE REAL ONE — NOT dev's usual
+      `--scope=solo`.** The point of a rehearsal is to run the command cutover day
+      runs, and scope is the one thing that changes the shape of every report it
+      prints. Dev's own seeding copy is a separate, owner-scoped thing
+      (`--scope=solo`, `wordle-teams-696k`) that is never part of cutover; re-run
+      it afterwards if you want dev back to one person's data.
+
+      **THESE TWO SENTENCES USED TO SAY "beta"** and were left behind when this
+      step was retargeted to dev on 2026-09-28. Corrected 2026-09-29 — a step that
+      says "against DEV" in its first line and "emptying beta" four lines later is
+      exactly the ambiguity §0 exists to prevent.
 
 - [ ] **1.4 — Resolve the paying customer by hand.**
 
@@ -204,7 +251,9 @@ the same token on disk (`wordle-teams-ldm8`).
   are now 2026-10**.
 
   Confirm, on **each** Polar instance — sandbox and production are wholly
-  separate accounts (§2.2), so this is two checks, not one:
+  separate accounts (§2.2), so this is two checks, not one. On sandbox there are
+  now **two** endpoints to look at, beta's and dev's (§1.2); check the one whose
+  URL names the deployment you are working on, and leave dev's alone:
 
   | Check | Expected |
   | --- | --- |
@@ -238,9 +287,27 @@ the same token on disk (`wordle-teams-ldm8`).
     -d '{"api_version": "2026-10"}'
   ```
 
-  **That token is not `POLAR_ACCESS_TOKEN`.** This needs `webhooks:write`;
-  the deployment's token carries `checkouts:write`, `customer_sessions:write`,
-  `checkouts:read` and `customers:write` and will answer **403**.
+  **`api_version` CAN BE SET AT CREATION, which is cheaper than PATCHing it.**
+  `POST /v1/webhooks/endpoints` accepts the field directly — measured 2026-09-29
+  creating dev's endpoint (`wordle-teams-qjh3.11`), which came back `201` already
+  pinned to `2026-10`. Use the PATCH above only on an endpoint that already
+  exists.
+
+  **THE "not `POLAR_ACCESS_TOKEN`" CLAIM IS FALSE ON SANDBOX — measured, and this
+  runbook previously asserted the opposite.** The sandbox `POLAR_ACCESS_TOKEN`
+  listed, created AND read webhook endpoints without a `webhooks:write` token of
+  its own. It is an **organization token**, and the only thing it refused was an
+  explicit `organization_id` in the body:
+
+  ```
+  422 PolarRequestValidationError
+  "Setting organization_id is disallowed when using an organization token."
+  ```
+
+  Drop that field and it is a `201`. So do not go hunting for a second credential
+  before trying the one the deployment already holds. **Production's token has not
+  been tested this way** — it is a different account with its own scopes, so
+  verify there rather than assuming either answer.
 
   Changing an endpoint's `api_version` applies only to events created
   **afterwards** — existing events keep the version they were rendered at, so a
@@ -319,6 +386,24 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
   holding none of their data. `POLAR_SERVER` must be exactly `production` or
   `sandbox`; `assertPolarEnv` validates all five together and names every missing
   one, so the first checkout after cutover is a complete test that fails loudly.
+
+  **YOU DO NOT HAVE TO REMEMBER THIS STEP — THE PIPELINE NAGS YOU.** Until it is
+  done, `scripts/check-deployment-env.mjs` prints this on **every production
+  deploy** (`scripts/lib/deployment-env.mjs`):
+
+  ```
+  POLAR_SERVER is "sandbox" on the deployment that becomes production.
+  ```
+
+  It is a WARNING, not a failure, and deliberately so: sandbox is the correct
+  setting for beta right up to the moment it isn't, so failing the deploy would
+  block every deploy between now and cutover. **When this step is done the warning
+  stops** — that silence is the confirmation, and it is a better one than a
+  checkbox because nobody has to go and look.
+
+  The same script carries the mirror-image guard for dev, which is what stops this
+  step being done to the wrong deployment: `POLAR_SERVER is "production" on dev`
+  is an **error**, not a warning — dev must never take a real checkout.
 
   **Scopes are a different thing from variables.** The token needs **four**,
   across **five** SDK call sites in `convex/polar.ts` — `customers:write` covers

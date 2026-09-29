@@ -95,12 +95,65 @@ export function incompleteTasks(facts: OnboardingFacts): OnboardingTask[] {
   return ids.map((id) => ({ id, ...TASK_COPY[id] }))
 }
 
+/**
+ * Whether the player is allowed to dismiss the card at all.
+ *
+ * THE DASHBOARD BEHIND IT HAS TO BE WORTH SEEING. routes/app.tsx's zero-teams
+ * branch renders this card and essentially nothing else, so a player with no
+ * team and no board who dismisses it is left looking at an empty <main>. That
+ * was reported from dev on 2026-09-29: dismissal "works", and the reward is a
+ * blank page.
+ *
+ * SO THE FIX IS TO WITHHOLD THE GESTURE, NOT TO INVENT A SECOND EMPTY STATE.
+ * A bespoke "nothing here yet" panel would be a new surface to design, write and
+ * keep true, and it would say exactly what this card already says — the card IS
+ * the empty state, and it is the one with working buttons in it.
+ *
+ * A TEAM IS THE WHOLE CONDITION, AND `enteredBoard` IS DELIBERATELY NOT PART OF
+ * IT. This first shipped as `hasTeam || enteredBoard` and that was wrong; the
+ * owner caught it on 2026-09-29. Entering a board does not put anything on /app,
+ * because routes/app.tsx returns early at `teams.length === 0` (line 882) and
+ * every panel that could show a board — TodayPanel around line 1419, ScoresTable,
+ * TeamBoards — is mounted several hundred lines BELOW that return. The team-less
+ * branch renders this card, CreateTeamDialog, the passkey offer and a
+ * visually-hidden <h1>, and that is all. `boardSurface` is on that branch too,
+ * but it is BoardEntrySurface — a dialog keyed to `boardOpen`, not content.
+ *
+ * So having a team is not merely SUFFICIENT to fill the dashboard, it is
+ * NECESSARY: it is the thing that moves the player onto the dashboard branch at
+ * all. Which makes this predicate, read honestly, "is this player past the
+ * team-less branch yet".
+ *
+ * IT IS STILL NOT A GATE ON THE BOARD TASK. A player may enter boards from here
+ * as much as they like — `onBoard` opens the same surface it always did — they
+ * just cannot dismiss the one thing on the page until the page has something
+ * else. Creating a team is one tap, in a button on this card.
+ *
+ * `hasInvited` IS EXCLUDED for the same reason it always was: a pending invite is
+ * somebody else's state, not content on this player's dashboard. `dismissed` is
+ * excluded for a sharper one — letting it count would make the rule
+ * self-satisfying for precisely the accounts it exists to rescue.
+ */
+export function canDismissCard(facts: OnboardingFacts): boolean {
+  return facts.hasTeam
+}
+
 export function shouldShowCard(facts: OnboardingFacts): boolean {
   // TWO STATES NOW, NOT ONE. This used to also require an outstanding task,
   // which is why the card vanished the moment onboarding finished. It renders
   // the checklist while tasks remain and the graduation nudge afterwards, so
-  // the only thing that silences it is the dismissal.
-  return !facts.dismissed
+  // a dismissal is the only thing that silences it — and only once there is
+  // something to silence it in FAVOUR of.
+  //
+  // THE SECOND CLAUSE ALSO REPAIRS ACCOUNTS ALREADY STRANDED, which is why the
+  // rule lives here and not only on the X in next-step-card.tsx. Hiding the
+  // button stops the next player reaching this state; it does nothing for one
+  // whose `players.onboardingDismissedAt` is already stamped. Reading that stamp
+  // through this predicate brings their card back on the next load, with no
+  // migration and no write — and the moment they make a team or enter a board
+  // the stamp starts being honoured again, so nobody who dismissed deliberately
+  // has to dismiss twice.
+  return !facts.dismissed || !canDismissCard(facts)
 }
 
 /**

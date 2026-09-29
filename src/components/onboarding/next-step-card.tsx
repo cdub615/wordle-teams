@@ -9,6 +9,7 @@ import {
   GRADUATION_CTA,
   GRADUATION_TITLE,
   MODEL_LINE,
+  canDismissCard,
   cardHeading,
   incompleteTasks,
   shouldShowCard,
@@ -184,7 +185,35 @@ export function NextStepCard({
     would not find one — the dismiss and the undo have to name the same thing.
     Changing both is a copy decision about the menu, not about this card.
   */
-  const dismissButton = (
+  /*
+    NO X AT ALL WHILE THERE IS NOTHING BEHIND THE CARD (canDismissCard). A
+    team-less player who closes this is left with an empty <main> — reported from
+    dev 2026-09-29 — so the gesture is withheld until /app has something else on
+    it, which in practice means until they have a team. A BOARD IS NOT ENOUGH and
+    that correction came from the owner the same day: routes/app.tsx's team-less
+    branch renders no board panel at all, so entering one changes nothing here.
+
+    ABSENT, NOT DISABLED. A disabled control is a promise the UI will not keep:
+    it advertises an escape hatch, takes the tap, and does nothing, with no way
+    to say why in an icon-only button. `aria-disabled` would at least announce
+    it, but "dismiss, unavailable" still leaves a screen-reader user hunting for
+    the reason. Rendering nothing is honest — there is no exit yet — and the card
+    itself already says what to do instead, in two buttons that work.
+
+    THIS IS BELT AND BRACES, NOT THE RULE. shouldShowCard re-shows the card even
+    when the stamp IS set and nothing exists, so hiding the button only stops the
+    stamp being written in the first place; the rule that actually holds is in
+    lib/onboarding-tasks.ts. Both halves are wanted: without this one a player
+    can still write a dismissal that silently does nothing, which is a confusing
+    thing to have done.
+
+    THE GRADUATION STATE ALWAYS KEEPS ITS X, and gets it for free rather than by
+    a special case — graduating requires hasTeam (among the rest), so
+    canDismissCard is necessarily true by the time that state can render. Worth
+    stating because `dismissButton` is shared by both branches below and a reader
+    checking whether the finished card can be closed should not have to derive it.
+  */
+  const dismissButton = canDismissCard(facts) ? (
     <Button
       variant="ghost"
       size="icon"
@@ -197,7 +226,7 @@ export function NextStepCard({
     >
       <X size={16} />
     </Button>
-  )
+  ) : null
 
   /*
     THE GRADUATION STATE — what used to be `return null`.

@@ -4,6 +4,7 @@ import {
   GRADUATION_CTA,
   GRADUATION_TITLE,
   MODEL_LINE,
+  canDismissCard,
   cardHeading,
   incompleteTasks,
   shouldShowCard,
@@ -111,19 +112,95 @@ describe('shouldShowCard', () => {
     expect(shouldShowGraduation(done)).toBe(true)
   })
 
-  test('a dismissal hides it even with work outstanding', () => {
-    expect(shouldShowCard({ ...nothing, dismissed: true })).toBe(false)
+  test('a dismissal hides it once the player has a team', () => {
+    expect(shouldShowCard({ ...nothing, hasTeam: true, dismissed: true })).toBe(false)
   })
 
-  test('the ONLY thing that hides the card now is the dismissal', () => {
-    // Over every fact combination, because the predicate is one boolean and a
-    // spot check cannot tell a rewritten rule from a coincidence. If a future
-    // edit reintroduces a task-count condition, this is where it fails.
+  test('a dismissal still does NOT hide it for a player with a board but no team', () => {
+    // CORRECTED 2026-09-29, and it was wrong in the first cut of this rule: a
+    // board does NOT put anything on /app. routes/app.tsx returns early at
+    // `teams.length === 0` (line 882) and TodayPanel is mounted ~500 lines below
+    // that return, so the team-less branch shows the onboarding card, two
+    // dialogs and a visually-hidden <h1> — entering a board changes none of it.
+    expect(shouldShowCard({ ...nothing, enteredBoard: true, dismissed: true })).toBe(true)
+  })
+
+  test('a dismissal does NOT hide it while the dashboard would be empty', () => {
+    // THE WHOLE POINT OF canDismissCard. A player with no team and no board has
+    // nothing else on /app — routes/app.tsx's zero-teams branch renders this card
+    // and little else — so honouring the dismissal leaves a blank main section,
+    // which is what was reported on dev. The card outlives the stamp until there
+    // is something behind it.
+    expect(shouldShowCard({ ...nothing, dismissed: true })).toBe(true)
+  })
+
+  test('re-shows for an account that ALREADY dismissed with nothing to show', () => {
+    // The reason this rule lives in shouldShowCard rather than only in the X.
+    // Hiding the button stops the NEXT player reaching this state; it does nothing
+    // for the ones already in it, whose `players.onboardingDismissedAt` is already
+    // stamped. Reading the stamp through this predicate repairs them on next load
+    // with no migration and no write.
+    const stranded: OnboardingFacts = {
+      enteredBoard: false,
+      hasTeam: false,
+      hasInvited: false,
+      dismissed: true,
+    }
+    expect(shouldShowCard(stranded)).toBe(true)
+  })
+
+  test('what hides the card is a dismissal AND something to show, in every combination', () => {
+    // Over every fact combination, because the predicate is two booleans now and a
+    // spot check cannot tell a rewritten rule from a coincidence. If a future edit
+    // reintroduces a task-count condition, this is where it fails.
     for (const enteredBoard of [false, true]) {
       for (const hasTeam of [false, true]) {
         for (const hasInvited of [false, true]) {
           expect(shouldShowCard({ enteredBoard, hasTeam, hasInvited, dismissed: false })).toBe(true)
-          expect(shouldShowCard({ enteredBoard, hasTeam, hasInvited, dismissed: true })).toBe(false)
+          const dismissed = { enteredBoard, hasTeam, hasInvited, dismissed: true }
+          expect(shouldShowCard(dismissed)).toBe(!canDismissCard(dismissed))
+        }
+      }
+    }
+  })
+})
+
+describe('canDismissCard', () => {
+  test('false for a player with no team', () => {
+    expect(canDismissCard(nothing)).toBe(false)
+  })
+
+  test('A TEAM IS THE ONLY THING THAT UNLOCKS IT, and a board specifically does not', () => {
+    // THE ORIGINAL RULE SAID `hasTeam || enteredBoard` AND THAT WAS WRONG —
+    // corrected 2026-09-29 after the owner pointed out that entering a board with
+    // no team still leaves the dashboard empty. It does: routes/app.tsx returns
+    // early at `teams.length === 0` (line 882), and every panel that could render
+    // a board — TodayPanel at line ~1419, ScoresTable, TeamBoards — is below it.
+    // What the team-less branch renders is the onboarding card, CreateTeamDialog,
+    // the passkey offer and a visually-hidden <h1>. `boardSurface` is on that
+    // branch, but it is BoardEntrySurface, a dialog keyed to `boardOpen` — not
+    // content.
+    //
+    // So a team is not merely SUFFICIENT, it is NECESSARY: it is what moves the
+    // player onto the dashboard branch at all.
+    expect(canDismissCard({ ...nothing, hasTeam: true })).toBe(true)
+    expect(canDismissCard({ ...nothing, enteredBoard: true })).toBe(false)
+    expect(canDismissCard({ ...nothing, hasTeam: true, enteredBoard: true })).toBe(true)
+  })
+
+  test('ignores every fact except hasTeam', () => {
+    // An invite is not content on /app — it is someone else's pending state — so
+    // it must not unlock the dismissal. And whether the player already dismissed
+    // cannot decide whether they MAY: that would make the rule self-satisfying
+    // for exactly the accounts it exists to repair.
+    expect(canDismissCard({ ...nothing, hasInvited: true })).toBe(false)
+    expect(canDismissCard({ ...nothing, dismissed: true })).toBe(false)
+    // And hasTeam alone carries it regardless of what the others say.
+    for (const enteredBoard of [false, true]) {
+      for (const hasInvited of [false, true]) {
+        for (const dismissed of [false, true]) {
+          expect(canDismissCard({ hasTeam: true, enteredBoard, hasInvited, dismissed })).toBe(true)
+          expect(canDismissCard({ hasTeam: false, enteredBoard, hasInvited, dismissed })).toBe(false)
         }
       }
     }

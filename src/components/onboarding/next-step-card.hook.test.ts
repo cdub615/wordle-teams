@@ -235,14 +235,35 @@ describe('NextStepCard', () => {
     expect(sent).toEqual([])
   })
 
-  test('renders nothing when dismissed', () => {
+  test('renders nothing when dismissed, once there is something to show instead', () => {
+    // `hasTeam` IS LOAD-BEARING IN THIS FIXTURE, not incidental detail.
+    // shouldShowCard only honours the dismissal once canDismissCard is true, so
+    // `{ ...nothing, dismissed: true }` — which this test used until
+    // 2026-09-29 — now RENDERS, deliberately: see the empty-dashboard test
+    // below. A dismissed player with a team is the state that must go silent.
     const { container } = render(
-      createElement(NextStepCard, { facts: { ...nothing, dismissed: true }, ...handlers }),
+      createElement(NextStepCard, {
+        facts: { ...nothing, hasTeam: true, dismissed: true },
+        ...handlers,
+      }),
     )
     expect(container.textContent).toBe('')
     // As above: a dismissed player must be silent, not merely blank. Without
     // the effect's visibility gate this one emits the full task set forever.
     expect(sent).toEqual([])
+  })
+
+  test('still renders for a dismissed player with no team and no board', () => {
+    // THE REGRESSION THIS PAIR EXISTS TO PIN (reported from dev 2026-09-29):
+    // honouring the dismissal here left an empty <main>, because routes/app.tsx's
+    // zero-teams branch renders this card and little else. The card outlives the
+    // stamp until /app has something else on it, which also repairs accounts
+    // already stranded with the stamp set.
+    const { container } = render(
+      createElement(NextStepCard, { facts: { ...nothing, dismissed: true }, ...handlers }),
+    )
+    expect(container.textContent).not.toBe('')
+    expect(screen.getByRole('button', { name: /Create a team/ })).toBeTruthy()
   })
 
   test('emits onboarding_view once per task set, not once per render', () => {
@@ -366,12 +387,43 @@ describe('NextStepCard', () => {
   })
 
   test('dismiss reports and calls its handler', () => {
+    // `hasTeam` again: the X is withheld entirely while canDismissCard is false,
+    // so this test needs a player who is ALLOWED to dismiss before it can assert
+    // what dismissing does.
     const calls: string[] = []
     render(
-      createElement(NextStepCard, { facts: nothing, ...handlers, onDismiss: () => calls.push('x') }),
+      createElement(NextStepCard, {
+        facts: { ...nothing, hasTeam: true },
+        ...handlers,
+        onDismiss: () => calls.push('x'),
+      }),
     )
     fireEvent.click(screen.getByRole('button', { name: /Dismiss/ }))
     expect(calls).toEqual(['x'])
     expect(sent).toContain('onboarding_dismiss:')
+  })
+
+  test('offers NO dismiss control with no team and no board', () => {
+    // ABSENT, NOT DISABLED — see the component's comment. A disabled icon-only
+    // button advertises an escape hatch, accepts the tap and does nothing, with
+    // nowhere to explain why. Asserted by absence so that rendering it disabled
+    // fails here too.
+    render(createElement(NextStepCard, { facts: nothing, ...handlers }))
+    expect(screen.queryByRole('button', { name: /Dismiss/ })).toBeNull()
+  })
+
+  test('offers the dismiss control once a team exists', () => {
+    render(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...handlers }))
+    expect(screen.getByRole('button', { name: /Dismiss/ })).toBeTruthy()
+  })
+
+  test('offers NO dismiss control for a board with no team', () => {
+    // CORRECTED 2026-09-29: the first cut of this rule treated a board as enough,
+    // and it is not — routes/app.tsx's team-less branch renders no board panel at
+    // all (TodayPanel is below the `teams.length === 0` early return), so a player
+    // here who dismissed would still be looking at an empty dashboard. This is the
+    // case the owner caught.
+    render(createElement(NextStepCard, { facts: { ...nothing, enteredBoard: true }, ...handlers }))
+    expect(screen.queryByRole('button', { name: /Dismiss/ })).toBeNull()
   })
 })

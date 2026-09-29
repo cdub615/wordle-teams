@@ -319,6 +319,20 @@ export function AppMenu() {
                   `isAuthenticated &&` BLOCK, THE SAME AS EVERY QUERY ABOVE —
                   see this file's doc comment on why the queries need 'skip'
                   now that this component mounts for a signed-out visitor.
+
+                  IT CAN APPEAR ALONGSIDE A CARD THAT IS ALREADY SHOWING, and
+                  that is accepted rather than overlooked (2026-09-29).
+                  lib/onboarding-tasks.ts's shouldShowCard now re-shows the card
+                  for a player whose stamp is set but who has no team and no
+                  board, so for those accounts this item offers to restore
+                  something visible. Gating it properly would mean knowing
+                  `hasTeam` here, and the only source is getMyTeams — which
+                  onboarding/next-step-card.tsx records is invalidated by every
+                  team in the system, so subscribing this always-mounted menu to
+                  it would be a real cost for a cosmetic tidy. Clicking it is
+                  harmless and self-healing: `replay` clears a stamp that was not
+                  being honoured, the card carries on showing, and the item
+                  disappears because it is gated on the stamp it just cleared.
                 */}
                 {onboardingStatus?.dismissed && (
                   <DropdownMenuItem

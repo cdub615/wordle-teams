@@ -45,6 +45,7 @@ import type * as lib_relyingParty from "../lib/relyingParty.js";
 import type * as lib_reminders from "../lib/reminders.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_scoringSystem from "../lib/scoringSystem.js";
+import type * as lib_sweeps from "../lib/sweeps.js";
 import type * as lib_teamLimits from "../lib/teamLimits.js";
 import type * as lib_teamStats from "../lib/teamStats.js";
 import type * as me from "../me.js";
@@ -109,6 +110,7 @@ declare const fullApi: ApiFromModules<{
   "lib/reminders": typeof lib_reminders;
   "lib/scoring": typeof lib_scoring;
   "lib/scoringSystem": typeof lib_scoringSystem;
+  "lib/sweeps": typeof lib_sweeps;
   "lib/teamLimits": typeof lib_teamLimits;
   "lib/teamStats": typeof lib_teamStats;
   me: typeof me;

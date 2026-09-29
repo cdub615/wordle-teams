@@ -106,6 +106,43 @@ describe('PRO_BENEFITS', () => {
     expect(prose).not.toContain('notification')
   })
 
+  test('promises no COMPLETE history, because PRO_BOARD_LIMIT truncates one', () => {
+    // THE CAP IS REAL AND IT BITES THE HEAVIEST USERS FIRST. insights.ts sets
+    // PRO_BOARD_LIMIT to 400 and myBenchmarkBoards `.take()`s it, so a Pro caller
+    // with more boards than that gets the most recent 400 and nothing older. The
+    // owner's own account holds 838 — measured 2026-09-29 when dev was seeded —
+    // so "every board you have ever entered" is false for precisely the player
+    // most likely to be reading a Pro pitch.
+    //
+    // WHY A WORD LIST RATHER THAN A NUMBER CHECK, which is the same argument
+    // PRO_ONLY_WORDS makes: the defect is a CLAIM, not an arithmetic error. No
+    // assertion can compare prose against 400, but the vocabulary of
+    // completeness is small and every entry in it is a promise this product
+    // cannot keep. "full" earns its place twice over — feature-cards.tsx's "Go
+    // Pro" card sold "unlimited months" over a three-month window, which is the
+    // drift this whole module was created to stop.
+    //
+    // NOT APPLIED TO src/lib/insights-panel.ts, WHICH CURRENTLY FAILS IT:
+    // that module's own upsell says "Pro opens your full playing history ... and
+    // every board you have ever entered", which is the exact claim refused here.
+    // Filed rather than fixed in passing, so the fix arrives with its own
+    // reasoning instead of riding along with a copy edit.
+    const prose = PRO_BENEFITS.map((b) => `${b.title} ${b.body}`).join(' ').toLowerCase()
+
+    for (const claim of [
+      'every board',
+      'all your boards',
+      'full history',
+      'full playing history',
+      'complete history',
+      'entire history',
+      'everything you have',
+      'every board you have ever entered',
+    ]) {
+      expect(prose, `"${claim}" promises a history PRO_BOARD_LIMIT truncates`).not.toContain(claim)
+    }
+  })
+
   test('quotes no price, in any of the shapes a price takes', () => {
     // The price lives in Polar and reaches the customer on Polar's hosted
     // checkout. A number here is a second source of truth that goes stale

@@ -112,6 +112,86 @@ type PolarDelivery = { type?: unknown; data?: SubscriptionIdentity | null }
  * `standardwebhooks` reaches only `@stablelib/base64` and `fast-sha256`, both
  * pure JS, and needs no Node built-in — the run above is the proof.
  */
+/**
+ * Verifies a Polar delivery, trying BOTH keys one secret can produce.
+ *
+ * THIS USED TO TRY ONLY THE UTF-8 KEY AND IT REJECTED EVERY REAL DELIVERY
+ * (wordle-teams-02c). Measured against the Polar sandbox on 2026-09-29: 54
+ * deliveries across BOTH endpoints answered 403 "Invalid signature" — dev's AND
+ * beta's, the deployment that becomes production — so every upgrade webhook was
+ * being thrown away silently, which is the exact failure mode the endpoint's own
+ * comments warn about elsewhere. A probe then sent the same payload with the same
+ * FRESH timestamp under each key and got 202 for utf8 and 403 for spec, isolating
+ * the key as the only variable: both endpoint secrets had already been verified
+ * byte-identical to what Polar holds, and a fresh timestamp rules out the
+ * five-minute tolerance.
+ *
+ *   utf8  new TextEncoder().encode(secret)   the WHOLE string, 'whsec_' and all
+ *   spec  base64decode(after 'whsec_')       Standard Webhooks' own derivation
+ *
+ * POLAR SIGNS WITH THE SPEC KEY. `@polar-sh/sdk`'s `hmacKeys` builds both and
+ * verifies against either, which is why the SDK works where this did not — the
+ * old comment here claimed to be "byte-identical to the SDK" and was identical to
+ * only ONE of its two keys, the one Polar does not use. A signer and a verifier
+ * that share a key derivation agree with each other no matter which key is wrong,
+ * which is why convex/http.test.ts could not see this and why its fixtures now
+ * sign with the spec key.
+ *
+ * BOTH ARE KEPT rather than swapping one exclusive derivation for another,
+ * mirroring the SDK: narrowing to a single key is exactly how this broke, and a
+ * future Polar that signs with the other must not break it again. utf8 first, in
+ * the SDK's own order.
+ *
+ * A FUNCTION RATHER THAN A LOOP INLINE IN THE HANDLER, because the handler needs
+ * `event` assigned exactly once: the loop form left it conditionally assigned and
+ * `tsc` rejected it (TS2454), which the whole test suite had passed over.
+ */
+function verifyPolarDelivery(
+  secret: string,
+  rawBody: string,
+  headers: Record<string, string>,
+): PolarDelivery {
+  const verifiers = [new Webhook(new TextEncoder().encode(secret), { format: 'raw' })]
+
+  // NOT `new Webhook(secret, { format: 'raw' })` with the string: that path does
+  // `Uint8Array.from(s, c => c.charCodeAt(0))`, which is latin-1, so a non-ASCII
+  // secret would key differently from every other Polar client. The bare
+  // constructor is the one that strips the prefix and base64-decodes.
+  try {
+    verifiers.push(new Webhook(secret))
+  } catch {
+    // A PLAIN Error, NOT a WebhookVerificationError — @stablelib/base64 throws
+    // "Base64Coder: incorrect characters for decoding" for a secret whose
+    // remainder is not base64 (a hand-written one, or a test fixture). Swallowed
+    // HERE rather than left to the caller: out there it would be read as an
+    // unparseable body and answered 400, turning a deployment with an unusual
+    // secret into a permanent rejection. It means only "this secret yields no spec
+    // key", and the utf8 key above still stands.
+  }
+
+  let failure: WebhookVerificationError | undefined
+  for (const webhook of verifiers) {
+    try {
+      return webhook.verify(rawBody, headers) as PolarDelivery
+    } catch (error) {
+      // A verification miss is expected on the key Polar did not use, so it moves
+      // to the next one. ANYTHING ELSE IS NOT A KEY PROBLEM — in practice a body
+      // that is not JSON, since the parse runs only after the signature matches —
+      // and rethrowing it immediately is what keeps it a 400. Letting it fall
+      // through would meet the other key's genuine miss and report THAT instead,
+      // answering 403 for a delivery that is provably ours. A mutation test found
+      // that path unguarded; convex/http.test.ts now pins it.
+      if (!(error instanceof WebhookVerificationError)) throw error
+      failure = error
+    }
+  }
+
+  // `verifiers` always holds at least the utf8 key, so a completed loop always
+  // leaves a failure behind. The fallback exists for `tsc`, not for a reachable
+  // state.
+  throw failure ?? new WebhookVerificationError('No matching signature found')
+}
+
 http.route({
   path: '/polar/webhook',
   method: 'POST',
@@ -161,22 +241,28 @@ http.route({
 
     let event: PolarDelivery
     try {
-      // THE KEY IS THE SECRET'S UTF-8 BYTES, which is what makes this
-      // byte-identical to the SDK. `validateEvent` base64-encodes the secret and
-      // hands that over, and `standardwebhooks` base64-DECODES it straight back
-      // to these same bytes — the round trip is the only thing the Buffer call
-      // was for. Passing the bytes with `format: 'raw'` skips it.
-      //
-      // NOT `new Webhook(secret, { format: 'raw' })` with the string: that path
-      // does `Uint8Array.from(s, c => c.charCodeAt(0))`, which is latin-1, so a
-      // non-ASCII secret would key differently from every other Polar client.
-      const webhook = new Webhook(new TextEncoder().encode(secret), { format: 'raw' })
-      event = webhook.verify(rawBody, headers) as PolarDelivery
+      event = verifyPolarDelivery(secret, rawBody, headers)
     } catch (error) {
       if (error instanceof WebhookVerificationError) {
         // Covers a wrong signature, a signature over different bytes, and a
-        // timestamp outside the five-minute tolerance — all of them "not ours".
-        console.warn('[polar] rejected a webhook with an invalid signature', { webhookId })
+        // timestamp outside the five-minute tolerance — all of them "not ours",
+        // which is why they share one status code.
+        //
+        // `reason` IS THE LIBRARY'S OWN MESSAGE AND IT IS THE WHOLE POINT OF THIS
+        // LINE (wordle-teams-02c). The status code cannot tell those cases apart
+        // and should not try — but the log can, and its absence cost real time:
+        // every failed delivery read "Invalid signature" whether the KEY was wrong
+        // ("No matching signature found") or the delivery was simply STALE
+        // ("Message timestamp too old"). Both were happening at once here — the
+        // key was wrong, and by the time anyone looked the retries had aged past
+        // the five-minute tolerance, so fixing the key did not make an old
+        // redelivery start working and the two failures masked each other.
+        // Measured: a spec-key signature 10 minutes old is answered exactly like a
+        // forged one.
+        console.warn('[polar] rejected a webhook with an invalid signature', {
+          webhookId,
+          reason: error.message,
+        })
         return new Response('Invalid signature', { status: 403 })
       }
 
