@@ -260,6 +260,19 @@ properties survived: `membership_status`, `days_since_last_board`, `signup_year`
 Paste the built HTML into the **code/HTML** view, not the visual editor — a WYSIWYG
 editor will rewrite the table markup and the media queries.
 
+**Replace the whole document, not the body.** Resend's new-broadcast scaffold is a
+complete document — XHTML doctype, `<head>` carrying a `<style>` with its own
+`prefers-color-scheme` query, and a 600px table in `<body>` (it is react-email output,
+which is why it has `<!--$-->` markers in it). Our build emits the same shape, so it is
+a drop-in: select all, paste over. Do not try to graft our `<body>` into their document
+— the media queries live in `<head>` and would be left behind.
+
+**Then prove the `<style>` block survived**, because that is the single point of failure:
+lose it and both the mobile breakpoint and the entire dark mode go silently, while the
+email still looks correct on a desktop in light mode. The test send in §1.5 is where you
+check it. Their scaffold shipping a `prefers-color-scheme` query of its own is good
+evidence head styles are kept, but evidence is not the same as having seen it.
+
 **4. From address.** The transactional senders use `auth@`, `invites@` and `reminders@`
 on the verified `wordleteams.com` domain. A launch send wants its own local part
 (`hello@` or `launch@`) so a marketing unsubscribe never suppresses sign-in mail for the
