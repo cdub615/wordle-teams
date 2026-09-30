@@ -38,8 +38,9 @@
     /* TAKEN FROM src/styles.css .dark, NOT INVENTED. surface #121212,
        sunken #1c1c1c, text #fafafa, text-muted #a3a3a3, border-subtle #292929,
        border-strong #424242, accent-solid #22c55e, wordle-correct #15803d,
-       wordle-present #eab308, wordle-absent #1c1c1c. An email that drifts from
-       the app's dark palette looks like a different product. */
+       wordle-absent #1c1c1c. An email that drifts from the app's dark palette looks
+       like a different product -- with ONE deliberate exception, .tile-present, whose
+       reason is written out where it is set. */
     .page    { background:#0a0a0a !important; }
     /* BORDER AS WELL AS BACKGROUND. Setting only the background left the inline
        #e4e4e7 border in place, which drew a bright light-mode outline around a
@@ -56,7 +57,29 @@
     .lk      { color:#22c55e !important; }
     .lk-mute { color:#a3a3a3 !important; }
     .tile-correct { background:#15803d !important; }
-    .tile-present { background:#eab308 !important; color:#111113 !important; }
+    /* DEEP AMBER, NOT THE APP'S #eab308, AND GMAIL ANDROID IS WHY. Measured from a
+       real test send 2026-09-30: the present tile came back muddy olive with a WHITE
+       letter, when both our light and dark rules specify near-black text on it. A
+       light letter means the client overrode us rather than our CSS losing.
+
+       Gmail's dark transform is luminance-driven. Our greens sit at L=0.159 and pass
+       through untouched, which is why they looked right; #eab308 is L=0.498, the only
+       high-luminance background in the design, so it was the only casualty.
+
+       #a16207 is L=0.163 -- the same band as the green that demonstrably survived --
+       with WHITE text like the greens, so both coloured tiles are now treated
+       identically and a lightened text colour is already what we asked for.
+
+       IT IS SET IN BOTH THEMES ON PURPOSE. We could not determine from one screenshot
+       whether Gmail applied our dark block and then adjusted it, or ignored
+       prefers-color-scheme entirely and auto-inverted the LIGHT design (its Android
+       app is known for the latter). Fixing only the dark block would fix nothing under
+       the second explanation, so the light values move too and the two agree.
+
+       THIS DELIBERATELY DIVERGES FROM src/styles.css, which keeps --wordle-present at
+       #facc15/#eab308. The app renders in a browser that honours our CSS; an inbox
+       does not. Do not "re-align" this without another test send. */
+    .tile-present { background:#a16207 !important; color:#ffffff !important; }
     .tile-absent  { background:#1c1c1c !important; color:#fafafa !important; border-color:#424242 !important; }
     .stepnum { background:#1c1c1c !important; color:#fafafa !important; border-color:#424242 !important; }
   }
@@ -82,7 +105,7 @@
 
   <tr><td align="center" style="padding:0 0 30px 0;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td class="tile tile-present" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#facc15;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#111113;text-align:center;">A</td>
+      <td class="tile tile-present" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#a16207;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#ffffff;text-align:center;">A</td>
       <td width="6" style="width:6px;">&nbsp;</td>
       <td class="tile tile-absent" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#f4f4f5;border:1px solid #c9c9cf;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#0a0a0b;text-align:center;">G</td>
       <td width="6" style="width:6px;">&nbsp;</td>
