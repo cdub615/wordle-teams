@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest'
 import { notAFile } from '#/test-support/copy-claims.ts'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../convex/lib/monthWindow.ts'
-import { PRO_BENEFITS, PRO_ONLY_WORDS } from './pro-benefits.ts'
+import { COMPLETE_HISTORY_WORDS, PRO_BENEFITS, PRO_ONLY_WORDS } from './pro-benefits.ts'
 
 describe('PRO_BENEFITS', () => {
   test('lists exactly the five things Pro sells today', () => {
@@ -114,31 +114,18 @@ describe('PRO_BENEFITS', () => {
     // so "every board you have ever entered" is false for precisely the player
     // most likely to be reading a Pro pitch.
     //
-    // WHY A WORD LIST RATHER THAN A NUMBER CHECK, which is the same argument
-    // PRO_ONLY_WORDS makes: the defect is a CLAIM, not an arithmetic error. No
-    // assertion can compare prose against 400, but the vocabulary of
-    // completeness is small and every entry in it is a promise this product
-    // cannot keep. "full" earns its place twice over — feature-cards.tsx's "Go
-    // Pro" card sold "unlimited months" over a three-month window, which is the
-    // drift this whole module was created to stop.
+    // THE LIST MOVED TO pro-benefits.ts AS COMPLETE_HISTORY_WORDS, because a
+    // second surface is now measured against it — insights-panel.test.ts, over
+    // every variant upsellFor can produce. Its header has the reasoning.
     //
-    // NOT APPLIED TO src/lib/insights-panel.ts, WHICH CURRENTLY FAILS IT:
-    // that module's own upsell says "Pro opens your full playing history ... and
-    // every board you have ever entered", which is the exact claim refused here.
-    // Filed rather than fixed in passing, so the fix arrives with its own
-    // reasoning instead of riding along with a copy edit.
+    // insights-panel.ts USED TO FAIL THIS AND NO LONGER DOES (wordle-teams-njmy,
+    // fixed 2026-09-30). Its upsell said "Pro opens your full playing history ...
+    // and every board you have ever entered" — the exact claim refused here — and
+    // this comment said so while the guard deliberately did not reach it. It
+    // reaches it now.
     const prose = PRO_BENEFITS.map((b) => `${b.title} ${b.body}`).join(' ').toLowerCase()
 
-    for (const claim of [
-      'every board',
-      'all your boards',
-      'full history',
-      'full playing history',
-      'complete history',
-      'entire history',
-      'everything you have',
-      'every board you have ever entered',
-    ]) {
+    for (const claim of COMPLETE_HISTORY_WORDS) {
       expect(prose, `"${claim}" promises a history PRO_BOARD_LIMIT truncates`).not.toContain(claim)
     }
   })

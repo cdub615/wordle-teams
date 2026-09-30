@@ -223,6 +223,34 @@ export const PRO_BENEFITS: ReadonlyArray<ProBenefit> = [
  * Lowercase, because both loops lowercase their prose and match with `toContain` —
  * a capitalised entry would refuse nothing and say nothing about it.
  */
+/**
+ * THE VOCABULARY OF A COMPLETE HISTORY, WHICH THIS PRODUCT CANNOT PROMISE.
+ *
+ * convex/insights.ts sets PRO_BOARD_LIMIT = 400 and myBenchmarkBoards `.take()`s
+ * it — for layer1 and layer2 alike — so a Pro caller gets their most recent 400
+ * boards and nothing older. Any phrase below is a promise the query cannot keep.
+ *
+ * IT LIVES HERE, NOT IN A TEST, because two surfaces are measured against it:
+ * pro-benefits.test.ts over PRO_BENEFITS, and insights-panel.test.ts over every
+ * variant upsellFor can produce. A copy of this list in each file is the
+ * second-source-of-truth problem this module exists to refuse — and it would fail
+ * in the quietest way, by one list gaining a phrase the other never learned.
+ *
+ * WHY A WORD LIST RATHER THAN A NUMBER CHECK: the defect is a CLAIM, not an
+ * arithmetic error. No assertion can compare prose against 400, but the vocabulary
+ * of completeness is small and every entry in it is unkeepable.
+ */
+export const COMPLETE_HISTORY_WORDS = [
+  'every board',
+  'all your boards',
+  'full history',
+  'full playing history',
+  'complete history',
+  'entire history',
+  'everything you have',
+  'every board you have ever entered',
+] as const
+
 export const PRO_ONLY_WORDS = [
   'unlimited',
   'paste',
