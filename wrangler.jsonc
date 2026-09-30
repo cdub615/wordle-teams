@@ -45,6 +45,29 @@
 	 * Note the wildcard does NOT cover the apex: `*.wordleteams.com` does not
 	 * match `wordleteams.com`, so the apex has no fallback at all. (wt-ksh.1.9)
 	 *
+	 * A ROUTE, NOT A CUSTOM DOMAIN, AND THAT IS THE LESSON OF THE FIRST ATTEMPT
+	 * (2026-09-30). The apex went up as a Custom Domain, served v2 for about nine
+	 * minutes, and then its DNS record disappeared — most likely taken out when the
+	 * wildcard route beside it was removed, though that was never proven. What WAS
+	 * proven is that deleting and re-adding the Custom Domain did not recreate the
+	 * record, and the apex sat at NODATA until Vercel A records were restored by
+	 * hand. Forty minutes down.
+	 *
+	 * THE STRUCTURAL PROBLEM IS OWNERSHIP. A Custom Domain's DNS record is created
+	 * and owned by Cloudflare, so a Workers-side change can orphan it, and it
+	 * cannot be repaired from the DNS tab — which is the only place anyone thinks
+	 * to look. A Route owns no DNS at all: it matches traffic that already reaches
+	 * Cloudflare via an ordinary PROXIED record that we create and control. That
+	 * record cannot be orphaned by anything here, and rollback is re-pointing it at
+	 * Vercel rather than deleting a Cloudflare-managed object.
+	 *
+	 * SO THE APEX NEEDS A PROXIED (orange-cloud) RECORD TO EXIST BEFORE THIS ROUTE
+	 * DOES ANYTHING. A route with no record behind it is inert — nothing reaches
+	 * the edge to be matched. That is not a failure mode, it is just nothing.
+	 *
+	 * `zone_name` is required on the object form of a route; `custom_domain` entries
+	 * do not take one, which is why it appears here and not on env.dev below.
+	 *
 	 * THE APEX REPLACED beta HERE AT CUTOVER, 2026-09-30, AND THE REPLACEMENT IS
 	 * FORCED RATHER THAN TIDY-MINDED. `vars.ENVIRONMENT` below is ONE value for
 	 * this Worker, and src/wrangler-environments.test.ts requires every hostname
@@ -70,8 +93,8 @@
 	 */
 	"routes": [
 		{
-			"pattern": "wordleteams.com",
-			"custom_domain": true
+			"pattern": "wordleteams.com/*",
+			"zone_name": "wordleteams.com"
 		}
 	],
 	"vars": {

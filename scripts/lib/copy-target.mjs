@@ -92,7 +92,15 @@ export function environmentsFromWranglerConfig(rawConfig) {
   const blocks = [['(top level)', rawConfig ?? {}], ...Object.entries(rawConfig?.env ?? {})]
   return blocks.map(([name, block]) => ({
     name,
-    host: block?.routes?.[0]?.pattern ?? '(no route)',
+    // THE HOSTNAME, WITH ANY PATH PATTERN STRIPPED. A `custom_domain` entry's
+    // pattern is a bare hostname; a route's is `host/path` — `wordleteams.com/*`
+    // since the apex moved to a route on 2026-09-30. This value is what the copy
+    // script prints in its "WRITING TO:" banner, which §4.2 of the cutover runbook
+    // tells the operator to READ before a purge empties a deployment. A banner
+    // reading `wordleteams.com/*` is still legible, but the same value is matched
+    // against a hostname elsewhere, so it is normalised here rather than at the
+    // two call sites.
+    host: (block?.routes?.[0]?.pattern ?? '(no route)').split('/')[0],
     convexUrl: block?.vars?.VITE_CONVEX_URL,
   }))
 }

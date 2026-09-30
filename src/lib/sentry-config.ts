@@ -59,7 +59,15 @@ export const TRACES_SAMPLE_RATE = 0.2
  * dev is listed now because listing it later is the forgotten step that labels
  * dev traffic "production".
  */
-const HOST_ENVIRONMENTS = new Map([
+/**
+ * EXPORTED so src/wrangler-environments.test.ts can require an EXPLICIT entry
+ * rather than settling for whatever `sentryEnvironment` falls back to. That
+ * distinction is not academic: DEFAULT_SENTRY_ENVIRONMENT is "production", so a
+ * hostname absent from this map AGREES with a production Worker by accident, and
+ * the check that is supposed to keep the two in step stops checking. Measured
+ * 2026-09-30, when a route pattern slipped through it unnoticed.
+ */
+export const HOST_ENVIRONMENTS = new Map([
   ['wordleteams.com', 'production'],
   ['www.wordleteams.com', 'production'],
   ['dev.wordleteams.com', 'development'],

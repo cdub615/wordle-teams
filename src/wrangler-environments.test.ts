@@ -1,7 +1,11 @@
 import { fileURLToPath } from 'node:url'
 import { experimental_readRawConfig } from 'wrangler'
 import { describe, expect, test } from 'vitest'
-import { sentryEnvironment } from './lib/sentry-config.ts'
+import {
+  DEFAULT_SENTRY_ENVIRONMENT,
+  HOST_ENVIRONMENTS,
+  sentryEnvironment,
+} from './lib/sentry-config.ts'
 import { shouldNoindex } from './lib/robots-policy.ts'
 
 /**
@@ -37,7 +41,10 @@ import { shouldNoindex } from './lib/robots-policy.ts'
 const CONFIG_PATH = fileURLToPath(new URL('../wrangler.jsonc', import.meta.url))
 const { rawConfig } = experimental_readRawConfig({ config: CONFIG_PATH })
 
-type EnvBlock = { vars?: Record<string, string>; routes?: { pattern?: string }[] }
+type EnvBlock = {
+  vars?: Record<string, string>
+  routes?: { pattern?: string; custom_domain?: boolean; zone_name?: string }[]
+}
 
 /**
  * The top-level counts as an environment and is checked identically. It is the one
@@ -50,8 +57,18 @@ const ENVIRONMENTS: [string, EnvBlock][] = [
   ...Object.entries((rawConfig.env ?? {}) as Record<string, EnvBlock>),
 ]
 
+/**
+ * The HOSTNAME each route entry answers on, with any path pattern removed.
+ *
+ * A `custom_domain` entry's pattern is a bare hostname; a route's is
+ * `host/path`, e.g. `wordleteams.com/*`. Returning the pattern verbatim — which
+ * this did until 2026-09-30 — meant a route never matched HOST_ENVIRONMENTS and
+ * quietly took DEFAULT_SENTRY_ENVIRONMENT instead, which is "production". So the
+ * moment the apex became a route, the agreement check below stopped checking and
+ * PASSED, which is how it was found.
+ */
 function hostsOf(env: EnvBlock): string[] {
-  return (env.routes ?? []).map((r) => r.pattern ?? '')
+  return (env.routes ?? []).map((r) => (r.pattern ?? '').split('/')[0] ?? '')
 }
 
 /** `successful-canary-135` out of either of that deployment's two URLs. */
@@ -101,6 +118,15 @@ describe.each(ENVIRONMENTS)('environment %s', (name, env) => {
     // and nothing else makes them agree — so a new hostname added here and not
     // there splits one request's traces across two environments.
     for (const host of hostsOf(env)) {
+      // EXPLICITLY MAPPED, NOT MERELY AGREEING. sentryEnvironment falls back to
+      // DEFAULT_SENTRY_ENVIRONMENT ("production") for anything it does not know,
+      // so a hostname missing from HOST_ENVIRONMENTS agrees with a production
+      // Worker BY ACCIDENT and this assertion becomes decorative. Demanding the
+      // entry is what makes a typo'd or newly-added hostname fail here.
+      expect(
+        HOST_ENVIRONMENTS.has(host),
+        `${host} has no entry in sentry-config.ts's HOST_ENVIRONMENTS, so the browser would tag it "${DEFAULT_SENTRY_ENVIRONMENT}" by default rather than deliberately`,
+      ).toBe(true)
       expect(sentryEnvironment(host), `${host} disagrees with ENVIRONMENT`).toBe(
         env.vars?.ENVIRONMENT,
       )
