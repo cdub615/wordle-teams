@@ -552,6 +552,10 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
       dashboard state — so it is a check here or it is nowhere.
 
   ```
+  # BEFORE cutover — the apex is still v1 and cannot answer this:
+  curl -sI https://beta.wordleteams.com/about | grep -i cache-control
+
+  # AFTER cutover, once the apex serves v2:
   curl -sI https://wordleteams.com/about | grep -i cache-control
   ```
 
@@ -560,6 +564,16 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
       setting has reverted.** Run it TWICE — the first response is never the
       rewritten one, because the rewrite only applies to what Cloudflare
       serves from cache.
+
+      **THE HOST MATTERS AND THIS STEP NAMED THE WRONG ONE UNTIL 2026-09-30.**
+      It asked for the apex, which today is v1 and answers `/about` with
+      `private, no-cache, no-store, max-age=0, must-revalidate`. That contains
+      `max-age=0`, so the grep looks like a pass — but it proves nothing: a
+      `no-store` response is one Cloudflare never caches, so the Browser Cache
+      TTL override is not in play and could be set to anything. The setting is
+      zone-wide, so beta exercises it and the apex will too once it serves v2.
+      Verified against beta on 2026-09-30: `public, max-age=0, s-maxage=86400,
+      stale-while-revalidate=604800`, twice.
 
 ---
 
