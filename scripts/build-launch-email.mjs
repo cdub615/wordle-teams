@@ -148,8 +148,18 @@ function build(key, address) {
   return clean
 }
 
-const omitAddress = process.argv.includes('--no-address')
-const arg = (process.argv.find((a) => !a.startsWith('--') && a !== process.argv[0] && a !== process.argv[1]) ?? '').toLowerCase()
+// STRIP ONLY KNOWN FLAGS, never "anything starting with --". An earlier version did
+// the latter and silently ate `--all` along with `--no-address`, so the one command
+// the send plan leads with printed a usage error instead of building.
+const FLAGS = new Set(['--no-address'])
+const args = process.argv.slice(2).filter((a) => !FLAGS.has(a))
+const omitAddress = process.argv.slice(2).includes('--no-address')
+const arg = (args[0] ?? '').toLowerCase()
+const unknown = args.slice(1).filter((a) => a.startsWith('--'))
+if (unknown.length > 0) {
+  process.stderr.write(`\nunknown option: ${unknown.join(' ')}\n\n`)
+  process.exit(1)
+}
 
 // A MISSING ADDRESS IS AN OPERATOR ERROR, NOT A CRASH. The message it carries is
 // the whole point of the failure, and a Node stack trace buries it.
