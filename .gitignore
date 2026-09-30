@@ -73,3 +73,6 @@ yarn-error.log*
 
 # built launch-email artefacts (scripts/build-launch-email.mjs)
 build/
+
+# the launch email footer address, supplied at build time (PUBLIC repo)
+.launch-postal-address

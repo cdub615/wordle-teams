@@ -69,11 +69,31 @@ Cutover day should leave exactly two actions: delete a block, press send.
       `signup_year`, `team_count`, `time_zone`. The segmentation is worthless without
       `days_since_last_board`.
 
-- [ ] **1.3 Fill the postal address.** Every draft carries
+- [ ] **1.3 Set the postal address.** Every draft carries
       `[POSTAL ADDRESS — REQUIRED BEFORE SENDING]` in the footer. A commercial email
-      needs a physical mailing address; leaving the placeholder in is both a CAN-SPAM
-      problem and visibly unfinished. Set it in the Audience footer settings or edit it
-      into all three files.
+      needs a valid physical mailing address; leaving the placeholder in is both a
+      CAN-SPAM problem and visibly unfinished.
+
+      **It is supplied at build time, never committed.** `scripts/build-launch-email.mjs`
+      substitutes it from `LAUNCH_POSTAL_ADDRESS`, or from `.launch-postal-address` in the
+      repo root (gitignored), and **refuses to build without one**. That is deliberate:
+      **this repo is PUBLIC**, so a home address pasted into the drafts would be committed
+      and permanent. The tracked files keep the placeholder forever.
+
+      ```
+      echo "Your Co, PO Box 123, City ST 00000" > .launch-postal-address
+      node scripts/build-launch-email.mjs --all
+      ```
+
+      **An earlier version of this step said to set it in "the Audience footer settings".
+      Do not rely on that** — it was asserted without checking. Resend broadcasts give you
+      the whole HTML body, so the address has to be in the HTML. If the dashboard does
+      offer a footer field, confirm it renders before trusting it instead of this.
+
+      **A PO Box counts.** 16 CFR 316.2 accepts a post office box the sender has accurately
+      registered with USPS, or a private mailbox from a commercial mail receiving agency —
+      so a home address is not the only lawful option. Canada's CASL wants a mailing address
+      too, so this is not US-only. Confirm the specifics for your own situation.
 
 - [ ] **1.4 Build all three broadcasts** from `emails/*.html`, **PWA block still in**,
       each pointed at its segment filter (§2).
