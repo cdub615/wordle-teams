@@ -70,3 +70,12 @@ yarn-error.log*
 .dolt/
 *.db
 .beads-credential-key
+
+# built launch-email artefacts (scripts/build-launch-email.mjs)
+build/
+
+# the launch email footer address, supplied at build time (PUBLIC repo)
+.launch-postal-address
+
+# git worktrees for isolated investigation/feature branches
+.worktrees/

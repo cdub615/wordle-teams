@@ -8,6 +8,7 @@ import {
   DEFAULT_SENTRY_ENVIRONMENT,
   SENTRY_RELEASE,
   TRACES_SAMPLE_RATE,
+  workerSentryDsn,
 } from './lib/sentry-config'
 
 // @ts-expect-error handler type mismatch between TanStack Start and the Sentry
@@ -409,7 +410,12 @@ export default Sentry.withSentry(
     ENVIRONMENT?: string
     CF_VERSION_METADATA?: { id?: string }
   }) => ({
-    dsn: env.SENTRY_DSN,
+    // Absent under `vite dev` — which is what `pnpm dev` and the whole
+    // Playwright suite run behind — so a local run no longer reports to the
+    // live project. 1835 of the project's 1844 events came from localhost
+    // before this; see workerSentryDsn's comment for the measurement and for
+    // why `ENVIRONMENT` could not have filtered them out after the fact.
+    dsn: workerSentryDsn(env.SENTRY_DSN, import.meta.env.DEV),
     environment: env.ENVIRONMENT ?? DEFAULT_SENTRY_ENVIRONMENT,
     release: SENTRY_RELEASE,
     initialScope: { tags: { cf_version: env.CF_VERSION_METADATA?.id } },

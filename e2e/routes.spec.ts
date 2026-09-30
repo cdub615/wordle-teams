@@ -567,7 +567,7 @@ test.describe('route shape', () => {
     await expect(page).toHaveTitle('Pricing - Wordle Teams')
   })
 
-  test('the /pricing document a visitor is served names no trial', async ({ page }) => {
+  test('the /pricing document a visitor is served names the trial', async ({ page }) => {
     // THE CACHE WINDOW IS THE STAKE HERE, NOT THE SUBJECT, WHICH IS WHY THIS SITS
     // WITH THE OTHER /pricing RENDER CASES. The answer to "can a trial be started
     // right now" is computed once in the loader and serialized into the document —
@@ -581,13 +581,23 @@ test.describe('route shape', () => {
     // whoever was triaging it, on every failure, to buy a taxonomy that only ever
     // read right once.
     //
-    // THE HALF NO GATED TEST CAN SEE. tier-table.hook.test.ts's "told there is
-    // no trial, says nothing at all about one" pins the component in jsdom given
-    // the prop, and src/routes.test.ts pins in the source that the loader asks
-    // `trialCanStart` and that its answer is what the table is handed. What
-    // neither reaches is the whole chain landing in a real document: while
-    // LAUNCH_AT is still the 2099 placeholder, the page a visitor actually
-    // receives must name no trial.
+    // THE HALF NO GATED TEST CAN SEE. tier-table.hook.test.ts pins the component
+    // in jsdom given the prop, and src/routes.test.ts pins in the source that the
+    // loader asks `trialCanStart` and that its answer is what the table is handed.
+    // What neither reaches is the whole chain landing in a real document.
+    //
+    // THIS CASE INVERTED ON 2026-09-30 AND WAS THE SIXTH TRIPWIRE LAUNCH_AT FIRED.
+    // It asserted the page named NO trial, which was true only while LAUNCH_AT
+    // stood at its 2099 placeholder — its own comment said so. With the real
+    // cutover instant set, `trialCanStart({ now })` is true and the page MUST name
+    // the trial; a page that still said nothing would be withholding a live offer.
+    //
+    // IT FAILED IN CI AND COULD NOT HAVE FAILED ANYWHERE ELSE. The five sibling
+    // tripwires are unit tests and went red locally the moment the constant
+    // changed. This one is e2e, which is not one of the four gates — test:once,
+    // typecheck, lint and build were all green with this red. That is the whole
+    // argument for e2e existing, and the reason the constant's edit is not done
+    // until a PR has run.
     //
     // RENDERED TEXT, NOT RAW HTML, AND THE DIFFERENCE IS NOT COSMETIC. MEASURED
     // against this server: the only occurrence of the word in the document is the
@@ -600,9 +610,11 @@ test.describe('route shape', () => {
     // that key were renamed or serialized differently. innerText reads what a
     // reader reads. Please do not "simplify" this into a request-level assertion.
     //
-    // MEASURED THE OTHER WAY TOO: hardcode `trialOffered: true` in the loader and
-    // this case fails on the rendered copy, with the three other /pricing cases
-    // still green.
+    // MEASURED THE OTHER WAY TOO, IN ITS ORIGINAL DIRECTION: hardcoding
+    // `trialOffered: false` in the loader fails this case on the rendered copy,
+    // with the three other /pricing cases still green. That is now the mutation
+    // this guards — a loader that stopped asking the clock, or asked it wrongly,
+    // and silently withheld a trial that is live.
     //
     // IF YOU RE-MEASURE ANY OF THAT, MIND THE NUL BYTES. The served document
     // contains them (`\x00pricing\x00pricing` around the match id), so `grep`
@@ -616,9 +628,13 @@ test.describe('route shape', () => {
     // renders no <main> of its own. The pattern is the jsdom sibling's, verbatim.
     await page.goto('/pricing')
     await expect(page.getByTestId('pricing-tiers')).toBeVisible()
-    expect(await page.locator('main').innerText()).not.toMatch(
-      /trial|thirty days|30 days|free for a month/i,
-    )
+    // THE SECTION, AND THEN ITS WORDS. The testid alone would pass on an empty
+    // div; the copy alone would pass on a page that mentioned a trial in prose
+    // while the section failed to render.
+    await expect(page.getByTestId('pricing-trial')).toBeVisible()
+    const main = await page.locator('main').innerText()
+    expect(main).toMatch(/Your first thirty days/i)
+    expect(main).toMatch(/Insights opens for thirty days/i)
   })
 
   test('/login-error renders the failure page and offers a way back to sign in', async ({

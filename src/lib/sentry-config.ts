@@ -122,3 +122,47 @@ export function sentryEnvironment(hostname: string): string {
  */
 export const SENTRY_RELEASE: string | undefined =
   typeof __SENTRY_RELEASE__ === 'undefined' ? undefined : (__SENTRY_RELEASE__ ?? undefined)
+
+/**
+ * WHETHER THE WORKER SHOULD REPORT AT ALL — the local-development cut-off.
+ *
+ * Measured, not inferred: of 1844 events in the Sentry project, 1835 came from
+ * a developer's own machine and 9 came from a real deployed host. A search for
+ * `url:*wordleteams.com*` on the largest issue ("Network connection lost.",
+ * 1816 events) returned ZERO. The signal-to-noise ratio was 0.5%.
+ *
+ * THE CAUSE IS THAT THE DSN IS A `vars` ENTRY, and wrangler.jsonc declares it at
+ * the TOP LEVEL. That is right for the deployed worker and was argued for on its
+ * merits (wt-3yb: a DSN is public, so a var is reproducible where a secret is a
+ * manual step). What the argument did not cover is that `wrangler dev` — and the
+ * @cloudflare/vite-plugin dev server that `pnpm dev` and the whole Playwright
+ * suite run behind — inherit those same top-level vars. Every local run has been
+ * reporting to the live project since the DSN was added.
+ *
+ * FILTERING BY ENVIRONMENT COULD NOT HAVE RECOVERED IT. `ENVIRONMENT` is a
+ * top-level var too, so local runs arrive tagged `beta` — the same tag the real
+ * beta deployment carries. There is no query that separates them after the fact,
+ * which is why this has to be decided before the event is sent.
+ *
+ * `import.meta.env.DEV` RATHER THAN A HOSTNAME, and the reason is the same one
+ * sentryEnvironment's doc comment gives for why the WORKER cannot key on the
+ * hostname at all: `withSentry(optionsCallback, handler)` hands the callback
+ * `env` and never the Request. A build-time boolean is the only thing available
+ * at the point the decision has to be made. register-sw.ts:118 already reads
+ * `import.meta.env.PROD` for a related build-time question, so this is the
+ * established shape in this codebase rather than a new mechanism.
+ *
+ * IT FAILS TOWARDS REPORTING, which is the same direction every other default in
+ * this file leans. `DEV` is true only under `vite dev` and under vitest; a real
+ * `vite build` inlines it to `false`, so a deployed worker reports exactly as it
+ * did before. The mistake this cannot make is silencing production.
+ *
+ * KNOWN GAP, STATED RATHER THAN DISCOVERED: `vite preview` serves the BUILT
+ * worker, so `DEV` is false there and a local preview still reports. That is the
+ * 9-event tail (issue WORDLE-TEAMS-V2-A, all on localhost:4173 via curl) and it
+ * is deliberately left alone — closing it needs a hostname the callback cannot
+ * see, and preview is a deliberate act rather than something that runs all day.
+ */
+export function workerSentryDsn(dsn: string | undefined, isDev: boolean): string | undefined {
+  return isDev ? undefined : dsn
+}

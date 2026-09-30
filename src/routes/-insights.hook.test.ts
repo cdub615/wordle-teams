@@ -150,8 +150,12 @@ describe('a free player on their first board', () => {
   test('is told what pro would add, including the two layers invisible to them', () => {
     panel(freeFirstBoard)
     const copy = screen.getByTestId('insights-upsell').textContent
-    expect(copy).toContain('every board')
-    expect(copy).toContain('your full playing history')
+    // THE PHRASES CHANGED WITH wordle-teams-njmy, THE PROPERTY DID NOT. These were
+    // 'every board' and 'your full playing history' until 2026-09-30, both of which
+    // promised a history PRO_BOARD_LIMIT truncates at 400. What this test is for is
+    // unchanged: the two layers a free player cannot see at all are the ones named.
+    expect(copy).toContain('your past boards rather than just the latest')
+    expect(copy).toContain('your playing history month by month')
     expect(copy).toContain('your team’s analytics')
   })
 
@@ -162,7 +166,7 @@ describe('a free player on their first board', () => {
     // mistaken for it.
     panel(freeFirstBoard, [])
     const copy = screen.getByTestId('insights-upsell').textContent
-    expect(copy).toContain('your full playing history')
+    expect(copy).toContain('your playing history month by month')
     expect(copy).not.toMatch(/team/i)
   })
 
