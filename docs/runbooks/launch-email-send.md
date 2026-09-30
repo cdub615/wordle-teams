@@ -8,38 +8,44 @@ manual action in the Resend dashboard, taken by the owner, after §5.2 passes.
 
 ---
 
-## 0. THE ONE THING TO READ IF YOU READ NOTHING ELSE
+## 0. DECIDED — 2026-09-30
 
-**Two requirements point in opposite directions, and the gap is real.**
+**Both open questions in this plan are settled. Neither is a decision for cutover day.**
 
-- `wordle-teams-7e3c`: the email **must go out at or before the point chat reaches
-  production**, because it is the notification the Terms promise.
-- Runbook §1.5 / §5.2: the email **must not go out until after the DNS flip**, because
-  the PWA paragraph cannot be decided until the owner opens their installed v1 app.
+### 0a. The ordering conflict: accept the bounded gap
 
-**Chat is not behind a flag.** `src/routes/chat.tsx` guards on authentication only,
-and `src/routes/app.tsx:1339` links to it straight from the dashboard. So chat reaches
-production at the instant DNS flips — which is *before* the earliest moment the email
-is allowed to go.
+Two requirements pointed in opposite directions. `wordle-teams-7e3c` requires the email
+to go out at or before the point chat reaches production. Runbook §1.5/§5.2 forbade
+sending until after the DNS flip. **Chat is not behind a flag** — `src/routes/chat.tsx`
+guards on authentication only and `src/routes/app.tsx:1339` links it from the dashboard
+— so chat goes live the instant DNS flips, which is strictly before the earliest moment
+the email could go. No ordering satisfied both literally.
 
-There is no ordering that satisfies both literally. Three ways out, in preference order:
+**The owner accepted a short bounded gap, sending the same day as the launch.** The
+substance of the non-materiality argument survives a gap of hours: both documents have
+read "September 6, 2026" for over three weeks, so the terms landed well ahead of the
+feature, and no production user can have posted a chat message before the flip — nobody's
+data was ever collected under the old wording. Gating chat was considered and rejected as
+more cutover-day complexity than the exposure warrants.
 
-1. **Accept a short, bounded gap — recommended.** Make §5.2 the *first* post-flip
-   action, not one item in a list, and send within the hour. The substance of the
-   non-materiality argument survives a gap measured in hours: both documents have read
-   "September 6, 2026" for over three weeks, and no production user can have posted a
-   chat message before the flip, so no data was ever collected under the old wording.
-   What makes this safe is preparation, not speed — see §1: everything except one
-   deletion and one button is done *before* the flip.
-2. **Gate chat.** Hide the dashboard link and 404 the route until the email has gone.
-   Closes the gap exactly, costs a code change and a deploy on cutover day, and adds a
-   second flip to remember. Only worth it if the gap in (1) cannot be kept to hours.
-3. **Send before the flip with the PWA block deleted.** *Rejected.* It bets the one
-   irreversible artefact on an unverified assumption, which is the exact trade §1.5
-   exists to refuse.
+### 0b. The PWA paragraph: it ships, permanently
 
-**Whichever is chosen, record it here before cutover day.** Do not decide it at 6am
-with DNS waiting.
+**The block is no longer conditional and §5.2 is no longer a send gate.** It ships in
+every send, which removes the gate, the placeholder and the composition-under-pressure
+risk in one go.
+
+**That is only safe because the voice changed with it.** As first drafted it was an
+imperative — "please add it again" — addressed to every recipient. Sent to a working
+install that is not a no-op: removing and re-adding a PWA clears its storage, so the
+reader is signed out and has to redo OTP or a social sign-in. It is now **conditional**,
+opens by saying almost every install carries across untouched, and gives the fix only to
+someone whose icon actually misbehaves. Nobody with a working install has any reason to
+act on it.
+
+`src/routes/me.tsx` still redirects `/me` → `/app` carrying the query string, so the
+expectation remains that no reader needs this at all.
+
+**§5.2 is now an ordinary post-flip smoke check.** Still worth doing. No longer blocking.
 
 ---
 
@@ -146,50 +152,86 @@ should stop mattering *because someone decided that*, not by accident.
 
 ---
 
-## 4. The PWA block — a deletion, not a decision
+## 4. The PWA paragraph — permanent
 
-Every draft carries:
+Settled in §0b. The block ships in every send, in its conditional voice. The
+`PWA-BLOCK:START` / `PWA-BLOCK:END` markers stay as **delimiters**, not as a deletion
+instruction: `src/launch-email.test.ts` pins that the legal notice sits *outside* them,
+so the notice can never be mistaken for part of this block.
 
-```
-<!-- PWA-BLOCK:START  DELETE THIS ENTIRE BLOCK UNLESS RUNBOOK 5.2 FAILED -->
-  ...
-<!-- PWA-BLOCK:END -->
-```
-
-**Expected outcome: delete it.** `src/routes/me.tsx` redirects `/me` → `/app` carrying
-the query string, both manifests omit `scope` so the hop cannot eject a standalone
-window into the browser, and `src/routes.test.ts` pins both halves.
-
-**Keep it only if §5.2 actually fails** — the owner opens their long-installed v1 PWA
-after the flip and it does *not* land on the dashboard.
-
-It is written out in full, in the state where it is needed, so that the decision at
-send time is a deletion rather than composition under time pressure.
-
-**DO NOT SEND BEFORE §5.2.** The email cannot be recalled, and "re-install the app" is
-both alarming and, if wrong, the thing that makes a working install stop working.
+Do not restore the imperative wording without re-reading §0b — the reason it changed is
+not stylistic.
 
 ---
 
 ## 5. Send order
 
+Steps 1–6 of §1 all happen **before** the flip. What remains on the day:
+
 1. **Flip DNS** (runbook §4.6).
-2. **§5.2 immediately** — owner opens the existing v1 PWA install, confirms `/me` lands
-   on the dashboard. This is the gate. Nothing below happens until it passes or fails.
-3. **Delete or keep the PWA block** in all three files, per §4.
-4. **Re-verify** `https://wordleteams.com/terms` and `/privacy` both load and read
-   "September 6, 2026". They are now being served by the Worker, not Vercel.
-5. **Send A** (~8). Smallest and warmest list, so it doubles as live fire. Read the
-   Resend delivery report before continuing.
-6. **Send B** (~62), once A shows clean delivery.
-7. **Send C** (~331), once B has settled. Largest list and the highest reputation
+2. **Re-verify both legal pages on production.** `https://wordleteams.com/terms` and
+   `/privacy` must load and read "September 6, 2026". They are served by the Worker now,
+   not Vercel. **A 404 here voids the notification** — this is the one remaining hard gate.
+3. **Rebuild the paste-ready HTML** — `node scripts/build-launch-email.mjs --all`. Run it
+   *after* any late edit, or you will paste a stale file.
+4. **Send A** (~8). Smallest and warmest list, so it doubles as live fire. Read the Resend
+   delivery report before continuing.
+5. **Send B** (~62), once A shows clean delivery.
+6. **Send C** (~331), once B has settled. Largest list and the highest reputation
    exposure, so it goes last.
-8. **Close `wordle-teams-7e3c`** with the send timestamps, and note in `puw4` which
-   counts the send actually used.
+7. **§5.2 smoke check** — open the installed v1 PWA and confirm `/me` lands on the
+   dashboard. No longer blocks the send (§0b); do it anyway, and if it fails, the
+   paragraph telling people how to fix it has already gone out.
+8. **Close `wordle-teams-7e3c`** with the send timestamps, and note in `puw4` which counts
+   the send actually used.
 
 ---
 
-## 6. Not in this plan
+## 6. Getting it into Resend
+
+A launch send is a **Broadcast against an Audience**. That is a different path from the
+app's transactional mail (`@convex-dev/resend`, used for reminders, OTP and invites) and
+needs an account-level API key plus an Audience id — neither of which lives in this repo.
+Do not route the launch through the app, and do not add a Resend dependency for it.
+
+**1. Produce the paste-ready HTML.** The files in `emails/` are annotated *source*: their
+HTML comments are part of the message body, so they would be delivered to all 401
+recipients and visible to anyone viewing source. Strip them:
+
+```
+node scripts/build-launch-email.mjs --all      # -> build/emails/launch-{a,b,c}.html
+node scripts/build-launch-email.mjs a | wl-copy  # or straight to the clipboard
+```
+
+It verifies both merge tags and the terms-change notice survived the strip, warns if the
+postal-address placeholder is still there, and prints each subject line and segment
+filter. `build/` is gitignored.
+
+**2. Create the Audience** and import the CSV from §1.1. Confirm all five custom
+properties survived: `membership_status`, `days_since_last_board`, `signup_year`,
+`team_count`, `time_zone`.
+
+**3. Create three broadcasts**, one per segment, each with:
+
+| | Subject | Segment filter |
+|---|---|---|
+| A | Wordle Teams has been rebuilt | `days_since_last_board <= 30` |
+| B | Your Wordle Teams scoreboard is still there | `days_since_last_board > 30` |
+| C | It takes about ten seconds to get on the board | `days_since_last_board` is empty |
+
+Paste the built HTML into the **code/HTML** view, not the visual editor — a WYSIWYG
+editor will rewrite the table markup and the media queries.
+
+**4. From address.** The transactional senders use `auth@`, `invites@` and `reminders@`
+on the verified `wordleteams.com` domain. A launch send wants its own local part
+(`hello@` or `launch@`) so a marketing unsubscribe never suppresses sign-in mail for the
+same address. Confirm SPF/DKIM are green on the domain before sending.
+
+**5. Test send each one to yourself** and check the list in §1.5 before any real send.
+
+---
+
+## 7. Not in this plan
 
 - **The 163 nameless contacts.** Exported separately; the owner has not decided whether
   they get a send. If they do: `first_name` is blank for all 163, so the greeting has to

@@ -29,14 +29,30 @@
     .tile   { width:44px !important; height:44px !important; font-size:19px !important; }
   }
   @media (prefers-color-scheme: dark) {
-    .page    { background:#0a0a0b !important; }
-    .card    { background:#141416 !important; }
+    /* TAKEN FROM src/styles.css .dark, NOT INVENTED. surface #121212,
+       sunken #1c1c1c, text #fafafa, text-muted #a3a3a3, border-subtle #292929,
+       border-strong #424242, accent-solid #22c55e, wordle-correct #15803d,
+       wordle-present #eab308, wordle-absent #1c1c1c. An email that drifts from
+       the app's dark palette looks like a different product. */
+    .page    { background:#0a0a0a !important; }
+    /* BORDER AS WELL AS BACKGROUND. Setting only the background left the inline
+       #e4e4e7 border in place, which drew a bright light-mode outline around a
+       dark card. */
+    .card    { background:#121212 !important; border-color:#292929 !important; }
     .sunken  { background:#1c1c1c !important; }
     .t-head  { color:#fafafa !important; }
-    .t-body  { color:#d4d4d8 !important; }
-    .t-mute  { color:#9b9ba4 !important; }
-    .rule    { border-color:#2a2a2e !important; }
-    .tile-absent { background:#1c1c1c !important; color:#fafafa !important; border-color:#424242 !important; }
+    .t-body  { color:#d4d4d4 !important; }
+    .t-mute  { color:#a3a3a3 !important; }
+    .rule    { border-color:#292929 !important; }
+    /* LINKS NEED CLASSES OR THEY KEEP THEIR INLINE LIGHT-MODE COLOUR. #15803d on
+       #121212 is about 2.6:1 and #6b6b74 about 3.0:1 -- and the Terms/Privacy
+       pair are the links this email legally exists to carry. */
+    .lk      { color:#22c55e !important; }
+    .lk-mute { color:#a3a3a3 !important; }
+    .tile-correct { background:#15803d !important; }
+    .tile-present { background:#eab308 !important; color:#111113 !important; }
+    .tile-absent  { background:#1c1c1c !important; color:#fafafa !important; border-color:#424242 !important; }
+    .stepnum { background:#1c1c1c !important; color:#fafafa !important; border-color:#424242 !important; }
   }
 </style>
 </head>
@@ -60,15 +76,15 @@
 
   <tr><td align="center" style="padding:0 0 30px 0;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td class="tile" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#facc15;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#111113;text-align:center;">A</td>
+      <td class="tile tile-present" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#facc15;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#111113;text-align:center;">A</td>
       <td width="6" style="width:6px;">&nbsp;</td>
       <td class="tile tile-absent" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#f4f4f5;border:1px solid #c9c9cf;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#0a0a0b;text-align:center;">G</td>
       <td width="6" style="width:6px;">&nbsp;</td>
-      <td class="tile" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#16a34a;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#ffffff;text-align:center;">A</td>
+      <td class="tile tile-correct" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#16a34a;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#ffffff;text-align:center;">A</td>
       <td width="6" style="width:6px;">&nbsp;</td>
-      <td class="tile" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#16a34a;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#ffffff;text-align:center;">I</td>
+      <td class="tile tile-correct" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#16a34a;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#ffffff;text-align:center;">I</td>
       <td width="6" style="width:6px;">&nbsp;</td>
-      <td class="tile" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#16a34a;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#ffffff;text-align:center;">N</td>
+      <td class="tile tile-correct" width="50" height="50" align="center" valign="middle" style="width:50px;height:50px;background:#16a34a;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:21px;font-weight:700;color:#ffffff;text-align:center;">N</td>
     </tr></table>
   </td></tr>
 
@@ -126,7 +142,7 @@
       <tr><td class="pad" align="center" style="padding:34px 48px 0 48px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
           <td align="center" bgcolor="#15803d" style="border-radius:10px;">
-            <a href="https://wordleteams.com/app" style="display:inline-block;padding:15px 38px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;border-radius:10px;">
+            <a href="https://wordleteams.com/app" class="lk-solid" style="display:inline-block;padding:15px 38px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;border-radius:10px;">
               Enter today&rsquo;s board
             </a>
           </td>
@@ -142,7 +158,7 @@
       <tr><td class="pad" align="center" style="padding:24px 48px 0 48px;">
         <p class="t-mute" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;line-height:21px;color:#767680;text-align:center;">
           All of the above is free. Pro is $49.99/year if you ever want the deeper numbers &mdash;
-          <a href="https://wordleteams.com/pricing" style="color:#767680;text-decoration:underline;">see what Pro adds</a>.
+          <a href="https://wordleteams.com/pricing" class="lk-mute" style="color:#767680;text-decoration:underline;">see what Pro adds</a>.
         </p>
       </td></tr>
 
@@ -152,9 +168,9 @@
           <tr><td class="rule" style="border-top:1px solid #e4e4e7;padding-top:22px;">
             <p class="t-mute" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;line-height:21px;color:#6b6b74;">
               Team chat is new, so our
-              <a href="https://wordleteams.com/terms" style="color:#6b6b74;text-decoration:underline;">Terms</a>
+              <a href="https://wordleteams.com/terms" class="lk-mute" style="color:#6b6b74;text-decoration:underline;">Terms</a>
               and
-              <a href="https://wordleteams.com/privacy" style="color:#6b6b74;text-decoration:underline;">Privacy Policy</a>
+              <a href="https://wordleteams.com/privacy" class="lk-mute" style="color:#6b6b74;text-decoration:underline;">Privacy Policy</a>
               have been updated to cover it.
             </p>
           </td></tr>
@@ -165,22 +181,37 @@
   </td></tr>
 
 <!-- PWA-BLOCK:START  ===================================================
-     DELETE THIS ENTIRE BLOCK, down to the matching END marker below, UNLESS RUNBOOK 5.2 FAILED.
-     Expected outcome is deletion. See docs/runbooks/launch-email-send.md.
+     PERMANENT AS OF 2026-09-30, BY THE OWNER'S DECISION. This block used to be a
+     delete-me placeholder gated on runbook 5.2. It is not any more: it ships in
+     every send, which removes the gate and the composition-under-pressure risk.
+
+     WHICH IS ONLY SAFE BECAUSE THE VOICE CHANGED WITH IT. It was an imperative --
+     "please add it again" -- addressed to everyone. Sent to a working install that
+     is a real cost, not a no-op: removing and re-adding a PWA clears its storage,
+     so the reader is signed out and has to redo OTP or a social sign-in. It is now
+     CONDITIONAL, and says most installs carry across untouched, so nobody whose
+     icon works has any reason to act on it.
+
+     src/routes/me.tsx still redirects /me -> /app carrying the query string, so the
+     expectation remains that no reader needs this. It is here for the ones who do.
+     Runbook 5.2 is now an ordinary post-flip smoke check, not a send gate.
+     The markers stay as delimiters: src/launch-email.test.ts pins that the legal
+     notice sits OUTSIDE them, so it can never be mistaken for part of this block.
      ==================================================================== -->
   <tr><td height="14" style="height:14px;line-height:14px;">&nbsp;</td></tr>
   <tr><td class="card" style="background:#ffffff;border-radius:16px;border:1px solid #e4e4e7;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr><td class="pad" style="padding:26px 48px 28px 48px;">
         <p class="t-head" style="margin:0 0 8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;font-weight:700;color:#0a0a0b;">
-          If you added Wordle Teams to your home screen
+          If your home-screen icon doesn&rsquo;t open properly
         </p>
         <p class="t-body" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;line-height:24px;color:#3f3f46;">
-          That icon points at an address the new version no longer uses, so please add it again:
-          open <a href="https://wordleteams.com/app" style="color:#15803d;text-decoration:none;font-weight:600;">wordleteams.com</a>
+          Almost every home-screen install carries across untouched, so you probably will not need
+          this. If yours does not open the way you expect, adding it again fixes it: open
+          <a href="https://wordleteams.com/app" class="lk" style="color:#15803d;text-decoration:none;font-weight:600;">wordleteams.com</a>
           in your browser, then choose <strong>Share &rarr; Add to Home Screen</strong> on iPhone, or
-          <strong>menu &rarr; Install app</strong> on Android. You can delete the old icon afterwards.
-          Your account, your teams and your scores are not affected &mdash; this only refreshes the shortcut.
+          <strong>menu &rarr; Install app</strong> on Android. Your account, your teams and your scores
+          are safe either way.
         </p>
       </td></tr>
     </table>
@@ -195,7 +226,7 @@
       [POSTAL ADDRESS &mdash; REQUIRED BEFORE SENDING, see send plan step 6]
     </p>
     <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:20px;text-align:center;">
-      <a href="{{{RESEND_UNSUBSCRIBE_URL}}}" class="t-mute" style="color:#767680;text-decoration:underline;">Unsubscribe</a>
+      <a href="{{{RESEND_UNSUBSCRIBE_URL}}}" class="lk-mute" style="color:#767680;text-decoration:underline;">Unsubscribe</a>
     </p>
   </td></tr>
 
