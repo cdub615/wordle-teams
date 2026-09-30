@@ -104,14 +104,35 @@ describe('stampTrialIfDue', () => {
 
 describe('the stamp through upsertBoardFor', () => {
   /**
-   * Pins the INERT state the 2099 placeholder is supposed to produce. Entering a
-   * board today must not start a trial, because the owner has not set the launch
-   * instant yet. This test is expected to change when they do.
+   * THESE TWO CHANGED WHEN LAUNCH_AT WAS SET, 2026-09-30, and their predecessors
+   * said they would. They pinned the INERT state the 2099 placeholder produced:
+   * entering a board today started no trial, and `Date.now()` was asserted to be
+   * before LAUNCH_AT. Both are now false by design.
+   *
+   * THE SECOND ONE WAS PASSING VACUOUSLY. "A delete must never look like an entry"
+   * was the stated intent, but while nothing could stamp a trial at all,
+   * `toBeUndefined()` held no matter what the delete path did — it would have
+   * passed against a delete that stamped enthusiastically, because the CREATE
+   * before it could not stamp either.
+   *
+   * ITS STATED INTENT IS ALREADY COVERED, BETTER, ABOVE: 'a delete is not an entry,
+   * even after launch' calls stampTrialIfDue with `'delete'` on a player holding no
+   * trial, which is what actually kills the `if (action === 'delete') return`
+   * guard. A route through upsertBoardFor cannot even reach that case — clearing a
+   * board that does not exist throws INVALID_BOARD, so the create has to come
+   * first, and post-launch the create stamps.
+   *
+   * SO WHAT SURVIVES HERE PINS A DIFFERENT AND NARROWER PROPERTY, named rather than
+   * dressed up as the old one: a clear must not DISTURB a stamp that already
+   * exists — not wipe it, not extend it, not re-stamp it later. That is not what
+   * the guard above tests, and it is worth its own line now that a create actually
+   * writes something for a clear to damage.
    */
-  test('entering a board today starts no trial while LAUNCH_AT is the placeholder', async () => {
+  test('entering a board today starts the trial, now that LAUNCH_AT is set', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
+      const before = Date.now()
 
       await upsertBoardFor(ctx, playerId, {
         puzzleDay: '2026-09-08',
@@ -120,12 +141,17 @@ describe('the stamp through upsertBoardFor', () => {
         today,
       })
 
-      expect(Date.now()).toBeLessThan(LAUNCH_AT)
-      expect((await ctx.db.get(playerId))?.insightsTrialEndsAt).toBeUndefined()
+      expect(Date.now()).toBeGreaterThanOrEqual(LAUNCH_AT)
+      const endsAt = (await ctx.db.get(playerId))?.insightsTrialEndsAt
+      expect(endsAt).toBeDefined()
+      // A month out from the entry, not from launch — the rule's whole point.
+      // Bounded rather than exact because the stamp reads its own clock.
+      expect(endsAt).toBeGreaterThanOrEqual(before + INSIGHTS_TRIAL_DAYS * DAY)
+      expect(endsAt).toBeLessThanOrEqual(Date.now() + INSIGHTS_TRIAL_DAYS * DAY)
     })
   })
 
-  test('and clearing a board never stamps one either', async () => {
+  test('and clearing after an entry does not move the clock that entry started', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const playerId = await ctx.db.insert('players', aPlayer())
@@ -135,8 +161,9 @@ describe('the stamp through upsertBoardFor', () => {
         guesses: ['CRANE', 'SPEED'],
         today,
       })
-      // A delete must never look like an entry: it would start a month-long
-      // trial for someone who just cleared their board.
+      const stamped = (await ctx.db.get(playerId))?.insightsTrialEndsAt
+      expect(stamped).toBeDefined()
+
       await upsertBoardFor(ctx, playerId, {
         puzzleDay: '2026-09-08',
         answer: '',
@@ -144,7 +171,8 @@ describe('the stamp through upsertBoardFor', () => {
         today,
       })
 
-      expect((await ctx.db.get(playerId))?.insightsTrialEndsAt).toBeUndefined()
+      // Unchanged — not re-stamped, not extended, not cleared.
+      expect((await ctx.db.get(playerId))?.insightsTrialEndsAt).toBe(stamped)
     })
   })
 })

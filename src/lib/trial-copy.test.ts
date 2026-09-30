@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { COMPLETE_HISTORY_WORDS } from './pro-benefits.ts'
 import { TRIAL_ENDED_BODY, TRIAL_ENDED_CTA, TRIAL_ENDED_TITLE } from './trial-copy'
 
 describe('the trial-ended prompt', () => {
@@ -7,7 +8,22 @@ describe('the trial-ended prompt', () => {
   // repeated in the pricing spec. If this drifts, the pricing page, the launch
   // email and this card stop agreeing with each other.
   test('says what Pro is, in the words the spec chose', () => {
-    expect(TRIAL_ENDED_BODY).toContain('everything you have done')
+    // WAS 'everything you have done' UNTIL 2026-09-30. The spec's contrast —
+    // free shows you today, Pro shows you the rest — is intact; what changed is
+    // that "the rest" no longer claims to be everything, because
+    // convex/insights.ts caps the board history at 400 (wordle-teams-njmy).
+    expect(TRIAL_ENDED_BODY).toContain('Pro shows you the rest')
+  })
+
+  test('promises no COMPLETE history, because PRO_BOARD_LIMIT truncates one', () => {
+    // The same guard pro-benefits.test.ts and insights-panel.test.ts apply, over
+    // the third surface that makes this claim — and the highest-stakes one, since
+    // this card is what someone reads while deciding whether to pay. One shared
+    // list, so a phrase added to it reaches every surface at once.
+    const all = `${TRIAL_ENDED_TITLE} ${TRIAL_ENDED_BODY} ${TRIAL_ENDED_CTA}`.toLowerCase()
+    for (const claim of COMPLETE_HISTORY_WORDS) {
+      expect(all, `"${claim}" promises a history PRO_BOARD_LIMIT truncates`).not.toContain(claim)
+    }
   })
 
   test('does not disparage the monthly plan', () => {

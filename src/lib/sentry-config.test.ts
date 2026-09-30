@@ -5,6 +5,7 @@ import {
   SENTRY_RELEASE,
   TRACES_SAMPLE_RATE,
   sentryEnvironment,
+  workerSentryDsn,
 } from './sentry-config'
 import { SITE_ORIGIN } from './seo'
 
@@ -131,5 +132,51 @@ describe('the Sentry release is wired at build time', () => {
     // would throw ReferenceError and this file could not run at all. That it
     // loads AND reports undefined is the evidence.
     expect(SENTRY_RELEASE).toBeUndefined()
+  })
+})
+
+/**
+ * THE MEASUREMENT THAT PUT THIS HERE: 1835 of the Sentry project's 1844 events
+ * came from a developer's machine, because wrangler.jsonc declares SENTRY_DSN
+ * as a TOP-LEVEL var and `wrangler dev` — and the @cloudflare/vite-plugin dev
+ * server behind `pnpm dev` and every Playwright run — inherits it.
+ *
+ * THE DIRECTION IS THE WHOLE TEST, exactly as it is for sentryEnvironment
+ * above. Silencing a local run is recoverable; silencing a deployed worker is
+ * an outage nobody sees. So the case that matters is the `false` one, and it is
+ * asserted on the real DSN shape rather than on a truthy placeholder.
+ */
+describe('the worker does not report from local development', () => {
+  const DSN = 'https://b709a5bb4e96c621ab3267a5efc1dbfa@o177762.ingest.us.sentry.io/4511848703918080'
+
+  test('a dev build gets no DSN, so nothing is sent', () => {
+    expect(workerSentryDsn(DSN, true)).toBeUndefined()
+  })
+
+  test('a real build keeps the DSN unchanged', () => {
+    // Identity, not merely truthiness: a helper that returned some other
+    // non-empty string would still pass a `toBeTruthy`, and Sentry would then
+    // post every production event into the void.
+    expect(workerSentryDsn(DSN, false)).toBe(DSN)
+  })
+
+  test('an unset var stays unset rather than becoming a string', () => {
+    expect(workerSentryDsn(undefined, false)).toBeUndefined()
+  })
+
+  /**
+   * THE HELPER BEING RIGHT IS NOT THE CLAIM — server.ts CALLING it is. The
+   * whole regression is one deleted argument away: `dsn: env.SENTRY_DSN` reads
+   * as perfectly correct code and puts every local run back in the project,
+   * with all three tests above still green. Nothing else in the suite can see
+   * that, because vitest sets `import.meta.env.DEV` to true and the deployed
+   * branch is therefore unreachable from a unit test of server.ts itself.
+   *
+   * Source-asserted for the same reason, and by the same precedent, as the
+   * __SENTRY_RELEASE__ define above.
+   */
+  test('server.ts passes the build-time flag rather than the bare var', () => {
+    const source = readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
+    expect(source).toContain('dsn: workerSentryDsn(env.SENTRY_DSN, import.meta.env.DEV)')
   })
 })

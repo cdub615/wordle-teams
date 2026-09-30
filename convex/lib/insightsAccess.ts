@@ -34,7 +34,26 @@
  * ONE CONSTANT, NOT A DATE THREADED THROUGH CALL SITES, so correcting it is one
  * line rather than a search.
  */
-export const LAUNCH_AT = Date.UTC(2099, 0, 1)
+export const LAUNCH_AT = Date.UTC(2026, 8, 30)
+// SET 2026-09-30 BY THE OWNER, on the day (wordle-teams-kc8c). Month is 0-indexed:
+// 8 is September, so this is 2026-09-30T00:00:00Z.
+//
+// IT IS IN THE PAST AT THE MOMENT IT WAS SET (~19h), AND THAT IS THE INTENT. The
+// window this constant's own comments worry about is the other direction: a
+// LAUNCH_AT set BEFORE the cutover instant leaves `shouldStartTrial`'s
+// `enteredAt >= launchAt` refusing every board until that instant arrives, while
+// the page stays silent because /pricing keys off `trialCanStart({ now })` rather
+// than off this constant. Backdating to midnight closes that window — the trial is
+// live the moment this deploys, and the page starts saying so at the same instant
+// it becomes true.
+//
+// WHAT BACKDATING COSTS, stated rather than discovered: a player who entered a
+// board earlier today, before this deployed, also qualifies. That is a handful of
+// beta users getting thirty days of Insights they would otherwise have got by
+// playing tomorrow. Generous, not wrong.
+//
+// PLACEHOLDER_LAUNCH_AT below is UNCHANGED and must stay 2099 — it is the sentinel
+// meaning "still unset", not a second copy of this value.
 
 /**
  * THE SENTINEL EVERY PLACEHOLDER CHECK IN THIS FILE COMPARES AGAINST — defined

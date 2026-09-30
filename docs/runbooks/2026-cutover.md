@@ -225,12 +225,23 @@ the same token on disk (`wordle-teams-ldm8`).
 
 - [ ] **1.5 — Confirm `/me` against a REAL INSTALLED PWA.**
 
-  **This is the one check that cannot be done after the flip, and it is the one
-  with no second chance.** v1's `src/app/manifest.json:30` sets
-  `"start_url": "/me"`, and **an installed iOS PWA does not adopt a new
-  `start_url` from a re-fetched manifest** — every production user who installed
-  the app has that path burned in. Install from v1 *now*, keep the install, and
-  after the flip confirm it still opens correctly.
+  **THE TEST ARTICLE ALREADY EXISTS, so this step no longer asks for one**
+  (2026-09-30). It used to read "install from v1 *now*, keep the install", framed as
+  the one check with no second chance. The owner has had the v1 PWA installed on
+  their phone for a long time — which is a BETTER article than a fresh install, being
+  the real thing with whatever state a long-lived install has accumulated. So there
+  is nothing to prepare, and this moves to §5.2 on that device.
+
+  The hazard it guards is unchanged. v1's `src/app/manifest.json:30` sets
+  `"start_url": "/me"`, and **an installed iOS PWA does not adopt a new `start_url`
+  from a re-fetched manifest** — every production user who installed has that path
+  burned in. What makes it survivable is the redirect below, not anything done here.
+
+  **THE LAUNCH EMAIL WAITS ON THIS CONFIRMATION.** `wordle-teams-7e3c` carries a
+  placeholder paragraph instructing users to re-install, to be filled in or deleted
+  once the owner has opened the existing install after the flip. Do not send before
+  then: the email cannot be recalled, and "re-install the app" is both alarming and,
+  if wrong, the thing that makes a working install stop working.
 
   `src/routes/me.tsx` redirects `/me` → `/app` **carrying the query string**,
   because v1's checkout sets `successUrl: .../me?checkout=success` and a checkout
@@ -541,6 +552,10 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
       dashboard state — so it is a check here or it is nowhere.
 
   ```
+  # BEFORE cutover — the apex is still v1 and cannot answer this:
+  curl -sI https://beta.wordleteams.com/about | grep -i cache-control
+
+  # AFTER cutover, once the apex serves v2:
   curl -sI https://wordleteams.com/about | grep -i cache-control
   ```
 
@@ -549,6 +564,16 @@ Sentinel first (§0). Then, on `fabulous-goldfish-949`:
       setting has reverted.** Run it TWICE — the first response is never the
       rewritten one, because the rewrite only applies to what Cloudflare
       serves from cache.
+
+      **THE HOST MATTERS AND THIS STEP NAMED THE WRONG ONE UNTIL 2026-09-30.**
+      It asked for the apex, which today is v1 and answers `/about` with
+      `private, no-cache, no-store, max-age=0, must-revalidate`. That contains
+      `max-age=0`, so the grep looks like a pass — but it proves nothing: a
+      `no-store` response is one Cloudflare never caches, so the Browser Cache
+      TTL override is not in play and could be set to anything. The setting is
+      zone-wide, so beta exercises it and the apex will too once it serves v2.
+      Verified against beta on 2026-09-30: `public, max-age=0, s-maxage=86400,
+      stale-while-revalidate=604800`, twice.
 
 ---
 

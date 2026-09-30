@@ -188,10 +188,31 @@ export function upsellFor({
   // `layer3` is how the promise and the panel end up disagreeing.
   const teamLocked = !hasFullTeamMonth(layer3) && onATeam
 
+  // NO COMPLETENESS CLAIM HERE, AND THE CAP IS WHY (wordle-teams-njmy). This read
+  // "your full playing history" and "every board you have ever entered" until
+  // 2026-09-30. Both were false: convex/insights.ts sets PRO_BOARD_LIMIT = 400 and
+  // myBenchmarkBoards `.take()`s it, for layer1 AND layer2 alike, so a Pro caller
+  // gets their most recent 400 boards and nothing older. It bit the wrong people
+  // first — the cap only shows above a year of daily play, so free and light
+  // players never saw it and the heaviest users, the ones most likely to pay, were
+  // the only ones who did.
+  //
+  // THE CAP IS NOT THE BUG AND MUST NOT BE "FIXED" HERE. insights.ts's comment
+  // explains it: dailyScores grows one row per player per day forever, and an
+  // unbounded collect() would fail first on the account with the most history,
+  // which is the paying one. The prose was what was wrong.
+  //
+  // NOR DOES THE REPLACEMENT QUOTE 400. A number in prose is the second source of
+  // truth this codebase already refuses for the price, and it would go stale
+  // silently the day the cap moved. "Hundreds" was rejected for a different
+  // reason: it is false in the other direction for a player who has entered
+  // twelve boards, and this sentence is shown to them too. What is below is true
+  // at every board count, which is the only property that holds without a test
+  // watching the number.
   const opens = [
-    ...(historyLocked ? ['your full playing history'] : []),
+    ...(historyLocked ? ['your playing history month by month'] : []),
     ...(teamLocked ? ['your team’s analytics'] : []),
-    'every board you have ever entered',
+    'your past boards rather than just the latest',
   ]
 
   // "one team fact a day" IS WHAT THE FREE TIER ACTUALLY GETS — DailyTeamFact,

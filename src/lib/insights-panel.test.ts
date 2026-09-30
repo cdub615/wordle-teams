@@ -11,6 +11,7 @@ import {
   openerRankSentence,
   upsellFor,
 } from './insights-panel'
+import { COMPLETE_HISTORY_WORDS } from './pro-benefits.ts'
 import type { InsightsBenchmark } from './insights-benchmark'
 
 const credit = {
@@ -150,13 +151,55 @@ describe('difficultySentence', () => {
  */
 describe('upsellFor', () => {
   const free = { layer1: 'free', layer2: 'none', layer3: 'free' } as const
+  /**
+   * THE CAP THIS COPY MUST NOT OUTRUN (wordle-teams-njmy).
+   *
+   * convex/insights.ts sets PRO_BOARD_LIMIT = 400 and myBenchmarkBoards `.take()`s
+   * it, for layer1 AND layer2, so a Pro caller gets their most recent 400 boards
+   * and nothing older. This sentence used to promise "your full playing history"
+   * and "every board you have ever entered" — both unkeepable, and unkeepable
+   * first for the heaviest users, who are the ones most likely to be paying.
+   *
+   * EVERY REACHABLE VARIANT, NOT THE THREE SPELLED OUT ABOVE. The exact-string
+   * tests pin three sentences; this pins the property across all of them, so a
+   * fourth variant cannot be added with the old vocabulary in it. The unconditional
+   * entry makes that a live risk: it is appended outside both ternaries, so it
+   * appears in EVERY variant including the trialist's, where it is the whole claim.
+   *
+   * THE WORD LIST IS pro-benefits.ts's COMPLETE_HISTORY_WORDS, imported rather than
+   * restated — the same list pro-benefits.test.ts measures PRO_BENEFITS against.
+   * Two copies would drift silently, one list gaining a phrase the other never did.
+   */
+  test('no variant promises a history PRO_BOARD_LIMIT truncates', () => {
+    const layers = ['none', 'free', 'full'] as const
+    let checked = 0
+    for (const layer1 of layers)
+      for (const layer2 of layers)
+        for (const layer3 of layers)
+          for (const onATeam of [true, false, undefined])
+            for (const boardCount of [0, 1, 40, 401, 838]) {
+              const copy = upsellFor({ layer1, layer2, layer3, boardCount, onATeam })
+              if (copy === null) continue
+              checked++
+              for (const claim of COMPLETE_HISTORY_WORDS) {
+                expect(
+                  copy.toLowerCase(),
+                  `"${claim}" promises a history PRO_BOARD_LIMIT truncates: ${copy}`,
+                ).not.toContain(claim)
+              }
+            }
+    // Not vacuous: if the guards above ever made every variant null, the loop
+    // would pass having asserted nothing at all.
+    expect(checked).toBeGreaterThan(0)
+  })
+
   const trial = { layer1: 'free', layer2: 'full', layer3: 'full' } as const
   const pro = { layer1: 'full', layer2: 'full', layer3: 'full' } as const
 
   test('a free player on a team is told about all three locked layers', () => {
     const copy = upsellFor({ ...free, boardCount: 1, onATeam: true })
     expect(copy).toBe(
-      'Free shows your most recent board and one team fact a day. Pro opens your full playing history, your team’s analytics, and every board you have ever entered.',
+      'Free shows your most recent board and one team fact a day. Pro opens your playing history month by month, your team’s analytics, and your past boards rather than just the latest.',
     )
   })
 
@@ -170,7 +213,7 @@ describe('upsellFor', () => {
   test('a free player on no team is never promised team analytics', () => {
     const copy = upsellFor({ ...free, boardCount: 1, onATeam: false })
     expect(copy).toBe(
-      'Free shows your most recent board. Pro opens your full playing history and every board you have ever entered.',
+      'Free shows your most recent board. Pro opens your playing history month by month and your past boards rather than just the latest.',
     )
     expect(copy).not.toMatch(/team/i)
   })
@@ -183,7 +226,7 @@ describe('upsellFor', () => {
   test('a trialist is pitched only the boards, not the history and team they already see', () => {
     const copy = upsellFor({ ...trial, boardCount: 40, onATeam: true })
     expect(copy).toBe(
-      'Free shows your most recent board. Pro shows every board you have ever entered.',
+      'Free shows your most recent board. Pro shows your past boards rather than just the latest.',
     )
     expect(copy).not.toMatch(/history|team/i)
   })
