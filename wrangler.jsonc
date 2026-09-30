@@ -39,14 +39,38 @@
 	 * TLS certificate itself and sends the whole hostname to this Worker.
 	 *
 	 * A wildcard *.wordleteams.com A record points at Vercel, which is why
-	 * beta.wordleteams.com already answered with a Vercel 404 before this
-	 * existed. An explicit record outranks a wildcard, so the custom domain
-	 * takes the name — but if beta ever serves Vercel again, suspect that
-	 * wildcard first rather than the Worker. (wt-ksh.1.9)
+	 * beta.wordleteams.com answered with a Vercel 404 before its custom domain
+	 * existed. An explicit record outranks a wildcard — so if any hostname ever
+	 * serves Vercel again, suspect that wildcard first rather than the Worker.
+	 * Note the wildcard does NOT cover the apex: `*.wordleteams.com` does not
+	 * match `wordleteams.com`, so the apex has no fallback at all. (wt-ksh.1.9)
+	 *
+	 * THE APEX REPLACED beta HERE AT CUTOVER, 2026-09-30, AND THE REPLACEMENT IS
+	 * FORCED RATHER THAN TIDY-MINDED. `vars.ENVIRONMENT` below is ONE value for
+	 * this Worker, and src/wrangler-environments.test.ts requires every hostname
+	 * in this block to agree with it via sentry-config.ts's HOST_ENVIRONMENTS —
+	 * which maps beta.wordleteams.com to "beta" and wordleteams.com to
+	 * "production". Serving both from one Worker at ENVIRONMENT "production"
+	 * would tag beta's requests production on the server while the browser tagged
+	 * them beta, splitting one request's traces across two environments. That is
+	 * exactly what that test exists to stop, so beta leaves as the apex arrives.
+	 *
+	 * §3.3 of the cutover runbook files retiring beta under "after cutover, not
+	 * urgent". The ENVIRONMENT flip makes it urgent: the two cannot be sequenced
+	 * apart. Its companion entries in src/lib/robots-policy.ts's NOINDEX_HOSTS and
+	 * sentry-config.ts's HOST_ENVIRONMENTS are deliberately LEFT IN PLACE — they
+	 * are inert once nothing routes there, and keeping them means a beta hostname
+	 * revived later is still noindexed and still tagged correctly rather than
+	 * silently defaulting to production.
+	 *
+	 * DO NOT MERGE THIS BEFORE THE APEX CUSTOM DOMAIN EXISTS. Removing beta and
+	 * adding the apex happen in one deploy; if the apex cannot be provisioned
+	 * (its Vercel A records still standing), this Worker can end up serving
+	 * NEITHER hostname.
 	 */
 	"routes": [
 		{
-			"pattern": "beta.wordleteams.com",
+			"pattern": "wordleteams.com",
 			"custom_domain": true
 		}
 	],
@@ -87,7 +111,7 @@
 		 * pushed with `wrangler secret put LOGSNAG_TOKEN`. If it is unset the
 		 * funnel route degrades to a silent no-op rather than failing.
 		 */
-		"ENVIRONMENT": "beta",
+		"ENVIRONMENT": "production",
 
 		/**
 		 * THE MAINTENANCE SWITCH. Read at runtime by src/server.ts, which
