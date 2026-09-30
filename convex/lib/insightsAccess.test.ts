@@ -17,20 +17,41 @@ const DAY = 86_400_000
 const LAUNCH = Date.UTC(2026, 8, 20) // a real-looking launch, for the rule's tests
 
 describe('LAUNCH_AT', () => {
-  test('is still the obvious placeholder, and says so', () => {
-    // This test is expected to CHANGE when the owner sets the real cutover
-    // instant. It exists so that setting it is a deliberate edit with a failing
-    // test pointing at it, rather than something that drifts in unnoticed.
-    expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(true)
-    expect(new Date(LAUNCH_AT).getUTCFullYear()).toBe(2099)
+  /**
+   * THE CUTOVER EDIT LANDED 2026-09-30 AND THESE TWO CHANGED WITH IT, which is
+   * what they were for. Their predecessors asserted the placeholder still stood
+   * ("is still the obvious placeholder, and says so", and a fails-safe pin that
+   * no board could start a trial) so that setting the real instant would be a
+   * deliberate edit with a failing test pointing at it rather than a silent
+   * drift. Both fired on the edit, exactly as written.
+   *
+   * WHAT REPLACES THEM HAS TO STILL BE ABLE TO FAIL. Asserting merely "not the
+   * placeholder any more" would pass for every wrong value anyone could type,
+   * which is the same vacuity the file warns about elsewhere — so the real
+   * instant is pinned exactly, and the behaviour either side of it is pinned
+   * through the DEFAULT `launchAt`, i.e. against LAUNCH_AT itself rather than
+   * against the local `LAUNCH` fixture the rule's own tests use.
+   */
+  test('is the real cutover instant, not the placeholder', () => {
+    expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(false)
+    expect(LAUNCH_AT).not.toBe(PLACEHOLDER_LAUNCH_AT)
+    // Pinned exactly. 2026-09-30T00:00:00Z — deliberately backdated to the start
+    // of launch day so no window exists where /pricing is silent but the constant
+    // is set; insightsAccess.ts's own comment on the value has the reasoning.
+    expect(new Date(LAUNCH_AT).toISOString()).toBe('2026-09-30T00:00:00.000Z')
   })
 
-  test('fails safe: while it is the placeholder, no board can start a trial', () => {
-    // The whole reason the placeholder is in the future rather than the past.
-    // Nobody gets a trial by accident before the owner sets the date.
-    for (const enteredAt of [Date.now(), Date.UTC(2026, 11, 25), Date.UTC(2030, 0, 1)]) {
-      expect(shouldStartTrial({ trialEndsAt: undefined, enteredAt })).toBe(false)
-    }
+  test('a board entered before launch still starts nothing; one after starts the trial', () => {
+    // The fails-safe pin's successor. Same job — nobody gets a trial by accident
+    // — but now the accident it guards against is a LAUNCH_AT that drifted
+    // earlier, not one that was never set. Both directions, and the boundary.
+    expect(shouldStartTrial({ trialEndsAt: undefined, enteredAt: LAUNCH_AT - 1 })).toBe(false)
+    expect(shouldStartTrial({ trialEndsAt: undefined, enteredAt: LAUNCH_AT })).toBe(true)
+    expect(shouldStartTrial({ trialEndsAt: undefined, enteredAt: LAUNCH_AT + DAY })).toBe(true)
+    // And the property that actually matters on launch day: a board entered NOW
+    // starts a trial. This is the assertion that would have read `false` for the
+    // whole of the placeholder era.
+    expect(shouldStartTrial({ trialEndsAt: undefined, enteredAt: Date.now() })).toBe(true)
   })
 })
 
@@ -131,10 +152,20 @@ describe('trialCanStart', () => {
   // — LAUNCH_AT_IS_PLACEHOLDER flips first and the assertion below it catches
   // that, deliberately, the same way the LAUNCH_AT describe block's own test
   // does.
-  test('fails safe: while LAUNCH_AT is the placeholder, no now can start it', () => {
-    expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(true)
+  test('now that LAUNCH_AT is set, a real now can start it — and one before it cannot', () => {
+    // Successor to the fails-safe pin that asserted LAUNCH_AT_IS_PLACEHOLDER and
+    // that NO plausible now could start a trial. That flipped on the cutover edit,
+    // deliberately and as its own comment predicted.
+    //
+    // THE SIBLING TEST ABOVE STOPPED BEING VACUOUS AT THE SAME MOMENT. Its comment
+    // says it is "VACUOUS TODAY, LOAD-BEARING ONCE LAUNCH_AT IS SET" because every
+    // instant in PLAUSIBLE_NOWS sat before 2099 so both sides read false and it
+    // could not observe a disagreement. Every one of them is now at or after
+    // LAUNCH_AT, so it compares two trues and can genuinely fail.
+    expect(LAUNCH_AT_IS_PLACEHOLDER).toBe(false)
+    expect(trialCanStart({ now: LAUNCH_AT - 1 })).toBe(false)
     for (const now of PLAUSIBLE_NOWS) {
-      expect(trialCanStart({ now }), `now=${new Date(now).toISOString()}`).toBe(false)
+      expect(trialCanStart({ now }), `now=${new Date(now).toISOString()}`).toBe(true)
     }
   })
 
