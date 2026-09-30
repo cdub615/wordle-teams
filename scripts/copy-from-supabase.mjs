@@ -7,7 +7,7 @@
  * is an upsert keyed on the Supabase primary key, and running it twice must be
  * indistinguishable from running it once.
  *
- *   node --env-file=../.env.production.local scripts/copy-from-supabase.mjs --scope=mine --dry-run
+ *   node --env-file=.env.production.local scripts/copy-from-supabase.mjs --scope=mine --dry-run
  *
  * Required environment:
  *   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY   (or PROD_URL / PROD_KEY)

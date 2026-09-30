@@ -4,7 +4,7 @@
  * was copied. Exits non-zero on any mismatch.
  *
  *   ME_EMAIL=... CONVEX_URL=... CONVEX_MIGRATION_KEY=... \
- *     node --env-file=../.env.production.local scripts/verify-parity.mjs --scope=mine
+ *     node --env-file=.env.production.local scripts/verify-parity.mjs --scope=mine
  *
  * The scope must be the one that was COPIED — 'mine', 'solo' or 'all'. Verifying
  * a solo-seeded deployment against --scope=mine would report 17 missing players

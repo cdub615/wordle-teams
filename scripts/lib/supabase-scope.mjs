@@ -15,7 +15,7 @@ export function connect() {
   const url = process.env.PROD_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.PROD_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) {
-    console.error('Set PROD_URL/PROD_KEY, or pass --env-file=../.env.production.local')
+    console.error('Set PROD_URL/PROD_KEY, or pass --env-file=.env.production.local')
     process.exit(1)
   }
   // Same guard the other prod scripts carry: a stale env file must not be able

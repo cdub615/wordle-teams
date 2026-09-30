@@ -20,7 +20,7 @@
  *
  * Usage — same env shape as copy-from-supabase.mjs:
  *
- *   cd v2 && node --env-file=../.env.production.local --env-file=<convex env> \
+ *   node --env-file=.env.production.local --env-file=<convex env> \
  *     scripts/purge-copied-data.mjs --confirm-deployment=$CONVEX_URL
  *
  * The --confirm-deployment value must equal CONVEX_URL exactly. That is
