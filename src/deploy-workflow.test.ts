@@ -188,8 +188,12 @@ describe('no workflow still points at a v2 directory', () => {
       .split('\n')
       .filter((line) => !/^\s*#/.test(line))
       .join('\n')
-    // `v2` as a path, bare or prefixed — but not inside an action version like
-    // `novuhq/actions-novu-sync@v2`, and not in this repo's own workflow name.
+    // `v2` as a path, bare or prefixed — but not in this repo's own workflow name.
+    // It also used to have to dodge an action version, `novuhq/actions-novu-sync@v2`;
+    // that reference left with dev.yaml and prod.yaml when v1's Supabase and Novu
+    // workflows were deleted, so the anchoring below now has one fewer false
+    // positive to avoid. Kept as written rather than loosened: another `@v2` action
+    // is likelier than not eventually.
     expect(commands).not.toMatch(/(working[-_]?[Dd]irectory|cache-dependency-path|package_json_file|paths?):\s*\[?'?v2\b/)
     expect(commands, 'a v2/ path survives in a command').not.toMatch(/\bv2\//)
   })
