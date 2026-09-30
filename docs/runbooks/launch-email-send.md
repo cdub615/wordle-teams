@@ -65,11 +65,12 @@ Cutover day should leave exactly two actions: delete a block, press send.
       repo. **Re-read the printed counts** — the segment sizes below are illustrative,
       the CSV is authoritative.
 
-- [ ] **1.2 Create the Resend Audience** and import the CSV. Confirm all six custom
-      properties survived the import: `segment`, `membership_status`,
-      `days_since_last_board`, `signup_year`, `team_count`, `time_zone`. **`segment` is
-      the one the send depends on** — create it with an empty fallback, and check its
-      three counts against what the export printed before trusting any broadcast.
+- [ ] **1.2 Create the Resend Audience, three Segments, and import one file into each.**
+      Run the export with `--split` (§6.3). A Segment is a membership list, not a filter,
+      so each segment is populated by importing its own file — the combined CSV will not
+      distribute anyone. Confirm the custom properties survived (`membership_status`,
+      `days_since_last_board`, `signup_year`, `team_count`, `time_zone`, `segment`) and
+      that each segment's count reads **8 / 62 / 332**.
 
 - [x] **1.3 The postal address — DECIDED 2026-09-30: send without one.**
 
@@ -137,11 +138,11 @@ players misses four fifths of the list, which is what `wordle-teams-puw4` is for
 
 The split is one column: `days_since_last_board`.
 
-| | Segment | Filter | ~n | The job |
+| | Segment | Populated by | n | The job |
 |---|---|---|---|---|
-| **A** | `emails/launch-a-active.html` | `segment` = `active` | 8 | Tell people who are *currently playing* what changed. This is the only segment where "here is what is new" is the right frame. |
-| **B** | `emails/launch-b-lapsed.html` | `segment` = `lapsed` | 62 | Their history survived the migration. Lead with that, then reminders — falling out of the habit is the most likely reason they stopped. |
-| **C** | `emails/launch-c-never-played.html` | `segment` = `never` | 332 | Not a release announcement. A first board, in ten seconds. No Pro pitch at all. |
+| **A** | `emails/launch-a-active.html` | import `…-a-active-<date>.csv` | 8 | Tell people who are *currently playing* what changed. This is the only segment where "here is what is new" is the right frame. |
+| **B** | `emails/launch-b-lapsed.html` | import `…-b-lapsed-<date>.csv` | 62 | Their history survived the migration. Lead with that, then reminders — falling out of the habit is the most likely reason they stopped. |
+| **C** | `emails/launch-c-never-played.html` | import `…-c-never-played-<date>.csv` | 332 | Not a release announcement. A first board, in ten seconds. No Pro pitch at all. |
 
 A + B = 70, which is every contact who has ever entered a board. A ∪ B ∪ C = 402 with
 no overlap, because the three filters partition one column — and the export asserts it.
@@ -253,39 +254,41 @@ properties survived: `segment`, `membership_status`, `days_since_last_board`,
 `signup_year`, `team_count`, `time_zone` — and that **`segment` has no fallback value**,
 since a fallback would hand every contact a segment they did not earn.
 
-**3. Build the three Segments — filter on `segment`, NOT on `days_since_last_board`.**
+**3. Build the three Segments — import one file per segment.**
 
-| | Subject | Segment filter | ~n |
+**A Resend Segment is a membership list you import into, not a saved filter over a
+Contact Property.** Measured 2026-09-30: importing the combined CSV into All Contacts
+did **not** distribute anyone by the `segment` column. Nothing reads that column on
+import. An earlier version of this step said to filter a segment on `segment equals
+active` — that was wrong about how Resend segments work, and is corrected here.
+
+So the split happens before the upload. `--split` writes one file per segment:
+
+```
+node scripts/export-resend-audience-prod.mjs --split
+```
+
+| Import into | File stem | Subject | n |
 |---|---|---|---|
-| A | Wordle Teams has been rebuilt | `segment` equals `active` | 8 |
-| B | Your Wordle Teams scoreboard is still there | `segment` equals `lapsed` | 62 |
-| C | It takes about ten seconds to get on the board | `segment` equals `never` | 332 |
+| Segment A | `...-a-active-<date>.csv` | Wordle Teams has been rebuilt | 8 |
+| Segment B | `...-b-lapsed-<date>.csv` | Your Wordle Teams scoreboard is still there | 62 |
+| Segment C | `...-c-never-played-<date>.csv` | It takes about ten seconds to get on the board | 332 |
 
-`segment` is a precomputed column the export now writes (`active` / `lapsed` / `never`).
-**The original plan filtered on `days_since_last_board` directly and that was a bad
-dependency**, for two reasons found while setting this up:
+The three files are written **only after** the partition assertion passes, and the
+split itself asserts every contact was written exactly once. Verified by re-reading
+the files afterwards rather than trusting the summary: no address appears in two
+files, and the three together reproduce the combined CSV exactly.
 
-- **Resend does not document which filter operators segments support.** Segment C was
-  specified as "`days_since_last_board` is empty", and nothing guarantees that condition
-  is expressible.
-- **Blank cells resolve to the property's fallback value.** Resend applies a Contact
-  Property's fallback when a contact has none — so a fallback of `0` on
-  `days_since_last_board` would make all 332 people who have **never played** read as
-  "played today" and send them the wrong email, silently and irreversibly.
+`--split` refuses to combine with `--out` (it writes three files) or with `--nameless`
+(every nameless contact is `never`, so there is nothing to split).
 
-String equality is the one operator every segmentation engine has, and the export now
-asserts the three counts partition the audience exactly, so a contact cannot land in two
-segments or in none.
+**The `segment` column stays in each file** even though nothing reads it on import. It
+is what decided which file a row landed in, so keeping it lets an imported contact be
+audited against the segment it was imported into.
 
-**You must re-import for this.** Contacts loaded before this change have no `segment`
-property. Create it as a Contact Property first, **leave its fallback empty**, then
-re-import the fresh CSV from §1.1 — which you are re-running anyway, since the counts
-drift. Verify each segment's count against the export's printed numbers before sending.
-
-If you would rather use what is already loaded: open the segment builder and see whether
-`days_since_last_board` offers numeric comparison *and* an is-empty / is-not-set
-condition. If it does, and the three counts come out at 8 / 62 / 332, that works too.
-**Check the counts either way** — that is the actual test, not which field you filtered on.
+**Check each segment's count in the dashboard against 8 / 62 / 332 before sending.**
+That is the real test — a segment that silently took the whole audience is the failure
+mode that sends 332 people the wrong email.
 
 **4. Reply-To: set one, to a mailbox you actually read.**
 
