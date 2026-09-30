@@ -595,7 +595,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          host=$(node -p "require('./dist/server/wrangler.json').routes[0].pattern")
+          # SPLIT ON '/' BECAUSE A ROUTE PATTERN IS NOT A HOSTNAME. A
+          # `custom_domain` entry's pattern is a bare host; a ROUTE's is
+          # `host/path` — `wordleteams.com/*` since the apex moved to a route on
+          # 2026-09-30. Taking it whole built `https://wordleteams.com/*/login`,
+          # which answered 404 and failed this step for a reason that had nothing
+          # to do with the deployment. Third consumer of this value to need the
+          # same normalisation, after src/wrangler-environments.test.ts's hostsOf
+          # and scripts/lib/copy-target.mjs.
+          host=$(node -p "require('./dist/server/wrangler.json').routes[0].pattern.split('/')[0]")
           test -n "$host"
           echo "smoke testing https://$host"
 

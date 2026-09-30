@@ -80,6 +80,14 @@ describe('the decisions that are easy to undo by tidying', () => {
     // literal would be a fourth place the environment mapping lives — and the
     // one nobody would think to update.
     expect(WORKFLOW).toMatch(/require\('\.\/dist\/server\/wrangler\.json'\)\.routes\[0\]\.pattern/)
+    // AND IT MUST BE REDUCED TO A HOSTNAME. A route's pattern is `host/path`, so
+    // taking it whole builds `https://wordleteams.com/*/login`. That is not a
+    // hypothetical: it failed a real production deploy on 2026-09-30, and the
+    // 404 it produced looked like a broken deployment rather than a broken URL.
+    expect(
+      WORKFLOW,
+      'the smoke-test host keeps the route pattern\u2019s path and will build malformed URLs',
+    ).toMatch(/\.routes\[0\]\.pattern\.split\('\/'\)\[0\]/)
     // No curl in the file may name a deployment host directly.
     for (const line of WORKFLOW.split('\n').filter((l) => l.includes('curl'))) {
       expect(line, `a curl names a host literally: ${line.trim()}`).not.toMatch(
