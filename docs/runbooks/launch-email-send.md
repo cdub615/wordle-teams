@@ -53,8 +53,9 @@ expectation remains that no reader needs this at all.
 
 Cutover day should leave exactly two actions: delete a block, press send.
 
-- [ ] **1.1 Re-run the export.** The numbers below are a 2026-09-28 snapshot and they
-      drift (players grew 533 → 564 between 08-20 and 09-28).
+- [x] **1.1 Re-run the export — DONE 2026-09-30.** 565 players, 402 named contacts,
+      segments 8 / 62 / 332, partition verified by the script. Drift since 09-28 was
+      +1 player and +1 never-played contact, so re-run again if the send slips a day.
 
       ```
       node scripts/export-resend-audience-prod.mjs
@@ -77,7 +78,7 @@ Cutover day should leave exactly two actions: delete a block, press send.
       ```
 
       This **removes** the footer line. It does not blank it and it does not leave the
-      placeholder — shipping `[POSTAL ADDRESS — REQUIRED BEFORE SENDING]` to 401 people is
+      placeholder — shipping `[POSTAL ADDRESS — REQUIRED BEFORE SENDING]` to 402 people is
       the one outcome the build refuses outright, with or without the flag. The footer
       reads "You are getting this because you have a Wordle Teams account." above the
       unsubscribe link, which is clean rather than visibly unfinished.
@@ -90,7 +91,7 @@ Cutover day should leave exactly two actions: delete a block, press send.
       valid physical address in *commercial* email, and a launch announcement is
       commercial. The app's reminders, OTP and invites carry none and are fine, but they
       are **transactional** under the primary-purpose test, so they are not a precedent for
-      this one. Against that: enforcement against a 401-recipient send by a solo developer
+      this one. Against that: enforcement against a 402-recipient send by a solo developer
       is very unlikely, and the practical exposure is reputational rather than legal. The
       owner weighed both and chose to send without an address for this launch.
 
@@ -130,19 +131,20 @@ Cutover day should leave exactly two actions: delete a block, press send.
 
 ## 2. The segments
 
-401 contacts. **82% never entered a board.** A single email written for returning
+**402 contacts, re-exported 2026-09-30** (the numbers below are that run, not the
+09-28 snapshot). **83% never entered a board.** A single email written for returning
 players misses four fifths of the list, which is what `wordle-teams-puw4` is for.
 
 The split is one column: `days_since_last_board`.
 
 | | Segment | Filter | ~n | The job |
 |---|---|---|---|---|
-| **A** | `emails/launch-a-active.html` | `days_since_last_board` ≤ 30 | 8 | Tell people who are *currently playing* what changed. This is the only segment where "here is what is new" is the right frame. |
-| **B** | `emails/launch-b-lapsed.html` | `days_since_last_board` set **and** > 30 | 62 | Their history survived the migration. Lead with that, then reminders — falling out of the habit is the most likely reason they stopped. |
-| **C** | `emails/launch-c-never-played.html` | `days_since_last_board` empty | 331 | Not a release announcement. A first board, in ten seconds. No Pro pitch at all. |
+| **A** | `emails/launch-a-active.html` | `segment` = `active` | 8 | Tell people who are *currently playing* what changed. This is the only segment where "here is what is new" is the right frame. |
+| **B** | `emails/launch-b-lapsed.html` | `segment` = `lapsed` | 62 | Their history survived the migration. Lead with that, then reminders — falling out of the habit is the most likely reason they stopped. |
+| **C** | `emails/launch-c-never-played.html` | `segment` = `never` | 332 | Not a release announcement. A first board, in ten seconds. No Pro pitch at all. |
 
-A + B = 70, which is every contact who has ever entered a board. A ∪ B ∪ C = 401 with
-no overlap, because the three filters partition one column.
+A + B = 70, which is every contact who has ever entered a board. A ∪ B ∪ C = 402 with
+no overlap, because the three filters partition one column — and the export asserts it.
 
 **B must never receive C's copy.** Telling somebody who entered two hundred boards that
 they never started is the one mistake here that cannot be walked back.
@@ -213,10 +215,10 @@ Steps 1–6 of §1 all happen **before** the flip. What remains on the day:
 3. **Rebuild the paste-ready HTML** — `node scripts/build-launch-email.mjs --all --no-address`
    (the flag is the §1.3 decision; without it the build fails rather than guessing). Run it
    *after* any late edit, or you will paste a stale file.
-4. **Send A** (~8). Smallest and warmest list, so it doubles as live fire. Read the Resend
+4. **Send A** (8). Smallest and warmest list, so it doubles as live fire. Read the Resend
    delivery report before continuing.
-5. **Send B** (~62), once A shows clean delivery.
-6. **Send C** (~331), once B has settled. Largest list and the highest reputation
+5. **Send B** (62), once A shows clean delivery.
+6. **Send C** (332), once B has settled. Largest list and the highest reputation
    exposure, so it goes last.
 7. **§5.2 smoke check** — open the installed v1 PWA and confirm `/me` lands on the
    dashboard. No longer blocks the send (§0b); do it anyway, and if it fails, the
@@ -234,7 +236,7 @@ needs an account-level API key plus an Audience id — neither of which lives in
 Do not route the launch through the app, and do not add a Resend dependency for it.
 
 **1. Produce the paste-ready HTML.** The files in `emails/` are annotated *source*: their
-HTML comments are part of the message body, so they would be delivered to all 401
+HTML comments are part of the message body, so they would be delivered to all 402
 recipients and visible to anyone viewing source. Strip them:
 
 ```
@@ -257,7 +259,7 @@ since a fallback would hand every contact a segment they did not earn.
 |---|---|---|---|
 | A | Wordle Teams has been rebuilt | `segment` equals `active` | 8 |
 | B | Your Wordle Teams scoreboard is still there | `segment` equals `lapsed` | 62 |
-| C | It takes about ten seconds to get on the board | `segment` equals `never` | 331 |
+| C | It takes about ten seconds to get on the board | `segment` equals `never` | 332 |
 
 `segment` is a precomputed column the export now writes (`active` / `lapsed` / `never`).
 **The original plan filtered on `days_since_last_board` directly and that was a bad
@@ -268,7 +270,7 @@ dependency**, for two reasons found while setting this up:
   is expressible.
 - **Blank cells resolve to the property's fallback value.** Resend applies a Contact
   Property's fallback when a contact has none — so a fallback of `0` on
-  `days_since_last_board` would make all 331 people who have **never played** read as
+  `days_since_last_board` would make all 332 people who have **never played** read as
   "played today" and send them the wrong email, silently and irreversibly.
 
 String equality is the one operator every segmentation engine has, and the export now
@@ -282,13 +284,13 @@ drift. Verify each segment's count against the export's printed numbers before s
 
 If you would rather use what is already loaded: open the segment builder and see whether
 `days_since_last_board` offers numeric comparison *and* an is-empty / is-not-set
-condition. If it does, and the three counts come out at 8 / 62 / 331, that works too.
+condition. If it does, and the three counts come out at 8 / 62 / 332, that works too.
 **Check the counts either way** — that is the actual test, not which field you filtered on.
 
 **4. Reply-To: set one, to a mailbox you actually read.**
 
 The From address is a send-only local part (`hello@` / `launch@`), and people *will*
-reply to this — especially segment C, where 331 people who never got started are being
+reply to this — especially segment C, where 332 people who never got started are being
 asked to try again. Those replies are the most valuable product feedback in the whole
 launch, and a reply that bounces or vanishes is a bad first impression from a message
 whose whole job is re-engagement. Set `Reply-To` to a monitored inbox.
@@ -317,7 +319,7 @@ unsubscribing from the audience wholesale.
 
 **Unsubscribes here do not endanger sign-in mail.** Reminders, OTP and invites go out via
 `@convex-dev/resend` as direct sends, not against this Audience, so an audience-level
-unsubscribe does not gate them. Worth knowing before you worry about the 331.
+unsubscribe does not gate them. Worth knowing before you worry about the 332.
 
 Paste the built HTML into the **code/HTML** view, not the visual editor — a WYSIWYG
 editor will rewrite the table markup and the media queries.
